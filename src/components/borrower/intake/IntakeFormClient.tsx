@@ -731,6 +731,14 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                     : "No documents uploaded yet"}
                 </p>
               </div>
+              {isSba && (
+                <div className="border-t border-neutral-800 pt-3">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Your Business Plan
+                  </h3>
+                  <BorrowerPDFDownload token={token} />
+                </div>
+              )}
             </div>
           </>
         )}
@@ -770,5 +778,93 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
         <p className="text-center text-xs text-neutral-600">Saving…</p>
       )}
     </div>
+  );
+}
+
+// Phase 85-BPG-EXPERIENCE — Polls the portal-token PDF endpoint until the
+// generated borrower business plan is ready, then renders a download button.
+// The same POST endpoint both triggers generation and returns the signed URL,
+// so re-posting is effectively a poll.
+function BorrowerPDFDownload({ token }: { token: string }) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 6;
+
+    async function tryOnce() {
+      attempts++;
+      try {
+        const res = await fetch(`/api/borrower/portal/${token}/generate-pdf`, {
+          method: "POST",
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (json?.ok && json.pdfUrl) {
+          setPdfUrl(String(json.pdfUrl));
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // retry
+      }
+      if (attempts >= maxAttempts) {
+        if (!cancelled) {
+          setFailed(true);
+          setLoading(false);
+        }
+        return;
+      }
+      setTimeout(tryOnce, 5000);
+    }
+
+    tryOnce();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-400">
+        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        Preparing your business plan…
+      </div>
+    );
+  }
+
+  if (failed || !pdfUrl) {
+    return (
+      <p className="text-sm text-gray-500">
+        Business plan will be available after your banker reviews your application.
+      </p>
+    );
+  }
+
+  return (
+    <a
+      href={pdfUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition min-h-[44px]"
+    >
+      <svg
+        className="w-4 h-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+      Download Your Business Plan (PDF)
+    </a>
   );
 }

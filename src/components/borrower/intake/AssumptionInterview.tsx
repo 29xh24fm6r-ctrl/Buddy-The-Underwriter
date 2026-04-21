@@ -13,8 +13,58 @@ import type {
   PlannedCapex,
   ManagementMember,
   SBAAssumptions,
+  AnnualProjectionYear,
+  MonthlyProjection,
+  BreakEvenResult,
+  SensitivityScenario,
 } from "@/lib/sba/sbaReadinessTypes";
+import {
+  buildBaseYear,
+  buildAnnualProjections,
+  buildMonthlyProjections,
+  computeBreakEven,
+  buildSensitivityScenarios,
+} from "@/lib/sba/sbaForwardModelBuilder";
 import { ProjectionDashboard } from "./ProjectionDashboard";
+
+// Local mirror of ResearchContext shape from sbaResearchProjectionGenerator.ts
+// (that module is server-only, so we duplicate the fields we render here).
+type ResearchContextLike = {
+  marketSize?: number | null;
+  marketGrowthRate?: number | null;
+  establishmentCount?: number | null;
+  employmentCount?: number | null;
+  averageWage?: number | null;
+  medianIncome?: number | null;
+  population?: number | null;
+  populationGrowthRate?: number | null;
+  competitiveIntensity?: string | null;
+  marketAttractiveness?: string | null;
+  growthTrajectory?: string | null;
+  cyclicalityRisk?: string | null;
+  demandStability?: string | null;
+  naicsCode?: string | null;
+  naicsLabel?: string | null;
+  revenueGrowthMedian?: number | null;
+  cogsMedian?: number | null;
+};
+
+type BaseYearFactsLike = {
+  revenue: number;
+  cogs: number;
+  operatingExpenses: number;
+  ebitda: number;
+  depreciation: number;
+  netIncome: number;
+  existingDebtServiceAnnual: number;
+};
+
+type Projections = {
+  annual: AnnualProjectionYear[];
+  monthly: MonthlyProjection[];
+  breakEven: BreakEvenResult;
+  scenarios: SensitivityScenario[];
+};
 
 type Props = {
   token: string;
@@ -70,6 +120,9 @@ export function AssumptionInterview({
   const [researchBriefing, setResearchBriefing] =
     useState<ResearchBriefing | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [baseYearFacts, setBaseYearFacts] = useState<BaseYearFactsLike | null>(
+    null,
+  );
 
   // ── Section state ───────────────────────────────────────────────────────
   const [revenueStreams, setRevenueStreams] = useState<RevenueStream[]>([]);
@@ -195,6 +248,28 @@ export function AssumptionInterview({
     };
   }, [token]);
 
+  // Load base-year facts once so we can compute projections for the roadmap
+  // card. ProjectionDashboard fetches the same endpoint independently; HTTP
+  // caching plus a tiny payload keep the cost negligible.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/borrower/portal/${token}/base-year`);
+        const json = await res.json();
+        if (!cancelled && json.ok && json.baseYear) {
+          setBaseYearFacts(json.baseYear);
+        }
+      } catch {
+        // Non-fatal; roadmap card will simply not render.
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   // Confirm the auto-generated assumptions and (optionally) advance.
   const confirmAndContinue = useCallback(async () => {
     setConfirming(true);
@@ -204,6 +279,11 @@ export function AssumptionInterview({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ patch: { status: "confirmed" } }),
       });
+      // Fire-and-forget: kick off the borrower PDF in the background. The
+      // Review step polls the same endpoint until the PDF is ready.
+      fetch(`/api/borrower/portal/${token}/generate-pdf`, {
+        method: "POST",
+      }).catch(() => {});
       onConfirmAndContinue?.();
     } catch {
       // If the network fails we leave the user on the presenting screen with
@@ -357,6 +437,31 @@ export function AssumptionInterview({
     ],
   );
 
+  // Compute projections at the parent level so the roadmap card can use them
+  // alongside the dashboard. Mirrors ProjectionDashboard's own logic; that
+  // component keeps its independent compute to stay self-contained.
+  const projections = useMemo<Projections | null>(() => {
+    if (!baseYearFacts) return null;
+    if (!assembledAssumptions.revenueStreams.length) return null;
+    if (assembledAssumptions.revenueStreams.every((s) => s.baseAnnualRevenue === 0))
+      return null;
+    try {
+      const bY = buildBaseYear(baseYearFacts);
+      const annual = buildAnnualProjections(assembledAssumptions, bY);
+      const year1 = annual[0];
+      if (!year1) return null;
+      const monthly = buildMonthlyProjections(assembledAssumptions, year1);
+      const breakEven = computeBreakEven(assembledAssumptions, year1);
+      const scenarios = buildSensitivityScenarios(assembledAssumptions, [
+        bY,
+        ...annual,
+      ]);
+      return { annual, monthly, breakEven, scenarios };
+    } catch {
+      return null;
+    }
+  }, [assembledAssumptions, baseYearFacts]);
+
   const subStepIdx = SUB_STEPS.findIndex((s) => s.key === subStep);
   const canGoBack = subStepIdx > 0;
   const canGoForward = subStepIdx < SUB_STEPS.length - 1;
@@ -412,7 +517,13 @@ export function AssumptionInterview({
           )}
         </div>
 
+        {researchBriefing.context && (
+          <ResearchDataGrid context={researchBriefing.context} />
+        )}
+
         <ProjectionDashboard token={token} assumptions={assembledAssumptions} />
+
+        {projections && <RoadmapCard projections={projections} />}
 
         <div className="flex flex-col sm:flex-row gap-3">
           <button
@@ -1176,6 +1287,214 @@ export function AssumptionInterview({
           Saving projections…
         </p>
       )}
+    </div>
+  );
+}
+
+// ─── ResearchDataGrid — visual data cards from ResearchContext ─────────────
+
+function ResearchDataGrid({ context }: { context: Record<string, unknown> }) {
+  const ctx = context as ResearchContextLike;
+  const cards: Array<{
+    label: string;
+    value: string;
+    sub?: string;
+    icon: string;
+  }> = [];
+
+  if (ctx.naicsLabel) {
+    cards.push({
+      label: "Industry",
+      value: String(ctx.naicsLabel),
+      sub: ctx.naicsCode ? `NAICS ${ctx.naicsCode}` : undefined,
+      icon: "🏢",
+    });
+  }
+
+  if (ctx.marketGrowthRate != null) {
+    const rate = Number(ctx.marketGrowthRate);
+    cards.push({
+      label: "Industry Growth",
+      value: `${(rate * 100).toFixed(1)}%`,
+      sub: "annual growth rate",
+      icon: "📈",
+    });
+  }
+
+  if (ctx.establishmentCount != null) {
+    cards.push({
+      label: "Local Competition",
+      value: Number(ctx.establishmentCount).toLocaleString(),
+      sub: "establishments in market",
+      icon: "🏪",
+    });
+  }
+
+  if (ctx.population != null) {
+    cards.push({
+      label: "Market Population",
+      value: Number(ctx.population).toLocaleString(),
+      sub:
+        ctx.populationGrowthRate != null
+          ? `${(Number(ctx.populationGrowthRate) * 100).toFixed(1)}% growth`
+          : undefined,
+      icon: "👥",
+    });
+  }
+
+  if (ctx.medianIncome != null) {
+    cards.push({
+      label: "Median Income",
+      value: `$${Number(ctx.medianIncome).toLocaleString()}`,
+      sub: "household income",
+      icon: "💰",
+    });
+  }
+
+  if (ctx.cogsMedian != null) {
+    cards.push({
+      label: "Typical Cost of Goods",
+      value: `${(Number(ctx.cogsMedian) * 100).toFixed(0)}%`,
+      sub: "industry benchmark",
+      icon: "📊",
+    });
+  }
+
+  if (ctx.revenueGrowthMedian != null) {
+    cards.push({
+      label: "Revenue Growth Benchmark",
+      value: `${(Number(ctx.revenueGrowthMedian) * 100).toFixed(0)}%`,
+      sub: "industry median per year",
+      icon: "🎯",
+    });
+  }
+
+  if (ctx.competitiveIntensity) {
+    const intensity = String(ctx.competitiveIntensity);
+    cards.push({
+      label: "Competitive Intensity",
+      value: intensity.charAt(0).toUpperCase() + intensity.slice(1),
+      icon: "⚔️",
+    });
+  }
+
+  if (ctx.demandStability) {
+    const stability = String(ctx.demandStability);
+    cards.push({
+      label: "Demand Stability",
+      value: stability.charAt(0).toUpperCase() + stability.slice(1),
+      icon: "🛡️",
+    });
+  }
+
+  if (cards.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          className="bg-neutral-800/60 border border-neutral-700/50 rounded-lg p-3 space-y-1"
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">{card.icon}</span>
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">
+              {card.label}
+            </span>
+          </div>
+          <p className="text-lg font-bold text-gray-100">{card.value}</p>
+          {card.sub && <p className="text-[10px] text-gray-500">{card.sub}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── RoadmapCard — client-side actionable roadmap summary ──────────────────
+
+function RoadmapCard({ projections }: { projections: Projections }) {
+  const y1 = projections.annual[0];
+  if (!y1) return null;
+
+  const monthlyRev = Math.round(y1.revenue / 12);
+  const monthlyBE = Math.round(projections.breakEven.breakEvenRevenue / 12);
+  const cushion = monthlyRev - monthlyBE;
+  const monthlyDS = Math.round(y1.totalDebtService / 12);
+  const downside = projections.scenarios.find((s) => s.name === "downside");
+  const cogsPctNum = y1.grossMarginPct
+    ? ((1 - y1.grossMarginPct) * 100).toFixed(0)
+    : null;
+
+  return (
+    <div className="border border-neutral-800 rounded-xl p-5 space-y-4 bg-gradient-to-b from-green-950/20 to-neutral-900">
+      <div className="flex items-center gap-2">
+        <span className="text-sm">🗺️</span>
+        <h3 className="text-sm font-medium text-green-400">
+          Your Business Roadmap
+        </h3>
+      </div>
+
+      <div className="space-y-3 text-sm text-gray-300 leading-relaxed">
+        <p>
+          Your business needs to generate{" "}
+          <span className="text-white font-semibold">
+            ${monthlyBE.toLocaleString()}/month
+          </span>{" "}
+          to break even. You&apos;re projected at{" "}
+          <span className="text-white font-semibold">
+            ${monthlyRev.toLocaleString()}/month
+          </span>
+          , giving you{" "}
+          <span className="text-green-400 font-semibold">
+            ${cushion.toLocaleString()}
+          </span>{" "}
+          of monthly cushion — a{" "}
+          {(projections.breakEven.marginOfSafetyPct * 100).toFixed(0)}% safety
+          margin.
+        </p>
+
+        <div className="bg-neutral-800/60 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            Year 1 Targets
+          </p>
+          <div className="grid grid-cols-1 gap-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Monthly revenue target</span>
+              <span className="text-white font-mono">
+                ${monthlyRev.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Monthly loan payment</span>
+              <span className="text-white font-mono">
+                ${monthlyDS.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Keep cost of goods below</span>
+              <span className="text-white font-mono">
+                {cogsPctNum ? `${cogsPctNum}%` : "—"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">
+                Cash reserve goal (2 months)
+              </span>
+              <span className="text-white font-mono">
+                ${(monthlyDS * 2).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {downside && (
+          <p className="text-xs text-gray-500">
+            {downside.passesSBAThreshold
+              ? `Even if revenue drops 15%, your business can still cover all obligations with a ${downside.dscrYear1.toFixed(1)}x coverage ratio.`
+              : `If revenue drops 15%, cash flow would be tight. Build reserves early and monitor monthly revenue closely.`}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
