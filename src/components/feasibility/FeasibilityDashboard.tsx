@@ -93,6 +93,9 @@ export default function FeasibilityDashboard({ dealId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Phase 2 — SSE progress overlay
+  const [progressStep, setProgressStep] = useState<string>("Starting…");
+  const [progressPct, setProgressPct] = useState<number>(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,13 +122,64 @@ export default function FeasibilityDashboard({ dealId }: Props) {
   const onGenerate = useCallback(async () => {
     setGenerating(true);
     setError(null);
+    setProgressStep("Starting…");
+    setProgressPct(0);
+
     try {
       const res = await fetch(`/api/deals/${dealId}/feasibility/generate`, {
         method: "POST",
+        headers: { Accept: "text/event-stream" },
       });
-      const json = await res.json();
-      if (!json.ok) setError(json.error ?? "Feasibility generation failed");
-      await load();
+
+      // Fallback: some runtimes won't hand back a streaming body. In that
+      // case the route returned plain JSON — handle it like before.
+      if (!res.body || !res.headers.get("content-type")?.includes("text/event-stream")) {
+        const json = await res.json();
+        if (!json.ok) setError(json.error ?? "Feasibility generation failed");
+        await load();
+        setGenerating(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finishedOrErrored = false;
+
+      while (!finishedOrErrored) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        // Keep the trailing partial event in the buffer.
+        buffer = events.pop() ?? "";
+
+        for (const raw of events) {
+          const line = raw.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const payload = JSON.parse(line.slice(5).trim()) as {
+              step?: string;
+              pct?: number;
+              error?: string;
+            };
+            if (typeof payload.step === "string") setProgressStep(payload.step);
+            if (typeof payload.pct === "number") setProgressPct(payload.pct);
+            if (payload.error) {
+              setError(payload.error);
+              finishedOrErrored = true;
+              break;
+            }
+            if (payload.step === "Complete!") {
+              await load();
+              finishedOrErrored = true;
+              break;
+            }
+          } catch {
+            // Malformed SSE event — skip.
+          }
+        }
+      }
     } catch {
       setError("Network error running feasibility");
     } finally {
@@ -143,26 +197,34 @@ export default function FeasibilityDashboard({ dealId }: Props) {
 
   if (!study) {
     return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center space-y-4">
-        <h3 className="text-base font-semibold text-white">
-          No feasibility study has been run for this deal yet.
-        </h3>
-        <p className="text-sm text-white/60">
-          The engine consumes existing BIE research + SBA projections +
-          financial spreading and produces a 20-30 page feasibility report
-          with deterministic scoring across four dimensions.
-        </p>
-        {error && (
-          <p className="text-xs text-red-300">{error}</p>
+      <div className="space-y-5">
+        {generating && (
+          <FeasibilityProgressOverlay
+            step={progressStep}
+            pct={progressPct}
+          />
         )}
-        <button
-          type="button"
-          onClick={onGenerate}
-          disabled={generating}
-          className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
-        >
-          {generating ? "Running feasibility analysis…" : "Run Feasibility Study"}
-        </button>
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center space-y-4">
+          <h3 className="text-base font-semibold text-white">
+            No feasibility study has been run for this deal yet.
+          </h3>
+          <p className="text-sm text-white/60">
+            The engine consumes existing BIE research + SBA projections +
+            financial spreading and produces a 20-30 page feasibility report
+            with deterministic scoring across four dimensions.
+          </p>
+          {error && <p className="text-xs text-red-300">{error}</p>}
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating}
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
+          >
+            {generating
+              ? "Running feasibility analysis…"
+              : "Run Feasibility Study"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -205,6 +267,9 @@ export default function FeasibilityDashboard({ dealId }: Props) {
 
   return (
     <div className="space-y-5">
+      {generating && (
+        <FeasibilityProgressOverlay step={progressStep} pct={progressPct} />
+      )}
       {/* Composite gauge */}
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 flex flex-col sm:flex-row gap-6 items-center">
         <div
@@ -343,6 +408,85 @@ export default function FeasibilityDashboard({ dealId }: Props) {
           {generating ? "Regenerating…" : "Regenerate with Updated Data"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Progress Overlay ──────────────────────────────────────────────────
+// Phase 2 Gap B — same UX pattern as SBAGenerationProgress. Renders a
+// branded progress card when the SSE stream is active. Each milestone
+// ticks green as the pct advances past its threshold.
+
+const PROGRESS_MILESTONES: Array<{ label: string; threshold: number }> = [
+  { label: "Loading deal data", threshold: 5 },
+  { label: "Extracting research intelligence", threshold: 15 },
+  { label: "Analyzing market demand", threshold: 25 },
+  { label: "Evaluating financial viability", threshold: 35 },
+  { label: "Assessing readiness & location", threshold: 45 },
+  { label: "Computing composite score", threshold: 55 },
+  { label: "Writing consultant narratives", threshold: 65 },
+  { label: "Rendering feasibility report", threshold: 85 },
+  { label: "Saving results", threshold: 95 },
+];
+
+function FeasibilityProgressOverlay({
+  step,
+  pct,
+}: {
+  step: string;
+  pct: number;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 space-y-4">
+      <div className="text-center">
+        <div className="text-sm font-semibold uppercase tracking-wider text-blue-400">
+          Buddy The Underwriter
+        </div>
+        <h2 className="mt-2 text-lg font-bold text-white">
+          Running Feasibility Analysis
+        </h2>
+      </div>
+
+      <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-500"
+          style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-white/70">{step}</span>
+        <span className="font-mono text-white/50">{Math.round(pct)}%</span>
+      </div>
+
+      <div className="space-y-2">
+        {PROGRESS_MILESTONES.map((m) => {
+          const done = pct >= m.threshold + 15;
+          const active = !done && pct >= m.threshold;
+          return (
+            <div key={m.label} className="flex items-center gap-2 text-xs">
+              {done ? (
+                <span className="text-emerald-400">✓</span>
+              ) : active ? (
+                <span className="animate-pulse text-blue-400">●</span>
+              ) : (
+                <span className="text-white/20">○</span>
+              )}
+              <span
+                className={
+                  pct >= m.threshold ? "text-white/70" : "text-white/30"
+                }
+              >
+                {m.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-center text-xs text-white/40">
+        This typically takes 45–90 seconds
+      </p>
     </div>
   );
 }
