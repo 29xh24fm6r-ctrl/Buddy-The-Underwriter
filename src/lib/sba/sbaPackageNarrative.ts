@@ -17,7 +17,10 @@ function safeParseField(text: string, field: string, fallback: string): string {
   }
 }
 
-async function callGeminiJSON(prompt: string): Promise<string> {
+// Phase 3 — exported so sbaAssumptionDrafter and other narrative callers can
+// reuse the Gemini 3.x-aware config (no temperature, thinkingBudget=1024) and
+// JSON response handling without duplicating it.
+export async function callGeminiJSON(prompt: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("[sbaPackageNarrative] GEMINI_API_KEY not set");
