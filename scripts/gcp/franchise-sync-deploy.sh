@@ -29,7 +29,7 @@ gcloud run deploy "$SERVICE" \
   --max-instances 1 \
   --cpu 1 \
   --memory 512Mi \
-  --timeout 300 \
+  --timeout 3600 \
   --set-env-vars "NODE_ENV=production" \
   --set-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,CRON_SECRET=CRON_SECRET:latest,BUDDY_DB_CA_BUNDLE=buddy-db-ca-bundle:latest" \
   --no-allow-unauthenticated

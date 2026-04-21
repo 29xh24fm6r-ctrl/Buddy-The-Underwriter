@@ -6,6 +6,10 @@ import type { SyncRunStats, SbaDirectoryRow } from './types.js';
 const SBA_DIRECTORY_PAGE =
   'https://www.sba.gov/document/support-sba-franchise-directory';
 
+/** Chunk size for batched INSERTs. 500 × 10 params = 5000 params/statement, well
+ *  under Postgres' 65,535 bind-parameter limit. Tunable via BATCH_SIZE env. */
+const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '500', 10);
+
 /** Scrape the SBA directory page to find the current .xlsx download link */
 async function discoverXlsxUrl(): Promise<string> {
   console.log(`[franchise-sync] fetching directory page: ${SBA_DIRECTORY_PAGE}`);
@@ -85,35 +89,21 @@ export async function syncSbaDirectory(pool: Pool): Promise<SyncRunStats> {
       `[franchise-sync] diffs: ${addedCount} added, ${updatedCount} updated, ${removedCount} removed`
     );
 
-    for (const row of rows) {
-      try {
-        await upsertBrand(pool, row);
+    // Dedupe rows by sba_directory_id so a single batch never targets the
+    // same conflict row twice (Postgres rejects that for ON CONFLICT DO UPDATE).
+    const dedupedBrands = dedupeBySbaDirectoryId(rows);
+    console.log(
+      `[franchise-sync] batching ${dedupedBrands.length} brand upserts + ` +
+        `${rows.length} snapshots in chunks of ${BATCH_SIZE}`
+    );
 
-        const rh = hashRow(row);
-        await pool.query(
-          `INSERT INTO franchise_sba_directory_snapshots
-             (sync_run_id, row_hash, brand_name, franchisor_name,
-              sba_franchise_id, certification, addendum, programs, notes, raw_json)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [
-            runId,
-            rh,
-            row.brand_name,
-            row.franchisor_name,
-            row.sba_franchise_id,
-            row.certification,
-            row.addendum,
-            row.programs,
-            row.notes,
-            JSON.stringify(row.raw_json),
-          ]
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        stats.errors.push({ brand_name: row.brand_name, error: msg });
-        console.error(`[franchise-sync] error upserting ${row.brand_name}: ${msg}`);
-      }
-    }
+    const upsertStart = Date.now();
+    await batchUpsertBrands(pool, dedupedBrands, stats);
+    console.log(`[franchise-sync] brand upserts done in ${Date.now() - upsertStart}ms`);
+
+    const snapStart = Date.now();
+    await batchInsertSnapshots(pool, runId, rows, stats);
+    console.log(`[franchise-sync] snapshot inserts done in ${Date.now() - snapStart}ms`);
 
     stats.brands_added = addedCount;
     stats.brands_updated = updatedCount;
@@ -188,39 +178,132 @@ export async function syncSbaDirectory(pool: Pool): Promise<SyncRunStats> {
   }
 }
 
-async function upsertBrand(pool: Pool, row: SbaDirectoryRow): Promise<void> {
-  const isCertified = row.certification?.toUpperCase() === 'Y';
-  const programs = parsePrograms(row.programs);
+/** Dedupe input rows by computed sba_directory_id, keeping the last occurrence.
+ *  A single batched UPSERT can't target the same conflict row twice. */
+function dedupeBySbaDirectoryId(rows: SbaDirectoryRow[]): SbaDirectoryRow[] {
+  const byId = new Map<string, SbaDirectoryRow>();
+  for (const row of rows) {
+    const key = row.sba_franchise_id || row.brand_name;
+    byId.set(key, row);
+  }
+  return Array.from(byId.values());
+}
 
-  await pool.query(
-    `INSERT INTO franchise_brands
-       (brand_name, franchisor_legal_name, sba_directory_id,
-        sba_eligible, sba_certification_status, sba_addendum_required,
-        sba_addendum_type, sba_programs, sba_notes, source)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sba_directory')
-     ON CONFLICT (sba_directory_id)
-     DO UPDATE SET
-       brand_name = EXCLUDED.brand_name,
-       franchisor_legal_name = EXCLUDED.franchisor_legal_name,
-       sba_eligible = EXCLUDED.sba_eligible,
-       sba_certification_status = EXCLUDED.sba_certification_status,
-       sba_addendum_required = EXCLUDED.sba_addendum_required,
-       sba_addendum_type = EXCLUDED.sba_addendum_type,
-       sba_programs = EXCLUDED.sba_programs,
-       sba_notes = EXCLUDED.sba_notes,
-       updated_at = now()`,
-    [
-      row.brand_name,
-      row.franchisor_name,
-      row.sba_franchise_id || row.brand_name,
-      true,
-      isCertified ? 'certified' : 'pending',
-      !!row.addendum,
-      row.addendum,
-      programs,
-      row.notes,
-    ]
-  );
+/** Multi-row UPSERT of franchise_brands, in chunks. One round-trip per chunk.
+ *  On chunk failure, records a single batch-level error in stats and moves on. */
+async function batchUpsertBrands(
+  pool: Pool,
+  rows: SbaDirectoryRow[],
+  stats: SyncRunStats
+): Promise<void> {
+  const COLS = 10;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const chunk = rows.slice(i, i + BATCH_SIZE);
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    chunk.forEach((row, idx) => {
+      const base = idx * COLS;
+      placeholders.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, ` +
+          `$${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
+      );
+      const isCertified = row.certification?.toUpperCase() === 'Y';
+      values.push(
+        row.brand_name,
+        row.franchisor_name,
+        row.sba_franchise_id || row.brand_name,
+        true,
+        isCertified ? 'certified' : 'pending',
+        !!row.addendum,
+        row.addendum,
+        parsePrograms(row.programs),
+        row.notes,
+        'sba_directory'
+      );
+    });
+
+    const sql = `
+      INSERT INTO franchise_brands
+        (brand_name, franchisor_legal_name, sba_directory_id,
+         sba_eligible, sba_certification_status, sba_addendum_required,
+         sba_addendum_type, sba_programs, sba_notes, source)
+      VALUES ${placeholders.join(',')}
+      ON CONFLICT (sba_directory_id)
+      DO UPDATE SET
+        brand_name = EXCLUDED.brand_name,
+        franchisor_legal_name = EXCLUDED.franchisor_legal_name,
+        sba_eligible = EXCLUDED.sba_eligible,
+        sba_certification_status = EXCLUDED.sba_certification_status,
+        sba_addendum_required = EXCLUDED.sba_addendum_required,
+        sba_addendum_type = EXCLUDED.sba_addendum_type,
+        sba_programs = EXCLUDED.sba_programs,
+        sba_notes = EXCLUDED.sba_notes,
+        updated_at = now()`;
+
+    try {
+      await pool.query(sql, values);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stats.errors.push({
+        brand_name: `_batch_${i}-${i + chunk.length - 1}`,
+        error: `brand upsert batch failed: ${msg}`,
+      });
+      console.error(`[franchise-sync] brand batch ${i}-${i + chunk.length - 1} failed: ${msg}`);
+    }
+  }
+}
+
+/** Multi-row INSERT of franchise_sba_directory_snapshots, in chunks. */
+async function batchInsertSnapshots(
+  pool: Pool,
+  runId: string,
+  rows: SbaDirectoryRow[],
+  stats: SyncRunStats
+): Promise<void> {
+  const COLS = 10;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const chunk = rows.slice(i, i + BATCH_SIZE);
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    chunk.forEach((row, idx) => {
+      const base = idx * COLS;
+      placeholders.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, ` +
+          `$${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
+      );
+      values.push(
+        runId,
+        hashRow(row),
+        row.brand_name,
+        row.franchisor_name,
+        row.sba_franchise_id,
+        row.certification,
+        row.addendum,
+        row.programs,
+        row.notes,
+        JSON.stringify(row.raw_json)
+      );
+    });
+
+    const sql = `
+      INSERT INTO franchise_sba_directory_snapshots
+        (sync_run_id, row_hash, brand_name, franchisor_name,
+         sba_franchise_id, certification, addendum, programs, notes, raw_json)
+      VALUES ${placeholders.join(',')}`;
+
+    try {
+      await pool.query(sql, values);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stats.errors.push({
+        brand_name: `_snapshot_batch_${i}-${i + chunk.length - 1}`,
+        error: `snapshot insert batch failed: ${msg}`,
+      });
+      console.error(
+        `[franchise-sync] snapshot batch ${i}-${i + chunk.length - 1} failed: ${msg}`
+      );
+    }
+  }
 }
 
 function parsePrograms(raw: string | null): string[] {
