@@ -189,6 +189,31 @@ function dedupeBySbaDirectoryId(rows: SbaDirectoryRow[]): SbaDirectoryRow[] {
   return Array.from(byId.values());
 }
 
+/** Y-flag columns in the SBA xlsx contain values like "Y", "y", "Yes", or blank.
+ *  Anything else — including "N" — is treated as "no". */
+function isYes(val: string | null): boolean {
+  if (!val) return false;
+  const v = val.trim().toUpperCase();
+  return v === 'Y' || v === 'YES';
+}
+
+/** Derive the sba_addendum_type from the two type-specific columns.
+ *  Only one should be "Y" per brand, but if both are set, Form 2462 wins. */
+function deriveAddendumType(row: SbaDirectoryRow): string | null {
+  if (isYes(row.sba_addendum_form_2462)) return 'Form 2462';
+  if (isYes(row.sba_negotiated_addendum)) return 'Negotiated';
+  return null;
+}
+
+/** Normalize an effective-date string. Accepts ISO (YYYY-MM-DD) or ISO timestamps;
+ *  returns null for anything that isn't a plausible date. The parser already
+ *  converts Date objects to ISO strings. */
+function normalizeEffectiveDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1]! : null;
+}
+
 /** Multi-row UPSERT of franchise_brands, in chunks. One round-trip per chunk.
  *  On chunk failure, records a single batch-level error in stats and moves on. */
 async function batchUpsertBrands(
@@ -196,7 +221,7 @@ async function batchUpsertBrands(
   rows: SbaDirectoryRow[],
   stats: SyncRunStats
 ): Promise<void> {
-  const COLS = 10;
+  const COLS = 11;
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const chunk = rows.slice(i, i + BATCH_SIZE);
     const values: unknown[] = [];
@@ -205,19 +230,20 @@ async function batchUpsertBrands(
       const base = idx * COLS;
       placeholders.push(
         `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, ` +
-          `$${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
+          `$${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, ` +
+          `$${base + 11})`
       );
-      const isCertified = row.certification?.toUpperCase() === 'Y';
       values.push(
         row.brand_name,
         row.franchisor_name,
         row.sba_franchise_id || row.brand_name,
-        true,
-        isCertified ? 'certified' : 'pending',
-        !!row.addendum,
-        row.addendum,
+        true,                                   // sba_eligible
+        isYes(row.certification) ? 'certified' : 'pending',
+        isYes(row.addendum),                    // sba_addendum_required
+        deriveAddendumType(row),                // sba_addendum_type
         parsePrograms(row.programs),
         row.notes,
+        normalizeEffectiveDate(row.directory_effective_date),
         'sba_directory'
       );
     });
@@ -226,7 +252,8 @@ async function batchUpsertBrands(
       INSERT INTO franchise_brands
         (brand_name, franchisor_legal_name, sba_directory_id,
          sba_eligible, sba_certification_status, sba_addendum_required,
-         sba_addendum_type, sba_programs, sba_notes, source)
+         sba_addendum_type, sba_programs, sba_notes,
+         sba_directory_effective_date, source)
       VALUES ${placeholders.join(',')}
       ON CONFLICT (sba_directory_id)
       DO UPDATE SET
@@ -238,6 +265,7 @@ async function batchUpsertBrands(
         sba_addendum_type = EXCLUDED.sba_addendum_type,
         sba_programs = EXCLUDED.sba_programs,
         sba_notes = EXCLUDED.sba_notes,
+        sba_directory_effective_date = EXCLUDED.sba_directory_effective_date,
         updated_at = now()`;
 
     try {

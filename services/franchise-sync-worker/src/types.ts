@@ -4,7 +4,10 @@ export interface SbaDirectoryRow {
   franchisor_name: string | null;
   sba_franchise_id: string | null;
   certification: string | null;
-  addendum: string | null;
+  addendum: string | null;                   // "IS AN ADDENDUM NEEDED?" — Y/blank/N
+  sba_addendum_form_2462: string | null;     // Y/blank — uses Form 2462?
+  sba_negotiated_addendum: string | null;    // Y/blank — uses negotiated addendum?
+  directory_effective_date: string | null;   // ISO date string (YYYY-MM-DD) or null
   programs: string | null;
   notes: string | null;
   raw_json: Record<string, unknown>;
