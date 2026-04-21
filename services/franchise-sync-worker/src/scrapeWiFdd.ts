@@ -20,6 +20,9 @@ export interface ScrapeOptions {
   delayMs?: number;
   maxErrors?: number;
   downloadPdf?: boolean; // default true; set false to only persist metadata
+  /** ILIKE pattern (supports %). If set, only brands matching this pattern
+   *  are candidates. Useful for piloting against known-registered brands. */
+  brandFilter?: string;
 }
 
 export interface ScrapeStats {
@@ -73,6 +76,13 @@ export async function scrapeWiFddBatch(
   const startTime = Date.now();
 
   try {
+    const filterClause = options.brandFilter
+      ? 'AND fb.brand_name ILIKE $3'
+      : '';
+    const filterParams = options.brandFilter
+      ? [minRecentYear, batchSize, options.brandFilter]
+      : [minRecentYear, batchSize];
+
     // Find brands needing a WI scrape (no fdd_filing for WI in recent years)
     const brandsRes = await pool.query<{ id: string; brand_name: string }>(
       `SELECT fb.id, fb.brand_name
@@ -85,9 +95,10 @@ export async function scrapeWiFddBatch(
              AND ff.filing_state = 'WI'
              AND ff.filing_year >= $1
          )
+         ${filterClause}
        ORDER BY fb.brand_name
        LIMIT $2`,
-      [minRecentYear, batchSize]
+      filterParams
     );
 
     const remainingRes = await pool.query<{ count: string }>(
@@ -100,8 +111,9 @@ export async function scrapeWiFddBatch(
            WHERE ff.brand_id = fb.id
              AND ff.filing_state = 'WI'
              AND ff.filing_year >= $1
-         )`,
-      [minRecentYear]
+         )
+         ${options.brandFilter ? 'AND fb.brand_name ILIKE $2' : ''}`,
+      options.brandFilter ? [minRecentYear, options.brandFilter] : [minRecentYear]
     );
     stats.remaining = parseInt(remainingRes.rows[0]?.count ?? '0', 10);
 

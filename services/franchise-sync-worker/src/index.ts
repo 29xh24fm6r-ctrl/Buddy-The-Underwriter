@@ -58,12 +58,13 @@ const server = http.createServer(async (req, res) => {
     const batchSize = parseInt(qs.get('batchSize') || '50', 10);
     const delayMs = parseInt(qs.get('delayMs') || '2000', 10);
     const downloadPdf = qs.get('downloadPdf') !== 'false';
+    const brandFilter = qs.get('brandFilter') || undefined;
     try {
       console.log(
-        `[franchise-sync-worker] WI FDD scrape triggered (batchSize=${batchSize}, delayMs=${delayMs}, downloadPdf=${downloadPdf})`
+        `[franchise-sync-worker] WI FDD scrape triggered (batchSize=${batchSize}, delayMs=${delayMs}, downloadPdf=${downloadPdf}, brandFilter=${brandFilter ?? '-'})`
       );
       const pool = getPool();
-      const stats = await scrapeWiFddBatch(pool, { batchSize, delayMs, downloadPdf });
+      const stats = await scrapeWiFddBatch(pool, { batchSize, delayMs, downloadPdf, brandFilter });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, stats }));
     } catch (err) {
