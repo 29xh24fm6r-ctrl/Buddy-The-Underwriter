@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
+import { FeasibilityScoreCapsule } from "@/components/feasibility/FeasibilityScoreCapsule";
 import { resolveDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
 
@@ -280,6 +281,7 @@ export default function DealShell({
     // Credit Memo is a first-class tab — opens inside the deal shell with full nav
     { label: "Credit Memo", href: `${base}/credit-memo` },
     { label: "Borrower", href: `${base}/borrower` },
+    { label: "Feasibility", href: `${base}/feasibility` },
     { label: "Portal", href: `${base}/portal-inbox` },
     { label: "Post-Close", href: `${base}/post-close` },
     { label: "Reviews", href: `${base}/reviews` },
@@ -371,6 +373,7 @@ export default function DealShell({
             <div className="flex items-center gap-3">
               <FinancialSnapshotCapsule dealId={dealId} />
               <MatchedLendersCapsule dealId={dealId} />
+              <FeasibilityScoreCapsule dealId={dealId} />
             </div>
 
             <div className="flex items-center gap-2 text-xs text-white/70">
