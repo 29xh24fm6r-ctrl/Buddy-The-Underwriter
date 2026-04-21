@@ -19,7 +19,14 @@ import {
   generateMarketingAndOperations,
   generateSWOTAnalysis,
   generateFranchiseSection,
+  generatePlanThesis,
 } from "./sbaPackageNarrative";
+import {
+  generateMilestoneTimeline,
+  generateKPIDashboard,
+  generateRiskContingencyMatrix,
+} from "./sbaBusinessPlanRoadmap";
+import { loadBorrowerStory } from "./sbaBorrowerStory";
 import { renderSBAPackagePDF } from "./sbaPackageRenderer";
 import { buildSourcesAndUses } from "./sbaSourcesAndUses";
 import { buildBalanceSheetProjections } from "./sbaBalanceSheetProjector";
@@ -281,7 +288,12 @@ export async function generateSBAPackage(
   // Phase 2 — replace the legacy 2KB JSON.stringify dump with structured
   // per-section extraction via sbaResearchExtractor. The narrative prompts
   // below consume each section individually.
-  const research = await extractResearchForBusinessPlan(dealId);
+  // God Tier — also load the borrower's discovery story in parallel. The
+  // story is OPTIONAL; the pipeline degrades gracefully when null.
+  const [research, borrowerStory] = await Promise.all([
+    extractResearchForBusinessPlan(dealId),
+    loadBorrowerStory(dealId),
+  ]);
   const researchSummary = research.industryOverview ?? undefined;
 
   const proceedsDescription =
@@ -304,6 +316,23 @@ export async function generateSBAPackage(
   const dealCity = (deal?.city as string | null) ?? null;
   const dealState = (deal?.state as string | null) ?? null;
 
+  // ── God Tier — Plan thesis is generated FIRST. Every downstream prompt
+  // receives the thesis as context so the plan is coherent from executive
+  // summary to SWOT to sensitivity commentary. Thesis is nullable; when
+  // null, the downstream prompts omit it cleanly.
+  const planThesis = await generatePlanThesis({
+    dealName: deal?.name ?? "Borrower",
+    story: borrowerStory,
+    loanAmount: assumptions.loanImpact.loanAmount,
+    dscrYear1: dscrYear1Base,
+    projectedRevenueYear1: annualProjections[0]?.revenue ?? 0,
+    projectedRevenueYear3: annualProjections[2]?.revenue,
+    industryDescription,
+    useOfProceedsDescription: proceedsDescription,
+    managementLeadNames: assumptions.managementTeam.map((m) => m.name),
+    yearsInBusiness,
+  });
+
   // Gemini Call 1
   const businessOverviewNarrative = await generateBusinessOverviewNarrative({
     dealName: deal?.name ?? "Borrower",
@@ -317,6 +346,8 @@ export async function generateSBAPackage(
     state: dealState,
     managementBios,
     borrowerProfile: research.borrowerProfile,
+    story: borrowerStory,
+    planThesis,
   });
 
   // Gemini Call 2
@@ -328,6 +359,8 @@ export async function generateSBAPackage(
     breakEvenMarginOfSafetyPct: breakEven.marginOfSafetyPct,
     year1MinCumulativeCash,
     loanType: deal?.deal_type ?? "SBA",
+    story: borrowerStory,
+    planThesis,
   });
 
   // ── Phase BPG — Parallel narratives (exec summary, industry, marketing/ops, SWOT)
@@ -354,6 +387,9 @@ export async function generateSBAPackage(
       borrowerProfile: research.borrowerProfile,
       creditThesis: research.creditThesis,
       equityInjectionPct: sourcesAndUses.equityInjection.actualPct,
+      // God Tier
+      story: borrowerStory,
+      planThesis,
     }),
     generateIndustryAnalysis({
       dealName: deal?.name ?? "Borrower",
@@ -366,6 +402,9 @@ export async function generateSBAPackage(
       competitiveLandscape: research.competitiveLandscape,
       regulatoryEnvironment: research.regulatoryEnvironment,
       marketIntelligence: research.marketIntelligence,
+      // God Tier
+      story: borrowerStory,
+      planThesis,
     }),
     generateMarketingAndOperations({
       dealName: deal?.name ?? "Borrower",
@@ -378,6 +417,9 @@ export async function generateSBAPackage(
       state: dealState,
       marketIntelligence: research.marketIntelligence,
       competitiveLandscape: research.competitiveLandscape,
+      // God Tier
+      story: borrowerStory,
+      planThesis,
     }),
     generateSWOTAnalysis({
       dealName: deal?.name ?? "Borrower",
@@ -391,6 +433,9 @@ export async function generateSBAPackage(
       borrowerProfile: research.borrowerProfile,
       competitiveLandscape: research.competitiveLandscape,
       industryOutlook: research.industryOutlook,
+      // God Tier
+      story: borrowerStory,
+      planThesis,
     }),
   ]);
 
@@ -418,6 +463,82 @@ export async function generateSBAPackage(
           opportunities: "Opportunities not available.",
           threats: "Threats not available.",
         };
+
+  // ── God Tier — Roadmap sections (milestone timeline, KPI dashboard, risk contingency)
+  // All three are NULLABLE — when a generator fails we store null and the PDF
+  // skips that section rather than rendering a placeholder.
+  const plannedHiresForRoadmap = (
+    assumptions.costAssumptions.plannedHires ?? []
+  ).map((h) => ({
+    role: h.role,
+    startMonth: h.startMonth ?? 1,
+    annualSalary: h.annualSalary,
+  }));
+  const plannedHiresForRisk = (assumptions.costAssumptions.plannedHires ?? []).map(
+    (h) => ({ role: h.role, annualSalary: h.annualSalary }),
+  );
+  const fixedCostsForRisk = (
+    assumptions.costAssumptions.fixedCostCategories ?? []
+  ).map((c) => ({ name: c.name, annualAmount: c.annualAmount }));
+  const revenueStreamsForKpi = assumptions.revenueStreams.map((r) => ({
+    name: r.name,
+    baseAnnualRevenue: r.baseAnnualRevenue ?? 0,
+  }));
+  const monthlyDebtService =
+    (annualProjections[0]?.totalDebtService ?? 0) / 12;
+  const cogsPercent = assumptions.costAssumptions.cogsPercentYear1 ?? 0;
+  const sensitivityScenariosForRisk = sensitivityScenarios.map((s) => ({
+    name: s.name,
+    dscrYear1: s.dscrYear1,
+    revenueYear1: s.revenueYear1,
+  }));
+
+  const roadmapBatch = await Promise.allSettled([
+    generateMilestoneTimeline({
+      dealName: deal?.name ?? "Borrower",
+      story: borrowerStory,
+      planThesis,
+      useOfProceeds,
+      plannedHires: plannedHiresForRoadmap,
+      growthStrategy: borrowerStory?.growthStrategy ?? null,
+      projectedRevenueYear1: annualProjections[0]?.revenue ?? 0,
+      projectedRevenueYear2: annualProjections[1]?.revenue ?? 0,
+      loanAmount: assumptions.loanImpact.loanAmount,
+    }),
+    generateKPIDashboard({
+      dealName: deal?.name ?? "Borrower",
+      industryDescription,
+      naicsCode,
+      story: borrowerStory,
+      planThesis,
+      revenueStreams: revenueStreamsForKpi,
+      cogsPercent,
+      dscrYear1: dscrYear1Base,
+      monthlyDebtService,
+      breakEvenRevenue: breakEven.breakEvenRevenue,
+    }),
+    generateRiskContingencyMatrix({
+      dealName: deal?.name ?? "Borrower",
+      story: borrowerStory,
+      planThesis,
+      biggestRisk: borrowerStory?.biggestRisk ?? null,
+      dscrYear1: dscrYear1Base,
+      dscrDownside: dscrYear1Downside,
+      breakEvenRevenue: breakEven.breakEvenRevenue,
+      projectedRevenueYear1: annualProjections[0]?.revenue ?? 0,
+      monthlyDebtService,
+      fixedCosts: fixedCostsForRisk,
+      plannedHires: plannedHiresForRisk,
+      sensitivityScenarios: sensitivityScenariosForRisk,
+    }),
+  ]);
+
+  const milestoneTimeline =
+    roadmapBatch[0].status === "fulfilled" ? roadmapBatch[0].value : null;
+  const kpiDashboard =
+    roadmapBatch[1].status === "fulfilled" ? roadmapBatch[1].value : null;
+  const riskContingencyMatrix =
+    roadmapBatch[2].status === "fulfilled" ? roadmapBatch[2].value : null;
 
   // ── Phase BPG — Balance sheet projections
   const balanceSheetProjections = buildBalanceSheetProjections(
@@ -636,6 +757,11 @@ export async function generateSBAPackage(
       global_dscr: globalCashFlow.globalDSCR,
       balance_sheet_projections: balanceSheetProjections,
       forms_cross_filled: [],
+      // God Tier Business Plan additions
+      plan_thesis: planThesis,
+      milestone_timeline: milestoneTimeline,
+      kpi_dashboard: kpiDashboard,
+      risk_contingency_matrix: riskContingencyMatrix,
     })
     .select("id")
     .single();
