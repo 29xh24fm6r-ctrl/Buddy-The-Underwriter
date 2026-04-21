@@ -17,6 +17,7 @@ import { getAssumptionCoachingTips } from "@/lib/sba/sbaAssumptionCoach";
 import { getConceptExplanation } from "@/lib/sba/sbaConceptExplainer";
 import type { DraftedAssumptions } from "@/lib/sba/sbaAssumptionDrafter";
 import SBAGenerationProgress from "./SBAGenerationProgress";
+import SBAConversationalInterview from "./SBAConversationalInterview";
 
 // Phase 2 — NAICS industry-typical badge shown next to prefilled fields.
 function NAICSBadge({ meta }: { meta: PrefillMeta | null | undefined }) {
@@ -998,8 +999,21 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
         </div>
       )}
 
-      {/* Phase 3 — mode switcher: Guided (Buddy leads) vs Form (raw inputs) */}
-      <ModeSwitcher mode={mode} onChange={setMode} />
+      {/* Phase 3 — mode switcher: Guided | Form | Chat */}
+      <ModeSwitcher mode={mode} onChange={setMode} includeChat />
+
+      {/* Phase 3 — conversational chat mode. */}
+      {mode === "conversational" && (
+        <SBAConversationalInterview
+          dealId={dealId}
+          assumptions={assumptions}
+          onAssumptionsChange={(next) => setAssumptions(next)}
+          onConfirmed={async () => {
+            await saveGuarantors();
+            await handleConfirm();
+          }}
+        />
+      )}
 
       {/* Phase 3 — guided review mode (default). Buddy presents the draft. */}
       {mode === "guided" && (
