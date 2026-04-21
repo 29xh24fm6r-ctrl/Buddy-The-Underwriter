@@ -87,6 +87,10 @@ RULES:
 - This is a judgment document, not a sales pitch.
 - Third person, professional tone.
 
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.borrowerProfile ? `\n\nBorrower Research Context:\n${params.research.borrowerProfile.slice(0, 2000)}` : ""}
+${params.research.creditThesis ? `\n\nCredit Thesis from Research:\n${params.research.creditThesis.slice(0, 1500)}` : ""}
+
 Return ONLY valid JSON: { "executiveSummary": "..." }`),
 
     // ── Market Demand ────────────────────────────────────────────
@@ -120,6 +124,10 @@ RULES:
 - If data was unavailable for a dimension, state that honestly.
 - Use the exact numbers from the dimension details.
 
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.marketIntelligence ? `\n\nBIE Market Intelligence (use specific claims from this):\n${params.research.marketIntelligence.slice(0, 3000)}` : ""}
+${params.research.competitiveLandscape ? `\n\nBIE Competitive Landscape (name competitors from this):\n${params.research.competitiveLandscape.slice(0, 2000)}` : ""}
+
 Return ONLY valid JSON: { "marketDemandNarrative": "..." }`),
 
     // ── Financial Viability ──────────────────────────────────────
@@ -137,6 +145,9 @@ Dimensions:
 Flags: ${JSON.stringify(params.financialViability.flags)}
 
 Write 600-800 words. Use exact DSCR numbers, break-even amounts, and margin of safety percentages.
+
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.industryOverview ? `\n\nIndustry Context:\n${params.research.industryOverview.slice(0, 1500)}` : ""}
 
 Return ONLY valid JSON: { "financialViabilityNarrative": "..." }`),
 
@@ -161,6 +172,9 @@ ${params.managementTeam
 
 Write 400-600 words. Name each team member. Be honest about experience gaps.
 
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.managementIntelligence ? `\n\nManagement Intelligence from Research:\n${params.research.managementIntelligence.slice(0, 2000)}` : ""}
+
 Return ONLY valid JSON: { "operationalReadinessNarrative": "..." }`),
 
     // ── Location Suitability ─────────────────────────────────────
@@ -177,6 +191,10 @@ Dimensions:
 BIE Market Intelligence: ${params.research.marketIntelligence?.slice(0, 1500) ?? "Not available"}
 
 Write 400-600 words.
+
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.marketIntelligence ? `\n\nLocal Market Research:\n${params.research.marketIntelligence.slice(0, 2000)}` : ""}
+${params.research.regulatoryEnvironment ? `\n\nRegulatory Context:\n${params.research.regulatoryEnvironment.slice(0, 1000)}` : ""}
 
 Return ONLY valid JSON: { "locationSuitabilityNarrative": "..." }`),
 
@@ -195,6 +213,10 @@ For each critical and warning flag, write:
 3. A specific, actionable mitigation strategy
 
 Write 400-600 words. Be specific. Generic mitigations like "seek professional advice" are not acceptable.
+
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.creditThesis ? `\n\nCredit Thesis:\n${params.research.creditThesis.slice(0, 1500)}` : ""}
+${params.research.threeToFiveYearOutlook ? `\n\n3-5 Year Outlook:\n${params.research.threeToFiveYearOutlook.slice(0, 1500)}` : ""}
 
 Return ONLY valid JSON: { "riskAssessment": "..." }`),
 
@@ -222,6 +244,9 @@ Write 300-400 words. State the recommendation clearly in the first sentence. The
 - If "Significant Concerns" or "Not Recommended": what fundamental issues must be resolved, and whether pivot is possible
 
 End with a clear, one-sentence verdict.
+
+CRITICAL: When research context is provided, reference specific facts from it — named competitors, specific demographic data, specific industry trends. The reader should feel that the analyst studied this specific business and market deeply. Generic statements like "the local economy appears healthy" when the research says "Flowery Branch median household income is $78,400 and population grew 12% from 2020-2025" are unacceptable.
+${params.research.creditThesis ? `\n\nCredit Thesis:\n${params.research.creditThesis.slice(0, 1000)}` : ""}
 
 Return ONLY valid JSON: { "recommendation": "..." }`),
 
