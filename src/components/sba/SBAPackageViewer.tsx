@@ -13,10 +13,22 @@ import SBACCOReviewDashboard from "./SBACCOReviewDashboard";
 // Phase BPG — the viewer may be given a package row that includes new columns
 // (global_dscr, global_cash_flow, balance_sheet_projections). SBAPackageData
 // does not yet carry them, so we allow a broader shape on top of the base.
+// Phase 3 — also expose package id + full narrative columns so the
+// borrower refinement loop can target individual sections.
 type ExtendedPkg = SBAPackageData & {
+  id?: string;
   globalDscr?: number | null;
   globalCashFlow?: GlobalCashFlowResult | null;
   balanceSheetProjections?: BalanceSheetYear[] | null;
+  executiveSummary?: string | null;
+  industryAnalysis?: string | null;
+  marketingStrategy?: string | null;
+  operationsPlan?: string | null;
+  swotStrengths?: string | null;
+  swotWeaknesses?: string | null;
+  swotOpportunities?: string | null;
+  swotThreats?: string | null;
+  franchiseSection?: string | null;
 };
 
 interface Props {
@@ -47,6 +59,27 @@ function fmtCurrency(val: number): string {
   return `$${val.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
+// Phase 3 — section_key → (label, columnOnPkg) for the borrower
+// refinement loop. These keys must match the SECTION_COLUMNS on the
+// refine-section API route.
+const REFINABLE_SECTIONS: Array<{
+  key: string;
+  label: string;
+  pkgField: keyof ExtendedPkg;
+}> = [
+  { key: "executive_summary", label: "Executive Summary", pkgField: "executiveSummary" },
+  { key: "industry_analysis", label: "Industry Analysis", pkgField: "industryAnalysis" },
+  { key: "marketing_strategy", label: "Marketing Strategy", pkgField: "marketingStrategy" },
+  { key: "operations_plan", label: "Operations Plan", pkgField: "operationsPlan" },
+  { key: "business_overview_narrative", label: "Business Overview", pkgField: "businessOverviewNarrative" },
+  { key: "sensitivity_narrative", label: "Sensitivity Narrative", pkgField: "sensitivityNarrative" },
+  { key: "franchise_section", label: "Franchise Section", pkgField: "franchiseSection" },
+  { key: "swot_strengths", label: "SWOT — Strengths", pkgField: "swotStrengths" },
+  { key: "swot_weaknesses", label: "SWOT — Weaknesses", pkgField: "swotWeaknesses" },
+  { key: "swot_opportunities", label: "SWOT — Opportunities", pkgField: "swotOpportunities" },
+  { key: "swot_threats", label: "SWOT — Threats", pkgField: "swotThreats" },
+];
+
 export default function SBAPackageViewer({
   dealId,
   pkg,
@@ -67,6 +100,54 @@ export default function SBAPackageViewer({
   const [reviewOpen, setReviewOpen] = useState(false);
   const globalDscr = pkg.globalDscr ?? pkg.globalCashFlow?.globalDSCR ?? null;
   const balanceSheet = pkg.balanceSheetProjections ?? [];
+
+  // Phase 3 — borrower refinement loop. Live-update narrative text so the
+  // next rewrite targets the most recent content without a round-trip.
+  const [narratives, setNarratives] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const s of REFINABLE_SECTIONS) {
+      const v = pkg[s.pkgField];
+      if (typeof v === "string") init[s.key] = v;
+    }
+    return init;
+  });
+  const [refiningSection, setRefiningSection] = useState<string | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+
+  async function handleRefineSection(sectionKey: string) {
+    if (!feedbackText.trim()) return;
+    if (!pkg.id) {
+      setRefineError("This package is missing an id — can't target refinement.");
+      return;
+    }
+    setRefining(true);
+    setRefineError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/sba/refine-section`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: sectionKey,
+          feedback: feedbackText,
+          packageId: pkg.id,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        setRefineError(json.error ?? "Rewrite failed");
+        return;
+      }
+      setNarratives((prev) => ({ ...prev, [sectionKey]: json.updatedText }));
+      setRefiningSection(null);
+      setFeedbackText("");
+    } catch {
+      setRefineError("Network error while rewriting section");
+    } finally {
+      setRefining(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -293,6 +374,82 @@ export default function SBAPackageViewer({
           </table>
         </div>
       </div>
+
+      {/* Phase 3 — Narrative sections with borrower refinement loop */}
+      {REFINABLE_SECTIONS.some((s) => narratives[s.key]) && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-white/80">
+            Narrative Sections
+          </h3>
+          {refineError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+              {refineError}
+            </div>
+          )}
+          {REFINABLE_SECTIONS.filter((s) => narratives[s.key]).map((s) => (
+            <div
+              key={s.key}
+              className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-white/80">
+                  {s.label}
+                </h4>
+                {refiningSection !== s.key && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefiningSection(s.key);
+                      setFeedbackText("");
+                      setRefineError(null);
+                    }}
+                    className="text-xs text-blue-400 hover:text-blue-300"
+                  >
+                    This isn&apos;t quite right →
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-sm text-white/60 whitespace-pre-line line-clamp-[8]">
+                {narratives[s.key]}
+              </p>
+
+              {refiningSection === s.key && (
+                <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                  <label className="text-sm font-medium text-amber-300">
+                    Tell Buddy what to change:
+                  </label>
+                  <textarea
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder="We actually focus on corporate catering, not dine-in service…"
+                    className="w-full rounded-lg bg-white/5 border border-white/10 p-3 text-sm text-white placeholder:text-white/30 min-h-[80px]"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRefineSection(s.key)}
+                      disabled={!feedbackText.trim() || refining}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
+                    >
+                      {refining ? "Rewriting…" : "Rewrite This Section"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRefiningSection(null);
+                        setFeedbackText("");
+                      }}
+                      className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/60"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="flex items-center gap-3 pt-2">

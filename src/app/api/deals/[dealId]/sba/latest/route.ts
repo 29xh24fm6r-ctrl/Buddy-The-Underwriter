@@ -57,6 +57,9 @@ export async function GET(
 
     return NextResponse.json({
       package: {
+        // Phase 3 — expose id + all narrative columns so the viewer can
+        // wire section-level refinement. refine-section requires packageId.
+        id: row.id,
         dealId: row.deal_id,
         assumptionsId: row.assumptions_id,
         generatedAt: row.generated_at,
@@ -73,6 +76,15 @@ export async function GET(
         dscrBelowThreshold: row.dscr_below_threshold,
         businessOverviewNarrative: row.business_overview_narrative,
         sensitivityNarrative: row.sensitivity_narrative,
+        executiveSummary: row.executive_summary,
+        industryAnalysis: row.industry_analysis,
+        marketingStrategy: row.marketing_strategy,
+        operationsPlan: row.operations_plan,
+        swotStrengths: row.swot_strengths,
+        swotWeaknesses: row.swot_weaknesses,
+        swotOpportunities: row.swot_opportunities,
+        swotThreats: row.swot_threats,
+        franchiseSection: row.franchise_section,
         pdfUrl: row.pdf_url,
         status: row.status,
       },
