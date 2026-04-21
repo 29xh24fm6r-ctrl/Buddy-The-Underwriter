@@ -9,6 +9,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.0.0",
     "dotenv": "^17.3.1",
     "pg": "^8.13.1",
     "xlsx": "^0.18.5"
