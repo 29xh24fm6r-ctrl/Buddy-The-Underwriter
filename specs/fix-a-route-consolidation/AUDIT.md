@@ -336,3 +336,143 @@ That work is architecture, not a tier-rule delete. It belongs in its own spec wi
 - **Follow-up PR #2** — flip `.github/workflows/route-budget.yml` from advisory to enforcing. Trivial one-line change (remove the final `exit 0` step). Should only happen AFTER Follow-up PR #1 lands us under FIX-C's error threshold (2020) with meaningful cushion. **This PR does NOT touch the FIX-C workflow.**
 - **Optional later** — the three T3 architectural clusters (builder/entities duplication, extract-twin consolidation, recompute duplication). Each is its own spec.
 
+---
+
+## Follow-up verification (2026-04-22, step 1 — read-only)
+
+Exhaustive caller-search pass against 2 candidate routes before any second round of deletions. Read-only. No code changes in the accompanying commit.
+
+### `checklist/status` caller search
+
+Target: `src/app/api/deals/[dealId]/checklist/status/route.ts`.
+
+**Search 1 — literal `checklist/status` in TS/JS family (`*.{ts,tsx,js,jsx}`):** 0 matches.
+
+**Search 2 — escaped-slash variant `checklist\/status` (JSON/JS string form):** 0 matches.
+
+**Search 3 — `/checklist/status` across all files:** 5 matches, all in documentation:
+
+```
+specs/fix-a-route-consolidation/AUDIT.md:73   (this audit itself)
+specs/fix-a-route-consolidation/AUDIT.md:79   (this audit itself)
+specs/fix-a-route-consolidation/AUDIT.md:152  (this audit itself)
+specs/fix-a-route-consolidation/AUDIT.md:247  (this audit itself)
+specs/fix-a-route-consolidation/AUDIT.md:309  (this audit itself)
+docs/archive/phase-84/AAR_PHASE_84_T05.md:112
+docs/archive/phase-84/T05-checklist-taxonomy-audit.md:73
+docs/archive/phase-84/T05-checklist-taxonomy-audit.md:133
+```
+
+**The T05 AAR match at line 112 requires attention:**
+
+> **Audit banker-facing components for legacy reads** before deletion. `src/components/` was included in the grep scope but returned no direct `.from("deal_checklist_items")` hits. Still, the banker-facing `/api/deals/[dealId]/checklist/status` and `/api/deals/[dealId]/checklist/set-status` routes have frontends; confirm those migrate to canonical before removing the routes.
+
+This is a prior-phase warning (Phase 84 T-05, written some months ago) that these routes "have frontends." My current exhaustive source search finds 0 callers, which suggests the frontends were migrated off `/checklist/status` in the intervening time — but I cannot confirm that from source alone. Surfacing verbatim per spec instruction.
+
+**Search 4 — `"checklist"` in source (scanning for concatenation patterns):** 20 hits, all UI icon / filter / key names. None show concatenation with `/status`.
+
+**Search 5 — `${...}/checklist/status` template-literal pattern:** 0 matches.
+
+**Search 6 — non-`src/` directories (docs, supabase, public, .github, top-level configs):** No matches in `.github/`, `supabase/`, `public/`, `README.md`, `package.json`, `next.config.mjs`, `vercel.json`, `tsconfig.json`, `CLAUDE.md`, `BUDDY_PROJECT_ROADMAP.md`. Only the 3 doc files listed in Search 3.
+
+**URL-construction helpers searched:** `checklistUrl`, `getChecklistUrl`, `checklistStatusUrl`, `checklistStatusPath` — 0 matches.
+
+**Cross-grep — all `/checklist/` patterns in source** (confirms absence by exhaustion):
+```
+src/buddy/cockpit/useCockpitData.tsx:93              /api/deals/${dealId}/checklist           ← bare parent
+src/buddy/ui/BuddyPanel.tsx:914                      /api/deals/${dealId}/checklist/reconcile ← different sibling
+src/components/deals/cockpit/hooks/useChecklistDetail.ts:75    /api/deals/${dealId}/checklist/list     ← different sibling
+src/components/deals/cockpit/panels/YearAwareChecklistPanel.tsx:121  /api/deals/${dealId}/checklist/list ← different sibling
+src/lib/stitch/activations/borrowerTaskInboxActivation.ts:128  .../checklist/set-status           ← different sibling
+src/stitch/surface_wiring_ledger.ts:201              /api/deals/[dealId]/checklist/set-status  ← different sibling
+src/lib/documentTruth/__tests__/cockpitWiringGuard.test.ts:158 a guard test ASSERTING the content must NOT include /checklist
+```
+
+Of every `/checklist/` fragment in source, **none terminate at `/status`**. Parent route + `reconcile`, `list`, `set-status`, `set-required`, `upsert` are the active siblings. `/status` appears nowhere.
+
+**Git history:**
+```
+efdf70c9 2026-04-22  fix(cockpit): cold-start hardening + /reclassify-all endpoint (Spec D5)
+b2892d62 2025-12-25  WIP before Next 16 route param normalization
+08611574 2025-12-20  feat: Buddy Credit Discovery + AI Everywhere system
+```
+The D5 commit was the `maxDuration` sweep (no behavioral change). Substantive last edit was 2025-12-25. The file has been stable for ~4 months. Consistent with "stable-dead" rather than "recently-added."
+
+**Conclusion for `checklist/status`:** 0 current source callers confirmed across 6 search patterns + cross-grep for `/checklist/*` siblings. The T05 AAR's "frontends exist" warning pre-dates several migrations and is no longer supported by source evidence. **Judgment call for Matt** — the source evidence is clean, but the prior AAR explicitly flagged the route. Surfacing the flag rather than deciding.
+
+---
+
+### `uploads/route.ts` caller search (the parent, reads `/tmp/buddy_uploads`)
+
+Target: `src/app/api/deals/[dealId]/uploads/route.ts`.
+
+**Search 1 — `fetch(...)` of bare `/uploads"` (no subpath):** 0 matches.
+
+**Search 2 — `fetch(...)` of `/uploads?` (query string):** 0 matches.
+
+**Search 3 — backtick template literal ending in `/uploads\``:** **1 MATCH:**
+
+```
+src/components/deals/UploadBox.tsx:294:      const res = await fetch(`/api/deals/${safeDealId}/uploads`, { cache: "no-store" });
+```
+
+**This is a live caller.** Context: the function `refreshUploads()` in `UploadBox.tsx` calls this endpoint, consumes `data.files`, and populates `setUploads(Array.isArray(data.files) ? data.files : [])`. The function is invoked on mount via `useEffect`. `UploadBox` is mounted in the deal workspace:
+
+```
+src/app/(app)/deals/[dealId]/DealWorkspaceClient.tsx:75:              <UploadBox dealId={dealId} />
+```
+
+**Search 4 — `/uploads'` (single-quote terminator):** 0 matches.
+
+**Search 5 — `buddy_uploads` (filesystem path):** 5 matches — **live writer confirmed:**
+
+```
+src/lib/docs/storage.ts:12            /mnt/data/buddy_uploads    (different base path)
+src/lib/builder/builderUploadCore.ts:46  path.join("/tmp", "buddy_uploads", dealId, "builder")   ← WRITER (fs.writeFile at line 56)
+src/lib/ocr/runOcrJob.ts:239          path.join("/tmp/buddy_uploads", dealId, storedName)        ← READER
+src/app/api/deals/[dealId]/uploads/route.ts:25  the route itself                                  ← READER
+src/app/api/files/signed-url/route.ts:22  "/tmp/buddy_uploads"                                   ← READER
+```
+
+`src/lib/builder/builderUploadCore.ts:56` has `await fs.writeFile(filePath, buffer);` — the `/tmp/buddy_uploads/{dealId}/...` directory the route reads is actively written to by production code.
+
+**Search 6 — legacy `deal_uploads` table name:** Many matches, but all refer to the *Supabase storage bucket / table* named `deal_uploads`, not the `/tmp/buddy_uploads` filesystem path this route reads. Unrelated.
+
+**Search 7 — upload-URL helper functions:**
+
+```
+src/components/deals/UploadBox.tsx:294      `/api/deals/${safeDealId}/uploads`      ← already counted
+src/lib/builder/builderUploadCore.ts:127,207   `${args.dealId}/uploads/${timestamp}_...`   ← storage-path construction, not HTTP URL
+src/app/(app)/deals/new/NewDealClient.tsx:7   imports createUploadSession (different surface)
+src/app/api/storage/upload/route.ts:126,186    `${dealId}/uploads/...`                ← storage-path construction, not HTTP URL
+```
+
+Only UploadBox.tsx is an actual HTTP caller.
+
+**Writer check for `/tmp/buddy_uploads`:** Confirmed — `src/lib/builder/builderUploadCore.ts:56` writes to the directory. The route is not reading a dead filesystem path.
+
+**Git history:**
+```
+efdf70c9 2026-04-22  fix(cockpit): cold-start hardening + /reclassify-all endpoint (Spec D5)
+b2892d62 2025-12-25  WIP before Next 16 route param normalization
+33d4ba23              chore: lock Moody PnL package contract + smoke check
+```
+D5 was the maxDuration sweep. Substantive edits stable for months. Consistent with live-but-quiet.
+
+**Conclusion for `uploads/route.ts`:** **NOT SAFE TO DELETE.** One live UI caller in `UploadBox.tsx:294` (mounted via `DealWorkspaceClient.tsx:75`), active filesystem writer in `builderUploadCore.ts:56`. The route wraps a real production pattern: banker workspace upload surface lists files written by the builder upload flow. Deleting this route breaks the upload listing in the deal workspace.
+
+---
+
+### Overall recommendation
+
+The two candidates verified in this step should be handled differently:
+
+1. **`checklist/status/route.ts`** — source-code verification came back clean (0 callers across all 6 search patterns). The 4-month-old stability is corroborating. However, a prior-phase AAR (Phase 84 T-05) explicitly warned about frontend migration before deletion. My reading: the frontends were likely migrated away since that warning was written (the current sibling `/checklist/list` dominates caller references), but I cannot confirm that non-destructively. **Ready to delete pending Matt's yes/no on the T05 AAR flag.**
+
+2. **`uploads/route.ts`** — **not safe to delete.** Live UI caller confirmed (`UploadBox.tsx:294`), live filesystem writer confirmed (`builderUploadCore.ts:56`). This route is production functionality, not a zombie. The "0 callers" claim in my initial audit was a false negative — the audit's static-tail grep for `/api/deals/[dealId]/uploads` (static tail `/api/deals/`) was too short to isolate this route's specific path and matched hundreds of other `/api/deals/*` routes instead, effectively masking the real caller count. **Recommend removing this from the follow-up PR's deletion candidate list** and flagging as a lesson for the Fix B lint-rule work: "0 callers in audit" is a necessary but not sufficient signal; downstream verification must run a tight per-path caller search before deletion.
+
+**Fallout for Fix A's stated goal:** without `uploads/route.ts`, the remaining 4 `/status` siblings (`checklist/status`, `uploads/status`, `deals/[dealId]/status`, `spreads/status`) would yield at most ~8 routes if all deleted. That brings us from 2023 to ~2015 — at or just under the 2020 error threshold but not meaningfully under. The FIX-C enforcement flip is still feasible but with less cushion than originally projected. Worth re-examining the T3 architectural clusters (builder/entities, extract-twin, recompute) if deeper reduction matters.
+
+No deletions happening in this pass, per spec. This section is the record.
+
+
