@@ -475,4 +475,67 @@ The two candidates verified in this step should be handled differently:
 
 No deletions happening in this pass, per spec. This section is the record.
 
+---
+
+## Closing state (2026-04-22)
+
+Fix A closes here. No further deletions in this PR or its direct follow-ups.
+
+### Final measurements
+
+| Measurement | Value |
+|---|---|
+| Manifest-mode count | **2023** |
+| Fast-mode count | ~2031 |
+| Vercel cap | 2048 |
+| Headroom to cap | **+25** |
+| FIX-C error threshold | 2020 |
+| Status vs error threshold | over by 3 |
+| Total routes removed by Fix A | **15** (13 T0 at commit `99306b9e` + 2 E-1 at commit `28d04057`) |
+
+### FIX-C enforcement flip — deferred indefinitely
+
+Advisory-only is the accepted steady state. Rationale:
+
+- Current count (2023) is 3 above the FIX-C error threshold (2020). Flipping enforcement now would block every PR that touches a route-contributing file until the count drops by at least 4 — which we cannot achieve safely with simple deletions given the verification findings below.
+- The remaining `/status` siblings each require per-pair architectural review, not tier-rule deletion. That work has not started and is not scheduled.
+- The three T3 architectural clusters (builder/entities duplication, extract-twin consolidation, recompute duplication) each need their own spec. None are on the critical path.
+- **Advisory-only provides the same visibility (delta comments, count trending) without the risk of blocking PRs on a threshold we can't safely maintain.** If a future PR materially grows the count, the advisory comment surfaces it — author responsibility, no enforcement lockout.
+- Flip is re-openable when one of the T3 architectural clusters lands and provides ≥10 routes of cushion below the 2020 threshold. Until then, leave it advisory.
+
+### Deferred candidate list — reduced from 5 to 2
+
+Originally the follow-up PR would audit 5 `/status` + `/preflight` siblings individually. Step 1 verification changed this list:
+
+| File | Original status | Revised status | Reason |
+|---|---|---|---|
+| `src/app/api/deals/[dealId]/checklist/status/route.ts` | deferred | **still deferred** (2 of 2) | 0 source callers confirmed via exhaustive 6-pattern search; Phase 84 T-05 AAR flagged "frontends exist" historically, needs Matt's yes/no if ever revisited |
+| `src/app/api/deals/[dealId]/uploads/route.ts` | deferred | **removed from list** | Live UI caller at `UploadBox.tsx:294`, live filesystem writer at `builderUploadCore.ts:56`. Not a zombie. Production route. |
+| `src/app/api/deals/[dealId]/uploads/status/route.ts` | deferred | **still deferred** (1 of 2) | Unverified — sibling of the live `uploads/route.ts` parent. Needs per-pair shape comparison before any action. |
+| `src/app/api/deals/[dealId]/status/route.ts` | deferred | **removed from list** | Not revisited; current headroom is sufficient. |
+| `src/app/api/deals/[dealId]/spreads/status/route.ts` | deferred | **removed from list** | Explicitly noted as unique diagnostic surface earlier in this audit; keep. |
+
+Only `checklist/status` and `uploads/status` remain flagged for potential future audit. Neither blocks Fix A's close.
+
+### The false-negative lesson
+
+The initial audit's "0 callers" result for `uploads/route.ts` was wrong. Step 1 verification found a live UI caller. Root cause: the audit's grep methodology used **the longest static suffix** of the route's API path (`/api/deals/[dealId]/uploads` → static tail `/api/deals/`, 14 chars, too common to isolate). The real callers were in template literals (`\`/api/deals/${safeDealId}/uploads\``) — a fragment the static-tail grep couldn't distinguish from hundreds of other `/api/deals/*` references.
+
+**Methodology correction for any future audit or for Fix B's lint rule:**
+
+- "0 source callers" as a delete signal requires the grep to use the **candidate's full path in template-literal form** (`/api/deals/${dealId}/uploads`, `/api/.../uploads\b` with terminator), not a longest-static-tail heuristic.
+- When a path contains dynamic segments, the search pattern must include the dynamic segments as placeholders (e.g., `${.*}/uploads`), not elide them.
+- Static tails shorter than ~18 characters are almost always too non-unique to isolate a route — the grep drowns in sibling-path noise.
+- The audit script at `/tmp/fix-a-audit.mjs` had a minimum-length gate (`search_too_short`) but triggered at 15 chars, which was still too short for paths like `/api/deals/` that are common prefixes. The gate needs to be raised OR the search pattern needs to include the dynamic segments to be route-specific.
+
+This lesson is recorded as a build principle in `BUDDY_PROJECT_ROADMAP.md` under the FIX-A follow-up entry.
+
+### Summary
+
+- Started at 2053 routes. The Vercel cap is 2048. Production was effectively at-cap and the next feature PR risked another deploy failure.
+- Ended at 2023 routes. Headroom: +25.
+- 15 surgical deletions across two commits. No live functionality removed. No production incidents.
+- FIX-C observability layer is live and posting PR comments; enforcement is deferred.
+- Fix A closes here. If a T3 architectural consolidation ever lands and gives ≥10 routes of cushion below 2020, we can re-open the FIX-C enforcement flip at that point.
+
 
