@@ -372,12 +372,89 @@ async function stampDocument(
         `stampDocument failed for ${input.documentId}: ${(error as any).code} ${(error as any).message}`,
       );
     }
+
+    // ── Spec D1 — persist entity names into the ai_* columns that the
+    // naming engine reads from. Two separate conditional writes so we
+    // only populate a column if it is currently null; this coexists with
+    // downstream writers (processArtifact, persistAiMapping) rather than
+    // racing with them. Non-fatal: a failure here does not fail the
+    // gatekeeper stamp above.
+    await stampEntityNames(sb, input, result).catch((e) => {
+      console.warn("[Gatekeeper] stampEntityNames failed (non-fatal)", {
+        documentId: input.documentId,
+        error: String((e as any)?.message ?? e),
+      });
+    });
   } catch (e) {
     console.error("[Gatekeeper] stampDocument failed", {
       documentId: input.documentId,
       error: String((e as any)?.message ?? e),
     });
     throw e;
+  }
+}
+
+/**
+ * Spec D1 — write classifier-extracted entity names into deal_documents.
+ * Each column is guarded by .is("<col>", null) so an existing value from a
+ * downstream writer (processArtifact.ts, persistAiMapping.ts) is preserved.
+ *
+ * When Gemini returned a name but the conditional update affects zero rows,
+ * something already wrote to the column — logged as telemetry so we can
+ * decide later whether to fix the upstream clobber at processArtifact.ts.
+ */
+async function stampEntityNames(
+  sb: ReturnType<typeof supabaseAdmin>,
+  input: GatekeeperDocInput,
+  result: GatekeeperResult,
+): Promise<void> {
+  const businessName = result.detected_signals.business_name ?? null;
+  const borrowerName = result.detected_signals.borrower_name ?? null;
+
+  if (businessName) {
+    const { error, count } = await (sb as any)
+      .from("deal_documents")
+      .update(
+        { ai_business_name: businessName },
+        { count: "exact" },
+      )
+      .eq("id", input.documentId)
+      .is("ai_business_name", null);
+
+    if (!error && count === 0) {
+      console.info("[Gatekeeper] ai_business_name already populated, skipping", {
+        documentId: input.documentId,
+      });
+    } else if (error) {
+      console.warn("[Gatekeeper] ai_business_name update failed", {
+        documentId: input.documentId,
+        errorCode: (error as any).code,
+        errorMessage: (error as any).message,
+      });
+    }
+  }
+
+  if (borrowerName) {
+    const { error, count } = await (sb as any)
+      .from("deal_documents")
+      .update(
+        { ai_borrower_name: borrowerName },
+        { count: "exact" },
+      )
+      .eq("id", input.documentId)
+      .is("ai_borrower_name", null);
+
+    if (!error && count === 0) {
+      console.info("[Gatekeeper] ai_borrower_name already populated, skipping", {
+        documentId: input.documentId,
+      });
+    } else if (error) {
+      console.warn("[Gatekeeper] ai_borrower_name update failed", {
+        documentId: input.documentId,
+        errorCode: (error as any).code,
+        errorMessage: (error as any).message,
+      });
+    }
   }
 }
 

@@ -26,6 +26,9 @@ export const DetectedSignalsSchema = z.object({
   form_numbers: z.array(z.string()),
   has_ein: z.boolean(),
   has_ssn: z.boolean(),
+  // Spec D1 — optional (older cache rows and pre-v2 payloads omit these).
+  business_name: z.string().nullable().optional(),
+  borrower_name: z.string().nullable().optional(),
 });
 
 export const GatekeeperClassificationSchema = z.object({

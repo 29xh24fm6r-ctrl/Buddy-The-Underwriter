@@ -41,6 +41,18 @@ export type GatekeeperClassification = {
     form_numbers: string[];
     has_ein: boolean;
     has_ssn: boolean;
+    /**
+     * Legal business entity name extracted from the document, verbatim.
+     * null when not detected or not applicable (e.g. W-2, PTR, PFS, DL).
+     * Spec D1 — gemini_classifier_v2 and later; older cache rows may be undefined.
+     */
+    business_name?: string | null;
+    /**
+     * Individual person name extracted from the document, verbatim.
+     * null when not detected or not applicable (e.g. pure business-only docs).
+     * Spec D1 — gemini_classifier_v2 and later; older cache rows may be undefined.
+     */
+    borrower_name?: string | null;
   };
 };
 

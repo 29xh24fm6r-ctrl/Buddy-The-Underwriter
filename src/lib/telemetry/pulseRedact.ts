@@ -151,7 +151,14 @@ function isBlockedKey(key: string): boolean {
     lower === "raw_json" ||
     lower === "extraction_json" ||
     lower === "ai_extracted_json" ||
-    lower === "stack"
+    lower === "stack" ||
+    // Spec D1 — entity names extracted from documents. The allowlist drops
+    // these at top level, but an explicit block protects against smuggling
+    // through nested/allowlisted fields that could otherwise whitelist-inherit.
+    lower === "ai_business_name" ||
+    lower === "ai_borrower_name" ||
+    lower === "business_name" ||
+    lower === "borrower_name"
   );
 }
 
