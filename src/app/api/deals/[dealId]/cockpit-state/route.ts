@@ -14,7 +14,10 @@ import {
 } from "@/lib/dealControl/loanRequestCompleteness";
 
 export const runtime = "nodejs";
-export const maxDuration = 15;
+// Spec D5: bumped from 15s. cockpit-state fans out 8+ Supabase queries
+// plus auth + readiness derivation + loan-request deriviations, and 15s
+// ran out on cold-start instances. Sibling cockpit GETs also raised to 60.
+export const maxDuration = 60;
 
 type Params = Promise<{ dealId: string }>;
 

@@ -4,6 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
 import { getChecklistBadge, getPipelineBadge, TONE_CLS } from "./documents/badges";
+import {
+  type StatusFetchState,
+  applyFetchOutcome,
+  isReady as isReadyStatus,
+  buttonMode,
+} from "./statusFetchReducer";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,6 +82,162 @@ function virusBadge(status: string | null): { label: string; cls: string } | nul
   if (status === "infected") return { label: "Infected", cls: "bg-red-500/20 text-red-300 border-red-500/30" };
   if (status === "scan_failed") return { label: "Scan Failed", cls: "bg-red-500/20 text-red-300 border-red-500/30" };
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Status-aware action buttons (Spec D5)
+//
+// Render one of four modes off a StatusFetchState:
+//   - idle / loading → "Loading status…", disabled, neutral styling
+//   - ready          → existing enabled/disabled logic + count label
+//   - failed         → amber "Status unavailable — retry", ENABLED (calls retry)
+//   - pending        → disabled, "X-ing…" label
+//
+// The failed → retry transition is the key Spec D5 guarantee: a transient
+// backend failure never leaves the button in a permanently-disabled state.
+// ---------------------------------------------------------------------------
+
+function ReextractAllButton({
+  state,
+  pending,
+  onRetry,
+  onOpen,
+}: {
+  state: StatusFetchState<{
+    eligibleDocuments: number;
+  }>;
+  pending: boolean;
+  onRetry: () => void;
+  onOpen: () => void;
+}) {
+  if (pending) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 cursor-wait"
+      >
+        Re-extracting…
+      </button>
+    );
+  }
+
+  if (state.kind === "failed") {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        title={state.error}
+        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20"
+      >
+        Status unavailable — retry
+      </button>
+    );
+  }
+
+  if (state.kind === "idle" || state.kind === "loading") {
+    return (
+      <button
+        type="button"
+        disabled
+        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/40"
+      >
+        Loading status…
+      </button>
+    );
+  }
+
+  const hasEligible = state.status.eligibleDocuments > 0;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={!hasEligible}
+      className={[
+        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+        hasEligible
+          ? "border-blue-500/30 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+          : "border-white/10 bg-white/5 text-white/30 cursor-not-allowed",
+      ].join(" ")}
+    >
+      Re-extract All ({state.status.eligibleDocuments})
+    </button>
+  );
+}
+
+function ReclassifyAllButton({
+  state,
+  pending,
+  onRetry,
+  onOpen,
+}: {
+  state: StatusFetchState<{
+    eligibleDocuments: number;
+    hasNewPromptVersion: boolean;
+  }>;
+  pending: boolean;
+  onRetry: () => void;
+  onOpen: () => void;
+}) {
+  if (pending) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-[11px] font-medium text-purple-300 cursor-wait"
+      >
+        Re-classifying…
+      </button>
+    );
+  }
+
+  if (state.kind === "failed") {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        title={state.error}
+        className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20"
+      >
+        Classifier status unavailable — retry
+      </button>
+    );
+  }
+
+  if (state.kind === "idle" || state.kind === "loading") {
+    return (
+      <button
+        type="button"
+        disabled
+        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-white/40"
+      >
+        Loading…
+      </button>
+    );
+  }
+
+  const hasEligible = state.status.eligibleDocuments > 0;
+  // Visually less prominent than Re-extract All — smaller text, subdued color.
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={!hasEligible}
+      title={
+        state.status.hasNewPromptVersion
+          ? "A newer classifier is available. Re-classifying will apply the new logic."
+          : "Re-run Gemini classification on every document"
+      }
+      className={[
+        "rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors",
+        hasEligible
+          ? "border-white/15 bg-white/5 text-white/70 hover:bg-white/10"
+          : "border-white/10 bg-white/5 text-white/30 cursor-not-allowed",
+      ].join(" ")}
+    >
+      Re-classify All ({state.status.eligibleDocuments})
+    </button>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +331,7 @@ function UploadDropZone({
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Re-extract Status
+// Re-extract + Re-classify Status
 // ---------------------------------------------------------------------------
 
 type ReextractStatus = {
@@ -178,6 +340,18 @@ type ReextractStatus = {
   lastExtractionAt: string | null;
   hasNewPromptVersion: boolean;
 };
+
+type ReclassifyStatus = {
+  eligibleDocuments: number;
+  stalePromptCount: number;
+  neverClassifiedCount: number;
+  currentPromptVersion: string;
+  hasNewPromptVersion: boolean;
+};
+
+// StatusFetchState, applyFetchOutcome, isReadyStatus, buttonMode are imported
+// from ./statusFetchReducer — single source of truth; see that file for the
+// state machine and its unit tests.
 
 export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   const [docs, setDocs] = useState<DealDocument[]>([]);
@@ -188,10 +362,25 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   const [uploading, setUploading] = useState(false);
 
   // Re-extract All state
-  const [reextractStatus, setReextractStatus] = useState<ReextractStatus | null>(null);
+  const [reextractStatusState, setReextractStatusState] = useState<
+    StatusFetchState<ReextractStatus>
+  >({ kind: "idle" });
   const [showReextractModal, setShowReextractModal] = useState(false);
   const [reextracting, setReextracting] = useState(false);
   const [reextractResult, setReextractResult] = useState<string | null>(null);
+
+  // Re-classify All state (Spec D5 — new recovery action for banker-visible
+  // misclassifications and for bulk re-running the gatekeeper after a
+  // prompt-version bump like Spec D1 v2).
+  const [reclassifyStatusState, setReclassifyStatusState] = useState<
+    StatusFetchState<ReclassifyStatus>
+  >({ kind: "idle" });
+  const [showReclassifyModal, setShowReclassifyModal] = useState(false);
+  const [reclassifying, setReclassifying] = useState(false);
+  const [reclassifyResult, setReclassifyResult] = useState<string | null>(null);
+  const [reclassifyErrors, setReclassifyErrors] = useState<
+    Array<{ filename: string | null; error: string }>
+  >([]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -210,18 +399,86 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Load re-extract pre-flight status
+  // Load re-extract pre-flight status (Spec D5 — stateful so a timeout or 5xx
+  // never leaves the button stuck disabled; user can always retry).
   const loadReextractStatus = useCallback(async () => {
+    setReextractStatusState(applyFetchOutcome({ type: "start" }));
     try {
-      const res = await fetch(`/api/deals/${dealId}/reextract-all/status`, { cache: "no-store" });
+      const res = await fetch(`/api/deals/${dealId}/reextract-all/status`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setReextractStatusState(
+          applyFetchOutcome({ type: "http_error", status: res.status }),
+        );
+        return;
+      }
       const json = await res.json();
-      if (json?.ok) setReextractStatus(json);
-    } catch {
-      // non-critical — button just won't show eligible count
+      if (json?.ok) {
+        setReextractStatusState(
+          applyFetchOutcome<ReextractStatus>({ type: "success", data: json }),
+        );
+      } else {
+        setReextractStatusState(
+          applyFetchOutcome({
+            type: "payload_error",
+            error: json?.error ?? "Status check returned an error",
+          }),
+        );
+      }
+    } catch (e) {
+      setReextractStatusState(
+        applyFetchOutcome({
+          type: "network_error",
+          error: e instanceof Error ? e.message : "Network error",
+        }),
+      );
     }
   }, [dealId]);
 
-  useEffect(() => { loadReextractStatus(); }, [loadReextractStatus]);
+  useEffect(() => {
+    loadReextractStatus();
+  }, [loadReextractStatus]);
+
+  // Load reclassify pre-flight status (Spec D5).
+  const loadReclassifyStatus = useCallback(async () => {
+    setReclassifyStatusState(applyFetchOutcome({ type: "start" }));
+    try {
+      const res = await fetch(`/api/deals/${dealId}/reclassify-all/status`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setReclassifyStatusState(
+          applyFetchOutcome({ type: "http_error", status: res.status }),
+        );
+        return;
+      }
+      const json = await res.json();
+      if (json?.ok) {
+        setReclassifyStatusState(
+          applyFetchOutcome<ReclassifyStatus>({ type: "success", data: json }),
+        );
+      } else {
+        setReclassifyStatusState(
+          applyFetchOutcome({
+            type: "payload_error",
+            error: json?.error ?? "Status check returned an error",
+          }),
+        );
+      }
+    } catch (e) {
+      setReclassifyStatusState(
+        applyFetchOutcome({
+          type: "network_error",
+          error: e instanceof Error ? e.message : "Network error",
+        }),
+      );
+    }
+  }, [dealId]);
+
+  useEffect(() => {
+    loadReclassifyStatus();
+  }, [loadReclassifyStatus]);
 
   async function handleReextractAll() {
     setReextracting(true);
@@ -247,6 +504,44 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
       setError(e?.message ?? "Re-extraction failed");
     } finally {
       setReextracting(false);
+    }
+  }
+
+  async function handleReclassifyAll() {
+    setReclassifying(true);
+    setReclassifyResult(null);
+    setReclassifyErrors([]);
+    setShowReclassifyModal(false);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/reclassify-all`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (json?.ok) {
+        const total = json.total ?? 0;
+        const reclassified = json.reclassified ?? 0;
+        const failed = json.failed ?? 0;
+        setReclassifyResult(
+          `Re-classified ${reclassified}/${total} documents${failed > 0 ? ` (${failed} failed)` : ""}`,
+        );
+        if (Array.isArray(json.errors)) {
+          setReclassifyErrors(
+            json.errors.map((e: { filename: string | null; error: string }) => ({
+              filename: e.filename,
+              error: e.error,
+            })),
+          );
+        }
+        load(); // refresh doc list — document types may have changed
+        loadReclassifyStatus();
+      } else {
+        setError(json?.error ?? "Re-classification failed");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Re-classification failed");
+    } finally {
+      setReclassifying(false);
     }
   }
 
@@ -282,24 +577,24 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
           </p>
         </div>
 
-        {/* Re-extract All button */}
-        <button
-          type="button"
-          disabled={reextracting || !reextractStatus || reextractStatus.eligibleDocuments === 0}
-          onClick={() => setShowReextractModal(true)}
-          className={[
-            "ml-4 mt-1 shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-            reextracting
-              ? "border-amber-500/30 bg-amber-500/10 text-amber-300 cursor-wait"
-              : reextractStatus && reextractStatus.eligibleDocuments > 0
-                ? "border-blue-500/30 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
-                : "border-white/10 bg-white/5 text-white/30 cursor-not-allowed",
-          ].join(" ")}
-        >
-          {reextracting
-            ? "Re-extracting..."
-            : `Re-extract All${reextractStatus ? ` (${reextractStatus.eligibleDocuments})` : ""}`}
-        </button>
+        {/* Action buttons — Re-classify is a rarer recovery action and sits to
+            the left of the more common Re-extract action. Both buttons use the
+            Spec D5 StatusFetchState pattern: loading / ready / failed-with-retry
+            so a transient backend error never leaves the UI stuck. */}
+        <div className="ml-4 mt-1 flex shrink-0 items-center gap-2">
+          <ReclassifyAllButton
+            state={reclassifyStatusState}
+            pending={reclassifying}
+            onRetry={loadReclassifyStatus}
+            onOpen={() => setShowReclassifyModal(true)}
+          />
+          <ReextractAllButton
+            state={reextractStatusState}
+            pending={reextracting}
+            onRetry={loadReextractStatus}
+            onOpen={() => setShowReextractModal(true)}
+          />
+        </div>
       </div>
 
       {/* Re-extract result banner */}
@@ -316,78 +611,189 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
         </div>
       )}
 
-      {/* Re-extract confirmation modal */}
-      {showReextractModal && reextractStatus && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="mx-4 w-full max-w-md rounded-xl border border-white/15 bg-[#1a1a2e] p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-white">
-              Re-extract All Documents
-            </h2>
-            <p className="mt-2 text-sm text-white/70">
-              This will re-run fact extraction on{" "}
-              <span className="font-semibold text-white">
-                {reextractStatus.eligibleDocuments}
-              </span>{" "}
-              classified documents, recompute spreads, and update Global Cash Flow.
-            </p>
-
-            {/* Type breakdown */}
-            <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-white/40">
-                Documents by Type
-              </div>
-              <div className="mt-2 space-y-1">
-                {Object.entries(reextractStatus.documentsByType).map(
-                  ([type, count]) => (
-                    <div
-                      key={type}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="text-white/70">
-                        {type.replace(/_/g, " ")}
-                      </span>
-                      <span className="text-white/50">{count}</span>
-                    </div>
-                  ),
-                )}
-              </div>
-            </div>
-
-            {/* Last extraction info */}
-            {reextractStatus.lastExtractionAt && (
-              <div className="mt-3 text-xs text-white/50">
-                Last extraction:{" "}
-                {fmtRelativeTime(reextractStatus.lastExtractionAt)}
-              </div>
-            )}
-
-            {/* New prompt version badge */}
-            {reextractStatus.hasNewPromptVersion && (
-              <div className="mt-2 inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
-                New extractor version available
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowReextractModal(false)}
-                className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white/70 hover:bg-white/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleReextractAll}
-                className="rounded-lg border border-blue-500/30 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
-              >
-                Re-extract {reextractStatus.eligibleDocuments} Documents
-              </button>
-            </div>
+      {/* Re-classify result banner */}
+      {reclassifyResult && (
+        <div className="mb-4 rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-300">
+          <div className="flex items-center justify-between">
+            <span>{reclassifyResult}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setReclassifyResult(null);
+                setReclassifyErrors([]);
+              }}
+              className="ml-2 text-green-400 hover:text-green-200"
+            >
+              &times;
+            </button>
           </div>
+          {reclassifyErrors.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-amber-300">
+              {reclassifyErrors.map((e, idx) => (
+                <li key={`${e.filename ?? "unknown"}-${idx}`}>
+                  <span className="font-medium">{e.filename ?? "unknown file"}</span>
+                  {": "}
+                  <span className="text-amber-200/70">{e.error}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
+
+      {/* Re-extract confirmation modal */}
+      {showReextractModal && isReadyStatus(reextractStatusState) && (() => {
+        const reextractStatus = reextractStatusState.status;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="mx-4 w-full max-w-md rounded-xl border border-white/15 bg-[#1a1a2e] p-6 shadow-xl">
+              <h2 className="text-lg font-semibold text-white">
+                Re-extract All Documents
+              </h2>
+              <p className="mt-2 text-sm text-white/70">
+                This will re-run fact extraction on{" "}
+                <span className="font-semibold text-white">
+                  {reextractStatus.eligibleDocuments}
+                </span>{" "}
+                classified documents, recompute spreads, and update Global Cash Flow.
+              </p>
+
+              {/* Type breakdown */}
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
+                <div className="text-xs font-medium uppercase tracking-wide text-white/40">
+                  Documents by Type
+                </div>
+                <div className="mt-2 space-y-1">
+                  {Object.entries(reextractStatus.documentsByType).map(
+                    ([type, count]) => (
+                      <div
+                        key={type}
+                        className="flex items-center justify-between text-sm"
+                      >
+                        <span className="text-white/70">
+                          {type.replace(/_/g, " ")}
+                        </span>
+                        <span className="text-white/50">{count}</span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+
+              {/* Last extraction info */}
+              {reextractStatus.lastExtractionAt && (
+                <div className="mt-3 text-xs text-white/50">
+                  Last extraction:{" "}
+                  {fmtRelativeTime(reextractStatus.lastExtractionAt)}
+                </div>
+              )}
+
+              {/* New prompt version badge */}
+              {reextractStatus.hasNewPromptVersion && (
+                <div className="mt-2 inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                  New extractor version available
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReextractModal(false)}
+                  className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white/70 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReextractAll}
+                  className="rounded-lg border border-blue-500/30 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+                >
+                  Re-extract {reextractStatus.eligibleDocuments} Documents
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Re-classify confirmation modal (Spec D5) */}
+      {showReclassifyModal && isReadyStatus(reclassifyStatusState) && (() => {
+        const reclassifyStatus = reclassifyStatusState.status;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="mx-4 w-full max-w-md rounded-xl border border-white/15 bg-[#1a1a2e] p-6 shadow-xl">
+              <h2 className="text-lg font-semibold text-white">
+                Re-classify all documents
+              </h2>
+              <p className="mt-2 text-sm text-white/70">
+                This will re-run the Gemini gatekeeper classifier on{" "}
+                <span className="font-semibold text-white">
+                  {reclassifyStatus.eligibleDocuments}
+                </span>{" "}
+                documents and may change their document types if the
+                classifier has been updated.
+              </p>
+
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                <div className="font-medium text-white/80">Use this when:</div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  <li>You believe a document was previously misclassified.</li>
+                  <li>
+                    The classifier prompt has been updated and you want to
+                    apply the new logic to existing documents.
+                  </li>
+                </ul>
+                <p className="mt-2 text-white/60">
+                  Document types and entity names (business name, borrower
+                  name) extracted from each document will be updated. Existing
+                  extracted facts will not be touched.
+                </p>
+              </div>
+
+              {/* Breakdown */}
+              <div className="mt-3 space-y-0.5 text-xs">
+                <div className="flex items-center justify-between text-white/60">
+                  <span>Current classifier</span>
+                  <span className="font-mono text-white/50">
+                    {reclassifyStatus.currentPromptVersion}
+                  </span>
+                </div>
+                {reclassifyStatus.stalePromptCount > 0 && (
+                  <div className="flex items-center justify-between text-amber-300/80">
+                    <span>Classified under an older version</span>
+                    <span>{reclassifyStatus.stalePromptCount}</span>
+                  </div>
+                )}
+                {reclassifyStatus.neverClassifiedCount > 0 && (
+                  <div className="flex items-center justify-between text-amber-300/80">
+                    <span>Never classified</span>
+                    <span>{reclassifyStatus.neverClassifiedCount}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReclassifyModal(false)}
+                  className="rounded-lg border border-white/15 px-4 py-2 text-sm text-white/70 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReclassifyAll}
+                  className="rounded-lg border border-purple-500/30 bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500"
+                >
+                  Re-classify {reclassifyStatus.eligibleDocuments} Documents
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Upload Zone */}
       <div className="mb-6">

@@ -7,6 +7,9 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { OPENAI_REALTIME_TRANSCRIBE } from "@/lib/ai/models";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 
 function mustEnv(name: string): string {
   const v = process.env[name];

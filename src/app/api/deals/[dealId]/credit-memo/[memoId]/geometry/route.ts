@@ -4,6 +4,9 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureGeometryForAttachment } from "@/lib/evidence/ensureGeometry";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 function overlap(a1: number, a2: number, b1: number, b2: number) {

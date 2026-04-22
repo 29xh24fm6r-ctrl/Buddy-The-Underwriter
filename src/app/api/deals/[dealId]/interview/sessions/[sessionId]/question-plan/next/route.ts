@@ -15,6 +15,9 @@ import {
 } from "@/lib/interview/questionPlan";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 
 async function assertSessionAccessible(
   supabase: any,

@@ -6,6 +6,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const ACTION_LABELS: Record<string, string> = {

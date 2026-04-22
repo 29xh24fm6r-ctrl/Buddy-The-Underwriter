@@ -16,6 +16,9 @@ import { scheduleBorrowerReminders } from "@/core/borrower-orchestration/schedul
 import { BORROWER_ORCHESTRATABLE_ACTIONS } from "@/core/borrower-orchestration/mapCanonicalActionToBorrowerPlan";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ dealId: string }> };

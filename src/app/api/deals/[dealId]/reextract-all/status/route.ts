@@ -6,6 +6,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default. Cold-start auth + multi-step Supabase I/O runs out of time
+// on a cold serverless instance; the failure mode is Vercel status "-"
+// and a silently-disabled Re-extract All button.
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 

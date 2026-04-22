@@ -5,6 +5,9 @@ import PDFDocument from "pdfkit";
 import { buildDealIntelligence } from "@/lib/dealIntelligence/buildDealIntelligence";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 
 function renderCreditMemoPdf(intel: Awaited<ReturnType<typeof buildDealIntelligence>>) {
   return new Promise<Buffer>((resolve, reject) => {

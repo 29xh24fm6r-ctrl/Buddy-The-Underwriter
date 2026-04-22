@@ -4,6 +4,9 @@ import { requireUnderwriterOnDeal } from "@/lib/deals/participants";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 function authzError(err: any) {

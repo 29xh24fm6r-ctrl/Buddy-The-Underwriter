@@ -6,6 +6,9 @@ import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ dealId: string }> };

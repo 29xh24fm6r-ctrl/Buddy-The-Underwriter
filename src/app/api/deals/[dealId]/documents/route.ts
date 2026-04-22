@@ -7,6 +7,9 @@ import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealC
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
 
 /**
  * GET /api/deals/[dealId]/documents
