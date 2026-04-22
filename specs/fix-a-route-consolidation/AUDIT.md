@@ -279,3 +279,60 @@ Per FIX-C spec's design, the trivial one-line workflow change (remove the `Alway
 - FIX-C remains advisory, not blocking, because we are still 7 routes above its error threshold.
 - 7 additional high-confidence deletion candidates surfaced to Matt. A yes/no on those lands FIX-C enforcement-ready in one more commit within this PR.
 
+---
+
+## Execution: E-1 partial
+
+**Commit:** following T0's `99306b9e`. Per Matt's adjudication, 2 of the 7 proposed E-1 deletions approved; remaining 5 deferred to a follow-up PR that audits them individually.
+
+### Approved — 2 deletions
+
+1. **`src/app/api/deals/deals/[dealId]/etran/submit/route.ts`** — typo'd duplicate of `/api/deals/[dealId]/etran/submit`. Pre-deletion verification: both files were **byte-identical** (`sha256 34eb029e23e30a9b8234b3fbaa1cf76227583255948e5bceaeb1ec217495c381`, 3357 bytes each). The doubled `deals/deals/` path segment means this file is unreachable via its intended URL; the canonical route at `/api/deals/[dealId]/etran/submit` remains in place and serves the real traffic.
+
+2. **`src/app/api/deals/new/upload-session/route.ts`** — 410 Gone tombstone. The file body was:
+   ```ts
+   return NextResponse.json(
+     { ok: false, error: "deprecated_use_bootstrap", requestId },
+     { status: 410 },
+   );
+   ```
+   It explicitly pointed callers at `/api/deals/bootstrap`. 0 callers in `src/`, 0 traffic observed in the last 7 days. A 410-returning route is a route that has been dead long enough that its own deprecation stub is itself dead.
+
+### Inverted decision — 1 retained
+
+- **`src/app/api/deals/bootstrap/route.ts`** — **KEPT**. The `upload-session` tombstone above targets this route, confirming `bootstrap` is the canonical path (not itself abandoned). Deletion would have broken any callers the tombstone's 410 response was redirecting.
+
+### Deferred — 5 routes moved to follow-up PR
+
+Per-route verification during this pass found that the 5 `/status` + `/preflight` siblings do NOT uniformly overlap their parents' GET handlers. The spec's T2 rule assumed equivalence; reality is each pair needs individual shape-comparison before safe deletion:
+
+- `src/app/api/deals/[dealId]/checklist/status/route.ts`
+- `src/app/api/deals/[dealId]/uploads/status/route.ts`
+- `src/app/api/deals/[dealId]/status/route.ts`
+- `src/app/api/deals/[dealId]/spreads/status/route.ts`
+- `src/app/api/deals/[dealId]/spreads/preflight/route.ts` — explicitly noted as a unique diagnostic surface, keep regardless
+
+**Reason for deferral:** 0 src callers is a necessary but not sufficient signal when the parent's GET returns a *different shape* than the sibling's GET. Before deleting any of these, each pair needs:
+1. Read both route handlers
+2. Compare returned JSON shape
+3. If shapes are equivalent: delete the sibling, clients already on the parent path keep working
+4. If shapes diverge: the sibling may be called by an unseen consumer (external portal, monitoring, etc.) — keep, or migrate clients first
+
+That work is architecture, not a tier-rule delete. It belongs in its own spec with per-pair analysis.
+
+### Final count after E-1 partial
+
+| Measurement | Before T0 | After T0 (99306b9e) | After E-1 partial |
+|---|---|---|---|
+| Manifest-mode total | 2053 | 2027 (Δ −26) | **2023** (Δ −30 cumulative) |
+| Vercel cap | 2048 | 2048 | 2048 |
+| Headroom to cap | −5 (at cap) | +21 | **+25** |
+| FIX-C error threshold | 2020 | 2020 | 2020 |
+| Status vs error | over by 33 | over by 7 | **over by 3** |
+
+### Follow-up work
+
+- **Follow-up PR #1** — audit the 5 deferred `/status` + `/preflight` siblings individually. For each: compare parent-GET shape vs sibling shape, trace any external callers beyond `src/`, then either delete + client-migrate OR keep + document why. Expected gain: 6–8 routes if all 5 are deletable after audit (not guaranteed).
+- **Follow-up PR #2** — flip `.github/workflows/route-budget.yml` from advisory to enforcing. Trivial one-line change (remove the final `exit 0` step). Should only happen AFTER Follow-up PR #1 lands us under FIX-C's error threshold (2020) with meaningful cushion. **This PR does NOT touch the FIX-C workflow.**
+- **Optional later** — the three T3 architectural clusters (builder/entities duplication, extract-twin consolidation, recompute duplication). Each is its own spec.
+
