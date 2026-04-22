@@ -1,0 +1,247 @@
+# .github/workflows/route-budget.yml
+# Spec FIX-C — Route count observability (advisory only, no enforcement).
+#
+# What this workflow does:
+#   1. On every PR targeting main (and every push to main), run the fast
+#      file-based route counter against the current tree.
+#   2. Post a comment on the PR reporting the measured count, headroom
+#      to Vercel's 2048 cap, and — when a baseline is available from main
+#      — the delta that this PR introduces.
+#   3. ALWAYS exit 0. This workflow never blocks a merge. Enforcement is
+#      deferred to a future PR after Fix A consolidation brings the
+#      codebase under the error threshold with real cushion.
+#
+# Why advisory only:
+#   Pre-implementation verification during FIX-C (2026-04-22) found the
+#   repo is already at ~2053 measured / ~2047 actual-Vercel-count routes,
+#   above FIX-C's 2020 error threshold. Shipping enforcement today would
+#   block every PR until trimmed. That's not the right sequencing — Fix A
+#   (dedicated consolidation spec) has to come first. This workflow
+#   ships the measurement capability so we can see the number on every
+#   PR while Fix A is being planned.
+#
+# Author responsibility:
+#   If the comment this workflow posts shows status=error, the PR author
+#   is not blocked, but every added route brings us closer to a real
+#   production failure. Prefer method-merging (GET + POST in one route.ts)
+#   over sibling /status directories. Consult BUDDY_PROJECT_ROADMAP.md
+#   for the "what counts as a route" build principle.
+
+name: Route Budget (Advisory)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/**/route.ts"
+      - "src/app/**/route.tsx"
+      - "src/app/**/page.tsx"
+      - "src/app/**/page.ts"
+      - "src/app/**/page.jsx"
+      - "src/app/**/page.js"
+      - "src/pages/**"
+      - "src/middleware.ts"
+      - "src/proxy.ts"
+      - "middleware.ts"
+      - "proxy.ts"
+      - "next.config.mjs"
+      - "next.config.js"
+      - "next.config.ts"
+      - "vercel.json"
+      - "scripts/count-routes.mjs"
+  push:
+    branches: [main]
+
+# Minimum permissions: read the code, write the PR comment.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need baseline branch available
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # No pnpm install needed — count-routes.mjs is a pure Node script
+      # with only built-in deps and one dynamic import of next.config.mjs.
+      # Skipping install keeps this workflow under 15 seconds.
+
+      - name: Count routes on PR branch
+        id: pr
+        run: |
+          node scripts/count-routes.mjs --json > /tmp/pr-count.json
+          echo "total=$(jq -r '.total' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
+          echo "status=$(jq -r '.status' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
+          echo "headroom=$(jq -r '.headroom' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
+          echo "error_threshold=$(jq -r '.thresholds.errorThreshold' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
+          echo "warning_threshold=$(jq -r '.thresholds.warningThreshold' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
+          echo "=== PR branch count ==="
+          cat /tmp/pr-count.json | jq .
+
+      - name: Count routes on main (baseline for delta)
+        if: github.event_name == 'pull_request'
+        id: baseline
+        run: |
+          # Fetch main at the merge-base and count it, without checking it
+          # out (we need to stay on the PR branch for the PR count to be
+          # valid). Use git worktree for an isolated checkout.
+          set -e
+          git fetch origin main --depth=1
+          WORKTREE=$(mktemp -d)
+          git worktree add --detach "$WORKTREE" origin/main
+          pushd "$WORKTREE" > /dev/null
+          node "$GITHUB_WORKSPACE/scripts/count-routes.mjs" --json > /tmp/main-count.json || true
+          popd > /dev/null
+          git worktree remove --force "$WORKTREE" || true
+          MAIN_TOTAL=$(jq -r '.total // empty' /tmp/main-count.json)
+          if [ -z "$MAIN_TOTAL" ]; then
+            echo "main_total=" >> "$GITHUB_OUTPUT"
+            echo "(could not read main baseline)"
+          else
+            echo "main_total=$MAIN_TOTAL" >> "$GITHUB_OUTPUT"
+            echo "main baseline: $MAIN_TOTAL"
+          fi
+
+      - name: Compute delta and build comment body
+        if: github.event_name == 'pull_request'
+        id: comment_body
+        env:
+          PR_TOTAL: ${{ steps.pr.outputs.total }}
+          PR_STATUS: ${{ steps.pr.outputs.status }}
+          PR_HEADROOM: ${{ steps.pr.outputs.headroom }}
+          ERROR_THRESHOLD: ${{ steps.pr.outputs.error_threshold }}
+          WARNING_THRESHOLD: ${{ steps.pr.outputs.warning_threshold }}
+          MAIN_TOTAL: ${{ steps.baseline.outputs.main_total }}
+        run: |
+          node -e '
+            const prTotal = Number(process.env.PR_TOTAL);
+            const prStatus = process.env.PR_STATUS;
+            const prHeadroom = Number(process.env.PR_HEADROOM);
+            const errorThreshold = Number(process.env.ERROR_THRESHOLD);
+            const warningThreshold = Number(process.env.WARNING_THRESHOLD);
+            const mainTotal = process.env.MAIN_TOTAL ? Number(process.env.MAIN_TOTAL) : null;
+            const delta = mainTotal !== null ? prTotal - mainTotal : null;
+            const deltaFlagged = delta !== null && Math.abs(delta) >= 50;
+
+            // Tone per FIX-C guidance: sober accuracy, no alarm language.
+            // Enforcement is paused until Fix A lands, so status=error on a
+            // PR is informational, not blocking.
+            const lines = [];
+            lines.push(`### Route Budget — ${prTotal} / 2048`);
+            lines.push("");
+            lines.push("| measurement | value |");
+            lines.push("| --- | --- |");
+            lines.push(`| total (PR branch, post-calibration) | **${prTotal}** |`);
+            lines.push(`| headroom to Vercel cap (2048) | ${prHeadroom} |`);
+            lines.push(`| error threshold (spec FIX-C) | ${errorThreshold} |`);
+            lines.push(`| warning threshold | ${warningThreshold} |`);
+            lines.push(`| status | \`${prStatus}\` |`);
+            if (mainTotal !== null) {
+              const sign = delta >= 0 ? "+" : "";
+              lines.push(`| main baseline | ${mainTotal} |`);
+              lines.push(`| Δ vs main | **${sign}${delta}** |`);
+            } else {
+              lines.push(`| Δ vs main | (unavailable — could not read main baseline) |`);
+            }
+            lines.push("");
+
+            const notes = [];
+
+            if (prStatus === "error") {
+              notes.push(
+                "**Status is `error`.** The measurement is above the FIX-C error threshold of " +
+                  errorThreshold +
+                  ". Enforcement is paused until Fix A (route consolidation) lands us under the threshold with real cushion — this comment is informational, not blocking. Every additional route brings us closer to Vercel'"'"'s 2048 hard cap; prefer method-merging (GET + POST in one `route.ts`) and avoid adding new sibling `/status` directories. See the `route_budget_and_vercel_cap` build principle in `BUDDY_PROJECT_ROADMAP.md`.",
+              );
+            } else if (prStatus === "warning") {
+              notes.push(
+                "Status is `warning` (within " +
+                  (errorThreshold - warningThreshold) +
+                  " routes of the FIX-C error threshold). Consider whether any new endpoints can method-merge onto existing `route.ts` files.",
+              );
+            }
+
+            if (deltaFlagged) {
+              notes.push(
+                "**Large delta (" +
+                  (delta >= 0 ? "+" : "") +
+                  delta +
+                  ", ≥±50).** This PR changes the measured route count by more than the background-growth threshold. Single-PR jumps of this size usually signal a structural change (new admin area, new feature surface) and warrant review of whether any of the new routes can consolidate with existing ones.",
+              );
+            }
+
+            notes.push(
+              "Calibration: formula calibrated against `dpl_BwicDiAu3wRGAv1agSZqTy7zf6b9` (Next.js 16.1.x, 2026-04-22). Expect ±5-15 drift vs Vercel'"'"'s actual count. Re-verify after Next.js major upgrades.",
+            );
+
+            for (const n of notes) {
+              lines.push(n);
+              lines.push("");
+            }
+
+            lines.push("<sub>Advisory check — never blocks merge. Run `node scripts/count-routes.mjs` locally for the full breakdown.</sub>");
+
+            const body = lines.join("\n");
+            // GitHub Actions multiline output contract
+            const delim = "EOF_" + Math.random().toString(36).slice(2);
+            console.log("body<<" + delim);
+            console.log(body);
+            console.log(delim);
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Upsert PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          COMMENT_BODY: ${{ steps.comment_body.outputs.body }}
+        with:
+          script: |
+            const marker = "### Route Budget —";
+            const body = process.env.COMMENT_BODY;
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(
+              (c) => c.user?.type === "Bot" && (c.body || "").startsWith(marker),
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+      - name: Summary (push to main builds historical time series)
+        if: github.event_name == 'push'
+        run: |
+          {
+            echo "## Route Budget on main"
+            echo ""
+            cat /tmp/pr-count.json | jq .
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # FIX-C spec: this workflow is ADVISORY ONLY. Exit 0 always, even
+      # when status=error. Enforcement will be added in a separate PR
+      # after Fix A brings the codebase under threshold with real cushion.
+      - name: Always pass (advisory-only enforcement contract)
+        run: exit 0
