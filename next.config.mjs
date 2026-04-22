@@ -75,15 +75,10 @@ const nextConfig = {
         ],
       },
       {
-        // Credit memo pages — microphone allowed for Gemini Live banker interview
-        source: "/credit-memo/(.*)",
-        headers: [
-          { key: "Permissions-Policy", value: "camera=(), microphone=self, geolocation=()" },
-        ],
-      },
-      {
-        // Deal cockpit pages — microphone allowed for Gemini Live banker interview
-        source: "/deals/(.*)",
+        // Spec D5: merged the /credit-memo/* and /deals/* microphone-allowed
+        // rules into one to reduce manifest entries (Vercel 2048-route cap).
+        // Both surfaces host Gemini Live banker interviews.
+        source: "/:base(credit-memo|deals)/:rest*",
         headers: [
           { key: "Permissions-Policy", value: "camera=(), microphone=self, geolocation=()" },
         ],

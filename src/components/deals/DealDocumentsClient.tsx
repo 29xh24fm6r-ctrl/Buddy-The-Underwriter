@@ -401,10 +401,12 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
 
   // Load re-extract pre-flight status (Spec D5 — stateful so a timeout or 5xx
   // never leaves the button stuck disabled; user can always retry).
+  // GET + POST share the same path to stay under Vercel's 2048-route cap.
   const loadReextractStatus = useCallback(async () => {
     setReextractStatusState(applyFetchOutcome({ type: "start" }));
     try {
-      const res = await fetch(`/api/deals/${dealId}/reextract-all/status`, {
+      const res = await fetch(`/api/deals/${dealId}/reextract-all`, {
+        method: "GET",
         cache: "no-store",
       });
       if (!res.ok) {
@@ -440,11 +442,13 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
     loadReextractStatus();
   }, [loadReextractStatus]);
 
-  // Load reclassify pre-flight status (Spec D5).
+  // Load reclassify pre-flight status (Spec D5). GET + POST share the same
+  // path to stay under Vercel's 2048-route platform cap.
   const loadReclassifyStatus = useCallback(async () => {
     setReclassifyStatusState(applyFetchOutcome({ type: "start" }));
     try {
-      const res = await fetch(`/api/deals/${dealId}/reclassify-all/status`, {
+      const res = await fetch(`/api/deals/${dealId}/reclassify-all`, {
+        method: "GET",
         cache: "no-store",
       });
       if (!res.ok) {
