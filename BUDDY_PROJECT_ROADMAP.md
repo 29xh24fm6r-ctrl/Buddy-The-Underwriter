@@ -1,8 +1,8 @@
 # Buddy The Underwriter — Project Roadmap
 # Institutional-Grade Commercial Lending AI Platform
 
-**Last Updated: April 20, 2026**
-**Status: Phase 84 closing (9 of 10 tickets complete) — see `docs/archive/phase-84/` for per-ticket AARs.**
+**Last Updated: April 22, 2026**
+**Status: Phase 84 closing (9 of 10 tickets complete) — see `docs/archive/phase-84/` for per-ticket AARs. Active test pack run in progress — see AAR 2026-04-22.**
 **Most recent architectural work: Phases 68–83 (ignite wizard, joint-filer intelligence, proof-of-truth, classification supremacy, lease/credit-memo). Historical phase AARs + specs in `docs/archive/phase-pre-84/` after T-10A archival.**
 
 ---
@@ -205,15 +205,15 @@ Browser
 
 ## Current State — Active Deals
 
-**Deal ffcc9733** — Samaritus Management LLC — ~~*primary active test deal*~~ **DELETED from prod during pre-Phase-84 cleanup. New canonical test deal TBD. See Phase 84.1 backlog (T-08-G production-activity baseline).**
-- 9/9 docs. NET_INCOME = $204,096 (2025). ADS = $67,368. DSCR = 4.27x.
-- ✅ AI Risk: BB+ grade, 975 bps
-- ✅ BIE: LIVE — 9 memo subsections with Gemini-written content
-- ✅ Story tab: 3 BIE underwriting questions surfaced, 6 guided fields
-- ✅ Voice interview: Gemini Live via Fly.io gateway
-- ✅ Deal Health Panel: live — shows completeness % and open gaps
-- 🔴 Ialacci bio: retype in wizard under UUID key (one-time)
-- 🔴 Reconciliation: `recon_status` NULL — blocks Committee signal
+**Test Deal `d65cc19e-b03e-4f2d-89ce-95ee69472cf3`** — "Test Deal 4-22-26 #1" on Old Glory Bank — **active banker-side test pack run (Run 1, Path B).** See AAR 2026-04-22.
+- 9/9 docs uploaded: 3× BTR SAMARITUS (2022/23/24), 3× PTR NEWMARK (2022/23/24), 1× PFS, 1× Samaritus Balance Sheet 2025, 1× Samaritus P&L 2025.
+- Pipeline state: intake → OCR → classification → raw-fact extraction all ran. 242 `deal_financial_facts`, 6 `deal_spreads`. Snapshot/recon correctly blocked at `LOAN_REQUEST_INCOMPLETE` preflight. Deal parked at `stage=collecting`.
+- **D1 blocker surfaced:** gatekeeper classifier does not extract entity names (`ai_business_name`/`ai_borrower_name` NULL on all 9 docs). Deal's `display_name` stuck NULL. Fix spec drafted — D1.
+- **D3 ledger pollution:** fastlane Pulse forwarder emits `pulse.forwarding_failed: pulse_mcp_disabled` on every checklist tick (missing `PULSE_MCP_ENABLED` env). Fix spec drafted — D3.
+- **D2 external issue:** Omega MCP returns `Method not found` on all four resources Buddy calls (`omega://events/write`, `omega://confidence/evaluate`, `omega://state/underwriting_case/{id}`, `omega://traces/{id}`). Buddy side correct; Omega Prime side out of sync. Queued in Phase 84.1 backlog.
+- Test pack resumes after D1+D3 merge: banker enters loan request → snapshot/recon/UW/approve.
+
+**Prior canonical deal `ffcc9733` — Samaritus Management LLC** — **DELETED from prod during pre-Phase-84 cleanup.** Historical reference only.
 
 ---
 
@@ -224,12 +224,13 @@ Browser
 1. ~~Apply builder migration~~ ✅ DONE — all 3 builder tables confirmed live in production with RLS
 2. **Retype Ialacci bio** — re-open wizard, one-time retype under UUID key
 3. **Reconciliation** — `recon_status` NULL blocks Committee Approve signal
+4. **Ship D1 (classifier entity names) + D3 (fastlane silence)** — blocks clean test pack continuation. Specs drafted 2026-04-22.
 
 ### P2 — Near Term
 
 - **`buildCanonicalCreditMemo` reads confirmed facts** — replace `deal_memo_overrides` with confirmed `deal_financial_facts`
 - **Model Engine V2 activation** — feature flag disabled, DB tables empty
-- **Observability pipeline** — missing env vars, Pulse events not flowing
+- **Observability pipeline** — distinguishes two paths: (a) **batch forwarder** (`PULSE_TELEMETRY_ENABLED` + `PULSE_BUDDY_INGEST_URL` + `PULSE_INGEST_TOKEN`) — confirmed working via PR #823 / commit `881ace13`; (b) **fastlane forwarder** (`PULSE_MCP_ENABLED` + `PULSE_MCP_URL`) — NOT configured, emits degraded signals on every event. D3 spec silences fastlane until configured. If real-time Pulse visibility is desired, set the fastlane env vars in Vercel.
 - **Corpus expansion** — 2 docs, need 10+ for bank confidence
 - **Projection years** — Year 1/Year 2 rows in debt coverage + income statement
 - **BIE vertical packs** — healthcare, construction, transportation, food service (Phase 36)
@@ -384,6 +385,9 @@ Browser
 - **Deal Builder milestone facts: `BUILDER_COMPLETION_PCT`, `CREDIT_READY_PCT`, `DOC_READY_PCT` written to `deal_financial_facts` after every section save. source_type = "COMPUTED", confidence = 1.00.**
 - **Deal Builder story write-through: `competitive_position` and `committee_notes` are new keys in `deal_memo_overrides`. Always merge, never replace.**
 - **`ssn_last4` (4 chars max) is the only SSN field in Phase 53A. Full SSN vault path is Phase 53C.**
+- **Gatekeeper classifier is responsible for entity name extraction, not just type. Prompt must request `business_name` and `borrower_name` in `detected_signals`; writer must persist them to `deal_documents.ai_business_name` / `ai_borrower_name`. The naming engine depends on these fields — empty names mean `deals.display_name` stays NULL forever. (D1, AAR 2026-04-22)**
+- **Fastlane Pulse forwarder (`src/lib/outbox/tryForwardToPulse.ts`) must not emit `pulse.forwarding_failed` for config-state errors (`pulse_mcp_disabled`, `url_missing`) — those are disabled states, not degradation. The batch forwarder is the system of record; the fastlane is an optional accelerator. Only emit degraded signals for real transport failures. (D3, AAR 2026-04-22)**
+- **Omega MCP is advisory-only (SR 11-7 wall). Buddy's canonical pipeline must never depend on an Omega call succeeding. `invokeOmega` already returns `{ ok: false }` on failure without throwing — call sites must respect that contract and never treat Omega degradation as a pipeline blocker. (D2 confirmation, AAR 2026-04-22)**
 
 ---
 
@@ -439,6 +443,7 @@ See `docs/archive/phase-84/` for per-ticket AARs and audit docs.
 | Phases 71–75 | Agent group + governance foundation (writers queued in Phase 84.1) | ✅ Complete | — |
 | Phases 78–83 | Memo evidence metadata, joint-filer intelligence, proof-of-truth, classification supremacy, Ignite Wizard | ✅ Complete | — |
 | **Phase 84** | **System audit remediation** — 10 tickets, 4 audit-only conversions, 6 implementations. See `docs/archive/phase-84/` | **🟡 Closing** | **9/10 complete** |
+| **AAR 2026-04-22** | **Test Pack Run 1 (Samaritus, Path B) — D1/D3 specs drafted, D2 queued** | **🟡 Specs out** | **pending Claude Code** |
 
 ---
 
@@ -453,6 +458,38 @@ See `docs/archive/phase-84/` for per-ticket AARs and audit docs.
 **Commits:** 4c5225f (initial) + 0eb522a (spec-aligned rebuild) | **Tables:** 1 + 6 columns | **Files:** 7
 
 Initial build had wrong DB column names, synthetic rates, 0-100 scale. Spec-aligned rebuild corrected all deviations. Real 899k loan dataset rates (7.8–28.2%). Four weighted factors: industry 40%, business age 35%, loan term 15%, urban/rural 10%. `newBusinessProtocol.ts` SOP 50 10 8 compliant — DSCR 1.25x projected (new) vs 1.10x historical (existing). `SBARiskProfilePanel` positioned at top of SBA Package tab before assumption interview.
+
+---
+
+## Session AAR — April 22, 2026
+
+### Test Pack Run 1 — Samaritus (Path B, banker-side full pipeline) 🟡 IN PROGRESS
+
+**Deal:** `d65cc19e-b03e-4f2d-89ce-95ee69472cf3` ("Test Deal 4-22-26 #1") on Old Glory Bank.
+**Scope:** full pipeline — intake → extraction → recon → UW → approve, via real document upload through the web UI.
+**Outcome:** intake → OCR → classification → raw-fact extraction all ran. Pipeline correctly halted at loan-request preflight gate. Four adjacent defects surfaced during the run.
+
+**Defects identified:**
+
+- **D1 (blocking) — Gatekeeper classifier does not extract entity names.** `ai_business_name` / `ai_borrower_name` NULL on all 9 docs. Gemini prompt doesn't request them; response schema has no place for them. Naming engine has nothing to work with, `deals.display_name` stuck NULL. Spec drafted (`specs/aar-2026-04-22-test-pack-run-1/spec-d1-classifier-entity-names.md`).
+- **D2 (external) — Omega Prime MCP returns `Method not found` for all four resources Buddy calls.** Buddy side correct. Needs investigation on the Omega Prime / Pulse side. Queued in Phase 84.1 backlog.
+- **D3 (ledger pollution) — Fastlane Pulse forwarder emits degraded signals for missing config.** `PULSE_MCP_ENABLED` not set in Vercel; `pulse.forwarding_failed: pulse_mcp_disabled` fires on every checklist tick. Batch forwarder (separate env vars) confirmed working. Spec drafted (`specs/aar-2026-04-22-test-pack-run-1/spec-d3-fastlane-pulse-silence.md`).
+- **D4 (one-off) — Single POST 500 on cockpit first load.** Sub-route truncated in Vercel logs. Likely Omega-coupled (D2); if D2 resolves, D4 goes away. No spec.
+- **D6 (prompt tuning) — Gemini misclassified one PTR as `IRS_BUSINESS`.** Anchor router caught it (`canonical_type` correct). Low priority.
+- **D7 (quality) — Samaritus Balance Sheet 2025 marked `SUSPECT` by extraction quality gate.** Recurring on Samaritus balance sheet; deeper investigation after test resumes.
+
+**Non-defects flagged:**
+
+- `stage=collecting` persisting is correct behavior — lifecycle engine honoring the "loan request required before snapshot" invariant.
+- Stale `layout-...js` 404 in browser console — cache, not a bug.
+- `doc_extractions` table has 0 rows despite 9 `deal_extraction_runs` — likely deprecated, facts now live in `deal_financial_facts`. Cleanup candidate, not urgent.
+
+**Specs out for implementation:**
+
+1. D1 — classifier entity-name extraction (3 files + 1 migration)
+2. D3 — fastlane Pulse-disabled silence (1 file)
+
+**Next:** Claude Code implements D1 + D3 → verify via the 4-step protocol in the AAR → banker enters a loan request → snapshot/recon/UW/approve fire → resume rest of test pack.
 
 ---
 
@@ -558,12 +595,13 @@ creating new underwriting control planes.
 
 ## Next Phases (priority order)
 
-1. **Phase 84.1 backlog** — see `docs/archive/phase-84/` for generated tickets, including the gating **T-08-G** (production activity baseline). Until T-08-G is answered ("are there any live paying banks?"), the rest of 84.1 priority ordering is provisional. Tickets queued: T-08-A (recon rarity), T-08-C (executeCanonicalAction never invoked), T-08-E (wire analyst-correction UI), T-08-B/D/F (governance writers), RLS Batch B, fact re-parenting, `.update()/.insert()` silent-error audit.
-2. **Canonical Credit Memo Facts** — Replace `deal_memo_overrides` dependency for computed fields. Keep overrides only for qualitative banker-supplied narrative.
-3. **Observability** — Activate telemetry/Pulse/event flow. Tables exist but event forwarding not flowing.
-4. **Model Engine V2** — Enable feature flag + seeding once observability exists.
-5. **Borrower Intake** — Replace the stopgap wizard per core architecture.
-6. **Corpus Expansion** — Needed for bank confidence and model quality.
+1. **Ship D1 + D3** (Test Pack Run 1 blockers, specs drafted 2026-04-22). Tight, shippable. Unblocks continuation of the banker-side test pack and fixes `deals.display_name` on every future deal.
+2. **Phase 84.1 backlog** — see `docs/archive/phase-84/` for generated tickets, including the gating **T-08-G** (production activity baseline). Until T-08-G is answered ("are there any live paying banks?"), the rest of 84.1 priority ordering is provisional. Tickets queued: T-08-A (recon rarity), T-08-C (executeCanonicalAction never invoked), T-08-E (wire analyst-correction UI), T-08-B/D/F (governance writers), RLS Batch B, fact re-parenting, `.update()/.insert()` silent-error audit, **D2 — Omega MCP `Method not found` investigation (Buddy-side correct; Omega/Pulse side needs audit of exposed methods vs. what Buddy calls)**.
+3. **Canonical Credit Memo Facts** — Replace `deal_memo_overrides` dependency for computed fields. Keep overrides only for qualitative banker-supplied narrative.
+4. **Observability** — Activate fastlane telemetry if real-time Pulse visibility is desired (set `PULSE_MCP_ENABLED` + `PULSE_MCP_URL`). Batch forwarder already working. See D3 roadmap note.
+5. **Model Engine V2** — Enable feature flag + seeding once observability exists.
+6. **Borrower Intake** — Replace the stopgap wizard per core architecture.
+7. **Corpus Expansion** — Needed for bank confidence and model quality.
 
 ---
 
