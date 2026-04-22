@@ -181,20 +181,101 @@ Tiers E-2 and E-3 are deferred to a separate Fix A-2 scope because they need arc
 
 ## Execution appendix
 
-(This section will be filled in by the A-2 commits after each batch runs.)
-
 ### Batch 1 — T0 deletions
 
-*Filled in post-execution.*
+**Commit:** `99306b9e` — `feat(fix-a): T0 deletions — 13 debug/dev routes with 0 src callers`
+
+Deleted 13 files (12 originally scoped + 1 caught by audit-bug fix):
+
+| File | Verification |
+|---|---|
+| `src/app/api/debug/clerk/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/deals/[dealId]/facts/recompute/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/edge-auth/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/edge-ping/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/me/route.ts` | 0 imports, 0 callers (auto-grep `search_too_short`; verified manually) |
+| `src/app/api/debug/storage-probe/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/supabase/route.ts` | 0 imports, 0 callers (missed by initial audit, see bug note below) |
+| `src/app/api/debug/supabase-raw/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/upload-health/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/version/route.ts` | 0 imports, 0 callers |
+| `src/app/api/debug/vertex-probe/route.ts` | 0 imports, 0 callers |
+| `src/app/api/dev/gemini-ocr-test/route.ts` | 0 imports, 0 callers |
+| `src/app/api/dev/storage/health/route.ts` | 0 imports, 0 callers |
+
+**Audit bug caught and corrected during T0 execution:** the initial enumeration in this AUDIT.md missed `src/app/api/debug/supabase/route.ts` because the audit script's `IGNORE_DIRS` Set included `"supabase"` (to skip the top-level `supabase/` migrations directory). That filter matched nested `supabase/` subdirectories too — both `src/app/api/debug/supabase/` and `src/app/api/health/supabase/`. The health one has verified callers (linked from `src/app/health/page.tsx`) and remains kept; the debug one had 0 callers and was added to T0. Net correction: T0 total went from 12 to 13 files. `scripts/count-routes.mjs` itself does NOT have this bug — its `IGNORE_DIRS` is used only for non-route directories and doesn't apply to `src/app/` tree walking.
 
 ### Batch 2 — T1 deletions
 
-*Skipped — no T1 candidates.*
+Skipped. No T1 candidates in the codebase.
 
 ### Batch 3 — T2 merges
 
-*Skipped — all 5 candidates demoted to T4.*
+Skipped. All 5 sibling-mergeable candidates were demoted to T4 (parent routes already export GET).
 
 ### Batch 4 — Stop check
 
-*Filled in post-execution.*
+| Measurement | Before (commit d20ddae3) | After T0 (commit 99306b9e) |
+|---|---|---|
+| Manifest-mode total | 2053 | **2027** (Δ = −26) |
+| Fast-mode total | 2059 | ≈2033 |
+| Vercel cap | 2048 | 2048 |
+| Headroom to cap | −5 | **+21** |
+| FIX-C error threshold | 2020 | 2020 |
+| Status vs error threshold | over by 33 | over by 7 |
+| Fix A target (2018) | over by 35 | over by 9 |
+
+**Stop-check decision:** `count (2027) > TARGET_COUNT (2018)`. Per Fix A spec §A-2 Batch 4, execution stops here and escalates T3/T4 candidates for Matt's adjudication. Claude Code does NOT proceed into E-1/E-2/E-3 tiers without explicit approval.
+
+**What T0 bought us:**
+- Moved from **at-cap** (headroom −5) to **safely under cap** (headroom +21). This is the immediate Vercel-risk reduction Fix A's first priority — the next accidental new route.ts file no longer risks another `too_many_routes` production outage.
+- Still 7 above FIX-C's error threshold, so FIX-C cannot flip from advisory to enforcing yet. That's the residual Fix A work.
+
+---
+
+## Escalation decision for Matt
+
+Fix A's stated target (2018) is not hit by default rules. 9 more routes must be removed for enforcement-flip readiness. The options ranked by confidence-to-delete:
+
+### Question 1: approve Tier E-1 bulk delete?
+
+The 7 high-confidence extras listed in the original "Needs escalation" section above. Each has 0 src callers. Each is in a category where 0 src callers is a *strong* signal of genuine orphan (either typo, deprecated, or functionality now lives on the parent route):
+
+- `src/app/api/deals/deals/[dealId]/etran/submit/route.ts` (path typo — `deals/deals/` is malformed)
+- `src/app/api/deals/bootstrap/route.ts`
+- `src/app/api/deals/new/upload-session/route.ts`
+- `src/app/api/deals/[dealId]/checklist/status/route.ts` (demoted T2)
+- `src/app/api/deals/[dealId]/uploads/status/route.ts` (demoted T2)
+- `src/app/api/deals/[dealId]/status/route.ts` (demoted T2)
+- `src/app/api/deals/[dealId]/spreads/status/route.ts` (demoted T2)
+
+If all 7 are approved: estimated count goes from 2027 to **≈2013** (Δ −14), which is under target 2018 with 6 routes of cushion.
+
+**Residual risk:** none of these routes have callers in `src/`, but my grep cannot see callers in `public/`, external clients (borrower portal, examiner portal, monitoring systems), or `.github/` workflow files. The 5 demoted T2 siblings are particularly worth double-checking — they were called at some point (their parent routes have overlapping but not identical behavior), and "0 callers now" could mean "migrated to the parent" or could mean "still called but through a client we can't see".
+
+**Fastest adjudication:** if you're confident that any of these 7 have no external callers, say so and I'll execute the deletions in one more commit. For any you're uncertain about, leave them in place; the 4 I flagged for sure-orphan status (typo path + deals/bootstrap + deals/new/upload-session + one of the `/status` siblings) alone would get us to ≈2019, 1 over target — which is close enough that FIX-C enforcement could flip to `warning` status without false-positive-blocking new PRs.
+
+### Question 2: approve Tier E-2 architectural consolidation?
+
+Three T3 clusters each need a design call, not just a deletion decision:
+
+- `/builder/entities/[entityId]` vs `/entities/[entityId]` — keep which as canonical?
+- `/re-extract` + `/reextract-all` + `/reprocess-documents` — which combinations consolidate?
+- `/recompute` vs `/pipeline-recompute` — architectural intent?
+
+Each cluster could save 2-4 routes. These are slower work (need to read each route, understand callers, potentially migrate clients) and would be a separate follow-up PR rather than this one. Recommend deferring unless you see a clear winner.
+
+### Question 3: proceed to flip FIX-C to enforcing after Fix A lands?
+
+Per FIX-C spec's design, the trivial one-line workflow change (remove the `Always pass (advisory-only enforcement contract)` final step) can happen in a third PR as soon as we're under the ERROR threshold 2020 with meaningful cushion. That requires at least a few of the E-1 approvals to go through. Recommended: wait until we're at ~2010 or lower before flipping.
+
+---
+
+## Summary for the PR reader
+
+- Started at 2053 routes. The Vercel cap is 2048.
+- Shipped 13 surgical deletions (all debug/dev endpoints with 0 src callers, per the spec's T0 rule). Count dropped to 2027.
+- Vercel blast radius reduced: went from at-cap to +21 routes of headroom.
+- FIX-C remains advisory, not blocking, because we are still 7 routes above its error threshold.
+- 7 additional high-confidence deletion candidates surfaced to Matt. A yes/no on those lands FIX-C enforcement-ready in one more commit within this PR.
+
