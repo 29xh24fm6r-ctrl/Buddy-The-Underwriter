@@ -143,13 +143,31 @@ export async function getOmegaAdvisoryState(
 
     const hasData = state?.ok || conf?.ok;
 
+    // Distinguish the kill-switched read-path signal from generic "no data".
+    // If any sub-call carries pulse_advisory_tools_not_yet_available, Pulse
+    // simply doesn't expose deal-scoped advisory tools yet (PULSE-SIDE-SPEC).
+    const subResults = [state, conf, tr];
+    const anyKillSwitched = subResults.some(
+      (r) =>
+        r &&
+        r.ok === false &&
+        r.error === "pulse_advisory_tools_not_yet_available",
+    );
+
+    let staleReason: string | undefined;
+    if (!hasData) {
+      staleReason = anyKillSwitched
+        ? "Deal-scoped advisory tools not yet available in Pulse"
+        : "Omega returned no data for this deal";
+    }
+
     return {
       confidence: conf?.ok ? (conf.data?.score ?? -1) : -1,
       advisory: state?.ok ? (state.data?.recommendation ?? "") : "",
       riskEmphasis: state?.ok ? (state.data?.signals ?? []) : [],
       traceRef: tr?.ok ? (tr.data?.id ?? null) : null,
       stale: !hasData,
-      staleReason: hasData ? undefined : "Omega returned no data for this deal",
+      staleReason,
     };
   } catch (err) {
     console.error("[OmegaAdvisoryAdapter] error:", err);
