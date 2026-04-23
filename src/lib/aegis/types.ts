@@ -40,6 +40,8 @@ export type AegisSourceSystem =
   | "classify_processor"
   | "extract_processor"
   | "spreads_processor"
+  | "spreads_orchestrator"
+  | "spreads_janitor"
   | "artifact_processor"
   | "enqueue_spread_recompute"
   | "checklist_key_endpoint"

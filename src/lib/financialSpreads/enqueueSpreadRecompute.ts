@@ -128,8 +128,115 @@ export async function enqueueSpreadRecompute(args: {
     }
   }
 
-  // Best-effort: create placeholder spreads so UI can show "queued" immediately.
-  // Version MUST come from the template registry — never hardcode.
+  // ── Step 1: Resolve target job (existing merge OR new insert) ───────────
+  // Job must exist before we upsert placeholders, otherwise a failure between
+  // the two steps leaves orphan 'queued' placeholders with no job to process
+  // them (STUCK-SPREADS fix, 2026-04-23).
+
+  const { data: existingJob } = await (sb as any)
+    .from("deal_spread_jobs")
+    .select("id, requested_spread_types")
+    .eq("deal_id", args.dealId)
+    .eq("bank_id", args.bankId)
+    .in("status", ["QUEUED", "RUNNING"])
+    .maybeSingle();
+
+  let targetJobId: string;
+  let wasEnqueued: boolean;
+  let wasMerged: boolean;
+
+  if (existingJob) {
+    const existingTypes = (existingJob.requested_spread_types ?? []) as string[];
+    const merged = uniq([...existingTypes, ...readyTypes]);
+
+    if (merged.length > existingTypes.length) {
+      const { error: updateErr } = await (sb as any)
+        .from("deal_spread_jobs")
+        .update({
+          requested_spread_types: merged,
+          meta: {
+            ...(args.meta ?? {}),
+            owner_type: args.ownerType ?? "DEAL",
+            owner_entity_id: args.ownerEntityId ?? null,
+            merged_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingJob.id);
+      if (updateErr) {
+        return { ok: false as const, error: `merge_failed: ${updateErr.message}` };
+      }
+    }
+    targetJobId = String(existingJob.id);
+    wasEnqueued = false;
+    wasMerged = true;
+  } else {
+    const payload = {
+      deal_id: args.dealId,
+      bank_id: args.bankId,
+      source_document_id: args.sourceDocumentId ?? null,
+      requested_spread_types: readyTypes,
+      status: "QUEUED",
+      next_run_at: new Date().toISOString(),
+      meta: {
+        ...(args.meta ?? {}),
+        owner_type: args.ownerType ?? "DEAL",
+        owner_entity_id: args.ownerEntityId ?? null,
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: insertData, error: insertErr } = await (sb as any)
+      .from("deal_spread_jobs")
+      .insert(payload)
+      .select("id")
+      .maybeSingle();
+
+    if (insertErr) {
+      if (insertErr.code === "23505") {
+        // Race: another concurrent enqueue won. Find their job and merge.
+        const { data: raceJob } = await (sb as any)
+          .from("deal_spread_jobs")
+          .select("id, requested_spread_types")
+          .eq("deal_id", args.dealId)
+          .eq("bank_id", args.bankId)
+          .in("status", ["QUEUED", "RUNNING"])
+          .maybeSingle();
+
+        if (raceJob) {
+          const merged = uniq([
+            ...((raceJob.requested_spread_types ?? []) as string[]),
+            ...readyTypes,
+          ]);
+          await (sb as any)
+            .from("deal_spread_jobs")
+            .update({
+              requested_spread_types: merged,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", raceJob.id);
+          targetJobId = String(raceJob.id);
+          wasEnqueued = false;
+          wasMerged = true;
+        } else {
+          return { ok: false as const, error: "race_no_job_found" };
+        }
+      } else {
+        return { ok: false as const, error: insertErr.message };
+      }
+    } else {
+      if (!insertData?.id) {
+        return { ok: false as const, error: "insert_returned_no_id" };
+      }
+      targetJobId = String(insertData.id);
+      wasEnqueued = true;
+      wasMerged = false;
+    }
+  }
+
+  // ── Step 2: Upsert placeholders (only after job is confirmed) ───────────
+  // If this fails, the job still exists and the worker will process it —
+  // placeholders just won't show "queued" in the UI until the next tick.
   try {
     await Promise.all(
       readyTypes.map((t) => {
@@ -184,104 +291,16 @@ export async function enqueueSpreadRecompute(args: {
     console.warn("[enqueueSpreadRecompute] placeholder upsert failed:", placeholderErr);
   }
 
-  // ── Idempotent job creation ─────────────────────────────────────────────
-  // A unique partial index (idx_spread_jobs_active_deal) enforces at most
-  // ONE active (QUEUED/RUNNING) job per deal+bank. If one already exists,
-  // merge the requested spread types into it rather than creating a new job.
-
-  const { data: existingJob } = await (sb as any)
-    .from("deal_spread_jobs")
-    .select("id, requested_spread_types")
-    .eq("deal_id", args.dealId)
-    .eq("bank_id", args.bankId)
-    .in("status", ["QUEUED", "RUNNING"])
-    .maybeSingle();
-
-  if (existingJob) {
-    const existingTypes = (existingJob.requested_spread_types ?? []) as string[];
-    const merged = uniq([...existingTypes, ...readyTypes]);
-
-    if (merged.length > existingTypes.length) {
-      await (sb as any)
-        .from("deal_spread_jobs")
-        .update({
-          requested_spread_types: merged,
-          meta: {
-            ...(args.meta ?? {}),
-            owner_type: args.ownerType ?? "DEAL",
-            owner_entity_id: args.ownerEntityId ?? null,
-            merged_at: new Date().toISOString(),
-          },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingJob.id);
-    }
-
+  if (wasMerged) {
     return {
       ok: true as const,
       enqueued: false as const,
       merged: true as const,
-      jobId: String(existingJob.id),
+      jobId: targetJobId,
     };
   }
 
-  // No active job — insert a new one.
-  const payload = {
-    deal_id: args.dealId,
-    bank_id: args.bankId,
-    source_document_id: args.sourceDocumentId ?? null,
-    requested_spread_types: readyTypes,
-    status: "QUEUED",
-    next_run_at: new Date().toISOString(),
-    meta: {
-      ...(args.meta ?? {}),
-      owner_type: args.ownerType ?? "DEAL",
-      owner_entity_id: args.ownerEntityId ?? null,
-    },
-    updated_at: new Date().toISOString(),
-  };
-
-  const { data, error } = await (sb as any)
-    .from("deal_spread_jobs")
-    .insert(payload)
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
-    // Unique violation (23505): another job was created concurrently — merge into it.
-    if (error.code === "23505") {
-      const { data: raceJob } = await (sb as any)
-        .from("deal_spread_jobs")
-        .select("id, requested_spread_types")
-        .eq("deal_id", args.dealId)
-        .eq("bank_id", args.bankId)
-        .in("status", ["QUEUED", "RUNNING"])
-        .maybeSingle();
-
-      if (raceJob) {
-        const merged = uniq([
-          ...((raceJob.requested_spread_types ?? []) as string[]),
-          ...readyTypes,
-        ]);
-        await (sb as any)
-          .from("deal_spread_jobs")
-          .update({
-            requested_spread_types: merged,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", raceJob.id);
-
-        return {
-          ok: true as const,
-          enqueued: false as const,
-          merged: true as const,
-          jobId: String(raceJob.id),
-        };
-      }
-    }
-
-    return { ok: false as const, error: error.message };
-  }
-
-  return { ok: true as const, enqueued: true as const, jobId: data?.id ? String(data.id) : null };
+  return wasEnqueued
+    ? { ok: true as const, enqueued: true as const, jobId: targetJobId }
+    : { ok: true as const, enqueued: false as const, jobId: targetJobId };
 }

@@ -6,6 +6,7 @@ import { processNextOcrJob } from "@/lib/jobs/processors/ocrProcessor";
 import { processNextClassifyJob } from "@/lib/jobs/processors/classifyProcessor";
 import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
+import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 
 export const runtime = "nodejs";
@@ -109,6 +110,13 @@ export async function POST(req: NextRequest) {
       const spreadResult = await guardedSpreads({ leaseOwner, maxJobs: Math.max(1, batchSize) });
       if (spreadResult.ok && spreadResult.processed > 0) {
         results.push({ type: "SPREADS", ...spreadResult });
+      }
+
+      // Orphan-spread janitor (STUCK-SPREADS Batch 1, 2026-04-23).
+      // Reconciles 'queued' deal_spreads that have no backing active job.
+      const janitorResult = await cleanupOrphanSpreads();
+      if (janitorResult.cleaned > 0) {
+        results.push({ type: "SPREAD_JANITOR", ...janitorResult });
       }
     }
 

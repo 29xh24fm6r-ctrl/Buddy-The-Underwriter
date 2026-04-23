@@ -16,6 +16,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { writeSystemEvent } from "@/lib/aegis";
 import { runSpreadPreflight } from "@/lib/spreads/preflight/runSpreadPreflight";
 import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
@@ -167,26 +168,46 @@ export async function orchestrateSpreads(
     },
   }).catch(() => {});
 
-  // Load active docs to get per-doc spread types + sourceDocumentId
-  const { data: activeDocs } = await (sb as any)
-    .from("deal_documents")
-    .select("id, canonical_type")
-    .eq("deal_id", dealId)
-    .eq("is_active", true);
+  try {
+    // Load active docs to get per-doc spread types + sourceDocumentId
+    const { data: activeDocs } = await (sb as any)
+      .from("deal_documents")
+      .select("id, canonical_type")
+      .eq("deal_id", dealId)
+      .eq("is_active", true);
 
-  // Enqueue spreads per doc (preserves sourceDocumentId for owner resolution)
-  const enqueueErrors: string[] = [];
-  for (const doc of activeDocs ?? []) {
-    if (!doc.canonical_type) continue;
-    const spreadTypes = spreadsForDocType(doc.canonical_type);
-    if (spreadTypes.length === 0) continue;
+    // Enqueue spreads per doc (preserves sourceDocumentId for owner resolution)
+    const enqueueErrors: string[] = [];
+    for (const doc of activeDocs ?? []) {
+      if (!doc.canonical_type) continue;
+      const spreadTypes = spreadsForDocType(doc.canonical_type);
+      if (spreadTypes.length === 0) continue;
 
+      try {
+        await enqueueSpreadRecompute({
+          dealId,
+          bankId,
+          sourceDocumentId: doc.id,
+          spreadTypes,
+          skipPrereqCheck: true,
+          meta: {
+            source: "orchestrator",
+            run_id: runId,
+            trigger,
+          },
+        });
+      } catch (err: any) {
+        enqueueErrors.push(`${doc.id}:${err?.message}`);
+      }
+    }
+
+    // Always enqueue STANDARD (Financial Analysis) — it's an aggregate spread
+    // that renders from all facts, not tied to any single document.
     try {
       await enqueueSpreadRecompute({
         dealId,
         bankId,
-        sourceDocumentId: doc.id,
-        spreadTypes,
+        spreadTypes: ["STANDARD"],
         skipPrereqCheck: true,
         meta: {
           source: "orchestrator",
@@ -195,52 +216,87 @@ export async function orchestrateSpreads(
         },
       });
     } catch (err: any) {
-      enqueueErrors.push(`${doc.id}:${err?.message}`);
+      enqueueErrors.push(`STANDARD:${err?.message}`);
     }
-  }
 
-  // Always enqueue STANDARD (Financial Analysis) — it's an aggregate spread
-  // that renders from all facts, not tied to any single document.
-  try {
-    await enqueueSpreadRecompute({
+    // Update run status to running
+    await (sb as any)
+      .from("deal_spread_runs")
+      .update({
+        status: "running",
+        spread_job_id: null, // job IDs are managed by enqueueSpreadRecompute
+      })
+      .eq("id", runId);
+
+    writeEvent({
       dealId,
-      bankId,
-      spreadTypes: ["STANDARD"],
-      skipPrereqCheck: true,
+      kind: "spreads.orchestration_started",
+      actorUserId: actorUserId ?? undefined,
       meta: {
-        source: "orchestrator",
         run_id: runId,
         trigger,
+        spread_count: snapshot.spreadTypes.length,
+        enqueue_errors: enqueueErrors.length > 0 ? enqueueErrors : undefined,
       },
-    });
-  } catch (err: any) {
-    enqueueErrors.push(`STANDARD:${err?.message}`);
+    }).catch(() => {});
+
+    return {
+      ok: true,
+      runId,
+      status: "queued",
+    };
+  } catch (orchErr: any) {
+    // Silent-crash guard: the run row was inserted as 'queued' but the
+    // post-insert work threw. Without this catch the run stays 'queued'
+    // forever and any placeholders upserted by enqueueSpreadRecompute
+    // sit as orphans (no backing job). Reconcile state and surface.
+    const errMessage = String(orchErr?.message ?? orchErr).slice(0, 200);
+    const errDetail = String(orchErr?.message ?? orchErr).slice(0, 500);
+
+    await (sb as any)
+      .from("deal_spread_runs")
+      .update({
+        status: "failed",
+        finished_at: new Date().toISOString(),
+      })
+      .eq("id", runId)
+      .in("status", ["queued", "running"]);
+
+    const { data: activeJobs } = await (sb as any)
+      .from("deal_spread_jobs")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .in("status", ["QUEUED", "RUNNING"]);
+
+    if (!activeJobs || activeJobs.length === 0) {
+      await (sb as any)
+        .from("deal_spreads")
+        .update({
+          status: "error",
+          finished_at: new Date().toISOString(),
+          error: `Orchestration failed: ${errMessage}`,
+          error_code: "ORCHESTRATION_FAILED",
+          error_details_json: { run_id: runId, error: errDetail },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("status", "queued");
+    }
+
+    writeSystemEvent({
+      event_type: "error",
+      severity: "error",
+      source_system: "spreads_orchestrator",
+      deal_id: dealId,
+      bank_id: bankId,
+      error_class: "transient",
+      error_code: "SPREAD_ORCHESTRATION_FAILED",
+      error_message: `Orchestration failed: ${errMessage}`,
+      payload: { run_id: runId, deal_id: dealId, error: errDetail },
+    }).catch(() => {});
+
+    throw orchErr;
   }
-
-  // Update run status to running
-  await (sb as any)
-    .from("deal_spread_runs")
-    .update({
-      status: "running",
-      spread_job_id: null, // job IDs are managed by enqueueSpreadRecompute
-    })
-    .eq("id", runId);
-
-  writeEvent({
-    dealId,
-    kind: "spreads.orchestration_started",
-    actorUserId: actorUserId ?? undefined,
-    meta: {
-      run_id: runId,
-      trigger,
-      spread_count: snapshot.spreadTypes.length,
-      enqueue_errors: enqueueErrors.length > 0 ? enqueueErrors : undefined,
-    },
-  }).catch(() => {});
-
-  return {
-    ok: true,
-    runId,
-    status: "queued",
-  };
 }
