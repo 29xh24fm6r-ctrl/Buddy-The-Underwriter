@@ -1,107 +1,84 @@
-# Spec OMEGA-REPAIR — Fix Two Wire-Level Bugs + Kill-Switch the Read Path
+# Spec OMEGA-REPAIR — Fix Two Wire-Level Bugs + Field Mapping + Kill-Switch the Read Path
 
-**Date:** 2026-04-23 (rev 3.2; small amendment to rev 3.1 — PIV-3 deferred to Batch 4 after out-of-band auth diagnostic exhausted chat-based resolution paths)
-**Supersedes:** Prior rev 2 at commit `bf55258b`, rev 3 at commit `0277ec64`, rev 3.1 at commit `75eafb42`
-**Owner:** Matt (owns both sides of the contract — Buddy and Pulse)
+**Date:** 2026-04-23 (rev 3.3; adds field-name mapping in the write-path translator after Claude Code's PIV surfaced that rev 3.2's spread would produce Zod failures)
+**Supersedes:** Prior rev 3.2 at commit `bf1b63d2`
+**Owner:** Matt
 **Executor:** Claude Code
-**Accessible repos:** `29xh24fm6r-ctrl/Buddy-The-Underwriter` (Buddy-side changes). `29xh24fm6r-ctrl/PulseMasterrepo` access varies by credential; not required for this repair.
-**Estimated effort:** 3–5 hours total.
+**Estimated effort:** 3–5 hours.
 **Risk:** Low. No pipeline impact (SR 11-7 wall).
 
 ---
 
-## What changed in rev 3.2
+## What changed in rev 3.3
 
-Matt ran the rev 3.1 PIV-3 manual probe. Both Secret Manager versions of `PULSE_MCP_API_KEY` (v1 32 chars, v2 25 chars) returned HTTP 401 when probed via curl, despite the deployed Cloud Run revision `pulse-mcp-00895-4qc` pinning `PULSE_MCP_API_KEY` env var to `secretKeyRef: { name: PULSE_MCP_API_KEY, key: '2' }` — the same source value. Meanwhile, Claude's own chat-session Pulse MCP connector authenticates successfully against the same URL.
+Claude Code's PIV against rev 3.2 surfaced that `mirrorEventToOmega` builds an envelope with field names that do not match `buddy_ledger_write`'s input schema:
 
-The discrepancy could not be resolved from chat. Possibilities include:
-- MCP protocol handshake differs from raw HTTP — Claude's connector may use a transport Buddy doesn't
-- IP allowlist or Cloud Run ingress config
-- Deployed PulseMasterrepo code having evolved past the `auth.ts` we can read
-- Something about the Vercel runtime network path that differs from local curl
+| Buddy envelope field | Pulse tool field | Status in rev 3.2 |
+|---|---|---|
+| `type` | `event_type` | Wrong name — Pulse rejects with Zod error (field required, missing) |
+| (none) | `status` | Not sent — Pulse rejects with Zod error (field required, missing) |
+| `entities[].id` where entity_type is `deal` | `deal_id` | Not extracted |
+| `payload` | `payload` | OK |
 
-**None of these block the code work.** The code changes in Batches 1 and 2 are correct independent of whether the stored key is right. Vercel's runtime reads `OMEGA_MCP_KEY` from its encrypted store (not through the CLI pull path we were testing from) — the runtime path may succeed where curl does not.
+Rev 3.2's translator used `...baseArgs, ...payloadObj` which preserved Buddy's field names verbatim. `buddy_ledger_write`'s schema would reject every call with `Zod: event_type required, status required`. Outcome D (Zod rejection) wasn't in rev 3.2's outcome table. The code would have been functionally equivalent to still-broken Omega, just with a different error string.
 
-**Rev 3.2 change:** PIV-3 becomes "deferred — verified by production ledger post-deploy." Claude Code proceeds with Batches 1, 2, 5 without blocking. Batch 4's ledger check is now the authoritative test of whether auth works end-to-end. Worst case (persistent `http_401`): code is still correct, signal is still honest, Matt owns the Pulse-side auth investigation as a separate workstream. SR 11-7 wall means zero pipeline impact either way.
+**Rev 3.3 change:** the write-path branch of `translateResourceToToolCall` now explicitly maps Buddy envelope field names to Pulse's schema. Not a spread — an explicit field mapping. Same scope as before (the translator is already the adapter layer between Buddy URIs and Pulse tools; field mapping is what that layer is for).
 
-## What carries forward from rev 3.1
+## What carries forward
 
-- Two wire-level fixes (method + header)
-- Write path: `omega://events/write` → `buddy_ledger_write`
-- Health path: `omega://health/ping` → `mcp_tick` (rev 3.1 addition)
-- Read path: kill-switched with `pulse_advisory_tools_not_yet_available` error
-- Four build principles (rev 3.1)
-
-Adding one build principle in rev 3.2 capturing the lesson from the auth diagnostic loop.
-
----
-
-## Why rev 3 existed (preserved for history)
-
-Rev 2 ("four bugs, wire reads to `state_inspect`/`state_confidence`/`observer_query`") was wrong on three points that only surfaced when Claude Code began execution:
-
-1. **Wrong tool names.** Rev 2 named tools `buddy_write_ledger_event`, `buddy_list_ledger_events`, etc. The deployed Pulse MCP actually exposes them as `buddy_ledger_write`, `buddy_ledger_list`, `buddy_ledger_deal`, `buddy_ledger_flow_health`. Applying rev 2 verbatim would have kept the 100% failure rate — same `-32601 Method not found` error, different specific tool name.
-
-2. **Wrong assumption about `target_user_id` being required.** Pulse's tool schemas mark `target_user_id` as *optional*. Refuted by the deployed schema. Passing it is still good multi-tenant hygiene, but not a wire-level blocker.
-
-3. **Wrong semantic model for reads.** Rev 2 assumed `state_inspect` / `state_confidence` / `observer_query` accept deal-scoped arguments. They don't. The deployed schemas are user-scoped only. Rev 2's wire-level fix would have succeeded at the RPC level and returned data unrelated to the deal.
-
-**Root cause of rev 2's errors:** sourced tool names and schemas from in-repo code which turned out to not match deployed reality. **In-repo code is not authoritative for deployed contracts. The deployed `tools/list` is.**
+- All rev 3.2 framing: PIV-3 deferred, Batch 4 is the authoritative auth test, outcomes A/B/C acceptable.
+- All rev 3.1 framing: health path → `mcp_tick`, Vercel Sensitive env principle.
+- All rev 3 framing: read-path kill-switched, Pulse-side companion spec for deal-scoped tools.
+- Five build principles from rev 3.2 plus one new one in rev 3.3.
 
 ---
 
 ## The actual problem
 
-Omega advisory is 100% failing in production. 53/53 `omega.invoked` → `omega.failed` in the last 30 days, all with `omega_rpc_error: Method not found`.
+Omega advisory is 100% failing in production. 53/53 `omega.invoked` → `omega.failed`, all with `omega_rpc_error: Method not found`.
 
-**Two wire-level blocker bugs** (both must be fixed for any Omega call to succeed):
-1. **Wrong JSON-RPC method.** `src/lib/omega/invokeOmega.ts:144` sends `method: "omega://events/write"` directly. The deployed Pulse MCP only recognizes JSON-RPC methods `tools/list` and `tools/call`. The entire `omega://` namespace is client-side fiction.
-2. **Wrong auth header.** `invokeOmega.ts:138` sends `Authorization: Bearer ${apiKey}`. Pulse MCP's auth middleware reads the `x-pulse-mcp-key` header only.
+**Two wire-level blocker bugs:**
+1. Wrong JSON-RPC method — `omega://` URIs used directly instead of `tools/call`
+2. Wrong auth header — `Authorization: Bearer` instead of `x-pulse-mcp-key`
 
-**One secret change, already applied:** `OMEGA_MCP_KEY` is set in Vercel (Production + Preview, marked Sensitive). Its runtime correctness is now verified by Batch 4 post-deploy, not by PIV-3.
+**One field-mapping bug (rev 3.3):** even with the wire fixed, the write-path body shape doesn't match `buddy_ledger_write`'s schema. Translator must explicitly map fields.
 
-**Two real-tool mappings:**
-- `omega://events/write` → `buddy_ledger_write` (event mirror to Pulse governance store)
-- `omega://health/ping` → `mcp_tick` (Pulse's designated connectivity probe)
+**Real-tool mappings:**
+- `omega://events/write` → `buddy_ledger_write` with field mapping (rev 3.3)
+- `omega://health/ping` → `mcp_tick` (rev 3.1)
 
-**Design-level gap on the read path:** Buddy's cockpit expects deal-scoped advisory reads. Pulse does not currently expose deal-scoped advisory primitives. Kill-switched until Pulse ships purpose-built tools (see `specs/omega-repair/PULSE-SIDE-SPEC.md`).
+**Design-level gap on read path:** Pulse doesn't expose deal-scoped advisory tools. Kill-switched pending PULSE-SIDE-SPEC.md.
 
-## The chosen shape of repair (B1)
+## The chosen shape of repair (B1 + field mapping)
 
-**Buddy side (this PR):** Wire fixes + write-path wiring + health-path wiring + read-path kill-switch.
+**Buddy side (this PR):**
+- Fix wire blockers
+- Wire write + health paths with explicit field mapping for write
+- Kill-switch read path
 
-**Pulse side (separate PR per PULSE-SIDE-SPEC.md):** Deal-scoped advisory tools.
+**Pulse side (separate):** Deal-scoped advisory tools.
 
-**Follow-up Buddy PR:** Lift kill switch once Pulse ships.
+**Follow-up Buddy PR:** Lift kill switch when Pulse ships.
 
 ## Outcome we want
 
-- Every Omega call reaches the deployed Pulse MCP with a well-formed `tools/call` envelope and correct auth.
+- Every Omega call reaches Pulse with well-formed `tools/call` envelope, correct auth, and correct field shapes.
 - `buddy_signal_ledger` shows:
-  - Either `omega.succeeded` rows (auth works in the Vercel runtime path) — ideal case
-  - Or `omega.failed` rows with `http_401` (auth doesn't work in Vercel runtime path either; code is still correct; Matt owns separate Pulse-side auth diagnostic)
-  - `omega.failed` for reads ALL carry `error: pulse_advisory_tools_not_yet_available` (NOT `Method not found` — rev 3 bug eliminated)
-  - Zero `Method not found` anywhere
-- Cockpit UX on `d65cc19e-...` is identical to today.
-- SR 11-7 wall preserved.
+  - `omega.succeeded` for write and health (if auth works)
+  - OR `omega.failed` with `http_401` (if auth is still broken — acceptable outcome B)
+  - `omega.failed` for reads with `pulse_advisory_tools_not_yet_available`
+  - Zero `Method not found`
+  - Zero `Zod`-shaped errors for the write path
 
 ## Non-goals
 
-- Not making cockpit advisory panels visible — requires Pulse-side tools.
-- Not resolving the Pulse-side auth mystery (separate workstream).
-- Not redesigning client abstractions.
-- Not rethinking request-response vs event-driven.
-- Not replaying DLQ.
-- Not retiring the fastlane.
-- Not modifying PulseMasterrepo.
+Unchanged from rev 3.2.
 
 ---
 
 ## Pre-implementation verification (MANDATORY)
 
-Claude Code MUST complete all applicable PIVs before writing code. Surface any finding that contradicts the spec.
-
-### PIV-1 — Record the current failure baseline
+### PIV-1 — Record current failure baseline
 
 ```sql
 SELECT type, COUNT(*) as n, MAX(created_at)::text as latest
@@ -111,9 +88,9 @@ WHERE type IN ('omega.invoked', 'omega.succeeded', 'omega.failed', 'omega.timed_
 GROUP BY type;
 ```
 
-Expected: `omega.invoked` ≈ 53, `omega.failed` ≈ 53, `omega.succeeded` = 0. Record exact values.
+Expected: `omega.invoked` ≈ 53, `omega.failed` ≈ 53, `omega.succeeded` = 0.
 
-### PIV-2 — Read deployed tool contracts from `tools/list`, not from source
+### PIV-2 — Read deployed tool contracts from `tools/list`
 
 ```bash
 curl -sS -X POST https://pulse-mcp-651478110010.us-central1.run.app/ \
@@ -122,44 +99,45 @@ curl -sS -X POST https://pulse-mcp-651478110010.us-central1.run.app/ \
 ```
 
 Record:
-1. `buddy_ledger_write` exists with expected schema (required: `event_type`, `status`; optional: `target_user_id`, `deal_id`, `payload`, etc.). Surface if schema differs.
-2. `mcp_tick` exists as zero-args tool (used for health mapping).
-3. `buddy_advisory_for_deal` / `buddy_confidence_for_deal` / `buddy_traces_for_deal` do NOT exist. If any have appeared since this spec was written, surface (plan changes materially).
+1. `buddy_ledger_write` exists. Confirm exact required/optional field list:
+   - Required: `event_type`, `status`
+   - Optional: `target_user_id`, `deal_id`, `payload`, `expected_outcome`, `actual_outcome`
+   - If schema differs (e.g., `status` enum values change, or new required fields), update the translator's write branch to match.
+2. `mcp_tick` exists, zero-args.
+3. `buddy_advisory_for_deal` / `buddy_confidence_for_deal` / `buddy_traces_for_deal` do NOT exist. If they have appeared, surface.
 
-### PIV-3 — DEFERRED (REVISED IN REV 3.2)
+### PIV-3 — DEFERRED
 
-**Not run pre-implementation.** Matt's rev 3.1 manual probe exhausted chat-resolvable diagnostic paths; the deployed Pulse MCP rejects curl probes with 401 using the same secret source the Cloud Run revision is configured to read, but accepts Claude's MCP-protocol connection. The discrepancy is out of scope for this PR.
+Unchanged from rev 3.2. Claude Code does not probe auth.
 
-**Auth verification is deferred to Batch 4** (production ledger check). If writes show `omega.succeeded` → auth works in the Vercel runtime path, repair complete. If writes show `http_401` → code is still correct but Pulse-side auth mystery persists; Matt owns that as a separate Pulse-side workstream. Either outcome leaves the pipeline untouched.
-
-**Claude Code does NOT attempt to probe with `OMEGA_MCP_KEY`. Claude Code does NOT request the key value. PIV-3 is marked "deferred" in the AAR with a pointer to this spec section.**
-
-### PIV-4 — Env var state confirmation
+### PIV-4 — Env var state
 
 ```bash
 npx vercel env ls --yes production | grep -E '^(OMEGA_MCP_KEY|OMEGA_TARGET_USER_ID|OMEGA_MCP_API_KEY|OMEGA_MCP_URL|OMEGA_MCP_ENABLED)'
 ```
 
-Expected:
-- `OMEGA_MCP_KEY` — exists, Sensitive
-- `OMEGA_TARGET_USER_ID` — exists (if Sensitive, Matt separately confirms UUID value)
-- `OMEGA_MCP_API_KEY` — exists, deprecated
-- `OMEGA_MCP_URL` — exists
-- `OMEGA_MCP_ENABLED` — exists (`1`)
-
-If any is missing, stop and surface.
+All five expected. If any missing, stop and surface.
 
 ### PIV-5 — Call graph audit
 
-Known callers:
+Known callers (unchanged from rev 3.2):
+- `src/lib/omega/mirrorEventToOmega.ts` → write path
+- `src/lib/omega/health.ts` → health path
+- `src/core/omega/OmegaAdvisoryAdapter.ts` → read path (kill-switched)
+- `src/app/api/deals/[dealId]/underwrite/state/route.ts` → read path (kill-switched)
+- `src/app/api/examiner/portal/deals/[dealId]/route.ts` → read path indirect (kill-switched)
 
-- `src/core/omega/OmegaAdvisoryAdapter.ts` → `readOmegaState`, `evaluateOmegaConfidence`, `readOmegaTraces` (read-path, kill-switched)
-- `src/lib/omega/mirrorEventToOmega.ts:~83` → `invokeOmega({ resource: "omega://events/write" })` (write-path, mapped to `buddy_ledger_write`)
-- `src/lib/omega/health.ts:~56` → `invokeOmega({ resource: "omega://health/ping" })` (health-path, mapped to `mcp_tick`)
-- `src/app/api/deals/[dealId]/underwrite/state/route.ts` → `omega://advisory/deal-focus` (read-path, kill-switched)
-- `src/app/api/examiner/portal/deals/[dealId]/route.ts` → calls `readOmegaState` indirectly (read-path, kill-switched)
+### PIV-6 — Confirm caller envelope shape (NEW in rev 3.3)
 
-If additional callers surface beyond these, document them. Any resource not covered by the translator's mappings or read regex falls to `omega_unmapped_resource` — stop-and-surface if that's a real caller.
+Read `src/lib/omega/mirrorEventToOmega.ts` and verify the envelope shape currently passed to `invokeOmega`:
+
+```ts
+{ type, entities, payload, ts, correlationId }
+```
+
+Where `entities: Array<{ entity_type: string; id?: string; optional?: boolean }>`.
+
+Also read `docs/omega/mapping.json` and record the distinct `entity_type` values used across events. As of this spec: `deal`, `underwriting_case`, `borrower`, `document`, `credit_decision`, `policy_context`, `examiner_drop`, `financial_snapshot`, `borrower_owner`. The ones that correspond to "deal" for Pulse's `deal_id` field are `deal` and `underwriting_case` (both map to `deals.id`). Surface if the set differs from expected.
 
 ---
 
@@ -167,22 +145,20 @@ If additional callers surface beyond these, document them. Any resource not cove
 
 Three commits, one PR.
 
-### Batch 1 — Fix two wire-level blockers, wire write + health paths, kill-switch reads
+### Batch 1 — Fix wire + field mapping, wire write + health, kill-switch reads
 
 **File:** `src/lib/omega/invokeOmega.ts`
 
-**Changes (in order):**
+**Changes:**
 
-1. **Secret lookup.**
+1. **Secret lookup.** (Unchanged from rev 3.2.)
    ```ts
    function getOmegaMcpApiKey(): string | undefined {
      const newKey = process.env.OMEGA_MCP_KEY;
      if (newKey) return newKey;
      const fallback = process.env.OMEGA_MCP_API_KEY;
      if (fallback) {
-       console.warn(
-         "[omega] using deprecated OMEGA_MCP_API_KEY env var — rename to OMEGA_MCP_KEY",
-       );
+       console.warn("[omega] using deprecated OMEGA_MCP_API_KEY env var — rename to OMEGA_MCP_KEY");
        return fallback;
      }
      return undefined;
@@ -191,12 +167,24 @@ Three commits, one PR.
 
 2. **Auth header.** Replace `Authorization: Bearer` with `x-pulse-mcp-key`.
 
-3. **URI→tool translation:**
+3. **URI→tool translation (REVISED in rev 3.3 with explicit field mapping for write).**
    ```ts
    interface ToolCall {
      tool: string;
      arguments: Record<string, unknown>;
    }
+
+   interface OmegaEventEnvelope {
+     type: string;
+     entities?: Array<{ entity_type: string; id?: string; optional?: boolean }>;
+     payload?: unknown;
+     ts?: string;
+     correlationId?: string;
+   }
+
+   // Entity types that should populate Pulse's `deal_id` field.
+   // Sourced from docs/omega/mapping.json — both alias to deals.id.
+   const DEAL_ENTITY_TYPES = new Set(["deal", "underwriting_case"]);
 
    function getOmegaTargetUserId(): string | undefined {
      return process.env.OMEGA_TARGET_USER_ID || undefined;
@@ -207,16 +195,41 @@ Three commits, one PR.
      payload: unknown,
    ): ToolCall | null {
      const targetUserId = getOmegaTargetUserId();
-     const payloadObj = (payload as Record<string, unknown>) ?? {};
      const baseArgs = targetUserId ? { target_user_id: targetUserId } : {};
 
+     // Write path — explicit field mapping from Buddy envelope to buddy_ledger_write schema
      if (resource === "omega://events/write") {
+       const envelope = payload as OmegaEventEnvelope;
+
+       if (!envelope?.type) {
+         // Surfaced as specific error rather than sending a broken body
+         throw new Error("omega_write_missing_event_type");
+       }
+
+       // Extract deal_id from entities array when a deal/underwriting_case entity is present
+       const dealEntity = envelope.entities?.find(
+         (e) => DEAL_ENTITY_TYPES.has(e.entity_type) && typeof e.id === "string",
+       );
+
        return {
          tool: "buddy_ledger_write",
-         arguments: { ...baseArgs, ...payloadObj },
+         arguments: {
+           ...baseArgs,
+           event_type: envelope.type,  // map: type → event_type
+           status: "success",          // mirror only fires on successful signals
+           ...(dealEntity?.id ? { deal_id: dealEntity.id } : {}),
+           // Roll the rest of Buddy's envelope under payload for Pulse governance store
+           payload: {
+             entities: envelope.entities ?? [],
+             body: envelope.payload ?? {},
+             ts: envelope.ts,
+             correlationId: envelope.correlationId,
+           },
+         },
        };
      }
 
+     // Health path — real tool
      if (resource === "omega://health/ping") {
        return {
          tool: "mcp_tick",
@@ -224,6 +237,7 @@ Three commits, one PR.
        };
      }
 
+     // Read paths — kill-switched
      const isReadResource = /^omega:\/\/(state|confidence|traces|advisory)\//.test(resource);
      if (isReadResource) return null;
 
@@ -233,7 +247,13 @@ Three commits, one PR.
 
 4. **Error handling:**
    ```ts
-   const toolCall = translateResourceToToolCall(resource, payload);
+   let toolCall: ToolCall | null = null;
+   try {
+     toolCall = translateResourceToToolCall(resource, payload);
+   } catch (translationErr) {
+     // Specific translator errors (e.g., omega_write_missing_event_type) bubble up as-is
+     throw translationErr;
+   }
    if (!toolCall) {
      const isReadResource = /^omega:\/\/(state|confidence|traces|advisory)\//.test(resource);
      const err = isReadResource
@@ -262,32 +282,44 @@ Three commits, one PR.
 
 **Tests:** `src/lib/omega/__tests__/invokeOmega.test.ts`
 
-- Mock `fetch`. Assert body has `method: "tools/call"`, correct tool names per URI, `x-pulse-mcp-key` header set, `Authorization` not set.
-- Test `omega://events/write` → `buddy_ledger_write`.
-- Test `omega://health/ping` → `mcp_tick` with zero args.
-- Test read resources return `{ ok: false, error: "pulse_advisory_tools_not_yet_available" }`.
-- Test unknown URI returns `{ ok: false, error: "omega_unmapped_resource: ..." }`.
-- Test deprecated `OMEGA_MCP_API_KEY` fallback emits warn, works.
-- Regression: timeout, kill-switch, disabled paths unchanged.
+Wire/header tests (unchanged):
+- Header `x-pulse-mcp-key` set, `Authorization` not set
+- Body has `method: "tools/call"`
+
+Write-path field mapping tests (NEW in rev 3.3):
+- Envelope `{ type: "buddy.deal.ignited", entities: [{entity_type: "deal", id: "d1"}], payload: {foo:"bar"}, ts: "...", correlationId: "c1" }` → `params.arguments` has `event_type: "buddy.deal.ignited"`, `status: "success"`, `deal_id: "d1"`, `payload.entities === entities`, `payload.body === {foo:"bar"}`, `payload.ts === "..."`, `payload.correlationId === "c1"`.
+- Envelope with `entity_type: "underwriting_case"` entity also extracts `deal_id`.
+- Envelope with no deal/underwriting_case entity → no `deal_id` field in arguments (not empty string, not null, genuinely absent).
+- Envelope missing `type` → throws `omega_write_missing_event_type`; body never sent.
+- `target_user_id` injected when env var set, not injected when unset.
+
+Health-path (unchanged from rev 3.1):
+- `omega://health/ping` → `params.name === "mcp_tick"`, `params.arguments === {}`.
+- `target_user_id` NOT injected for mcp_tick (zero-args tool).
+
+Read-path kill-switch (unchanged):
+- Each read resource returns `{ ok: false, error: "pulse_advisory_tools_not_yet_available" }`.
+
+Error paths (unchanged):
+- Unknown URI → `omega_unmapped_resource: ...`.
+- Deprecated `OMEGA_MCP_API_KEY` fallback emits warn, still works.
+
+Regression (unchanged):
+- Timeout, kill-switch, disabled paths untouched.
 
 ### Batch 2 — Adapter: explicit stale-reason for kill-switched reads
 
-**File:** `src/core/omega/OmegaAdvisoryAdapter.ts`
-
-When a sub-call fails with `pulse_advisory_tools_not_yet_available`, set `staleReason` to `"Deal-scoped advisory tools not yet available in Pulse"`.
-
-**Tests:** extend adapter tests.
+Unchanged from rev 3.2.
 
 ### Batch 3 — Env verification (no commit)
 
-Runs PIV-4. Documents state in AAR.
+Unchanged.
 
-### Batch 4 — Deploy and verify (NOW THE AUTHORITATIVE AUTH TEST)
+### Batch 4 — Deploy and verify
 
-1. After Batches 1 and 2 merge, production deploy completes, wait 2 minutes.
-2. Open cockpit for test deal `d65cc19e-b03e-4f2d-89ce-95ee69472cf3`.
-3. Hit a route that triggers health check (`/api/buddy/observer/health` or similar).
-4. Within 5 minutes, query:
+1. After Batches 1 and 2 merge, deploy completes, wait 2 minutes.
+2. Trigger cockpit load on `d65cc19e-...` and a health-check route.
+3. Query:
    ```sql
    SELECT type, payload->>'resource' as resource, payload->>'error' as error, COUNT(*) as n
    FROM buddy_signal_ledger
@@ -297,39 +329,43 @@ Runs PIV-4. Documents state in AAR.
    ORDER BY type, n DESC;
    ```
 
-5. **Three possible outcomes:**
+4. **Four possible outcomes:**
 
-   **(A) Full success.** `omega.succeeded` for write and health paths; reads show `pulse_advisory_tools_not_yet_available`; zero `Method not found`, zero `http_401`. Repair complete.
+   **(A) Full success.** `omega.succeeded` for write + health; reads show `pulse_advisory_tools_not_yet_available`; zero `Method not found`, zero `http_401`, zero Zod errors. Repair complete.
 
-   **(B) Auth 401 in Vercel runtime path too.** `omega.failed` rows show `http_401` for write and health; reads still show `pulse_advisory_tools_not_yet_available`; zero `Method not found`. Code repair complete; auth mystery confirmed out of scope; Matt owns Pulse-side diagnostic. This is an acceptable landing state — the signal went from `Method not found` (wrong wire) to `http_401` (wire correct, auth not yet resolved). No rollback.
+   **(B) Auth 401 in Vercel runtime.** `omega.failed` with `http_401` for write + health; reads kill-switched; zero `Method not found`, zero Zod errors. Code repair complete; auth mystery separate Matt-owned workstream. Acceptable ship state.
 
-   **(C) Any `Method not found` persists.** Batch 1 is incomplete. Revert and diagnose.
+   **(C) `Method not found` persists.** Batch 1 wire fix incomplete. REVERT.
 
-   Outcomes A and B both count as shipping the intended work. Outcome C is the only revert trigger.
+   **(D) Zod validation error on write path.** `omega.failed` with `omega_rpc_error: <Zod message>` for write specifically; health works or 401s cleanly; reads kill-switched. Field mapping has drifted from `buddy_ledger_write` schema (probably Pulse-side schema change between spec-write and deploy). Read Pulse's `tools/list` response fresh, compare to rev 3.3's mapping, amend translator. NOT a full revert — focused fix on the write branch.
 
-### Batch 5 — Roadmap and build principles
+   Outcomes A and B both count as shipping the PR's intent. Outcome C reverts; Outcome D is a small amendment, not a revert.
+
+### Batch 5 — Roadmap and six build principles
 
 Update `BUDDY_PROJECT_ROADMAP.md`:
 
 1. Move D2 to Completed.
-2. Add completion note:
-   > **Omega wire-level repair 2026-04-23.** Two wire-level bugs fixed (JSON-RPC method + auth header). Write path `omega://events/write` → `buddy_ledger_write` and health path `omega://health/ping` → `mcp_tick` wired to real deployed Pulse tools. Read path kill-switched with `pulse_advisory_tools_not_yet_available` pending Pulse-side deal-scoped advisory tools (PULSE-SIDE-SPEC.md). Pulse-side auth state confirmed inconsistent during diagnostic — Batch 4 serves as authoritative auth test, and a persistent `http_401` ledger signal (if any) is acceptable separate-workstream state. Signal shape cleanup achieved regardless of auth state: `Method not found` is eliminated. Commits: [chain].
+2. Completion note:
+   > **Omega wire-level repair + field mapping 2026-04-23.** Three bugs fixed: JSON-RPC method (`omega://` → `tools/call`), auth header (`Authorization: Bearer` → `x-pulse-mcp-key`), and write-path field shape (Buddy envelope `type` → Pulse schema `event_type`, default `status: "success"`, extract `deal_id` from entities). Write + health paths wired to real Pulse tools (`buddy_ledger_write`, `mcp_tick`). Read path kill-switched with `pulse_advisory_tools_not_yet_available` pending PULSE-SIDE-SPEC.md. Pulse-side auth state confirmed inconsistent during diagnostic — Batch 4 serves as authoritative auth test, persistent `http_401` is separate-workstream state. Commits: [chain].
 
-3. Add five build principles:
+3. Six build principles (one added in rev 3.3):
 
-   > **MCP integration contracts are sourced from the deployed service's `tools/list`, not from in-repo source code.** Services with independent release cycles drift from repo skeletons. Rev 2 of the Omega repair named tools from in-repo source and would have kept the 100% failure rate. Rule: any MCP client work MUST `POST /{method:"tools/list"}` against the live service and record the actual tool names and schemas before mapping client code. (OMEGA-REPAIR rev 3.2)
+   > **(1) MCP integration contracts are sourced from the deployed service's `tools/list`, not from in-repo source code.** Services with independent release cycles drift. Rule: any MCP client work MUST `POST /{method:"tools/list"}` and record actual names + schemas before mapping client code. (OMEGA-REPAIR rev 3.3)
 
-   > **Stop-and-surface is load-bearing.** Five moments in the Pulse/Omega arc (D3 pushback → diagnostic, Phase 2 probe → falsified black-hole, rev 2 execution → caught wrong tool names, rev 3 PIV → caught unrunnable PIV-3 + unmapped health URI, rev 3.1 PIV-3 manual probe → caught Pulse-side auth inconsistency) were only caught because someone stopped partway and surfaced. Cost of another pass is hours; cost of shipping the wrong change is days. Rule: whenever execution evidence contradicts the spec, stop and surface. (OMEGA-REPAIR rev 3.2)
+   > **(2) Stop-and-surface is load-bearing.** Six moments in the Pulse/Omega arc (D3 pushback → diagnostic; Phase 2 probe → falsified black-hole; rev 2 execution → caught wrong tool names; rev 3 PIV → caught unrunnable PIV-3 and unmapped health URI; rev 3.1 PIV-3 probe → caught Pulse-side auth inconsistency; rev 3.2 PIV → caught field-name mismatch) were only caught because someone stopped partway and surfaced. Rule: whenever execution evidence contradicts the spec, stop and surface. (OMEGA-REPAIR rev 3.3)
 
-   > **MCP JSON-RPC envelope is `tools/call`, not custom method names.** The client speaks `method: "tools/call"` with `params: {name, arguments}`. Custom method names (`omega://events/write`) are not recognized. Auth for `tools/call` is `x-pulse-mcp-key`; `Authorization: Bearer` is for `/ingest/buddy` only. `target_user_id` is optional. (OMEGA-REPAIR rev 3.2)
+   > **(3) MCP JSON-RPC envelope is `tools/call`, not custom method names.** The client speaks `method: "tools/call"` with `params: {name, arguments}`. Auth for tool calls is `x-pulse-mcp-key`. `target_user_id` is optional in Pulse schemas. (OMEGA-REPAIR rev 3.3)
 
-   > **Vercel's `env pull` returns empty values for Sensitive-flagged env vars by design.** PIV procedures that need the actual secret value cannot rely on `env pull` for Sensitive vars. Options: manual out-of-band probe, Vercel REST API with token, or diagnostic endpoint reading `process.env.VAR` server-side. Confirmed via Vercel docs 2026-04-23. (OMEGA-REPAIR rev 3.2)
+   > **(4) Vercel's `env pull` returns empty values for Sensitive-flagged env vars by design.** PIV procedures needing secret values cannot use `env pull` for Sensitive vars. Options: manual out-of-band probe, REST API with token, or diagnostic endpoint. (OMEGA-REPAIR rev 3.3)
 
-   > **Diminishing-returns rule for cross-system auth diagnostics.** When a diagnostic loop has exhausted 3+ rounds of chat-based probing without resolution, stop probing and defer to production verification. Reasoning: (a) the remaining variables are typically outside chat's visibility (network path, IP allowlist, protocol handshake differences, deployed-code drift); (b) code correctness and auth correctness are separable concerns that do not need to be verified in the same workstream; (c) production ledger signal is more authoritative than any out-of-band probe, and is achievable for free by deploying the code fix. Rule: if PIV is looping, mark as deferred, ship the code, and let the ledger tell the truth. (OMEGA-REPAIR rev 3.2 — from the rev 3.1 → rev 3.2 auth diagnostic)
+   > **(5) Diminishing-returns rule for cross-system auth diagnostics.** After 3+ chat-based probe rounds without resolution, stop probing and defer to production verification. Production ledger is more authoritative than out-of-band probes, and is achievable for free by deploying the code fix. Rule: if PIV is looping, mark as deferred, ship the code, and let the ledger tell the truth. (OMEGA-REPAIR rev 3.3)
+
+   > **(6) Tool-name mapping is necessary but not sufficient; field-name mapping is the second layer.** When integrating with an external tool, verifying the tool NAME exists in `tools/list` is table-stakes. The second required check is: does the caller's payload shape match the tool's `inputSchema` field-by-field? Tool-name match + field-name mismatch produces Zod errors at runtime — different from "tool not found" but equally fatal. Rule: when writing the translator/adapter layer, explicitly enumerate the required and optional fields from the tool's `inputSchema` and map caller data into them field-by-field. Do not spread caller objects into tool arguments without matching field names first. (OMEGA-REPAIR rev 3.3 — from the rev 3.2 → rev 3.3 PIV)
 
 4. Queue in Next Phases:
    - Pulse-side deal-scoped advisory tools (PULSE-SIDE-SPEC)
-   - Pulse-side auth diagnostic (if outcome B above): investigate why MCP-protocol calls authenticate but direct HTTP calls with the same secret source don't
+   - Pulse-side auth diagnostic (if Batch 4 = outcome B)
 
 ---
 
@@ -337,54 +373,21 @@ Update `BUDDY_PROJECT_ROADMAP.md`:
 
 Three commits, one PR:
 
-1. `feat(omega): repair wire contract — tools/call + x-pulse-mcp-key + write/health mapping + read kill-switch`
+1. `feat(omega): repair wire + field mapping — tools/call + x-pulse-mcp-key + explicit buddy_ledger_write field mapping + mcp_tick health + read kill-switch`
 2. `feat(omega): adapter explicit stale-reason for kill-switched reads`
-3. `docs: OMEGA-REPAIR rev 3.2 roadmap update + five build principles`
+3. `docs: OMEGA-REPAIR rev 3.3 roadmap update + six build principles`
 
 ---
 
 ## Verification protocol
 
-### V-1 — Ledger signal shape
-
-1 hour and 24 hours after deploy:
-
-```sql
-SELECT type, payload->>'error' as error_code, COUNT(*) as n
-FROM buddy_signal_ledger
-WHERE type LIKE 'omega.%'
-  AND created_at > NOW() - INTERVAL '1 hour'
-GROUP BY type, payload->>'error'
-ORDER BY n DESC;
-```
-
-**Acceptable outcomes:** see Batch 4's outcome table (A and B both pass; only C reverts).
-
-### V-2 — Cockpit UX
-
-Matt opens `d65cc19e-...`. Expected: no visible change. Reads invisible, `ai_risk_runs` fallback renders.
-
-### V-3 — Regression
-
-Test pack on Samaritus. `deal_financial_facts` count, spreads, pipeline behavior unchanged.
-
-### V-4 — Pulse receives write-path events (only applicable if outcome A)
-
-Matt confirms out-of-band. If outcome B (auth 401), V-4 is expected to show nothing, which is consistent with the auth state.
+Unchanged except V-1 tolerates both outcomes A and B and catches both C and D distinctly.
 
 ---
 
 ## Rollback
 
-Only triggered by V-1 persistent `Method not found`. Persistent `http_401` is NOT a rollback trigger in rev 3.2 — it's an acceptable end-state with Pulse-side auth diagnostic queued separately.
-
-If rollback needed:
-1. Revert Batches 1 and 2.
-2. Leave env vars in place.
-3. Leave build principles in roadmap.
-4. Re-diagnose.
-
-SR 11-7 wall = zero pipeline impact.
+Only outcome C (persistent `Method not found`) triggers a full revert. Outcome B (`http_401` only) is acceptable. Outcome D (Zod error) is a focused translator amendment, not a revert.
 
 ---
 
@@ -392,12 +395,11 @@ SR 11-7 wall = zero pipeline impact.
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| PIV-2 finds `buddy_ledger_write` schema differs | Low | Translator updated to match |
-| `OMEGA_MCP_KEY` wrong in Vercel runtime | Medium (auth state confirmed inconsistent during diagnostic) | Acceptable outcome — Batch 4 reveals, Pulse-side diagnostic handles separately |
-| `OMEGA_TARGET_USER_ID` empty/Sensitive-flagged | Low impact | Tools accept omission |
-| `mcp_tick` returns unexpected shape | Very low | `health.ts` only checks `result.ok` |
-| Read regex misses a caller | Low | PIV-5 audits call graph |
-| Rev 3.2's deferred PIV-3 masks a different bug | Low | Batch 4 catches any wire issue via `Method not found` signal |
+| `buddy_ledger_write` schema has drifted between spec and deploy | Low | PIV-2 re-reads the live schema; translator updated if drift found |
+| `OMEGA_MCP_KEY` wrong in Vercel runtime | Medium | Acceptable outcome B — code still correct, Matt owns Pulse-side fix |
+| Mapping.json adds a new entity type that should map to `deal_id` | Low | `DEAL_ENTITY_TYPES` set is a single-file edit; PIV-6 catches this |
+| Caller (`mirrorEventToOmega`) changes its envelope shape | Low | PIV-6 verifies caller shape at spec-execution time; would surface |
+| Rev 3.3 misses another field-mapping bug | Low | Batch 4 outcome D catches Zod errors distinctly from wire errors |
 
 ---
 
@@ -405,43 +407,46 @@ SR 11-7 wall = zero pipeline impact.
 
 **Authorized:**
 - Read any file in Buddy's repo
-- Read any table in Buddy's Supabase (read-only)
-- Probe deployed Pulse MCP with `tools/list` (unauthenticated discovery only)
-- Write code to `src/lib/omega/`, `src/core/omega/`, and test files
+- Read Supabase read-only
+- Probe deployed Pulse MCP with `tools/list` (unauthenticated)
+- Write code to `src/lib/omega/`, `src/core/omega/`, and tests
 - Commit Batches 1, 2, 5 to `main`
-- Deploy to production (Batch 4) — proceed without waiting for PIV-3
+- Deploy to production
 
 **NOT authorized:**
-- Attempt PIV-3 probes — deferred per rev 3.2
-- Request or reference the `OMEGA_MCP_KEY` value
+- Probe `tools/call` with `OMEGA_MCP_KEY` (PIV-3 deferred)
 - Modify any Vercel env var
 - Modify any file in PulseMasterrepo
 - Silence any ledger signal
 - Touch outbox or ledger forwarder code
 - Commit secret values in any form
-- Paper over newly-discovered bugs — stop-and-surface
+- Paper over newly-discovered bugs
 
-**If PIV-2 finds `buddy_advisory_for_deal` etc. have been added to Pulse:** stop and surface. Plan changes materially.
+**If PIV-2 finds `buddy_ledger_write`'s schema differs (e.g., additional required fields like `tenant_id`):** update translator's write branch to match. Not a stop-and-surface — that's the exact job of the spec.
 
-**If a new caller of `invokeOmega` surfaces that isn't in PIV-5's list and isn't covered by the translator:** stop and surface.
+**If PIV-2 finds `buddy_advisory_for_deal` etc. have been added to Pulse:** stop and surface.
 
-**If Batch 4 shows outcome B (`http_401` only, no `Method not found`):** this is acceptable per rev 3.2 outcome table. Do not revert. Document in AAR and flag Pulse-side diagnostic as queued for Matt.
+**If PIV-6 finds `mirrorEventToOmega`'s envelope shape has changed:** stop and surface; envelope contract affects translator.
 
-**If Batch 4 shows outcome C (any `Method not found`):** revert Batches 1/2. Re-diagnose.
+**If Batch 4 = outcome C (any `Method not found`):** revert Batches 1/2. Diagnose.
+
+**If Batch 4 = outcome D (Zod error on write path):** amend translator write branch to match live schema. Commit the fix; do not revert.
+
+**If Batch 4 = outcome B (`http_401` only, no `Method not found`, no Zod):** acceptable ship state. Flag Pulse-side auth diagnostic for Matt.
 
 ---
 
 ## After this lands
 
-Wire contract is correct regardless of auth state. Signal shape cleaned up. Reads kill-switched honestly.
+Wire + field shape + kill-switch all correct. Signal shape clean regardless of auth state. Reads honestly kill-switched.
 
 Remaining work:
-1. **PULSE-SIDE-SPEC.md execution** — deal-scoped advisory tools.
-2. **Buddy follow-up PR** — lift kill switch once Pulse ships.
-3. **Pulse-side auth diagnostic** (conditional on outcome B) — why do MCP-protocol calls authenticate but direct HTTP with the same key source doesn't?
-4. **Fastlane retire PR** — separate concern.
-5. **DLQ replay** — optional.
-6. **Pulse-as-driver rethink** — future spec.
-7. **Deprecate `OMEGA_MCP_API_KEY`** — after stable operation.
+1. PULSE-SIDE-SPEC.md execution
+2. Buddy follow-up PR to lift kill switch
+3. Pulse-side auth diagnostic (conditional on outcome B)
+4. Fastlane retire PR
+5. DLQ replay
+6. Pulse-as-driver rethink
+7. Deprecate `OMEGA_MCP_API_KEY`
 
 The repair is not the vision. The repair gives us ground to stand on.
