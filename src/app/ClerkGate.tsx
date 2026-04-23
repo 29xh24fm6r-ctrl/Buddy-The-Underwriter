@@ -11,5 +11,9 @@ export default function ClerkGate({ children }: { children: React.ReactNode }) {
   // If the key is invalid, do NOT mount ClerkProvider (prevents prerender crash).
   if (!isValidClerkPublishableKey(pk)) return <>{children}</>;
 
-  return <ClerkProvider publishableKey={pk}>{children}</ClerkProvider>;
+  return (
+    <ClerkProvider publishableKey={pk} afterSignOutUrl="/">
+      {children}
+    </ClerkProvider>
+  );
 }
