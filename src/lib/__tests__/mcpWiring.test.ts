@@ -23,23 +23,38 @@ describe("invokeOmega transport (source-level)", () => {
     assert.ok(src.includes("OMEGA_MCP_URL"), "Must read OMEGA_MCP_URL env var");
   });
 
-  test("uses OMEGA_MCP_API_KEY for auth", () => {
-    assert.ok(src.includes("OMEGA_MCP_API_KEY"), "Must read OMEGA_MCP_API_KEY env var");
+  test("reads OMEGA_MCP_KEY first, falls back to OMEGA_MCP_API_KEY (rev 3.3)", () => {
+    assert.ok(src.includes("OMEGA_MCP_KEY"), "Must read OMEGA_MCP_KEY env var (preferred)");
+    assert.ok(
+      src.includes("OMEGA_MCP_API_KEY"),
+      "Must keep OMEGA_MCP_API_KEY as deprecated fallback",
+    );
   });
 
-  test("sends JSON-RPC 2.0 request", () => {
+  test("sends JSON-RPC 2.0 request with method: tools/call (rev 3.3 wire fix)", () => {
     assert.ok(src.includes('"2.0"'), "Must include jsonrpc 2.0 version");
     assert.ok(src.includes("jsonrpc"), "Must reference jsonrpc field");
     assert.ok(src.includes("method:"), "Must include method field");
     assert.ok(src.includes("params:"), "Must include params field");
+    assert.ok(
+      /method:\s*"tools\/call"/.test(src),
+      "Method must be tools/call, never the raw omega:// resource URI",
+    );
   });
 
   test("uses fetch() for HTTP transport", () => {
     assert.ok(src.includes("fetch(baseUrl"), "Must call fetch with baseUrl");
   });
 
-  test("sends Bearer auth header", () => {
-    assert.ok(src.includes("Bearer"), "Must include Bearer token header");
+  test("sends x-pulse-mcp-key header (rev 3.3 auth fix), not Authorization: Bearer", () => {
+    assert.ok(
+      src.includes('"x-pulse-mcp-key"'),
+      "Must send x-pulse-mcp-key header — Pulse MCP's auth contract",
+    );
+    assert.ok(
+      !/headers\["Authorization"\]\s*=\s*`Bearer/.test(src),
+      "Must not send Authorization: Bearer header (pre-rev-3.3 contract)",
+    );
   });
 
   test("handles JSON-RPC error responses", () => {
