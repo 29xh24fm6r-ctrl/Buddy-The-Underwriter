@@ -1,10 +1,11 @@
-# Spec OMEGA-REPAIR — Fix the Three Client Bugs Blocking Omega Advisory
+# Spec OMEGA-REPAIR — Fix the Four Client Bugs Blocking Omega Advisory
 
-**Date:** 2026-04-22
-**Supersedes:** Nothing; this is the follow-through on the Phase 1 + Phase 2 diagnostics.
-**Owner:** Matt (both sides of the contract — Buddy and Pulse/Omega)
+**Date:** 2026-04-22 (revised 2026-04-23 after PulseMasterrepo source review)
+**Supersedes:** Prior draft of this spec (that draft covered three bugs; Matt and Claude found a fourth during Pulse-side source review).
+**Owner:** Matt (owns both sides of the contract — Buddy and Pulse/Omega)
 **Executor:** Claude Code
-**Estimated effort:** 4–8 hours total. Mostly code changes on Buddy's side. New Vercel env var. Optional matching tool additions on Pulse side if existing tools don't fit.
+**Repo:** Buddy lives at `29xh24fm6r-ctrl/Buddy-The-Underwriter`. Pulse MCP source lives at `29xh24fm6r-ctrl/PulseMasterrepo` under `services/pulse-mcp/src/`. Claude Code has read access to both.
+**Estimated effort:** 4–8 hours total. Code changes on Buddy's side only (Pulse MCP is correctly implemented; Buddy's client is wrong). No Pulse-side code changes needed.
 **Risk:** Medium-low. No pipeline impact (Omega is advisory-only, SR 11-7 wall). Worst case is continued 100% failure rate — nothing *new* breaks.
 
 ---
@@ -13,128 +14,223 @@
 
 Omega advisory is 100% failing in production. 53 `omega.invoked` / 53 `omega.failed` events per week in `buddy_signal_ledger`. Every call errors with `omega_rpc_error: Method not found`.
 
-Phase 2 (`FINDINGS-PHASE-2.md`) identified three independent root causes, any one of which would block the call:
+The diagnostics in `specs/diagnostic-pulse-omega/FINDINGS.md` and `FINDINGS-PHASE-2.md`, plus source review of `29xh24fm6r-ctrl/PulseMasterrepo/services/pulse-mcp/src/`, identified **four** independent root causes. Any one of them is sufficient to block the call; all four must be fixed for Omega to succeed.
 
-1. **Wrong JSON-RPC `method`.** `src/lib/omega/invokeOmega.ts` line 144 sends `method: "omega://events/write"` directly. The deployed Pulse MCP only recognizes `tools/list` and `tools/call`. The `omega://` namespace is client-side fiction.
-2. **Wrong auth header.** `invokeOmega.ts` line 138 sends `Authorization: Bearer`. The `tools/call` endpoint requires `x-pulse-mcp-key`. Bearer is rejected.
-3. **Wrong secret value.** Even if the header name were fixed, `OMEGA_MCP_API_KEY` (which holds `b28280af…0`, the same value as `PULSE_INGEST_TOKEN`) is not a valid `x-pulse-mcp-key`. The tool-call endpoint requires a different secret that is not currently set in any Vercel env var.
+1. **Wrong JSON-RPC `method`.** `src/lib/omega/invokeOmega.ts:144` sends `method: "omega://events/write"` directly. The deployed Pulse MCP only recognizes JSON-RPC methods `tools/list` and `tools/call`. The entire `omega://` namespace is client-side fiction; no Pulse method was ever registered under those names.
+
+2. **Wrong auth header.** `invokeOmega.ts:138` sends `Authorization: Bearer ${apiKey}`. Pulse MCP's auth middleware (`PulseMasterrepo:services/pulse-mcp/src/auth.ts:20-29`) reads the `x-pulse-mcp-key` header only. Bearer is ignored.
+
+3. **Wrong secret value.** Even with the header name corrected, the `OMEGA_MCP_API_KEY` env var Buddy reads holds the Bearer token for the `/ingest/buddy` path (same 64-char value as `PULSE_INGEST_TOKEN`, verified in Phase 2). It is not the value Pulse MCP's `auth.ts` compares against for tool calls — that comes from Secret Manager's `PULSE_MCP_API_KEY` (Version 2, in the `pulse-life-os-2a8c9` GCP project).
+
+4. **Missing `target_user_id` in tool arguments.** Pulse MCP's Buddy-facing tools (`PulseMasterrepo:services/pulse-mcp/src/tools/buddy/ledger.ts`) require `target_user_id` as a Zod-validated argument on every call. Without it, every tool call fails Zod validation with `"target_user_id: Required"` — returned before auth even matters. Buddy's current `invokeOmega` client does not pass this argument in any call site.
+
+## Environment status
+
+Matt has already set the two env vars required for this repair (confirmed via Vercel dashboard, 2026-04-23):
+
+| Var | Value source | Sensitive? | Scope |
+|---|---|---|---|
+| `OMEGA_MCP_KEY` | Copied from GCP Secret Manager's `PULSE_MCP_API_KEY` v2, `pulse-life-os-2a8c9` project | Yes | Production and Preview |
+| `OMEGA_TARGET_USER_ID` | `8c24fdf4-1ef7-418a-b155-16a85eb17f6a` (from Pulse MCP Cloud Run env var `PULSE_MCP_VIEWER_USER_ID`; same as `PULSE_DEFAULT_TARGET_USER_ID`; single-tenant setup) | No (plain UUID) | Production and Preview |
+
+A fresh redeploy has already been triggered. Claude Code does NOT need to set env vars. It only needs to read code that references them.
 
 ## Outcome we want
 
-- Every call from `invokeOmega` reaches the deployed Pulse MCP, authenticates successfully, executes a real tool, and returns structured data.
+- Every call from `invokeOmega` reaches the deployed Pulse MCP, authenticates, passes Zod validation, executes a real tool, and returns structured data.
 - `buddy_signal_ledger` shows `omega.succeeded` events instead of `omega.failed` for the five resource types Buddy currently calls.
-- Cockpit surfaces (`OmegaAdvisoryPanel`, `OmegaConfidenceBadge`, `OmegaTraceDrawer`) populate with real data where Pulse has analyzed a deal, and degrade gracefully (unchanged behavior) where Pulse has not.
-- SR 11-7 wall preserved: Omega remains advisory-only, pipeline never depends on Omega success.
-- The repair is verifiable by reading ledger counts before/after deploy — no synthetic testing required, production traffic validates itself.
+- Cockpit surfaces (`OmegaAdvisoryPanel`, `OmegaConfidenceBadge`, `OmegaTraceDrawer`) populate with real data where Pulse has analyzed a deal, and degrade gracefully (`stale: true`, no UI change) where Pulse has not.
+- SR 11-7 wall preserved: Omega remains advisory-only; the pipeline never depends on Omega success.
+- The repair is verifiable by reading ledger counts before/after deploy — no synthetic testing required; production traffic validates itself.
 
 ## Non-goals
 
-- **Not rethinking the architecture.** This repair preserves request-response. If the eventual right answer is event-driven "Pulse-as-driver" (the reframe Matt raised), that's a future spec. This spec makes the current surface *work correctly first* so the foundation is provably rock-solid.
-- **Not retiring Omega.** Matt explicitly chose REPAIR over RETIRE.
-- **Not consolidating `omega/` with `pulseMcp/` clients.** They point at the same service but have different client abstractions. Consolidation is future cleanup; this spec only fixes what's broken.
+- **Not rethinking the architecture.** This repair preserves request-response. If the eventual right answer is event-driven "Pulse-as-driver" (Matt's reframe from earlier in the diagnostic arc), that's a future spec. This spec makes the current surface *work correctly first* so the foundation is provably rock-solid.
+- **Not retiring Omega.** Matt explicitly chose REPAIR.
+- **Not consolidating `omega/` with `pulseMcp/` clients.** They point at the same deployed service but have different client abstractions. Consolidation is future cleanup; this spec only fixes what's broken in `omega/`.
 - **Not replaying the 336 DLQ rows** from the pre-Feb-17 auth era. Separate optional PR.
 - **Not touching the fastlane.** Fastlane retire is a separate PR.
+- **Not modifying Pulse MCP's code.** The Pulse-side implementation is correct. Buddy's client is the only thing changing.
 
 ---
 
 ## Pre-implementation verification (MANDATORY)
 
-Claude Code MUST do all of these before writing code. If any result is surprising, stop and surface before proceeding.
+Claude Code MUST complete all five PIVs before writing code. If any result is surprising or differs from the assumptions below, stop and surface to Matt before proceeding.
 
-### PIV-1 — Confirm current failure baseline
+### PIV-1 — Record the current failure baseline
 
-Query `buddy_signal_ledger` for last 24h:
+Query `buddy_signal_ledger` for the last 24h via Supabase MCP:
 
 ```sql
-SELECT type, COUNT(*) as n
+SELECT type, COUNT(*) as n, MAX(created_at)::text as latest
 FROM buddy_signal_ledger
 WHERE type IN ('omega.invoked', 'omega.succeeded', 'omega.failed', 'omega.timed_out', 'omega.killed')
   AND created_at > NOW() - INTERVAL '24 hours'
 GROUP BY type;
 ```
 
-Expected: `omega.invoked` ≈ `omega.failed`, `omega.succeeded` = 0. Record exact numbers in the AAR — these are the numerator/denominator for post-deploy verification.
+Expected: `omega.invoked` ≈ `omega.failed`, `omega.succeeded` = 0 (or near-zero).
 
-### PIV-2 — Confirm the right Pulse-side tool for each call site
+Record the exact numbers in the final AAR. These are the numerator/denominator for post-deploy verification (V-1).
 
-The deployed Pulse MCP exposes 40 tools (per Phase 2). For each of Buddy's five `omega://` resources, verify which tool actually answers the need:
+### PIV-2 — Read Pulse-side tool schemas directly from PulseMasterrepo source
 
-| Buddy resource | Proposed Pulse tool | Verification query |
-|---|---|---|
-| `omega://events/write` | `buddy_ledger_write` | Send a probe via `tools/call` with zero-UUID deal_id. Expect success. |
-| `omega://state/underwriting_case/{dealId}` | `state_inspect` (args TBD) | Inspect Pulse MCP's tool schema for `state_inspect`. Confirm it accepts deal_id or equivalent. |
-| `omega://state/borrower/{borrowerId}` | `state_inspect` or borrower-specific equivalent | Same — confirm from tool schema. |
-| `omega://confidence/evaluate` | `state_confidence` | Confirm from tool schema. |
-| `omega://traces/{sessionId}` | `observer_query` | Confirm from tool schema. |
+**This is no longer an introspection task.** Claude Code has GitHub MCP access to `29xh24fm6r-ctrl/PulseMasterrepo`. Read the tool source files and record the exact Zod schemas for each tool Buddy will call.
 
-**How to get tool schemas:** POST to deployed MCP with `{"method":"tools/list"}` — no auth required. The response includes each tool's `inputSchema` (JSON Schema). Match Buddy's needs against the schemas.
+Files to read:
 
-If any Pulse tool does not cleanly answer Buddy's need, surface it. We have two options in that case:
-- (a) Claude Code writes a translation layer in Buddy's adapter.
-- (b) Matt adds a purpose-built tool to Pulse MCP's codebase that returns the exact shape Buddy's cockpit needs.
+| File | Tools defined |
+|---|---|
+| `PulseMasterrepo:services/pulse-mcp/src/tools/buddy/ledger.ts` | `buddy_list_ledger_events`, `buddy_get_deal_ledger`, `buddy_get_flow_health`, `buddy_write_ledger_event` |
+| `PulseMasterrepo:services/pulse-mcp/src/tools/pulse_read.ts` | `pulse_read` (or similar — confirm tool name from `tools/index.ts`) |
+| `PulseMasterrepo:services/pulse-mcp/src/tools/pulse_write.ts` | `pulse_write` |
+| `PulseMasterrepo:services/pulse-mcp/src/tools/index.ts` | Full tool registry — confirm tool names as exposed on the wire |
+| `PulseMasterrepo:services/pulse-mcp/src/auth.ts` | Confirm auth contract (single key `x-pulse-mcp-key`; `assertViewerCanReadTarget` requires `target_user_id`) |
 
-Do NOT assume the mapping is clean. Verify each one.
+What Claude Code already knows from this spec's authors having read the source:
 
-### PIV-3 — Obtain and record the correct `x-pulse-mcp-key` secret value
+**`buddy_write_ledger_event`** (Zod schema from `ledger.ts`):
+```ts
+{
+  target_user_id: z.string().min(10),
+  event_type: z.string().min(1).max(100),
+  deal_id: z.string().optional(),
+  status: z.enum(["pending", "success", "failed", "error"]),
+  payload: z.record(z.unknown()).default({}),
+  expected_outcome: z.record(z.unknown()).optional(),
+  actual_outcome: z.record(z.unknown()).optional(),
+}
+```
 
-Matt owns Pulse and has said "I can have the Pulse key ready immediately." Before Claude Code starts coding:
+**`buddy_list_ledger_events`:**
+```ts
+{
+  target_user_id: z.string().min(10),
+  limit: z.number().int().min(1).max(200).default(50),
+  hours: z.number().int().min(1).max(168).default(24),
+  event_type: z.string().optional(),
+  deal_id: z.string().optional(),
+}
+```
 
-1. Matt provides the correct `x-pulse-mcp-key` secret value (out-of-band — do NOT commit it; do NOT paste it into the spec; do NOT write it to the repo).
-2. Claude Code sets it in Vercel production env as **`OMEGA_MCP_KEY`** (new var name; see Naming Decision below).
-3. Claude Code verifies it works by calling a low-risk tool (e.g., `mcp_tick` or `system_smoke_test`) from a scratch script with the new secret. If it 200s, the secret is valid.
+**`buddy_get_deal_ledger`:**
+```ts
+{
+  target_user_id: z.string().min(10),
+  deal_id: z.string().min(1),
+  limit: z.number().int().min(1).max(200).default(50),
+}
+```
 
-If the secret isn't available when Claude Code starts, the repair stalls here. Code can still be written (it compiles without the secret), but no end-to-end validation happens until the secret lands.
+**`buddy_get_flow_health`:**
+```ts
+{
+  target_user_id: z.string().min(10),
+  hours: z.number().int().min(1).max(168).default(24),
+}
+```
 
-### PIV-4 — Naming decision: new env var for the tool-call key
+**Every buddy_* tool requires `target_user_id`.** This is bug #4.
 
-Current state in Vercel:
-- `PULSE_INGEST_TOKEN` — valid Bearer token for `/ingest/buddy`. **Keep unchanged.**
-- `OMEGA_MCP_API_KEY` — currently equals `PULSE_INGEST_TOKEN` (same value). **Misnamed; it is not actually a valid MCP key.**
-- `PULSE_MCP_KEY` — unset. The fastlane client expects this.
+Pulse-side tool response shape is always `{ summary: string, artifacts: unknown[] }` — see `ToolResult` interface in `ledger.ts`. Adapter will need to unwrap `artifacts` (Batch 2).
 
-Proposal: introduce **`OMEGA_MCP_KEY`** as the new variable name for the `x-pulse-mcp-key` secret. Reasons:
-- Distinguishes from the misleading `OMEGA_MCP_API_KEY` (which we will leave in place but stop referencing — see deprecation below).
-- Distinct from `PULSE_MCP_KEY` because even though they happen to point at the same deployed service, the Omega client and the fastlane client have different lifecycles (fastlane is being retired; Omega is being repaired).
-- The existing `src/lib/omega/invokeOmega.ts` has a `getOmegaMcpApiKey()` function — rename the function and point it at the new env var.
+Tools `state_inspect`, `state_confidence`, `observer_query` — PIV-2 task: read their source files and record the exact schemas. Spec assumes these follow the same pattern (require `target_user_id`), but verify. If any of the three `state_*` or `observer_*` tools don't exist under those names, record what does exist on the Pulse side for the three advisory reads Buddy needs (deal state, confidence score, trace).
 
-Deprecate but do NOT delete `OMEGA_MCP_API_KEY` in this PR. Leave it set in Vercel so we can roll back by reverting the code change if needed. Add a comment in `invokeOmega.ts` noting the rename and that `OMEGA_MCP_API_KEY` is deprecated as of this commit.
+Record findings in the AAR as a table: Buddy's `omega://` URI → real Pulse tool name → exact argument schema.
 
-### PIV-5 — Confirm no one else calls `invokeOmega` with expectations that break
+### PIV-3 — Verify the auth secret works end-to-end
 
-Search `src/` for every caller of `invokeOmega` and every caller of `readOmegaState`, `readOmegaTraces`, `evaluateOmegaConfidence`, `mirrorEventToOmega`. Document the call graph. Each caller is downstream of this repair — if any of them has expectations about response shape that change, we need to know.
+The `OMEGA_MCP_KEY` env var is already set in Vercel (marked Sensitive, Production+Preview). Before writing any code, verify the value Pulse receives when Buddy calls is a valid `x-pulse-mcp-key`:
 
-From Phase 2's call-site enumeration:
-- `src/core/omega/OmegaAdvisoryAdapter.ts` — calls `readOmegaState`, `evaluateOmegaConfidence`, `readOmegaTraces`
-- `src/buddy/server/writeBuddySignal.ts` → `mirrorEventToOmega.ts` — calls `invokeOmega` for `omega://events/write`
-- `src/app/api/examiner/portal/deals/[dealId]/route.ts:125` — calls `omega://state/borrower/{id}`
+Write a scratch script in `/tmp/omega-probe.ts` (delete after verification — do NOT commit):
 
-Three entry points. All three need to survive the response-shape changes introduced by the repair. Verify shapes match `OmegaAdvisoryState` (cockpit) and whatever examiner portal expects.
+```ts
+// Uses the value from Vercel via `vercel env pull` to a local .env.production,
+// then reads process.env.OMEGA_MCP_KEY. Clean up both after.
+const key = process.env.OMEGA_MCP_KEY;
+if (!key) throw new Error("OMEGA_MCP_KEY not in env");
+
+const res = await fetch("https://pulse-mcp-651478110010.us-central1.run.app/", {
+  method: "POST",
+  headers: { "content-type": "application/json", "x-pulse-mcp-key": key },
+  body: JSON.stringify({
+    jsonrpc: "2.0",
+    id: "probe-1",
+    method: "tools/call",
+    params: { name: "mcp_tick", arguments: {} },
+  }),
+});
+console.log("status:", res.status);
+console.log("body:", await res.text());
+```
+
+Expected: HTTP 200 with a successful `mcp_tick` response (Pulse's heartbeat tool — no `target_user_id` needed for this one specifically; verify from source).
+
+If 401: secret is wrong. Stop and surface to Matt.
+If 400 with a Zod error about missing fields: secret works but tool needs args; pick a different zero-args probe tool from `tools/index.ts`.
+If 200: proceed.
+
+Clean up `.env.production` and `omega-probe.ts` after. Do not commit either.
+
+### PIV-4 — Naming and env var state
+
+Already decided and applied:
+
+- **`OMEGA_MCP_KEY`** — the `x-pulse-mcp-key` value. Set in Vercel, marked Sensitive.
+- **`OMEGA_TARGET_USER_ID`** — `8c24fdf4-1ef7-418a-b155-16a85eb17f6a`. Set in Vercel, plaintext (not sensitive).
+- **`OMEGA_MCP_API_KEY`** — leave set at current value (the Bearer token). Deprecated. `invokeOmega.ts` should read `OMEGA_MCP_KEY` first, fall back to `OMEGA_MCP_API_KEY` for rollback safety, emit a console.warn if only the fallback is used so stale config gets noticed.
+- `PULSE_MCP_KEY`, `PULSE_MCP_ENABLED`, `PULSE_MCP_URL` — not set, never have been (fastlane has never been configured). The fastlane retire PR will remove code that references these.
+
+### PIV-5 — Call graph audit
+
+Confirm every caller of the Omega client surface. From the existing diagnostic work:
+
+- `src/core/omega/OmegaAdvisoryAdapter.ts` → calls `readOmegaState`, `evaluateOmegaConfidence`, `readOmegaTraces` (which all route through `invokeOmega`)
+- `src/buddy/server/writeBuddySignal.ts` → `src/lib/omega/mirrorEventToOmega.ts` → calls `invokeOmega` for `omega://events/write`
+- `src/app/api/examiner/portal/deals/[dealId]/route.ts:125` → calls `omega://state/borrower/{id}` (verify line number — may have drifted)
+
+If grep finds additional callers beyond these three, surface. All callers downstream of the repair must tolerate the new response-shape unwrapping.
 
 ---
 
 ## Implementation plan
 
-Five batches, each committable separately. Land in order.
+Five batches, committable separately. Land in order.
 
-### Batch 1 — Fix `invokeOmega.ts` (the one file with all three bugs)
+### Batch 1 — Fix `invokeOmega.ts` (all four bugs live here)
 
 **File:** `src/lib/omega/invokeOmega.ts`
 
-**Changes:**
+**Changes (in order):**
 
-1. Replace the JSON-RPC body construction. Currently (line 133-144):
+1. **Secret lookup — bug #3 fix.** Replace `getOmegaMcpApiKey()`:
    ```ts
-   const body = JSON.stringify({
-     jsonrpc: "2.0",
-     id: requestId,
-     method: resource,       // BUG: "omega://events/write" not recognized
-     params: payload ?? {},
-   });
+   function getOmegaMcpApiKey(): string | undefined {
+     const newKey = process.env.OMEGA_MCP_KEY;
+     if (newKey) return newKey;
+     const fallback = process.env.OMEGA_MCP_API_KEY;
+     if (fallback) {
+       console.warn(
+         "[omega] using deprecated OMEGA_MCP_API_KEY env var — rename to OMEGA_MCP_KEY",
+       );
+       return fallback;
+     }
+     return undefined;
+   }
    ```
 
-   Fix:
+2. **Auth header — bug #2 fix.** Replace the Bearer header with `x-pulse-mcp-key`:
    ```ts
-   // Translate omega:// URI to Pulse tool name + arguments.
+   // Before:
+   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+   // After:
+   if (apiKey) headers["x-pulse-mcp-key"] = apiKey;
+   ```
+
+3. **JSON-RPC envelope — bug #1 fix.** Replace the `method: resource` pattern with `method: "tools/call"`:
+   ```ts
    const toolCall = translateResourceToToolCall(resource, payload);
    if (!toolCall) {
      throw new Error(`omega_unmapped_resource: ${resource}`);
@@ -150,31 +246,12 @@ Five batches, each committable separately. Land in order.
    });
    ```
 
-2. Replace the auth header. Currently (line 135-140):
+4. **URI→tool translation with `target_user_id` injection — bug #4 fix.** Add a helper:
    ```ts
-   if (apiKey) {
-     headers["Authorization"] = `Bearer ${apiKey}`;
+   function getOmegaTargetUserId(): string | undefined {
+     return process.env.OMEGA_TARGET_USER_ID || undefined;
    }
-   ```
 
-   Fix:
-   ```ts
-   if (apiKey) {
-     headers["x-pulse-mcp-key"] = apiKey;
-   }
-   ```
-
-3. Update `getOmegaMcpApiKey()` to read the new env var:
-   ```ts
-   function getOmegaMcpApiKey(): string | undefined {
-     return process.env.OMEGA_MCP_KEY || process.env.OMEGA_MCP_API_KEY || undefined;
-     // OMEGA_MCP_API_KEY fallback is deprecated — remove in a future cleanup.
-   }
-   ```
-
-4. Add the `translateResourceToToolCall` helper. This is the URI→tool mapping. Keep it in `invokeOmega.ts` for now; extract to its own file only if the mapping grows beyond ~30 lines.
-
-   ```ts
    interface ToolCall {
      tool: string;
      arguments: Record<string, unknown>;
@@ -184,23 +261,34 @@ Five batches, each committable separately. Land in order.
      resource: string,
      payload: unknown,
    ): ToolCall | null {
-     // omega://events/write → buddy_ledger_write
+     const targetUserId = getOmegaTargetUserId();
+     if (!targetUserId) {
+       throw new Error("omega_target_user_id_missing: set OMEGA_TARGET_USER_ID");
+     }
+
+     const payloadObj = (payload as Record<string, unknown>) ?? {};
+     const baseArgs = { target_user_id: targetUserId };
+
+     // omega://events/write → buddy_write_ledger_event
      if (resource === "omega://events/write") {
        return {
-         tool: "buddy_ledger_write",
-         arguments: (payload as Record<string, unknown>) ?? {},
+         tool: "buddy_write_ledger_event",
+         arguments: { ...baseArgs, ...payloadObj },
        };
      }
 
      // omega://state/<type>/<id> → state_inspect
+     // NOTE: PIV-2 must verify that state_inspect exists under that name and accepts
+     // these argument names. If not, this mapping must be updated before commit.
      const stateMatch = resource.match(/^omega:\/\/state\/([^/]+)\/(.+)$/);
      if (stateMatch) {
        return {
          tool: "state_inspect",
          arguments: {
+           ...baseArgs,
            state_type: stateMatch[1],
            entity_id: stateMatch[2],
-           ...(payload as Record<string, unknown> ?? {}),
+           ...payloadObj,
          },
        };
      }
@@ -209,7 +297,7 @@ Five batches, each committable separately. Land in order.
      if (resource === "omega://confidence/evaluate") {
        return {
          tool: "state_confidence",
-         arguments: (payload as Record<string, unknown>) ?? {},
+         arguments: { ...baseArgs, ...payloadObj },
        };
      }
 
@@ -219,8 +307,9 @@ Five batches, each committable separately. Land in order.
        return {
          tool: "observer_query",
          arguments: {
+           ...baseArgs,
            session_id: traceMatch[1],
-           ...(payload as Record<string, unknown> ?? {}),
+           ...payloadObj,
          },
        };
      }
@@ -229,82 +318,101 @@ Five batches, each committable separately. Land in order.
    }
    ```
 
-   **IMPORTANT:** the argument shapes above are GUESSES. PIV-2 resolves them by reading each tool's `inputSchema`. Update this function to match the real schemas before shipping. If shapes don't match, it's a PIV-2 finding, not a Batch 1 finding.
+   **IMPORTANT:** Argument names other than `target_user_id` are confirmed only for `buddy_write_ledger_event` (read from source). The `state_inspect` / `state_confidence` / `observer_query` argument shapes are guesses pending PIV-2 verification. Update before commit.
 
-5. Handle the new response shape. MCP `tools/call` responses wrap the actual result:
+5. **Response unwrapping.** MCP `tools/call` returns:
    ```json
    {
      "jsonrpc": "2.0",
      "id": "...",
      "result": {
-       "content": [{"type": "text", "text": "..."}],
-       "structuredContent": {...}   // when present, this is the actual data
+       "content": [{"type": "text", "text": "<json>"}],
+       "structuredContent": {...}
      }
    }
    ```
-
-   The existing code assumes `rpc.result` IS the data. After the repair, `rpc.result.structuredContent` (or `rpc.result.content[0]` parsed) IS the data. Update the response unwrapping accordingly.
+   But Pulse's tools all return `{ summary: string, artifacts: unknown[] }` via the `ToolResult` shape. The MCP server wraps this in `result.structuredContent`. Existing code assumes `rpc.result` IS the data. Update unwrapping:
+   ```ts
+   const unwrapped = rpc.result?.structuredContent ?? rpc.result?.content?.[0];
+   if (!unwrapped) {
+     throw new Error("omega_rpc_empty: no content in response");
+   }
+   return unwrapped as T;
+   ```
 
 **Tests:** `src/lib/omega/__tests__/invokeOmega.test.ts` — new file.
-- Mock fetch. Assert request body has `method: "tools/call"`, correct `params.name`, correct `arguments`.
+- Mock `fetch`. Assert request body has `method: "tools/call"`, correct `params.name`, correct `params.arguments`.
+- Assert `target_user_id` is present in every tool-call arguments object, sourced from `OMEGA_TARGET_USER_ID`.
 - Assert request header is `x-pulse-mcp-key`, not `Authorization`.
-- Test each of the five URI patterns individually.
-- Test that an unmapped URI returns `{ ok: false, error: "omega_unmapped_resource: ..." }`.
-- Test timeout, kill-switch, disabled paths still work (regression coverage).
+- Test the four URI patterns (`events/write`, `state/<type>/<id>`, `confidence/evaluate`, `traces/<id>`) produce the correct tool names.
+- Test `omega_unmapped_resource` returns `{ ok: false }` for unknown URIs.
+- Test `omega_target_user_id_missing` surfaces clearly when the env var is unset.
+- Test deprecated fallback (`OMEGA_MCP_API_KEY` only) emits console.warn and still works.
+- Regression: timeout, kill-switch, disabled paths still work.
 
-### Batch 2 — Verify adapter shapes still line up
+### Batch 2 — Align adapter response shapes
 
 **File:** `src/core/omega/OmegaAdvisoryAdapter.ts`
 
-After Batch 1, responses from `readOmegaState` / `evaluateOmegaConfidence` / `readOmegaTraces` will carry real data in different shapes than before (because they now come from `state_inspect`, `state_confidence`, `observer_query` instead of the mythical `omega://` namespace).
+After Batch 1, responses from `readOmegaState` / `evaluateOmegaConfidence` / `readOmegaTraces` will carry real data in shapes that come from Pulse's `{ summary, artifacts }` envelope, not the hypothetical `{data: {recommendation, signals, score, id}}` shapes the adapter currently reads.
 
-The adapter currently reads fields like `state.data?.recommendation`, `state.data?.signals`, `conf.data?.score`, `tr.data?.id`. Those field names are **guesses from a time when the endpoint never returned anything**. Confirm the real shapes now that we're actually getting data, and update the adapter fields to match.
+Action:
 
-**Do not guess.** Run PIV-2 first, get the tool schemas, then edit the adapter to read the actual response field names. If they don't match what `OmegaAdvisoryState` expects, add a thin shape-mapping function in the adapter (no separate file — keep it close to the usage).
+1. Using PIV-2's recorded tool schemas, determine what `summary` and `artifacts[0]` actually contain for each of the three read tools.
+2. Update the adapter to unwrap `summary` and `artifacts[0]` accordingly and map to the `OmegaAdvisoryState` interface fields (`confidence`, `advisory`, `riskEmphasis`, `traceRef`, `stale`, `staleReason`).
+3. If Pulse's shape genuinely doesn't map to what `OmegaAdvisoryState` expects (e.g., Pulse returns raw ledger rows and we want a synthesized advisory), add a small mapping function inside the adapter file. Do not create a separate file.
+4. Preserve the graceful degradation path: if `state_inspect` / `state_confidence` / `observer_query` return empty artifacts or the tool errors for a specific deal, return `{ stale: true, staleReason: "..." }` — do not surface a broken-looking UI.
 
-**Tests:** Extend `OmegaAdvisoryAdapter.ts` tests (or write first ones — confirm if tests exist). Cover:
-- Happy path: all three sub-calls succeed → `OmegaAdvisoryState` populated, `stale: false`.
-- Partial: only confidence succeeds → populated with `stale: false, confidence: <score>`, advisory empty string.
-- All fail → `stale: true`, `staleReason: "Omega returned no data for this deal"`.
+**Tests:** extend existing tests or create `src/core/omega/__tests__/OmegaAdvisoryAdapter.test.ts`.
+- Happy path: all three sub-calls return populated artifacts → `OmegaAdvisoryState` populated, `stale: false`.
+- Partial: only `state_confidence` succeeds → `confidence` populated, `advisory` empty, `stale: false`.
+- Empty artifacts: Pulse returns `{summary: "no data", artifacts: []}` → `stale: true, staleReason: "..."`.
+- All sub-calls fail → `stale: true`.
 - Disabled (`OMEGA_MCP_ENABLED !== "1"`) → `stale: true, staleReason: "Omega MCP not enabled"`.
 
-### Batch 3 — Vercel env change
+### Batch 3 — Env var verification (not a code change)
 
-Set `OMEGA_MCP_KEY` in Vercel production to the value Matt provides out-of-band.
+`OMEGA_MCP_KEY` and `OMEGA_TARGET_USER_ID` are already set. Claude Code's job:
 
-Use `vercel env add OMEGA_MCP_KEY production` and paste at the prompt. Do NOT write the value to any file, not even in a comment. Verify with `vercel env ls --yes production | grep OMEGA_MCP_KEY` that it's set.
+1. Run `vercel env ls --yes production | grep -E '^(OMEGA_MCP_KEY|OMEGA_TARGET_USER_ID)'`. Confirm both exist.
+2. Do not add, modify, or delete any env var in this batch. Matt has handled the secret management.
+3. If either var is missing from the output, stop and surface — do NOT add them without Matt's explicit instruction (prevents accidental overwrite of the Sensitive value).
 
-Also add `OMEGA_MCP_KEY` to preview and development if those environments exist and are used for testing. If unsure, ask Matt.
+This batch produces no commit. It's a checkpoint that documents the env state at time of deploy.
 
 ### Batch 4 — Deploy and verify in production
 
-1. After Batches 1–3 are merged and env is set, wait for production deploy to finish.
-2. Open the cockpit for the test deal `d65cc19e-b03e-4f2d-89ce-95ee69472cf3`. Load the page.
-3. Within 2 minutes, query:
+1. After Batches 1 and 2 are merged to main and production deploy completes, wait 2 minutes for cold start.
+2. Open the cockpit for test deal `d65cc19e-b03e-4f2d-89ce-95ee69472cf3`. Load the page once.
+3. Within 5 minutes of the page load, query:
    ```sql
    SELECT type, COUNT(*) as n, MAX(created_at)::text as latest
    FROM buddy_signal_ledger
    WHERE type IN ('omega.invoked', 'omega.succeeded', 'omega.failed')
-     AND created_at > NOW() - INTERVAL '5 minutes'
+     AND created_at > NOW() - INTERVAL '10 minutes'
    GROUP BY type;
    ```
-4. Expected: `omega.invoked` ≥ 3, `omega.succeeded` ≥ 1, `omega.failed` = 0 (or very low, only for resources Pulse hasn't analyzed yet).
-
-If `omega.failed` is still nonzero post-deploy, pull one of the failed ledger rows' `payload.error` and diagnose. The repair is incomplete until the failure rate drops dramatically.
+4. **Success criteria:** `omega.succeeded` ≥ 1, `omega.failed` = 0 or very low (and only for specific resources). `omega.invoked` should be ≥ 3 (typically 3–5 per cockpit load — one per Omega sub-call).
+5. If any `omega.failed` rows exist, pull the `payload.error` field and diagnose. Common causes to check:
+   - `omega_rpc_error: "target_user_id: Required"` → Batch 1 missed injecting `target_user_id` on that URI path
+   - `omega_rpc_error: "Method 'X' not found"` → PIV-2's tool name mapping was wrong for URI X
+   - `omega_http_401` → secret not being read correctly by the running deployment
+   - Zod error on a specific field → tool schema changed since PIV-2 read, or argument name mismatch
 
 ### Batch 5 — Roadmap and build principles
 
 Update `BUDDY_PROJECT_ROADMAP.md`:
 
-1. Move D2 (the Omega Method-not-found item in Phase 84.1 backlog) to completed, referencing this repair's commit chain.
-2. Add a completion note: "Omega advisory repaired 2026-04-22. Three independent client bugs fixed: JSON-RPC method wrong (omega:// URIs replaced with tools/call), auth header wrong (x-pulse-mcp-key replaces Authorization Bearer), secret wrong (new OMEGA_MCP_KEY env var). Success rate restored to [X]% in post-deploy verification. Integration contract now matches deployed Pulse MCP."
-3. Add a new build principle:
+1. Move D2 (the Omega `Method not found` item in Phase 84.1 backlog) to Completed Phases, referencing this repair's commit chain.
+2. Add completion note to Completed Phases:
+   > **Omega advisory repaired 2026-04-23.** Four independent client bugs fixed: JSON-RPC method wrong (`omega://` URIs replaced with `tools/call`), auth header wrong (`x-pulse-mcp-key` replaces `Authorization: Bearer`), secret wrong (new `OMEGA_MCP_KEY` env var from GCP Secret Manager `PULSE_MCP_API_KEY` v2), and authz shape wrong (`target_user_id` now injected in every tool call from `OMEGA_TARGET_USER_ID` env var). Pre-repair 100% failure rate restored to [X]% success rate in post-deploy verification. Integration contract now matches deployed Pulse MCP source at `29xh24fm6r-ctrl/PulseMasterrepo:services/pulse-mcp/src/`. Commits: [chain].
+3. Add three new build principles:
 
-> **When integrating Buddy with external MCP servers, the client always speaks the MCP JSON-RPC envelope: `method: "tools/call"` with `params: {name: <tool>, arguments: <payload>}`. Custom JSON-RPC method names (e.g., `omega://events/write`) are not recognized by any MCP server — they are an anti-pattern from early prototyping that must not be reintroduced. Auth header for `tools/call` is `x-pulse-mcp-key`, not `Authorization: Bearer` (that's the `/ingest/buddy` pattern). Verified 2026-04-22 by end-to-end repair of the Omega advisory surface. See `specs/diagnostic-pulse-omega/FINDINGS-PHASE-2.md` for the diagnostic history. (OMEGA-REPAIR)**
+   > **MCP JSON-RPC envelope is `tools/call`, not custom method names.** When integrating Buddy with any MCP server, the client always speaks `method: "tools/call"` with `params: {name: <tool>, arguments: <payload>}`. Custom JSON-RPC method names (e.g., `omega://events/write`) are not recognized by any MCP server — they are an anti-pattern from early prototyping that must not be reintroduced. Auth header for `tools/call` is `x-pulse-mcp-key`; `Authorization: Bearer` is for the `/ingest/buddy` path only. Every Pulse tool requires `target_user_id` as an argument — this is the authz layer, orthogonal to the `x-pulse-mcp-key` authn layer. Verified 2026-04-23 by end-to-end repair of the Omega advisory surface. See `specs/diagnostic-pulse-omega/FINDINGS-PHASE-2.md` for the diagnostic history. (OMEGA-REPAIR)
 
-4. Add another build principle capturing the diagnostic discipline lesson:
+   > **Probe deployed services and read their actual source before inferring contracts from Buddy's in-repo client code.** Services with independent release cycles (Cloud Run deployments updated outside the main Buddy repo) drift from their in-repo skeletons. Phase 1 of the Pulse/Omega diagnostic read `services/pulse-mcp/src/routes/ingestBuddy.ts` in-repo and inferred an HMAC contract; Phase 2 probed the deployed endpoint and found Bearer auth accepted. The in-repo Buddy code was months stale. The real Pulse MCP source lives in a separate repo (`29xh24fm6r-ctrl/PulseMasterrepo`). Rule: any diagnostic conclusion about a deployed service must be grounded in (a) live probes (curl, MCP introspection), (b) source from the actual deployment repo, not in-repo skeletons. (OMEGA-REPAIR diagnostic lesson)
 
-> **Probe the deployed service before inferring from in-repo service code. Services with independent release cycles (Cloud Run deployments updated outside the main Buddy repo) can drift from their in-repo skeletons. Phase 1 of the Pulse/Omega diagnostic read `services/pulse-mcp/src/routes/ingestBuddy.ts` in-repo and inferred an HMAC contract; Phase 2 probed the deployed endpoint and found Bearer auth accepted. The in-repo code was months stale. Rule: any diagnostic conclusion about a deployed service must be grounded in live probes (curl, MCP introspection, etc.), not static analysis of the repo representation of that service. (OMEGA-REPAIR diagnostic lesson)**
+   > **Buddy-Pulse integration has a two-sided surface. Check both sides.** Pulse MCP source lives at `29xh24fm6r-ctrl/PulseMasterrepo:services/pulse-mcp/src/`. Buddy's Omega + fastlane + outbox clients live at `29xh24fm6r-ctrl/Buddy-The-Underwriter:src/lib/omega/`, `:src/lib/pulseMcp/`, and `:src/lib/outbox/`. Any future change to the integration requires reading both repos. The "deployed Pulse MCP has 40 tools" fact can only be verified against `PulseMasterrepo/services/pulse-mcp/src/tools/index.ts`, not Buddy's in-repo `services/pulse-mcp/` skeleton (which is stale). (OMEGA-REPAIR)
 
 ---
 
@@ -312,63 +420,64 @@ Update `BUDDY_PROJECT_ROADMAP.md`:
 
 Four commits, one PR:
 
-1. `feat(omega): repair invokeOmega — tools/call + x-pulse-mcp-key + URI translation` — Batch 1 + tests
+1. `feat(omega): repair invokeOmega — tools/call + x-pulse-mcp-key + target_user_id injection` — Batch 1 + tests
 2. `feat(omega): align adapter response shapes with real Pulse tool outputs` — Batch 2 + tests
-3. `chore(env): add OMEGA_MCP_KEY production env var` — Batch 3 (env change only, possibly no file change; mention in PR description)
-4. `docs: OMEGA-REPAIR roadmap update + build principles` — Batch 5
+3. (No commit — Batch 3 is verification-only)
+4. `docs: OMEGA-REPAIR roadmap update + three new build principles` — Batch 5
 
-Batch 4 is a verification step, not a commit. Results go in the AAR.
+Batch 4 verification is an AAR artifact, not a commit.
 
 ---
 
 ## Verification protocol
 
-After all batches land and deploy:
-
 ### V-1 — Ledger success rate
 
-Run PIV-1's query. Compare to pre-repair numbers. Success: `omega.succeeded / omega.invoked` ≥ 90% for the next 24 hours.
+Run PIV-1's query 1 hour after deploy, 24 hours after deploy.
 
-If the ratio is 60-90%, investigate which resources fail — might be a shape-mapping bug for one specific `omega://` URI, not a systemic regression.
+- 1-hour success: `omega.succeeded / omega.invoked` ≥ 80%
+- 24-hour success: `omega.succeeded / omega.invoked` ≥ 95%
 
-If the ratio is <60%, revert Batch 1 via git and re-diagnose. The repair was incomplete.
+If the 1-hour ratio is <60%, revert Batch 1 and 2 via git. The repair is incomplete.
 
-### V-2 — Cockpit visible change
+### V-2 — Cockpit visible change on test deal
 
-Before the repair, for the test deal `d65cc19e-...`:
-- `OmegaAdvisoryPanel` renders `null`
-- `OmegaConfidenceBadge` renders `null`
-- `OmegaTraceDrawer` renders in builder mode only, empty
+Matt opens the cockpit for `d65cc19e-...` after deploy and reports what renders.
 
-After the repair:
-- At minimum, the adapter returns `stale: true, staleReason: "Omega returned no data for this deal"` (different from the pre-repair sentinel — this means the call succeeded but Pulse has no analysis yet). UI behavior unchanged in this case.
-- At best, Pulse has analyzed the deal and one or more panels populate.
+Before repair:
+- `OmegaAdvisoryPanel`: renders `null` (invisible)
+- `OmegaConfidenceBadge`: renders `null` (invisible)
+- `OmegaTraceDrawer`: renders in builder mode only, empty
 
-Matt: open the cockpit for the test deal after deploy. Report what you see. This is the user-facing acceptance.
+After repair (expected):
+- At minimum: calls succeed; adapter returns `stale: true, staleReason: "Omega returned no data for this deal"`. UI still invisible (no data to show). This is the correct degradation — Pulse hasn't analyzed this deal yet.
+- If Pulse has analyzed the deal: one or more panels populate. Visible change.
 
-### V-3 — Regression: no pipeline impact
+Either outcome is acceptable. The test is whether the *call succeeded*, not whether the *UI changed*.
 
-Run one full test pack execution on Samaritus (the 9 fixed documents). Expected:
-- All 9 docs upload, classify, extract as before
-- No change in `deal_financial_facts` count
+### V-3 — Regression test: no pipeline impact
+
+Run one full test pack execution on Samaritus (the 9 fixed documents at deal `d65cc19e-...`). Confirm:
+- All 9 docs upload, classify, extract as before (`deal_financial_facts` count unchanged vs pre-repair snapshot)
 - No change in spreads
 - Snapshot/recon/UW behavior identical
+- No new error entries in `buddy_system_events`
 
-Omega is advisory-only. Repair should not touch the pipeline. Confirm by testing the pipeline.
+Omega is advisory-only. Repair should have zero pipeline impact. This regression test proves it.
 
 ### V-4 — Fallback path still works
 
-For a deal where Pulse has NOT analyzed (most deals right now), cockpit should fall back to `ai_risk_runs` synthesis. That code path is in the state API route, not in the adapter. Confirm it still runs when Omega returns empty.
+For a deal where Pulse has NOT analyzed, the cockpit should fall back to `ai_risk_runs` synthesis. That code path is in the state API route, not in the adapter. Confirm by loading a non-test deal and observing the fallback renders.
 
 ---
 
 ## Rollback
 
-If anything breaks in production:
+If V-1's 1-hour ratio is <60% or V-3 shows pipeline regression:
 
-1. **Revert Batch 1 commit.** Restores the 100% failure rate but that was the known-safe prior state.
-2. Leave `OMEGA_MCP_KEY` env var in place (doesn't hurt anything).
-3. Leave the build principle in the roadmap (the diagnostic lesson is true even if the repair reverts).
+1. Revert Batch 1 and Batch 2 commits. Restores the 100% Omega failure rate — but that was the known-safe prior state.
+2. Leave both env vars in place (no harm).
+3. Leave the build principles in the roadmap (diagnostic lessons remain true regardless of repair outcome).
 4. Investigate, re-spec, try again.
 
 SR 11-7 wall protects us here — reverting doesn't hurt the pipeline.
@@ -379,38 +488,40 @@ SR 11-7 wall protects us here — reverting doesn't hurt the pipeline.
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Pulse tool argument shapes don't match our guesses in `translateResourceToToolCall` | High | PIV-2 mandates reading `inputSchema` from `tools/list` before coding. The spec's guesses are explicitly labeled as guesses. |
-| Response field names in adapter don't match real tool outputs | Medium-high | Batch 2 explicitly does this verification as part of implementation. Tests use real response fixtures captured from Pulse. |
-| `OMEGA_MCP_KEY` secret Matt provides is wrong or Pulse rejects it | Low (Matt owns Pulse) | PIV-3 step 3 — probe a low-risk tool before writing code against the key. If it 401s, fix the key before proceeding. |
-| Repair reveals that Pulse has analyzed 0 deals so cockpit still looks "broken" to bankers | Medium | Expected. The "stale: true, staleReason: 'no data for this deal'" path is the correct degradation. UI was already invisible; it stays invisible. Not a regression. |
-| Pulse's response shapes change in the future without coordination | Low (Matt owns both sides) | Build principle mandates probing for drift; future changes to Pulse's tool schemas will require corresponding adapter updates. |
-| Rename from `OMEGA_MCP_API_KEY` to `OMEGA_MCP_KEY` leaves a stale env var in Vercel | Low cosmetic | Leave it for now, document as deprecated, clean up in a future PR after 1-2 weeks of stable operation. |
-| The repair succeeds but exposes latent bugs in the adapter or downstream consumers | Medium | V-3 (regression test on Samaritus) catches pipeline impact. Cockpit render tests would catch UI bugs — extend test coverage if any surface appears broken. |
+| PIV-2's tool schema reads find `state_inspect` / `state_confidence` / `observer_query` don't exist, or take unexpected arguments | Medium-high | PIV-2 mandates source reading. If mismatch, Claude Code stops and surfaces. Matt may decide to add purpose-built Pulse tools or redirect to existing ones. |
+| `OMEGA_TARGET_USER_ID` viewer UUID doesn't actually have access to whatever data Pulse has for the test deal | Medium | Pulse's `assertViewerCanReadTarget` fast-path: viewer === target is always allowed. Single-tenant setup (confirmed). If multi-tenant access needed later, separate work. |
+| Pulse's response shape (`{summary, artifacts}`) requires more adapter work than expected | Medium | Batch 2 explicitly does this verification. If the mapping is genuinely hostile, Pulse-side purpose-built tools (option b from Phase 2) become the fallback. |
+| The `target_user_id` injection masks a separate identity bug (e.g., deals actually belong to a different user in Pulse's view) | Low | `assertViewerCanReadTarget` falls back to `pulse_mcp_viewers` DB check on mismatch. If any cockpit load fails with 403 (not 401), that's the signal — surface to Matt. |
+| Test suite doesn't catch shape issues because mocks are Buddy-side only | Medium | V-1 and V-2 are production-ledger verification, not unit-test verification. Real traffic validates. |
+| Pulse MCP's auth middleware rejects on any of: key, header name, or target user — but the error surfaces as generic 401 | Low | PIV-3's probe against `mcp_tick` isolates the key+header issue separately from per-tool `target_user_id`. |
+| The 100% failure rate becomes a 100% success rate but the adapter's unwrapping produces `stale: true` on every call (functionally no change for the user) | Medium | Expected for deals Pulse hasn't analyzed. V-1 measures call success, not UI change. |
 
 ---
 
 ## Addendum for Claude Code — judgment boundaries
 
-You have authority to:
+**Authorized:**
+- Read any file in `29xh24fm6r-ctrl/Buddy-The-Underwriter` and `29xh24fm6r-ctrl/PulseMasterrepo` (both via GitHub MCP)
+- Read any table in Buddy's Supabase (read-only, via Supabase MCP)
+- Probe the deployed Pulse MCP via `curl` (discovery and tool calls)
+- Write code changes to `src/lib/omega/` and `src/core/omega/` in Buddy's repo
+- Write new tests to `src/lib/omega/__tests__/` and `src/core/omega/__tests__/`
+- Commit Batch 1, 2, 5 to `main` once ready
 
-- Read any file in the repo, any table in Supabase (read-only)
-- Probe the deployed Pulse MCP via `curl` and `tools/list` (no auth required for discovery)
-- Write code changes to `src/lib/omega/`, `src/core/omega/`, and related test files
-- Commit to `main` once all batches are ready
-- Set `OMEGA_MCP_KEY` in Vercel prod env (after Matt provides the value)
+**NOT authorized:**
+- Modify `OMEGA_MCP_KEY` or `OMEGA_TARGET_USER_ID` env vars in Vercel (Matt handled this; don't overwrite)
+- Delete `OMEGA_MCP_API_KEY` from Vercel (deprecation only; leave for rollback)
+- Modify any file in `PulseMasterrepo` (that's a separate codebase; repair is Buddy-side only)
+- Silence any ledger signal — diagnostic signals must keep firing so V-1 is measurable
+- Touch outbox or ledger forwarder code paths (confirmed working in Phase 2)
+- Ship without running PIV-1 through PIV-5 and reporting findings in the AAR
+- Commit any secret value to the repo in any form (code, comment, test fixture, `.env` file, console output)
 
-You do NOT have authority to:
+**If PIV-2 finds that `state_inspect` / `state_confidence` / `observer_query` don't exist on the Pulse side:**
+Stop. Surface to Matt with the list of tools that DO exist (from `PulseMasterrepo/services/pulse-mcp/src/tools/index.ts`). Matt will decide: (a) add purpose-built Pulse tools, (b) redirect Omega reads to existing tools with different names, or (c) retire the Omega read path entirely.
 
-- Delete `OMEGA_MCP_API_KEY` from Vercel (deprecation only, leave it set)
-- Modify Pulse MCP codebase (`services/pulse-mcp/`) — that's a different codebase, out of scope for this repair
-- Silence any ledger signal — diagnostic signals stay as they are, we're fixing the thing that emits them, not the emission itself
-- Touch the outbox or ledger forwarder code paths — those are working (Phase 2 confirmed)
-- Ship without running PIV-1, PIV-2, PIV-3, PIV-4, PIV-5 and reporting findings
-- Commit the `OMEGA_MCP_KEY` value to the repo in any form (code, comment, test fixture, .env file, anywhere)
-
-If you find during PIV-2 that one or more Pulse tools don't cleanly answer Buddy's needs, **stop and surface**. Don't write shape-mapping gymnastics to paper over a semantic gap — that's where bugs hide. Matt will decide whether to add a purpose-built tool on Pulse's side or accept an explicit translation layer.
-
-If you find during implementation that a fourth independent bug exists that Phase 2 didn't catch, **stop and surface**. The diagnostic track record is that each phase finds bugs the previous phase missed. Don't paper over a newly-discovered issue; spec it separately.
+**If a fifth bug surfaces during implementation:**
+Stop. The diagnostic pattern of this arc is that each phase finds bugs the previous missed. Don't paper over a new finding; spec it separately.
 
 ---
 
@@ -418,9 +529,10 @@ If you find during implementation that a fourth independent bug exists that Phas
 
 The foundation is rock-solid. Buddy talks to Pulse correctly. The 100% failure rate is gone. Cockpit has real data where Pulse has analyzed, graceful degradation where it hasn't.
 
-Then we can decide what comes next on the Buddy ↔ Pulse axis:
-- Retire the fastlane (the never-real integration, already scoped)
+Next on the Buddy ↔ Pulse axis:
+- Retire the fastlane (the never-real integration; separate small PR)
 - Replay the 336 DLQ rows from Jan/Feb (optional telemetry recovery)
 - Begin the "Pulse-as-driver" architectural rethink (future spec, now informed by a working baseline)
+- Deprecate and eventually remove `OMEGA_MCP_API_KEY` (1-2 weeks of stable operation, then clean env removal)
 
 The repair is not the vision. The repair gives us ground to stand on while the vision work happens.
