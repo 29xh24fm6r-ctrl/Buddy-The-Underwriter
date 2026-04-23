@@ -68,7 +68,15 @@ export async function GET(_req: Request, ctx: Ctx) {
       ]);
 
     if (!snapshotRow) {
-      return NextResponse.json({ ok: false, error: "snapshot_not_found" }, { status: 404 });
+      return NextResponse.json(
+        {
+          ok: false,
+          reason: "snapshot_not_available",
+          message: "Financial snapshot must be persisted before lender matching can run.",
+          dealId,
+        },
+        { status: 200 },
+      );
     }
 
     const snapshot = snapshotRow.snapshot_json as DealFinancialSnapshotV1;
