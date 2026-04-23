@@ -1,21 +1,18 @@
 /**
  * Fire-and-forget emission of Buddy pipeline events.
  *
- * 1. Generate stable event_id (UUID v7)
- * 2. Write to durable outbox (buddy_outbox_events) — ALWAYS happens first
- * 3. Fire-and-forget fast-lane delivery to Pulse — best-effort only
+ * Writes to the durable outbox (buddy_outbox_events), which is the system of
+ * record. The buddy-core-worker is the canonical forwarder with retry/backoff.
  *
- * The outbox is the SYSTEM OF RECORD. Pulse delivery is eventually consistent.
- * The buddy-core-worker is the canonical forwarder with retry/backoff.
- * The fast lane provides immediate visibility when Pulse is available.
+ * Fastlane retired 2026-04-23 (FASTLANE-RETIRE) — outbox is the only
+ * Buddy→Pulse forward path. The builder debug/health endpoints still use
+ * pulseMcp/client directly; this module does not.
  *
  * NEVER throws. NEVER blocks the request path.
  */
 
 import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 import { uuidv7 } from "@/lib/uuid/v7";
-
-// ─── Allowed payload keys (no PII, no document content) ────────────────────
 
 const ALLOWED_PAYLOAD_KEYS = new Set([
   "checklist_key",
@@ -38,7 +35,6 @@ const ALLOWED_PAYLOAD_KEYS = new Set([
   "count",
   "trigger",
   "document_id",
-  // Two-phase naming (no PII — entity names excluded)
   "naming_method",
   "naming_source",
   "fallback_reason",
@@ -57,8 +53,6 @@ function filterPayload(raw: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-// ─── Public API (unchanged signature for call sites) ────────────────────────
-
 export async function emitPipelineEvent(args: {
   kind: string;
   deal_id: string;
@@ -69,7 +63,6 @@ export async function emitPipelineEvent(args: {
     const eventId = uuidv7();
     const safePayload = args.payload ? filterPayload(args.payload) : {};
 
-    // Step 1: ALWAYS write to outbox first (system of record)
     await insertOutboxEvent({
       id: eventId,
       kind: args.kind,
@@ -77,29 +70,7 @@ export async function emitPipelineEvent(args: {
       bankId: args.bank_id ?? null,
       payload: safePayload,
     });
-
-    // Step 2: Fire-and-forget fast-lane delivery to Pulse (never awaited)
-    void tryFastLane(eventId, args.kind, args.deal_id, args.bank_id ?? null, safePayload);
   } catch {
     // swallow — never block workflows
-  }
-}
-
-/**
- * Fast-lane: attempt immediate delivery to Pulse.
- * Dynamic import avoids circular deps and keeps the fast lane optional.
- */
-async function tryFastLane(
-  eventId: string,
-  kind: string,
-  dealId: string,
-  bankId: string | null,
-  payload: Record<string, unknown>,
-): Promise<void> {
-  try {
-    const { tryForwardToPulse } = await import("@/lib/outbox/tryForwardToPulse");
-    await tryForwardToPulse({ eventId, kind, dealId, bankId, payload });
-  } catch {
-    // swallow — fast lane must never block
   }
 }
