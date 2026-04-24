@@ -693,7 +693,11 @@ async function handlePdfRequest(dealId: string) {
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 40);
 
-    return new NextResponse(pdfBuffer, {
+    // CI-RESTORE 2026-04-24: wrap Node Buffer in Uint8Array to satisfy BodyInit.
+    // Node 22's @types/node narrowed Buffer to Buffer<ArrayBufferLike>, which
+    // no longer matches BodyInit's union. Uint8Array is part of BodyInit and
+    // shares the underlying bytes (no copy), so this is a zero-cost widening.
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "content-type": "application/pdf",
