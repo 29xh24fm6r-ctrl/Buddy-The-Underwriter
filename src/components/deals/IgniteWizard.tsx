@@ -162,14 +162,38 @@ export function IgniteWizard({
     setSaving(true);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
-    try {
-      const res = await fetch(`/api/deals/${dealId}/borrower/update`, {
+
+    const doUpdate = () =>
+      fetch(`/api/deals/${dealId}/borrower/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      const data = await res.json();
+
+    try {
+      let res = await doUpdate();
+      let data = await res.json();
+
+      // IGNITE-BORROWER-LINKAGE Batch 2: defensive belt-and-suspenders retry.
+      // Batch 1 ensures igniteDeal() creates a borrower for banker_upload
+      // deals, so this branch should rarely fire. It exists for future code
+      // paths that bypass igniteDeal (direct intake, alternate flows, etc).
+      if (res.status === 400 && data?.error === "no_borrower_linked") {
+        const ensureRes = await fetch(`/api/deals/${dealId}/borrower/ensure`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "autofill", include_owners: true }),
+          signal: controller.signal,
+        });
+        if (!ensureRes.ok) {
+          setError("Could not create borrower — please try again");
+          return;
+        }
+        res = await doUpdate();
+        data = await res.json();
+      }
+
       if (!data.ok) { setError(data.error ?? "Save failed"); return; }
       advance();
     } catch (err: any) {
