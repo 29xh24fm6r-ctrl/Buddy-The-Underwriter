@@ -1,7 +1,7 @@
 # Buddy Brokerage — Master Plan
 
 **Status:** Canonical architecture. Every brokerage sprint spec references this doc.
-**Last updated:** 2026-04-23
+**Last updated:** 2026-04-24 (v1.1 — added §3a Session Security & Rate Limiting; §17 Authoritative Spec Index; updated §13 sequencing)
 **Owner:** Matt (product), Claude (architecture), Claude Code (implementation)
 
 ---
@@ -9,6 +9,8 @@
 ## Purpose
 
 This document captures every locked architectural and product decision for the Buddy Brokerage business line. It exists to prevent drift between sprints and to serve as the canonical source of truth when implementation questions arise. Sprint specs reference this doc; this doc references nothing upstream.
+
+**If a sprint spec conflicts with this master plan, the master plan wins.** Implementers reconcile the sprint spec up before building.
 
 ---
 
@@ -57,6 +59,48 @@ The $1,000 borrower fee is only charged on funded loans. If no loan closes, no f
 **Forward compatibility:** `bank_kind` can accept additional values as the platform expands (`cdfi`, `credit_union`, `fintech_lender`, etc.) without further schema changes.
 
 **Helper:** `src/lib/tenant/brokerage.ts` exports `getBrokerageBankId()`, `isBrokerageTenant(bankId)`, and `isBrokerageKind(bankId)`. Call sites branch on these at every fork point.
+
+---
+
+## 3a. Session security & rate limiting (architecture-level invariants)
+
+These are architecture-level rules that apply across every brokerage surface. Sprint specs inherit them.
+
+### Anonymous session tokens — hash at rest, raw in cookie only
+
+Every anonymous brokerage session (pre-account borrower on `/start` and portal) is identified by a 32-byte random token. The raw token lives **only** in the HTTP-only, Secure, SameSite=Lax cookie named `buddy_borrower_session`. The database stores **only the SHA-256 hash** of the token.
+
+Every table that holds a session identifier uses `token_hash` as the primary key, not `token`. Lookups hash the incoming cookie before comparing.
+
+**Rationale:** A database breach (backup theft, read-replica leak, log exfiltration) must not give attackers live session tokens they can replay. This follows Rails / Django / Devise convention and is the standard pattern for every mature session library. Storing raw tokens is a Sev-1 security finding and cannot be rationalized.
+
+**Applies to:** `borrower_session_tokens` (Sprint 1), any future borrower magic-link tokens (Sprint 2+ portal return flow), any future lender invitation tokens (if added).
+
+### Rate limits on anonymous endpoints
+
+Every anonymous-accessible write endpoint enforces multi-tier rate limits before doing any expensive work (database writes, Gemini calls, external API calls). Default limits:
+
+| Scope | Window | Limit |
+|---|---|---|
+| Per IP | 60 seconds | 5 requests |
+| Per IP | 1 hour | 30 requests |
+| Per IP | 24 hours | 100 requests |
+| Per session token | 60 seconds | 10 requests |
+| Per session token | 1 hour | 100 requests |
+
+**Rate limits fail open.** If the counter infrastructure errors, requests proceed rather than fail. This is a deliberate tradeoff — outage of the counter should never take down the product. A determined attacker can pound a known-broken counter, so ops monitors for sustained counter failures.
+
+**Over-limit responses** return HTTP 429 with a `Retry-After` header in seconds. Clients display a friendly error and disable input for the retry window.
+
+**Applies to:** `/api/brokerage/concierge` (Sprint 1), `/api/brokerage/voice/gemini-token` (Sprint 2), any future anonymous-accessible brokerage endpoint.
+
+### Payload caps
+
+Every anonymous endpoint that accepts user-supplied text caps the input size before any LLM call. Concierge message max = 4,000 characters. Voice transcripts relayed into concierge inherit the same cap.
+
+### Master plan precedence
+
+If a sprint spec omits any of 3a's invariants, the sprint spec is wrong. Implementer applies 3a regardless.
 
 ---
 
@@ -366,20 +410,22 @@ The existing `/api/borrower/concierge` route hardcodes `OPENAI_CHAT` and `OPENAI
 
 Migration spec: `specs/brokerage/prereq-concierge-gemini-migration.md`. This is a prerequisite, not a sprint — cannot write Sprint 1 cleanly against the legacy OpenAI stack because the new `/api/brokerage/concierge` route has to be built Gemini-native from day one.
 
+The legacy `/api/borrower/concierge` route is **deprecated with logging**, not deleted, in Sprint 1. It remains in place for 2 weeks post-ship so any unknown callers surface in logs before removal. See Sprint 1 canonical spec §9.
+
 ---
 
 ## 13. Sprint sequencing
 
-| Sprint | Deliverable | Depends on |
-|---|---|---|
-| Prereq | Concierge Gemini migration + registry cleanup | — |
-| 0 | Buddy SBA Score (extending `sbaRiskProfile.ts`) | Prereq |
-| 1 | Tenant model + `/start` + anonymous brokerage concierge | Prereq, 0 |
-| 2 | Borrower voice on portal (BorrowerVoicePanel, Gemini Live) | 1 |
-| 3 | Trident wired into borrower portal + preview generation | 1 |
-| 4 | LMA infrastructure + manual lender provisioning + `/lender/*` shell | 0, 1 |
-| 5 | Package sealing + Key Facts Summary generator + borrower redaction | 3, 4 |
-| 6 | Marketplace: preview → claim → pick → atomic unlock → $1,000 at close | 4, 5 |
+| Sprint | Deliverable | Depends on | Canonical spec file |
+|---|---|---|---|
+| Prereq | Concierge Gemini migration + registry cleanup | — | `prereq-concierge-gemini-migration.md` |
+| 0 | Buddy SBA Score (extending `sbaRiskProfile.ts`) | Prereq | `sprint-00-buddy-sba-score.md` |
+| 1 | Tenant model + `/start` + anonymous brokerage concierge | Prereq, 0 | **`sprint-01-v2-canonical.md`** (supersedes `sprint-01-tenant-and-front-door.md` and `sprint-01-addendum.md`) |
+| 2 | Borrower voice on portal (BorrowerVoicePanel, Gemini Live) | 1 | `sprint-02-borrower-voice.md` |
+| 3 | Trident wired into borrower portal + preview generation | 1 | `sprint-03-trident-previews.md` |
+| 4 | LMA infrastructure + manual lender provisioning + `/lender/*` shell | 0, 1 | `sprint-04-lma-and-lender-portal.md` |
+| 5 | Package sealing + Key Facts Summary generator + borrower redaction | 3, 4 | `sprint-05-sealing-and-kfs.md` |
+| 6 | Marketplace: preview → claim → pick → atomic unlock → $1,000 at close | 4, 5 | `sprint-06-marketplace-and-pick.md` |
 
 Each sprint produces a shippable artifact. Sprints 4 and 5 can be built in parallel once 0/1/3 are done.
 
@@ -401,7 +447,7 @@ Explicitly out of scope for the brokerage build:
 
 ## 15. Open questions tracked in one place
 
-None blocking. All design decisions above are locked as of 2026-04-23. Items explicitly deferred to later sprint specs:
+None blocking. All design decisions above are locked as of 2026-04-24. Items explicitly deferred to later sprint specs:
 
 - Exact Buddy SBA Score weights and component scoring curves (Sprint 0).
 - Rate card table structure and nightly recompute job (Sprint 6).
@@ -421,3 +467,17 @@ None blocking. All design decisions above are locked as of 2026-04-23. Items exp
 - **Atomic unlock** — the transactional event at borrower pick: trident generates and delivers to borrower, full package releases to picked lender, losing claims finalize, all as one operation.
 - **LMA** — Lender Marketplace Agreement. Legal contract required for marketplace access.
 - **Rate card** — deterministic table mapping (SBA program × score band × loan tier × term) → rate. Lenders commit to this rate when they claim; they do not set rates per deal.
+- **Token hash** — the SHA-256 hash of an anonymous session token. Database stores the hash; the raw token lives only in the HTTP-only cookie. See §3a.
+
+---
+
+## 17. Authoritative spec index
+
+The canonical sprint spec for each unit of work is listed in §13. The following historical/superseded files exist in the folder but are NOT authoritative and NOT implemented from:
+
+- `sprint-01-tenant-and-front-door.md` — original Sprint 1 base spec. Pre-dates Gemini migration prereq, Sprint 0 dependency, and session-security hardening. **Superseded by `sprint-01-v2-canonical.md`.**
+- `sprint-01-addendum.md` — temporary patch layer on the original base spec. **Superseded by `sprint-01-v2-canonical.md`.**
+
+Both will be deleted in a cleanup PR after builders have fully migrated to the v2 canonical. Until then they remain as historical context only.
+
+**Rule for builders:** if you're about to implement a sprint, open §13, find the row, and implement from the file named in the "Canonical spec file" column. Do not implement from any other file with a similar name.
