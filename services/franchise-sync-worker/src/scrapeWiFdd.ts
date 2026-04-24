@@ -215,6 +215,7 @@ export async function scrapeWiFddBatch(
        FROM franchise_brands fb
        WHERE fb.canonical = true
          AND fb.sba_eligible = true
+         AND fb.wi_dfi_searched_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM fdd_filings ff
            WHERE ff.brand_id = fb.id
@@ -232,6 +233,7 @@ export async function scrapeWiFddBatch(
        FROM franchise_brands fb
        WHERE fb.canonical = true
          AND fb.sba_eligible = true
+         AND fb.wi_dfi_searched_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM fdd_filings ff
            WHERE ff.brand_id = fb.id
@@ -281,6 +283,7 @@ export async function scrapeWiFddBatch(
           stats.skippedNoMatch++;
           console.log(`[wi-fdd] no results for "${brand.brand_name}"`);
           consecutiveErrors = 0;
+          await pool.query('UPDATE franchise_brands SET wi_dfi_searched_at = now() WHERE id = $1', [brand.id]);
           continue;
         }
 
@@ -296,6 +299,7 @@ export async function scrapeWiFddBatch(
             `[wi-fdd] "${brand.brand_name}": ${results.length} filings (${currentCount} currently Registered) but no normalized match`
           );
           consecutiveErrors = 0;
+          await pool.query('UPDATE franchise_brands SET wi_dfi_searched_at = now() WHERE id = $1', [brand.id]);
           continue;
         }
 
@@ -387,12 +391,19 @@ export async function scrapeWiFddBatch(
           ]
         );
         stats.filingsUpserted++;
+        await pool.query('UPDATE franchise_brands SET wi_dfi_searched_at = now() WHERE id = $1', [brand.id]);
         consecutiveErrors = 0;
       } catch (err) {
         consecutiveErrors++;
         const msg = err instanceof Error ? err.message : String(err);
         stats.errors.push({ brand_name: brand.brand_name, error: msg });
         console.error(`[wi-fdd] error for ${brand.brand_name}: ${msg}`);
+        try {
+          await pool.query('UPDATE franchise_brands SET wi_dfi_searched_at = now() WHERE id = $1', [brand.id]);
+        } catch (markErr) {
+          const markMsg = markErr instanceof Error ? markErr.message : String(markErr);
+          console.error(`[wi-fdd] failed to mark searched_at for ${brand.brand_name}: ${markMsg}`);
+        }
       }
     }
 
