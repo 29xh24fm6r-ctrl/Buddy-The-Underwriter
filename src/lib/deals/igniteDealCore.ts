@@ -147,6 +147,119 @@ export async function igniteDeal(params: {
     });
   }
 
+  // ── Step 1.6: Ensure borrower exists for banker_upload (IGNITE-BORROWER-LINKAGE) ──
+  // banker_upload deals must have a borrower row before the IGNITE wizard can
+  // proceed — /borrower/update otherwise 400s with no_borrower_linked.
+  // banker_invite deals get their borrower from the invite flow; skip there.
+  if (source === "banker_upload") {
+    try {
+      const { data: dealNow } = await sb
+        .from("deals")
+        .select("borrower_id")
+        .eq("id", dealId)
+        .maybeSingle();
+
+      if (!dealNow?.borrower_id) {
+        const { autofillBorrowerFromDocs } = await import(
+          "@/lib/borrower/autofillBorrower"
+        );
+
+        // Step a: create a placeholder borrower row.
+        const { data: newBorrower, error: createErr } = await sb
+          .from("borrowers")
+          .insert({
+            bank_id: bankId,
+            legal_name: "Pending Autofill",
+            entity_type: "Unknown",
+          })
+          .select("id, legal_name")
+          .single();
+
+        if (createErr || !newBorrower) {
+          await ledgerWrite({
+            dealId,
+            kind: "buddy.borrower.ensure_failed",
+            actorUserId: triggeredByUserId,
+            input: {
+              source,
+              error: String(createErr?.message ?? "no_data_returned"),
+            },
+          });
+          return { ok: false, error: "borrower_create_failed" } as const;
+        }
+
+        // Step b: attach to deal.
+        const { error: attachErr } = await sb
+          .from("deals")
+          .update({
+            borrower_id: newBorrower.id,
+            borrower_name: newBorrower.legal_name,
+          })
+          .eq("id", dealId);
+
+        if (attachErr) {
+          await ledgerWrite({
+            dealId,
+            kind: "buddy.borrower.attach_failed",
+            actorUserId: triggeredByUserId,
+            input: {
+              source,
+              borrower_id: newBorrower.id,
+              error: attachErr.message,
+            },
+          });
+          return { ok: false, error: "borrower_attach_failed" } as const;
+        }
+
+        await pipelineLog({
+          dealId,
+          bankId,
+          eventKey: "buddy.borrower.created",
+          uiState: "done",
+          uiMessage: "Borrower placeholder created during ignite",
+          meta: {
+            source: "ignite_banker_upload",
+            borrower_id: newBorrower.id,
+          },
+        });
+
+        // Step c: try autofill from docs (fire-and-forget; placeholder is
+        // acceptable if it fails, and blocking ignite on doc extraction
+        // would slow the user-facing path).
+        autofillBorrowerFromDocs({
+          dealId,
+          bankId,
+          borrowerId: newBorrower.id,
+          includeOwners: true,
+        })
+          .then(async (autofill) => {
+            if (autofill.ok && autofill.fieldsAutofilled.length > 0) {
+              await pipelineLog({
+                dealId,
+                bankId,
+                eventKey: "buddy.borrower.autofilled_from_docs",
+                uiState: "done",
+                uiMessage: `Autofilled ${autofill.fieldsAutofilled.length} fields during ignite`,
+                meta: {
+                  fields: autofill.fieldsAutofilled,
+                  owners: autofill.ownersUpserted,
+                },
+              });
+            }
+          })
+          .catch(() => {
+            // Non-fatal: placeholder borrower is sufficient for the wizard.
+          });
+      }
+    } catch (ensureErr: any) {
+      // Non-fatal: log and continue. Batch 2 wizard-side retry catches us.
+      console.warn("[igniteDeal] borrower ensure failed (non-fatal)", {
+        dealId,
+        error: ensureErr?.message,
+      });
+    }
+  }
+
   // ── Step 2: Advance lifecycle to "intake" (checklist is guaranteed) ──
   const { error: updErr } = await sb
     .from("deals")
