@@ -22,6 +22,12 @@ export type GeminiCallOptions = {
   model: string;
   prompt: string;
   logTag: string;
+  /**
+   * Optional first-class system instruction. Gemini REST routes this to the
+   * top-level `systemInstruction` field, which takes priority over a
+   * prefix-in-prompt approach for multi-turn behavior stability.
+   */
+  systemInstruction?: string;
   timeoutMs?: number;
   maxRetries?: number;
 };
@@ -62,6 +68,7 @@ export async function callGeminiJSON<T>(
         prompt: opts.prompt,
         logTag: opts.logTag,
         timeoutMs,
+        systemInstruction: opts.systemInstruction,
       });
       return {
         ok: true,
@@ -103,6 +110,7 @@ async function callOnce<T>(args: {
   prompt: string;
   logTag: string;
   timeoutMs: number;
+  systemInstruction?: string;
 }): Promise<T> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent?key=${args.apiKey}`;
 
@@ -114,10 +122,13 @@ async function callOnce<T>(args: {
     generationConfig.temperature = 0.1;
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     contents: [{ role: "user", parts: [{ text: args.prompt }] }],
     generationConfig,
   };
+  if (args.systemInstruction) {
+    body.systemInstruction = { parts: [{ text: args.systemInstruction }] };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs);

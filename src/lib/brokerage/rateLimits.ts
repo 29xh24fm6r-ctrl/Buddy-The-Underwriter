@@ -110,5 +110,22 @@ async function incrementAndCheck(
   return { allowed: true, retryAfter: 0 };
 }
 
+/**
+ * Voice sessions are expensive (Gemini Live + WebSocket) and low-frequency
+ * per legitimate borrower. Limit to 10 per hour per session cookie.
+ *
+ * Fails open on counter errors — voice outage is better than a no-mic product.
+ */
+export async function checkBorrowerVoiceRateLimit(
+  tokenHash: string,
+): Promise<boolean> {
+  const outcome = await incrementAndCheck(
+    `rl:voice:${tokenHash}:hour`,
+    3600,
+    10,
+  );
+  return outcome.allowed;
+}
+
 // Exported for unit testing.
 export const __test_incrementAndCheck = incrementAndCheck;

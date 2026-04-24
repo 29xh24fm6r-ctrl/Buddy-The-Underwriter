@@ -252,6 +252,58 @@ test("non-3.x model: generationConfig includes temperature 0.1", async () => {
   }
 });
 
+test("systemInstruction: optional, default omitted from body", async () => {
+  let capturedBody: any = null;
+  const restore = installFetch(async (_url, init) => {
+    capturedBody = init ? JSON.parse(String(init.body)) : null;
+    return okResponse('{"ok":true}');
+  });
+  try {
+    await withApiKey("test-key", () =>
+      callGeminiJSON({
+        model: GEMINI_FLASH,
+        prompt: "p",
+        logTag: "unit",
+      }),
+    );
+    assert.ok(capturedBody);
+    assert.equal("systemInstruction" in capturedBody, false);
+  } finally {
+    restore();
+  }
+});
+
+test("systemInstruction: when provided, included as top-level body field", async () => {
+  let capturedBody: any = null;
+  const restore = installFetch(async (_url, init) => {
+    capturedBody = init ? JSON.parse(String(init.body)) : null;
+    return okResponse('{"ok":true}');
+  });
+  try {
+    await withApiKey("test-key", () =>
+      callGeminiJSON({
+        model: GEMINI_FLASH,
+        prompt: "user turn",
+        logTag: "unit",
+        systemInstruction: "You are a test instructor.",
+      }),
+    );
+    assert.ok(capturedBody);
+    assert.ok(capturedBody.systemInstruction);
+    assert.deepEqual(
+      capturedBody.systemInstruction.parts?.[0],
+      { text: "You are a test instructor." },
+    );
+    // And contents still carries the user turn.
+    assert.equal(
+      capturedBody.contents?.[0]?.parts?.[0]?.text,
+      "user turn",
+    );
+  } finally {
+    restore();
+  }
+});
+
 test("transient failure then success: retries and returns ok:true on attempt 2", async () => {
   let calls = 0;
   const restore = installFetch(async () => {

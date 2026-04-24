@@ -1,10 +1,84 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 
 type Msg = { role: "user" | "assistant"; content: string };
+type Mode = "chat" | "voice";
+
+const MODE_KEY = "buddy.start.mode";
 
 export function StartConciergeClient() {
+  const [mode, setMode] = useState<Mode>(() => {
+    if (typeof window === "undefined") return "chat";
+    const saved = window.localStorage.getItem(MODE_KEY);
+    return saved === "voice" ? "voice" : "chat";
+  });
+  const [dealId, setDealId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(MODE_KEY, mode);
+    }
+  }, [mode]);
+
+  return (
+    <div>
+      <div className="mb-4 p-1 bg-slate-100 rounded-lg flex gap-1">
+        <button
+          onClick={() => setMode("chat")}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            mode === "chat"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+          type="button"
+        >
+          💬 Chat
+        </button>
+        <button
+          onClick={() => setMode("voice")}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            mode === "voice"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+          type="button"
+        >
+          🎤 Voice
+        </button>
+      </div>
+
+      {mode === "chat" ? (
+        <ChatPane dealId={dealId} onDealIdResolved={setDealId} />
+      ) : dealId ? (
+        <BorrowerVoicePanel dealId={dealId} />
+      ) : (
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
+          <p className="text-sm text-slate-600 mb-4">
+            Send Buddy a chat message first so we can set up your session.
+            Voice becomes available the moment your package starts.
+          </p>
+          <button
+            onClick={() => setMode("chat")}
+            className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+            type="button"
+          >
+            Switch to chat
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatPane({
+  dealId,
+  onDealIdResolved,
+}: {
+  dealId: string | null;
+  onDealIdResolved: (id: string) => void;
+}) {
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
@@ -15,7 +89,6 @@ export function StartConciergeClient() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
-  const [dealId, setDealId] = useState<string | null>(null);
   const [rateLimited, setRateLimited] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -58,7 +131,7 @@ export function StartConciergeClient() {
           { role: "assistant", content: data.buddyResponse },
         ]);
         setProgressPct(data.progressPct ?? 0);
-        setDealId(data.dealId ?? null);
+        if (data.dealId) onDealIdResolved(data.dealId);
       } else {
         setMessages((m) => [
           ...m,
@@ -103,7 +176,9 @@ export function StartConciergeClient() {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
+            className={
+              m.role === "user" ? "flex justify-end" : "flex justify-start"
+            }
           >
             <div
               className={
