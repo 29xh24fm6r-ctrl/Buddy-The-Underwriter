@@ -55,3 +55,55 @@ export async function routeBuddyIntent(args: DispatchArgs): Promise<DispatchResu
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Sprint 2 borrower voice dispatch.
+ *
+ * Routes borrower-scope utterances, tool calls, and lifecycle events to
+ * the brokerage dispatch route. Server-side fact extraction happens in
+ * the Next.js route, not the gateway — client/gateway cannot mutate
+ * confirmed_facts directly (S2-2 invariant).
+ */
+export interface BorrowerDispatchArgs {
+  intent: "utterance" | "tool_call" | "session_ended" | "error";
+  sessionId: string;
+  speaker?: "borrower" | "assistant";
+  text?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  reason?: string;
+  error?: string;
+}
+
+export async function routeBorrowerIntent(
+  args: BorrowerDispatchArgs,
+): Promise<DispatchResult> {
+  const { sessionId, ...rest } = args;
+
+  try {
+    const res = await fetch(
+      `${BUDDY_APP_URL}/api/brokerage/voice/${sessionId}/dispatch`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-gateway-secret": GATEWAY_SECRET,
+        },
+        body: JSON.stringify(rest),
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+
+    if (!res.ok) {
+      return { success: false, error: `dispatch_http_${res.status}` };
+    }
+
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}

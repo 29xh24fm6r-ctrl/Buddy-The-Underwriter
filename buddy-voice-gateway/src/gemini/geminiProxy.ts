@@ -9,7 +9,7 @@ import type { Socket } from "net";
 import { GoogleAuth } from "google-auth-library";
 import { supabase } from "../lib/supabase.js";
 import { env, envOptional } from "../lib/env.js";
-import { routeBuddyIntent } from "../dispatch/buddyDispatch.js";
+import { routeBuddyIntent, routeBorrowerIntent } from "../dispatch/buddyDispatch.js";
 
 const GCP_PROJECT_ID = env("GCP_PROJECT_ID");
 const GCP_LOCATION = envOptional("GCP_LOCATION") ?? "us-central1";
@@ -86,6 +86,8 @@ interface SessionMetadata {
   proxyTraceId?: string;
   proxyDealId?: string;
   proxyBankId?: string;
+  /** Sprint 2: 'banker' (default) | 'borrower'. Decides dispatch route. */
+  proxyActorScope?: "banker" | "borrower";
   proxyModel?: string;
   proxyVoice?: string;
   proxySystemInstruction?: string;
@@ -155,8 +157,23 @@ export async function handleGeminiProxy(
   const dealId = metadata.proxyDealId ?? "unknown";
   const bankId = metadata.proxyBankId ?? "unknown";
   const traceId = metadata.proxyTraceId ?? "unknown";
+  const actorScope: "banker" | "borrower" =
+    metadata.proxyActorScope === "borrower" ? "borrower" : "banker";
+  const isBorrower = actorScope === "borrower";
 
-  console.log("[BUDDY_PROXY] CONNECT", { userId, dealId, sessionId, traceId });
+  // Sprint 2: buffer transcripts per turn; dispatch to the brokerage
+  // dispatch route on turnComplete only. Per-chunk dispatch would burn
+  // a Gemini Flash extraction call on every transcription fragment.
+  let borrowerInputBuffer = "";
+  let borrowerOutputBuffer = "";
+
+  console.log("[BUDDY_PROXY] CONNECT", {
+    userId,
+    dealId,
+    sessionId,
+    traceId,
+    actorScope,
+  });
 
   let upstreamWs: WsClient;
   try {
@@ -217,6 +234,34 @@ export async function handleGeminiProxy(
 
       if (calls && calls.length > 0) {
         const call = calls[0];
+        // Sprint 2: borrower tool calls audit via brokerage dispatch route;
+        // they are NOT trusted for fact writes (the dispatch route treats
+        // tool_call as audit-only per S2-2). We still ack upstream so
+        // Gemini doesn't wait on a tool response.
+        if (isBorrower) {
+          void routeBorrowerIntent({
+            sessionId,
+            intent: "tool_call",
+            toolName: call.name,
+            args: (call.args as Record<string, unknown>) ?? {},
+          }).catch((err) =>
+            console.warn("[BUDDY_PROXY] borrower tool_call dispatch failed", err),
+          );
+          const toolResponse = {
+            toolResponse: {
+              functionResponses: [
+                {
+                  name: call.name,
+                  response: { result: "audited" },
+                },
+              ],
+            },
+          };
+          if (upstreamWs.readyState === WsClient.OPEN) {
+            upstreamWs.send(JSON.stringify(toolResponse));
+          }
+          return;
+        }
         if (call.name === "buddy_query") {
           const intent = String(call.args?.intent ?? "");
           const gapId = call.args?.gap_id ? String(call.args.gap_id) : undefined;
@@ -239,6 +284,50 @@ export async function handleGeminiProxy(
             upstreamWs,
           );
           return;
+        }
+      }
+    }
+
+    // Sprint 2: borrower-scope transcript dispatch. Buffer fragments per
+    // turn; dispatch on turnComplete. Banker sessions skip this path —
+    // banker utterances aren't dispatched (banker workflow is tool-call
+    // driven).
+    if (isBorrower && parsed?.serverContent) {
+      const server = parsed.serverContent as {
+        inputTranscription?: { text?: string };
+        outputTranscription?: { text?: string };
+        turnComplete?: boolean;
+      };
+      if (typeof server.inputTranscription?.text === "string") {
+        borrowerInputBuffer += server.inputTranscription.text;
+      }
+      if (typeof server.outputTranscription?.text === "string") {
+        borrowerOutputBuffer += server.outputTranscription.text;
+      }
+      if (server.turnComplete) {
+        const borrowerText = borrowerInputBuffer.trim();
+        const assistantText = borrowerOutputBuffer.trim();
+        borrowerInputBuffer = "";
+        borrowerOutputBuffer = "";
+        if (borrowerText) {
+          void routeBorrowerIntent({
+            sessionId,
+            intent: "utterance",
+            speaker: "borrower",
+            text: borrowerText,
+          }).catch((err) =>
+            console.warn("[BUDDY_PROXY] borrower utterance dispatch failed", err),
+          );
+        }
+        if (assistantText) {
+          void routeBorrowerIntent({
+            sessionId,
+            intent: "utterance",
+            speaker: "assistant",
+            text: assistantText,
+          }).catch((err) =>
+            console.warn("[BUDDY_PROXY] assistant utterance dispatch failed", err),
+          );
         }
       }
     }
@@ -275,10 +364,27 @@ export async function handleGeminiProxy(
     if (upstreamWs.readyState === WsClient.OPEN || upstreamWs.readyState === WsClient.CONNECTING) {
       upstreamWs.close();
     }
+    // Sprint 2: flag session_ended for borrower sessions.
+    if (isBorrower) {
+      void routeBorrowerIntent({
+        sessionId,
+        intent: "session_ended",
+        reason: `client_close_${code}`,
+      }).catch((err) =>
+        console.warn("[BUDDY_PROXY] borrower session_ended dispatch failed", err),
+      );
+    }
   });
 
   clientWs.on("error", (err: Error) => {
     console.error("[BUDDY_PROXY] Client error", { sessionId, error: err.message });
+    if (isBorrower) {
+      void routeBorrowerIntent({
+        sessionId,
+        intent: "error",
+        error: err.message,
+      }).catch(() => {});
+    }
   });
 }
 
