@@ -1,207 +1,151 @@
-# SECURITY-ROTATION — P0 Credential Incident (Revised: Scan-First)
+# SECURITY-ROTATION rev 3 — Scope Confirmed, Sequential Rotation
 
-**Date:** 2026-04-24 (rev 2)
-**Severity:** P0
-**Key discipline change from rev 1:** Scan the entire repo FIRST. Establish full scope. Then rotate with a precise consumer list. Do NOT start rotation while scan is incomplete — rotating one key while another copy is still valid creates whack-a-mole breakage.
-
----
-
-## Incident
-
-`scripts/audit-db.ts:5` contains a hardcoded Supabase service-role key (prefix `sb_secret_9ty_`, redacted). Supabase MCP confirmed the hardcoded URL is the CURRENT production project. Key has service-role privileges — bypasses RLS, full tenant-data access.
-
-**Assume compromised** regardless of repo visibility. Key has been in git history since ~2026-03-07.
-
-**Important:** this spec intentionally does NOT paste the full leaked key string. GitHub push protection blocks attempts to write the key into new files (confirmed during spec-write). Claude Code should reference the key from the current `scripts/audit-db.ts` file on HEAD when running local grep/curl verification; it does NOT need to appear in any committed artifact.
+**Date:** 2026-04-24 (rev 3)
+**Severity:** P0 (Supabase) + P1 (Clerk test-mode)
+**Status:** B.1 scan COMPLETE (rev 2 hand-off); rotation plan confirmed below.
 
 ---
 
-## Execution order (MANDATORY)
+## Scope (confirmed by B.1 scan)
 
-1. **Track B.1** (scan) — Claude Code establishes full scope
-2. **Stop point** — surface complete scope to Matt
-3. **Matt reviews the scope** — decides rotation order + confirms consumer list
-4. **Track A** (rotate) — Matt rotates keys based on confirmed scope
-5. **Track B.2–B.6** (scrub + guard) — Claude Code scrubs AFTER rotation confirmed
-6. **Track C** (verify) — Matt confirms old keys dead, new keys work, final gitleaks
+### Leak 1 — Supabase service-role key (P0)
 
-Do not execute A in parallel with B.1. Do not scrub B.2 before rotation completes. One consequence of scrubbing before rotation: if the scrub commit goes to main before the new key is in Vercel env, any consumer pulling main immediately breaks.
+- **File:** `scripts/audit-db.ts:5`
+- **Project:** `sglhiuizgugbnzkymwnk.supabase.co` (current production Buddy project, confirmed via Supabase MCP `get_project_url`)
+- **Introduced:** commit `3a9d3b40` on 2025-12-23 by `29xh24fm6r-ctrl`. Repeated in `ed940010` (2025-12-27).
+- **Exposure window:** ~4 months in git history.
+- **Blast radius:** Full service-role access. Bypasses RLS. Cross-tenant reads/writes possible.
+
+### Leak 2 — Clerk test-mode secret key (P1)
+
+- **Files:**
+  - `docs/build-logs/AUTH_FIX_SUMMARY.md:50`
+  - `docs/archive/operational-pre-84/CLERK_VERCEL_CHECKLIST.md:15`
+- **Clerk instance:** `whole-rhino-35.clerk.accounts.dev` (test-mode)
+- **Introduced:** commit `ca84e740` on 2025-12-26 by `29xh24fm6r-ctrl`. Copied into `08d22427`, `ef3de566`, `e91f238f` on 2025-12-27/28.
+- **Exposure window:** ~4 months in git history.
+- **Blast radius:** Test-mode only — cannot authenticate users on production Clerk instance. Can however impersonate test users and access any data exposed by the test instance.
+
+### Git history authorship
+
+All intro commits are `29xh24fm6r-ctrl` (Matt's expected identity). No compromised-account indicator.
+
+### Noise correctly classified (no action required)
+
+Gitleaks flagged 239 total hits. 236 are false positives: enum constants (`COMBINED_REV10_RATE200`, tax form field keys), `sk_test_placeholder` literals in CI workflows, `re_xxx…` doc placeholders, identifier substrings (`prepare_renewal_`, etc.). Documented in B.1 scan report.
+
+### False-positive hits NOT to touch
+
+- `docs/build-logs/STUBS_REPLACED_SUMMARY.md:150` — trailing `...` placeholder
+- `.mcp.json:10` — `--project-ref=sglhiuizgugbnzkymwnk` (project identifier, not a credential)
+- `scripts/run-migration.mjs:38` — dashboard URL in console.log
+- `.github/workflows/ci.yml` + `build-check.yml` — `CLERK_SECRET_KEY: sk_test_placeholder` (literal placeholder)
+- `docs/build-logs/BULLETPROOF_COMPLETE.md`, `docs/archive/operational-pre-84/DEPLOYMENT_CHECKLIST_GROWTH.md` — `RESEND_API_KEY=re_xxx…`
 
 ---
 
-## Already-verified clean files (DO NOT re-check; focus scan elsewhere)
+## Execution order (MANDATORY, SEQUENTIAL)
 
-Claude pre-checked these files via GitHub MCP during spec-write and confirmed they use env vars (no hardcoded credentials):
+1. **Matt — Track A1**: rotate Supabase key + update consumers + redeploy + verify (the P0 hotspot, do first)
+2. **Matt — Track A2**: rotate Clerk test-mode key + update consumers + verify
+3. **Matt — green-light Claude Code**: confirm both rotations verified
+4. **Claude Code — Track B**: scrub all 3 file-level hits + install gitleaks guard + delete spec-probe artifacts
+5. **Matt — Track C**: final verification (old keys dead, new keys work, gitleaks clean)
 
-- `src/lib/supabase/admin.ts` (main app admin client)
-- `services/buddy-core-worker/src/index.ts`
-- `services/franchise-sync-worker/src/db.ts`
-- `services/franchise-sync-worker/src/**` (all other files in this dir use the above `db.ts`)
-- `scripts/intake-worker.ts`
-- `scripts/checkOverrideThreshold.ts`
-- `scripts/generateGoldenFromOverrides.ts`
-- `scripts/phase-84-t02-gemini-probe.ts`
-- `scripts/phase-84-t02-reclassify-failed-batch.ts`
-- `scripts/t85-probe1-canary.ts`
-- `scripts/test-gemini-ocr.ts`
-- `.env.example` (placeholders only)
-- `.gitignore` (excludes `.env*` except `.env.example`)
+Parallel execution is explicitly forbidden. One rotation fails, the next doesn't compound the mess.
 
 ---
 
-## Track B.1 — Full scan (DO FIRST, STOP BEFORE B.2)
+## Track A1 — Supabase rotation (P0, do first)
 
-### Step 1 — Primary pattern (specific leaked key)
+### A1.1 — Pre-rotation: verify Cloud Run worker env vars
+
+Before rotating, confirm whether Cloud Run workers (`buddy-core-worker`, `franchise-sync-worker`) have `SUPABASE_SERVICE_ROLE_KEY` set. The source code uses `BUDDY_DB_URL` (direct Postgres) but env vars can be set even if unused.
 
 ```bash
-grep -rn "sb_secret_" . \
-  --exclude-dir=node_modules \
-  --exclude-dir=.next \
-  --exclude-dir=.git \
-  --exclude-dir=dist \
-  --exclude-dir=build \
-  --exclude-dir=.vercel \
-  --exclude-dir=cache \
-  --exclude-dir=.db_audit
+gcloud run services describe buddy-core-worker \
+  --region us-central1 \
+  --format="value(spec.template.spec.containers[0].env)" | grep -i supabase
+
+gcloud run services describe franchise-sync-worker \
+  --region us-central1 \
+  --format="value(spec.template.spec.containers[0].env)" | grep -i supabase
 ```
 
-Expected hit: `scripts/audit-db.ts:5`. Any others = scope expansion.
+If either returns a `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SERVICE_KEY` entry, add to the consumer list in A1.3.
 
-### Step 2 — Broader credential patterns
-
-```bash
-# Legacy JWT-shaped Supabase keys (old format before sb_secret_)
-grep -rnE "eyJ[A-Za-z0-9_-]{80,}" . \
-  --exclude-dir=node_modules \
-  --exclude-dir=.next \
-  --exclude-dir=.git \
-  --exclude-dir=dist \
-  --exclude-dir=build \
-  --exclude-dir=.vercel \
-  --exclude-dir=cache \
-  --exclude-dir=.db_audit 2>/dev/null
-
-# Hardcoded assignments to SUPABASE_SERVICE_ROLE_KEY / similar
-grep -rnE "SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*['\"]" . \
-  --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git 2>/dev/null
-
-# Any Supabase project URL hardcoded (the production project id in the leaked file is `sglhiuizgugbnzkymwnk`)
-grep -rn "sglhiuizgugbnzkymwnk" . \
-  --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git 2>/dev/null
-
-# Common other provider keys that may have been copy-pasted alongside
-grep -rnE "sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{30,}|SG\\.[A-Za-z0-9_-]{20,}|re_[A-Za-z0-9_]{20,}" . \
-  --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git 2>/dev/null | head -50
-```
-
-### Step 3 — Gitleaks (full repo + history)
-
-```bash
-pnpm dlx gitleaks detect --source . --verbose 2>&1 | tee /tmp/gitleaks-head.txt
-pnpm dlx gitleaks detect --source . --log-opts="--all" --verbose 2>&1 | tee /tmp/gitleaks-all.txt
-```
-
-Capture both outputs. The first scans working tree; the second scans full git history.
-
-### Step 4 — Git history blame for the known leaked file
-
-```bash
-# Who introduced the hardcoded key?
-git log --all --format="%h %ai %an %s" -- scripts/audit-db.ts
-git blame scripts/audit-db.ts | head -20
-```
-
-If the commit author is unexpected (not Matt, not a known collaborator), escalate — could indicate compromised account.
-
-### Step 5 — Summarize scope
-
-Compile a report and STOP. Do not proceed to B.2. Format:
-
-```
-SECURITY-ROTATION SCAN REPORT
-
-Supabase service-role key hits:
-  [list: file:line]
-
-Other credential-shaped strings found:
-  [list: file:line + brief tag "Gemini API key"/"Resend token"/etc]
-
-Git history reveal:
-  - scripts/audit-db.ts hardcoded key introduced: [commit + author + date]
-  - Any other historical credential commits: [list]
-
-Gitleaks head scan:
-  [hits or "clean"]
-
-Gitleaks full-history scan:
-  [hits or "clean"]
-
-Recommended rotation scope for Matt:
-  - [provider/key]: rotate / scrub / leave
-```
-
-Then wait for Matt's go-ahead before Track B.2.
-
----
-
-## Track A — Matt (after B.1 scope confirmed)
-
-The exact steps depend on what B.1 finds. Assuming ONLY the Supabase service-role key is affected (best case):
-
-### A.1 — Map every consumer of `SUPABASE_SERVICE_ROLE_KEY`
-
-Before rotating, list all known consumers so rotation → env update → redeploy happen in the right order. From what's known:
-
-- Vercel production (`SUPABASE_SERVICE_ROLE_KEY`)
-- Vercel preview (`SUPABASE_SERVICE_ROLE_KEY`)
-- Cloud Run `buddy-core-worker` — currently uses `BUDDY_DB_URL` (direct pg), may or may not also have the key; check Cloud Run env vars
-- Cloud Run `franchise-sync-worker` — same (`BUDDY_DB_URL`-based)
-- Developer `.env.local` files (everyone who has cloned the repo)
-- GitHub Actions secrets (only if CI uses it — check `.github/workflows/`)
-- Supabase CLI local config (if used)
-
-Note: the Cloud Run workers use `BUDDY_DB_URL` for direct Postgres access, not the REST API service-role key. That Postgres connection string includes a separate password that was NOT in the leaked file. Check Cloud Run env vars to confirm — if the workers don't use `SUPABASE_SERVICE_ROLE_KEY`, they don't need updating.
-
-### A.2 — Rotate
+### A1.2 — Rotate in Supabase dashboard
 
 1. Supabase dashboard → project `sglhiuizgugbnzkymwnk` → Settings → API
-2. Reset service role key. Old key must be invalidated, not hidden.
+2. Reset service role key. **Old key must be invalidated, not hidden.**
 3. Copy new key to password manager immediately.
 
-### A.3 — Update env vars in ALL consumers from A.1
+### A1.3 — Update consumers
 
-Update each in sequence. Do NOT trigger redeploys until all consumers have the new key.
+Known consumers (update all BEFORE triggering any redeploys):
 
-### A.4 — Trigger redeploys
+- **Vercel production** `SUPABASE_SERVICE_ROLE_KEY`
+- **Vercel preview** `SUPABASE_SERVICE_ROLE_KEY` (if separate)
+- **Cloud Run workers** — only if A1.1 found them using the key
+- **Developer `.env.local` files** (Matt's local + any other devs with access)
+- **GitHub Actions secrets** — only if `.github/workflows/*` references `SUPABASE_SERVICE_ROLE_KEY` (confirm not `sk_test_placeholder` pattern)
 
-- Vercel production (via dashboard "Redeploy" or a no-op commit)
+### A1.4 — Trigger redeploys
+
+- Vercel production (dashboard "Redeploy" or no-op commit)
 - Vercel preview (if applicable)
-- Cloud Run workers (only if they consume the key — per A.1 check)
+- Cloud Run workers (only if A1.1 identified them)
 
-### A.5 — Verify old key dead and new key works BEFORE Claude Code scrubs
+### A1.5 — Verify
 
 ```bash
-# Should be 401
-OLD_KEY="<paste from scripts/audit-db.ts on HEAD>"
+# Should return 401 or similar non-200
+OLD_KEY="<copy from scripts/audit-db.ts:5 on current HEAD>"
 curl "https://sglhiuizgugbnzkymwnk.supabase.co/rest/v1/deals?select=id&limit=1" \
   -H "apikey: $OLD_KEY" -H "Authorization: Bearer $OLD_KEY"
 ```
 
-If 200: re-rotate. Do NOT proceed to B.2.
+If 200: old key is still valid. STOP. Re-rotate before proceeding.
 
-Then verify cockpit loads + Vercel logs clean. Only then green-light Claude Code for B.2.
+Then:
+- Cockpit loads for test deal `e505cd1c-86b4-4d73-88e3-bc71ef342d94`
+- Vercel runtime logs show no 500s tied to Supabase auth
+- Cloud Run workers still processing (if applicable)
 
-### A.6 — Check Supabase audit logs (if plan supports)
+### A1.6 — Check Supabase audit logs (if plan supports)
 
-Look at `auth`, `api`, and `postgres` logs from 2026-03-07 onward. Unusual patterns to flag: queries from unexpected IPs, large data exports, privilege escalation attempts, access outside business hours.
+Look at `auth`, `api`, `postgres` logs from 2025-12-23 onward. Flag: unusual IP patterns, large data exports, cross-tenant access, off-hours activity.
 
 ---
 
-## Track B.2–B.6 — Claude Code scrub (AFTER A.5 green-light)
+## Track A2 — Clerk test-mode rotation (P1, after A1 verified)
 
-### B.2 Scrub `scripts/audit-db.ts`
+### A2.1 — Rotate in Clerk dashboard
 
-Replace hardcoded url/key with env-var reads + fail-fast:
+1. Clerk dashboard → application `whole-rhino-35` → API keys
+2. Rotate the secret key (the one with `sk_test_` prefix matching the one in the docs files)
+3. Copy new key to password manager
+
+### A2.2 — Update consumers
+
+- Vercel preview env `CLERK_SECRET_KEY` (most likely location for test-mode)
+- Vercel production env `CLERK_SECRET_KEY` (only if test instance used in prod — probably not)
+- Developer `.env.local` files — **coordinate with any other devs using this Clerk instance**
+- GitHub Actions secrets — check `.github/workflows/` for `CLERK_SECRET_KEY`; skip if only `sk_test_placeholder` literal
+
+### A2.3 — Verify
+
+- Sign-in flow works in preview/dev environments
+- No 401/403 cascades in preview deploys after redeploy
+- Old test-mode key invalid in Clerk dashboard
+
+---
+
+## Track B — Claude Code scrub (after BOTH A1 and A2 verified)
+
+### B.1 — Scrub `scripts/audit-db.ts`
+
+Replace lines 4-5 (hardcoded url/key) with env-var reads + fail-fast:
 
 ```ts
 const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -211,83 +155,163 @@ if (!url) { console.error('[audit-db] Missing SUPABASE_URL'); process.exit(1); }
 if (!key) { console.error('[audit-db] Missing SUPABASE_SERVICE_ROLE_KEY'); process.exit(1); }
 ```
 
-Rest of file unchanged.
+Rest of file unchanged. Body of `auditDatabase()` and the `writeFileSync` calls stay identical.
 
-### B.3 Scrub any additional hits from B.1
+### B.2 — Scrub Clerk key from doc files
 
-Same pattern for TS/JS. For shell: `${VAR:?error message}` syntax.
+**`docs/build-logs/AUTH_FIX_SUMMARY.md:50`** — Replace the hardcoded key with a redacted placeholder. Keep the surrounding context readable:
 
-### B.4 Install gitleaks guard
+```
+CLERK_SECRET_KEY=sk_test_<redacted — see Clerk dashboard>
+```
 
-Check `.github/workflows/` first — don't duplicate. Add one of:
-- Husky: `.husky/pre-commit` → `pnpm dlx gitleaks protect --staged --verbose`
-- CI: `.github/workflows/secret-scan.yml` using `gitleaks/gitleaks-action@v2`
+Or the equivalent pattern used elsewhere in the docs directory (e.g., `sk_test_YOUR_KEY_HERE`).
 
-### B.5 Delete spec-write artifacts
+**`docs/archive/operational-pre-84/CLERK_VERCEL_CHECKLIST.md:15`** — same pattern.
+
+These are archived setup docs, not runtime code — a literal placeholder is fine. DO NOT delete the surrounding context (the docs have historical value).
+
+### B.3 — Install gitleaks guard
+
+**Important correction from B.1 scan:** `pnpm dlx gitleaks` fails because the npm package of that name is unrelated to the real tool. Use one of these instead:
+
+**Option 1 — Pre-commit hook (husky):** `.husky/pre-commit`:
+```bash
+#!/usr/bin/env sh
+# Download gitleaks if not present (cache in $HOME/.cache)
+GITLEAKS_BIN="$HOME/.cache/gitleaks/gitleaks"
+if [ ! -x "$GITLEAKS_BIN" ]; then
+  mkdir -p "$(dirname "$GITLEAKS_BIN")"
+  # Pin version to match the one used in B.1 scan
+  curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m).tar.gz" \
+    | tar -xz -C "$(dirname "$GITLEAKS_BIN")"
+fi
+"$GITLEAKS_BIN" protect --staged --verbose
+```
+
+**Option 2 (preferred) — GitHub Action:** `.github/workflows/secret-scan.yml`:
+```yaml
+name: Secret Scan
+on: [push, pull_request]
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Check `.github/workflows/` first. If a secret-scan workflow already exists and is disabled/broken, fix it rather than adding a parallel one.
+
+Recommendation: **Option 2 is lower friction** (no per-dev setup). Use Option 1 only if Option 2 has reasons it can't be used.
+
+### B.4 — Delete spec-probe artifacts
 
 - `specs/_test_ping.md`
 - `specs/_test_ping2.md`
 
-### B.6 Re-verify `.env.example` and `.gitignore` still clean
+Both created during spec-write when testing MCP write capability. Neither should persist.
 
-Verified at spec-write. Re-verify after scrub.
+### B.5 — Re-verify `.env.example` and `.gitignore`
+
+Confirmed clean at B.1 scan:
+- `.env.example` contains only placeholders
+- `.gitignore` excludes `.env*` except `.env.example`
+
+Re-verify after scrub — should still be clean.
+
+### B.6 — Run gitleaks after scrub
+
+```bash
+# Use the Go binary path B.1 scan established
+/tmp/gitleaks detect --source . --verbose 2>&1 | tee /tmp/gitleaks-post-scrub.txt
+```
+
+Expected on HEAD: real hits count drops from 3 → 0. False-positive count unchanged (still ~236 noise). Commit message should note "real hits: 3 → 0".
+
+### Commit message
+
+```
+security: scrub hardcoded credentials (SECURITY-ROTATION)
+
+Rotated upstream (by Matt, before this commit):
+- Supabase service-role key on project sglhiuizgugbnzkymwnk (P0)
+- Clerk test-mode secret on whole-rhino-35.clerk.accounts.dev (P1)
+
+Scrubbed in this commit:
+- scripts/audit-db.ts: hardcoded URL + service-role key → env-var reads with fail-fast
+- docs/build-logs/AUTH_FIX_SUMMARY.md:50: redact sk_test_ literal
+- docs/archive/operational-pre-84/CLERK_VERCEL_CHECKLIST.md:15: redact sk_test_ literal
+
+Secret-scan guard installed:
+- [Option 1 or 2 description]
+
+Cleanup:
+- specs/_test_ping.md (spec-write artifact)
+- specs/_test_ping2.md (spec-write artifact)
+
+Gitleaks real-hits before → after: 3 → 0
+False-positive count unchanged (~236 enum/placeholder hits).
+
+Refs: specs/security-rotation/SPEC.md rev 3
+```
 
 ---
 
-## Track C — Matt verification (after B scrub committed)
+## Track C — Matt final verification (after Track B commit lands)
 
-### C.1 — Confirm old key still dead (should already be from A.5)
+### C.1 — Both old keys dead
 
-Re-run the curl from A.5 — still 401.
+```bash
+# Supabase old key (already verified in A1.5, re-verify)
+OLD_SUPABASE="<from rev 2 scan>"
+curl "https://sglhiuizgugbnzkymwnk.supabase.co/rest/v1/deals?select=id&limit=1" \
+  -H "apikey: $OLD_SUPABASE" -H "Authorization: Bearer $OLD_SUPABASE"
+# Expect 401
 
-### C.2 — Confirm new key works
+# Clerk old key — any public-instance test that used to succeed now fails
+# (exact test depends on the app's Clerk integration; Matt to choose a probe)
+```
 
-Cockpit loads for test deal `e505cd1c-86b4-4d73-88e3-bc71ef342d94`. No 500s in Vercel runtime logs tied to Supabase.
+### C.2 — Production works
+
+- Cockpit loads for `e505cd1c-86b4-4d73-88e3-bc71ef342d94`
+- No 500s in Vercel logs
+- Sign-in flow works in prod (covers Clerk prod key integrity, separate from rotation)
 
 ### C.3 — Final gitleaks
 
+Using the Go binary from B.1 scan:
 ```bash
-pnpm dlx gitleaks detect --source . --verbose
+/tmp/gitleaks detect --source . --verbose
 ```
 
-Expected: zero findings on HEAD. Historical findings may persist if no rewrite was performed — that's expected per "out of scope" below.
-
----
-
-## Commit strategy
-
-One commit from Track B:
-
-```
-security: scrub hardcoded Supabase credential (SECURITY-ROTATION)
-```
-
-Body: list every scrubbed file, B.4 guard choice, both `_test_ping*.md` deletions, gitleaks before/after results. Include note that rotation was completed in Supabase dashboard by Matt BEFORE this commit.
+Expected: the 3 real hits are gone. False-positives unchanged.
 
 ---
 
 ## AAR requirements
 
-Claude Code AAR for Track B.1 (scope report) must include:
-- All grep hits (or "zero hits outside known file")
-- Git history commit that introduced the leaked key
-- Gitleaks HEAD and full-history output (paste both)
-
-Claude Code AAR for Track B.2–B.6 (scrub) must include:
+Claude Code AAR for Track B must include:
 - Every file scrubbed (file:line before + after)
 - `tsc --noEmit --skipLibCheck` clean
-- Gitleaks after-scrub output
-- B.4 guard installed + which option
-- Both `_test_ping*.md` deleted
+- Gitleaks output before scrub (from B.1 scan report) and after scrub (new)
+- B.3 guard: which option chosen (1 or 2)
+- `specs/_test_ping.md` + `specs/_test_ping2.md` deletion confirmed
 
 ---
 
-## Out of scope (unless B.1 surfaces them)
+## Out of scope
 
-- **Rotating other providers** (Clerk, Twilio, Resend, Gemini, OpenAI, etc.). If B.1 surfaces their keys, escalate to separate SECURITY-INCIDENT sub-specs.
-- **Git history rewrite** (BFG, filter-branch). Rewrite breaks clones, CI caches, contributor workflow. Rotation is sufficient defense IF key is genuinely invalidated. Only rewrite if legal/compliance requires.
-- **Supabase RLS audit.** Hygiene backlog — run `get_advisors type=security`.
-- **Changing how `audit-db.ts` is invoked.** Its callers (if any) will already be using env vars; only the hardcoded fallback changes.
+- **Clerk PUBLISHABLE key (`pk_test_`):** public by design, not a secret. Leave as-is.
+- **Other providers not surfaced by B.1** (Gemini, Resend, Twilio, OpenAI): if B.1 found no real hits, don't hunt for more. Trust the scan.
+- **Git history rewrite:** rotation is sufficient defense. Only rewrite if legal/compliance requires.
+- **Supabase RLS audit:** hygiene backlog — run `get_advisors type=security` separately.
+- **Moving `audit-db.ts`'s caller to env var:** the caller (if any) was already env-var-driven; only the hardcoded fallback inside the script changes.
 
 ---
 
@@ -295,24 +319,20 @@ Claude Code AAR for Track B.2–B.6 (scrub) must include:
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Old key exploited between 2026-03-07 and rotation | Unknown | Rotate fast after scope confirmed, check audit logs 2026-03-07 onward |
-| B.1 surfaces MULTIPLE keys (other providers) | Medium | STOP at B.1 end; surface scope; Matt decides multi-provider rotation plan |
-| Scrub commit lands before new key propagates to all consumers | Medium | A.5 green-light is gating — explicit human confirmation before B.2 |
-| New key leaks again in future | Low | B.4 gitleaks guard is the structural fix |
-| Cloud Run workers have DB password hardcoded somewhere not yet found | Low | B.1's broader credential scan (Step 2) should catch this |
+| A1 rotation breaks Cloud Run workers due to missed env var | Low | A1.1 pre-rotation check; if env exists, A1.3 updates it before A1.4 redeploy |
+| Scrub commit lands before new keys propagate | Medium | Track B is explicitly gated on A1 AND A2 both verified; Matt green-lights |
+| Clerk test-mode rotation breaks dev workflow for other contributors | Low | A2.2 coordination note; if solo dev, N/A |
+| Old Supabase key exploited 2025-12-23 → rotation | Unknown | A1.6 audit logs — look for anomalous patterns |
+| Future commits leak again | Low | B.3 gitleaks guard (structural fix) |
 
 ---
 
 ## Hand-off
 
-**Claude Code does B.1 only.** Deliver scope report. Stop.
+**Matt starts Track A1 first.** Work through A1.1 → A1.6, then A2.1 → A2.3. Green-light Claude Code when both are verified.
 
-**Matt reviews scope. Decides rotation plan.** Could be: rotate now / expand spec / both.
+**Claude Code waits for explicit green-light.** Then executes Track B as one commit.
 
-**If rotation: Matt executes Track A. Green-lights B.2.**
+**Matt verifies Track C** after Track B commit lands.
 
-**Claude Code executes B.2–B.6 after green-light.**
-
-**Matt verifies Track C.**
-
-Estimated end-to-end: 60–90 min given a clean scope report; longer if B.1 surfaces multiple keys.
+Total human time: ~30–45 min for Matt (rotation + verification), ~30–45 min for Claude Code (scrub).
