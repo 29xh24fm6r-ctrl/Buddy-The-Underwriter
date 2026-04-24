@@ -35,23 +35,27 @@ export type RequirementStatusInput = {
 };
 
 /**
- * Honest spread stats for the readiness panel (STUCK-SPREADS Batch 3).
+ * Honest spread stats for the readiness panel.
+ * STUCK-SPREADS Batch 3 (2026-04-23) added stuck/terminal distinction.
+ * READINESS-HONESTY-FOLLOWUP (2026-04-24) split terminal → ready vs errored
+ * so "complete" requires successful renders, not just terminal states.
  *
- * `total`       — count of deal_spreads rows for this deal
- * `terminal`    — count in status ∈ {ready, error}
- * `stuck`       — count in status ∈ {queued, generating} that exceeded the
- *                 staleness threshold (typically 5 minutes). These are the
- *                 rows that previously masqueraded as "complete" because
- *                 hasSpreads was true.
- * `stuckTypes`  — spread_type values for each stuck row; surfaced in the
- *                 blocker detail so the operator sees which spread is stuck.
+ * `total`        — count of deal_spreads rows for this deal
+ * `ready`        — count in status === 'ready' (successful renders)
+ * `errored`      — count in status ∈ {error, failed} (terminal but not successful)
+ * `erroredTypes` — spread_type values for each errored row
+ * `terminal`     — derived: ready + errored (kept for back-compat)
+ * `stuck`        — count in status ∈ {queued, generating} past staleness threshold
+ * `stuckTypes`   — spread_type values for each stuck row
  *
- * When `total === 0` the category is a "warning" (nothing to show yet).
- * When `stuck > 0` the category is a "warning" (honest about the stuck row).
- * Otherwise "complete" iff terminal === total.
+ * Build principle #11: "terminal" is not the same as "successful". A row in
+ * `error` counts as warning because it couldn't finish, not because it did.
  */
 export type SpreadStats = {
   total: number;
+  ready: number;
+  errored: number;
+  erroredTypes: string[];
   terminal: number;
   stuck: number;
   stuckTypes: string[];
@@ -117,21 +121,24 @@ export function computeReadinessAndBlockers(input: ReadinessInput): {
   // Do NOT push a blocker here; cockpit-state prepends lrBlocker which is the canonical source.
   const loanRequestStatus: ReadinessCategoryStatus = input.hasLoanRequest ? "complete" : "blocking";
 
-  // Spread readiness — honest about non-terminal (stuck) rows.
-  // "Complete" requires all existing spreads to be in a terminal state
-  // (ready or error). Any stuck row downgrades the category to "warning"
-  // and emits a blocker listing the stuck spread types.
+  // Spread readiness — distinguishes succeeded from terminal-failed.
+  // "Complete" requires all spreads in `ready` status (successful renders).
+  // `error`/`failed` rows (terminal but not successful) downgrade to warning
+  // and emit a `spreads_errored` blocker. `queued`/`generating` rows past the
+  // staleness threshold downgrade to warning with a `spreads_stuck` blocker.
+  //
+  // Build principle #11 (READINESS-HONESTY-FOLLOWUP): terminal != successful.
   const s = input.spreadStats;
   let spreadsStatus: ReadinessCategoryStatus;
   if (s.total === 0) {
     spreadsStatus = "warning";
-  } else if (s.stuck > 0) {
+  } else if (s.stuck > 0 || s.errored > 0) {
     spreadsStatus = "warning";
-  } else if (s.terminal === s.total) {
+  } else if (s.ready === s.total) {
     spreadsStatus = "complete";
   } else {
-    // Non-terminal rows exist but aren't yet "stuck" (under the staleness
-    // threshold). Still warning — a spread that's generating is not complete.
+    // Non-terminal rows exist but aren't yet stuck (under the threshold).
+    // Still warning — a spread that's generating is not complete.
     spreadsStatus = "warning";
   }
 
@@ -142,6 +149,20 @@ export function computeReadinessAndBlockers(input: ReadinessInput): {
       severity: "warning",
       title: `Spreads stuck: ${s.stuck} of ${s.total}`,
       details: [`Stuck spread types: ${typeList || "unknown"}`],
+      actionLabel: "",
+    });
+  }
+
+  if (s.errored > 0) {
+    const typeList = s.erroredTypes.join(", ");
+    blockers.push({
+      code: "spreads_errored",
+      severity: "warning",
+      title: `Spreads failed to render: ${s.errored} of ${s.total}`,
+      details: [
+        `Errored spread types: ${typeList || "unknown"}`,
+        "These spreads reached a terminal state without succeeding. Re-running orchestration may resolve them.",
+      ],
       actionLabel: "",
     });
   }

@@ -113,8 +113,9 @@ export async function GET(
     const loanRequest = canonicalLoanRequest;
     const loanRequestRow: Record<string, unknown> | null = null;
 
-    // STUCK-SPREADS Batch 3: fetch all spreads (not just existence) so we
-    // can honestly report stuck / non-terminal rows via the readiness panel.
+    // STUCK-SPREADS Batch 3 + READINESS-HONESTY-FOLLOWUP: fetch all spreads
+    // and distinguish ready (succeeded) from error/failed (terminal but
+    // failed) and queued/generating (in flight or stuck).
     const { data: spreadRows } = await sb
       .from("deal_spreads")
       .select("spread_type, status, started_at, updated_at")
@@ -128,13 +129,20 @@ export async function GET(
       started_at: string | null;
       updated_at: string | null;
     }>;
-    let spreadTerminal = 0;
+    let spreadReady = 0;
+    let spreadErrored = 0;
     let spreadStuck = 0;
+    const spreadErroredTypes: string[] = [];
     const spreadStuckTypes: string[] = [];
     for (const row of spreadRowsArr) {
       const st = row.status ?? "";
-      if (st === "ready" || st === "error") {
-        spreadTerminal += 1;
+      if (st === "ready") {
+        spreadReady += 1;
+        continue;
+      }
+      if (st === "error" || st === "failed") {
+        spreadErrored += 1;
+        if (row.spread_type) spreadErroredTypes.push(row.spread_type);
         continue;
       }
       // Only 'queued' or 'generating' reach here. Determine if stuck.
@@ -147,7 +155,10 @@ export async function GET(
     }
     const spreadStats = {
       total: spreadRowsArr.length,
-      terminal: spreadTerminal,
+      ready: spreadReady,
+      errored: spreadErrored,
+      erroredTypes: spreadErroredTypes,
+      terminal: spreadReady + spreadErrored, // back-compat
       stuck: spreadStuck,
       stuckTypes: spreadStuckTypes,
     };
