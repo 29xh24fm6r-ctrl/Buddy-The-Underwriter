@@ -15,9 +15,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { getOpenAI } from "@/lib/ai/openaiClient";
+import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { retrieveEvidence } from "@/lib/retrieval/retrievalCore";
-import { OPENAI_CHAT, OPENAI_MINI } from "@/lib/ai/models";
+import {
+  MODEL_CONCIERGE_REASONING,
+  MODEL_CONCIERGE_EXTRACTION,
+} from "@/lib/ai/models";
 import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
 
 interface ConciergeRequest {
@@ -46,7 +49,6 @@ export async function POST(req: NextRequest): Promise<NextResponse<ConciergeResp
     const { dealId, program, userMessage, sessionId } = body;
 
     const sb = supabaseAdmin();
-    const openai = getOpenAI();
 
     // 1) Load or create session
     let session: any;
@@ -122,14 +124,13 @@ Extract facts in this JSON structure:
 
 Return ONLY the extracted facts JSON. Use null for unknown values.`;
 
-    const extractResponse = await openai.chat.completions.create({
-      model: OPENAI_MINI,
-      messages: [{ role: "user", content: extractPrompt }],
-      temperature: 0,
-      response_format: { type: "json_object" },
+    const extractResult = await callGeminiJSON<Record<string, any>>({
+      model: MODEL_CONCIERGE_EXTRACTION,
+      prompt: extractPrompt,
+      logTag: "concierge-extract",
     });
 
-    const extractedFacts = JSON.parse(extractResponse.choices[0].message.content || "{}");
+    const extractedFacts = extractResult.result ?? {};
 
     // Merge with previous facts
     const allFacts = {
@@ -180,14 +181,17 @@ Return JSON:
   "document_requests": [{"doc": "name", "reason": "why needed"}]
 }`;
 
-    const responseCompletion = await openai.chat.completions.create({
-      model: OPENAI_CHAT,
-      messages: [{ role: "user", content: responsePrompt }],
-      temperature: 0.7,
-      response_format: { type: "json_object" },
+    const responseResult = await callGeminiJSON<{
+      message: string;
+      next_question: string | null;
+      document_requests?: Array<{ doc: string; reason: string }>;
+    }>({
+      model: MODEL_CONCIERGE_REASONING,
+      prompt: responsePrompt,
+      logTag: "concierge-respond",
     });
 
-    const buddyOutput = JSON.parse(responseCompletion.choices[0].message.content || "{}");
+    const buddyOutput = responseResult.result ?? { message: "", next_question: null };
 
     // 7) Update session
     const updatedHistory = [

@@ -99,9 +99,17 @@ export const MODEL_RATES          = GEMINI_FLASH;  // index rates
 
 // OpenAI lanes (existing — no migration in this phase)
 export const MODEL_COMMITTEE      = OPENAI_CHAT;   // credit committee
-export const MODEL_CONCIERGE      = OPENAI_CHAT;   // borrower concierge
 export const MODEL_RETRIEVAL      = OPENAI_MINI;   // retrieval reranker
 export const MODEL_INTERVIEW      = OPENAI_CHAT;   // interview QA
+
+// Concierge — migrated to Gemini (brokerage prereq). Two lanes:
+//  • REASONING (Pro) — warm conversational response, judgment on next question
+//  • EXTRACTION (Flash) — structured JSON fact extraction from borrower turns
+export const MODEL_CONCIERGE_REASONING  = GEMINI_PRO;
+export const MODEL_CONCIERGE_EXTRACTION = GEMINI_FLASH;
+
+/** @deprecated Use MODEL_CONCIERGE_REASONING / MODEL_CONCIERGE_EXTRACTION. Retained until all callers migrate. */
+export const MODEL_CONCIERGE      = OPENAI_CHAT;   // legacy alias — CI guard rejects new uses
 
 // ── Model family predicates ───────────────────────────────────────────────
 // Kept here so call sites never need to hardcode model-prefix strings.
