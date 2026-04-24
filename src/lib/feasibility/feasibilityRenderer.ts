@@ -66,6 +66,8 @@ export interface FeasibilityRenderInput {
   isFranchise: boolean;
   brandName: string | null;
   generatedAt?: string;
+  /** Sprint 3: when true, stamps a cosmetic preview watermark on every page. */
+  previewWatermark?: boolean;
 }
 
 type DocState = {
@@ -540,11 +542,35 @@ function renderScorecardPage(s: DocState) {
 
 // ─── Main entry ──────────────────────────────────────────────────────────
 
+/**
+ * Diagonal translucent preview watermark. Cosmetic only — real redaction
+ * is enforced at the data layer by redactFeasibilityForPreview().
+ */
+function drawPreviewWatermark(doc: PDFKit.PDFDocument): void {
+  doc.save();
+  const { width, height } = doc.page;
+  const cx = width / 2;
+  const cy = height / 2;
+  doc.translate(cx, cy).rotate(-30);
+  doc.opacity(0.12);
+  doc.font("Helvetica-Bold").fontSize(48).fillColor("#1f2937");
+  doc.text("PREVIEW — UNLOCKS WHEN YOU PICK A LENDER", -width / 2, -24, {
+    width,
+    align: "center",
+  });
+  doc.opacity(1);
+  doc.restore();
+}
+
 export function renderFeasibilityPDF(
   input: FeasibilityRenderInput,
 ): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: "letter", margin: PAGE_MARGIN });
+    const doc = new PDFDocument({
+      size: "letter",
+      margin: PAGE_MARGIN,
+      bufferPages: true,
+    });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -736,6 +762,15 @@ export function renderFeasibilityPDF(
     // Silence unused ROW_HEIGHT warning — kept here to match the SBA
     // renderer's constant surface should future rows land on this page.
     void ROW_HEIGHT;
+
+    // Sprint 3: preview watermark applied to every buffered page.
+    if (input.previewWatermark) {
+      const range = doc.bufferedPageRange();
+      for (let i = range.start; i < range.start + range.count; i++) {
+        doc.switchToPage(i);
+        drawPreviewWatermark(doc);
+      }
+    }
 
     doc.end();
   });

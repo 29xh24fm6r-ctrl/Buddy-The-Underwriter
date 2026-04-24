@@ -96,6 +96,8 @@ interface RenderInput {
   sourcesAndUses?: SourcesAndUsesResult;
   balanceSheetProjections?: BalanceSheetYear[];
   globalCashFlow?: GlobalCashFlowResult;
+  /** Sprint 3: when true, stamps a cosmetic preview watermark on every page. */
+  previewWatermark?: boolean;
 }
 
 type DocState = {
@@ -1066,9 +1068,34 @@ function renderUseOfProceeds(s: DocState) {
 // Main render function — 14-page professional business plan
 // ---------------------------------------------------------------------------
 
+/**
+ * Diagonal translucent "PREVIEW — UNLOCKS WHEN YOU PICK A LENDER" watermark.
+ * Cosmetic only. Sprint 3: real PII protection lives in the data-layer
+ * redactor before this function is ever called.
+ */
+function drawPreviewWatermark(doc: PDFKit.PDFDocument): void {
+  doc.save();
+  const { width, height } = doc.page;
+  const cx = width / 2;
+  const cy = height / 2;
+  doc.translate(cx, cy).rotate(-30);
+  doc.opacity(0.12);
+  doc.font("Helvetica-Bold").fontSize(48).fillColor("#1f2937");
+  doc.text("PREVIEW — UNLOCKS WHEN YOU PICK A LENDER", -width / 2, -24, {
+    width,
+    align: "center",
+  });
+  doc.opacity(1);
+  doc.restore();
+}
+
 export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: "letter", margin: PAGE_MARGIN });
+    const doc = new PDFDocument({
+      size: "letter",
+      margin: PAGE_MARGIN,
+      bufferPages: true,
+    });
     const chunks: Buffer[] = [];
 
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -1268,6 +1295,15 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // Final footer on last page
     drawPageFooter(s);
+
+    // Sprint 3: preview watermark is applied to every buffered page.
+    if (input.previewWatermark) {
+      const range = doc.bufferedPageRange();
+      for (let i = range.start; i < range.start + range.count; i++) {
+        doc.switchToPage(i);
+        drawPreviewWatermark(doc);
+      }
+    }
 
     doc.end();
   });
