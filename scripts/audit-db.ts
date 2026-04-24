@@ -1,8 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { writeFileSync } from 'fs';
 
-const url = "https://sglhiuizgugbnzkymwnk.supabase.co";
-const key = "sb_secret_9ty_a6gY72C3QVOtSaA8Hw_KJu_81ie";
+const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ??
+  process.env.SUPABASE_SERVICE_KEY ??
+  process.env.SUPABASE_SERVICE_ROLE;
+
+if (!url) {
+  console.error('[audit-db] Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)');
+  process.exit(1);
+}
+if (!key) {
+  console.error('[audit-db] Missing SUPABASE_SERVICE_ROLE_KEY');
+  process.exit(1);
+}
 
 const supabase = createClient(url, key);
 

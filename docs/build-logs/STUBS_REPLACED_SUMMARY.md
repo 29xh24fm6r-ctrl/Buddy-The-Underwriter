@@ -146,8 +146,8 @@ To make the system fully operational, update your [.env.local](.env.local) file:
 
 3. **Supabase Keys** (verify)
    ```bash
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
-   SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<paste publishable key from Supabase dashboard>
+   SUPABASE_SERVICE_ROLE_KEY=<paste service role key from Supabase dashboard>
    ```
    Verify these match your Supabase project
 
