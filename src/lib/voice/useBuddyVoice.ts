@@ -36,6 +36,12 @@ interface Message {
 
 interface UseBuddyVoiceOptions {
   dealId: string;
+  /**
+   * Sprint 2: token endpoint to POST. Default is the banker voice route
+   * for backward-compat with BankerVoicePanel. The brokerage borrower
+   * panel passes `/api/brokerage/voice/gemini-token`.
+   */
+  tokenEndpoint?: string;
   onStatusChange?: (status: VoiceStatus) => void;
   onMessage?: (msg: Message) => void;
   onGapResolved?: (factKey: string) => void;
@@ -47,7 +53,7 @@ function mkMsg(role: "user" | "assistant", content: string): Message {
 }
 
 export function useBuddyVoice(options: UseBuddyVoiceOptions) {
-  const { dealId, onStatusChange, onMessage, onGapResolved } = options;
+  const { dealId, tokenEndpoint, onStatusChange, onMessage, onGapResolved } = options;
 
   const [status, setStatusRaw] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -273,10 +279,13 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
 
       if (attemptId !== connectAttemptIdRef.current) return;
 
-      const res = await fetch(`/api/deals/${dealId}/banker-session/gemini-token`, {
+      const endpoint =
+        tokenEndpoint ?? `/api/deals/${dealId}/banker-session/gemini-token`;
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
+        credentials: "include", // S2-1: borrower cookie rides along
       });
 
       const data = await res.json();
