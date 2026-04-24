@@ -30,8 +30,8 @@ id = "generic-api-key"
 [rules.allowlist]
 description = "Domain code is dense with high-entropy ALL_CAPS enum constants (tax form keys F1099R_*, K1_*, F4562_*, F1125A_*, F1125E_*, M1_*, BTR_*, PFS_*, EBITDA_*, CRE_*, GUARANTY_*, SECTION_*, bus_*) that pattern-match as API keys. Provider-specific rules still fire here."
 paths = [
-  '''src/lib/financialSpreads/.*''',
-  '''src/lib/financialIntelligence/.*''',
+  '''src/lib/financial.*''',          # financialSpreads, financialIntelligence, financialFacts
+  '''src/lib/consolidation/.*''',
   '''src/lib/intake/.*''',
   '''src/lib/irsKnowledge/.*''',
   '''src/lib/stressEngine/.*''',
