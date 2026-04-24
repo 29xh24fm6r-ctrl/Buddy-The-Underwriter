@@ -1,12 +1,10 @@
 # Gitleaks configuration for Buddy The Underwriter
 #
-# Extends the upstream default ruleset (so we keep getting new detections
-# as the gitleaks team adds them) and adds repo-specific allowlists for
-# false positives that have been manually verified as non-secrets.
+# Extends the upstream default ruleset and adds repo-specific allowlists
+# for false positives that have been manually verified as non-secrets.
 #
-# Adding entries here should be a deliberate act, not reflexive. Every
-# allowlist below has a one-line justification. If you add a new one,
-# include the same.
+# Adding entries here should be deliberate. Every allowlist below has a
+# one-line justification. If you add a new one, include the same.
 #
 # To run locally:
 #   gitleaks detect --source . --verbose --no-banner
@@ -17,54 +15,96 @@
 [extend]
 useDefault = true
 
-# ---------------------------------------------------------------------------
-# Global allowlists - apply to every rule
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# RULE OVERRIDES
+# ===========================================================================
+# `generic-api-key` is an entropy-based catch-all that fires on any
+# high-entropy ALL_CAPS string. Tax form field constants, deterministic
+# checklist keys, and other domain enums look exactly like API keys to it.
+# We disable it ONLY in domain code paths where these false positives live.
+# All provider-specific rules (aws-access-token, stripe-access-token,
+# slack-token, github-pat, etc.) continue to fire everywhere.
+
+[[rules]]
+id = "generic-api-key"
+[rules.allowlist]
+description = "Domain code is dense with high-entropy ALL_CAPS enum constants (tax form keys F1099R_*, K1_*, F4562_*, F1125A_*, F1125E_*, M1_*, BTR_*, PFS_*, EBITDA_*, CRE_*, GUARANTY_*, SECTION_*, bus_*) that pattern-match as API keys. Provider-specific rules still fire here."
+paths = [
+  '''src/lib/financialSpreads/.*''',
+  '''src/lib/financialIntelligence/.*''',
+  '''src/lib/intake/.*''',
+  '''src/lib/irsKnowledge/.*''',
+  '''src/lib/stressEngine/.*''',
+  '''src/lib/memoEngine/.*''',
+  '''src/lib/checklist/.*''',
+  '''src/lib/sba/.*''',
+  '''src/lib/creditMemo/.*''',
+  '''src/lib/demo/.*''',
+  '''src/lib/spreads/.*''',
+  '''src/lib/extractors/.*''',
+  '''.*__tests__/.*''',
+  '''goldens/.*''',
+  '''tests/.*''',
+  '''e2e/.*''',
+  '''.*SPEC\.md$''',
+  '''IRS_KNOWLEDGE_BASE_SPEC\.md''',
+]
+
+# ===========================================================================
+# GLOBAL ALLOWLISTS - apply to all rules
+# ===========================================================================
 
 [[allowlists]]
-description = "Documented sentinel placeholders used in env templates, CI envs, and spec examples. Literal strings that pattern-match secret-shaped formats but are explicitly non-secrets."
+description = "Clerk publishable keys are public by design - they ship in the browser bundle and are not secrets. Pattern: pk_test_<base64>. Allowlisting globally."
+regexes = [
+  '''pk_test_[A-Za-z0-9+/=]+''',
+  '''pk_live_[A-Za-z0-9+/=]+''',
+]
+
+[[allowlists]]
+description = "Documented sentinel placeholders used in env templates, CI envs, doc curl examples, and test fixtures. These are literal placeholder strings, not secrets."
 regexes = [
   '''sk_test_placeholder''',
   '''sk-placeholder''',
   '''pk_test_placeholder''',
-  '''your_[a-z_]+_(here|key|secret|token|sid|number|url)''',
-  '''re_xxx[a-zA-Z0-9_]*''',
-  '''<paste[^>]*>''',
-  '''<your-[a-z-]+>''',
-  '''<NEW_[A-Z_]+>''',
+  '''your_[a-z_]+_(here|key|secret|token|sid|number|url|api_key)''',
+  '''YOUR_[A-Z_]+_(KEY|TOKEN|SECRET|ID|URL)''',
+  '''YOUR_(CLERK_TOKEN|CRON_SECRET|ADMIN_TOKEN|API_KEY)''',
+  '''INVITE_TOKEN''',
+  '''wrong_secret''',
+  '''abc123xyz[0-9]+\.?\.?\.?''',                    # docs example tokens
+  '''re_xxx[a-zA-Z0-9_]*''',                         # Resend doc placeholder
+  '''<paste[^>]*>''',                                # spec instructions
+  '''<your-[a-z-]+>''',                              # spec placeholders
+  '''<NEW_[A-Z_]+>''',                               # spec placeholders
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.\.\.''',  # truncated JWT placeholder
 ]
 
-# ---------------------------------------------------------------------------
-# Path-scoped allowlists
-# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Project ref sglhiuizgugbnzkymwnk is a public Supabase project identifier (visible in dashboard URLs, mcp.json, supabase CLI metadata, GoTrue host). Not a secret."
+regexes = [
+  '''sglhiuizgugbnzkymwnk''',
+]
+
+# ===========================================================================
+# PATH-SCOPED ALLOWLISTS
+# ===========================================================================
 
 [[allowlists]]
-description = "Spec markdown documents the dead leaked Supabase service-role key for incident-record context. Key has been rotated and revoked. Allowlisted only in the spec directory; new occurrences elsewhere will still be flagged."
+description = "Spec markdown documents the dead/revoked Supabase service-role key for incident-record context. Allowlisted only in spec dir; new occurrences elsewhere still flag."
 paths = [
   '''specs/security-rotation/.*\.md''',
 ]
 regexes = [
-  # Dead key, kept in spec for incident record. Pattern split into prefix
-  # to avoid push-protection false trigger on this very allowlist file.
+  # Dead key, kept in spec for incident record. Pattern split to avoid
+  # push-protection false trigger on this allowlist file itself.
   '''sb_secret_9ty_[A-Za-z0-9_]{30,}''',
 ]
 
 [[allowlists]]
-description = "Tax form field key enums and mapping constants get pattern-matched as stripe-access-token candidates. Deterministic identifiers used by the spread engine, not secrets."
+description = "Stitch HTML probes captured Clerk publishable keys (public by design) embedded in script tags from rendered pages. Probe artifacts, not secrets."
 paths = [
-  '''src/lib/spreads/.*''',
-  '''src/lib/intake/.*''',
-  '''src/lib/extractors/.*''',
-  '''goldens/.*''',
-  '''tests/.*''',
-  '''e2e/.*''',
-]
-regexes = [
-  '''(COMBINED|TOTAL|GROSS|NET|REV|EXPENSE|INCOME|RATIO|RATE|YEAR|YR|FY|Q[1-4])_[A-Z0-9_]{4,}''',
-]
-
-[[allowlists]]
-description = "Project ref sglhiuizgugbnzkymwnk is a public Supabase project identifier (visible in dashboard URLs, mcp.json, supabase CLI metadata). Not a secret."
-regexes = [
-  '''sglhiuizgugbnzkymwnk''',
+  '''stitch_probe\.html''',
+  '''stitch_exports/.*''',
+  '''stitch_zips/.*''',
 ]
