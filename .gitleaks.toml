@@ -1,0 +1,70 @@
+# Gitleaks configuration for Buddy The Underwriter
+#
+# Extends the upstream default ruleset (so we keep getting new detections
+# as the gitleaks team adds them) and adds repo-specific allowlists for
+# false positives that have been manually verified as non-secrets.
+#
+# Adding entries here should be a deliberate act, not reflexive. Every
+# allowlist below has a one-line justification. If you add a new one,
+# include the same.
+#
+# To run locally:
+#   gitleaks detect --source . --verbose --no-banner
+#   gitleaks detect --source . --verbose --no-banner --log-opts="--all"  # incl. history
+#
+# Refs: specs/security-rotation/SPEC.md, .github/workflows/secret-scan.yml
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Global allowlists - apply to every rule
+# ---------------------------------------------------------------------------
+
+[[allowlists]]
+description = "Documented sentinel placeholders used in env templates, CI envs, and spec examples. Literal strings that pattern-match secret-shaped formats but are explicitly non-secrets."
+regexes = [
+  '''sk_test_placeholder''',
+  '''sk-placeholder''',
+  '''pk_test_placeholder''',
+  '''your_[a-z_]+_(here|key|secret|token|sid|number|url)''',
+  '''re_xxx[a-zA-Z0-9_]*''',
+  '''<paste[^>]*>''',
+  '''<your-[a-z-]+>''',
+  '''<NEW_[A-Z_]+>''',
+]
+
+# ---------------------------------------------------------------------------
+# Path-scoped allowlists
+# ---------------------------------------------------------------------------
+
+[[allowlists]]
+description = "Spec markdown documents the dead leaked Supabase service-role key for incident-record context. Key has been rotated and revoked. Allowlisted only in the spec directory; new occurrences elsewhere will still be flagged."
+paths = [
+  '''specs/security-rotation/.*\.md''',
+]
+regexes = [
+  # Dead key, kept in spec for incident record. Pattern split into prefix
+  # to avoid push-protection false trigger on this very allowlist file.
+  '''sb_secret_9ty_[A-Za-z0-9_]{30,}''',
+]
+
+[[allowlists]]
+description = "Tax form field key enums and mapping constants get pattern-matched as stripe-access-token candidates. Deterministic identifiers used by the spread engine, not secrets."
+paths = [
+  '''src/lib/spreads/.*''',
+  '''src/lib/intake/.*''',
+  '''src/lib/extractors/.*''',
+  '''goldens/.*''',
+  '''tests/.*''',
+  '''e2e/.*''',
+]
+regexes = [
+  '''(COMBINED|TOTAL|GROSS|NET|REV|EXPENSE|INCOME|RATIO|RATE|YEAR|YR|FY|Q[1-4])_[A-Z0-9_]{4,}''',
+]
+
+[[allowlists]]
+description = "Project ref sglhiuizgugbnzkymwnk is a public Supabase project identifier (visible in dashboard URLs, mcp.json, supabase CLI metadata). Not a secret."
+regexes = [
+  '''sglhiuizgugbnzkymwnk''',
+]
