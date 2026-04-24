@@ -1,5 +1,30 @@
 import "dotenv/config";
 /**
+ * TODO(BUDDY-CORE-WORKER-WIRE-REPAIR, 2026-04-23):
+ * The pulseCall function below speaks the wrong wire protocol to deployed
+ * Pulse MCP. Same root cause as OMEGA-REPAIR rev 3.3 (which fixed the
+ * Next.js Omega client) and FASTLANE-RETIRE (which deleted the in-process
+ * fastlane entry).
+ *
+ * Wrong (today):
+ *   POST ${PULSE_MCP_URL}/call with body {tool, input} and Bearer auth
+ * Right (per deployed Pulse tools/call JSON-RPC contract):
+ *   POST ${PULSE_MCP_URL}/ with JSON-RPC
+ *     {jsonrpc, id, method: "tools/call", params: {name: "buddy_ledger_write", arguments: {...}}}
+ *   Auth header: x-pulse-mcp-key
+ *
+ * Net effect: this worker has been silently failing every event delivery
+ * since it deployed. Outbox rows accumulate. Fix requires (in order):
+ *   1. Audit deployed `tools/list` to confirm buddy_ledger_write schema.
+ *   2. Mirror OMEGA-REPAIR's wire fix inside pulseCall + heartbeatTick + forwardEvent.
+ *   3. Field-map buddy_outbox_events row → buddy_ledger_write input.
+ *   4. Verify Cloud Run env vars (PULSE_MCP_URL, PULSE_MCP_KEY).
+ *
+ * See specs/omega-repair/SPEC.md rev 3.3 for the wire-fix template and
+ * specs/stuck-spreads-and-related-fixes/SPEC.md Batch 4 for this TODO's origin.
+ */
+
+/**
  * buddy-core-worker — Always-on Cloud Run service.
  *
  * Two concurrent loops:
