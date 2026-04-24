@@ -113,12 +113,44 @@ export async function GET(
     const loanRequest = canonicalLoanRequest;
     const loanRequestRow: Record<string, unknown> | null = null;
 
-    const { data: spreads } = await sb
+    // STUCK-SPREADS Batch 3: fetch all spreads (not just existence) so we
+    // can honestly report stuck / non-terminal rows via the readiness panel.
+    const { data: spreadRows } = await sb
       .from("deal_spreads")
-      .select("id")
-      .eq("deal_id", dealId)
-      .limit(1)
-      .maybeSingle();
+      .select("spread_type, status, started_at, updated_at")
+      .eq("deal_id", dealId);
+
+    const SPREAD_STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 min; matches janitor
+    const nowMs = Date.now();
+    const spreadRowsArr = (spreadRows ?? []) as Array<{
+      spread_type: string | null;
+      status: string | null;
+      started_at: string | null;
+      updated_at: string | null;
+    }>;
+    let spreadTerminal = 0;
+    let spreadStuck = 0;
+    const spreadStuckTypes: string[] = [];
+    for (const row of spreadRowsArr) {
+      const st = row.status ?? "";
+      if (st === "ready" || st === "error") {
+        spreadTerminal += 1;
+        continue;
+      }
+      // Only 'queued' or 'generating' reach here. Determine if stuck.
+      const updatedMs = row.updated_at ? Date.parse(row.updated_at) : NaN;
+      const ageMs = Number.isFinite(updatedMs) ? nowMs - updatedMs : 0;
+      if (ageMs > SPREAD_STUCK_THRESHOLD_MS) {
+        spreadStuck += 1;
+        if (row.spread_type) spreadStuckTypes.push(row.spread_type);
+      }
+    }
+    const spreadStats = {
+      total: spreadRowsArr.length,
+      terminal: spreadTerminal,
+      stuck: spreadStuck,
+      stuckTypes: spreadStuckTypes,
+    };
 
     const { data: financialSnapshot } = await sb
       .from("financial_snapshots")
@@ -156,7 +188,7 @@ export async function GET(
         matchedDocumentCount: r.matchedDocumentIds?.length ?? 0,
       })),
       hasLoanRequest: !!loanRequest,
-      hasSpreads: !!spreads,
+      spreadStats,
       hasFinancialSnapshot: !!financialSnapshot,
       hasPricingQuote: false,
       hasDecision: false,

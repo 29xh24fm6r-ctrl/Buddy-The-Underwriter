@@ -34,10 +34,33 @@ export type RequirementStatusInput = {
   matchedDocumentCount: number;
 };
 
+/**
+ * Honest spread stats for the readiness panel (STUCK-SPREADS Batch 3).
+ *
+ * `total`       — count of deal_spreads rows for this deal
+ * `terminal`    — count in status ∈ {ready, error}
+ * `stuck`       — count in status ∈ {queued, generating} that exceeded the
+ *                 staleness threshold (typically 5 minutes). These are the
+ *                 rows that previously masqueraded as "complete" because
+ *                 hasSpreads was true.
+ * `stuckTypes`  — spread_type values for each stuck row; surfaced in the
+ *                 blocker detail so the operator sees which spread is stuck.
+ *
+ * When `total === 0` the category is a "warning" (nothing to show yet).
+ * When `stuck > 0` the category is a "warning" (honest about the stuck row).
+ * Otherwise "complete" iff terminal === total.
+ */
+export type SpreadStats = {
+  total: number;
+  terminal: number;
+  stuck: number;
+  stuckTypes: string[];
+};
+
 export type ReadinessInput = {
   requirements: RequirementStatusInput[];
   hasLoanRequest: boolean;
-  hasSpreads: boolean;
+  spreadStats: SpreadStats;
   hasFinancialSnapshot: boolean;
   hasPricingQuote: boolean;
   hasDecision: boolean;
@@ -94,8 +117,35 @@ export function computeReadinessAndBlockers(input: ReadinessInput): {
   // Do NOT push a blocker here; cockpit-state prepends lrBlocker which is the canonical source.
   const loanRequestStatus: ReadinessCategoryStatus = input.hasLoanRequest ? "complete" : "blocking";
 
-  // Other categories
-  const spreadsStatus: ReadinessCategoryStatus = input.hasSpreads ? "complete" : "warning";
+  // Spread readiness — honest about non-terminal (stuck) rows.
+  // "Complete" requires all existing spreads to be in a terminal state
+  // (ready or error). Any stuck row downgrades the category to "warning"
+  // and emits a blocker listing the stuck spread types.
+  const s = input.spreadStats;
+  let spreadsStatus: ReadinessCategoryStatus;
+  if (s.total === 0) {
+    spreadsStatus = "warning";
+  } else if (s.stuck > 0) {
+    spreadsStatus = "warning";
+  } else if (s.terminal === s.total) {
+    spreadsStatus = "complete";
+  } else {
+    // Non-terminal rows exist but aren't yet "stuck" (under the staleness
+    // threshold). Still warning — a spread that's generating is not complete.
+    spreadsStatus = "warning";
+  }
+
+  if (s.stuck > 0) {
+    const typeList = s.stuckTypes.join(", ");
+    blockers.push({
+      code: "spreads_stuck",
+      severity: "warning",
+      title: `Spreads stuck: ${s.stuck} of ${s.total}`,
+      details: [`Stuck spread types: ${typeList || "unknown"}`],
+      actionLabel: "",
+    });
+  }
+
   const financialsStatus: ReadinessCategoryStatus = input.hasFinancialSnapshot ? "complete" : "warning";
   const pricingStatus: ReadinessCategoryStatus = input.hasPricingQuote ? "complete" : "warning";
   const decisionStatus: ReadinessCategoryStatus = input.hasDecision ? "complete" : "warning";
