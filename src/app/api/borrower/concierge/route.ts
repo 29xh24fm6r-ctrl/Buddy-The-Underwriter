@@ -43,6 +43,14 @@ interface ConciergeResponse {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse<ConciergeResponse>> {
+  // Sprint 1: legacy route, deprecated. Brokerage traffic now lives at
+  // /api/brokerage/concierge. Keep this route live for 2 weeks and watch
+  // the warn log. If zero traffic for 14 consecutive days, delete.
+  console.warn(
+    "[deprecated] /api/borrower/concierge called. referer=%s ua=%s",
+    req.headers.get("referer") ?? "null",
+    req.headers.get("user-agent") ?? "null",
+  );
   try {
     const bankId = await getCurrentBankId();
     const body = (await req.json()) as ConciergeRequest;
