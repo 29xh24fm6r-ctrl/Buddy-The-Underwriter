@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
 import type { IntakeSaveRequest, IntakeSaveResponse } from "@/types/intake";
 
 export const runtime = "nodejs";
@@ -186,7 +187,7 @@ export async function POST(
       const ownersList = Array.isArray(d.owners) ? d.owners : [];
 
       for (const owner of ownersList) {
-        const displayName = owner.full_name?.trim();
+        const displayName = sanitizeEntityName(owner.full_name);
         if (!displayName) continue;
 
         const pct = owner.ownership_pct

@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { deriveOwnerRequirementsFromPct } from "./rules";
 import { recordAiEvent } from "@/lib/ai/audit";
 import { aiJson } from "@/lib/ai/openai";
+import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -78,12 +79,17 @@ export async function computeOwnershipFromDiscovery(dealId: string) {
   for (const e of entities) {
     if (!e?.temp_id || !e?.display_name) continue;
 
+    // Sanitize to strip PDF/OCR label-bleed garbage before writing or
+    // lookup (STUCK-SPREADS Batch 2, 2026-04-23).
+    const cleanName = sanitizeEntityName(e.display_name);
+    if (!cleanName) continue;
+
     // try to match by name
     const found = await sb.from("ownership_entities")
       .select("*")
       .eq("deal_id", dealId)
       .eq("entity_type", e.entity_type || "person")
-      .eq("display_name", e.display_name)
+      .eq("display_name", cleanName)
       .maybeSingle();
     if (found.error) throw found.error;
 
@@ -92,7 +98,7 @@ export async function computeOwnershipFromDiscovery(dealId: string) {
       const ins = await sb.from("ownership_entities").insert({
         deal_id: dealId,
         entity_type: e.entity_type || "person",
-        display_name: e.display_name,
+        display_name: cleanName,
         confidence: Number(e.confidence ?? 50),
         meta_json: e.meta_json ?? {},
         evidence_json: [{ kind: "ai_extracted" }],

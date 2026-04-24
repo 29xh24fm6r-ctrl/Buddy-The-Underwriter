@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BuilderSectionKey, DealSectionData, PartiesSectionData, StorySectionData } from "./builderTypes";
+import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
 
 /**
  * Write-through from builder sections to canonical tables.
@@ -162,18 +163,21 @@ async function ensureOwnerEntity(
   displayName: string,
   entityType: "individual" | "entity" = "individual",
 ): Promise<string | null> {
+  const cleanName = sanitizeEntityName(displayName);
+  if (!cleanName) return null;
+
   try {
     const { data: existing } = await sb
       .from("ownership_entities")
       .select("id")
       .eq("deal_id", dealId)
-      .eq("display_name", displayName)
+      .eq("display_name", cleanName)
       .maybeSingle();
     if (existing?.id) return String(existing.id);
 
     const { data: created } = await sb
       .from("ownership_entities")
-      .insert({ deal_id: dealId, display_name: displayName, entity_type: entityType })
+      .insert({ deal_id: dealId, display_name: cleanName, entity_type: entityType })
       .select("id")
       .maybeSingle();
     return created?.id ? String(created.id) : null;
