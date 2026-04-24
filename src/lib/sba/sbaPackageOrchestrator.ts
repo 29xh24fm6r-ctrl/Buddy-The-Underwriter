@@ -28,6 +28,10 @@ import {
 } from "./sbaBusinessPlanRoadmap";
 import { loadBorrowerStory } from "./sbaBorrowerStory";
 import { renderSBAPackagePDF } from "./sbaPackageRenderer";
+import {
+  redactSBAPackageForPreview,
+  type SBAPackageInputs,
+} from "@/lib/brokerage/trident/redactor";
 import { buildSourcesAndUses } from "./sbaSourcesAndUses";
 import { buildBalanceSheetProjections } from "./sbaBalanceSheetProjector";
 import {
@@ -41,8 +45,17 @@ import type { SBAAssumptions } from "./sbaReadinessTypes";
 
 const SBA_DSCR_THRESHOLD = 1.25;
 
+/**
+ * Sprint 3: optional `mode` parameter. Default "final" preserves the
+ * behavior every existing caller depends on. "preview" runs the full
+ * pipeline but redacts the data that feeds the renderer (via
+ * redactSBAPackageForPreview) and applies a cosmetic watermark overlay.
+ * The DB package row still records the deal's actual underwriting state
+ * — only the rendered PDF is preview-shaped.
+ */
 export async function generateSBAPackage(
   dealId: string,
+  options: { mode?: "preview" | "final" } = {},
 ): Promise<
   | {
       ok: true;
@@ -54,6 +67,7 @@ export async function generateSBAPackage(
     }
   | { ok: false; error: string; blockers?: string[] }
 > {
+  const mode = options.mode ?? "final";
   const sb = supabaseAdmin();
 
   // Gate 1: Validation Pass must not be FAIL
@@ -642,23 +656,33 @@ export async function generateSBAPackage(
     franchiseSection = null;
   }
 
-  // Render PDF
+  // Render PDF.
+  // Sprint 3: for mode='preview' we redact at the data layer *before* calling
+  // renderSBAPackagePDF, then ask the renderer to stamp a cosmetic watermark
+  // overlay. The PDF contains no precise borrower numbers regardless of the
+  // watermark — if someone removes it, the document is still preview-shaped.
   let pdfUrl: string | null = null;
   try {
-    const pdfBuffer = await renderSBAPackagePDF({
+    const redactionInput: SBAPackageInputs = {
       dealName: deal?.name ?? "Borrower",
       loanType: deal?.deal_type ?? "SBA",
       loanAmount: assumptions.loanImpact.loanAmount,
-      baseYear,
-      annualProjections,
-      monthlyProjections,
-      breakEven,
-      sensitivityScenarios,
-      useOfProceeds,
-      businessOverviewNarrative,
-      sensitivityNarrative,
-      managementTeam: assumptions.managementTeam,
-      // Phase BPG
+      baseYear: {
+        revenue: baseYear.revenue ?? 0,
+        cogs: baseYear.cogs ?? 0,
+        operatingExpenses: baseYear.operatingExpenses ?? 0,
+        ebitda: baseYear.ebitda ?? 0,
+        depreciation: baseYear.depreciation ?? 0,
+        netIncome: baseYear.netIncome ?? 0,
+        totalDebtService: baseYear.totalDebtService ?? 0,
+      },
+      annualProjections: annualProjections.map((p) => ({
+        year: p.year ?? 0,
+        revenue: p.revenue ?? 0,
+        dscr: p.dscr ?? 0,
+        totalDebtService: p.totalDebtService ?? 0,
+        ebitda: p.ebitda ?? 0,
+      })),
       executiveSummary,
       industryAnalysis,
       marketingStrategy: marketingOps.marketingStrategy,
@@ -667,13 +691,68 @@ export async function generateSBAPackage(
       swotWeaknesses: swot.weaknesses,
       swotOpportunities: swot.opportunities,
       swotThreats: swot.threats,
-      franchiseSection: franchiseSection ?? undefined,
+      businessOverviewNarrative,
+      sensitivityNarrative,
+      useOfProceeds: useOfProceeds.map((u) => ({
+        category: u.category,
+        amount: u.amount ?? 0,
+        description: u.description,
+      })),
       sourcesAndUses,
-      balanceSheetProjections,
-      globalCashFlow,
+      planThesis,
+    };
+
+    const redacted =
+      mode === "preview"
+        ? redactSBAPackageForPreview(redactionInput)
+        : redactionInput;
+
+    // Build renderer input: use redacted fields where the redactor produced
+    // them, keep orchestrator-only fields (monthlyProjections, breakEven,
+    // sensitivityScenarios, managementTeam, franchiseSection, balance sheet,
+    // globalCashFlow) as-is. Preview mode for those additional fields is
+    // handled by the watermark and by the redactor's scoped set.
+    const pdfBuffer = await renderSBAPackagePDF({
+      dealName: redacted.dealName,
+      loanType: redacted.loanType,
+      loanAmount: redacted.loanAmount,
+      baseYear: { ...baseYear, ...redacted.baseYear },
+      annualProjections: annualProjections.map((p, i) => ({
+        ...p,
+        revenue: redacted.annualProjections[i]?.revenue ?? p.revenue,
+        ebitda: redacted.annualProjections[i]?.ebitda ?? p.ebitda,
+        totalDebtService:
+          redacted.annualProjections[i]?.totalDebtService ?? p.totalDebtService,
+        dscr: redacted.annualProjections[i]?.dscr ?? p.dscr,
+      })),
+      monthlyProjections,
+      breakEven,
+      sensitivityScenarios,
+      useOfProceeds: useOfProceeds.map((u, i) => ({
+        ...u,
+        amount: redacted.useOfProceeds[i]?.amount ?? u.amount,
+        description: redacted.useOfProceeds[i]?.description ?? u.description,
+      })),
+      businessOverviewNarrative: redacted.businessOverviewNarrative,
+      sensitivityNarrative: redacted.sensitivityNarrative,
+      managementTeam: assumptions.managementTeam,
+      executiveSummary: redacted.executiveSummary,
+      industryAnalysis: redacted.industryAnalysis,
+      marketingStrategy: redacted.marketingStrategy,
+      operationsPlan: redacted.operationsPlan,
+      swotStrengths: redacted.swotStrengths,
+      swotWeaknesses: redacted.swotWeaknesses,
+      swotOpportunities: redacted.swotOpportunities,
+      swotThreats: redacted.swotThreats,
+      franchiseSection: franchiseSection ?? undefined,
+      sourcesAndUses: mode === "preview" ? undefined : sourcesAndUses,
+      balanceSheetProjections: mode === "preview" ? undefined : balanceSheetProjections,
+      globalCashFlow: mode === "preview" ? undefined : globalCashFlow,
+      previewWatermark: mode === "preview",
     });
 
-    const pdfPath = `sba-packages/${dealId}/${Date.now()}.pdf`;
+    const previewSuffix = mode === "preview" ? "_preview" : "";
+    const pdfPath = `sba-packages/${dealId}/${Date.now()}${previewSuffix}.pdf`;
     const { error: uploadError } = await sb.storage
       .from("deal-documents")
       .upload(pdfPath, pdfBuffer, {
