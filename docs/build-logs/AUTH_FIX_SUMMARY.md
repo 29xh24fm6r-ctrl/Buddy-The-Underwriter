@@ -47,7 +47,7 @@ Add these for **BOTH Preview AND Production**:
 
 ```bash
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_d2hvbGUtcmhpbm8tMzUuY2xlcmsuYWNjb3VudHMuZGV2JA
-CLERK_SECRET_KEY=sk_test_T53oyxL8uuCJczOXDKIiYyE2HeNGjmO59lzyYEn2Ki
+CLERK_SECRET_KEY=<your-clerk-secret-key-from-dashboard>
 ```
 
 **Without these, the sign-in page won't load at all.**
