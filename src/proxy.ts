@@ -7,10 +7,28 @@ import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
  * - Never protect /api/** in middleware.
  *   API routes must return JSON 401/403 and must be curl/automation-friendly.
  */
+/**
+ * Public routes — no auth gate.
+ *
+ * /portal namespace splits into auth and token routes:
+ *   - bare /portal               → banker AppShell (auth-gated, NOT here)
+ *   - /portal/deals/...          → banker subroutes  (auth-gated, NOT here)
+ *   - /portal/owner/[token]      → token-gated (public, listed below)
+ *   - /portal/share/[token]      → token-gated (public, listed below)
+ *
+ * The borrower magic-link portal at `(borrower)/portal/[token]/page.tsx`
+ * resolves to `/portal/<token>` URL and currently collides with the bare
+ * banker /portal tree. That structural collision is tracked separately
+ * (see Sprint A.1 PR description). This matcher does NOT gate the
+ * collision either way; it only opens the two intentionally-public token
+ * subroutes.
+ */
 const isPublicRoute = createRouteMatcher([
   "/",
   "/pricing(.*)",
   "/borrower-portal(.*)",
+  "/portal/owner/(.*)",
+  "/portal/share/(.*)",
   "/upload(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
