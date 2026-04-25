@@ -7,8 +7,17 @@ import { ProfileCompletionBanner } from "@/components/nav/ProfileCompletionBanne
 export function ConditionalHeroBar() {
   const pathname = usePathname() || "";
 
-  // Hide hero bar on auth + public share + stitch routes
+  // Hide hero bar on:
+  //   - auth + public share + stitch routes (existing)
+  //   - borrower + marketing surfaces (Sprint A: borrower front door)
+  // Banker / admin / cockpit routes still show the hero bar.
   const hide =
+    pathname === "/" ||
+    pathname.startsWith("/start") ||
+    pathname.startsWith("/for-banks") ||
+    pathname.startsWith("/pricing") ||
+    pathname.startsWith("/borrower-portal") ||
+    pathname.startsWith("/upload") ||
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||
     pathname.startsWith("/share") ||
