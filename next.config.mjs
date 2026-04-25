@@ -53,20 +53,22 @@ const nextConfig = {
         ],
       },
       {
-        // HTML pages must never be cached — always fetch fresh so chunk URLs
-        // always match the current deployment.
+        // Sprint A.1.2 (diagnostic): merged the prior two rules
+        //   - HTML cache-control no-cache (was source: same exclusion pattern)
+        //   - Global security headers (was source: "/(.*)")
+        // into a single rule with both header sets. Both rules previously
+        // matched ~every non-asset route, so combining them reduces the
+        // routes-manifest entry count without changing the headers any
+        // real route actually receives.
+        //
+        // Trade-off: _next/image responses and favicon.ico now no longer
+        // receive the 5 security headers they previously got via the
+        // overly-broad "/(.*)" rule. Image responses and favicons are
+        // acceptable scope for that loss — CSP frame-ancestors and
+        // X-Frame-Options have no semantic effect on those resources.
         source: "/((?!_next/static|_next/image|favicon.ico).*)",
         headers: [
-          {
-            key: "Cache-Control",
-            value: "no-cache, no-store, must-revalidate",
-          },
-        ],
-      },
-      {
-        // Global security headers — microphone blocked by default
-        source: "/(.*)",
-        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
           { key: "X-Content-Type-Options", value: "nosniff" },
