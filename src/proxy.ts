@@ -25,6 +25,8 @@ import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
  */
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/start(.*)",
+  "/for-banks(.*)",
   "/pricing(.*)",
   "/borrower-portal(.*)",
   "/portal/owner/(.*)",

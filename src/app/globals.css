@@ -77,3 +77,11 @@
 html {
   scroll-behavior: smooth;
 }
+/* Borrower route group: prevent UA-rendered controls (scrollbars, form
+   inputs) from rendering dark inside the light borrower shell. Triggered
+   by the .borrower-root wrapper in src/app/(borrower)/layout.tsx and on
+   borrower-side bare routes (/start, /upload, /borrower-portal, /portal). */
+.borrower-root,
+.borrower-root * {
+  color-scheme: light;
+}
