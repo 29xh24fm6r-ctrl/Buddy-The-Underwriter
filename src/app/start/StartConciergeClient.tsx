@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
+import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "voice";
@@ -68,6 +69,8 @@ export function StartConciergeClient() {
           </button>
         </div>
       )}
+
+      {dealId && <SealPackageCard dealId={dealId} />}
     </div>
   );
 }
