@@ -32,8 +32,6 @@ export type StitchSurfaceKey =
   | "credit_memo_pdf_template"
   | "deal_output_credit_memo_spreads"
   // ── Class 3: Recovery routes ───────────────────────────────
-  | "deals_pipeline_recovery"
-  | "deal_intake_recovery"
   | "stitch_login";
 
 export type StitchSurfaceConfig = {
@@ -360,26 +358,10 @@ export const STITCH_SURFACES: StitchSurfaceConfig[] = [
   // ══════════════════════════════════════════════════════════════
   // Class 3: Recovery routes (optional, non-destructive)
   // ══════════════════════════════════════════════════════════════
-  {
-    key: "deals_pipeline_recovery",
-    route: "/stitch-recovery/deals",
-    required: false,
-    owner: "banker",
-    mode: "iframe",
-    slug: "deals-pipeline-command-center",
-    pagePath: "src/app/(app)/stitch-recovery/deals/page.tsx",
-    notes: "Recovery route for deals pipeline — compare with native /deals before promoting.",
-  },
-  {
-    key: "deal_intake_recovery",
-    route: "/stitch-recovery/deals-new",
-    required: false,
-    owner: "banker",
-    mode: "iframe",
-    slug: "deal-intake-console",
-    pagePath: "src/app/(app)/stitch-recovery/deals-new/page.tsx",
-    notes: "Recovery route for deal intake — compare with native /deals/new before promoting.",
-  },
+  // Note: deals_pipeline_recovery + deal_intake_recovery retired in
+  // Sprint A.1 (route-manifest reduction). Native /deals and /deals/new
+  // are the live canonical surfaces; the recovery comparison routes
+  // were never promoted out of `recovery_optional` status.
   {
     key: "stitch_login",
     route: "/stitch-login",

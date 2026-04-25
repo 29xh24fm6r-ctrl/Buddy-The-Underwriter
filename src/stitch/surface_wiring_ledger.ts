@@ -660,46 +660,9 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
   // ══════════════════════════════════════════════════════════════
   // OPTIONAL — Recovery routes
   // ══════════════════════════════════════════════════════════════
-  {
-    key: "deals_pipeline_recovery",
-    route: "/stitch-recovery/deals",
-    slug: "deals-pipeline-command-center",
-    owner: "banker",
-    required: false,
-    integrationType: "visual_only",
-    activationMode: "none",
-    routeParamsNeeded: [],
-    dataDependencies: [],
-    apiCallsExpected: [],
-    writeActionsExpected: [],
-    permissionModel: "bank_member",
-    hasActivationScript: false,
-    hasHistoryPanel: false,
-    hasReflectionMap: false,
-    interactiveType: "none",
-    status: "recovery_optional",
-    notes: "Recovery route for comparison with native /deals.",
-  },
-  {
-    key: "deal_intake_recovery",
-    route: "/stitch-recovery/deals-new",
-    slug: "deal-intake-console",
-    owner: "banker",
-    required: false,
-    integrationType: "visual_only",
-    activationMode: "none",
-    routeParamsNeeded: [],
-    dataDependencies: [],
-    apiCallsExpected: [],
-    writeActionsExpected: [],
-    permissionModel: "bank_member",
-    hasActivationScript: false,
-    hasHistoryPanel: false,
-    hasReflectionMap: false,
-    interactiveType: "none",
-    status: "recovery_optional",
-    notes: "Recovery route for comparison with native /deals/new.",
-  },
+  // Note: deals_pipeline_recovery + deal_intake_recovery retired in
+  // Sprint A.1 (route-manifest reduction). Native /deals and /deals/new
+  // are the live canonical surfaces.
   {
     key: "stitch_login",
     route: "/stitch-login",
