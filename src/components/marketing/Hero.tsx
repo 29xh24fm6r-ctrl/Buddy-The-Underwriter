@@ -39,11 +39,11 @@ export function Hero() {
           See Pricing
         </Link>
         <Link
-          href="/demo"
-          onClick={() => capture("cta_click", { location: "hero", cta: "demo" })}
+          href="/start"
+          onClick={() => capture("cta_click", { location: "hero", cta: "start" })}
           className="px-8 py-3 border-2 border-gray-300 rounded-lg font-semibold hover:border-gray-400"
         >
-          Watch Demo
+          Try Buddy
         </Link>
         {demoUrl && (
           <a
