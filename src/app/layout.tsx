@@ -75,7 +75,7 @@ export default function RootLayout({
     <ClerkGate>
       {/* suppressHydrationWarning reduces extension-driven hydration noise.
           Do not use to hide real SSR/client divergence. */}
-      <html lang="en" className="dark" suppressHydrationWarning>
+      <html lang="en" suppressHydrationWarning>
         <head>
           {/* Material Symbols - Updated with all required parameters for icon rendering */}
           <link
@@ -83,7 +83,13 @@ export default function RootLayout({
             href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
           />
         </head>
-        <body className={`${inter.variable} font-inter bg-bg-dark text-white antialiased`} suppressHydrationWarning>
+        {/* Theme is no longer set at root.
+            - Banker / admin / examiner / cockpit surfaces apply
+              `dark bg-bg-dark text-white` via their own route-group layouts
+              (BankerShell). See src/components/shell/BankerShell.tsx.
+            - Borrower / marketing / public surfaces use light themes
+              applied by their own layouts. */}
+        <body className={`${inter.variable} font-inter antialiased`} suppressHydrationWarning>
           <BuddyProvider>
             <PHProvider>
               <QaModeProvider>
