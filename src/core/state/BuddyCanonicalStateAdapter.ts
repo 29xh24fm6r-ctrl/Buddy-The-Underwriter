@@ -94,11 +94,12 @@ async function deriveExceptionSummary(dealId: string): Promise<ExceptionSummary>
       .eq("deal_id", dealId)
       .in("status", ["open", "pending_review", "escalated"]);
 
-    const open = data ?? [];
+    type ExceptionRow = { status: string; severity: string };
+    const open: ExceptionRow[] = data ?? [];
     return {
       openCount: open.length,
-      criticalCount: open.filter((e: any) => e.severity === "critical" || e.severity === "high").length,
-      hasEscalated: open.some((e: any) => e.status === "escalated"),
+      criticalCount: open.filter((e) => e.severity === "critical" || e.severity === "high").length,
+      hasEscalated: open.some((e) => e.status === "escalated"),
     };
   } catch {
     return { openCount: 0, criticalCount: 0, hasEscalated: false };
