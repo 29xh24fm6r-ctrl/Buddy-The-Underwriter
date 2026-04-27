@@ -13,7 +13,7 @@
     "build:mcp": "cd mcp-server && npm install && npm run build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "node --test --import tsx $(find src/lib -type f -path '*/__tests__/*.test.ts' | sort)",
+    "test:unit": "node --test --import tsx $(find src/lib scripts/schema -type f -path '*/__tests__/*.test.ts' | sort)",
     "audit:memo": "npx tsx src/lib/research/evals/auditMemo.ts",
     "test:invariants": "node --import tsx --test src/lib/intake/__invariants__/*.test.ts src/lib/spreads/__invariants__/*.test.ts",
     "postinstall": "node src/scripts/copy-pdf-worker.mjs",
@@ -43,6 +43,7 @@
     "e2e:smoke:authed": "playwright test --project=smoke-authed",
     "omega:validate": "node scripts/omega/validate-mapping.mjs",
     "gate:schema-select": "node scripts/schema/gate-select-columns.mjs",
+    "gate:schema-drift": "tsx scripts/schema/drift-detect.ts",
     "worker:intake": "node --conditions react-server --import tsx --env-file=.env.local scripts/intake-worker.ts"
   },
   "dependencies": {
@@ -117,6 +118,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "playwright": "^1.57.0",
     "postcss": "^8.5.6",
+    "postgres": "^3.4.5",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.21.0",
     "typescript": "^5"
