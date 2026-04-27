@@ -619,6 +619,7 @@ creating new underwriting control planes.
 9. **Fix B — Lint rule for sibling `/status` directories** (writable after 2-4 weeks of FIX-C data confirms that `/status` siblings are the dominant route-growth pattern).
 10. **Pulse-side deal-scoped advisory tools (PULSE-SIDE-SPEC)** — ship `buddy_advisory_for_deal` / `buddy_confidence_for_deal` / `buddy_traces_for_deal` in PulseMasterrepo. Unblocks cockpit advisory visibility; Buddy's read path is currently kill-switched waiting on these. Small Buddy follow-up PR afterward (change 4 URI mappings, remove the kill-switch branch). See `specs/omega-repair/PULSE-SIDE-SPEC.md`.
 11. **Pulse-side auth diagnostic (conditional on OMEGA-REPAIR Batch 4 outcome B)** — if post-deploy ledger shows `http_401` for writes/health, investigate why MCP-protocol calls (Claude's chat connector) authenticate with the same secret source that direct HTTP calls (Buddy's Vercel runtime, curl) reject. Candidates: protocol handshake differences, IP allowlist, Cloud Run ingress, deployed-code drift past `auth.ts`. Pulse-side workstream; Buddy's wire + field contract is already correct.
+12. **Omega adapter caller refactor.** `getOmegaAdvisoryState` reads `conf.data?.score` and `tr.data?.id` but underlying functions return flat / `OmegaResult<...>` shapes. Silent failure path. Discovered during CI-RESTORE PR #3 lint cleanup. Multi-file caller refactor required; tracked here, not bundled with lint work.
 
 ---
 
