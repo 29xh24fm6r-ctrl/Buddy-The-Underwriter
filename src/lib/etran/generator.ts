@@ -8,6 +8,7 @@
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { XMLBuilder } from "fast-xml-parser";
+import { calculateSBAGuarantee, detectSBAProgram } from "@/lib/sba/sbaGuarantee";
 
 export interface ETranData {
   // SBA Lender Info
@@ -147,8 +148,11 @@ export async function generateETranXML(params: {
 
 /**
  * Map deal truth to E-Tran format
+ *
+ * Exported for unit testing. Internal callers should continue to use
+ * generateETranXML which composes mapping → validation → XML build.
  */
-function mapTruthToETran(truth: any, lenderId: string, serviceCenter: string): ETranData {
+export function mapTruthToETran(truth: any, lenderId: string, serviceCenter: string): ETranData {
   return {
     lender_id: lenderId,
     service_center: serviceCenter,
@@ -166,7 +170,14 @@ function mapTruthToETran(truth: any, lenderId: string, serviceCenter: string): E
     loan_amount: truth.loan?.amount || 0,
     term_months: truth.loan?.term_months || 120,
     interest_rate: truth.loan?.interest_rate || 0,
-    sba_guarantee_percentage: 75, // Standard 7(a) guarantee
+    sba_guarantee_percentage: (() => {
+      // Route through the canonical guarantee calculator so loans ≤ $150K
+      // get 85% (Small Loan), Export Express gets 90%, etc. Hardcoded 75%
+      // misstated the guarantee on every Small Loan.
+      const program = detectSBAProgram(truth.loan?.deal_type ?? "sba_7a");
+      const result = calculateSBAGuarantee(truth.loan?.amount ?? 0, program);
+      return Math.round(result.guaranteePct * 100);
+    })(),
     
     naics_code: truth.business?.naics_code || "",
     business_type: truth.business?.entity_type || "",
