@@ -241,7 +241,9 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     }
   }, []);
 
-  startMicCaptureRef.current = startMicCapture;
+  useEffect(() => {
+    startMicCaptureRef.current = startMicCapture;
+  }, [startMicCapture]);
 
   const stopMicCapture = useCallback(() => {
     try { if (workletRef.current) { workletRef.current.disconnect(); workletRef.current = null; } } catch { }
@@ -345,9 +347,11 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
       setError(msg);
       setStatus("error");
     }
-  }, [dealId, setStatus, hardCloseWebSocket, handleWsMessage, stopMicCapture]);
+  }, [dealId, tokenEndpoint, setStatus, hardCloseWebSocket, handleWsMessage, stopMicCapture]);
 
-  connectInternalRef.current = connectInternal;
+  useEffect(() => {
+    connectInternalRef.current = connectInternal;
+  }, [connectInternal]);
 
   const connect = useCallback(async () => {
     if (connectedRef.current) return;
