@@ -121,15 +121,6 @@ export default async function AdminHome() {
         </div>
 
         <GlassActionCard
-          icon="bug_report"
-          iconColor="text-red-400"
-          title="Diagnostics"
-          description="Pipeline health and job diagnostics."
-          href="/admin/diagnostics"
-          actionLabel="View Diagnostics"
-        />
-
-        <GlassActionCard
           icon="monitoring"
           iconColor="text-teal-400"
           title="Metrics"
@@ -147,23 +138,6 @@ export default async function AdminHome() {
           actionLabel="View Intake Metrics"
         />
 
-        <GlassActionCard
-          icon="key"
-          iconColor="text-yellow-400"
-          title="Demo Access"
-          description="Invite-only access + usage telemetry."
-          href="/admin/demo-access"
-          actionLabel="Manage Access"
-        />
-
-        <GlassActionCard
-          icon="cleaning_services"
-          iconColor="text-lime-400"
-          title="Demo Hygiene"
-          description="Archive, purge, and reset demo deals."
-          href="/admin/demo-hygiene"
-          actionLabel="Manage Hygiene"
-        />
       </div>
     </GlassShell>
   );
