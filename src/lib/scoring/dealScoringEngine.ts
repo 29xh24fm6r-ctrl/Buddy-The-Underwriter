@@ -14,10 +14,18 @@ export type DealScoreResult = {
   confidence: number; // 0..1
 };
 
+export type StressShape = {
+  stresses?: {
+    vacancyUp?: { dscr?: number };
+    rentDown?: { dscr?: number };
+    rateUp?: { dscr?: number };
+  };
+};
+
 export type DealScoreInput = {
   snapshot: DealFinancialSnapshotV1;
   decision: {
-    stress?: any;
+    stress?: StressShape;
     sba?: { status?: string | null } | null;
   } | null;
   metadata: {
@@ -74,9 +82,9 @@ function volatilityPenalty(base: number | null, minStress: number | null): numbe
   return 0;
 }
 
-function extractMinStress(stress: any): number | null {
+function extractMinStress(stress: StressShape | undefined): number | null {
   const list: number[] = [];
-  const add = (v: any) => {
+  const add = (v: unknown) => {
     if (typeof v === "number" && Number.isFinite(v)) list.push(v);
   };
 
