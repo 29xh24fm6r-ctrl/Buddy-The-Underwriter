@@ -96,7 +96,7 @@ export default function SBARiskProfilePanel({
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/deals/${dealId}/sba/risk-profile`)
+    fetch(`/api/deals/${dealId}/sba?view=risk-profile`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.profile) setProfile(d.profile);

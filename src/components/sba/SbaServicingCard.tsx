@@ -7,7 +7,7 @@ export default function SbaServicingCard({ dealId }: { dealId: string }) {
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
-    const r = await fetch(`/api/deals/${dealId}/sba/servicing/recompute`);
+    const r = await fetch(`/api/deals/${dealId}/sba?view=servicing`);
     const j = await r.json();
     setData(j);
   }
@@ -15,10 +15,10 @@ export default function SbaServicingCard({ dealId }: { dealId: string }) {
   async function recompute() {
     setBusy(true);
     try {
-      const r = await fetch(`/api/deals/${dealId}/sba/servicing/recompute`, {
+      const r = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ program: "7A", closing_date: null }),
+        body: JSON.stringify({ action: "recompute-servicing", program: "7A", closing_date: null }),
       });
       const j = await r.json();
       setData(j);

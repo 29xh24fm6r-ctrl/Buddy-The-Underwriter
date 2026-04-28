@@ -72,7 +72,7 @@ export default function SBAVersionHistory({ dealId }: { dealId: string }) {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`/api/deals/${dealId}/sba/versions`);
+        const res = await fetch(`/api/deals/${dealId}/sba?view=versions`);
         const json = await res.json();
         if (cancelled) return;
         if (json.ok) {
@@ -108,7 +108,7 @@ export default function SBAVersionHistory({ dealId }: { dealId: string }) {
     setDiff(null);
     try {
       const res = await fetch(
-        `/api/deals/${dealId}/sba/diff?v1=${encodeURIComponent(selected.v1)}&v2=${encodeURIComponent(selected.v2)}`,
+        `/api/deals/${dealId}/sba?view=diff&v1=${encodeURIComponent(selected.v1)}&v2=${encodeURIComponent(selected.v2)}`,
       );
       const json: DiffResponse = await res.json();
       setDiff(json);

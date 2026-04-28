@@ -173,7 +173,7 @@ export default function SBACCOReviewDashboard({ dealId }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/review`);
+      const res = await fetch(`/api/deals/${dealId}/sba?view=review`);
       const json = await res.json();
       if (json.ok && json.package) {
         setPkg(json.package as ReviewPackage);
@@ -202,10 +202,10 @@ export default function SBACCOReviewDashboard({ dealId }: Props) {
       if (value === undefined) return;
       setSavingField(field);
       try {
-        const res = await fetch(`/api/deals/${dealId}/sba/review`, {
-          method: "PATCH",
+        const res = await fetch(`/api/deals/${dealId}/sba`, {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ field, value }),
+          body: JSON.stringify({ action: "inline-edit-narrative", field, value }),
         });
         const json = await res.json();
         if (!json.ok) throw new Error(json.error ?? "Save failed");
@@ -231,11 +231,18 @@ export default function SBACCOReviewDashboard({ dealId }: Props) {
       setActionError(null);
       setActionOk(null);
       try {
-        const res = await fetch(`/api/deals/${dealId}/sba/review`, {
-          method: "PUT",
+        // Map legacy action vocab → new dispatch action vocab
+        const dispatchAction =
+          action === "approve"
+            ? "review-approve"
+            : action === "request_changes"
+              ? "review-request-changes"
+              : "review-submit";
+        const res = await fetch(`/api/deals/${dealId}/sba`, {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action,
+            action: dispatchAction,
             notes: actionNotes || undefined,
           }),
         });

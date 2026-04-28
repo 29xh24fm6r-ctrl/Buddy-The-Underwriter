@@ -27,10 +27,11 @@ export default function SbaPackageBuilderCard({ dealId }: { dealId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/package/prepare`, {
+      const res = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "prepare-package-run",
           packageTemplateCode: "SBA_7A_BASE",
           product: "7a",
           answers: {},
@@ -50,7 +51,10 @@ export default function SbaPackageBuilderCard({ dealId }: { dealId: string }) {
   }
 
   async function loadItems(runId: string) {
-    const res = await fetch(`/api/deals/${dealId}/sba/package/${runId}/items`, { cache: "no-store" });
+    const res = await fetch(
+      `/api/deals/${dealId}/sba?view=run-items&runId=${encodeURIComponent(runId)}`,
+      { cache: "no-store" },
+    );
     const json = await res.json();
     if (!res.ok || !json?.ok) throw new Error(json?.error || "items_load_failed");
     setItems(json.items ?? []);
@@ -61,10 +65,10 @@ export default function SbaPackageBuilderCard({ dealId }: { dealId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/package/${packageRunId}/generate`, {
+      const res = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ action: "generate-package-run-pdf", packageRunId }),
       });
 
       const json = await res.json();
@@ -83,10 +87,14 @@ export default function SbaPackageBuilderCard({ dealId }: { dealId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/package/${packageRunId}/generate`, {
+      const res = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onlyItemId: itemId }),
+        body: JSON.stringify({
+          action: "generate-package-run-pdf",
+          packageRunId,
+          onlyItemId: itemId,
+        }),
       });
 
       const json = await res.json();

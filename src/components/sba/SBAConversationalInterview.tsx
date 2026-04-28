@@ -176,10 +176,11 @@ export default function SBAConversationalInterview({
     }));
 
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/chat-refine`, {
+      const res = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "chat-refine",
           message: text,
           currentAssumptions: assumptions,
           conversationHistory: history,

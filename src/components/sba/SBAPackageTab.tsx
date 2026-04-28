@@ -60,14 +60,15 @@ export default function SBAPackageTab({
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
     try {
-      const resp = await fetch(`/api/deals/${dealId}/sba/generate`, {
+      const resp = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate-package" }),
       });
       const data = await resp.json();
       if (data.ok && data.packageId) {
         // Fetch the full package
-        const pkgResp = await fetch(`/api/deals/${dealId}/sba/latest`);
+        const pkgResp = await fetch(`/api/deals/${dealId}/sba?view=latest`);
         const pkgData = await pkgResp.json();
         if (pkgData.package) {
           setPackageData(pkgData.package);

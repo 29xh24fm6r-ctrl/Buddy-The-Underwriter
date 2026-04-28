@@ -125,10 +125,11 @@ export default function SBAPackageViewer({
     setRefining(true);
     setRefineError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/refine-section`, {
+      const res = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "refine-section",
           section: sectionKey,
           feedback: feedbackText,
           packageId: pkg.id,
