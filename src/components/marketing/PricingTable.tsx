@@ -54,7 +54,7 @@ export function PricingTable() {
 
     if (!PRO_PRICE_ID) {
       // No Stripe configured → route to contact
-      window.location.href = "/contact";
+      window.location.href = "mailto:hello@buddytheunderwriter.com";
       return;
     }
 
@@ -71,12 +71,12 @@ export function PricingTable() {
       } else {
         // Stripe error → fallback to contact
         console.error("Stripe checkout failed:", json?.error);
-        window.location.href = "/contact";
+        window.location.href = "mailto:hello@buddytheunderwriter.com";
       }
     } catch (e: any) {
       // Network error → fallback to contact
       console.error("Checkout error:", e);
-      window.location.href = "/contact";
+      window.location.href = "mailto:hello@buddytheunderwriter.com";
     }
   }
 
@@ -120,16 +120,16 @@ export function PricingTable() {
                 Upgrade to Pro
               </button>
             ) : plan.name === "Enterprise" ? (
-              <Link
-                href="/contact"
+              <a
+                href="mailto:hello@buddytheunderwriter.com"
                 onClick={() => capture("pricing_contact_click", { tier: "enterprise" })}
                 className="block text-center px-6 py-3 rounded font-semibold border-2 border-gray-300 hover:border-gray-400"
               >
                 Contact Sales
-              </Link>
+              </a>
             ) : (
               <Link
-                href="/signup"
+                href="/sign-up"
                 onClick={() => capture("pricing_signup_click", { tier: "starter" })}
                 className="block text-center px-6 py-3 rounded font-semibold border-2 border-gray-300 hover:border-gray-400"
               >

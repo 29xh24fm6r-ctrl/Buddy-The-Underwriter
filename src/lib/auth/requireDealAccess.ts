@@ -33,10 +33,10 @@ export async function requireDealAccess(
     redirect("/deals");
   }
 
-  // Borrowers access deals through /borrower-portal, not the bank application
+  // Borrowers access deals through /borrower/portal, not the bank application
   const { role } = await getCurrentRole();
   if (role === "borrower") {
-    redirect("/borrower-portal");
+    redirect("/borrower/portal");
   }
 
   return { dealId: access.dealId, bankId: access.bankId, userId: access.userId };

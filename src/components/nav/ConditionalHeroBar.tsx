@@ -16,7 +16,6 @@ export function ConditionalHeroBar() {
     pathname.startsWith("/start") ||
     pathname.startsWith("/for-banks") ||
     pathname.startsWith("/pricing") ||
-    pathname.startsWith("/borrower-portal") ||
     pathname.startsWith("/upload") ||
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||

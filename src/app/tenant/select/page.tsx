@@ -55,7 +55,7 @@ export default async function TenantSelectPage() {
                 </div>
               ) : null}
               <div className="mt-3 flex gap-2">
-                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="/contact">Contact Sebrina</Link>
+                <Link className="rounded-xl border px-4 py-2 text-sm font-semibold" href="mailto:hello@buddytheunderwriter.com">Contact Sebrina</Link>
               </div>
             </div>
           ) : (

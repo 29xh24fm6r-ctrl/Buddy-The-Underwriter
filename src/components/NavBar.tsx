@@ -14,10 +14,10 @@ export function NavBar() {
         </Link>
 
         <SignedOut>
-          <Link href="/login" className="text-gray-700 hover:text-gray-900">
+          <Link href="/sign-in" className="text-gray-700 hover:text-gray-900">
             Log in
           </Link>
-          <Link href="/signup" className="px-4 py-2 rounded bg-black text-white hover:bg-gray-800">
+          <Link href="/sign-up" className="px-4 py-2 rounded bg-black text-white hover:bg-gray-800">
             Get Started
           </Link>
         </SignedOut>
