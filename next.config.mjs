@@ -38,41 +38,12 @@ const nextConfig = {
   // external package tells Next.js to load it from node_modules at runtime
   // instead of inlining it, so the font file resolution works correctly.
   serverExternalPackages: ["pdfkit"],
-  async headers() {
-    return [
-      {
-        // HTML pages must never be cached — always fetch fresh so chunk URLs
-        // always match the current deployment.
-        source: "/((?!_next/static|_next/image|favicon.ico).*)",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "no-cache, no-store, must-revalidate",
-          },
-        ],
-      },
-      {
-        // Global security headers — microphone blocked by default
-        source: "/(.*)",
-        headers: [
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-        ],
-      },
-      {
-        // Spec D5: merged the /credit-memo/* and /deals/* microphone-allowed
-        // rules into one to reduce manifest entries (Vercel 2048-route cap).
-        // Both surfaces host Gemini Live banker interviews.
-        source: "/:base(credit-memo|deals)/:rest*",
-        headers: [
-          { key: "Permissions-Policy", value: "camera=(), microphone=self, geolocation=()" },
-        ],
-      },
-    ];
-  },
+  // headers() removed in Phase 6b — migrated to Vercel Project Routes.
+  // 3 rules (HTML no-cache, global security, microphone for credit-memo/deals)
+  // now configured at project level via `vercel routes`. Project routes are
+  // manifest-independent (verified in Phase 5 smoke test), so this removal
+  // shrinks the deployment manifest.
+  // To edit: `vercel routes list` / `vercel routes add` / `vercel routes edit`.
   // CRITICAL: stitch_exports must be in the Vercel serverless bundle.
   // loadRawStitchHtml uses dynamic fs.readFile which Next.js cannot auto-trace.
   // Every route that renders StitchSurface needs the HTML files at runtime.
