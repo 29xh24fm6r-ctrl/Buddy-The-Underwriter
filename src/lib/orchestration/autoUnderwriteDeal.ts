@@ -5,6 +5,7 @@ import { emitPipelineLedgerEvent } from "@/lib/pipeline/emitPipelineLedgerEvent"
 import { recomputeDealDocumentState } from "@/lib/documentTruth/recomputeDealDocumentState";
 import type { AutoUnderwriteResult, AutoUnderwriteStep } from "./autoUnderwriteTypes";
 import { SBA_TYPES } from "./autoUnderwriteTypes";
+import { requiresSBAChecklist } from "@/lib/deals/dealProductType";
 
 /**
  * Step runner: emits start/complete/fail events to deal_pipeline_ledger.
@@ -107,7 +108,10 @@ export async function autoUnderwriteDeal(
     };
   }
 
-  const isSba = SBA_TYPES.includes((deal.deal_type ?? "") as (typeof SBA_TYPES)[number]);
+  // P0a: read SBA-ness from product_type (with deal_type='SBA' legacy fallback for
+  // rows predating the product_type column). Avoids the bug where deal_type's
+  // 'SBA' default forced every new conventional deal into SBA orchestration.
+  const isSba = requiresSBAChecklist(deal as { deal_type?: string | null; product_type?: string | null });
 
   try {
     // Step 1: Recompute document state
