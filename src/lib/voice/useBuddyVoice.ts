@@ -241,7 +241,12 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     }
   }, []);
 
-  startMicCaptureRef.current = startMicCapture;
+  // Sync ref outside render (lint: no-ref-in-render).
+  // Behavior preserved: ref points at the latest startMicCapture each commit,
+  // same as the previous in-render assignment.
+  useEffect(() => {
+    startMicCaptureRef.current = startMicCapture;
+  }, [startMicCapture]);
 
   const stopMicCapture = useCallback(() => {
     try { if (workletRef.current) { workletRef.current.disconnect(); workletRef.current = null; } } catch { }
@@ -347,7 +352,12 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     }
   }, [dealId, setStatus, hardCloseWebSocket, handleWsMessage, stopMicCapture]);
 
-  connectInternalRef.current = connectInternal;
+  // Sync ref outside render (lint: no-ref-in-render).
+  // Behavior preserved: ref points at the latest connectInternal each commit,
+  // same as the previous in-render assignment.
+  useEffect(() => {
+    connectInternalRef.current = connectInternal;
+  }, [connectInternal]);
 
   const connect = useCallback(async () => {
     if (connectedRef.current) return;
