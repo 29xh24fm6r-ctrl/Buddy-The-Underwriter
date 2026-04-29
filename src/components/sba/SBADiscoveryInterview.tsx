@@ -152,11 +152,11 @@ export default function SBADiscoveryInterview({
       setError(null);
       try {
         const resp = await fetch(
-          `/api/deals/${dealId}/sba/borrower-story`,
+          `/api/deals/${dealId}/sba`,
           {
-            method: "PUT",
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ [field]: value }),
+            body: JSON.stringify({ action: "update-borrower-story", [field]: value }),
           },
         );
         const data = await resp.json();
@@ -423,11 +423,11 @@ function FinalSummary({
       // each Next should have handled this, but send one reconciling PUT so
       // editing a screen and finishing without Next'ing still persists.
       const resp = await fetch(
-        `/api/deals/${dealId}/sba/borrower-story`,
+        `/api/deals/${dealId}/sba`,
         {
-          method: "PUT",
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(answers),
+          body: JSON.stringify({ action: "update-borrower-story", ...answers }),
         },
       );
       const data = await resp.json();

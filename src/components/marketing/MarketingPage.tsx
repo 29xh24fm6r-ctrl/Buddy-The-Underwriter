@@ -383,7 +383,7 @@ function FinalCTA() {
               Start free trial
             </Link>
             <Link
-               href="/contact"
+               href="mailto:hello@buddytheunderwriter.com"
               className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white/90 hover:bg-white/10"
             >
               Talk to us
@@ -408,7 +408,6 @@ function Footer() {
         <div className="flex items-center gap-4 text-sm text-white/60">
           <Link className="hover:text-white"  href="/privacy">Privacy</Link>
           <Link className="hover:text-white"  href="/terms">Terms</Link>
-          <Link className="hover:text-white"  href="/security">Security</Link>
         </div>
       </div>
     </footer>

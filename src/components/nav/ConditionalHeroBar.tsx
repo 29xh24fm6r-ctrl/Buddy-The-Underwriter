@@ -1,30 +1,28 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { HeroBar } from "@/components/nav/HeroBar";
 import { ProfileCompletionBanner } from "@/components/nav/ProfileCompletionBanner";
+import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
 
 export function ConditionalHeroBar() {
-  const pathname = usePathname() || "";
+  const pathname = usePathname();
+  // HeroBar fires useProfile() (→ /api/profile) which 401s for unauthenticated
+  // borrower-route requests. Three defenses:
+  //   1. Mount-gate: skip until after first client paint.
+  //   2. Pathname-gate: usePathname() can return null during initial render
+  //      under static prerender; treat null as "unknown" → don't render.
+  //      Without this, isPublicBorrowerRoute(null) returns false and HeroBar
+  //      mounts for one tick before pathname resolves, firing useProfile.
+  //   3. Public-route gate: explicit allowlist match.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  // Hide hero bar on:
-  //   - auth + public share + stitch routes (existing)
-  //   - borrower + marketing surfaces (Sprint A: borrower front door)
-  // Banker / admin / cockpit routes still show the hero bar.
-  const hide =
-    pathname === "/" ||
-    pathname.startsWith("/start") ||
-    pathname.startsWith("/for-banks") ||
-    pathname.startsWith("/pricing") ||
-    pathname.startsWith("/borrower-portal") ||
-    pathname.startsWith("/upload") ||
-    pathname.startsWith("/sign-in") ||
-    pathname.startsWith("/sign-up") ||
-    pathname.startsWith("/share") ||
-    pathname.startsWith("/stitch-share") ||
-    pathname.startsWith("/stitch");
+  if (!mounted) return null;
+  if (!pathname) return null;
+  if (isPublicBorrowerRoute(pathname)) return null;
 
-  if (hide) return null;
   return (
     <>
       <div className="sticky top-0 z-[2000] bg-black/40 backdrop-blur-xl border-b border-white/10">

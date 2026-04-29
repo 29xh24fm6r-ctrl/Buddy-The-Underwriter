@@ -645,7 +645,7 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     let cancelled = false;
     async function loadGuarantors() {
       try {
-        const res = await fetch(`/api/deals/${dealId}/sba/guarantor-cashflow`);
+        const res = await fetch(`/api/deals/${dealId}/sba?view=guarantor-cashflow`);
         const json = await res.json();
         if (cancelled) return;
         if (json.ok) setGuarantors(json.guarantors ?? []);
@@ -674,8 +674,12 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
       }
       try {
         const res = await fetch(
-          `/api/deals/${dealId}/sba/draft-assumptions`,
-          { method: "POST" },
+          `/api/deals/${dealId}/sba`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "draft-assumptions" }),
+          },
         );
         const json = await res.json();
         if (cancelled) return;
@@ -718,11 +722,12 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
 
   const saveGuarantors = useCallback(async () => {
     try {
-      await fetch(`/api/deals/${dealId}/sba/guarantor-cashflow`, {
-        method: "PUT",
+      await fetch(`/api/deals/${dealId}/sba`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          guarantors.map((g) => ({
+        body: JSON.stringify({
+          action: "update-guarantor-cashflow",
+          rows: guarantors.map((g) => ({
             entity_id: g.entity_id,
             w2_salary: g.w2_salary,
             other_personal_income: g.other_personal_income,
@@ -734,7 +739,7 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
             other_personal_debt: g.other_personal_debt,
             personal_debt_notes: g.personal_debt_notes || null,
           })),
-        ),
+        }),
       });
     } catch {
       // non-fatal
@@ -765,10 +770,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
       saveTimer.current = setTimeout(async () => {
         try {
           setSaving(true);
-          await fetch(`/api/deals/${dealId}/sba/assumptions`, {
-            method: "PATCH",
+          await fetch(`/api/deals/${dealId}/sba`, {
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ patch: updated }),
+            body: JSON.stringify({ action: "patch-assumptions", patch: updated }),
           });
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
@@ -806,8 +811,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     setGenError(null);
 
     try {
-      const res = await fetch(`/api/deals/${dealId}/sba/generate`, {
+      const res = await fetch(`/api/deals/${dealId}/sba`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate-package" }),
       });
 
       if (!res.body) {
@@ -864,10 +871,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
     const next = { ...assumptions, status: "confirmed" as const };
     setAssumptions(next);
     try {
-      await fetch(`/api/deals/${dealId}/sba/assumptions`, {
-        method: "PATCH",
+      await fetch(`/api/deals/${dealId}/sba`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patch: { status: "confirmed" } }),
+        body: JSON.stringify({ action: "patch-assumptions", patch: { status: "confirmed" } }),
       });
       // Phase 2 — fire generation immediately; onConfirmed fires after
       // streaming completes (or the error callback clears the overlay).
@@ -881,10 +888,10 @@ export default function AssumptionInterview({ dealId, initial, prefilled, onConf
   const handleReopen = async () => {
     const next = { ...assumptions, status: "draft" as const };
     setAssumptions(next);
-    await fetch(`/api/deals/${dealId}/sba/assumptions`, {
-      method: "PATCH",
+    await fetch(`/api/deals/${dealId}/sba`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patch: { status: "draft" } }),
+      body: JSON.stringify({ action: "patch-assumptions", patch: { status: "draft" } }),
     });
   };
 

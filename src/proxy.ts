@@ -28,7 +28,6 @@ const isPublicRoute = createRouteMatcher([
   "/start(.*)",
   "/for-banks(.*)",
   "/pricing(.*)",
-  "/borrower-portal(.*)",
   "/portal/owner/(.*)",
   "/portal/share/(.*)",
   "/upload(.*)",

@@ -6,7 +6,6 @@ import { useProfile } from "@/hooks/useProfile";
 
 const NAV = [
   { href: "/deals", label: "Deals" },
-  { href: "/borrower-portal", label: "Borrower Portal" },
   { href: "/documents", label: "Documents" },
   { href: "/underwrite", label: "Underwrite" },
   { href: "/pricing", label: "Pricing" },

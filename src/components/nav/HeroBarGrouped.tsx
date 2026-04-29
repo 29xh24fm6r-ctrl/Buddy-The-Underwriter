@@ -8,7 +8,6 @@ const NAV_GROUPS = [
     label: "Acquire",
     items: [
       { href: "/deals", label: "Deals" },
-      { href: "/borrower-portal", label: "Borrower Portal" },
       { href: "/documents", label: "Documents" },
     ],
   },

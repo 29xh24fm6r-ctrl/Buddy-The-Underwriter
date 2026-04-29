@@ -12,6 +12,7 @@ import { decideNextBestAction } from "@/buddy/nba/decideNextBestAction";
 import { calcReadiness } from "@/buddy/readiness/calcReadiness";
 import { calcOutcome } from "@/buddy/outcomes/calcOutcome";
 import { BuddyPanel } from "@/buddy/ui/BuddyPanel";
+import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
 import { narrateLedgerEvent } from "@/buddy/ledgerNarration";
 import {
   addFinding,
@@ -372,10 +373,21 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener(eventName, onSignal as EventListener);
   }, [eventName, emit]);
 
+  // Mount-gate the observer panel and skip it on public borrower surfaces.
+  // BuddyPanel's child hooks (useAegisHealth, etc.) fire authenticated fetches
+  // that 401 for unauthenticated borrower visitors and leak banker chrome.
+  // Pathname null-gate matches ConditionalHeroBar — usePathname() can return
+  // null during initial render and isPublicBorrowerRoute(null) is false, so
+  // we'd briefly render BuddyPanel before pathname resolves.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const showBuddyPanel =
+    mounted && !!pathname && !isPublicBorrowerRoute(pathname);
+
   return (
     <Ctx.Provider value={value}>
       {children}
-      <BuddyPanel />
+      {showBuddyPanel ? <BuddyPanel /> : null}
     </Ctx.Provider>
   );
 }

@@ -69,8 +69,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const sb = supabaseAdmin();
-    const brokerageBankId = await getBrokerageBankId();
+    // Tenant + admin-client setup is the most common preview failure point
+    // (missing SUPABASE_SERVICE_ROLE_KEY, or BUDDY_BROKERAGE migration not
+    // applied). Surface an explicit errorCode so the network tab shows root
+    // cause without needing server logs.
+    let sb: ReturnType<typeof supabaseAdmin>;
+    let brokerageBankId: string;
+    try {
+      sb = supabaseAdmin();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[brokerage-concierge] supabase_admin_init_failed:", msg);
+      return NextResponse.json(
+        { ok: false, errorCode: "supabase_admin_init_failed", error: msg },
+        { status: 500 },
+      );
+    }
+    try {
+      brokerageBankId = await getBrokerageBankId();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[brokerage-concierge] brokerage_tenant_missing:", msg);
+      return NextResponse.json(
+        { ok: false, errorCode: "brokerage_tenant_missing", error: msg },
+        { status: 500 },
+      );
+    }
 
     // First message — create draft deal + session.
     if (!session) {
