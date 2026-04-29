@@ -365,10 +365,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         .eq("deal_id", dealId)
         .maybeSingle();
 
-      // Types that legitimately have no checklist key — exempt from finalization block
+      // Types that legitimately have no checklist key — exempt from finalization block.
+      // AR_AGING is a first-class doc type but resolveChecklistKey returns null for it
+      // (no standard banker-checklist slot — it feeds the AR collateral processor
+      // directly). Without this exemption, manual selection of "Accounts Receivable
+      // Aging" from the intake dropdown would fail finalization.
       const CHECKLIST_KEY_EXEMPT = new Set([
         "CREDIT_MEMO",
         "COMMERCIAL_LEASE",
+        "AR_AGING",
         "OTHER",
       ]);
 
