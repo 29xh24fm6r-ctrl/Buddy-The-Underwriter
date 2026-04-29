@@ -96,6 +96,22 @@ export async function processExtractJob(jobId: string, leaseOwner: string) {
       provider_metrics: result.provider_metrics,
     });
 
+    // AR collateral side-effect (gated by ENABLE_AR_COLLATERAL).
+    // Fire-and-forget: failures here must not fail the extract job.
+    if (
+      doc.document_type === "AR_AGING" &&
+      result.result.tables &&
+      process.env.ENABLE_AR_COLLATERAL === "true"
+    ) {
+      const { processArCollateral } = await import("@/lib/processors/arCollateralProcessor");
+
+      void processArCollateral({
+        dealId: job.deal_id,
+        bankId: doc.bank_id,
+        documentId: job.attachment_id,
+      });
+    }
+
     return { ok: true, jobId, provider_metrics: result.provider_metrics };
   } catch (error: any) {
     // Mark job failed
