@@ -94,11 +94,14 @@ async function deriveExceptionSummary(dealId: string): Promise<ExceptionSummary>
       .eq("deal_id", dealId)
       .in("status", ["open", "pending_review", "escalated"]);
 
-    const open = data ?? [];
+    // Row shape matches the .select("status, severity") above. Typed locally
+    // so the filter callbacks aren't `any` (lint: no-explicit-any).
+    type ExceptionRow = { status: string | null; severity: string | null };
+    const open = (data ?? []) as ExceptionRow[];
     return {
       openCount: open.length,
-      criticalCount: open.filter((e: any) => e.severity === "critical" || e.severity === "high").length,
-      hasEscalated: open.some((e: any) => e.status === "escalated"),
+      criticalCount: open.filter((e) => e.severity === "critical" || e.severity === "high").length,
+      hasEscalated: open.some((e) => e.status === "escalated"),
     };
   } catch {
     return { openCount: 0, criticalCount: 0, hasEscalated: false };

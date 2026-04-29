@@ -125,50 +125,10 @@ export default function DealPricingClient({
   loanRequestAmount?: number | null;
   computed: ComputedPricing | null;
 }) {
-  // Gate: if pricing prerequisites are not met, show a "not ready" panel
-  if (!pricing || readinessInfo) {
-    return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-        <h2 className="text-lg font-semibold text-amber-900">
-          Pricing Not Available Yet
-        </h2>
-        <p className="mt-2 text-sm text-amber-800">
-          Risk-based pricing requires completed financial analysis and
-          institutional research before it can produce accurate, auditable
-          results. The following prerequisites must be met:
-        </p>
-        <ul className="mt-3 space-y-2 text-sm text-amber-800">
-          <li className="flex items-center gap-2">
-            <span className={readinessInfo?.financialSnapshotExists ? "text-green-600" : "text-amber-600"}>
-              {readinessInfo?.financialSnapshotExists ? "\u2713" : "\u25CB"}
-            </span>
-            Financial snapshot generated from spreads
-          </li>
-          <li className="flex items-center gap-2">
-            <span className={readinessInfo?.spreadsComplete ? "text-green-600" : "text-amber-600"}>
-              {readinessInfo?.spreadsComplete ? "\u2713" : "\u25CB"}
-            </span>
-            All financial spread jobs complete
-          </li>
-          <li className="flex items-center gap-2">
-            <span className={readinessInfo?.researchComplete ? "text-green-600" : "text-amber-600"}>
-              {readinessInfo?.researchComplete ? "\u2713" : "\u25CB"}
-            </span>
-            Institutional research and analysis complete
-          </li>
-        </ul>
-        <p className="mt-4 text-xs text-amber-700">
-          Current stage: {readinessInfo?.stage ?? "unknown"}
-        </p>
-        <Link
-          className="mt-3 inline-block px-3 py-2 rounded border text-sm hover:bg-amber-100"
-          href={`/deals/${deal.id}/cockpit`}
-        >
-          Back to Cockpit
-        </Link>
-      </div>
-    );
-  }
+  // Hooks must be called unconditionally (react-hooks/rules-of-hooks).
+  // The "pricing not ready" gate moved below all hook calls \u2014 see end of
+  // hook block. Behavior is unchanged: same render output for the same
+  // inputs, just with hooks always wired so React's hook ordering holds.
   const [form, setForm] = useState<PricingInputs>(() =>
     normalizeInputs(deal, inputs, loanRequestAmount ?? null),
   );
@@ -370,6 +330,54 @@ export default function DealPricingClient({
       void loadExplainability(activeQuoteId);
     }
   }, [activeQuoteId, tab]);
+
+  // Gate: if pricing prerequisites are not met, show a "not ready" panel.
+  // Placed AFTER all hook calls so hook ordering is stable across renders
+  // (react-hooks/rules-of-hooks). Behavior identical to the previous
+  // pre-hook gate — same panel, same conditions.
+  if (!pricing || readinessInfo) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+        <h2 className="text-lg font-semibold text-amber-900">
+          Pricing Not Available Yet
+        </h2>
+        <p className="mt-2 text-sm text-amber-800">
+          Risk-based pricing requires completed financial analysis and
+          institutional research before it can produce accurate, auditable
+          results. The following prerequisites must be met:
+        </p>
+        <ul className="mt-3 space-y-2 text-sm text-amber-800">
+          <li className="flex items-center gap-2">
+            <span className={readinessInfo?.financialSnapshotExists ? "text-green-600" : "text-amber-600"}>
+              {readinessInfo?.financialSnapshotExists ? "✓" : "○"}
+            </span>
+            Financial snapshot generated from spreads
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={readinessInfo?.spreadsComplete ? "text-green-600" : "text-amber-600"}>
+              {readinessInfo?.spreadsComplete ? "✓" : "○"}
+            </span>
+            All financial spread jobs complete
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={readinessInfo?.researchComplete ? "text-green-600" : "text-amber-600"}>
+              {readinessInfo?.researchComplete ? "✓" : "○"}
+            </span>
+            Institutional research and analysis complete
+          </li>
+        </ul>
+        <p className="mt-4 text-xs text-amber-700">
+          Current stage: {readinessInfo?.stage ?? "unknown"}
+        </p>
+        <Link
+          className="mt-3 inline-block px-3 py-2 rounded border text-sm hover:bg-amber-100"
+          href={`/deals/${deal.id}/cockpit`}
+        >
+          Back to Cockpit
+        </Link>
+      </div>
+    );
+  }
 
   async function handleExplain(quoteId: string) {
     if (expandedQuoteId === quoteId) {

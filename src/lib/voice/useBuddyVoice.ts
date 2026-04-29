@@ -350,7 +350,12 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
       setError(msg);
       setStatus("error");
     }
-  }, [dealId, setStatus, hardCloseWebSocket, handleWsMessage, stopMicCapture]);
+    // tokenEndpoint is read on line ~288 to override the default endpoint.
+    // Adding it to deps keeps the React Compiler's manual memoization
+    // analysis honest (preserve-manual-memoization). When tokenEndpoint
+    // changes, a new connectInternal closure captures the new value —
+    // identical to the previous behavior, just deps now match the body.
+  }, [dealId, tokenEndpoint, setStatus, hardCloseWebSocket, handleWsMessage, stopMicCapture]);
 
   // Sync ref outside render (lint: no-ref-in-render).
   // Behavior preserved: ref points at the latest connectInternal each commit,

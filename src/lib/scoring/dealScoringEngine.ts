@@ -14,10 +14,26 @@ export type DealScoreResult = {
   confidence: number; // 0..1
 };
 
+/**
+ * Stress payload shape consumed by extractMinStress.
+ *
+ * Encodes only the fields actually accessed (vacancyUp/rentDown/rateUp dscr).
+ * Any extra keys upstream may add are tolerated via the index signature on
+ * `stresses`. Replaces a previous `any` for lint compliance without changing
+ * runtime behavior.
+ */
+export type DealStressPayload = {
+  stresses?: {
+    vacancyUp?: { dscr?: number | null } | null;
+    rentDown?: { dscr?: number | null } | null;
+    rateUp?: { dscr?: number | null } | null;
+  } | null;
+} | null | undefined;
+
 export type DealScoreInput = {
   snapshot: DealFinancialSnapshotV1;
   decision: {
-    stress?: any;
+    stress?: DealStressPayload;
     sba?: { status?: string | null } | null;
   } | null;
   metadata: {
@@ -74,9 +90,9 @@ function volatilityPenalty(base: number | null, minStress: number | null): numbe
   return 0;
 }
 
-function extractMinStress(stress: any): number | null {
+function extractMinStress(stress: DealStressPayload): number | null {
   const list: number[] = [];
-  const add = (v: any) => {
+  const add = (v: unknown) => {
     if (typeof v === "number" && Number.isFinite(v)) list.push(v);
   };
 
