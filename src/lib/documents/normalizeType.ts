@@ -77,5 +77,20 @@ export function normalizeToCanonical(
   if (upper === "COMMERCIAL_LEASE") return "COMMERCIAL_LEASE";
   if (upper === "CREDIT_MEMO") return "CREDIT_MEMO";
 
+  // AR Aging — feeds the AR collateral processor.
+  if (
+    [
+      "AR_AGING",
+      "ACCOUNTS_RECEIVABLE_AGING",
+      "ACCOUNTS_RECEIVABLE_AGEING",
+      "RECEIVABLES_AGING",
+      "AGED_RECEIVABLES",
+      "CUSTOMER_AGING",
+      "AR_AGING_REPORT",
+      "AR_AGING_SUMMARY",
+    ].includes(upper)
+  )
+    return "AR_AGING";
+
   return "OTHER";
 }

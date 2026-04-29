@@ -44,6 +44,7 @@ const DOC_TYPES = [
   "W2",                // W-2 wage statement
   "1099",              // 1099 form
   "DRIVERS_LICENSE",   // Driver's license / ID
+  "AR_AGING",          // Accounts Receivable aging report (collateral input)
   "OTHER",             // Unknown / other document type
 ] as const;
 

@@ -75,6 +75,12 @@ const KEYWORD_RULES: KeywordRule[] = [
   { pattern: /schedule\s+of\s+real\s+estate/i, docType: "SCHEDULE_OF_RE", entityType: null },
   { pattern: /driver'?s?\s+licen[sc]e/i, docType: "DRIVERS_LICENSE", entityType: "personal" },
   { pattern: /business\s+licen[sc]e/i, docType: "BUSINESS_LICENSE", entityType: "business" },
+  // AR Aging — strong title phrases. Spine v2 tier2Structural carries the
+  // table-structure heuristic; this legacy path covers the keyword case.
+  { pattern: /accounts\s+receivable\s+ag(?:e)?ing/i, docType: "AR_AGING", entityType: null },
+  { pattern: /(?<![A-Za-z])A\/R\s+aging/i, docType: "AR_AGING", entityType: null },
+  { pattern: /aged\s+receivables/i, docType: "AR_AGING", entityType: null },
+  { pattern: /receivables\s+aging/i, docType: "AR_AGING", entityType: null },
 ];
 
 // ---------------------------------------------------------------------------
@@ -100,6 +106,11 @@ const FILENAME_RULES: FilenameRule[] = [
   { pattern: /appraisal/i, docType: "APPRAISAL", entityType: null },
   { pattern: /insurance|coi/i, docType: "INSURANCE", entityType: null },
   { pattern: /bank.?statement/i, docType: "BANK_STATEMENT", entityType: null },
+  // AR aging filenames — common QuickBooks/NetSuite/Xero exports
+  { pattern: /(?:^|[^a-z])ar.?aging/i, docType: "AR_AGING", entityType: null },
+  { pattern: /a-?r.?aging/i, docType: "AR_AGING", entityType: null },
+  { pattern: /receivables.?aging/i, docType: "AR_AGING", entityType: null },
+  { pattern: /aged.?receivables/i, docType: "AR_AGING", entityType: null },
 ];
 
 // ---------------------------------------------------------------------------
