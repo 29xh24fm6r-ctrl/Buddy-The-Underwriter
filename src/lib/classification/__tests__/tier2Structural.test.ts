@@ -241,7 +241,8 @@ test("Tier 2: AR aging with bucket columns → AR_AGING", () => {
   const result = runTier2Structural(makeDoc(text));
   assert.equal(result.matched, true);
   assert.equal(result.docType, "AR_AGING");
-  assert.equal(result.patternId, "AR_AGING_FORMAT");
+  // Strong title + ≥3 buckets → keyword-and-table pattern
+  assert.equal(result.patternId, "AR_AGING_KEYWORD_AND_TABLE");
   assert.ok(result.confidence >= 0.75 && result.confidence <= 0.89);
 });
 
@@ -292,10 +293,12 @@ test("Tier 2: no new v2.1 pattern maps to T12", () => {
   const v21Patterns = _STRUCTURAL_PATTERNS_FOR_TESTING.filter(
     (p) =>
       p.patternId === "DEBT_SCHEDULE_FORMAT" ||
-      p.patternId === "AR_AGING_FORMAT" ||
+      p.patternId === "AR_AGING_KEYWORD_AND_TABLE" ||
+      p.patternId === "AR_AGING_TABLE_STRUCTURE" ||
+      p.patternId === "AR_AGING_KEYWORD_ONLY" ||
       p.patternId === "VOIDED_CHECK_FORMAT",
   );
-  assert.ok(v21Patterns.length === 3, "Should find all 3 v2.1 patterns");
+  assert.ok(v21Patterns.length === 5, "Should find all 5 v2.1 patterns");
   for (const p of v21Patterns) {
     assert.notEqual(p.docType, "T12", `v2.1 pattern ${p.patternId} maps to T12`);
   }
@@ -305,7 +308,9 @@ test("Tier 2: all v2.1 pattern confidences are 0.75–0.89", () => {
   const v21Patterns = _STRUCTURAL_PATTERNS_FOR_TESTING.filter(
     (p) =>
       p.patternId === "DEBT_SCHEDULE_FORMAT" ||
-      p.patternId === "AR_AGING_FORMAT" ||
+      p.patternId === "AR_AGING_KEYWORD_AND_TABLE" ||
+      p.patternId === "AR_AGING_TABLE_STRUCTURE" ||
+      p.patternId === "AR_AGING_KEYWORD_ONLY" ||
       p.patternId === "VOIDED_CHECK_FORMAT",
   );
   for (const p of v21Patterns) {

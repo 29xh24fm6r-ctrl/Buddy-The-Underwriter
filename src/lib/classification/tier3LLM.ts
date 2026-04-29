@@ -117,6 +117,7 @@ DOCUMENT TYPES (choose the most specific match):
 - APPRAISAL: Property appraisal report
 - COMMERCIAL_LEASE: Commercial lease agreement, lease amendment, NNN lease, or office/retail lease with a rent schedule and defined Landlord/Tenant parties
 - CREDIT_MEMO: Internal bank credit memo, loan worksheet, officer narrative, or prior-approved credit package. Contains DSCR calculations, collateral descriptions, and a banker recommendation/approval section.
+- AR_AGING: Accounts Receivable aging report. Lists customers/clients owing money with amounts split into aging buckets (Current, 0-30, 31-60, 61-90, 90+, etc.). Common titles: "A/R Aging Summary", "Accounts Receivable Aging", "Aged Receivables", "Customer Aging". DOES NOT MATCH: Accounts Payable / A/P aging / vendor aging — those are payables, not receivables.
 - OTHER: Cannot determine type
 
 CRITICAL CONFUSION PAIRS (pay careful attention to these):

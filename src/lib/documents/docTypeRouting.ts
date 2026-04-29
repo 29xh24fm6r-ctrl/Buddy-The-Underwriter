@@ -46,6 +46,7 @@ export type ExtendedCanonicalType =
   | "DEBT_SCHEDULE"
   | "COMMERCIAL_LEASE"
   | "CREDIT_MEMO"
+  | "AR_AGING"
   | "OTHER";
 
 export type DocTypeRoutingResult = {
@@ -151,6 +152,25 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
   )
     return "DEBT_SCHEDULE";
 
+  // ─── Accounts Receivable Aging ─────────────────────────────
+  // AR aging reports feed the AR collateral processor (borrowing-base).
+  // Classifier outputs land here directly without re-routing through
+  // FINANCIAL_STATEMENT, so the AR processor can pick them up.
+  if (
+    [
+      "AR_AGING",
+      "ACCOUNTS_RECEIVABLE_AGING",
+      "ACCOUNTS_RECEIVABLE_AGEING",
+      "RECEIVABLES_AGING",
+      "AGED_RECEIVABLES",
+      "CUSTOMER_AGING",
+      "AR_AGING_REPORT",
+      "AR_AGING_SUMMARY",
+      "OPEN_RECEIVABLES",
+    ].includes(upper)
+  )
+    return "AR_AGING";
+
   return "OTHER";
 }
 
@@ -182,6 +202,9 @@ const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
   INSURANCE: "GEMINI_STANDARD",
   APPRAISAL: "GEMINI_STANDARD",
   ENTITY_DOCS: "GEMINI_STANDARD",
+  // AR aging is tabular but the AR processor pulls structured rows
+  // itself — single-pass OCR is sufficient at the doc-type stage.
+  AR_AGING: "GEMINI_STANDARD",
   OTHER: "GEMINI_STANDARD",
 };
 

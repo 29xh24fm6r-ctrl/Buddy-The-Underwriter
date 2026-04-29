@@ -23,6 +23,7 @@ export type CanonicalDocumentType =
   | "ENTITY_DOCS"
   | "COMMERCIAL_LEASE"
   | "CREDIT_MEMO"
+  | "AR_AGING"
   | "OTHER";
 
 /**
@@ -89,6 +90,9 @@ export function toCanonicalDocType(aiDocType: string): CanonicalDocumentType {
     case "CREDIT_MEMO":
       return "CREDIT_MEMO";
 
+    case "AR_AGING":
+      return "AR_AGING";
+
     default:
       return "OTHER";
   }
@@ -123,6 +127,10 @@ export function canonicalTypeToChecklistKeys(
     case "COMMERCIAL_LEASE":
       return ["LEASES_TOP"];
     case "CREDIT_MEMO":
+      return [];
+    case "AR_AGING":
+      // No checklist key today — AR aging feeds the collateral processor
+      // (PR #356) directly, not the docs checklist.
       return [];
     case "OTHER":
       return [];

@@ -259,40 +259,160 @@ function detectDebtSchedule(doc: NormalizedDocument): string[] | null {
 }
 
 // ---------------------------------------------------------------------------
-// Pattern: AR Aging
+// Pattern: AR Aging — multi-strategy detector
+//
+// Three patterns, evaluated in priority order via STRUCTURAL_PATTERNS:
+//   1. AR_AGING_KEYWORD_AND_TABLE — strong title + ≥3 aging buckets
+//   2. AR_AGING_TABLE_STRUCTURE  — customer/name/account column + ≥3 aging
+//                                   buckets (no title required)
+//   3. AR_AGING_KEYWORD_ONLY     — title + 1-2 buckets (weaker fallback)
+//
+// All three reject when AP aging signals are present (accounts payable
+// has the same shape but is not AR — different downstream consumer).
 // ---------------------------------------------------------------------------
 
-function detectARAging(doc: NormalizedDocument): string[] | null {
-  const text = doc.firstTwoPagesText;
-  const signals: string[] = [];
+/** Strong AR aging title phrases. Any one match is sufficient. */
+const AR_AGING_KEYWORD_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /accounts\s+receivable\s+aging/i, label: "accounts receivable aging" },
+  { re: /accounts\s+receivable\s+ageing/i, label: "accounts receivable ageing" },
+  { re: /\bA\/R\s+aging/i, label: "A/R aging" },
+  { re: /(?<![A-Za-z])AR\s+aging/i, label: "AR aging" },
+  { re: /receivables\s+aging/i, label: "receivables aging" },
+  { re: /customer\s+aging/i, label: "customer aging" },
+  { re: /aging\s+summary/i, label: "aging summary" },
+  { re: /aged\s+receivables/i, label: "aged receivables" },
+  { re: /open\s+receivables/i, label: "open receivables" },
+];
 
-  // Primary: "accounts receivable aging" or "A/R aging" or "receivables aging"
-  const hasTitle =
-    /accounts\s+receivable\s+aging/i.test(text) ||
-    /A\/R\s+aging/i.test(text) ||
-    /receivables\s+aging/i.test(text);
-  if (!hasTitle) return null;
-  signals.push("AR aging title detected");
+/**
+ * AR aging bucket markers. Specific forms only — bare "30" / "60" / "90" are
+ * too generic (appear on every balance sheet). The list mirrors the spec:
+ * current, 0-30, 1-30, 30, 31-60, 60, 61-90, 90, 90+, over 90, 120, 120+.
+ *
+ * "current" uses a negative lookahead to skip "current assets" / "current
+ * liabilities" / "current portion" / "current year" / "current ratio" /
+ * "current period" — these appear on balance sheets and would otherwise
+ * triple-count.
+ */
+const AR_AGING_BUCKET_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  {
+    re: /\bcurrent\b(?!\s+(?:assets?|liabilities|portion|year|ratio|period|month|maturity))/i,
+    label: "current",
+  },
+  { re: /\b0\s*[-–—]\s*30\b/, label: "0-30" },
+  { re: /\b1\s*[-–—]\s*30\b/, label: "1-30" },
+  { re: /\b31\s*[-–—]\s*60\b/, label: "31-60" },
+  { re: /\b61\s*[-–—]\s*90\b/, label: "61-90" },
+  { re: /\bover\s+90\b/i, label: "over 90" },
+  { re: />\s*90\b/, label: ">90" },
+  { re: />\s*120\b/, label: ">120" },
+  // 30/60/90/120 with d/day/days suffix — covers "30d", "30 days", "60day"
+  { re: /\b30\s*(?:d|days?)\b/i, label: "30 days" },
+  { re: /\b60\s*(?:d|days?)\b/i, label: "60 days" },
+  { re: /\b90\s*(?:d|days?)\b/i, label: "90 days" },
+  { re: /\b120\s*(?:d|days?)\b/i, label: "120 days" },
+  // 90+ / 120+ with optional d/days suffix — covers "90+", "90d+", "90 days+"
+  { re: /\b90\s*(?:d|days?)?\s*\+/i, label: "90+" },
+  { re: /\b120\s*(?:d|days?)?\s*\+/i, label: "120+" },
+];
 
-  // Secondary: aging bucket columns (current/30/60/90/120 days)
-  const buckets = [
-    /\bcurrent\b/i,
-    /\b30\s*(?:days?|d)\b/i,
-    /\b60\s*(?:days?|d)\b/i,
-    /\b90\s*(?:days?|d)\b/i,
-    /\b120\s*(?:days?|d)\b/i,
-  ];
+/** Customer / name / account column header patterns. */
+const AR_AGING_CUSTOMER_COLUMN_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /\b(?:customer|client|account)\s+name\b/i, label: "customer/client/account name" },
+  { re: /^\s*customer\b/im, label: "customer (column header)" },
+  { re: /^\s*client\b/im, label: "client (column header)" },
+  { re: /^\s*name\b(?!\s*[:.])/im, label: "name (column header)" },
+  { re: /\bdebtor\b/i, label: "debtor" },
+  { re: /\bpayer\b/i, label: "payer" },
+];
 
-  let bucketHits = 0;
-  for (const p of buckets) {
-    if (p.test(text)) {
-      bucketHits++;
-      signals.push(`Aging bucket: ${p.source}`);
-    }
+/** Negative gate: documents that are AP (not AR) aging must NOT match. */
+const AP_AGING_NEGATIVE_PATTERNS: RegExp[] = [
+  /accounts\s+payable\s+aging/i,
+  /accounts\s+payable\s+ageing/i,
+  /\bA\/P\s+aging/i,
+  /(?<![A-Za-z])AP\s+aging/i,
+  /payables\s+aging/i,
+  /aged\s+payables/i,
+  /vendor\s+aging/i,
+  /bills\s+aging/i,
+];
+
+function isAccountsPayableAging(text: string): boolean {
+  return AP_AGING_NEGATIVE_PATTERNS.some((p) => p.test(text));
+}
+
+function findArAgingKeywords(text: string): string[] {
+  const found: string[] = [];
+  for (const p of AR_AGING_KEYWORD_PATTERNS) {
+    if (p.re.test(text)) found.push(p.label);
   }
+  return found;
+}
 
-  if (bucketHits >= 2) return signals;
+function findArAgingBuckets(text: string): string[] {
+  const found: string[] = [];
+  for (const p of AR_AGING_BUCKET_PATTERNS) {
+    if (p.re.test(text)) found.push(p.label);
+  }
+  return found;
+}
+
+function findArAgingCustomerColumn(text: string): string | null {
+  for (const p of AR_AGING_CUSTOMER_COLUMN_PATTERNS) {
+    if (p.re.test(text)) return p.label;
+  }
   return null;
+}
+
+/** Strongest signal: title keyword + ≥3 specific aging buckets. */
+function detectARAgingKeywordAndTable(doc: NormalizedDocument): string[] | null {
+  const text = doc.firstTwoPagesText;
+  if (isAccountsPayableAging(text)) return null;
+  const keywords = findArAgingKeywords(text);
+  if (keywords.length === 0) return null;
+  const buckets = findArAgingBuckets(text);
+  if (buckets.length < 3) return null;
+  const customerCol = findArAgingCustomerColumn(text);
+  const signals = [
+    ...keywords.map((k) => `keyword:${k}`),
+    ...buckets.map((b) => `bucket:${b}`),
+  ];
+  if (customerCol) signals.push(`customer_column:${customerCol}`);
+  return signals;
+}
+
+/**
+ * Table-structure-only path: customer/name/account column + ≥3 aging buckets.
+ * Catches AR aging exports where the title was cropped, scanned poorly, or
+ * the report was renamed (e.g. just "Aging" or a custom company header).
+ */
+function detectARAgingTableStructure(doc: NormalizedDocument): string[] | null {
+  const text = doc.firstTwoPagesText;
+  if (isAccountsPayableAging(text)) return null;
+  const customerCol = findArAgingCustomerColumn(text);
+  if (!customerCol) return null;
+  const buckets = findArAgingBuckets(text);
+  if (buckets.length < 3) return null;
+  return [
+    `customer_column:${customerCol}`,
+    ...buckets.map((b) => `bucket:${b}`),
+  ];
+}
+
+/** Weaker fallback: title + 1-2 buckets. Lower confidence, still better than
+ *  letting the doc fall through to LLM where it might come back as OTHER. */
+function detectARAgingKeywordOnly(doc: NormalizedDocument): string[] | null {
+  const text = doc.firstTwoPagesText;
+  if (isAccountsPayableAging(text)) return null;
+  const keywords = findArAgingKeywords(text);
+  if (keywords.length === 0) return null;
+  const buckets = findArAgingBuckets(text);
+  if (buckets.length < 1) return null;
+  return [
+    ...keywords.map((k) => `keyword:${k}`),
+    ...buckets.map((b) => `bucket:${b}`),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -369,11 +489,27 @@ const STRUCTURAL_PATTERNS: StructuralPattern[] = [
     confidence: 0.82,
     detect: detectDebtSchedule,
   },
+  // ── AR Aging (priority order: most specific first) ──────────────────────
   {
-    patternId: "AR_AGING_FORMAT",
+    // Strongest: title keyword + ≥3 buckets (+ optional customer column)
+    patternId: "AR_AGING_KEYWORD_AND_TABLE",
+    docType: "AR_AGING",
+    confidence: 0.89,
+    detect: detectARAgingKeywordAndTable,
+  },
+  {
+    // Table-structure-only: customer/name column + ≥3 buckets, no title needed
+    patternId: "AR_AGING_TABLE_STRUCTURE",
+    docType: "AR_AGING",
+    confidence: 0.85,
+    detect: detectARAgingTableStructure,
+  },
+  {
+    // Weakest: title + ≥1 bucket (fallback so weak-OCR scans still classify)
+    patternId: "AR_AGING_KEYWORD_ONLY",
     docType: "AR_AGING",
     confidence: 0.82,
-    detect: detectARAging,
+    detect: detectARAgingKeywordOnly,
   },
 ];
 

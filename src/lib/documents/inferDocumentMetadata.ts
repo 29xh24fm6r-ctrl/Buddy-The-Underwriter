@@ -6,6 +6,7 @@ export type InferredDocumentType =
   | "income_statement"
   | "balance_sheet"
   | "financial_statement"
+  | "ar_aging"
   | "unknown";
 
 export type InferDocumentMetadataInput = {
@@ -121,6 +122,29 @@ function inferTypeFromTextOrFilename(args: {
   text: string;
 }): { type: InferredDocumentType; anchor: string | null } {
   const hay = `${args.filename}\n${args.text}`.toLowerCase();
+
+  // AR Aging — must be checked BEFORE balance sheet because aging tables
+  // can mention "accounts receivable" which is also a balance-sheet line item.
+  // The keyword "aging" + "receivable" together is the discriminator.
+  // Reject AP aging explicitly so payables don't get pulled in.
+  const looksLikeAPAging =
+    /\baccounts\s+payable\s+ag(?:e)?ing\b/i.test(hay) ||
+    /\ba\/p\s+aging\b/i.test(hay) ||
+    /(?<![A-Za-z])ap\s+aging\b/i.test(hay) ||
+    /\bpayables\s+aging\b/i.test(hay) ||
+    /\baged\s+payables\b/i.test(hay) ||
+    /\bvendor\s+aging\b/i.test(hay);
+  const looksLikeARAging =
+    !looksLikeAPAging &&
+    (/\baccounts\s+receivable\s+ag(?:e)?ing\b/i.test(hay) ||
+      /\ba\/r\s+aging\b/i.test(hay) ||
+      /(?<![A-Za-z])ar\s+aging\b/i.test(hay) ||
+      /\breceivables\s+aging\b/i.test(hay) ||
+      /\baged\s+receivables\b/i.test(hay) ||
+      /\bcustomer\s+aging\b/i.test(hay));
+  if (looksLikeARAging) {
+    return { type: "ar_aging", anchor: "ar_aging_token" };
+  }
 
   const looksLikeIncomeStatement =
     /\b(profit\s*and\s*loss|p\s*\&\s*l|p\&l|income\s*statement|statement\s*of\s*operations|statement\s*of\s*income)\b/i.test(
