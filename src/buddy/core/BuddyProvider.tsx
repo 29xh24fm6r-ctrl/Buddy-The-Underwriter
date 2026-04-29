@@ -375,10 +375,14 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
 
   // Mount-gate the observer panel and skip it on public borrower surfaces.
   // BuddyPanel's child hooks (useAegisHealth, etc.) fire authenticated fetches
-  // that 404 for unauthenticated borrower visitors and leak banker chrome.
+  // that 401 for unauthenticated borrower visitors and leak banker chrome.
+  // Pathname null-gate matches ConditionalHeroBar — usePathname() can return
+  // null during initial render and isPublicBorrowerRoute(null) is false, so
+  // we'd briefly render BuddyPanel before pathname resolves.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  const showBuddyPanel = mounted && !isPublicBorrowerRoute(pathname);
+  const showBuddyPanel =
+    mounted && !!pathname && !isPublicBorrowerRoute(pathname);
 
   return (
     <Ctx.Provider value={value}>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
+import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
 
 export type ProfileData = {
   id: string;
@@ -30,12 +32,19 @@ export type ProfileState = {
  * Re-fetches when a "profile-updated" custom event fires (e.g. after profile save).
  */
 export function useProfile(): ProfileState & { error: string | null; loading: boolean } {
+  const pathname = usePathname();
+  // Defense-in-depth: /api/profile requires a banker session and 401s for
+  // unauthenticated visitors. If a chrome component leaks onto a public
+  // borrower route (e.g. /start), suppress the fetch here so we never emit
+  // an unauthorized request that pollutes the borrower console.
+  const skipFetch = !pathname || isPublicBorrowerRoute(pathname);
+
   const [state, setState] = useState<ProfileState & { error: string | null; loading: boolean }>({
     profile: null,
     currentBank: null,
     schemaMismatch: false,
     error: null,
-    loading: true,
+    loading: !skipFetch,
   });
 
   const fetchProfile = useCallback(() => {
@@ -86,6 +95,7 @@ export function useProfile(): ProfileState & { error: string | null; loading: bo
   }, []);
 
   useEffect(() => {
+    if (skipFetch) return;
     fetchProfile();
 
     // Re-fetch when profile or bank context is updated elsewhere
@@ -96,7 +106,7 @@ export function useProfile(): ProfileState & { error: string | null; loading: bo
       window.removeEventListener("profile-updated", handler);
       window.removeEventListener("bank-context-updated", handler);
     };
-  }, [fetchProfile]);
+  }, [fetchProfile, skipFetch]);
 
   return state;
 }
