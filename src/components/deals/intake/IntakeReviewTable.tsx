@@ -112,25 +112,34 @@ const PERIOD_REQUIRED_TYPES = new Set([
   "BALANCE_SHEET",
 ]);
 
-const DOC_TYPE_OPTIONS = [
-  "BUSINESS_TAX_RETURN",
-  "PERSONAL_TAX_RETURN",
-  "INCOME_STATEMENT",
-  "BALANCE_SHEET",
-  "RENT_ROLL",
-  "PERSONAL_FINANCIAL_STATEMENT",
-  "PERSONAL_INCOME",
-  "SCHEDULE_K1",
-  "BANK_STATEMENT",
-  "COMMERCIAL_LEASE",
-  "CREDIT_MEMO",
-  "INSURANCE",
-  "APPRAISAL",
-  "OPERATING_AGREEMENT",
-  "ARTICLES",
-  "W2",
-  "1099",
-  "OTHER",
+/**
+ * Manual document-type options shown in the intake review row dropdown.
+ *
+ * `value` is the canonical_type string written to deal_documents on confirm.
+ * `label` overrides the default "underscore-stripped value" display when set —
+ * used for types whose canonical key isn't a great human label
+ * (e.g. AR_AGING → "Accounts Receivable Aging").
+ */
+const DOC_TYPE_OPTIONS: Array<{ value: string; label?: string }> = [
+  { value: "BUSINESS_TAX_RETURN" },
+  { value: "PERSONAL_TAX_RETURN" },
+  { value: "INCOME_STATEMENT" },
+  { value: "BALANCE_SHEET" },
+  { value: "RENT_ROLL" },
+  { value: "PERSONAL_FINANCIAL_STATEMENT" },
+  { value: "PERSONAL_INCOME" },
+  { value: "SCHEDULE_K1" },
+  { value: "BANK_STATEMENT" },
+  { value: "AR_AGING", label: "Accounts Receivable Aging" },
+  { value: "COMMERCIAL_LEASE" },
+  { value: "CREDIT_MEMO" },
+  { value: "INSURANCE" },
+  { value: "APPRAISAL" },
+  { value: "OPERATING_AGREEMENT" },
+  { value: "ARTICLES" },
+  { value: "W2" },
+  { value: "1099" },
+  { value: "OTHER" },
 ];
 
 /** Extract StuckReason from auto-recovery/stuck-recovery error strings. */
@@ -1090,9 +1099,9 @@ export function IntakeReviewTable({
                         className="bg-gray-900 border border-white/10 rounded px-1.5 py-0.5 text-xs text-white w-full"
                       >
                         <option value="" className="bg-gray-900 text-white">Select type...</option>
-                        {DOC_TYPE_OPTIONS.map((t) => (
-                          <option key={t} value={t} className="bg-gray-900 text-white">
-                            {t.replace(/_/g, " ")}
+                        {DOC_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value} className="bg-gray-900 text-white">
+                            {opt.label ?? opt.value.replace(/_/g, " ")}
                           </option>
                         ))}
                       </select>

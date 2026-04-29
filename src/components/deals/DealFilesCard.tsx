@@ -35,12 +35,21 @@ type DealFile = {
 
 /** Unique doc types from the checklist key options, for the manual override dropdown */
 const DOC_TYPE_OPTIONS = (() => {
+  // Per-type label overrides where the underscore-stripped value isn't a good
+  // human label. Anything not listed falls back to value.replace(/_/g, " ").
+  const LABEL_OVERRIDES: Record<string, string> = {
+    AR_AGING: "Accounts Receivable Aging",
+    AP_AGING: "Accounts Payable Aging",
+  };
   const seen = new Set<string>();
   const opts: Array<{ value: string; label: string }> = [];
   for (const o of CHECKLIST_KEY_OPTIONS) {
     if (o.docType && !seen.has(o.docType)) {
       seen.add(o.docType);
-      opts.push({ value: o.docType, label: o.docType.replace(/_/g, " ") });
+      opts.push({
+        value: o.docType,
+        label: LABEL_OVERRIDES[o.docType] ?? o.docType.replace(/_/g, " "),
+      });
     }
   }
   return opts;
