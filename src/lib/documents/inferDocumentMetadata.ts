@@ -6,6 +6,7 @@ export type InferredDocumentType =
   | "income_statement"
   | "balance_sheet"
   | "financial_statement"
+  | "ar_aging"
   | "unknown";
 
 export type InferDocumentMetadataInput = {
@@ -128,6 +129,40 @@ function inferTypeFromTextOrFilename(args: {
     );
   const looksLikeBalanceSheet =
     /\b(balance\s*sheet|statement\s*of\s*financial\s*position)\b/i.test(hay);
+
+  // AR aging — checked before generic financial-statement detection. AR aging
+  // reports often mention "balance" or "current" but are NOT balance sheets.
+  // Negative guard for AP aging (vendor/supplier columns).
+  const looksLikeAPAging =
+    /\baccounts\s+payable\s+aging\b/i.test(hay) ||
+    /\b(?:vendor|supplier)\s+aging\b/i.test(hay);
+  const arAgingTitle =
+    /\baccounts\s+receivable\s+aging\b/i.test(hay) ||
+    /\bA\/R\s+aging\b/i.test(hay) ||
+    /\bAR\s+aging\b/i.test(hay) ||
+    /\baging\s+report\b/i.test(hay) ||
+    /\bcustomer\s+aging\b/i.test(hay) ||
+    /\breceivables\s+aging\b/i.test(hay);
+  const arAgingBucketHits = [
+    /\bcurrent\b/,
+    /\b(?:1\s*-\s*)?30\s*days?\b/,
+    /\b(?:31\s*-\s*)?60\s*days?\b/,
+    /\b(?:61\s*-\s*)?90\s*days?\b/,
+    /\b(?:91\s*-\s*)?120\s*days?\b/,
+    /\bover\s*90\b/,
+    /\b90\+\b/,
+    /\b120\+\b/,
+  ].reduce((n, re) => (re.test(hay) ? n + 1 : n), 0);
+  const arAgingCustomerCol = /\b(?:customer|client|debtor)\b/.test(hay);
+
+  if (!looksLikeAPAging) {
+    if (arAgingTitle && arAgingBucketHits >= 2) {
+      return { type: "ar_aging", anchor: "ar_aging_title" };
+    }
+    if (arAgingCustomerCol && arAgingBucketHits >= 3) {
+      return { type: "ar_aging", anchor: "ar_aging_buckets" };
+    }
+  }
 
   // Business returns
   if (

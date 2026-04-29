@@ -266,32 +266,64 @@ function detectARAging(doc: NormalizedDocument): string[] | null {
   const text = doc.firstTwoPagesText;
   const signals: string[] = [];
 
-  // Primary: "accounts receivable aging" or "A/R aging" or "receivables aging"
+  // Primary signal: AR aging title in document text.
   const hasTitle =
     /accounts\s+receivable\s+aging/i.test(text) ||
     /A\/R\s+aging/i.test(text) ||
-    /receivables\s+aging/i.test(text);
-  if (!hasTitle) return null;
-  signals.push("AR aging title detected");
+    /receivables\s+aging/i.test(text) ||
+    /\bcustomer\s+aging\b/i.test(text) ||
+    /\baging\s+report\b/i.test(text);
 
-  // Secondary: aging bucket columns (current/30/60/90/120 days)
+  // Aging bucket columns (current / 30 / 60 / 90 / 120 days).
   const buckets = [
     /\bcurrent\b/i,
-    /\b30\s*(?:days?|d)\b/i,
-    /\b60\s*(?:days?|d)\b/i,
-    /\b90\s*(?:days?|d)\b/i,
-    /\b120\s*(?:days?|d)\b/i,
+    /\b(?:1\s*-\s*)?30\s*(?:days?|d)\b/i,
+    /\b(?:31\s*-\s*)?60\s*(?:days?|d)\b/i,
+    /\b(?:61\s*-\s*)?90\s*(?:days?|d)\b/i,
+    /\b(?:91\s*-\s*)?120\s*(?:days?|d)\b/i,
+    /\bover\s*90\b/i,
+    /\bover\s*120\b/i,
+    /\b90\+\b/i,
+    /\b120\+\b/i,
   ];
 
   let bucketHits = 0;
+  const matched = new Set<string>();
   for (const p of buckets) {
-    if (p.test(text)) {
+    if (p.test(text) && !matched.has(p.source)) {
       bucketHits++;
+      matched.add(p.source);
       signals.push(`Aging bucket: ${p.source}`);
     }
   }
 
-  if (bucketHits >= 2) return signals;
+  // Customer/debtor column heuristic — distinguishes AR aging from AP aging
+  // (AP uses vendor/supplier) and from balance sheets (no per-row customer column).
+  const hasCustomerColumn =
+    /\bcustomer\s*(?:name|id|#)?\b/i.test(text) ||
+    /\bclient\s*(?:name|id)?\b/i.test(text) ||
+    /\bdebtor\b/i.test(text);
+
+  // Negative guard: explicitly an AP/payables aging — vendor/supplier columns.
+  const looksLikePayables =
+    /\baccounts\s+payable\s+aging\b/i.test(text) ||
+    /\b(?:vendor|supplier)\s+aging\b/i.test(text) ||
+    (/\b(?:vendor|supplier)\s*(?:name|id)?\b/i.test(text) && !hasCustomerColumn);
+  if (looksLikePayables) return null;
+
+  // Path 1: explicit title + ≥2 buckets (existing behavior).
+  if (hasTitle) {
+    signals.unshift("AR aging title detected");
+    if (bucketHits >= 2) return signals;
+  }
+
+  // Path 2 (fallback, no title needed): customer column + ≥3 buckets.
+  // Catches OCR'd tabular AR aging exports where the title text is fragmented or absent.
+  if (hasCustomerColumn && bucketHits >= 3) {
+    signals.unshift("Customer column + aging buckets (no title)");
+    return signals;
+  }
+
   return null;
 }
 

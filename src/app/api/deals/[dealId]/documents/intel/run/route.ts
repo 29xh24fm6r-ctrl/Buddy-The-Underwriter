@@ -153,7 +153,8 @@ type DocTypeBucket =
   | "financial_statement"
   | "bank_statement"
   | "lease"
-  | "invoice";
+  | "invoice"
+  | "ar_aging";
 
 function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: unknown): DocTypeBucket | null {
   const dt = String(docTypeRaw || "").trim().toUpperCase();
@@ -164,6 +165,7 @@ function mapClassifierDocTypeToCanonicalBucket(docTypeRaw: unknown): DocTypeBuck
   if (dt === "BANK_STATEMENT") return "bank_statement";
   if (dt === "LEASE") return "lease";
   if (dt === "INVOICE") return "invoice";
+  if (dt === "AR_AGING") return "ar_aging";
   if (dt === "IRS_1120" || dt === "IRS_1120S" || dt === "IRS_1065" || dt === "IRS_BUSINESS")
     return "business_tax_return";
   if (dt === "IRS_1040" || dt === "IRS_PERSONAL") return "personal_tax_return";

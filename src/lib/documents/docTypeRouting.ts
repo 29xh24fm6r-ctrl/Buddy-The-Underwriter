@@ -46,6 +46,7 @@ export type ExtendedCanonicalType =
   | "DEBT_SCHEDULE"
   | "COMMERCIAL_LEASE"
   | "CREDIT_MEMO"
+  | "AR_AGING"
   | "OTHER";
 
 export type DocTypeRoutingResult = {
@@ -111,6 +112,20 @@ function normalizeToExtendedCanonical(raw: string): ExtendedCanonicalType {
   if (["PFS", "PERSONAL_FINANCIAL_STATEMENT", "SBA_413"].includes(upper))
     return "PFS";
 
+  // ─── AR Aging ─────────────────────────────────────────────
+  // Accounts receivable aging report — customer-level breakdown by bucket.
+  // First-class type (not OTHER) so the AR collateral processor can run.
+  if (
+    [
+      "AR_AGING",
+      "ACCOUNTS_RECEIVABLE_AGING",
+      "AR_AGING_REPORT",
+      "RECEIVABLES_AGING",
+      "CUSTOMER_AGING",
+    ].includes(upper)
+  )
+    return "AR_AGING";
+
   // ─── Generic Financial Statement ──────────────────────────
   if (
     [
@@ -170,6 +185,7 @@ const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
 
   // GEMINI_PACKET: Tabular/multi-page docs
   FINANCIAL_STATEMENT: "GEMINI_PACKET",
+  AR_AGING: "GEMINI_PACKET",
 
   // GEMINI_STRUCTURED: Upgraded from GEMINI_STANDARD for extraction
   BANK_STATEMENT: "GEMINI_STRUCTURED",

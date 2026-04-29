@@ -13,6 +13,7 @@ export type ClassificationResult = {
     | "LEASE"
     | "FINANCIAL_STATEMENT"
     | "INVOICE"
+    | "AR_AGING"
     | "UNKNOWN";
   confidence: number; // 0-100
   reasons: string[];
@@ -122,6 +123,45 @@ function looksLikeInvoice(t: string) {
   return t.includes("invoice") || t.includes("bill to") || t.includes("amount due") || t.includes("invoice number");
 }
 
+function looksLikeARAging(t: string): boolean {
+  // Title signals
+  const hasTitle =
+    t.includes("accounts receivable aging") ||
+    t.includes("a/r aging") ||
+    t.includes("ar aging") ||
+    t.includes("aging report") ||
+    t.includes("customer aging") ||
+    t.includes("receivables aging");
+
+  // Aging-bucket signals (require ≥3 to avoid false positives on balance sheets
+  // that happen to mention "30 days" or "90 days" elsewhere in disclosures).
+  const bucketHits = [
+    /\bcurrent\b/,
+    /\b(?:1\s*-\s*)?30\s*days?\b/,
+    /\b(?:31\s*-\s*)?60\s*days?\b/,
+    /\b(?:61\s*-\s*)?90\s*days?\b/,
+    /\b(?:91\s*-\s*)?120\s*days?\b/,
+    /\bover\s*90\b/,
+    /\b90\+\b/,
+    /\b120\+\b/,
+  ].reduce((n, re) => (re.test(t) ? n + 1 : n), 0);
+
+  // Customer-column signal — distinguishes AR aging from AP aging (vendor/supplier)
+  // and from balance sheets (no per-row customer column).
+  const hasCustomerCol = /\b(?:customer|client|debtor)\b/.test(t);
+
+  // Negative guard: explicit AP aging.
+  const isPayables =
+    t.includes("accounts payable aging") ||
+    t.includes("vendor aging") ||
+    t.includes("supplier aging");
+  if (isPayables) return false;
+
+  if (hasTitle && bucketHits >= 2) return true;
+  if (hasCustomerCol && bucketHits >= 3) return true;
+  return false;
+}
+
 function looksLikeTaxReturn(text: string) {
   const t = norm(text);
   if (t.includes("form 1040")) return "IRS_1040";
@@ -137,7 +177,13 @@ function looksLikeTaxReturn(text: string) {
  * Input: OCR text preview (string)
  * Output: stable, UI-compatible classification object
  */
-export async function classifyDocument({ ocrText }: { ocrText: string }): Promise<ClassificationResult> {
+export async function classifyDocument({
+  ocrText,
+  documentId,
+}: {
+  ocrText: string;
+  documentId?: string;
+}): Promise<ClassificationResult> {
   const t = norm(ocrText);
   const reasons: string[] = [];
   const tags: string[] = [];
@@ -160,6 +206,16 @@ export async function classifyDocument({ ocrText }: { ocrText: string }): Promis
       tax_year: taxYear,
       pack: false,
     };
+  }
+
+  // AR aging is checked BEFORE generic financial-statement detection because
+  // an AR aging report can mention "balance" or "income" elsewhere on the page.
+  if (looksLikeARAging(t)) {
+    doc_type = "AR_AGING";
+    confidence = 85;
+    reasons.push("Detected AR aging signals (title + customer column + buckets)");
+    console.log("[CLASSIFIER] AR_AGING detected", { documentId });
+    return { doc_type, confidence, reasons, tags, tax_year: taxYear };
   }
 
   if (looksLikePAndL(t) || looksLikeBalanceSheet(t)) {

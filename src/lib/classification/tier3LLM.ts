@@ -117,6 +117,7 @@ DOCUMENT TYPES (choose the most specific match):
 - APPRAISAL: Property appraisal report
 - COMMERCIAL_LEASE: Commercial lease agreement, lease amendment, NNN lease, or office/retail lease with a rent schedule and defined Landlord/Tenant parties
 - CREDIT_MEMO: Internal bank credit memo, loan worksheet, officer narrative, or prior-approved credit package. Contains DSCR calculations, collateral descriptions, and a banker recommendation/approval section.
+- AR_AGING: Accounts Receivable aging report. Has a customer/client column listing who owes the business money, plus aging bucket columns (Current, 1-30 / 31-60 / 61-90 / 90+ days, or 30 / 60 / 90 / 120+). Lists per-customer balances by how overdue they are. NOT a balance sheet — a balance sheet shows total AR as a single line item, never broken down by customer or by aging bucket.
 - OTHER: Cannot determine type
 
 CRITICAL CONFUSION PAIRS (pay careful attention to these):
@@ -149,6 +150,13 @@ CRITICAL CONFUSION PAIRS (pay careful attention to these):
 
 6. Bank Statement vs Transaction Export:
    - Both → BANK_STATEMENT
+
+7. AR_AGING vs BALANCE_SHEET vs INCOME_STATEMENT vs OTHER:
+   - AR_AGING has a customer-level breakdown: rows are CUSTOMERS, columns are AGING BUCKETS (Current / 30 / 60 / 90 / 120+).
+   - A BALANCE_SHEET has "Accounts Receivable" as a single line in the asset section — no per-customer breakdown.
+   - An INCOME_STATEMENT may show "Bad Debt Expense" or revenue lines but does NOT list customers or aging buckets.
+   - If you see customer names in rows AND aging-bucket columns → AR_AGING, even if the title text is unclear or missing.
+   - Do NOT classify as OTHER just because the document is a bookkeeping report — AR_AGING is a first-class type.
 
 IMPORTANT: Do NOT classify any document as T12 or LEASE. Use INCOME_STATEMENT for P&L. Use COMMERCIAL_LEASE for leases.
 
