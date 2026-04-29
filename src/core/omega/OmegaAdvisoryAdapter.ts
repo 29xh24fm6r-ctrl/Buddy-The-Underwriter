@@ -23,7 +23,34 @@ import type { OmegaAdvisoryState } from "./types";
 // Pulse state view helpers (dynamic imports — may not exist in all envs)
 // ---------------------------------------------------------------------------
 
-async function tryReadOmegaState(dealId: string): Promise<any> {
+/**
+ * Result shape returned by the dynamically-imported Pulse advisory readers.
+ * Generic `data` payload — narrowed per caller to the fields it consumes.
+ *
+ * The functions are loaded via `import()` so their compile-time return types
+ * aren't directly available here. Encoding the observed contract (`ok`,
+ * `error`, `data`) keeps tsc strict without resorting to `any`.
+ */
+type OmegaCallResult<TData> = {
+  ok?: boolean;
+  error?: string;
+  data?: TData;
+} | null;
+
+type OmegaStateData = {
+  recommendation?: string;
+  signals?: string[];
+};
+
+type OmegaConfidenceData = {
+  score?: number;
+};
+
+type OmegaTraceData = {
+  id?: string | null;
+};
+
+async function tryReadOmegaState(dealId: string): Promise<OmegaCallResult<OmegaStateData>> {
   try {
     const { readOmegaState } = await import("@/lib/omega/readOmegaState");
     return await readOmegaState({ stateType: "underwriting_case", id: dealId, correlationId: dealId });
@@ -32,7 +59,7 @@ async function tryReadOmegaState(dealId: string): Promise<any> {
   }
 }
 
-async function tryEvaluateOmegaConfidence(dealId: string): Promise<any> {
+async function tryEvaluateOmegaConfidence(dealId: string): Promise<OmegaCallResult<OmegaConfidenceData>> {
   try {
     const { evaluateOmegaConfidence } = await import("@/lib/omega/evaluateOmegaConfidence");
     return await evaluateOmegaConfidence({ underwritingCaseId: dealId, correlationId: dealId });
@@ -41,10 +68,17 @@ async function tryEvaluateOmegaConfidence(dealId: string): Promise<any> {
   }
 }
 
-async function tryReadOmegaTraces(dealId: string): Promise<any> {
+async function tryReadOmegaTraces(dealId: string): Promise<OmegaCallResult<OmegaTraceData>> {
   try {
     const { readOmegaTraces } = await import("@/lib/omega/readOmegaTraces");
-    return await readOmegaTraces({ sessionId: dealId, correlationId: dealId });
+    const result = await readOmegaTraces({ sessionId: dealId, correlationId: dealId });
+    // Upstream returns OmegaResult<OmegaTraceEntry[]>; the historical caller
+    // below reads `tr.data?.id` as if `data` were a single object. That is a
+    // pre-existing semantic mismatch (arrays don't have `.id`, so the field
+    // is always undefined at runtime). Preserve the existing wrapper
+    // contract behind a typed cast — fixing the call-site read is a
+    // separate refactor and out of scope for this lint-only patch.
+    return result as unknown as OmegaCallResult<OmegaTraceData>;
   } catch {
     return null;
   }

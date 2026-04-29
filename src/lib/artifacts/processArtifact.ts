@@ -1141,6 +1141,16 @@ export async function processArtifact(
       };
     }
 
+    // Observability: surface AR_AGING classifications during validation rollout.
+    if (classification.docType === "AR_AGING") {
+      console.log("[CLASSIFIER] AR_AGING detected", {
+        documentId: source_id,
+        artifactId,
+        confidence: classification.confidence,
+        tier: (classification as any).tier ?? null,
+      });
+    }
+
     // 2.5. Resolve canonical typing with form-number guardrails
     const typingResult = resolveDocTyping({
       aiDocType: classification.docType,

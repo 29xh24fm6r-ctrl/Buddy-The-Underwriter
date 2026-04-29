@@ -31,6 +31,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     if (dt === "INCOME_STATEMENT") return "income_statement";
     if (dt === "BALANCE_SHEET") return "balance_sheet";
     if (dt === "FINANCIAL_STATEMENT") return "financial_statement";
+    if (dt === "AR_AGING") return "ar_aging";
     if (dt === "IRS_1120" || dt === "IRS_1120S" || dt === "IRS_1065" || dt === "IRS_BUSINESS") return "business_tax_return";
     if (dt === "IRS_1040" || dt === "IRS_PERSONAL") return "personal_tax_return";
     return null;
