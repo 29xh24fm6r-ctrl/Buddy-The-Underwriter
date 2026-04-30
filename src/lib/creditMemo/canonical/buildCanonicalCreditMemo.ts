@@ -89,6 +89,21 @@ function isoDateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Format the loan request's property_address_json into a single display line.
+ * Truth source for the memo's collateral.property_address — never sourced
+ * from `overrides`, which is reserved for narrative fields.
+ */
+function formatLoanRequestPropertyAddress(
+  addr: unknown,
+): string {
+  if (!addr || typeof addr !== "object") return "";
+  const a = addr as Record<string, unknown>;
+  const parts = [a.street, a.city, a.state, a.zip]
+    .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+  return parts.length > 0 ? parts.join(", ") : "";
+}
+
 function formatCurrencySimple(val: number): string {
   if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
   if (val >= 1_000) return `$${Math.round(val / 1_000)}K`;
@@ -1099,7 +1114,7 @@ export async function buildCanonicalCreditMemo(args: {
 
       collateral: {
         property_description: overrides.collateral_description || "Pending",
-        property_address: overrides.collateral_address || "",
+        property_address: formatLoanRequestPropertyAddress(loanReq?.property_address_json),
         line_items: collateralLineItems,
         total_gross: collateralFromSnapshot.grossValue.value,
         total_net: collateralFromSnapshot.netValue.value,
