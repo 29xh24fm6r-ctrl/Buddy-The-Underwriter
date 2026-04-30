@@ -58,10 +58,14 @@ describe("enqueue type validation", () => {
     );
   });
 
-  it("uses validTypes for job payload", () => {
+  it("uses validated types for job payload", () => {
+    // readyTypes is initialized from validTypes (the filtered set with registered
+    // templates). Either name is acceptable; the invariant is that the job
+    // payload never contains the unfiltered `requested` types.
     assert.ok(
-      ENQUEUE_SRC.includes("requested_spread_types: validTypes"),
-      "enqueueSpreadRecompute must use validTypes (not requested) for job payload",
+      ENQUEUE_SRC.includes("requested_spread_types: readyTypes") ||
+        ENQUEUE_SRC.includes("requested_spread_types: validTypes"),
+      "enqueueSpreadRecompute must use the validated set (validTypes/readyTypes) — not unfiltered requested — for job payload",
     );
   });
 
