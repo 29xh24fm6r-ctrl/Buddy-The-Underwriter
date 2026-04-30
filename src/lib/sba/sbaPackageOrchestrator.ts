@@ -18,7 +18,6 @@ import {
   generateIndustryAnalysis,
   generateMarketingAndOperations,
   generateSWOTAnalysis,
-  generateFranchiseSection,
   generatePlanThesis,
 } from "./sbaPackageNarrative";
 import {
@@ -623,38 +622,14 @@ export async function generateSBAPackage(
   // ── Phase BPG — Benchmark validation
   const benchmarkWarnings = validateAgainstBenchmarks(assumptions, naicsCode);
 
-  // ── Phase BPG — Franchise detection (graceful if columns/table absent)
-  let franchiseSection: string | null = null;
-  try {
-    const { data: franchiseDeal } = await sb
-      .from("deals")
-      .select("id")
-      .eq("id", dealId)
-      .maybeSingle();
-    // Attempt to read franchise columns — if they do not exist, the catch
-    // block swallows the error and franchiseSection stays null.
-    if (franchiseDeal) {
-      const { data: franchiseMeta } = (await sb
-        .from("deals")
-        .select("franchise_brand_id, franchise_brand_name")
-        .eq("id", dealId)
-        .maybeSingle()) as {
-        data:
-          | { franchise_brand_id: string | null; franchise_brand_name: string | null }
-          | null;
-      };
-      const brandName = franchiseMeta?.franchise_brand_name ?? null;
-      if (brandName) {
-        franchiseSection = await generateFranchiseSection({
-          dealName: deal?.name ?? "Borrower",
-          franchiseBrand: brandName,
-        });
-      }
-    }
-  } catch {
-    // Franchise columns or table absent — skip silently.
-    franchiseSection = null;
-  }
+  // ── Phase BPG — Franchise detection
+  // Currently disabled: deals has no franchise_brand_id / franchise_brand_name
+  // column, and there is no FK or relationship table linking deals to
+  // franchise_brands. The franchise_brands / FDD / Item 19 intelligence
+  // remains intact and is unaffected by this stub.
+  // TODO: Future franchise feature should link deals to franchise_brands
+  // through a real FK or relationship table.
+  const franchiseSection: string | null = null;
 
   // Render PDF.
   // Sprint 3: for mode='preview' we redact at the data layer *before* calling
