@@ -159,7 +159,7 @@ export async function GET(
         payload: redactForOmega({
           dealId,
           bankId: deal.bank_id,
-          lifecycleStage: deal.stage,
+          stage: deal.stage,
           trustLayer: trustLayer as any,
         }),
         timeoutMs: 3500,
