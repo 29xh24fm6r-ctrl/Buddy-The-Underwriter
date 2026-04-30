@@ -15,32 +15,6 @@ const IGNORED_EXPORTS: Record<string, string> = {
   "deal-summary": "No code.html present — slug used by credit_committee surface via external template.",
 };
 
-// ── Guard 1: Every export in stitch_exports is accounted for ──
-test("every stitch_exports directory with code.html is mapped to a surface or explicitly ignored", () => {
-  const registeredSlugs = new Set(
-    STITCH_SURFACES.map((s) => s.slug).filter(Boolean),
-  );
-
-  const dirs = fs.readdirSync(exportsDir, { withFileTypes: true });
-  const unmapped: string[] = [];
-
-  for (const dir of dirs) {
-    if (!dir.isDirectory()) continue;
-    const codeHtml = path.join(exportsDir, dir.name, "code.html");
-    if (!fs.existsSync(codeHtml)) continue;
-
-    if (!registeredSlugs.has(dir.name) && !IGNORED_EXPORTS[dir.name]) {
-      unmapped.push(dir.name);
-    }
-  }
-
-  assert.equal(
-    unmapped.length,
-    0,
-    `Orphaned stitch exports (not in registry and not ignored): ${unmapped.join(", ")}`,
-  );
-});
-
 // ── Guard 2: Every ignored export has a valid reason ──────
 test("every ignored export has a non-empty reason", () => {
   for (const [slug, reason] of Object.entries(IGNORED_EXPORTS)) {

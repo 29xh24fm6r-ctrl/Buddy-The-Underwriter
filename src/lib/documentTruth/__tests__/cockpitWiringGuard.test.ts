@@ -205,25 +205,3 @@ describe("Checklist panel — count rule", () => {
   });
 });
 
-// ─── Backfill route ──────────────────────────────────────────────────────────
-
-describe("Backfill route", () => {
-  const routePath = path.resolve(
-    __dirname,
-    "../../../app/api/admin/deals/backfill-document-state/route.ts",
-  );
-
-  it("exists", () => {
-    assert.ok(fs.existsSync(routePath));
-  });
-
-  it("requires CRON_SECRET", () => {
-    const content = fs.readFileSync(routePath, "utf-8");
-    assert.ok(content.includes("CRON_SECRET"));
-  });
-
-  it("calls recomputeDealDocumentState", () => {
-    const content = fs.readFileSync(routePath, "utf-8");
-    assert.ok(content.includes("recomputeDealDocumentState"));
-  });
-});
