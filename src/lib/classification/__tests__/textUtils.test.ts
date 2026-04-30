@@ -24,8 +24,14 @@ test("extractTaxYear: calendar year '12/31/2023'", () => {
   assert.equal(extractTaxYear("Period: 01/01/2023 - 12/31/2023"), 2023);
 });
 
-test("extractTaxYear: fallback to most recent year in head", () => {
-  assert.equal(extractTaxYear("Filed in 2022 for 2021 income"), 2022);
+test("extractTaxYear: prefers tax year over filing year on tied frequency", () => {
+  // For a tax document like "Filed in 2022 for 2021 income", the tax year
+  // (2021) is what matters — not the filing year (2022). Since 61c884d9
+  // ("pickTaxYear/extractTaxYear use pattern-based extraction with
+  // future-year clamping"), the fallback prefers the most-frequent year
+  // ≤ current, with the older year winning ties. Both years here appear
+  // once → 2021 wins as the older.
+  assert.equal(extractTaxYear("Filed in 2022 for 2021 income"), 2021);
 });
 
 test("extractTaxYear: null when no years found", () => {
