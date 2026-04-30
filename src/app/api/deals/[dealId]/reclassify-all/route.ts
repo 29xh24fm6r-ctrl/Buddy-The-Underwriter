@@ -55,7 +55,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     const { data: docs, error: docErr } = await (sb as any)
       .from("deal_documents")
       .select(
-        "id, deal_id, bank_id, sha256, ocr_text, storage_bucket, storage_path, mime_type, original_filename",
+        "id, deal_id, bank_id, sha256, storage_bucket, storage_path, mime_type, original_filename",
       )
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId)
@@ -78,6 +78,19 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       });
     }
 
+    // OCR text lives on document_ocr_results.extracted_text (linked via
+    // attachment_id = deal_documents.id), not on deal_documents itself.
+    // Same idiom as spreadsProcessor.ts.
+    const docIds = (docs as Array<{ id: string }>).map((d) => d.id);
+    const { data: ocrRows } = await (sb as any)
+      .from("document_ocr_results")
+      .select("attachment_id, extracted_text")
+      .in("attachment_id", docIds);
+    const ocrByDocId = new Map<string, string>();
+    for (const row of (ocrRows ?? []) as Array<{ attachment_id: string; extracted_text: string | null }>) {
+      if (row.extracted_text) ocrByDocId.set(row.attachment_id, row.extracted_text);
+    }
+
     const loopSummary = await classifyAllDocs(
       docs as ClassifyLoopDoc[],
       (doc) =>
@@ -86,7 +99,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
           dealId: doc.deal_id,
           bankId: doc.bank_id,
           sha256: doc.sha256 ?? null,
-          ocrText: doc.ocr_text ?? null,
+          ocrText: ocrByDocId.get(doc.id) ?? null,
           storageBucket: doc.storage_bucket,
           storagePath: doc.storage_path,
           mimeType: doc.mime_type,
