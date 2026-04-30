@@ -62,7 +62,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       sb.from("deal_loan_requests").select("loan_purpose, purpose, requested_amount, product_type").eq("deal_id", dealId).order("request_number", { ascending: true }).limit(1).maybeSingle(),
       Promise.resolve(null), // placeholder — borrower lookup below
       sb.from("deal_financial_facts").select("fact_key, fact_value_num, fact_value_text, fact_period_end").eq("deal_id", dealId).eq("is_superseded", false).neq("resolution_status", "rejected"),
-      sb.from("deal_documents").select("id, doc_type, file_name, original_name, status").eq("deal_id", dealId).eq("bank_id", access.bankId).limit(50),
+      sb.from("deal_documents").select("id, document_type, original_filename, status").eq("deal_id", dealId).eq("bank_id", access.bankId).limit(50),
     ]);
 
     // Borrower lookup
@@ -119,9 +119,9 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     };
 
     // Evidence index for AI citations
-    const evidenceIndex = (docsRows.data ?? []).map((d: { id: string; doc_type?: string; file_name?: string; original_name?: string }) => ({
+    const evidenceIndex = (docsRows.data ?? []).map((d: { id: string; document_type?: string; original_filename?: string }) => ({
       docId: d.id,
-      label: d.doc_type ?? d.file_name ?? d.original_name ?? d.id,
+      label: d.document_type ?? d.original_filename ?? d.id,
       kind: "pdf" as const,
     }));
 

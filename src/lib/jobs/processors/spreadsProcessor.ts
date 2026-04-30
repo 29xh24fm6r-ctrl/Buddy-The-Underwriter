@@ -284,7 +284,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         if (heartbeatDocIds.length > 0) {
           const { data: docMeta } = await (sb as any)
             .from("deal_documents")
-            .select("id, mime_type, file_size_bytes, original_filename")
+            .select("id, mime_type, size_bytes, original_filename")
             .in("id", heartbeatDocIds);
 
           const { data: ocrRows } = await (sb as any)
@@ -301,7 +301,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
             const ocrText = ocrByDocId.get(String(doc.id));
             const signal = detectMachineReadabilitySignals({
               mimeType: doc.mime_type ?? null,
-              fileSizeBytes: doc.file_size_bytes ?? null,
+              fileSizeBytes: doc.size_bytes ?? null,
               hasOcrText: ocrText != null,
               ocrTextLength: ocrText?.length ?? null,
               hasStructuredExtract: false,
@@ -310,7 +310,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
               doc_id: doc.id,
               filename: doc.original_filename,
               mime_type: doc.mime_type,
-              file_size_bytes: doc.file_size_bytes,
+              file_size_bytes: doc.size_bytes,
               has_ocr_text: ocrText != null,
               ocr_text_length: ocrText?.length ?? null,
               likely_scanned: signal.likelyScanned,
