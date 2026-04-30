@@ -83,17 +83,21 @@ test("forwarder core: clears claim fields on success", async () => {
   );
 });
 
-test("forwarder core: uses HMAC signing", async () => {
+test("forwarder core: authenticates outbound requests via Bearer token", async () => {
+  // Pulse ingest auth was intentionally migrated from HMAC x-pulse-signature
+  // to Bearer token in 881ace13 ("Align Pulse forwarder with ingest API
+  // contract"). The security invariant — outbound events must be
+  // authenticated — is preserved via Authorization: Bearer ${PULSE_INGEST_TOKEN}.
   const fs = await import("node:fs");
   const source = fs.readFileSync("src/lib/pulse/forwardLedgerCore.ts", "utf-8");
 
   assert.ok(
-    source.includes("x-pulse-signature"),
-    "Must include HMAC signature header",
+    source.includes("Authorization") && source.includes("Bearer"),
+    "Must include Authorization: Bearer header on outbound ingest requests",
   );
   assert.ok(
-    source.includes("createHmac"),
-    "Must use HMAC for signing",
+    source.includes("PULSE_INGEST_TOKEN"),
+    "Bearer token must come from PULSE_INGEST_TOKEN env",
   );
 });
 
