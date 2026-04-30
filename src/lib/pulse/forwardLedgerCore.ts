@@ -12,6 +12,17 @@
  *   5. Mark forwarded or handle failure (deadletter after MAX_ATTEMPTS)
  *
  * Never throws. Never blocks Buddy.
+ *
+ * Auth contract (split, intentional — see commit 881ace13):
+ *   - This forwarder authenticates to PULSE_BUDDY_INGEST_URL with a
+ *     Bearer token from PULSE_INGEST_TOKEN. No signed-payload header.
+ *   - The legacy /api/pulse/ingest endpoint and the Pulse MCP
+ *     services/pulse-mcp/src/routes/ingestBuddy.ts route still verify
+ *     a signed-payload header against PULSE_BUDDY_INGEST_SECRET. Those
+ *     routes serve observer events and any direct payloads, NOT this
+ *     forwarder's Bearer-authenticated traffic.
+ *   - PULSE_BUDDY_INGEST_URL must point at the Bearer-accepting Pulse
+ *     ingest endpoint (not the MCP root or discovery route).
  */
 
 import crypto from "crypto";
