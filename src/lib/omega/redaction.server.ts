@@ -148,7 +148,7 @@ function applyRedaction(
 export function redactForOmega(input: {
   dealId: string;
   bankId: string | null;
-  lifecycleStage?: string | null;
+  stage?: string | null;
   trustLayer?: {
     memo?: { status: string; staleReasons?: string[] };
     packet?: { status: string; blockers?: string[]; warnings?: string[] };
@@ -161,10 +161,10 @@ export function redactForOmega(input: {
   } | null;
 }): Record<string, unknown> {
   return {
-    deal_id:         hashId(input.dealId),
-    bank_id:         input.bankId ? hashId(input.bankId) : null,
-    lifecycle_stage: input.lifecycleStage ?? null,
-    trust_summary:   input.trustLayer
+    deal_id:       hashId(input.dealId),
+    bank_id:       input.bankId ? hashId(input.bankId) : null,
+    stage:         input.stage ?? null,
+    trust_summary: input.trustLayer
       ? {
           memo_status:             input.trustLayer.memo?.status ?? null,
           memo_stale_count:        input.trustLayer.memo?.staleReasons?.length ?? 0,
