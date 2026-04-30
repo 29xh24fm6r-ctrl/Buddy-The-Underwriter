@@ -10,21 +10,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import path from "node:path";
-import Module from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 // Stub "server-only" so template imports don't throw in test context.
-const emptyJs = path.resolve("node_modules/server-only/empty.js");
-const originalResolve = (Module as any)._resolveFilename;
-(Module as any)._resolveFilename = function (
-  request: string,
-  ...args: any[]
-) {
-  if (request === "server-only") {
-    return emptyJs;
-  }
-  return originalResolve.call(this, request, ...args);
-};
+mockServerOnly();
 
 const ENQUEUE_SRC = fs.readFileSync(
   "src/lib/financialSpreads/enqueueSpreadRecompute.ts",

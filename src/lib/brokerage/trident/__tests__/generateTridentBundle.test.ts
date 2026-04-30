@@ -2,17 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 
 // ─── Module shims: server-only + all transitive deps ──────────────────
+mockServerOnly();
 const require = createRequire(import.meta.url);
-const Module = require("module");
-const origResolve = Module._resolveFilename;
-Module._resolveFilename = function (request: string, ...args: any[]) {
-  if (request === "server-only") {
-    return path.join(process.cwd(), "node_modules/server-only/empty.js");
-  }
-  return origResolve.call(this, request, ...args);
-};
 
 // ─── Mock state (shared by the stubs below) ────────────────────────────
 type Row = Record<string, any>;

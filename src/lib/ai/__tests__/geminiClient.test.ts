@@ -1,21 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import path from "node:path";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 // geminiClient.ts has `import "server-only"` which throws in test context.
 // Same pattern as src/lib/__tests__/pipelineClassification.test.ts — patch
 // the CJS resolver to route `server-only` to its no-op empty.js, then pull
 // the module under test via require() so the patch takes effect first.
+mockServerOnly();
 const require = createRequire(import.meta.url);
-const Module = require("module");
-const origResolve = Module._resolveFilename;
-Module._resolveFilename = function (request: string, ...args: any[]) {
-  if (request === "server-only") {
-    return path.join(process.cwd(), "node_modules/server-only/empty.js");
-  }
-  return origResolve.call(this, request, ...args);
-};
 
 const { callGeminiJSON } = require("../geminiClient") as typeof import("../geminiClient");
 const { GEMINI_FLASH, GEMINI_PRO } = require("../models") as typeof import("../models");

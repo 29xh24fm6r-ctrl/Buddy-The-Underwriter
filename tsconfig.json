@@ -43,6 +43,7 @@
     "docs/**/*.ts",
     "types/**/*.ts",
     "types/**/*.d.ts",
+    "test/**/*.ts",
     "*.ts",
     "*.tsx",
     ".next/types/**/*.ts",
