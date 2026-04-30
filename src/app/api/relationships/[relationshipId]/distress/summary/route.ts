@@ -38,10 +38,14 @@ export async function GET(
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // Get all deals linked to this relationship with their distress state
+    // Get all deals linked to this relationship.
+    // operating_state is intentionally NOT selected: the column does not
+    // exist on the production deals table. The downstream rollup historically
+    // received the `?? "performing"` fallback for every deal anyway, so the
+    // observable behavior is unchanged.
     const { data: deals } = await sb
       .from("deals")
-      .select("id, operating_state")
+      .select("id")
       .eq("relationship_id", relationshipId)
       .eq("bank_id", bu.bank_id);
 
@@ -75,9 +79,12 @@ export async function GET(
       workoutMap.set(w.deal_id, w.severity);
     }
 
-    const dealInputs = (deals ?? []).map((d: { id: string; operating_state: string }) => ({
+    const dealInputs = (deals ?? []).map((d: { id: string }) => ({
       dealId: d.id,
-      operatingState: d.operating_state ?? "performing",
+      // operating_state is not selected (column does not exist in production).
+      // Hardcode the historical fallback so deriveRelationshipDistressState's
+      // input contract is satisfied; downstream behavior is unchanged.
+      operatingState: "performing",
       activeWatchlistSeverity: watchlistMap.get(d.id) ?? null,
       activeWorkoutSeverity: workoutMap.get(d.id) ?? null,
     }));

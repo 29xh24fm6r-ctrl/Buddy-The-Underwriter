@@ -45,8 +45,12 @@ export async function GET(_req: NextRequest, ctx: Context) {
         .select("id, title, description, category, status, source, required_docs, due_date, created_at, updated_at")
         .eq("deal_id", dealId)
         .order("created_at", { ascending: false }),
+      // Legacy portal API compatibility mapping:
+      //   DB column condition_type ↔ legacy field name "condition_key"
+      //   DB column title          ↔ legacy field name "label"
+      // condition_key/label do not exist on conditions_to_close in production.
       sb.from("conditions_to_close")
-        .select("id, condition_key, label, severity, satisfied, evidence, ai_explanation, created_at, updated_at")
+        .select("id, condition_type, title, severity, satisfied, evidence, ai_explanation, created_at, updated_at")
         .eq("application_id", dealId),
       sb.from("condition_document_links")
         .select("condition_id, document_id, link_source, match_confidence")
@@ -99,7 +103,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
 
       guidanceInputs.push({
         id: c.id,
-        title: c.label ?? c.condition_key ?? "Condition",
+        title: c.title ?? c.condition_type ?? "Condition",
         severity: c.severity ?? "REQUIRED",
         dueDate: null,
         dbStatus: c.satisfied ? "satisfied" : "open",
