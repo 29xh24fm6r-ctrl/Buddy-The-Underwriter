@@ -69,7 +69,7 @@ export async function uploadFddToGcs(
           filing_year: String(metadata.filingYear),
           filing_state: metadata.filingState,
           file_number: metadata.fileNumber ?? '',
-          source: 'wi_dfi',
+          source: `state_${metadata.filingState.toLowerCase()}`,
         },
       },
     });
