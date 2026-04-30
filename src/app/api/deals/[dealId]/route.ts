@@ -13,7 +13,7 @@
  */
 import "server-only";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import {
@@ -178,16 +178,17 @@ export async function GET(
   if (rawDealId) {
     const access = await ensureDealBankAccess(rawDealId);
     if (!access.ok) {
-      // Return 404 for both not_found and tenant_mismatch (don't leak existence)
-      const status = access.error === "unauthorized" ? 401 : 404;
-      return NextResponse.json(
+      // Never-500 contract: HTTP 200 always; auth state lives in the payload's
+      // ok=false + error.code. Don't leak deal existence — both not_found and
+      // tenant_mismatch surface as a generic "Deal not found".
+      return respond200(
         {
           ok: false,
           deal: createFallbackDeal(rawDealId),
           error: { code: access.error, message: access.error === "unauthorized" ? "Authentication required" : "Deal not found" },
           meta: { dealId: rawDealId, correlationId, ts },
         },
-        { status, headers: Object.fromEntries(Object.entries(headers)) },
+        headers,
       );
     }
   }
