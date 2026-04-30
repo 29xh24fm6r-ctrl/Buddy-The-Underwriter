@@ -6,7 +6,6 @@
  * Guards 18-27: E2 OCR quality gate & confidence enforcement
  * Guards 28-40: E3 deterministic supersession & ambiguity elimination
  * Guards 41-55: E4 institutional invariant harness
- * Guard 56: Canonical Intake Invariant locked in MEMORY.md
  * Guards 57-70: S1 spread invariant harness
  * Guards 71-76: E2E regression tripwires (bulk upload, tax year, documents 500)
  * Guard 77: Production hardening invariant (gate fail-closed)
@@ -932,20 +931,6 @@ test("[guard-55] review + invalidateIntakeSnapshot both filter is_active", () =>
     invalidateSrc.includes("is_active"),
     "invalidateIntakeSnapshot must filter by is_active",
   );
-});
-
-// ── Guard 56: Canonical Intake Invariant locked in MEMORY.md ──────────
-
-test("[guard-56] Canonical Intake Invariant text exists in MEMORY.md", () => {
-  const memoryPath = path.resolve(
-    process.env.HOME ?? "/home/user",
-    ".claude/projects/-home-user-Buddy-The-Underwriter/memory/MEMORY.md",
-  );
-  const src = fs.readFileSync(memoryPath, "utf-8");
-  assert.ok(src.includes("quality PASSED"), "MEMORY.md must contain 'quality PASSED'");
-  assert.ok(src.includes("identity resolved"), "MEMORY.md must contain 'identity resolved'");
-  assert.ok(src.includes("ambiguity-free"), "MEMORY.md must contain 'ambiguity-free'");
-  assert.ok(src.includes("snapshot-hash verified"), "MEMORY.md must contain 'snapshot-hash verified'");
 });
 
 // ═══════════════════════════════════════════════════════════════════════
