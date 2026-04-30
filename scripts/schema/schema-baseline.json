@@ -18,6 +18,7 @@
     "assigned_to_user_id", "last_activity_at",
     "missing_docs_count", "underwriter_assigned",
     "loan_program", "purpose", "meta",
+    "deal_mode", "intake_phase",
     "created_at", "updated_at"
   ],
   "deal_documents": [
@@ -30,6 +31,10 @@
     "doc_years", "status",
     "classification", "extracted_fields",
     "virus_scanned_at", "virus_engine", "virus_signature",
+    "assigned_owner_id", "quality_status", "segmented",
+    "gatekeeper_classified_at", "gatekeeper_confidence", "gatekeeper_doc_type",
+    "gatekeeper_needs_review", "gatekeeper_prompt_version", "gatekeeper_route",
+    "intake_confirmed_at", "intake_confirmed_by", "intake_locked_at", "intake_status",
     "uploaded_at", "created_at", "updated_at"
   ],
   "deal_checklist_items": [
@@ -109,7 +114,7 @@
     "settings", "created_at", "updated_at"
   ],
   "bank_memberships": [
-    "bank_id", "clerk_user_id", "role"
+    "id", "bank_id", "user_id", "clerk_user_id", "role"
   ],
   "bank_documents": [
     "id", "bank_id", "title", "description", "category",
