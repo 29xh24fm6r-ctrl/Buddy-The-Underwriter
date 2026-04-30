@@ -11,18 +11,10 @@ import test, { describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import Module from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 // ── server-only stub ──────────────────────────────────────────────────
-const emptyJs = resolve("node_modules/server-only/empty.js");
-const originalResolve = (Module as any)._resolveFilename;
-(Module as any)._resolveFilename = function (
-  request: string,
-  ...args: any[]
-) {
-  if (request === "server-only") return emptyJs;
-  return originalResolve.call(this, request, ...args);
-};
+mockServerOnly();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

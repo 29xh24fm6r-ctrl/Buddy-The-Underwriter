@@ -1,21 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import path from "node:path";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
 // Shim server-only, next/headers, and supabaseAdmin before loading the
 // module. We inject a mock increment_rate_counter so the tests are pure
 // in-memory and never hit a DB.
 
+mockServerOnly();
 const require = createRequire(import.meta.url);
-const Module = require("module");
-const origResolve = Module._resolveFilename;
-Module._resolveFilename = function (request: string, ...args: any[]) {
-  if (request === "server-only") {
-    return path.join(process.cwd(), "node_modules/server-only/empty.js");
-  }
-  return origResolve.call(this, request, ...args);
-};
 
 // ─── Shared mock state ────────────────────────────────────────────────
 type RpcFn = (name: string, args: any) => Promise<{ data: any; error: any }>;

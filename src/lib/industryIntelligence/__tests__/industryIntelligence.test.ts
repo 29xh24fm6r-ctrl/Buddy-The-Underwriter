@@ -6,19 +6,10 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import path from "node:path";
-import Module from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 
-// Stub "server-only" so reasonablenessEngine's transitive imports don't throw.
-const emptyJs = path.resolve("node_modules/server-only/empty.js");
-const originalResolve = (Module as any)._resolveFilename;
-(Module as any)._resolveFilename = function (
-  request: string,
-  ...args: any[]
-) {
-  if (request === "server-only") return emptyJs;
-  return originalResolve.call(this, request, ...args);
-};
+// Stub "server-only" so transitive imports don't throw in test context.
+mockServerOnly();
 
 describe("Industry Intelligence", async () => {
   const { getIndustryProfile, getIndustryDisplayName } = await import("../naicsMapper");
