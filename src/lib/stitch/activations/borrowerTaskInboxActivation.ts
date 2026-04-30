@@ -5,7 +5,6 @@ export type TaskInboxRow = {
   label: string;
   status: string;
   required: boolean;
-  docType: string;
 };
 
 export type TaskInboxActivationData = {
@@ -26,7 +25,7 @@ export async function getBorrowerTaskInboxActivationData(
 
     const { data, error } = await sb
       .from("deal_checklist_items")
-      .select("checklist_key, label, status, required, doc_type")
+      .select("checklist_key, label, status, required")
       .eq("deal_id", dealId)
       .order("required", { ascending: false })
       .limit(limit);
@@ -41,7 +40,6 @@ export async function getBorrowerTaskInboxActivationData(
       label: String(d.label || d.checklist_key || "Unknown"),
       status: String(d.status || "missing"),
       required: Boolean(d.required),
-      docType: String(d.doc_type || "-"),
     }));
 
     const required = items.filter((i) => i.required).length;
