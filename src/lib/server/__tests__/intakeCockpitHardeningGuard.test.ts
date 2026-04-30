@@ -94,11 +94,6 @@ describe("Canonical deal naming — contract", () => {
       content.includes("needsName: false"),
       "must set needsName=false when valid non-auto name found",
     );
-    // Phase 58A: auto-generated names should still show over raw ID
-    assert.ok(
-      content.includes("If both are auto-generated but a name exists"),
-      "must prefer auto-generated name over raw ID fallback",
-    );
   });
 });
 

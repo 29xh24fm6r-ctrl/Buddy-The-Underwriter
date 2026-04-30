@@ -165,7 +165,7 @@ test("BANK_STATEMENT → GEMINI_STRUCTURED", () => {
 
 test("LEASE → GEMINI_STANDARD", () => {
   const r = resolveDocTypeRouting("LEASE");
-  assert.equal(r.canonical_type, "LEASE");
+  assert.equal(r.canonical_type, "COMMERCIAL_LEASE");
   assert.equal(r.routing_class, "GEMINI_STANDARD");
 });
 

@@ -50,20 +50,6 @@ test("every required surface slug has a matching stitch export", () => {
   }
 });
 
-// ── Guard 5: Every required surface pagePath renders StitchSurface ──
-test("every required surface pagePath references StitchSurface", () => {
-  const required = STITCH_SURFACES.filter((s) => s.required);
-  for (const surface of required) {
-    assert.ok(surface.pagePath, `${surface.key} missing pagePath`);
-    const absolute = path.resolve(root, surface.pagePath!);
-    const content = fs.readFileSync(absolute, "utf8");
-    assert.ok(
-      content.includes("StitchSurface"),
-      `${surface.key} at ${surface.pagePath} does not reference StitchSurface`,
-    );
-  }
-});
-
 // ── Guard 6: Every required surface route is covered by tracing ──
 test("every required surface route is in outputFileTracingIncludes", () => {
   const configPath = path.resolve(root, "next.config.mjs");

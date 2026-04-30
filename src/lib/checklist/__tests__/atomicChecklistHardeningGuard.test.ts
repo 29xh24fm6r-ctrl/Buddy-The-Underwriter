@@ -22,7 +22,7 @@ function readSource(relPath: string): string {
 describe("Phase F — Atomic Canonical-Type Update", () => {
   test("Guard 36a: resolve_checklist_key_sql mirrors TS resolveChecklistKey", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
     const ts = readSource("src/lib/docTyping/resolveChecklistKey.ts");
 
@@ -64,7 +64,7 @@ describe("Phase F — Atomic Canonical-Type Update", () => {
     for (const [key, type] of Object.entries(keyMappings)) {
       // SQL check: look in both the original and v2 migration files
       const sqlV2Src = readSource(
-        "supabase/migrations/20260304_update_resolve_checklist_key_sql_v2.sql",
+        "supabase/migrations/20260304000004_update_resolve_checklist_key_sql_v2.sql",
       );
       const inSql = sql.includes(key) || sqlV2Src.includes(key);
       assert.ok(
@@ -80,7 +80,7 @@ describe("Phase F — Atomic Canonical-Type Update", () => {
 
   test("Guard 36b: atomic_retype_document RPC exists with correct signature", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
 
     assert.ok(
@@ -219,6 +219,11 @@ describe("Phase G — Checklist Mutability Guard", () => {
     "src/lib/builder/builderUploadCore.ts",
     // ── Intake orchestration ──
     "src/lib/intake/orchestrateIntake.ts",
+    // ── Borrower request campaign creation ──
+    // Writes checklist_key to borrower_request_items, NOT deal_documents.
+    // The guard's regex flags any `checklist_key:` write; this row targets a
+    // different table so the deal_documents canonical-type invariant doesn't apply.
+    "src/core/borrower-orchestration/createBorrowerCampaign.ts",
     // ── Type definitions ──
     "src/types/db.d.ts",
   ];
@@ -244,10 +249,12 @@ describe("Phase G — Checklist Mutability Guard", () => {
     const allTsFiles = walkTs(srcRoot);
     const violations: string[] = [];
 
-    // Patterns that indicate WRITING checklist_key (not just reading)
+    // Patterns that indicate WRITING checklist_key (not just reading).
+    // Word-boundary the column name so we don't false-match column names that
+    // happen to end with "checklist_key" (e.g. task_checklist_key).
     const writePatterns = [
-      /\.update\(\s*\{[^}]*checklist_key/,
-      /checklist_key\s*[:=]\s*[^,}\n]*(?:resolveChecklistKey|matched|m\.matched|result\.matched|checklistKey|derivedKey)/,
+      /\.update\(\s*\{[^}]*\bchecklist_key\b/,
+      /\bchecklist_key\b\s*[:=]\s*[^,}\n]*(?:resolveChecklistKey|matched|m\.matched|result\.matched|checklistKey|derivedKey)/,
     ];
 
     for (const filePath of allTsFiles) {
@@ -288,7 +295,7 @@ describe("Phase G — Checklist Mutability Guard", () => {
 describe("Phase H — Finalization Must Reconcile", () => {
   test("Guard 36g: finalize RPC calls reconcile_checklist_for_deal_sql", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
 
     // The updated finalize_intake_and_enqueue_processing must include reconcile
@@ -338,7 +345,7 @@ describe("Phase I — Runtime Invariant Check", () => {
 describe("Phase J — NOT NULL Constraint for Finalized Docs", () => {
   test("Guard 36i: finalized_docs_must_have_checklist_key constraint exists", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
 
     assert.ok(
@@ -363,7 +370,7 @@ describe("Phase J — NOT NULL Constraint for Finalized Docs", () => {
 describe("Phase K — Canonical Type Mapping Constraint", () => {
   test("Guard 36j: requires_checklist_key function lists all mandatory types", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
 
     assert.ok(
@@ -389,7 +396,7 @@ describe("Phase K — Canonical Type Mapping Constraint", () => {
 
   test("Guard 36k: required_types_must_have_checklist_key constraint exists", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
 
     assert.ok(
@@ -406,7 +413,7 @@ describe("Phase K — Canonical Type Mapping Constraint", () => {
 describe("Phase L — Unique Checklist Pointer Integrity", () => {
   test("Guard 36l: unique_checklist_pointer index exists", () => {
     const sql = readSource(
-      "supabase/migrations/20260304_atomic_checklist_hardening.sql",
+      "supabase/migrations/20260304000001_atomic_checklist_hardening.sql",
     );
 
     assert.ok(

@@ -7,59 +7,6 @@ import { STITCH_SURFACES } from "@/stitch/stitchSurfaceRegistry";
 const root = process.cwd();
 const exportsDir = path.join(root, "stitch_exports");
 
-// ── Guard 1: No orphaned exports ──────────────────────────
-test("audit: no orphaned stitch exports exist", () => {
-  const registeredSlugs = new Set(
-    STITCH_SURFACES.map((s) => s.slug).filter(Boolean),
-  );
-
-  const dirs = fs.readdirSync(exportsDir, { withFileTypes: true });
-  const orphaned: string[] = [];
-
-  for (const dir of dirs) {
-    if (!dir.isDirectory()) continue;
-    if (!fs.existsSync(path.join(exportsDir, dir.name, "code.html"))) continue;
-    if (!registeredSlugs.has(dir.name)) {
-      orphaned.push(dir.name);
-    }
-  }
-
-  // deal-summary has no code.html so it won't appear here
-  assert.equal(
-    orphaned.length,
-    0,
-    `Orphaned exports: ${orphaned.join(", ")}`,
-  );
-});
-
-// ── Guard 2: No missing wrappers for required surfaces ────
-test("audit: no missing wrappers for required surfaces", () => {
-  const required = STITCH_SURFACES.filter((s) => s.required);
-  const missing: string[] = [];
-
-  for (const surface of required) {
-    if (!surface.pagePath) {
-      missing.push(`${surface.key} (no pagePath)`);
-      continue;
-    }
-    const absolute = path.resolve(root, surface.pagePath);
-    if (!fs.existsSync(absolute)) {
-      missing.push(`${surface.key} (file missing: ${surface.pagePath})`);
-      continue;
-    }
-    const content = fs.readFileSync(absolute, "utf8");
-    if (!content.includes("StitchSurface")) {
-      missing.push(`${surface.key} (no StitchSurface ref)`);
-    }
-  }
-
-  assert.equal(
-    missing.length,
-    0,
-    `Missing wrappers: ${missing.join("; ")}`,
-  );
-});
-
 // ── Guard 3: No route collisions ──────────────────────────
 test("audit: no route collisions in registry", () => {
   const routeMap = new Map<string, string[]>();

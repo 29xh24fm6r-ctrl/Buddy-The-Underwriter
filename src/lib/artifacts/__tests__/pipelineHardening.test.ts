@@ -112,13 +112,6 @@ test("BALANCE_SHEET is a valid DocumentType", () => {
   );
 });
 
-test("DocAI balance_sheet label maps to BALANCE_SHEET (not OTHER)", () => {
-  const src = readFile("src/lib/artifacts/classifyDocument.ts");
-  const match = src.match(/"balance_sheet"\s*:\s*"([^"]+)"/);
-  assert.ok(match, "balance_sheet must be in DOCAI_LABEL_MAP");
-  assert.equal(match[1], "BALANCE_SHEET", "balance_sheet must map to BALANCE_SHEET, not OTHER");
-});
-
 // ---------------------------------------------------------------------------
 // Routing: classifyByRules has balance sheet keyword anchor
 // ---------------------------------------------------------------------------

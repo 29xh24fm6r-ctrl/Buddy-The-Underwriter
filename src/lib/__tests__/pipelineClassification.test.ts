@@ -208,9 +208,9 @@ test("BANK_STATEMENT maps to BANK_STMT_3M checklist key (core mapping fix)", () 
   assert.ok(keys.includes("BANK_STMT_3M"), "BANK_STATEMENT should map to BANK_STMT_3M");
 });
 
-test("COMMERCIAL_LEASE maps to LEASES_TOP checklist key", () => {
-  const keys = mapDocTypeToChecklistKeys("COMMERCIAL_LEASE", null);
-  assert.ok(keys.includes("LEASES_TOP"), "COMMERCIAL_LEASE should map to LEASES_TOP");
+test("LEASE maps to LEASES_TOP checklist key", () => {
+  const keys = mapDocTypeToChecklistKeys("LEASE", null);
+  assert.ok(keys.includes("LEASES_TOP"), "LEASE should map to LEASES_TOP");
 });
 
 test("INSURANCE maps to PROPERTY_INSURANCE checklist key", () => {
