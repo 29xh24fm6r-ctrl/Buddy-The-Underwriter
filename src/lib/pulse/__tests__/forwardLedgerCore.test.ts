@@ -83,17 +83,37 @@ test("forwarder core: clears claim fields on success", async () => {
   );
 });
 
-test("forwarder core: uses HMAC signing", async () => {
+// The forwarder was intentionally migrated from HMAC (`x-pulse-signature`) to
+// Bearer auth in commit 881ace13 ("fix: Align Pulse forwarder with ingest API
+// contract"). The endpoint it calls (PULSE_BUDDY_INGEST_URL) accepts a Bearer
+// token. HMAC remains the auth scheme on /api/pulse/ingest for observer
+// events — see services/pulse-mcp/src/routes/ingestBuddy.ts and the doc note
+// at the top of forwardLedgerCore.ts.
+test("forwarder core: uses Bearer auth with PULSE_INGEST_TOKEN", async () => {
   const fs = await import("node:fs");
   const source = fs.readFileSync("src/lib/pulse/forwardLedgerCore.ts", "utf-8");
 
   assert.ok(
-    source.includes("x-pulse-signature"),
-    "Must include HMAC signature header",
+    source.includes("PULSE_INGEST_TOKEN"),
+    "Must read PULSE_INGEST_TOKEN from env",
   );
   assert.ok(
-    source.includes("createHmac"),
-    "Must use HMAC for signing",
+    /Authorization["'`\s]*:\s*[`"']Bearer\s/i.test(source),
+    "Must send Authorization: Bearer header",
+  );
+});
+
+test("forwarder core: does NOT use HMAC signing (deprecated path)", async () => {
+  const fs = await import("node:fs");
+  const source = fs.readFileSync("src/lib/pulse/forwardLedgerCore.ts", "utf-8");
+
+  assert.ok(
+    !source.includes("x-pulse-signature"),
+    "Forwarder must not send x-pulse-signature (Bearer-only since 881ace13)",
+  );
+  assert.ok(
+    !source.includes("createHmac"),
+    "Forwarder must not call createHmac (Bearer-only since 881ace13)",
   );
 });
 

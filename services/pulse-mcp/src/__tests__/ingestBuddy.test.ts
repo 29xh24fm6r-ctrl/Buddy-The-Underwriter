@@ -239,20 +239,47 @@ test("integration: forwarder PulseEvent schema matches ingest validator", () => 
   }
 });
 
-test("integration: forwarder signs with same HMAC as ingest verifies", () => {
+// Auth contract is intentionally split as of commit 881ace13
+// ("fix: Align Pulse forwarder with ingest API contract"):
+//   - forwardLedgerCore (src/lib/pulse/forwardLedgerCore.ts) sends
+//     Authorization: Bearer ${PULSE_INGEST_TOKEN} to PULSE_BUDDY_INGEST_URL.
+//   - ingestBuddy.ts (this Pulse MCP service route) still verifies HMAC
+//     for observer events and ledger payloads. The Bearer-targeted
+//     endpoint that the forwarder hits is a different route at the
+//     PULSE_BUDDY_INGEST_URL host (NOT this ingestBuddy.ts handler).
+//
+// This split is the current design. Asserting that forwarder and ingest
+// share the same HMAC is incorrect after 881ace13 and would re-introduce
+// the stale HMAC contract on the forwarder.
+//
+// Follow-up tracked separately: confirm PULSE_BUDDY_INGEST_URL is not
+// black-holing events at the Pulse MCP root/discovery endpoint.
+test("integration: forwarder uses Bearer; ingestBuddy still verifies HMAC", () => {
   const fs = require("node:fs");
   const forwarder = fs.readFileSync("src/lib/pulse/forwardLedgerCore.ts", "utf-8");
   const ingest = fs.readFileSync(INGEST_PATH, "utf-8");
 
-  // Both use sha256 HMAC
-  assert.ok(forwarder.includes('createHmac("sha256"'), "Forwarder must use SHA-256 HMAC");
+  // Forwarder side: Bearer-only.
+  assert.ok(
+    forwarder.includes("PULSE_INGEST_TOKEN"),
+    "Forwarder must read PULSE_INGEST_TOKEN",
+  );
+  assert.ok(
+    /Authorization["'`\s]*:\s*[`"']Bearer\s/i.test(forwarder),
+    "Forwarder must send Authorization: Bearer",
+  );
+  assert.ok(
+    !forwarder.includes("x-pulse-signature"),
+    "Forwarder must NOT send x-pulse-signature (HMAC removed in 881ace13)",
+  );
+  assert.ok(
+    !forwarder.includes("createHmac"),
+    "Forwarder must NOT call createHmac (HMAC removed in 881ace13)",
+  );
+
+  // Ingest side: HMAC remains the contract for the observer/ledger path
+  // handled by this route.
   assert.ok(ingest.includes('createHmac("sha256"'), "Ingest must use SHA-256 HMAC");
-
-  // Both reference x-pulse-signature header
-  assert.ok(forwarder.includes("x-pulse-signature"), "Forwarder must send x-pulse-signature");
   assert.ok(ingest.includes("x-pulse-signature"), "Ingest must check x-pulse-signature");
-
-  // Both use PULSE_BUDDY_INGEST_SECRET
-  assert.ok(forwarder.includes("PULSE_BUDDY_INGEST_SECRET"), "Forwarder must use PULSE_BUDDY_INGEST_SECRET");
   assert.ok(ingest.includes("PULSE_BUDDY_INGEST_SECRET"), "Ingest must use PULSE_BUDDY_INGEST_SECRET");
 });
