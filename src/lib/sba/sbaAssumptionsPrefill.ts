@@ -9,13 +9,19 @@ export type PrefilledAssumptions = Partial<SBAAssumptions> & {
 };
 
 /**
- * Phase BPG — Check whether franchise enrichment is possible against the
- * current schema. Gracefully returns null when the deals.franchise_brand_id
- * column (or the franchise_brands table) does not yet exist — franchise
- * hooks are optional and the rest of prefill must continue to work.
+ * Phase BPG — Franchise enrichment hook.
+ *
+ * Currently a no-op: deals has no franchise_brand_id / franchise_brand_name
+ * column and there is no FK or relationship table linking deals to
+ * franchise_brands. The franchise_brands table itself (and FDD / Item 19
+ * intelligence) is preserved and unaffected by this stub — only the
+ * dead deal-side reads have been removed.
+ *
+ * TODO: Future franchise feature should link deals to franchise_brands
+ * through a real FK or relationship table.
  */
 async function loadFranchiseContext(
-  dealId: string,
+  _dealId: string,
 ): Promise<{
   franchiseBrandId: string | null;
   franchiseBrandName: string | null;
@@ -23,74 +29,7 @@ async function loadFranchiseContext(
   fddItem7Max: number | null;
   fddItem19Avg: number | null;
 } | null> {
-  const sb = supabaseAdmin();
-  try {
-    // 1. Does deals have the franchise_brand_id column?
-    const { data: dealCols } = await sb
-      .from("information_schema.columns" as never)
-      .select("column_name")
-      .eq("table_name", "deals")
-      .in("column_name", ["franchise_brand_id", "franchise_brand_name"]);
-    if (!dealCols || (Array.isArray(dealCols) && dealCols.length === 0)) {
-      return null;
-    }
-
-    // 2. Read franchise metadata from deals.
-    const { data: deal } = (await sb
-      .from("deals")
-      .select("franchise_brand_id, franchise_brand_name")
-      .eq("id", dealId)
-      .maybeSingle()) as {
-      data: {
-        franchise_brand_id: string | null;
-        franchise_brand_name: string | null;
-      } | null;
-    };
-    if (!deal || !deal.franchise_brand_id) {
-      return {
-        franchiseBrandId: null,
-        franchiseBrandName: deal?.franchise_brand_name ?? null,
-        fddItem7Min: null,
-        fddItem7Max: null,
-        fddItem19Avg: null,
-      };
-    }
-
-    // 3. Try to load FDD data from a franchise_brands table if present.
-    try {
-      const { data: brand } = (await sb
-        .from("franchise_brands" as never)
-        .select(
-          "name, fdd_item7_min, fdd_item7_max, fdd_item19_avg_unit_revenue",
-        )
-        .eq("id", deal.franchise_brand_id)
-        .maybeSingle()) as {
-        data: {
-          name: string | null;
-          fdd_item7_min: number | null;
-          fdd_item7_max: number | null;
-          fdd_item19_avg_unit_revenue: number | null;
-        } | null;
-      };
-      return {
-        franchiseBrandId: deal.franchise_brand_id,
-        franchiseBrandName: brand?.name ?? deal.franchise_brand_name,
-        fddItem7Min: brand?.fdd_item7_min ?? null,
-        fddItem7Max: brand?.fdd_item7_max ?? null,
-        fddItem19Avg: brand?.fdd_item19_avg_unit_revenue ?? null,
-      };
-    } catch {
-      return {
-        franchiseBrandId: deal.franchise_brand_id,
-        franchiseBrandName: deal.franchise_brand_name,
-        fddItem7Min: null,
-        fddItem7Max: null,
-        fddItem19Avg: null,
-      };
-    }
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export async function loadSBAAssumptionsPrefill(
