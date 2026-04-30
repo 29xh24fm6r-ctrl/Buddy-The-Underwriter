@@ -105,9 +105,17 @@ describe("AnalystWorkbench integration", () => {
     assert.ok(content.includes("UnderwriteTrustLayer"));
   });
 
-  it("renders trust layer component", () => {
+  it("renders pipeline rail component", () => {
+    // 5bc2080e ("underwriting pipeline rail, fix balance sheet SL_ keys, ...")
+    // intentionally replaced the embedded <UnderwriteTrustLayer> with
+    // <UnderwritingPipelineRail>. The trust layer component still exists and
+    // is exercised by the Trust layer UI suite below, but it is no longer
+    // embedded in the workbench.
     const content = fs.readFileSync(WORKBENCH_PATH, "utf-8");
-    assert.ok(content.includes("<UnderwriteTrustLayer"));
+    assert.ok(
+      content.includes("<UnderwritingPipelineRail"),
+      "AnalystWorkbench must render <UnderwritingPipelineRail> (the trust layer's successor)",
+    );
   });
 
   it("still renders SnapshotBanner", () => {
