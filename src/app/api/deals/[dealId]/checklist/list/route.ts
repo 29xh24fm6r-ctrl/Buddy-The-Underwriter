@@ -202,7 +202,9 @@ export async function GET(
     // === Phase 2b: Tenant gate ===
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
-      return NextResponse.json(
+      // Never-500 contract: HTTP 200 always; auth state lives in the payload's
+      // ok=false + error.code. Don't leak existence on tenant_mismatch.
+      return createJsonResponse(
         {
           ok: false,
           items: [],
@@ -210,7 +212,7 @@ export async function GET(
           timestamp: ts,
           correlationId,
         },
-        { status: access.error === "unauthorized" ? 401 : 404 },
+        correlationId,
       );
     }
 
