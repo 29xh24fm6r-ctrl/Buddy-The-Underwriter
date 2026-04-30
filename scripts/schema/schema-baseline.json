@@ -4,7 +4,7 @@
     "id", "bank_id", "name", "display_name", "nickname", "borrower_name",
     "borrower_email", "borrower_id", "borrower_phone",
     "entity_type", "legal_name", "ein", "naics_code", "naics_description",
-    "state", "state_of_formation",
+    "state", "state_of_formation", "city",
     "deal_type", "loan_type", "geography", "sba_program",
     "amount", "requested_loan_amount", "project_cost", "property_value",
     "noi", "dscr", "ltv", "risk_score",
@@ -19,6 +19,7 @@
     "missing_docs_count", "underwriter_assigned",
     "loan_program", "purpose", "meta",
     "deal_mode", "intake_phase",
+    "intake_snapshot_hash",
     "created_at", "updated_at"
   ],
   "deal_documents": [
@@ -29,6 +30,7 @@
     "source", "checklist_key", "document_key", "metadata",
     "match_source", "match_reason", "document_type",
     "doc_years", "status",
+    "logical_key", "parent_document_id", "slot_id", "gatekeeper_tax_year",
     "classification", "extracted_fields",
     "virus_scanned_at", "virus_engine", "virus_signature",
     "assigned_owner_id", "quality_status", "segmented",
