@@ -15,10 +15,14 @@ Triggered by Cloud Scheduler on a weekly cron (Mondays, 6 am Central). On each r
 
 ## Endpoints
 
-| Method | Path     | Purpose                                                         |
-|--------|----------|-----------------------------------------------------------------|
-| POST   | `/`      | Trigger a sync. Requires `x-cron-secret` or `Bearer` auth.      |
-| GET    | `/health`| Liveness check for Cloud Run.                                   |
+| Method | Path              | Purpose                                                         |
+|--------|-------------------|-----------------------------------------------------------------|
+| POST   | `/`               | Trigger an SBA directory sync.                                  |
+| POST   | `/scrape-wi-fdd`  | Batch-scrape WI DFI for FDDs. Query: `batchSize`, `delayMs`, `downloadPdf`, `brandFilter`. |
+| POST   | `/scrape-mn-fdd`  | Batch-scrape MN CARDS for FDDs. Query: `batchSize`, `delayMs`, `downloadPdf`, `brandFilter`, `yearLookback`. |
+| GET    | `/health`         | Liveness check for Cloud Run.                                   |
+
+All POST endpoints require `x-cron-secret` or `Bearer` auth when `CRON_SECRET` is set.
 
 ## Environment
 
