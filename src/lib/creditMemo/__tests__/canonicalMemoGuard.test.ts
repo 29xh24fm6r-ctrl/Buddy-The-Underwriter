@@ -147,9 +147,12 @@ test("[guard-4b] buildCanonicalCreditMemo uses overrides ONLY for narrative fiel
   );
   // Find all override property reads: overrides.xxx or overrides[xxx]
   const overrideReads = src.match(/overrides\.\w+|overrides\["[^"]+"\]/g) ?? [];
+  // These fields are narrative-only and have no canonical snapshot source;
+  // safe to source from overrides.
   const narrativeKeys = [
     "collateral_description", "business_description",
     "revenue_mix", "seasonality", "principal_bio_",
+    "competitive_advantages", "vision",
   ];
 
   for (const read of overrideReads) {
