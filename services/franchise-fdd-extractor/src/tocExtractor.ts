@@ -2,20 +2,35 @@ import { callGeminiForExtraction } from './geminiClient.js';
 import { slicePdfPages } from './pdfPageExtractor.js';
 import type { TocResult } from './types.js';
 
-const TOC_PROMPT = `You are analyzing the Table of Contents of a Franchise Disclosure Document (FDD).
+const TOC_PROMPT = `You are locating Item starting pages in a Franchise Disclosure Document (FDD).
 
-Find the starting page numbers for these items:
+The pages provided are the FRONT MATTER of the document — typically a cover
+page, one or more state-specific cover/addendum pages, and then the actual
+Table of Contents. The TOC may not appear on the first page; it is usually
+several pages in.
+
+Find the starting page numbers (as printed in the TOC) for these items:
 - Item 5: Initial Franchise Fee
 - Item 6: Other Fees
 - Item 7: Estimated Initial Investment
 - Item 19: Financial Performance Representations
 - Item 20: Outlets and Franchisee Information
 
-Also determine:
-- Does this FDD contain an Item 19? (Many franchisors skip it. If the document explicitly states "We do not make any financial performance representations" or similar, set item_19_present to false even if a page number appears.)
-- Total page count of the document
+If the Table of Contents is in the provided pages, use the page numbers it
+lists. The TOC's page numbers refer to positions in the FULL document
+(which may be 200-700 pages long), NOT to positions in this slice — use
+them as-is. If the TOC is NOT in the provided pages but you can see Item
+headings directly (e.g. a page that begins with "ITEM 5. INITIAL
+FRANCHISE FEE"), return the page number where that heading appears.
 
-Page numbers must be 1-indexed (the first page of the PDF is page 1).
+Item 19 detection: many franchisors do NOT make Financial Performance
+Representations. If the TOC entry for Item 19 says something like "FINANCIAL
+PERFORMANCE REPRESENTATIONS" but the body says "We do not make any
+financial performance representations" set item_19_present to false. If the
+TOC simply lists Item 19 without that disclaimer, set item_19_present to
+true (the body extractor will verify).
+
+Page numbers must be 1-indexed in the FULL document (not in this slice).
 
 Return JSON in EXACTLY this shape:
 {
@@ -43,9 +58,10 @@ interface TocResponse {
 export async function extractToc(
   pdfBuffer: Buffer
 ): Promise<{ toc: TocResult | null; modelUsed: string; error?: string }> {
-  // FDD TOCs sit on page 2-3 typically; pages 1-5 covers cover page + TOC
-  // for nearly every observed format.
-  const slice = await slicePdfPages(pdfBuffer, 1, 5);
+  // FDDs typically have multiple front-matter pages before the actual TOC:
+  // a cover sheet, then state-specific addendum cover pages, then the TOC.
+  // Pages 1-15 covers the practical worst case observed in production.
+  const slice = await slicePdfPages(pdfBuffer, 1, 15);
 
   const res = await callGeminiForExtraction<TocResponse>({
     logTag: 'toc',

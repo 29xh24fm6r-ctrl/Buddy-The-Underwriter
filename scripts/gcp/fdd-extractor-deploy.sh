@@ -26,7 +26,7 @@ gcloud run deploy franchise-fdd-extractor \
   --memory 1Gi \
   --timeout 3600 \
   --update-env-vars "NODE_ENV=production,GCS_BUCKET=buddy-franchise-fdds" \
-  --update-secrets "BUDDY_DB_URL=BUDDY_DB_URL:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,CRON_SECRET=CRON_SECRET:latest" \
+  --update-secrets "BUDDY_DB_URL=BUDDY_DB_URL:3,GEMINI_API_KEY=GEMINI_API_KEY:latest,CRON_SECRET=CRON_SECRET:latest" \
   --no-allow-unauthenticated \
   --quiet
 
