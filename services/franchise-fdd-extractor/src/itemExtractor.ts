@@ -11,6 +11,16 @@ import type {
 
 const ITEM_PAGE_BUFFER_BEFORE = 2;
 
+/** Minimum number of forward pages every item slice must include. The
+ *  primary slicing rule (this item to next-item-1) becomes a knife edge
+ *  when the TOC lists adjacent items with a 1-2 page gap and the TOC
+ *  page numbers drift slightly from PDF-actual pages. This floor absorbs
+ *  that residual drift: even if the next item is reportedly 1 page away,
+ *  we always look at least MIN_SLICE_PAGES forward. The downside is some
+ *  overlap with the next item's content, which is harmless because each
+ *  item's prompt is item-specific. */
+const MIN_SLICE_PAGES = 8;
+
 /** Compute the slice range for an item.
  *
  *  Rule: when the TOC tells us the next known item starts at page N, we
@@ -19,8 +29,10 @@ const ITEM_PAGE_BUFFER_BEFORE = 2;
  *  page (item20 has nothing after it in our TOC; item7's "next known" in
  *  our TOC is item19, which is too far away to be useful).
  *
- *  Final endPage = min(thisPage + defaultAfter, nextKnownPage - 1, totalPages).
- *  Final startPage = max(1, thisPage - ITEM_PAGE_BUFFER_BEFORE). */
+ *  Final endPage = max(
+ *    thisPage + MIN_SLICE_PAGES - 1,         // floor — see comment above
+ *    min(thisPage + defaultAfter, nextKnownPage - 1, totalPages)
+ *  ), then clamped to totalPages. */
 function pageRange(args: {
   thisPage: number | null;
   nextKnownPage: number | null;
@@ -31,11 +43,16 @@ function pageRange(args: {
   if (!thisPage) return null;
 
   const startPage = Math.max(1, thisPage - ITEM_PAGE_BUFFER_BEFORE);
-  let endPage = thisPage + defaultAfter;
+
+  let cappedEnd = thisPage + defaultAfter;
   if (nextKnownPage && nextKnownPage > thisPage) {
-    endPage = Math.min(endPage, nextKnownPage - 1);
+    cappedEnd = Math.min(cappedEnd, nextKnownPage - 1);
   }
-  endPage = Math.max(thisPage, Math.min(totalPages, endPage));
+  // Apply the MIN_SLICE_PAGES floor — a tight next-item bound can't shrink
+  // the slice below this threshold.
+  const floorEnd = thisPage + MIN_SLICE_PAGES - 1;
+  let endPage = Math.max(cappedEnd, floorEnd);
+  endPage = Math.min(totalPages, endPage);
   return { startPage, endPage };
 }
 

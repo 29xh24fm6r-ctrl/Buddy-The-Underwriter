@@ -9,39 +9,70 @@ page, one or more state-specific cover/addendum pages, and then the actual
 Table of Contents. The TOC may not appear on the first page; it is usually
 several pages in.
 
-Find the starting page numbers (as printed in the TOC) for these items:
+═══════════════════════════════════════════════════════════════════════════
+CRITICAL: PDF-PAGE NUMBERS, NOT TOC-PRINTED NUMBERS
+═══════════════════════════════════════════════════════════════════════════
+
+You must return the **PDF page number** for each Item — i.e. the position
+of that Item in the actual PDF file you were given. Page 1 is the very
+first page of this PDF file (the first thing you see).
+
+The TOC text usually shows page numbers from the FDD body's INTERNAL
+numbering, which starts AFTER the cover/addendum front matter. Those
+numbers do NOT match the PDF page numbers when there are unnumbered
+front-matter pages. You must compute and apply the offset.
+
+How to compute the offset:
+  1. Find the TOC in the PDF pages provided. Note which PDF page it
+     appears on — call that TOC_PDF_PAGE (e.g. "the TOC appears on PDF
+     page 7 of this slice").
+  2. Look at the TOC's own printed page number (it's usually small Roman
+     numerals like "ii", "iii", or a body number near the bottom of the
+     TOC page). Convert that to its body-relative position:
+        - "ii" → 2,  "iii" → 3,  "iv" → 4
+        - or a small numeric like 2 or 3
+     Call this TOC_BODY_PAGE.
+  3. The offset is OFFSET = TOC_PDF_PAGE - TOC_BODY_PAGE.
+     Example: TOC is on PDF page 7 and shows "ii" at the bottom →
+              OFFSET = 7 - 2 = 5.
+  4. For every item, the TOC says e.g. "Item 5 . . . 12". The PDF page
+     for Item 5 is then 12 + OFFSET = 12 + 5 = 17. Return 17.
+
+If you cannot determine the offset with confidence, return null for that
+item's page rather than guessing. A null is better than a wrong number —
+the downstream pipeline tolerates nulls but suffers from misaligned
+slices.
+
+If the TOC is NOT visible in this slice but you can see an Item heading
+directly (e.g. a page that begins "ITEM 5. INITIAL FRANCHISE FEE"),
+return the PDF page number where that heading appears. No offset math
+needed in that case.
+
+═══════════════════════════════════════════════════════════════════════════
+
+Items to locate:
 - Item 5: Initial Franchise Fee
 - Item 6: Other Fees
 - Item 7: Estimated Initial Investment
 - Item 19: Financial Performance Representations
 - Item 20: Outlets and Franchisee Information
 
-If the Table of Contents is in the provided pages, use the page numbers it
-lists. The TOC's page numbers refer to positions in the FULL document
-(which may be 200-700 pages long), NOT to positions in this slice — use
-them as-is. If the TOC is NOT in the provided pages but you can see Item
-headings directly (e.g. a page that begins with "ITEM 5. INITIAL
-FRANCHISE FEE"), return the page number where that heading appears.
-
 Item 19 detection: many franchisors do NOT make Financial Performance
-Representations. If the TOC entry for Item 19 says something like "FINANCIAL
-PERFORMANCE REPRESENTATIONS" but the body says "We do not make any
-financial performance representations" set item_19_present to false. If the
-TOC simply lists Item 19 without that disclaimer, set item_19_present to
-true (the body extractor will verify).
-
-Page numbers must be 1-indexed in the FULL document (not in this slice).
+Representations. If the TOC simply lists Item 19, set item_19_present
+to true (the body extractor will verify by reading the section). Set it
+to false ONLY if the TOC or front matter explicitly says "We do not make
+any financial performance representations".
 
 Return JSON in EXACTLY this shape:
 {
-  "item_5_page": <number or null>,
-  "item_6_page": <number or null>,
-  "item_7_page": <number or null>,
-  "item_19_page": <number or null>,
+  "item_5_page": <PDF page number or null>,
+  "item_6_page": <PDF page number or null>,
+  "item_7_page": <PDF page number or null>,
+  "item_19_page": <PDF page number or null>,
   "item_19_present": <boolean>,
-  "item_20_page": <number or null>,
+  "item_20_page": <PDF page number or null>,
   "total_pages": <number>,
-  "notes": "<any observations about the TOC structure>"
+  "notes": "<your offset calculation: e.g. 'TOC on PDF page 7 shows ii, offset=5'>"
 }`;
 
 interface TocResponse {
