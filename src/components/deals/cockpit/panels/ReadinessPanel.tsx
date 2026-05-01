@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
 import { useCockpitStateContext } from "@/hooks/useCockpitState";
@@ -154,6 +155,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: Props) {
+  const router = useRouter();
   const { lifecycleState, isInitialLoading, error } = useCockpitDataContext();
   const { state: cockpitState, refetch: refetchCockpitState } = useCockpitStateContext();
   const [bankerExplainerOpen, setBankerExplainerOpen] = useState(false);
@@ -479,9 +481,25 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                   <button
                     className="mt-1.5 text-[10px] text-blue-400 hover:text-blue-300 font-medium"
                     onClick={() => {
-                      // Route action based on blocker code
-                      if (blocker.code === "loan_request_missing" || blocker.code === "loan_request_incomplete") {
-                        handleServerAction("loan_request.open");
+                      // Route action based on blocker code.
+                      // loan_request_* is UI-navigation, not a server action: jump to the
+                      // cockpit Setup tab where LoanRequestsSection lives, then scroll to
+                      // the tab panel. (Pre-fix: handleServerAction("loan_request.open")
+                      // posted an unknown action and silently failed.)
+                      if (
+                        blocker.code === "loan_request_missing" ||
+                        blocker.code === "loan_request_incomplete"
+                      ) {
+                        router.push(`/deals/${dealId}/cockpit?tab=setup`);
+                        requestAnimationFrame(() => {
+                          try {
+                            document
+                              .getElementById("secondary-tabs-panel")
+                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                          } catch {
+                            /* DOM may be unmounted mid-navigation */
+                          }
+                        });
                       } else if (blocker.code.startsWith("required_documents")) {
                         window.location.hash = "#cockpit-documents";
                       } else if (blocker.code.includes("review")) {

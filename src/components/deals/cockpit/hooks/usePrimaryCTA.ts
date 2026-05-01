@@ -117,6 +117,34 @@ export function usePrimaryCTA(
 
     // BLOCKED — check document completeness or generic blocker
     if (phase === "BLOCKED") {
+      // Loan-request gate takes priority: until a loan request exists, the rest of the
+      // pipeline can't run, so route the user straight to the Setup tab where
+      // LoanRequestsSection is mounted — not into a doc-upload dead end.
+      const blockerCodes = (lifecycleState?.blockers ?? []).map((b: any) => b.code);
+      const loanRequestBlocker =
+        blockerCodes.includes("loan_request_missing")
+          ? "loan_request_missing"
+          : blockerCodes.includes("loan_request_incomplete")
+            ? "loan_request_incomplete"
+            : null;
+
+      if (loanRequestBlocker) {
+        return {
+          label:
+            loanRequestBlocker === "loan_request_missing"
+              ? "Create Loan Request to Begin Analysis"
+              : "Complete Loan Request to Begin Analysis",
+          intent: "navigate" as const,
+          disabled: false,
+          icon: "request_page",
+          description:
+            loanRequestBlocker === "loan_request_missing"
+              ? "No loan request yet — set product, amount, and term to unblock the pipeline"
+              : "Loan request needs additional fields before analysis can run",
+          href: `/deals/${dealId}/cockpit?tab=setup`,
+        };
+      }
+
       const docsReady = lifecycleState?.derived?.documentsReady ?? false;
       if (!docsReady) {
         const pct = lifecycleState?.derived?.documentsReadinessPct ?? 0;
