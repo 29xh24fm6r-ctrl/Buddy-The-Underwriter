@@ -86,7 +86,7 @@ export async function processDocExtractionOutbox(
       console.log("[doc-extraction] starting extraction", { rowId: row.id, docId, dealId });
 
       const forceRefresh = (row.payload as any)?.force_refresh === true;
-      await extractByDocType(docId, { forceRefresh });
+      const extractResult = await extractByDocType(docId, { forceRefresh });
 
       const elapsedMs = Date.now() - startMs;
       console.log("[doc-extraction] extraction complete", { rowId: row.id, docId, dealId, elapsedMs });
@@ -100,6 +100,64 @@ export async function processDocExtractionOutbox(
           last_error: null,
         })
         .eq("id", row.id);
+
+      // AR collateral hook — outbox-path equivalent of the gate in
+      // extractProcessor.ts. Without this, AR_AGING docs extracted via the
+      // outbox path never reach processArCollateral and downstream tables
+      // (ar_aging_reports / ar_aging_customers / borrowing_base_calculations)
+      // stay empty. The legacy document_jobs path already has this hook;
+      // production traffic flows through the outbox path so this is the one
+      // that matters in practice.
+      if (
+        extractResult.doc.type === "AR_AGING" &&
+        extractResult.result.tables &&
+        process.env.ENABLE_AR_COLLATERAL === "true"
+      ) {
+        try {
+          const { processArCollateral } = await import(
+            "@/lib/processors/arCollateralProcessor"
+          );
+          const arResult = await processArCollateral({
+            dealId,
+            bankId,
+            documentId: docId,
+          });
+          void writeEvent({
+            dealId,
+            kind: arResult.ok
+              ? "intake.ar_collateral_processed"
+              : "intake.ar_collateral_failed",
+            scope: "intake",
+            meta: arResult.ok
+              ? {
+                  doc_id: docId,
+                  report_id: arResult.reportId,
+                  net_availability: arResult.netAvailability,
+                }
+              : {
+                  doc_id: docId,
+                  error: arResult.error,
+                },
+          });
+        } catch (arErr: any) {
+          // Never fail the outbox row on AR side-effect errors — the
+          // primary outcome (document extraction) already succeeded.
+          console.error("[doc-extraction] AR collateral hook threw (non-fatal)", {
+            dealId,
+            docId,
+            error: arErr?.message,
+          });
+          void writeEvent({
+            dealId,
+            kind: "intake.ar_collateral_failed",
+            scope: "intake",
+            meta: {
+              doc_id: docId,
+              error: arErr?.message ?? String(arErr),
+            },
+          });
+        }
+      }
 
       // Post-extraction: trigger deal-level recomputation (idempotent, best-effort)
       void triggerPostExtractionOps(dealId, bankId, docId).catch((e) => {
