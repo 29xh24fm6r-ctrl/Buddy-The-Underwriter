@@ -81,6 +81,7 @@ const EXTRACT_ELIGIBLE_DOC_TYPES = new Set([
   "PERSONAL_FINANCIAL_STATEMENT",
   "PERSONAL_INCOME",
   "SCHEDULE_K1",
+  "AR_AGING",
 ]);
 
 function isExtractEligibleDocType(docType: string): boolean {

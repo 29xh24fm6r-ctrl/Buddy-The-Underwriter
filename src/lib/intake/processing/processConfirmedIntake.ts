@@ -37,6 +37,7 @@ const EXTRACT_ELIGIBLE = new Set([
   "PERSONAL_FINANCIAL_STATEMENT",
   "PERSONAL_INCOME",
   "SCHEDULE_K1",
+  "AR_AGING",
 ]);
 
 // ── Types ──────────────────────────────────────────────────────────────
