@@ -146,10 +146,9 @@ export async function scrapeMnFddBatch(
           if (allResults.length > 0 && pickedYear !== null) break;
 
           // First try the brand name as-is.
-          let yearResults = await searchMnCards({
-            franchiseName: brand.brand_name,
-            year,
-          });
+          let yearResults = await withMnRetryOn429(() =>
+            searchMnCards({ franchiseName: brand.brand_name, year })
+          );
 
           // No FDD-typed row? Try an apostrophe-stripped / shortened variant
           // (same heuristic as WI DFI — cheap retry, server-side substring
@@ -159,10 +158,9 @@ export async function scrapeMnFddBatch(
             if (variant) {
               await sleep(delayMs);
               console.log(`[mn-fdd] retry variant: "${variant}" (year=${year})`);
-              const variantResults = await searchMnCards({
-                franchiseName: variant,
-                year,
-              });
+              const variantResults = await withMnRetryOn429(() =>
+                searchMnCards({ franchiseName: variant, year })
+              );
               if (filterToFddDocs(variantResults).length > 0) {
                 yearResults = variantResults;
               }
@@ -262,7 +260,7 @@ export async function scrapeMnFddBatch(
         if (downloadPdf) {
           await sleep(delayMs);
           try {
-            const pdf = await downloadMnFddPdf(chosen.downloadUrl);
+            const pdf = await withMnRetryOn429(() => downloadMnFddPdf(chosen.downloadUrl));
             stats.downloaded++;
 
             const upload = await uploadFddToGcs(pdf, {
@@ -324,8 +322,14 @@ export async function scrapeMnFddBatch(
         );
         consecutiveErrors = 0;
       } catch (err) {
-        consecutiveErrors++;
         const msg = err instanceof Error ? err.message : String(err);
+        // 429s are handled with backoff inside withMnRetryOn429. If we still
+        // see one here, the helper has exhausted its retries — record the
+        // error but don't count it toward the consecutive-error abort, since
+        // the cause is server-side rate limiting, not our code or MN being
+        // unavailable.
+        const isExhausted429 = /returned\s+429/i.test(msg);
+        if (!isExhausted429) consecutiveErrors++;
         stats.errors.push({ brand_name: brand.brand_name, error: msg });
         console.error(`[mn-fdd] error for ${brand.brand_name}: ${msg}`);
         try {
@@ -393,4 +397,31 @@ export async function scrapeMnFddBatch(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** MN CARDS returns HTTP 429 in bursts when the scraper outpaces the
+ *  server's rate window. Treat 429 as recoverable: sleep with exponential
+ *  backoff (30s, 60s, 120s) and retry up to 3 times. Any other error
+ *  propagates immediately. After all retries fail, the original 429 error
+ *  is rethrown — the caller's outer catch is expected to detect this and
+ *  skip incrementing the consecutive-error counter. */
+async function withMnRetryOn429<T>(operation: () => Promise<T>): Promise<T> {
+  const MAX_RETRIES = 3;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/returned\s+429/i.test(msg)) throw err;
+      if (attempt === MAX_RETRIES) break;
+      const sleepMs = 30_000 * 2 ** attempt; // 30s, 60s, 120s
+      console.log(
+        `[mn-fdd] 429 backoff: sleeping ${sleepMs}ms before retry ${attempt + 1}/${MAX_RETRIES}`
+      );
+      await sleep(sleepMs);
+    }
+  }
+  throw lastErr;
 }
