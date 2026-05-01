@@ -8,6 +8,7 @@ import {
   computeMonthlyPI,
   type PricingInputs,
 } from "@/lib/pricing/explainability";
+import { verifyDealIdMatch } from "@/lib/integrity/dealIdGuard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -38,6 +39,22 @@ export async function GET(
 
   if (qErr || !quote) {
     return NextResponse.json({ ok: false, error: "quote not found" }, { status: 404 });
+  }
+
+  // P0c integrity guard: defense-in-depth. The .eq("deal_id", dealId) filter
+  // above should make a mismatch impossible — if it ever isn't, fail loudly
+  // and never fall back to foreign data. Mismatch fires
+  // data_integrity.deal_id_mismatch to deal_events.
+  const quoteCheck = verifyDealIdMatch(quote as { deal_id: string | null }, dealId, {
+    surface: "pricing/quote/memo-block",
+    recordKind: "DealPricingQuote",
+    recordId: quoteId,
+  });
+  if (!quoteCheck.ok) {
+    return NextResponse.json(
+      { ok: false, error: "data_integrity_violation", reason: quoteCheck.reason },
+      { status: 409 },
+    );
   }
 
   const { data: memoRow } = await sb

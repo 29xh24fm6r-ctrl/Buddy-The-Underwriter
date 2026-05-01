@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureGeometryForAttachment } from "@/lib/evidence/ensureGeometry";
+import { verifyDealIdMatch } from "@/lib/integrity/dealIdGuard";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -20,11 +21,14 @@ export async function GET(
   const { dealId, memoId } = await ctx.params;
   const sb = supabaseAdmin();
 
-  // Choose attachment(s) from citations
+  // Choose attachment(s) from citations.
+  // P0c: include deal_id in the select so the integrity guard below can verify
+  // each row's deal_id matches the route, even though the .eq filter already
+  // restricts the query.
   const cits = await sb
     .from("credit_memo_citations")
     .select(
-      "id, block_id, attachment_id, page_number, page_char_start, page_char_end, global_char_start, global_char_end, label",
+      "id, deal_id, block_id, attachment_id, page_number, page_char_start, page_char_end, global_char_start, global_char_end, label",
     )
     .eq("deal_id", dealId)
     .eq("memo_draft_id", memoId);
@@ -34,6 +38,25 @@ export async function GET(
       { ok: false, error: cits.error.message },
       { status: 500 },
     );
+
+  // P0c integrity guard: defense-in-depth on every citation row.
+  for (const row of cits.data ?? []) {
+    const check = verifyDealIdMatch(
+      row as { deal_id: string | null; id?: string },
+      dealId,
+      {
+        surface: "credit-memo/geometry",
+        recordKind: "CreditMemoCitation",
+        recordId: (row as { id?: string }).id ?? null,
+      },
+    );
+    if (!check.ok) {
+      return NextResponse.json(
+        { ok: false, error: "data_integrity_violation", reason: check.reason },
+        { status: 409 },
+      );
+    }
+  }
 
   const citations = cits.data || [];
   const attachmentIds = Array.from(

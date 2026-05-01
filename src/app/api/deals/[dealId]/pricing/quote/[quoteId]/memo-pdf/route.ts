@@ -92,6 +92,19 @@ export async function buildPricingMemoAppendixPdfBytes(
     throw new MemoPdfError(404, "quote not found");
   }
 
+  // P0c integrity guard: cross-deal data must surface as 409, never as a
+  // rendered PDF. We throw a MemoPdfError so the existing handler catch
+  // returns a structured error response.
+  const { verifyDealIdMatch } = await import("@/lib/integrity/dealIdGuard");
+  const quoteCheck = verifyDealIdMatch(quote as { deal_id: string | null }, dealId, {
+    surface: "pricing/quote/memo-pdf",
+    recordKind: "DealPricingQuote",
+    recordId: quoteId,
+  });
+  if (!quoteCheck.ok) {
+    throw new MemoPdfError(409, "data_integrity_violation");
+  }
+
   const { data: memoRow } = await sb
     .from("deal_pricing_memo_blocks")
     .select("content_md")
