@@ -8,7 +8,10 @@ import { normalizeGoogleError } from "@/lib/google/errors";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
 
-const DEFAULT_LOAN_TYPE = "CRE_OWNER_OCCUPIED";
+// Must match the DB CHECK constraint on deal_intake.loan_type:
+//   ('CRE','LOC','TERM','SBA_7A','SBA_504')
+// See migration 20251219000021_step17_18_intake_and_channels.sql.
+const DEFAULT_LOAN_TYPE = "CRE";
 
 type InitializeIntakeTrigger =
   | "context"
