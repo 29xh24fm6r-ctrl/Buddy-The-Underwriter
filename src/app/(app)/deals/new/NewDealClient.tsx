@@ -9,6 +9,7 @@ import { markUploadsCompletedAction } from "./actions";
 import { computeTaxYears } from "@/lib/intake/slots/taxYears";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 import { IntakeReviewTable } from "@/components/deals/intake/IntakeReviewTable";
+import { SafeBoundary } from "@/components/SafeBoundary";
 
 type DealMode = "staging" | "classifying" | "review" | "submitting";
 
@@ -774,16 +775,25 @@ export default function NewDealClient({
         </div>
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto p-8">
-            <IntakeReviewTable
-              dealId={createdDealId}
-              onNeedsReview={() => {}}
-              onSubmitted={() => {
-                setMode("submitting");
-                router.push(
-                  `/deals/${createdDealId}/cockpit${createdDealName ? `?n=${encodeURIComponent(createdDealName)}` : ""}`,
-                );
-              }}
-            />
+            {/*
+              Wrap in SafeBoundary so a render-phase throw inside the review
+              table (or any of its child cards/effects) cannot blank the page
+              after a successful upload. Uploaded docs still exist in the DB —
+              the boundary lets the user see what failed and refresh, instead
+              of a silent crash.
+            */}
+            <SafeBoundary>
+              <IntakeReviewTable
+                dealId={createdDealId}
+                onNeedsReview={() => {}}
+                onSubmitted={() => {
+                  setMode("submitting");
+                  router.push(
+                    `/deals/${createdDealId}/cockpit${createdDealName ? `?n=${encodeURIComponent(createdDealName)}` : ""}`,
+                  );
+                }}
+              />
+            </SafeBoundary>
           </div>
         </div>
       </div>
@@ -1142,16 +1152,24 @@ export default function NewDealClient({
                   Processing uploads... Documents will appear below as classification completes.
                 </div>
               </div>
-              <IntakeReviewTable
-                dealId={createdDealId}
-                onNeedsReview={() => setMode("review")}
-                onSubmitted={() => {
-                  setMode("submitting");
-                  router.push(
-                    `/deals/${createdDealId}/cockpit${createdDealName ? `?n=${encodeURIComponent(createdDealName)}` : ""}`,
-                  );
-                }}
-              />
+              {/*
+                Same SafeBoundary as the review-mode mount above: a throw
+                here (hydration mismatch, ref-after-unmount, etc.) must not
+                tear down the entire NewDealClient tree, since the upload
+                itself already succeeded server-side.
+              */}
+              <SafeBoundary>
+                <IntakeReviewTable
+                  dealId={createdDealId}
+                  onNeedsReview={() => setMode("review")}
+                  onSubmitted={() => {
+                    setMode("submitting");
+                    router.push(
+                      `/deals/${createdDealId}/cockpit${createdDealName ? `?n=${encodeURIComponent(createdDealName)}` : ""}`,
+                    );
+                  }}
+                />
+              </SafeBoundary>
             </div>
           )}
         </div>
