@@ -954,9 +954,13 @@ export async function buildCanonicalCreditMemo(args: {
     }
 
     // ===== Phase 33: Build eligibility =====
-    const isSbaDeal = (deal as any)?.deal_type === "SBA" ||
-      (loanReq as any)?.product_type?.toUpperCase?.()?.includes("SBA") ||
-      false;
+    // P0a: prefer deals.product_type via shared helper. Loan request product_type
+    // is also honored as a secondary signal (legacy callers pass it on the loan
+    // request rather than the deal).
+    const { requiresSBAChecklist } = await import("@/lib/deals/dealProductType");
+    const isSbaDeal =
+      requiresSBAChecklist(deal as { deal_type?: string | null; product_type?: string | null }) ||
+      Boolean((loanReq as any)?.product_type?.toUpperCase?.()?.includes("SBA"));
 
     const eligibility: CanonicalCreditMemoV1["eligibility"] = {
       naics_code: borrower?.naics_code ?? null,
