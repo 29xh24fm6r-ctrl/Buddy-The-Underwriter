@@ -719,40 +719,77 @@ function LoanRequestForm({
 // ---------------------------------------------------------------------------
 
 export function LoanRequestsSection({ dealId }: { dealId: string }) {
-  const [loading, setLoading] = useState(true);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [productTypesLoading, setProductTypesLoading] = useState(true);
   const [requests, setRequests] = useState<LoanRequest[]>([]);
   const [productTypes, setProductTypes] = useState<ProductTypeConfig[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [productTypesError, setProductTypesError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingRequest, setEditingRequest] = useState<LoanRequest | null>(
     null,
   );
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
+  // Loan requests and product-types are fetched independently. Previously they
+  // were chained through a single Promise.all + single `loading` flag — if the
+  // product-types endpoint hung (cold start, slow auth lookup), the entire
+  // section was stuck at "Loading loan requests..." with no recourse, even
+  // though the empty-state and CTA only need the requests list.
+  const loadRequests = useCallback(async () => {
     setError(null);
-    setLoading(true);
+    setRequestsLoading(true);
     try {
-      const [reqRes, ptRes] = await Promise.all([
-        fetch(`/api/deals/${dealId}/loan-requests`, { cache: "no-store" }),
-        fetch("/api/loan-product-types", { cache: "no-store" }),
-      ]);
-      const reqJson = await reqRes.json();
-      const ptJson = await ptRes.json();
-      if (!reqJson?.ok)
-        throw new Error(reqJson?.error ?? "Failed to load loan requests");
-      setRequests(reqJson.requests ?? []);
-      setProductTypes(ptJson.productTypes ?? []);
+      const res = await fetch(`/api/deals/${dealId}/loan-requests`, {
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok)
+        throw new Error(json?.error ?? "Failed to load loan requests");
+      setRequests(json.requests ?? []);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
-      setLoading(false);
+      setRequestsLoading(false);
     }
   }, [dealId]);
 
+  const loadProductTypes = useCallback(async () => {
+    setProductTypesError(null);
+    setProductTypesLoading(true);
+    // 15s ceiling so a stalled endpoint can't pin the form forever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const res = await fetch("/api/loan-product-types", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok)
+        throw new Error(json?.error ?? "Failed to load loan product types");
+      setProductTypes(json.productTypes ?? []);
+    } catch (e: any) {
+      const aborted = e?.name === "AbortError";
+      setProductTypesError(
+        aborted
+          ? "Loan products timed out. Refresh to retry."
+          : e?.message ?? "Failed to load loan products",
+      );
+    } finally {
+      clearTimeout(timer);
+      setProductTypesLoading(false);
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    await Promise.all([loadRequests(), loadProductTypes()]);
+  }, [loadRequests, loadProductTypes]);
+
   useEffect(() => {
-    load();
-  }, [load]);
+    loadRequests();
+    loadProductTypes();
+  }, [loadRequests, loadProductTypes]);
 
   async function handleSave(input: LoanRequestInput) {
     setSaving(true);
@@ -823,13 +860,18 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
     }
   }
 
-  if (loading) {
+  // Block the section only while the loan-requests list itself is in flight.
+  // Product-types load independently — see comment on loadProductTypes.
+  if (requestsLoading) {
     return (
       <div className="rounded-xl border bg-white p-4 text-sm text-slate-500">
         Loading loan requests...
       </div>
     );
   }
+
+  const productTypesReady = !productTypesLoading && productTypes.length > 0;
+  const productTypesEmpty = !productTypesLoading && productTypes.length === 0 && !productTypesError;
 
   return (
     <div className="rounded-xl border bg-white p-4">
@@ -842,13 +884,20 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
             What the borrower is asking for
           </div>
         </div>
-        {!showForm && !editingRequest && productTypes.length > 0 && (
+        {!showForm && !editingRequest && (
           <button
             onClick={() => {
               setEditingRequest(null);
               setShowForm(true);
             }}
-            disabled={saving}
+            disabled={saving || productTypesLoading || !productTypesReady}
+            title={
+              productTypesLoading
+                ? "Loading loan products..."
+                : !productTypesReady
+                  ? "Loan products unavailable — refresh to retry"
+                  : undefined
+            }
             className="rounded-md border px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             + Add Request
@@ -862,15 +911,26 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
         </div>
       )}
 
-      {/* No products configured */}
-      {productTypes.length === 0 && !loading && (
+      {/* Product-types fetch failed/timed out — banker can still see the
+          section but cannot create until refreshed. */}
+      {productTypesError && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          {productTypesError}
+        </div>
+      )}
+
+      {/* No products configured for this bank (clean empty result, not a fetch error) */}
+      {productTypesEmpty && (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
           No loan products configured for this bank. Contact an administrator to set up available loan products.
         </div>
       )}
 
-      {/* Empty state */}
-      {requests.length === 0 && !showForm && !editingRequest && productTypes.length > 0 && (
+      {/* Empty state — render whenever the requests list is known to be empty,
+          even if product-types is still loading. Previously this was gated on
+          productTypes.length > 0 which made the CTA invisible during slow
+          loads of /api/loan-product-types. */}
+      {requests.length === 0 && !showForm && !editingRequest && (
         <div className="mt-4 rounded-lg border-2 border-dashed border-slate-200 p-6 text-center">
           <div className="text-sm font-medium text-slate-600">
             No loan requests yet
@@ -880,9 +940,17 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
           </div>
           <button
             onClick={() => setShowForm(true)}
-            className="mt-3 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            disabled={productTypesLoading || !productTypesReady}
+            title={
+              productTypesLoading
+                ? "Loading loan products..."
+                : !productTypesReady
+                  ? "Loan products unavailable — refresh to retry"
+                  : undefined
+            }
+            className="mt-3 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            Add Loan Request
+            {productTypesLoading ? "Loading products..." : "Add Loan Request"}
           </button>
         </div>
       )}
