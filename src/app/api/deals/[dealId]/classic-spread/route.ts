@@ -6,6 +6,7 @@ import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
 import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,11 +23,35 @@ export async function GET(_req: Request, ctx: Ctx) {
     }
 
     const input = await loadClassicSpreadData(dealId);
+    const bankId = (access as any).bankId as string;
+
+    // P0b preflight gate: if balance-sheet or income-statement rows are empty,
+    // the renderer would emit "data not available" placeholders ("PENDING
+    // AUTOFILL"-class output). Block PDF generation and return a structured
+    // blocker instead. Fires spread.preflight.blocked to deal_events for
+    // observability.
+    const preflight = await preflightClassicSpread({
+      dealId,
+      bankId,
+      balanceSheetRowCount: input.balanceSheet.length,
+      incomeStatementRowCount: input.incomeStatement.length,
+    });
+    if (preflight.status === "blocked") {
+      return NextResponse.json(
+        {
+          status: "blocked",
+          reason: preflight.reason,
+          missingFacts: preflight.missingFacts,
+          sourceDocuments: preflight.sourceDocuments,
+          message: preflight.userMessage,
+        },
+        { status: 409, headers: { "cache-control": "no-store" } },
+      );
+    }
+
     // Narrative is optional — graceful fallback if API key missing or call fails
     const narrative = await generateSpreadNarrative(input).catch(() => null);
     const pdf = await renderClassicSpread(input, narrative);
-
-    const bankId = (access as any).bankId as string;
 
     // Bridge: persist computed debt service metrics → facts → snapshot.
     // Awaited before response — Vercel kills background promises on response send.
