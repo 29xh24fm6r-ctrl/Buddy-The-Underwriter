@@ -101,6 +101,8 @@ services/buddy-core-worker/dist/
 # franchise-sync-worker build artifacts
 services/franchise-sync-worker/node_modules/
 services/franchise-sync-worker/dist/
+services/franchise-fdd-extractor/node_modules/
+services/franchise-fdd-extractor/dist/
 .env*.local
 gh_2.65.0_linux_amd64/
 
