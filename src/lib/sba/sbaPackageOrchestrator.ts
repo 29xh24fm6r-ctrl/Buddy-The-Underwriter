@@ -261,6 +261,11 @@ export async function generateSBAPackage(
     sellerFinancingAmount: assumptions.loanImpact.sellerFinancingAmount ?? 0,
     otherSources: assumptions.loanImpact.otherSources ?? [],
     useOfProceeds,
+    // Seller-note-as-equity inputs are not yet sourced from this assumption
+    // bundle; default to zero / false so the seller-note check is a no-op
+    // here. S2 will populate these from the deal-data builder.
+    sellerNoteEquityPortion: 0,
+    sellerNoteFullStandby: false,
     isNewBusiness,
   });
 

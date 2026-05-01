@@ -64,8 +64,11 @@ export function detectSBAProgram(dealType: string | null): SBAProgram {
   if (!dealType) return "unknown";
   const t = dealType.toLowerCase();
   if (t.includes("504")) return "sba_504";
-  if (t.includes("express")) return "sba_7a_express";
+  // Check more specific labels first: "export_express" contains "express",
+  // so the export check must precede the bare-express check or Export
+  // Express deals get misclassified as 50%-guarantee Express deals.
   if (t.includes("export")) return "sba_7a_export_express";
+  if (t.includes("express")) return "sba_7a_express";
   if (t.includes("international") || t.includes("trade"))
     return "sba_7a_international_trade";
   if (t.includes("micro")) return "sba_microloan";

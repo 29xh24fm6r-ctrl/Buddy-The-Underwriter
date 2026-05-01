@@ -72,10 +72,14 @@ export async function evaluateSBAEligibility({
   const sb = supabaseAdmin();
 
   // 1. Fetch applicable rules
+  // SOP 50 10 8 migration introduced policy_version + superseded_at columns.
+  // Without this filter the engine evaluates against both 50 10 7(K) and
+  // 50 10 8 rules and produces contradictory results. See SPEC-S1 §B-2.
   const { data: rules } = await sb
     .from("sba_policy_rules")
     .select("*")
     .or(`program.eq.${program},program.eq.BOTH`)
+    .is("superseded_at", null)
     .order("severity", { ascending: false }); // HARD_STOP first
 
   if (!rules || rules.length === 0) {

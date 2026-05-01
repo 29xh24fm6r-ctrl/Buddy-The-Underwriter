@@ -2,9 +2,15 @@
 // Phase BPG — Sources & Uses waterfall with equity injection validation.
 // Pure function: no DB, no LLM, no I/O.
 //
-// Equity injection minimums (SOP 50 10 guidance):
-//   - Existing business (change of ownership / expansion): 10%
-//   - New business (startup): 20%
+// Equity injection minimum (SOP 50 10 8):
+//   10% of total project cost for both startups and complete changes of
+//   ownership. The pre-2021 startup-vs-existing distinction (20% vs 10%)
+//   was eliminated.
+//
+// Seller note rule (SOP 50 10 8 §B Ch.2):
+//   A seller note may count toward the equity injection only if (a) it is
+//   on full standby for the entire SBA loan term and (b) it does not exceed
+//   50% of the equity injection.
 
 import type { UseOfProceedsLine } from "./sbaReadinessTypes";
 
@@ -28,6 +34,14 @@ export interface UseLine {
   category: string;
 }
 
+export interface SellerNoteCheck {
+  sellerNoteAmount: number;
+  sellerNotePctOfEquity: number;
+  fullStandbyConfirmed: boolean;
+  passes: boolean;
+  failureReason: string | null;
+}
+
 export interface EquityInjectionCheck {
   required: boolean;
   minimumPct: number;
@@ -36,6 +50,7 @@ export interface EquityInjectionCheck {
   totalSourcesExcludingEquity: number;
   passes: boolean;
   shortfallAmount: number;
+  sellerNoteCheck: SellerNoteCheck;
 }
 
 export interface SourcesAndUsesResult {
@@ -55,7 +70,23 @@ export interface BuildSourcesAndUsesInput {
   sellerFinancingAmount: number;
   otherSources: Array<{ description: string; amount: number }>;
   useOfProceeds: UseOfProceedsLine[];
-  isNewBusiness: boolean;
+  /**
+   * Portion of the equity injection contributed by a seller note
+   * (subset of equityInjectionAmount). Must be on full standby for the
+   * SBA loan term and ≤ 50% of equity to be permitted.
+   */
+  sellerNoteEquityPortion: number;
+  /**
+   * True if the seller note (when used as equity) is on full standby for
+   * the entire SBA loan term. Required when sellerNoteEquityPortion > 0.
+   */
+  sellerNoteFullStandby: boolean;
+  /**
+   * @deprecated SOP 50 10 8 sets a single 10% minimum. Retained for
+   * backward compatibility with existing call sites; no longer affects
+   * the minimum equity threshold.
+   */
+  isNewBusiness?: boolean;
 }
 
 function pct(part: number, whole: number): number {
@@ -73,7 +104,6 @@ export function buildSourcesAndUses(
     sellerFinancingAmount,
     otherSources,
     useOfProceeds,
-    isNewBusiness,
   } = input;
 
   const totalUses = useOfProceeds.reduce((sum, u) => sum + (u.amount || 0), 0);
@@ -130,14 +160,43 @@ export function buildSourcesAndUses(
     category: u.category,
   }));
 
-  // Equity injection minimum: 20% for new business, 10% for existing
-  const minimumPct = isNewBusiness ? 0.2 : 0.1;
+  // SOP 50 10 8 sets equity injection minimum at 10% for both startups and
+  // complete changes of ownership. Pre-2021 distinction (20% vs 10%) eliminated.
+  const minimumPct = 0.10;
   const totalSourcesExcludingEquity = totalSources - equityInjectionAmount;
   const actualPct = pct(equityInjectionAmount, totalSources);
-  const passes = actualPct >= minimumPct;
-  const shortfallAmount = passes
+  const passesMinimum = actualPct >= minimumPct;
+  const shortfallAmount = passesMinimum
     ? 0
     : Math.max(0, Math.round(minimumPct * totalSources - equityInjectionAmount));
+
+  const sellerNoteAmount = Math.max(0, input.sellerNoteEquityPortion ?? 0);
+  const sellerNotePctOfEquity =
+    equityInjectionAmount > 0 ? sellerNoteAmount / equityInjectionAmount : 0;
+  const sellerNoteWithinCap = sellerNotePctOfEquity <= 0.50;
+  const sellerNoteStandbyOK =
+    sellerNoteAmount === 0 || (input.sellerNoteFullStandby ?? false);
+  const sellerNotePasses = sellerNoteWithinCap && sellerNoteStandbyOK;
+
+  let sellerNoteFailureReason: string | null = null;
+  if (!sellerNoteWithinCap) {
+    sellerNoteFailureReason =
+      `Seller note ($${sellerNoteAmount.toLocaleString()}) exceeds 50% of equity ` +
+      `injection ($${equityInjectionAmount.toLocaleString()}).`;
+  } else if (!sellerNoteStandbyOK) {
+    sellerNoteFailureReason =
+      `Seller note used as equity must be on full standby for the SBA loan term.`;
+  }
+
+  const sellerNoteCheck: SellerNoteCheck = {
+    sellerNoteAmount,
+    sellerNotePctOfEquity,
+    fullStandbyConfirmed: input.sellerNoteFullStandby ?? false,
+    passes: sellerNotePasses,
+    failureReason: sellerNoteFailureReason,
+  };
+
+  const passesAll = passesMinimum && sellerNotePasses;
 
   const imbalance = totalSources - totalUses;
   const balanced = Math.abs(imbalance) < 1; // within $1 rounding
@@ -155,8 +214,9 @@ export function buildSourcesAndUses(
       actualPct,
       actualAmount: equityInjectionAmount,
       totalSourcesExcludingEquity,
-      passes,
+      passes: passesAll,
       shortfallAmount,
+      sellerNoteCheck,
     },
   };
 }
