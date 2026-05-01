@@ -4,6 +4,7 @@ import { getPool, shutdown } from './db.js';
 import { syncSbaDirectory } from './syncSbaDirectory.js';
 import { scrapeWiFddBatch } from './scrapeWiFdd.js';
 import { scrapeMnFddBatch } from './scrapeMnFdd.js';
+import { scrapeNasaaEfdBatch } from './scrapeNasaaEfd.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
@@ -105,6 +106,36 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[franchise-sync-worker] MN FDD scrape failed: ${msg}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: msg }));
+    }
+    return;
+  }
+
+  // NASAA EFD Franchise Search scrape (batch)
+  if (req.method === 'POST' && path === '/scrape-nasaa-fdd') {
+    if (!checkAuth(req, res)) return;
+    const qs = readJsonQuery(req.url);
+    const batchSize = parseInt(qs.get('batchSize') || '50', 10);
+    const delayMs = parseInt(qs.get('delayMs') || '3000', 10);
+    const downloadPdf = qs.get('downloadPdf') !== 'false';
+    const brandFilter = qs.get('brandFilter') || undefined;
+    try {
+      console.log(
+        `[franchise-sync-worker] NASAA EFD scrape triggered (batchSize=${batchSize}, delayMs=${delayMs}, downloadPdf=${downloadPdf}, brandFilter=${brandFilter ?? '-'})`
+      );
+      const pool = getPool();
+      const stats = await scrapeNasaaEfdBatch(pool, {
+        batchSize,
+        delayMs,
+        downloadPdf,
+        brandFilter,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, stats }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[franchise-sync-worker] NASAA EFD scrape failed: ${msg}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: msg }));
     }
