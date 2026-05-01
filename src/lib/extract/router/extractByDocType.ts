@@ -499,6 +499,57 @@ export async function extractByDocType(
       }
     }
 
+    // AR_AGING-specific table normalization. We need document_extracts.tables_json
+    // populated for the AR collateral processor — Gemini OCR returns text only,
+    // so reconstruct the table from text (or normalize native tables if present).
+    if (canonicalType === "AR_AGING" || doc.type === "AR_AGING") {
+      const { extractArAgingTables } = await import("@/lib/extraction/arAgingTableExtractor");
+      const arOut = extractArAgingTables({
+        text: result.fields.extractedText,
+        tables: result.tables,
+        fields: result.fields,
+        filename: doc.original_filename ?? null,
+      });
+
+      if (arOut.tables.length > 0) {
+        result.tables = arOut.tables.map((t) => ({
+          name: "ar_aging",
+          columns: t.rows[0] ?? [],
+          rows: t.rows,
+        }));
+        result.fields = { ...result.fields, ...arOut.fields };
+        (provider_metrics as any).ar_aging = {
+          source: arOut.tables[0]?.source,
+          confidence: arOut.tables[0]?.confidence,
+          ...arOut.diagnostics,
+        };
+      } else {
+        (provider_metrics as any).ar_aging = {
+          source: "none",
+          confidence: 0,
+          ...arOut.diagnostics,
+        };
+        // Replace silent skip with an explicit ledger event so downstream
+        // operators can see WHY no borrowing base was computed.
+        const { writeEvent } = await import("@/lib/ledger/writeEvent");
+        void writeEvent({
+          dealId: doc.deal_id,
+          kind: "ar_aging_tables_missing",
+          scope: "extraction",
+          action: "tables_missing",
+          requiresHumanReview: true,
+          meta: {
+            document_id: docId,
+            deal_id: doc.deal_id,
+            routing_class: routingClass,
+            extractor: "arAgingTableExtractor@v1",
+            reason: arOut.diagnostics.reason ?? "no_tables_emitted",
+            diagnostics: arOut.diagnostics,
+          },
+        });
+      }
+    }
+
     const elapsedMs = Date.now() - started;
 
     console.log("[SmartRouter] Extraction completed", {
