@@ -9,56 +9,77 @@ import type {
   TocResult,
 } from './types.js';
 
-/** Bracket size around an item's TOC-reported start page. The TOC often
- *  understates by a page or two (page 76 in the TOC may actually be 78
- *  in the PDF if the front matter is unnumbered). A ±2 buffer on each
- *  side and a 6-8 page span downstream catches almost every layout. */
 const ITEM_PAGE_BUFFER_BEFORE = 2;
 
-function pageRange(start: number | null, after: number, totalPages: number): {
-  startPage: number;
-  endPage: number;
-} | null {
-  if (!start) return null;
-  const startPage = Math.max(1, start - ITEM_PAGE_BUFFER_BEFORE);
-  const endPage = Math.min(totalPages, start + after);
+/** Compute the slice range for an item.
+ *
+ *  Rule: when the TOC tells us the next known item starts at page N, we
+ *  slice up to page N-1 (the natural end of the current item). The
+ *  `defaultAfter` cap is the fallback when we don't know the next item's
+ *  page (item20 has nothing after it in our TOC; item7's "next known" in
+ *  our TOC is item19, which is too far away to be useful).
+ *
+ *  Final endPage = min(thisPage + defaultAfter, nextKnownPage - 1, totalPages).
+ *  Final startPage = max(1, thisPage - ITEM_PAGE_BUFFER_BEFORE). */
+function pageRange(args: {
+  thisPage: number | null;
+  nextKnownPage: number | null;
+  defaultAfter: number;
+  totalPages: number;
+}): { startPage: number; endPage: number } | null {
+  const { thisPage, nextKnownPage, defaultAfter, totalPages } = args;
+  if (!thisPage) return null;
+
+  const startPage = Math.max(1, thisPage - ITEM_PAGE_BUFFER_BEFORE);
+  let endPage = thisPage + defaultAfter;
+  if (nextKnownPage && nextKnownPage > thisPage) {
+    endPage = Math.min(endPage, nextKnownPage - 1);
+  }
+  endPage = Math.max(thisPage, Math.min(totalPages, endPage));
   return { startPage, endPage };
 }
 
-const ITEM_5_6_PROMPT = `You are extracting fee information from a Franchise Disclosure Document (FDD).
+const ITEM_5_PROMPT = `You are extracting Item 5 (Initial Franchise Fee) from a Franchise Disclosure Document (FDD).
 
-The pages provided contain Item 5 (Initial Franchise Fee) and possibly Item 6 (Other Fees).
+Item 5 discloses the initial fee paid by the franchisee for the right to operate a franchise.
 
-ITEM 5 — Initial Franchise Fee:
-- franchise_fee: The initial franchise fee amount. If a single value, use it for both min and max. If a range (e.g. "$25,000 to $50,000"), capture both. If tiered by territory size, use the lowest value for min and highest for max.
-- franchise_fee_refundable: Is the fee refundable? (true/false)
+Extract:
+- franchise_fee_min: The lowest initial franchise fee (in dollars). If a single value (e.g. "$45,000"), use that for both min and max. If a range (e.g. "$25,000 to $50,000"), use 25000. If tiered by territory or unit type, use the lowest.
+- franchise_fee_max: The highest initial franchise fee. For a single-value fee, equal to min.
+- refundable: Is the initial franchise fee refundable? true / false / null if not stated.
 
-ITEM 6 — Other Fees:
-- royalty_pct: Ongoing royalty as a DECIMAL fraction of gross sales (e.g. 0.06 for 6%, 0.045 for 4.5%). If royalty is a fixed dollar amount, set royalty_pct to null and royalty_type="fixed".
-- royalty_type: "percentage", "fixed", or "graduated"
-- ad_fund_pct: Advertising/marketing fund as a DECIMAL fraction (e.g. 0.02 for 2%)
-- technology_fee_monthly: Monthly technology/systems fee in dollars (if disclosed)
-
-If a field cannot be confidently determined from the pages, return null for that field.
+If a field cannot be confidently determined, return null for that field.
 
 Return JSON:
 {
-  "item_5": {
-    "franchise_fee_min": <number|null>,
-    "franchise_fee_max": <number|null>,
-    "refundable": <boolean|null>
-  },
-  "item_6": {
-    "royalty_pct": <number|null>,
-    "royalty_type": "<string|null>",
-    "ad_fund_pct": <number|null>,
-    "technology_fee_monthly": <number|null>
-  }
+  "franchise_fee_min": <number|null>,
+  "franchise_fee_max": <number|null>,
+  "refundable": <boolean|null>
+}`;
+
+const ITEM_6_PROMPT = `You are extracting Item 6 (Other Fees) from a Franchise Disclosure Document (FDD).
+
+Item 6 lists ongoing fees the franchisee must pay during the term of the franchise — royalty, advertising fund, technology, transfer, audit, etc.
+
+Extract:
+- royalty_pct: Ongoing royalty as a DECIMAL fraction of gross sales (e.g. 0.06 for 6%, 0.045 for 4.5%). If royalty is a fixed dollar amount, set royalty_pct to null and royalty_type="fixed".
+- royalty_type: "percentage", "fixed", or "graduated"
+- ad_fund_pct: Advertising/marketing fund or brand fund as a DECIMAL fraction (e.g. 0.02 for 2%)
+- technology_fee_monthly: Monthly technology/systems fee in dollars (if disclosed)
+
+If a field cannot be confidently determined, return null for that field.
+
+Return JSON:
+{
+  "royalty_pct": <number|null>,
+  "royalty_type": "<string|null>",
+  "ad_fund_pct": <number|null>,
+  "technology_fee_monthly": <number|null>
 }`;
 
 const ITEM_7_PROMPT = `You are extracting the Estimated Initial Investment table from a Franchise Disclosure Document (FDD) Item 7.
 
-Item 7 lists each expense category with a low and high estimate. Below the table, the franchisor often discloses net worth and liquidity requirements for prospective franchisees.
+Item 7 lists each expense category with a low and high estimate. The table ends with a TOTAL row. Below the table the franchisor often discloses net worth and liquidity requirements for prospective franchisees (sometimes immediately after, sometimes in narrative footnotes).
 
 Extract:
 - total_investment_min: TOTAL row, low column
@@ -139,16 +160,13 @@ Return JSON:
   "company_owned": <number|null>
 }`;
 
-interface RawItem5_6 {
-  item_5?: { franchise_fee_min?: unknown; franchise_fee_max?: unknown; refundable?: unknown };
-  item_6?: {
-    royalty_pct?: unknown;
-    royalty_type?: unknown;
-    ad_fund_pct?: unknown;
-    technology_fee_monthly?: unknown;
-  };
+interface RawItem5 { franchise_fee_min?: unknown; franchise_fee_max?: unknown; refundable?: unknown }
+interface RawItem6 {
+  royalty_pct?: unknown;
+  royalty_type?: unknown;
+  ad_fund_pct?: unknown;
+  technology_fee_monthly?: unknown;
 }
-
 interface RawItem7 {
   total_investment_min?: unknown;
   total_investment_max?: unknown;
@@ -156,7 +174,6 @@ interface RawItem7 {
   liquidity_requirement?: unknown;
   line_items?: Array<{ category?: unknown; amount_low?: unknown; amount_high?: unknown; notes?: unknown }>;
 }
-
 interface RawItem19 {
   has_item_19?: unknown;
   fiscal_year?: unknown;
@@ -171,7 +188,6 @@ interface RawItem19 {
   }>;
   notes?: unknown;
 }
-
 interface RawItem20 {
   fiscal_year?: unknown;
   total_units?: unknown;
@@ -198,46 +214,84 @@ function bool(v: unknown): boolean | null {
   return null;
 }
 
-export async function extractItem5And6(
+export async function extractItem5(
   pdfBuffer: Buffer,
   toc: TocResult
-): Promise<{ item5: Item5Result | null; item6: Item6Result | null; modelUsed: string }> {
-  const range = pageRange(toc.item5Page, 8, toc.totalPages);
-  if (!range) return { item5: null, item6: null, modelUsed: '' };
+): Promise<{ item5: Item5Result | null; modelUsed: string }> {
+  const range = pageRange({
+    thisPage: toc.item5Page,
+    nextKnownPage: toc.item6Page,
+    defaultAfter: 10,
+    totalPages: toc.totalPages,
+  });
+  if (!range) return { item5: null, modelUsed: '' };
 
   const slice = await slicePdfPages(pdfBuffer, range.startPage, range.endPage);
-  const res = await callGeminiForExtraction<RawItem5_6>({
-    logTag: 'items5_6',
-    prompt: ITEM_5_6_PROMPT,
+  const res = await callGeminiForExtraction<RawItem5>({
+    logTag: 'item5',
+    prompt: ITEM_5_PROMPT,
     pdfBase64: slice.pdf.toString('base64'),
   });
   if (!res.ok || !res.result) {
-    return { item5: null, item6: null, modelUsed: res.modelUsed };
+    return { item5: null, modelUsed: res.modelUsed };
   }
   const r = res.result;
-  const item5 = r.item_5
-    ? {
-        franchiseFeeMin: num(r.item_5.franchise_fee_min),
-        franchiseFeeMax: num(r.item_5.franchise_fee_max),
-        refundable: bool(r.item_5.refundable),
-      }
-    : null;
-  const item6 = r.item_6
-    ? {
-        royaltyPct: num(r.item_6.royalty_pct),
-        royaltyType: str(r.item_6.royalty_type),
-        adFundPct: num(r.item_6.ad_fund_pct),
-        technologyFeeMonthly: num(r.item_6.technology_fee_monthly),
-      }
-    : null;
-  return { item5, item6, modelUsed: res.modelUsed };
+  return {
+    item5: {
+      franchiseFeeMin: num(r.franchise_fee_min),
+      franchiseFeeMax: num(r.franchise_fee_max),
+      refundable: bool(r.refundable),
+    },
+    modelUsed: res.modelUsed,
+  };
+}
+
+export async function extractItem6(
+  pdfBuffer: Buffer,
+  toc: TocResult
+): Promise<{ item6: Item6Result | null; modelUsed: string }> {
+  const range = pageRange({
+    thisPage: toc.item6Page,
+    nextKnownPage: toc.item7Page,
+    defaultAfter: 10,
+    totalPages: toc.totalPages,
+  });
+  if (!range) return { item6: null, modelUsed: '' };
+
+  const slice = await slicePdfPages(pdfBuffer, range.startPage, range.endPage);
+  const res = await callGeminiForExtraction<RawItem6>({
+    logTag: 'item6',
+    prompt: ITEM_6_PROMPT,
+    pdfBase64: slice.pdf.toString('base64'),
+  });
+  if (!res.ok || !res.result) {
+    return { item6: null, modelUsed: res.modelUsed };
+  }
+  const r = res.result;
+  return {
+    item6: {
+      royaltyPct: num(r.royalty_pct),
+      royaltyType: str(r.royalty_type),
+      adFundPct: num(r.ad_fund_pct),
+      technologyFeeMonthly: num(r.technology_fee_monthly),
+    },
+    modelUsed: res.modelUsed,
+  };
 }
 
 export async function extractItem7(
   pdfBuffer: Buffer,
   toc: TocResult
 ): Promise<{ item7: Item7Result | null; modelUsed: string }> {
-  const range = pageRange(toc.item7Page, 6, toc.totalPages);
+  const range = pageRange({
+    thisPage: toc.item7Page,
+    // The next item we know about is Item 19 — usually too far away to be
+    // a useful cap. We pass it anyway: if Item 19 happens to be nearby
+    // (small FDD), we'll cap on it; otherwise the +15 default applies.
+    nextKnownPage: toc.item19Page,
+    defaultAfter: 15,
+    totalPages: toc.totalPages,
+  });
   if (!range) return { item7: null, modelUsed: '' };
 
   const slice = await slicePdfPages(pdfBuffer, range.startPage, range.endPage);
@@ -276,9 +330,12 @@ export async function extractItem19(
   if (!toc.item19Present || !toc.item19Page) {
     return { item19: { hasItem19: false, fiscalYear: null, metrics: [] }, modelUsed: '' };
   }
-  // Item 19 commonly spans 5-15 pages with multiple cohort tables; cast a
-  // wider net than the other items.
-  const range = pageRange(toc.item19Page, 14, toc.totalPages);
+  const range = pageRange({
+    thisPage: toc.item19Page,
+    nextKnownPage: toc.item20Page,
+    defaultAfter: 14,
+    totalPages: toc.totalPages,
+  });
   if (!range) return { item19: null, modelUsed: '' };
 
   const slice = await slicePdfPages(pdfBuffer, range.startPage, range.endPage);
@@ -320,8 +377,16 @@ export async function extractItem20(
   pdfBuffer: Buffer,
   toc: TocResult
 ): Promise<{ item20: Item20Result | null; modelUsed: string }> {
-  // Item 20 has multiple tables — give it 8 pages of headroom.
-  const range = pageRange(toc.item20Page, 8, toc.totalPages);
+  // Item 20 is the last numbered item we track — no next-item page to
+  // bound on; rely on the +15 default. Item 20 has multiple tables
+  // (Outlets summary, transfers, projected openings) so a generous slice
+  // matters here.
+  const range = pageRange({
+    thisPage: toc.item20Page,
+    nextKnownPage: null,
+    defaultAfter: 15,
+    totalPages: toc.totalPages,
+  });
   if (!range) return { item20: null, modelUsed: '' };
 
   const slice = await slicePdfPages(pdfBuffer, range.startPage, range.endPage);

@@ -22,7 +22,8 @@ import type { Pool } from 'pg';
 import { downloadPdfFromGcs } from './gcsDownloader.js';
 import { extractToc } from './tocExtractor.js';
 import {
-  extractItem5And6,
+  extractItem5,
+  extractItem6,
   extractItem7,
   extractItem19,
   extractItem20,
@@ -254,15 +255,16 @@ async function processOneFiling(
       (tocResult.modelUsed ? ` via ${tocResult.modelUsed}` : '')
   );
 
-  const [items5_6Res, item7Res, item19Res, item20Res] = await Promise.all([
-    extractItem5And6(pdfBuffer, toc),
+  const [item5Res, item6Res, item7Res, item19Res, item20Res] = await Promise.all([
+    extractItem5(pdfBuffer, toc),
+    extractItem6(pdfBuffer, toc),
     extractItem7(pdfBuffer, toc),
     extractItem19(pdfBuffer, toc),
     extractItem20(pdfBuffer, toc),
   ]);
 
-  const item5 = items5_6Res.item5;
-  const item6 = items5_6Res.item6;
+  const item5 = item5Res.item5;
+  const item6 = item6Res.item6;
   const item7 = item7Res.item7;
   const item19 = item19Res.item19;
   const item20 = item20Res.item20;
