@@ -26,6 +26,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { MODEL_CONCIERGE_EXTRACTION } from "@/lib/ai/models";
+import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -124,6 +126,38 @@ export async function POST(
             updated_at: new Date().toISOString(),
           })
           .eq("id", conciergeSessionId);
+      }
+
+      // Trident preview trigger: if a borrower utterance asks for the
+      // business plan / feasibility / projections / lender-ready package,
+      // kick off preview regeneration in the background and audit the
+      // intent. The voice gateway uses the audit row to keep its spoken
+      // response on the canonical "preview package; full unlocks at pick"
+      // line — never the "copy/paste into a template" fallback.
+      if (body.speaker === "borrower") {
+        const intent = detectTridentIntent(body.text);
+        if (intent.matched) {
+          console.log("TRIDENT_INTENT_TRIGGERED", body.text);
+          await sb.from("voice_session_audits").insert({
+            session_id: sessionId,
+            deal_id: dealId,
+            bank_id: bankId,
+            actor_scope: "borrower",
+            borrower_session_token_hash: tokenHash,
+            user_id: null,
+            event_type: "trident_preview_intent",
+            payload: {
+              intent: intent.intent,
+              matchedTerm: intent.matchedTerm,
+            },
+          });
+          generateTridentBundle({ dealId, mode: "preview" }).catch((e) => {
+            console.warn(
+              "[brokerage-voice-dispatch] trident preview generation failed (non-fatal):",
+              e?.message ?? String(e),
+            );
+          });
+        }
       }
 
       // S2-2: ONLY path to confirmed_facts mutation.

@@ -30,6 +30,11 @@ import {
   MODEL_CONCIERGE_EXTRACTION,
 } from "@/lib/ai/models";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
+import {
+  detectTridentIntent,
+  TRIDENT_PREVIEW_RESPONSE,
+} from "@/lib/brokerage/trident/conciergeIntent";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -153,6 +158,79 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // ── Trident preview short-circuit ──
+    // MUST run BEFORE any LLM call (extraction or response). If the borrower
+    // is asking for the business plan / feasibility / projections /
+    // lender-ready package, the concierge owns the canonical response and
+    // triggers the existing trident generator. The full package stays gated
+    // behind lender pick — never released in chat.
+    const tridentIntent = detectTridentIntent(body.userMessage);
+    if (tridentIntent.matched) {
+      console.log("TRIDENT_INTENT_TRIGGERED", body.userMessage);
+
+      // Fire-and-forget preview regeneration so the borrower's bundle
+      // reflects the latest facts. Failures must never crash the response.
+      generateTridentBundle({
+        dealId: session.deal_id,
+        mode: "preview",
+      }).catch((e) => {
+        console.warn(
+          "[brokerage-concierge] trident preview generation failed (non-fatal):",
+          e?.message ?? String(e),
+        );
+      });
+
+      const existingFacts =
+        (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+      const updatedHistory = [
+        ...(conciergeRow.conversation_history ?? []),
+        { role: "user", content: body.userMessage },
+        { role: "assistant", content: TRIDENT_PREVIEW_RESPONSE },
+      ];
+      const progressPct = computeProgress(existingFacts);
+
+      await sb
+        .from("borrower_concierge_sessions")
+        .update({
+          conversation_history: updatedHistory,
+          last_response: body.userMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conciergeRow.id);
+
+      await sb.from("ai_events").insert({
+        deal_id: session.deal_id,
+        scope: "brokerage_concierge",
+        action: "trident_intent",
+        input_json: {
+          userMessage: body.userMessage,
+          source: body.source ?? "text",
+        },
+        output_json: {
+          intent: tridentIntent.intent,
+          matchedTerm: tridentIntent.matchedTerm,
+          buddyResponse: TRIDENT_PREVIEW_RESPONSE,
+        },
+        confidence: 1,
+        requires_human_review: false,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        dealId: session.deal_id,
+        buddyResponse: TRIDENT_PREVIEW_RESPONSE,
+        extractedFacts: existingFacts,
+        progressPct,
+        nextQuestion: null,
+        sessionClaimed: false,
+        tridentPreview: {
+          intent: tridentIntent.intent,
+          matchedTerm: tridentIntent.matchedTerm,
+          latestPreviewUrl: `/api/brokerage/deals/${session.deal_id}/trident/latest-preview`,
+        },
+      });
+    }
+
     // Extract facts (Gemini Flash — cheap, fast, structured).
     const extractPrompt = buildExtractionPrompt(
       conciergeRow.conversation_history ?? [],
@@ -267,6 +345,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       progressPct,
       nextQuestion: buddyOutput.next_question,
       sessionClaimed,
+      tridentPreview: null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
