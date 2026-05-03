@@ -35,6 +35,7 @@ import {
   TRIDENT_PREVIEW_RESPONSE,
 } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 
 export const runtime = "nodejs";
 // Trident preview generation runs synchronously on intent match (PDF
@@ -169,6 +170,76 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const tridentIntent = detectTridentIntent(body.userMessage);
     if (tridentIntent.matched) {
       console.log("TRIDENT_INTENT_TRIGGERED", body.userMessage);
+
+      // generateSBAPackage (called by the trident generator) gates on a
+      // confirmed buddy_sba_assumptions row. Borrowers in the brokerage
+      // concierge funnel never go through the bank-side AssumptionInterview,
+      // so we bootstrap + auto-confirm here. The validator is NOT bypassed:
+      // missing structural inputs (revenue, loan amount, etc.) come back as
+      // blockers and the borrower sees what's needed.
+      const ensure = await ensureAssumptionsForPreview({
+        dealId: session.deal_id,
+        conciergeFacts:
+          (conciergeRow.extracted_facts as Record<string, unknown>) ?? null,
+        sb,
+      });
+      if (!ensure.ok) {
+        const blockerMessage =
+          "I can build a preview — I just need a couple more things first:\n\n" +
+          ensure.blockers.map((b) => `• ${b}`).join("\n");
+        const updatedHistory = [
+          ...(conciergeRow.conversation_history ?? []),
+          { role: "user", content: body.userMessage },
+          { role: "assistant", content: blockerMessage },
+        ];
+        await sb
+          .from("borrower_concierge_sessions")
+          .update({
+            conversation_history: updatedHistory,
+            last_response: body.userMessage,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conciergeRow.id);
+        await sb.from("ai_events").insert({
+          deal_id: session.deal_id,
+          scope: "brokerage_concierge",
+          action: "trident_intent_blocked",
+          input_json: {
+            userMessage: body.userMessage,
+            source: body.source ?? "text",
+          },
+          output_json: {
+            intent: tridentIntent.intent,
+            matchedTerm: tridentIntent.matchedTerm,
+            blockers: ensure.blockers,
+          },
+          confidence: 1,
+          requires_human_review: false,
+        });
+        return NextResponse.json({
+          ok: true,
+          dealId: session.deal_id,
+          buddyResponse: blockerMessage,
+          extractedFacts:
+            (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
+          progressPct: computeProgress(
+            (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
+          ),
+          nextQuestion: null,
+          sessionClaimed: false,
+          tridentPreview: {
+            intent: tridentIntent.intent,
+            matchedTerm: tridentIntent.matchedTerm,
+            latestPreviewUrl: `/api/brokerage/deals/${session.deal_id}/trident/latest-preview`,
+            generation: {
+              ok: false,
+              bundleId: null,
+              error: "assumptions_blocked",
+              blockers: ensure.blockers,
+            },
+          },
+        });
+      }
 
       // Generation MUST be awaited — fire-and-forget does not survive
       // serverless function shutdown on Vercel. The generator handles its
