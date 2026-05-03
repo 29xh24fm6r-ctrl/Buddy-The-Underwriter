@@ -5,6 +5,7 @@ import type {
   AnnualProjectionYear,
   MonthlyProjection,
   BreakEvenResult,
+  RevenueStreamProjection,
   SensitivityScenario,
   UseOfProceedsLine,
   ManagementMember,
@@ -77,6 +78,13 @@ interface RenderInput {
   baseYear: AnnualProjectionYear;
   annualProjections: AnnualProjectionYear[];
   monthlyProjections: MonthlyProjection[];
+  /**
+   * Per-stream revenue projections. When present and length ≥ 2, the
+   * Financial Projections section adds a "Revenue Streams" subsection
+   * with a description per stream and a stream × year breakdown table.
+   * Single-stream (or absent) deals get the existing total-only view.
+   */
+  revenueStreamProjections?: RevenueStreamProjection[];
   breakEven: BreakEvenResult;
   sensitivityScenarios: SensitivityScenario[];
   useOfProceeds: UseOfProceedsLine[];
@@ -402,6 +410,138 @@ function renderTableOfContents(
       .strokeColor("#000000");
     s.y = rowY + ROW_HEIGHT + 2;
   }
+}
+
+/**
+ * Pricing-model labels for the per-stream description. Mirrors the union
+ * in RevenueStream.pricingModel so the renderer never shows raw enum
+ * values to the reader.
+ */
+const PRICING_MODEL_LABEL: Record<
+  RevenueStreamProjection["pricingModel"],
+  string
+> = {
+  flat: "Flat / Per-Transaction",
+  per_unit: "Per Unit",
+  subscription: "Subscription / Recurring",
+  pct_revenue: "% of Revenue",
+};
+
+/**
+ * Per-stream revenue subsection. Skipped silently when there is fewer
+ * than 2 streams (single-stream deals get the existing total chart and
+ * nothing else changes for them). Two parts:
+ *
+ *   1. A short descriptive line per stream (name, pricing model, base
+ *      annual revenue, Y1 growth) so the reader sees what each stream
+ *      actually IS — required by the institutional spec for multi-stream
+ *      borrowers (e.g. auto sales / service / tire).
+ *   2. A streams × years breakdown table with a TOTAL row showing the
+ *      consolidated revenue line.
+ */
+function renderRevenueStreamsBreakdown(s: DocState): void {
+  const { doc, input } = s;
+  const projections = input.revenueStreamProjections ?? [];
+  if (projections.length < 2) return;
+
+  const sectionTitle = "7. Financial Projections (cont.)";
+
+  // ── Header
+  checkPageBreak(s, 28, sectionTitle);
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#000000");
+  doc.text("Revenue Streams", PAGE_MARGIN, s.y);
+  s.y += 14;
+
+  // ── Per-stream descriptions
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  for (const p of projections) {
+    checkPageBreak(s, ROW_HEIGHT + 4, sectionTitle);
+    const label = PRICING_MODEL_LABEL[p.pricingModel] ?? p.pricingModel;
+    const desc = `${p.name}: ${label} model. Base year revenue $${fmtCurrency(
+      Math.round(p.baseAnnualRevenue),
+    )}; ${fmtPct(p.growthRateYear1)} Year 1 growth.`;
+    doc.fillColor("#000000").text(desc, PAGE_MARGIN, s.y, {
+      width: doc.page.width - PAGE_MARGIN * 2,
+      lineGap: 1,
+    });
+    s.y = doc.y + 2;
+  }
+  s.y += 8;
+
+  // ── Streams × Year table
+  const colLabels = ["Stream", "Base Year", "Year 1", "Year 2", "Year 3"];
+  const colWidths = [180, 85, 85, 85, 85];
+  const startX = PAGE_MARGIN;
+  const tableW = colWidths.reduce((a, b) => a + b, 0);
+
+  checkPageBreak(s, ROW_HEIGHT * (projections.length + 3), sectionTitle);
+
+  // Header row
+  doc.rect(startX, s.y - 2, tableW, ROW_HEIGHT + 2).fill(BRAND_NAVY);
+  doc.fillColor("#ffffff").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+  let x = startX;
+  for (let i = 0; i < colLabels.length; i++) {
+    doc.text(colLabels[i], x + 4, s.y + 2, {
+      width: colWidths[i] - 8,
+      align: i === 0 ? "left" : "right",
+    });
+    x += colWidths[i];
+  }
+  doc.fillColor("#000000");
+  s.y += ROW_HEIGHT;
+
+  // Per-stream rows
+  let totalBase = 0;
+  let totalY1 = 0;
+  let totalY2 = 0;
+  let totalY3 = 0;
+  for (let i = 0; i < projections.length; i++) {
+    const p = projections[i];
+    totalBase += p.baseAnnualRevenue;
+    totalY1 += p.revenueYear1;
+    totalY2 += p.revenueYear2;
+    totalY3 += p.revenueYear3;
+
+    const bg = i % 2 === 0 ? "#f8fafc" : "#ffffff";
+    doc.rect(startX, s.y - 1, tableW, ROW_HEIGHT + 1).fill(bg);
+
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#000000");
+    x = startX;
+    doc.text(p.name, x + 4, s.y + 2, { width: colWidths[0] - 8 });
+    x += colWidths[0];
+    const cells = [
+      p.baseAnnualRevenue,
+      p.revenueYear1,
+      p.revenueYear2,
+      p.revenueYear3,
+    ];
+    for (let c = 0; c < cells.length; c++) {
+      doc.text(`$${fmtCurrency(Math.round(cells[c]))}`, x + 4, s.y + 2, {
+        width: colWidths[c + 1] - 8,
+        align: "right",
+      });
+      x += colWidths[c + 1];
+    }
+    s.y += ROW_HEIGHT;
+  }
+
+  // Consolidated total row — always shown so the reader sees the
+  // streams roll up to the same revenue line that drives DSCR / pricing.
+  doc.rect(startX, s.y - 1, tableW, ROW_HEIGHT + 1).fill("#eff6ff");
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#000000");
+  x = startX;
+  doc.text("Total Revenue", x + 4, s.y + 2, { width: colWidths[0] - 8 });
+  x += colWidths[0];
+  const totals = [totalBase, totalY1, totalY2, totalY3];
+  for (let c = 0; c < totals.length; c++) {
+    doc.text(`$${fmtCurrency(Math.round(totals[c]))}`, x + 4, s.y + 2, {
+      width: colWidths[c + 1] - 8,
+      align: "right",
+    });
+    x += colWidths[c + 1];
+  }
+  s.y += ROW_HEIGHT + 8;
+  doc.font(FONT_NORMAL);
 }
 
 /** Revenue bar chart — gray bars for actual (year 0), navy for projected (years 1-3). */
@@ -1215,6 +1355,10 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
       renderInsightCallout(s, insight, "7. Financial Projections");
     }
     renderSection2_Projections(s);
+    // Per-stream breakdown — only rendered when there are 2+ streams.
+    // Single-stream deals fall through to the existing total chart with
+    // no layout change.
+    renderRevenueStreamsBreakdown(s);
     checkPageBreak(s, 220, "7. Financial Projections (cont.)");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
     doc.text("Revenue by Year", PAGE_MARGIN, s.y);

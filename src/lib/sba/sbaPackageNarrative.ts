@@ -1,8 +1,42 @@
 import "server-only";
 
-import type { SensitivityScenario, ManagementMember } from "./sbaReadinessTypes";
+import type {
+  SensitivityScenario,
+  ManagementMember,
+  RevenueStream,
+} from "./sbaReadinessTypes";
 import type { BorrowerStory } from "./sbaBorrowerStory";
 import { MODEL_SBA_NARRATIVE, isGemini3Model } from "@/lib/ai/models";
+
+/**
+ * Per-stream summary used in narrative prompts. When 2+ summaries are
+ * supplied to generateBusinessOverviewNarrative, the prompt instructs
+ * the LLM to describe each stream by name in Products & Services
+ * instead of treating the streams as an undifferentiated comma list.
+ */
+export type RevenueStreamSummary = {
+  name: string;
+  pricingModel: RevenueStream["pricingModel"];
+  baseAnnualRevenue: number;
+  growthRateYear1: number;
+};
+
+function formatStreamsForPrompt(
+  summaries: RevenueStreamSummary[] | undefined,
+  fallbackNames: string[],
+): string {
+  if (!summaries || summaries.length === 0) {
+    return fallbackNames.join(", ") || "Not specified";
+  }
+  return summaries
+    .map(
+      (s) =>
+        `- ${s.name} (${s.pricingModel} pricing): base $${Math.round(
+          s.baseAnnualRevenue,
+        ).toLocaleString()}/yr, ${(s.growthRateYear1 * 100).toFixed(1)}% Y1 growth`,
+    )
+    .join("\n");
+}
 
 const GEMINI_MODEL = MODEL_SBA_NARRATIVE;
 
@@ -122,6 +156,12 @@ export async function generateBusinessOverviewNarrative(params: {
   loanAmount: number;
   managementTeam: ManagementMember[];
   revenueStreamNames: string[];
+  /**
+   * When provided (length ≥ 2), Products & Services is rewritten to
+   * describe each stream individually rather than treating them as a
+   * single comma list. Falls back to revenueStreamNames otherwise.
+   */
+  revenueStreamSummaries?: RevenueStreamSummary[];
   useOfProceedsDescription: string;
   researchSummary?: string;
   // Phase 2 additions
@@ -154,14 +194,15 @@ Loan amount: $${params.loanAmount.toLocaleString()}
 Management team with bios:
 ${params.managementBios || JSON.stringify(params.managementTeam)}
 
-Revenue streams: ${params.revenueStreamNames.join(", ")}
+Revenue streams:
+${formatStreamsForPrompt(params.revenueStreamSummaries, params.revenueStreamNames)}
 Use of proceeds: ${params.useOfProceedsDescription}
 
 ${params.borrowerProfile ? `Borrower profile from Buddy research:\n${params.borrowerProfile}\n` : ""}${params.researchSummary ? `Other market research context:\n${params.researchSummary}\n` : ""}
 Return ONLY valid JSON with this exact shape and no other text:
 {
   "companyDescription": "2 paragraphs: what the business does, how long it has operated, key markets served, by name and location.${storyPresent ? " Open with the borrower's origin story translated into third person prose." : ""}",
-  "productsAndServices": "1 paragraph: what products or services are offered${storyPresent ? " and who they're for, drawing on the borrower's ideal-customer description" : ""}.",
+  "productsAndServices": "${(params.revenueStreamSummaries?.length ?? 0) >= 2 ? "One short paragraph per revenue stream listed above, in the same order. Lead each paragraph with the stream name in bold (e.g. **Auto Sales** —) and describe what that stream sells, who it serves, and how it earns revenue. Do not merge streams into a single paragraph." : `1 paragraph: what products or services are offered${storyPresent ? " and who they're for, drawing on the borrower's ideal-customer description" : ""}.`}",
   "marketOpportunity": "1 paragraph: market context from the supplied research only — no invented statistics.${storyPresent ? " Anchor with the borrower's competitive insight." : ""}",
   "managementTeam": "1–2 sentences per team member by name: title, years in industry, relevant background.",
   "useOfProceeds": "1 paragraph: how loan proceeds will be deployed and expected business impact.",
