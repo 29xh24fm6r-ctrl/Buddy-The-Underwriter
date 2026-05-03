@@ -22,6 +22,7 @@ import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
 import { renderFeasibilityPDF } from "@/lib/feasibility/feasibilityRenderer";
 import { renderProjectionsXlsx } from "./projectionsXlsx";
+import { renderProjectionsPreviewPdf } from "./projectionsPreviewPdf";
 import {
   REDACTOR_VERSION,
   redactFeasibilityForPreview,
@@ -131,9 +132,53 @@ export async function generateTridentBundle(args: {
         projectionsXlsxPath = path;
       }
     }
-    // Preview borrowers see the business-plan PDF which already embeds
-    // projections; no separate projections PDF/XLSX for preview mode.
-    const projectionsPdfPath: string | null = null;
+    // Preview projections PDF — summary-only (Y1 revenue, Y1 DSCR, break-even
+    // month). Detailed monthly + annual cells are NEVER rendered into this
+    // file: the redaction is at the data layer, not just a watermark, so
+    // the raw workbook can't be uncovered by stripping a layer or copying
+    // the page. Final unwatermarked workbook ships at lender pick.
+    let projectionsPdfPath: string | null = null;
+    if (mode === "preview") {
+      try {
+        const { data: pkgRowPrev } = await sb
+          .from("buddy_sba_packages")
+          .select("base_year_data, projections_annual, break_even, deal_id")
+          .eq("id", sbaResult.packageId)
+          .single();
+
+        const annual0 =
+          ((pkgRowPrev?.projections_annual as any[]) ?? [])[0] ?? null;
+        const dscrYear1Base = annual0?.dscr ?? null;
+        const year1Revenue = annual0?.revenue ?? null;
+        const breakEven = (pkgRowPrev?.break_even as any) ?? null;
+
+        const previewBuf = await renderProjectionsPreviewPdf({
+          dealName: "Borrower",
+          year1Revenue:
+            typeof year1Revenue === "number" ? year1Revenue : null,
+          year1Dscr:
+            typeof dscrYear1Base === "number" ? dscrYear1Base : null,
+          breakEvenMonth:
+            breakEven && typeof breakEven.breakEvenMonth === "number"
+              ? breakEven.breakEvenMonth
+              : null,
+          generatedAt: new Date().toISOString(),
+        });
+        const previewPath = `${dealId}/${mode}/${Date.now()}_projections.pdf`;
+        const { error: uploadErr } = await sb.storage
+          .from("trident-bundles")
+          .upload(previewPath, previewBuf, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+        if (!uploadErr) projectionsPdfPath = previewPath;
+      } catch (e) {
+        console.warn(
+          "[trident] projections preview render failed (non-fatal):",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    }
 
     // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
