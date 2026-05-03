@@ -3,6 +3,8 @@ import type {
   AnnualProjectionYear,
   MonthlyProjection,
   BreakEvenResult,
+  RevenueStream,
+  RevenueStreamProjection,
   SensitivityScenario,
   UseOfProceedsLine,
 } from "./sbaReadinessTypes";
@@ -59,6 +61,78 @@ export function buildBaseYear(params: {
   };
 }
 
+/**
+ * Single-stream revenue compounded to year `y` (1, 2, or 3), including the
+ * proceeds-driven revenue uplift when the loan amplifies the borrower's
+ * revenue (e.g. equipment funded by SBA proceeds comes online in month N).
+ *
+ * Pure: no side effects. Used by both buildAnnualProjections (which sums
+ * across streams) and buildRevenueStreamProjections (which exposes the
+ * per-stream values). Sharing this formula guarantees the sum invariant.
+ */
+function computeStreamRevenueForYear(
+  stream: RevenueStream,
+  y: 1 | 2 | 3,
+  loanImpact: SBAAssumptions["loanImpact"],
+): number {
+  const rates = [
+    stream.growthRateYear1,
+    stream.growthRateYear2,
+    stream.growthRateYear3,
+  ];
+  let rev = stream.baseAnnualRevenue;
+  for (let i = 0; i < y; i++) rev *= 1 + rates[i];
+
+  if (loanImpact.revenueImpactPct && loanImpact.revenueImpactStartMonth) {
+    if (y === 1) {
+      const monthsInYear1 = Math.max(
+        0,
+        13 - loanImpact.revenueImpactStartMonth,
+      );
+      rev += rev * loanImpact.revenueImpactPct * (monthsInYear1 / 12);
+    } else {
+      rev *= 1 + loanImpact.revenueImpactPct;
+    }
+  }
+  return rev;
+}
+
+/**
+ * Per-stream Year 1–3 revenue projection. Each stream is compounded by
+ * its own growth rates; consumers (renderer, narrative) display each
+ * stream separately and the consolidated total comes from
+ * buildAnnualProjections, which uses the same per-stream formula and
+ * sums across streams.
+ */
+export function buildRevenueStreamProjections(
+  assumptions: SBAAssumptions,
+): RevenueStreamProjection[] {
+  return assumptions.revenueStreams.map((stream) => ({
+    id: stream.id,
+    name: stream.name,
+    pricingModel: stream.pricingModel,
+    baseAnnualRevenue: stream.baseAnnualRevenue,
+    growthRateYear1: stream.growthRateYear1,
+    growthRateYear2: stream.growthRateYear2,
+    growthRateYear3: stream.growthRateYear3,
+    revenueYear1: computeStreamRevenueForYear(
+      stream,
+      1,
+      assumptions.loanImpact,
+    ),
+    revenueYear2: computeStreamRevenueForYear(
+      stream,
+      2,
+      assumptions.loanImpact,
+    ),
+    revenueYear3: computeStreamRevenueForYear(
+      stream,
+      3,
+      assumptions.loanImpact,
+    ),
+  }));
+}
+
 /** Pass 2 + 3 + 4: annual projections Years 1–3 */
 export function buildAnnualProjections(
   assumptions: SBAAssumptions,
@@ -83,35 +157,16 @@ export function buildAnnualProjections(
   for (let y = 1; y <= 3; y++) {
     const prev = y === 1 ? baseYear : years[y - 2];
 
-    // Revenue: compound each stream
+    // Revenue: compound each stream via the shared formula so per-stream
+    // exposure (buildRevenueStreamProjections) and totals (here) cannot
+    // drift.
     let revenue = 0;
     for (const stream of assumptions.revenueStreams) {
-      const rates = [
-        stream.growthRateYear1,
-        stream.growthRateYear2,
-        stream.growthRateYear3,
-      ];
-      let rev = stream.baseAnnualRevenue;
-      for (let i = 0; i < y; i++) rev *= 1 + rates[i];
-      // Add proceeds-driven revenue uplift
-      if (
-        assumptions.loanImpact.revenueImpactPct &&
-        assumptions.loanImpact.revenueImpactStartMonth
-      ) {
-        if (y === 1) {
-          const monthsInYear1 = Math.max(
-            0,
-            13 - assumptions.loanImpact.revenueImpactStartMonth,
-          );
-          rev +=
-            rev *
-            assumptions.loanImpact.revenueImpactPct *
-            (monthsInYear1 / 12);
-        } else {
-          rev *= 1 + assumptions.loanImpact.revenueImpactPct;
-        }
-      }
-      revenue += rev;
+      revenue += computeStreamRevenueForYear(
+        stream,
+        y as 1 | 2 | 3,
+        assumptions.loanImpact,
+      );
     }
 
     // COGS

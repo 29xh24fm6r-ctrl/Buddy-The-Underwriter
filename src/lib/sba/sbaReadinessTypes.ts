@@ -118,6 +118,28 @@ export interface AnnualProjectionYear {
   revenueGrowthPct?: number; // undefined for year 0
 }
 
+/**
+ * Per-stream revenue projection. Each stream is compounded by its own
+ * growth rates (RevenueStream.growthRateYearN), then summed across
+ * streams to produce the consolidated revenue line in AnnualProjectionYear.
+ *
+ * Sum invariant: for any year y in {1,2,3},
+ *   sum(p.revenueYearN for p in revenueStreamProjections) === annualProjections[y-1].revenue
+ * (modulo proceeds-driven revenue uplift which is applied per-stream).
+ */
+export interface RevenueStreamProjection {
+  id: string;
+  name: string;
+  pricingModel: RevenueStream["pricingModel"];
+  baseAnnualRevenue: number;
+  growthRateYear1: number;
+  growthRateYear2: number;
+  growthRateYear3: number;
+  revenueYear1: number;
+  revenueYear2: number;
+  revenueYear3: number;
+}
+
 export interface MonthlyProjection {
   month: number; // 1–12
   revenue: number;
@@ -165,6 +187,12 @@ export interface SBAPackageData {
   baseYearData: AnnualProjectionYear;
   projectionsAnnual: AnnualProjectionYear[];
   projectionsMonthly: MonthlyProjection[];
+  /**
+   * Per-stream Y1–3 revenue. Optional because the DB column is jsonb
+   * scoped to totals — readers that need per-stream data should call
+   * buildRevenueStreamProjections(assumptions) on demand.
+   */
+  revenueStreamProjections?: RevenueStreamProjection[];
   breakEven: BreakEvenResult;
   sensitivityScenarios: SensitivityScenario[];
   useOfProceeds: UseOfProceedsLine[];

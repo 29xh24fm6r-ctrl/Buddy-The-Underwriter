@@ -6,6 +6,7 @@ import {
   buildBaseYear,
   buildAnnualProjections,
   buildMonthlyProjections,
+  buildRevenueStreamProjections,
   computeBreakEven,
   buildSensitivityScenarios,
   buildUseOfProceeds,
@@ -234,6 +235,12 @@ export async function generateSBAPackage(
     assumptions,
     annualProjections[0],
   );
+  // Per-stream Y1–Y3 revenue. Used by the renderer to emit a stream-by-
+  // stream breakdown table and by the narrative to describe each stream
+  // individually. Sum of stream.revenueYearN equals annualProjections[N-1].revenue
+  // by construction (shared formula).
+  const revenueStreamProjections =
+    buildRevenueStreamProjections(assumptions);
   const breakEven = computeBreakEven(assumptions, annualProjections[0]);
   const sensitivityScenarios = buildSensitivityScenarios(
     assumptions,
@@ -358,6 +365,12 @@ export async function generateSBAPackage(
     loanAmount: assumptions.loanImpact.loanAmount,
     managementTeam: assumptions.managementTeam,
     revenueStreamNames: assumptions.revenueStreams.map((s) => s.name),
+    revenueStreamSummaries: assumptions.revenueStreams.map((s) => ({
+      name: s.name,
+      pricingModel: s.pricingModel,
+      baseAnnualRevenue: s.baseAnnualRevenue,
+      growthRateYear1: s.growthRateYear1,
+    })),
     useOfProceedsDescription: proceedsDescription,
     researchSummary,
     city: dealCity,
@@ -706,6 +719,7 @@ export async function generateSBAPackage(
         dscr: redacted.annualProjections[i]?.dscr ?? p.dscr,
       })),
       monthlyProjections,
+      revenueStreamProjections,
       breakEven,
       sensitivityScenarios,
       useOfProceeds: useOfProceeds.map((u, i) => ({
