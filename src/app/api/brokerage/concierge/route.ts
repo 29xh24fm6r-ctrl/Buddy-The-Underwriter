@@ -30,9 +30,23 @@ import {
   MODEL_CONCIERGE_EXTRACTION,
 } from "@/lib/ai/models";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
+import {
+  detectTridentIntent,
+  detectAssumptionsConfirmIntent,
+  TRIDENT_PREVIEW_RESPONSE,
+  ASSUMPTIONS_CONFIRMED_RESPONSE,
+  ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX,
+} from "@/lib/brokerage/trident/conciergeIntent";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import {
+  ensureAssumptionsForPreview,
+  persistAssumptionsDraft,
+} from "@/lib/sba/sbaAssumptionsBootstrap";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Trident preview generation runs synchronously on intent match (PDF
+// rendering + storage uploads). Fluid Compute default ceiling is 300s.
+export const maxDuration = 300;
 
 type ConciergeRequest = {
   userMessage: string;
@@ -153,6 +167,237 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // ── Trident preview short-circuit ──
+    // MUST run BEFORE any LLM call (extraction or response). If the borrower
+    // is asking for the business plan / feasibility / projections /
+    // lender-ready package, the concierge owns the canonical response and
+    // triggers the existing trident generator. The full package stays gated
+    // behind lender pick — never released in chat.
+    const tridentIntent = detectTridentIntent(body.userMessage);
+    if (tridentIntent.matched) {
+      console.log("TRIDENT_INTENT_TRIGGERED", body.userMessage);
+
+      // generateSBAPackage (called by the trident generator) gates on a
+      // confirmed buddy_sba_assumptions row. Borrowers in the brokerage
+      // concierge funnel never go through the bank-side AssumptionInterview,
+      // so we bootstrap + auto-confirm here. The validator is NOT bypassed:
+      // missing structural inputs (revenue, loan amount, etc.) come back as
+      // blockers and the borrower sees what's needed.
+      const ensure = await ensureAssumptionsForPreview({
+        dealId: session.deal_id,
+        conciergeFacts:
+          (conciergeRow.extracted_facts as Record<string, unknown>) ?? null,
+        sb,
+      });
+      if (!ensure.ok) {
+        const blockerMessage =
+          "I can build a preview — I just need a couple more things first:\n\n" +
+          ensure.blockers.map((b) => `• ${b}`).join("\n");
+        const updatedHistory = [
+          ...(conciergeRow.conversation_history ?? []),
+          { role: "user", content: body.userMessage },
+          { role: "assistant", content: blockerMessage },
+        ];
+        await sb
+          .from("borrower_concierge_sessions")
+          .update({
+            conversation_history: updatedHistory,
+            last_response: body.userMessage,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conciergeRow.id);
+        await sb.from("ai_events").insert({
+          deal_id: session.deal_id,
+          scope: "brokerage_concierge",
+          action: "trident_intent_blocked",
+          input_json: {
+            userMessage: body.userMessage,
+            source: body.source ?? "text",
+          },
+          output_json: {
+            intent: tridentIntent.intent,
+            matchedTerm: tridentIntent.matchedTerm,
+            blockers: ensure.blockers,
+          },
+          confidence: 1,
+          requires_human_review: false,
+        });
+        return NextResponse.json({
+          ok: true,
+          dealId: session.deal_id,
+          buddyResponse: blockerMessage,
+          extractedFacts:
+            (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
+          progressPct: computeProgress(
+            (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
+          ),
+          nextQuestion: null,
+          sessionClaimed: false,
+          tridentPreview: {
+            intent: tridentIntent.intent,
+            matchedTerm: tridentIntent.matchedTerm,
+            latestPreviewUrl: `/api/brokerage/deals/${session.deal_id}/trident/latest-preview`,
+            generation: {
+              ok: false,
+              bundleId: null,
+              error: "assumptions_blocked",
+              blockers: ensure.blockers,
+            },
+          },
+        });
+      }
+
+      // Generation MUST be awaited — fire-and-forget does not survive
+      // serverless function shutdown on Vercel. The generator handles its
+      // own bundle-row lifecycle: pending → running (sets
+      // generation_started_at) → succeeded | failed (sets
+      // generation_completed_at + generation_error on failure).
+      const generationResult = await generateTridentBundle({
+        dealId: session.deal_id,
+        mode: "preview",
+      });
+
+      const existingFacts =
+        (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+      const updatedHistory = [
+        ...(conciergeRow.conversation_history ?? []),
+        { role: "user", content: body.userMessage },
+        { role: "assistant", content: TRIDENT_PREVIEW_RESPONSE },
+      ];
+      const progressPct = computeProgress(existingFacts);
+
+      await sb
+        .from("borrower_concierge_sessions")
+        .update({
+          conversation_history: updatedHistory,
+          last_response: body.userMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conciergeRow.id);
+
+      await sb.from("ai_events").insert({
+        deal_id: session.deal_id,
+        scope: "brokerage_concierge",
+        action: "trident_intent",
+        input_json: {
+          userMessage: body.userMessage,
+          source: body.source ?? "text",
+        },
+        output_json: {
+          intent: tridentIntent.intent,
+          matchedTerm: tridentIntent.matchedTerm,
+          buddyResponse: TRIDENT_PREVIEW_RESPONSE,
+          generation: generationResult.ok
+            ? { ok: true, bundleId: generationResult.bundleId }
+            : {
+                ok: false,
+                bundleId: generationResult.bundleId,
+                error: generationResult.error,
+              },
+        },
+        confidence: 1,
+        requires_human_review: false,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        dealId: session.deal_id,
+        buddyResponse: TRIDENT_PREVIEW_RESPONSE,
+        extractedFacts: existingFacts,
+        progressPct,
+        nextQuestion: null,
+        sessionClaimed: false,
+        tridentPreview: {
+          intent: tridentIntent.intent,
+          matchedTerm: tridentIntent.matchedTerm,
+          latestPreviewUrl: `/api/brokerage/deals/${session.deal_id}/trident/latest-preview`,
+          generation: generationResult.ok
+            ? {
+                ok: true,
+                bundleId: generationResult.bundleId,
+                paths: generationResult.paths,
+              }
+            : {
+                ok: false,
+                bundleId: generationResult.bundleId,
+                error: generationResult.error,
+              },
+        },
+      });
+    }
+
+    // ── Assumptions confirmation short-circuit ──
+    // Borrower says "looks good", "confirm", "lock it in" → flip the
+    // assumptions row from draft to confirmed. Runs BEFORE the LLM so the
+    // confirmation isn't lost to a generic conversational reply.
+    // ensureAssumptionsForPreview is the right primitive here: it rebuilds
+    // the candidate from current prefill + concierge facts, validates, and
+    // upserts as confirmed on pass / draft + blockers on fail.
+    const confirmIntent = detectAssumptionsConfirmIntent(body.userMessage);
+    if (confirmIntent.matched) {
+      const ensure = await ensureAssumptionsForPreview({
+        dealId: session.deal_id,
+        conciergeFacts:
+          (conciergeRow.extracted_facts as Record<string, unknown>) ?? null,
+        sb,
+      });
+
+      const buddyMessage = ensure.ok
+        ? ASSUMPTIONS_CONFIRMED_RESPONSE
+        : `${ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX}\n\n` +
+          ensure.blockers.map((b) => `• ${b}`).join("\n");
+
+      const existingFacts =
+        (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+      const updatedHistory = [
+        ...(conciergeRow.conversation_history ?? []),
+        { role: "user", content: body.userMessage },
+        { role: "assistant", content: buddyMessage },
+      ];
+      const progressPct = computeProgress(existingFacts);
+
+      await sb
+        .from("borrower_concierge_sessions")
+        .update({
+          conversation_history: updatedHistory,
+          last_response: body.userMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conciergeRow.id);
+
+      await sb.from("ai_events").insert({
+        deal_id: session.deal_id,
+        scope: "brokerage_concierge",
+        action: ensure.ok
+          ? "assumptions_confirmed"
+          : "assumptions_confirm_blocked",
+        input_json: {
+          userMessage: body.userMessage,
+          matchedTerm: confirmIntent.matchedTerm,
+          source: body.source ?? "text",
+        },
+        output_json: ensure.ok
+          ? { assumptionsId: ensure.assumptionsId, buddyResponse: buddyMessage }
+          : { blockers: ensure.blockers, buddyResponse: buddyMessage },
+        confidence: 1,
+        requires_human_review: false,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        dealId: session.deal_id,
+        buddyResponse: buddyMessage,
+        extractedFacts: existingFacts,
+        progressPct,
+        nextQuestion: null,
+        sessionClaimed: false,
+        tridentPreview: null,
+        assumptionsConfirmation: ensure.ok
+          ? { ok: true, assumptionsId: ensure.assumptionsId }
+          : { ok: false, blockers: ensure.blockers },
+      });
+    }
+
     // Extract facts (Gemini Flash — cheap, fast, structured).
     const extractPrompt = buildExtractionPrompt(
       conciergeRow.conversation_history ?? [],
@@ -168,6 +413,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
       newFacts,
     );
+
+    // Proactive draft assumptions persistence — keeps buddy_sba_assumptions
+    // tracking the borrower's current best-known inputs from turn 1, so a
+    // valid row always exists before trident generation. Never downgrades
+    // a confirmed row; non-fatal on failure (the trident path's
+    // ensureAssumptionsForPreview is the safety net).
+    persistAssumptionsDraft({
+      dealId: session.deal_id,
+      conciergeFacts: mergedFacts as Parameters<
+        typeof persistAssumptionsDraft
+      >[0]["conciergeFacts"],
+      sb,
+    }).catch((e) => {
+      console.warn(
+        "[brokerage-concierge] draft assumptions persist failed (non-fatal):",
+        e?.message ?? String(e),
+      );
+    });
 
     // Claim the session the first time an email appears.
     const extractedEmail = (newFacts as any)?.borrower?.email;
@@ -267,6 +530,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       progressPct,
       nextQuestion: buddyOutput.next_question,
       sessionClaimed,
+      tridentPreview: null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -26,9 +26,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { MODEL_CONCIERGE_EXTRACTION } from "@/lib/ai/models";
+import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// Trident preview generation runs synchronously on intent match (PDF
+// rendering + storage uploads). Fluid Compute default ceiling is 300s.
+export const maxDuration = 300;
 
 const GATEWAY_SECRET = process.env.BUDDY_GATEWAY_SECRET;
 
@@ -124,6 +129,84 @@ export async function POST(
             updated_at: new Date().toISOString(),
           })
           .eq("id", conciergeSessionId);
+      }
+
+      // Trident preview trigger: if a borrower utterance asks for the
+      // business plan / feasibility / projections / lender-ready package,
+      // run preview regeneration synchronously and audit the intent. The
+      // voice gateway uses the audit row to keep its spoken response on
+      // the canonical "preview package; full unlocks at pick" line —
+      // never the "copy/paste into a template" fallback.
+      if (body.speaker === "borrower") {
+        const intent = detectTridentIntent(body.text);
+        if (intent.matched) {
+          console.log("TRIDENT_INTENT_TRIGGERED", body.text);
+          // Pull concierge facts to feed the assumptions bootstrap.
+          let conciergeFacts: Record<string, unknown> | null = null;
+          if (conciergeSessionId) {
+            const { data: csFacts } = await sb
+              .from("borrower_concierge_sessions")
+              .select("extracted_facts")
+              .eq("id", conciergeSessionId)
+              .maybeSingle();
+            conciergeFacts =
+              (csFacts?.extracted_facts as Record<string, unknown>) ?? null;
+          }
+          // Bootstrap + auto-confirm assumptions before invoking the
+          // generator. Validator is NOT bypassed; blockers surface in
+          // the audit payload so the gateway can adjust its spoken reply.
+          const ensure = await ensureAssumptionsForPreview({
+            dealId,
+            conciergeFacts,
+            sb,
+          });
+          if (!ensure.ok) {
+            await sb.from("voice_session_audits").insert({
+              session_id: sessionId,
+              deal_id: dealId,
+              bank_id: bankId,
+              actor_scope: "borrower",
+              borrower_session_token_hash: tokenHash,
+              user_id: null,
+              event_type: "trident_preview_intent_blocked",
+              payload: {
+                intent: intent.intent,
+                matchedTerm: intent.matchedTerm,
+                blockers: ensure.blockers,
+              },
+            });
+          } else {
+            // Generation MUST be awaited — fire-and-forget does not survive
+            // serverless function shutdown on Vercel. The generator handles
+            // its own bundle-row lifecycle: pending → running (sets
+            // generation_started_at) → succeeded | failed (sets
+            // generation_completed_at + generation_error on failure).
+            const generationResult = await generateTridentBundle({
+              dealId,
+              mode: "preview",
+            });
+            await sb.from("voice_session_audits").insert({
+              session_id: sessionId,
+              deal_id: dealId,
+              bank_id: bankId,
+              actor_scope: "borrower",
+              borrower_session_token_hash: tokenHash,
+              user_id: null,
+              event_type: "trident_preview_intent",
+              payload: {
+                intent: intent.intent,
+                matchedTerm: intent.matchedTerm,
+                generation: generationResult.ok
+                  ? { ok: true, bundleId: generationResult.bundleId }
+                  : {
+                      ok: false,
+                      bundleId: generationResult.bundleId,
+                      error: generationResult.error,
+                    },
+              },
+            });
+          }
+        }
       }
 
       // S2-2: ONLY path to confirmed_facts mutation.
