@@ -30,7 +30,9 @@ import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// Trident preview generation runs synchronously on intent match (PDF
+// rendering + storage uploads). Fluid Compute default ceiling is 300s.
+export const maxDuration = 300;
 
 const GATEWAY_SECRET = process.env.BUDDY_GATEWAY_SECRET;
 
@@ -130,14 +132,23 @@ export async function POST(
 
       // Trident preview trigger: if a borrower utterance asks for the
       // business plan / feasibility / projections / lender-ready package,
-      // kick off preview regeneration in the background and audit the
-      // intent. The voice gateway uses the audit row to keep its spoken
-      // response on the canonical "preview package; full unlocks at pick"
-      // line — never the "copy/paste into a template" fallback.
+      // run preview regeneration synchronously and audit the intent. The
+      // voice gateway uses the audit row to keep its spoken response on
+      // the canonical "preview package; full unlocks at pick" line —
+      // never the "copy/paste into a template" fallback.
       if (body.speaker === "borrower") {
         const intent = detectTridentIntent(body.text);
         if (intent.matched) {
           console.log("TRIDENT_INTENT_TRIGGERED", body.text);
+          // Generation MUST be awaited — fire-and-forget does not survive
+          // serverless function shutdown on Vercel. The generator handles
+          // its own bundle-row lifecycle: pending → running (sets
+          // generation_started_at) → succeeded | failed (sets
+          // generation_completed_at + generation_error on failure).
+          const generationResult = await generateTridentBundle({
+            dealId,
+            mode: "preview",
+          });
           await sb.from("voice_session_audits").insert({
             session_id: sessionId,
             deal_id: dealId,
@@ -149,13 +160,14 @@ export async function POST(
             payload: {
               intent: intent.intent,
               matchedTerm: intent.matchedTerm,
+              generation: generationResult.ok
+                ? { ok: true, bundleId: generationResult.bundleId }
+                : {
+                    ok: false,
+                    bundleId: generationResult.bundleId,
+                    error: generationResult.error,
+                  },
             },
-          });
-          generateTridentBundle({ dealId, mode: "preview" }).catch((e) => {
-            console.warn(
-              "[brokerage-voice-dispatch] trident preview generation failed (non-fatal):",
-              e?.message ?? String(e),
-            );
           });
         }
       }

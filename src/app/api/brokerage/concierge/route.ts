@@ -37,7 +37,9 @@ import {
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Trident preview generation runs synchronously on intent match (PDF
+// rendering + storage uploads). Fluid Compute default ceiling is 300s.
+export const maxDuration = 300;
 
 type ConciergeRequest = {
   userMessage: string;
@@ -168,16 +170,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (tridentIntent.matched) {
       console.log("TRIDENT_INTENT_TRIGGERED", body.userMessage);
 
-      // Fire-and-forget preview regeneration so the borrower's bundle
-      // reflects the latest facts. Failures must never crash the response.
-      generateTridentBundle({
+      // Generation MUST be awaited — fire-and-forget does not survive
+      // serverless function shutdown on Vercel. The generator handles its
+      // own bundle-row lifecycle: pending → running (sets
+      // generation_started_at) → succeeded | failed (sets
+      // generation_completed_at + generation_error on failure).
+      const generationResult = await generateTridentBundle({
         dealId: session.deal_id,
         mode: "preview",
-      }).catch((e) => {
-        console.warn(
-          "[brokerage-concierge] trident preview generation failed (non-fatal):",
-          e?.message ?? String(e),
-        );
       });
 
       const existingFacts =
@@ -210,6 +210,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           intent: tridentIntent.intent,
           matchedTerm: tridentIntent.matchedTerm,
           buddyResponse: TRIDENT_PREVIEW_RESPONSE,
+          generation: generationResult.ok
+            ? { ok: true, bundleId: generationResult.bundleId }
+            : {
+                ok: false,
+                bundleId: generationResult.bundleId,
+                error: generationResult.error,
+              },
         },
         confidence: 1,
         requires_human_review: false,
@@ -227,6 +234,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           intent: tridentIntent.intent,
           matchedTerm: tridentIntent.matchedTerm,
           latestPreviewUrl: `/api/brokerage/deals/${session.deal_id}/trident/latest-preview`,
+          generation: generationResult.ok
+            ? {
+                ok: true,
+                bundleId: generationResult.bundleId,
+                paths: generationResult.paths,
+              }
+            : {
+                ok: false,
+                bundleId: generationResult.bundleId,
+                error: generationResult.error,
+              },
         },
       });
     }
