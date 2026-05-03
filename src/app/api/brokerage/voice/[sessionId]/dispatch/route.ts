@@ -141,16 +141,25 @@ export async function POST(
         const intent = detectTridentIntent(body.text);
         if (intent.matched) {
           console.log("TRIDENT_INTENT_TRIGGERED", body.text);
-          // Pull concierge facts to feed the assumptions bootstrap.
+          // Pull concierge facts + conversation history to feed the
+          // assumptions bootstrap. Conversation history drives the
+          // borrower-quoted-numbers extractor (sbaAssumptionsFromConversation).
           let conciergeFacts: Record<string, unknown> | null = null;
+          let conversationHistory: Array<{ role: string; content: string }> =
+            [];
           if (conciergeSessionId) {
-            const { data: csFacts } = await sb
+            const { data: cs } = await sb
               .from("borrower_concierge_sessions")
-              .select("extracted_facts")
+              .select("extracted_facts, conversation_history")
               .eq("id", conciergeSessionId)
               .maybeSingle();
             conciergeFacts =
-              (csFacts?.extracted_facts as Record<string, unknown>) ?? null;
+              (cs?.extracted_facts as Record<string, unknown>) ?? null;
+            conversationHistory =
+              (cs?.conversation_history as Array<{
+                role: string;
+                content: string;
+              }> | null) ?? [];
           }
           // Bootstrap + auto-confirm assumptions before invoking the
           // generator. Validator is NOT bypassed; blockers surface in
@@ -158,6 +167,7 @@ export async function POST(
           const ensure = await ensureAssumptionsForPreview({
             dealId,
             conciergeFacts,
+            conversationHistory,
             sb,
           });
           if (!ensure.ok) {

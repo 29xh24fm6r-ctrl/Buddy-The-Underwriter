@@ -32,10 +32,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadSBAAssumptionsPrefill } from "./sbaAssumptionsPrefill";
 import { validateSBAAssumptions } from "./sbaAssumptionsValidator";
+import {
+  extractAssumptionsFromConversation,
+  type ConversationMessage,
+} from "./sbaAssumptionsFromConversation";
 import type {
   SBAAssumptions,
   ManagementMember,
   RevenueStream,
+  FixedCostCategory,
+  PlannedHire,
 } from "./sbaReadinessTypes";
 
 const PREVIEW_BIO_PLACEHOLDER =
@@ -54,6 +60,7 @@ export type ConciergeFacts = {
 export async function ensureAssumptionsForPreview(args: {
   dealId: string;
   conciergeFacts?: ConciergeFacts;
+  conversationHistory?: ConversationMessage[];
   sb?: SupabaseClient;
 }): Promise<EnsureResult> {
   const sb = args.sb ?? supabaseAdmin();
@@ -73,10 +80,30 @@ export async function ensureAssumptionsForPreview(args: {
   }
 
   const prefill = await loadSBAAssumptionsPrefill(args.dealId);
+
+  // Optional conversation extraction layer. Sits between existingRow and
+  // prefill in the priority chain. Failures are non-fatal — we fall back
+  // to prefill / defaults if Gemini is unavailable.
+  let conversationLayer: Partial<SBAAssumptions> | null = null;
+  if (args.conversationHistory && args.conversationHistory.length > 0) {
+    try {
+      const extraction = await extractAssumptionsFromConversation({
+        history: args.conversationHistory,
+      });
+      conversationLayer = extraction?.partial ?? null;
+    } catch (e) {
+      console.warn(
+        "[sba-assumptions-bootstrap] conversation extraction failed:",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+
   const candidate = buildCandidate({
     dealId: args.dealId,
     prefill,
     existingRow: existing,
+    conversationLayer,
     conciergeFacts: args.conciergeFacts ?? null,
   });
 
@@ -107,9 +134,14 @@ function buildCandidate(args: {
   dealId: string;
   prefill: Awaited<ReturnType<typeof loadSBAAssumptionsPrefill>>;
   existingRow: Record<string, unknown> | null | undefined;
+  // Conversation-derived overlay. Borrower-quoted numbers here are more
+  // authoritative than the NAICS-driven prefill defaults but less
+  // authoritative than an existing row that the borrower has touched.
+  conversationLayer?: Partial<SBAAssumptions> | null;
   conciergeFacts: ConciergeFacts;
 }): SBAAssumptions {
   const { dealId, prefill, existingRow, conciergeFacts } = args;
+  const conv: Partial<SBAAssumptions> = args.conversationLayer ?? {};
   const ex = (existingRow ?? {}) as Record<string, unknown>;
 
   const conciergeFirst = String(
@@ -125,25 +157,57 @@ function buildCandidate(args: {
     conciergeFacts?.loan?.amount_requested ?? 0,
   );
 
+  // Priority: existingRow > conversation > prefill > defaults.
   const exRevenueStreams =
     (ex.revenue_streams as RevenueStream[] | null) ?? null;
   const revenueStreams: RevenueStream[] =
     exRevenueStreams && exRevenueStreams.length
       ? exRevenueStreams
-      : (prefill.revenueStreams ?? []);
+      : conv.revenueStreams && conv.revenueStreams.length
+        ? conv.revenueStreams
+        : (prefill.revenueStreams ?? []);
 
   const exCost = (ex.cost_assumptions as
     | SBAAssumptions["costAssumptions"]
     | null) ?? null;
-  const costAssumptions = exCost ??
-    prefill.costAssumptions ?? {
-      cogsPercentYear1: 0.5,
-      cogsPercentYear2: 0.5,
-      cogsPercentYear3: 0.5,
-      fixedCostCategories: [],
-      plannedHires: [],
-      plannedCapex: [],
-    };
+  const convCost = conv.costAssumptions ?? null;
+  const prefillCost = prefill.costAssumptions ?? null;
+  const cogsY1 =
+    pickPositive(exCost?.cogsPercentYear1) ??
+    pickPositive(convCost?.cogsPercentYear1) ??
+    pickPositive(prefillCost?.cogsPercentYear1) ??
+    0.5;
+  const cogsY2 =
+    pickPositive(exCost?.cogsPercentYear2) ??
+    pickPositive(convCost?.cogsPercentYear2) ??
+    pickPositive(prefillCost?.cogsPercentYear2) ??
+    cogsY1;
+  const cogsY3 =
+    pickPositive(exCost?.cogsPercentYear3) ??
+    pickPositive(convCost?.cogsPercentYear3) ??
+    pickPositive(prefillCost?.cogsPercentYear3) ??
+    cogsY1;
+  const fixedCostCategories: FixedCostCategory[] =
+    exCost?.fixedCostCategories?.length
+      ? exCost.fixedCostCategories
+      : convCost?.fixedCostCategories?.length
+        ? convCost.fixedCostCategories
+        : (prefillCost?.fixedCostCategories ?? []);
+  const plannedHires: PlannedHire[] =
+    exCost?.plannedHires?.length
+      ? exCost.plannedHires
+      : convCost?.plannedHires?.length
+        ? convCost.plannedHires
+        : (prefillCost?.plannedHires ?? []);
+  const costAssumptions: SBAAssumptions["costAssumptions"] = {
+    cogsPercentYear1: cogsY1,
+    cogsPercentYear2: cogsY2,
+    cogsPercentYear3: cogsY3,
+    fixedCostCategories,
+    plannedHires,
+    plannedCapex:
+      exCost?.plannedCapex ?? prefillCost?.plannedCapex ?? [],
+  };
 
   const exWC = (ex.working_capital as
     | SBAAssumptions["workingCapital"]
@@ -158,19 +222,32 @@ function buildCandidate(args: {
   const exLI = (ex.loan_impact as
     | Partial<SBAAssumptions["loanImpact"]>
     | null) ?? null;
+  const convLI = conv.loanImpact ?? null;
   const prefillLI = prefill.loanImpact ?? null;
   const loanAmount =
-    Number(exLI?.loanAmount ?? 0) ||
-    Number(prefillLI?.loanAmount ?? 0) ||
-    conciergeLoanAmount ||
+    pickPositive(exLI?.loanAmount) ??
+    pickPositive(convLI?.loanAmount) ??
+    pickPositive(prefillLI?.loanAmount) ??
+    pickPositive(conciergeLoanAmount) ??
     0;
   const loanImpact: SBAAssumptions["loanImpact"] = {
     loanAmount,
-    termMonths: Number(exLI?.termMonths ?? prefillLI?.termMonths ?? 120),
-    interestRate: Number(
-      exLI?.interestRate ?? prefillLI?.interestRate ?? 0.0725,
-    ),
-    existingDebt: exLI?.existingDebt ?? prefillLI?.existingDebt ?? [],
+    termMonths:
+      pickPositive(exLI?.termMonths) ??
+      pickPositive(convLI?.termMonths) ??
+      pickPositive(prefillLI?.termMonths) ??
+      120,
+    interestRate:
+      pickPositive(exLI?.interestRate) ??
+      pickPositive(convLI?.interestRate) ??
+      pickPositive(prefillLI?.interestRate) ??
+      0.0725,
+    existingDebt:
+      (exLI?.existingDebt && exLI.existingDebt.length
+        ? exLI.existingDebt
+        : convLI?.existingDebt && convLI.existingDebt.length
+          ? convLI.existingDebt
+          : prefillLI?.existingDebt) ?? [],
     revenueImpactStartMonth:
       exLI?.revenueImpactStartMonth ?? prefillLI?.revenueImpactStartMonth,
     revenueImpactPct:
@@ -199,15 +276,18 @@ function buildCandidate(args: {
   };
 
   const exMT = (ex.management_team as ManagementMember[] | null) ?? null;
+  const convMT = conv.managementTeam ?? null;
   let managementTeam: ManagementMember[] =
     exMT && exMT.length
       ? exMT
-      : prefill.managementTeam && prefill.managementTeam.length
-        ? prefill.managementTeam
-        : [];
+      : convMT && convMT.length
+        ? convMT
+        : prefill.managementTeam && prefill.managementTeam.length
+          ? prefill.managementTeam
+          : [];
 
-  // Borrower fallback: if no team came from prefill (no ownership entities
-  // recorded — typical for brokerage concierge deals), seed from concierge
+  // Borrower fallback: if no team came from prefill or conversation
+  // (no ownership entities, no quoted principals), seed from concierge
   // borrower name. NEVER fabricate a name that wasn't given.
   if (managementTeam.length === 0 && conciergeName) {
     managementTeam = [
@@ -301,6 +381,7 @@ export type PersistDraftResult = {
 export async function persistAssumptionsDraft(args: {
   dealId: string;
   conciergeFacts?: ConciergeFacts;
+  conversationHistory?: ConversationMessage[];
   sb?: SupabaseClient;
 }): Promise<PersistDraftResult> {
   const sb = args.sb ?? supabaseAdmin();
@@ -319,15 +400,46 @@ export async function persistAssumptionsDraft(args: {
   }
 
   const prefill = await loadSBAAssumptionsPrefill(args.dealId);
+
+  // Conversation extraction is non-fatal — fall back to prefill / defaults
+  // when Gemini is unavailable.
+  let conversationLayer: Partial<SBAAssumptions> | null = null;
+  if (args.conversationHistory && args.conversationHistory.length > 0) {
+    try {
+      const extraction = await extractAssumptionsFromConversation({
+        history: args.conversationHistory,
+      });
+      conversationLayer = extraction?.partial ?? null;
+    } catch (e) {
+      console.warn(
+        "[sba-assumptions-bootstrap] conversation extraction failed:",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+
   const candidate = buildCandidate({
     dealId: args.dealId,
     prefill,
     existingRow: existing as Record<string, unknown> | null,
+    conversationLayer,
     conciergeFacts: args.conciergeFacts ?? null,
   });
 
   const id = await upsertAssumptionsRow(sb, args.dealId, candidate, "draft");
   return { assumptionsId: id, status: "draft" };
+}
+
+/**
+ * Returns the value if it is a finite positive number, otherwise undefined.
+ * Used to walk the priority chain (existingRow > conversation > prefill)
+ * for scalar numeric fields without short-circuiting on 0 / NaN.
+ */
+function pickPositive(v: unknown): number | undefined {
+  if (typeof v !== "number") return undefined;
+  if (!Number.isFinite(v)) return undefined;
+  if (v <= 0) return undefined;
+  return v;
 }
 
 // Exported for unit testing.

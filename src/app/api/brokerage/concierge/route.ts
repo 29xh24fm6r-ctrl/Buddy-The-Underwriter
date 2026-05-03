@@ -187,6 +187,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         dealId: session.deal_id,
         conciergeFacts:
           (conciergeRow.extracted_facts as Record<string, unknown>) ?? null,
+        conversationHistory:
+          (conciergeRow.conversation_history as
+            | Array<{ role: string; content: string }>
+            | null) ?? [],
         sb,
       });
       if (!ensure.ok) {
@@ -339,6 +343,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         dealId: session.deal_id,
         conciergeFacts:
           (conciergeRow.extracted_facts as Record<string, unknown>) ?? null,
+        conversationHistory:
+          (conciergeRow.conversation_history as
+            | Array<{ role: string; content: string }>
+            | null) ?? [],
         sb,
       });
 
@@ -424,6 +432,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       conciergeFacts: mergedFacts as Parameters<
         typeof persistAssumptionsDraft
       >[0]["conciergeFacts"],
+      conversationHistory: [
+        ...((conciergeRow.conversation_history as Array<{
+          role: string;
+          content: string;
+        }> | null) ?? []),
+        { role: "user", content: body.userMessage },
+      ],
       sb,
     }).catch((e) => {
       console.warn(
