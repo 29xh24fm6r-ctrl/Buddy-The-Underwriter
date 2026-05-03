@@ -123,3 +123,54 @@ export function detectTridentIntent(text: string): TridentIntentResult {
 
   return { matched: false };
 }
+
+// ── Assumptions confirmation intent ──────────────────────────────────────
+//
+// Borrower says something that signals "lock in the assumptions you've
+// captured." Triggers the draft → confirmed transition. Strong patterns
+// fire alone; bare "yes" / "ok" do NOT match (too ambiguous in normal
+// concierge flow — the borrower may be answering an unrelated question).
+
+export type AssumptionsConfirmIntentResult =
+  | { matched: true; matchedTerm: string }
+  | { matched: false };
+
+const ASSUMPTIONS_CONFIRM_PATTERNS: ReadonlyArray<RegExp> = [
+  // "confirm" / "confirmed" / "confirming" / "confirms" — but NOT
+  // "confirm lender" / "confirm bank" / "confirm email" etc., which are
+  // unrelated concierge flows.
+  /\bconfirm(?:ed|ing|s)?\b(?!\s+(?:lender|bank|email|phone|address|name))/i,
+  /\bapproved?\b/i,
+  /\blgtm\b/i,
+  /\blooks?\s+(?:good|right|correct|fine|great|perfect|ok(?:ay)?)\b/i,
+  /\b(?:that'?s|these\s+are|those\s+are)\s+(?:right|correct|good|accurate)\b/i,
+  /\b(?:everything|all)\s+(?:looks|seems|is)\s+(?:right|correct|good|accurate)\b/i,
+  /\ball\s+(?:set|good|correct)\b/i,
+  /\block\s+(?:it|them|these)\s+in\b/i,
+  /\block\s+in\b/i,
+  /\bsubmit\s+(?:it|them|these|the\s+assumptions?)\b/i,
+  /\bproceed\b/i,
+  /\bgo\s+ahead\b/i,
+  /\bsend\s+it\b/i,
+  /\b(?:yes|yep|yeah)\s*[,!.]?\s*(?:confirm|proceed|go\s+ahead|submit|lock)\b/i,
+  /\b(?:yes|yep|yeah)\s*[,!.]?\s*(?:that'?s\s+)?(?:right|correct|good)\b/i,
+];
+
+export function detectAssumptionsConfirmIntent(
+  text: string,
+): AssumptionsConfirmIntentResult {
+  if (!text || typeof text !== "string") return { matched: false };
+
+  for (const re of ASSUMPTIONS_CONFIRM_PATTERNS) {
+    const m = text.match(re);
+    if (m) return { matched: true, matchedTerm: m[0] };
+  }
+
+  return { matched: false };
+}
+
+export const ASSUMPTIONS_CONFIRMED_RESPONSE =
+  "Locked in. I'll use those assumptions when I build your preview package.";
+
+export const ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX =
+  "Almost — I just need a couple more things before I can lock these in:";

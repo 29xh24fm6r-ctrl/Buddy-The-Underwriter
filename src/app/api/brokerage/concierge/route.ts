@@ -32,10 +32,16 @@ import {
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import {
   detectTridentIntent,
+  detectAssumptionsConfirmIntent,
   TRIDENT_PREVIEW_RESPONSE,
+  ASSUMPTIONS_CONFIRMED_RESPONSE,
+  ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX,
 } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
-import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
+import {
+  ensureAssumptionsForPreview,
+  persistAssumptionsDraft,
+} from "@/lib/sba/sbaAssumptionsBootstrap";
 
 export const runtime = "nodejs";
 // Trident preview generation runs synchronously on intent match (PDF
@@ -320,6 +326,78 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // ── Assumptions confirmation short-circuit ──
+    // Borrower says "looks good", "confirm", "lock it in" → flip the
+    // assumptions row from draft to confirmed. Runs BEFORE the LLM so the
+    // confirmation isn't lost to a generic conversational reply.
+    // ensureAssumptionsForPreview is the right primitive here: it rebuilds
+    // the candidate from current prefill + concierge facts, validates, and
+    // upserts as confirmed on pass / draft + blockers on fail.
+    const confirmIntent = detectAssumptionsConfirmIntent(body.userMessage);
+    if (confirmIntent.matched) {
+      const ensure = await ensureAssumptionsForPreview({
+        dealId: session.deal_id,
+        conciergeFacts:
+          (conciergeRow.extracted_facts as Record<string, unknown>) ?? null,
+        sb,
+      });
+
+      const buddyMessage = ensure.ok
+        ? ASSUMPTIONS_CONFIRMED_RESPONSE
+        : `${ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX}\n\n` +
+          ensure.blockers.map((b) => `• ${b}`).join("\n");
+
+      const existingFacts =
+        (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+      const updatedHistory = [
+        ...(conciergeRow.conversation_history ?? []),
+        { role: "user", content: body.userMessage },
+        { role: "assistant", content: buddyMessage },
+      ];
+      const progressPct = computeProgress(existingFacts);
+
+      await sb
+        .from("borrower_concierge_sessions")
+        .update({
+          conversation_history: updatedHistory,
+          last_response: body.userMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conciergeRow.id);
+
+      await sb.from("ai_events").insert({
+        deal_id: session.deal_id,
+        scope: "brokerage_concierge",
+        action: ensure.ok
+          ? "assumptions_confirmed"
+          : "assumptions_confirm_blocked",
+        input_json: {
+          userMessage: body.userMessage,
+          matchedTerm: confirmIntent.matchedTerm,
+          source: body.source ?? "text",
+        },
+        output_json: ensure.ok
+          ? { assumptionsId: ensure.assumptionsId, buddyResponse: buddyMessage }
+          : { blockers: ensure.blockers, buddyResponse: buddyMessage },
+        confidence: 1,
+        requires_human_review: false,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        dealId: session.deal_id,
+        buddyResponse: buddyMessage,
+        extractedFacts: existingFacts,
+        progressPct,
+        nextQuestion: null,
+        sessionClaimed: false,
+        tridentPreview: null,
+        assumptionsConfirmation: ensure.ok
+          ? { ok: true, assumptionsId: ensure.assumptionsId }
+          : { ok: false, blockers: ensure.blockers },
+      });
+    }
+
     // Extract facts (Gemini Flash — cheap, fast, structured).
     const extractPrompt = buildExtractionPrompt(
       conciergeRow.conversation_history ?? [],
@@ -335,6 +413,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
       newFacts,
     );
+
+    // Proactive draft assumptions persistence — keeps buddy_sba_assumptions
+    // tracking the borrower's current best-known inputs from turn 1, so a
+    // valid row always exists before trident generation. Never downgrades
+    // a confirmed row; non-fatal on failure (the trident path's
+    // ensureAssumptionsForPreview is the safety net).
+    persistAssumptionsDraft({
+      dealId: session.deal_id,
+      conciergeFacts: mergedFacts as Parameters<
+        typeof persistAssumptionsDraft
+      >[0]["conciergeFacts"],
+      sb,
+    }).catch((e) => {
+      console.warn(
+        "[brokerage-concierge] draft assumptions persist failed (non-fatal):",
+        e?.message ?? String(e),
+      );
+    });
 
     // Claim the session the first time an email appears.
     const extractedEmail = (newFacts as any)?.borrower?.email;

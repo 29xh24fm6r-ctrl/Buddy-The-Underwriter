@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   detectTridentIntent,
+  detectAssumptionsConfirmIntent,
   TRIDENT_PREVIEW_RESPONSE,
+  ASSUMPTIONS_CONFIRMED_RESPONSE,
+  ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX,
 } from "../conciergeIntent";
 
 test("returns matched=false for empty input", () => {
@@ -138,4 +141,124 @@ test("response NEVER mentions copy/paste, templates, or external tools", () => {
       `must not contain ${re}`,
     );
   }
+});
+
+// ── Assumptions confirmation intent ──────────────────────────────────────
+
+test("assumptions confirm: returns matched=false for empty input", () => {
+  assert.equal(detectAssumptionsConfirmIntent("").matched, false);
+  assert.equal(
+    detectAssumptionsConfirmIntent(undefined as unknown as string).matched,
+    false,
+  );
+});
+
+test("assumptions confirm: matches explicit confirm verbs", () => {
+  for (const text of [
+    "I confirm",
+    "i confirm these numbers",
+    "Confirm the assumptions please",
+    "please confirm",
+    "confirmed",
+    "confirm",
+  ]) {
+    assert.equal(
+      detectAssumptionsConfirmIntent(text).matched,
+      true,
+      text,
+    );
+  }
+});
+
+test("assumptions confirm: matches approval phrasings", () => {
+  for (const text of [
+    "looks good",
+    "Looks correct",
+    "looks right to me",
+    "looks great",
+    "lgtm",
+    "approved",
+    "approve",
+    "that's right",
+    "that's correct",
+    "those are accurate",
+    "everything looks right",
+    "all good",
+    "all set",
+  ]) {
+    assert.equal(
+      detectAssumptionsConfirmIntent(text).matched,
+      true,
+      text,
+    );
+  }
+});
+
+test("assumptions confirm: matches lock-in / proceed phrasings", () => {
+  for (const text of [
+    "lock it in",
+    "lock in",
+    "lock these in",
+    "submit it",
+    "submit the assumptions",
+    "proceed",
+    "go ahead",
+    "send it",
+    "yes, confirm",
+    "yes proceed",
+    "yeah that's correct",
+    "yep, lock in",
+  ]) {
+    assert.equal(
+      detectAssumptionsConfirmIntent(text).matched,
+      true,
+      text,
+    );
+  }
+});
+
+test("assumptions confirm: does NOT match ambiguous bare yes/ok", () => {
+  for (const text of [
+    "yes",
+    "yeah",
+    "yep",
+    "ok",
+    "okay",
+    "sure",
+    "thanks",
+    "got it",
+    "what about feasibility",
+    "tell me more",
+    "I'm not sure",
+  ]) {
+    assert.equal(
+      detectAssumptionsConfirmIntent(text).matched,
+      false,
+      text,
+    );
+  }
+});
+
+test("assumptions confirm: does NOT match 'confirm lender' (different intent)", () => {
+  // The borrower picking a lender is a different flow — must not be
+  // captured as an assumptions confirmation.
+  assert.equal(
+    detectAssumptionsConfirmIntent("confirm lender pick").matched,
+    false,
+  );
+});
+
+test("assumptions confirm: returns matchedTerm for telemetry", () => {
+  const r = detectAssumptionsConfirmIntent("Looks good — let's proceed");
+  assert.equal(r.matched, true);
+  if (r.matched) {
+    assert.ok(typeof r.matchedTerm === "string" && r.matchedTerm.length > 0);
+  }
+});
+
+test("assumptions confirm: response constants are non-empty strings", () => {
+  assert.ok(ASSUMPTIONS_CONFIRMED_RESPONSE.length > 0);
+  assert.ok(ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX.length > 0);
+  // The blocked prefix should not promise success.
+  assert.equal(/locked\s*in/i.test(ASSUMPTIONS_CONFIRM_BLOCKED_PREFIX), false);
 });

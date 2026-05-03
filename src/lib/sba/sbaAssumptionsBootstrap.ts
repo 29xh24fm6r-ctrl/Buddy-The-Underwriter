@@ -83,12 +83,14 @@ export async function ensureAssumptionsForPreview(args: {
   const validation = validateSBAAssumptions(candidate);
 
   if (!validation.ok) {
-    const id = await upsertAssumptionsRow(sb, args.dealId, candidate, "draft");
+    // Persist the (incomplete) candidate as a draft so the borrower's
+    // partial inputs aren't lost between turns. assumptionsId is withheld
+    // from the result on this path — the caller's contract is the
+    // blockers list, not the id.
+    await upsertAssumptionsRow(sb, args.dealId, candidate, "draft");
     return {
       ok: false,
       blockers: validation.blockers,
-      // assumptionsId withheld on failure path — the row exists in draft
-      // but the caller's contract is the blockers list, not the id.
     } as EnsureResult;
   }
 
@@ -276,6 +278,56 @@ async function upsertAssumptionsRow(
     .select("id")
     .single();
   return (inserted?.id as string) ?? "";
+}
+
+/**
+ * Proactive draft persistence for the concierge flow.
+ *
+ * Called on every concierge turn after fact extraction so a row tracking
+ * the borrower's current best-known assumptions always exists for the deal —
+ * even before they ask for the trident preview. Never validates, never
+ * confirms, never downgrades: an already-confirmed row passes through
+ * untouched. Safe to fire-and-forget.
+ *
+ * Differs from `ensureAssumptionsForPreview` in two ways:
+ *   - skips `validateSBAAssumptions` (drafts are allowed to be incomplete)
+ *   - never sets status='confirmed' (only an explicit confirmation step does that)
+ */
+export type PersistDraftResult = {
+  assumptionsId: string;
+  status: "draft" | "confirmed";
+};
+
+export async function persistAssumptionsDraft(args: {
+  dealId: string;
+  conciergeFacts?: ConciergeFacts;
+  sb?: SupabaseClient;
+}): Promise<PersistDraftResult> {
+  const sb = args.sb ?? supabaseAdmin();
+
+  const { data: existing } = await sb
+    .from("buddy_sba_assumptions")
+    .select("id, status")
+    .eq("deal_id", args.dealId)
+    .maybeSingle();
+
+  // Never downgrade a confirmed row from a background draft refresh.
+  // Borrower edits to a confirmed deal must go through the explicit
+  // confirmation flow (which rebuilds + revalidates).
+  if (existing && existing.status === "confirmed") {
+    return { assumptionsId: existing.id, status: "confirmed" };
+  }
+
+  const prefill = await loadSBAAssumptionsPrefill(args.dealId);
+  const candidate = buildCandidate({
+    dealId: args.dealId,
+    prefill,
+    existingRow: existing as Record<string, unknown> | null,
+    conciergeFacts: args.conciergeFacts ?? null,
+  });
+
+  const id = await upsertAssumptionsRow(sb, args.dealId, candidate, "draft");
+  return { assumptionsId: id, status: "draft" };
 }
 
 // Exported for unit testing.

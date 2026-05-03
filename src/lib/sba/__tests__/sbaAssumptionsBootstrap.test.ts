@@ -10,6 +10,7 @@ const bootstrap = require("../sbaAssumptionsBootstrap") as typeof import("../sba
 const validator = require("../sbaAssumptionsValidator") as typeof import("../sbaAssumptionsValidator");
 const buildCandidate = bootstrap.__test_buildCandidate;
 const PREVIEW_BIO_PLACEHOLDER = bootstrap.__test_PREVIEW_BIO_PLACEHOLDER;
+const { persistAssumptionsDraft } = bootstrap;
 const { validateSBAAssumptions } = validator;
 type SBAAssumptions = import("../sbaReadinessTypes").SBAAssumptions;
 
@@ -231,4 +232,85 @@ test("zero loan amount → validator BLOCKS", () => {
       v.blockers.some((b) => b.toLowerCase().includes("loan amount")),
     );
   }
+});
+
+// ── persistAssumptionsDraft no-downgrade rule ────────────────────────────
+//
+// A confirmed row must NEVER be downgraded by a background draft refresh.
+// This test focuses on the early-return path so it does not need to mock
+// supabaseAdmin (loadSBAAssumptionsPrefill never runs when status is
+// already 'confirmed'). The mock SupabaseClient observes that no
+// .insert/.update calls were made.
+
+type Mutation =
+  | { kind: "select"; table: string }
+  | { kind: "insert"; table: string }
+  | { kind: "update"; table: string };
+
+function makeMockSb(opts: {
+  existing: { id: string; status: string } | null;
+}): { sb: unknown; mutations: Mutation[] } {
+  const mutations: Mutation[] = [];
+  const sb = {
+    from(table: string) {
+      return {
+        select(_cols: string) {
+          mutations.push({ kind: "select", table });
+          return {
+            eq(_col: string, _val: unknown) {
+              return {
+                async maybeSingle() {
+                  return { data: opts.existing, error: null };
+                },
+              };
+            },
+          };
+        },
+        insert(_payload: unknown) {
+          mutations.push({ kind: "insert", table });
+          return {
+            select(_cols: string) {
+              return {
+                async single() {
+                  return { data: { id: "ins-1" }, error: null };
+                },
+              };
+            },
+          };
+        },
+        update(_payload: unknown) {
+          mutations.push({ kind: "update", table });
+          return {
+            async eq(_col: string, _val: unknown) {
+              return { data: null, error: null };
+            },
+          };
+        },
+      };
+    },
+  };
+  return { sb, mutations };
+}
+
+test("persistAssumptionsDraft: confirmed row passes through untouched (no downgrade)", async () => {
+  const { sb, mutations } = makeMockSb({
+    existing: { id: "existing-1", status: "confirmed" },
+  });
+
+  const result = await persistAssumptionsDraft({
+    dealId: "deal-1",
+    conciergeFacts: { borrower: { first_name: "X", last_name: "Y" } },
+    sb: sb as Parameters<typeof persistAssumptionsDraft>[0]["sb"],
+  });
+
+  assert.equal(result.assumptionsId, "existing-1");
+  assert.equal(result.status, "confirmed");
+
+  // No insert and no update — the early-return guarantees a confirmed row
+  // is never rewritten by the proactive draft path.
+  assert.equal(
+    mutations.some((m) => m.kind === "insert" || m.kind === "update"),
+    false,
+    JSON.stringify(mutations),
+  );
 });
