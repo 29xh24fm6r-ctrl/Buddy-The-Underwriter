@@ -457,6 +457,100 @@ test("every phase yields exactly ONE primaryAction", async () => {
 
 // ─── latestSuccessful tracking ─────────────────────────────────────────────
 
+// ─── STALE_RUN_RECOVERED warning ───────────────────────────────────────────
+
+const staleRecoveredEvent = (createdAt?: string) => ({
+  id: "evt_stale",
+  deal_id: DEAL,
+  kind: "banker_analysis.stale_run_recovered",
+  payload: { meta: { risk_run_id: "rr_stale_old" } },
+  created_at: createdAt ?? new Date().toISOString(),
+});
+
+test("STALE_RUN_RECOVERED warning surfaces when a recent stale recovery exists", async () => {
+  const s = await status({
+    deals: [dealRow()],
+    deal_loan_requests: [loanReqRow()],
+    deal_documents: [docRow()],
+    deal_spreads: [readySpread()],
+    deal_events: [staleRecoveredEvent()],
+  });
+  // Phase still resolves to not_started — STALE_RUN_RECOVERED is a warning,
+  // not a phase override
+  assert.equal(s.phase, "not_started");
+  const warning = s.blockers.find((b) => b.code === "STALE_RUN_RECOVERED");
+  assert.ok(warning, "expected STALE_RUN_RECOVERED warning blocker");
+  assert.equal(warning!.severity, "warning");
+});
+
+test("STALE_RUN_RECOVERED is suppressed when a successful run completed AFTER the recovery", async () => {
+  // Stale recovery happened first, then a fresh successful run finished.
+  const earlier = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const later = new Date(Date.now() - 1 * 60 * 1000).toISOString();
+  const memoRun = { ...completedMemoRun(), created_at: later };
+  const s = await status({
+    deals: [dealRow()],
+    deal_loan_requests: [loanReqRow()],
+    deal_documents: [docRow()],
+    deal_spreads: [readySpread()],
+    risk_runs: [
+      {
+        id: "rr_complete",
+        deal_id: DEAL,
+        status: "completed",
+        model_name: "banker_analysis_pipeline",
+        created_at: later,
+      },
+    ],
+    memo_runs: [memoRun],
+    memo_sections: [memoSection(memoRun.id)],
+    deal_decisions: [{ ...decisionRow(), created_at: later }],
+    deal_credit_memo_status: [
+      { ...committeeReadyRow(), updated_at: later },
+    ],
+    deal_reconciliation_results: [{ ...cleanRecon(), reconciled_at: later }],
+    deal_events: [staleRecoveredEvent(earlier)],
+  });
+  assert.equal(s.phase, "ready_for_committee");
+  const warning = s.blockers.find((b) => b.code === "STALE_RUN_RECOVERED");
+  assert.equal(
+    warning,
+    undefined,
+    "stale-recovery warning should not appear once a newer successful run exists",
+  );
+});
+
+test("STALE_RUN_RECOVERED surfaces alongside other blockers (does not override phase)", async () => {
+  const s = await status({
+    deals: [dealRow(null)],
+    deal_loan_requests: [],
+    deal_documents: [docRow()],
+    deal_spreads: [],
+    deal_events: [staleRecoveredEvent()],
+  });
+  // Phase still gates on loan request
+  assert.equal(s.phase, "waiting_for_loan_request");
+  const codes = s.blockers.map((b) => b.code);
+  assert.ok(codes.includes("LOAN_REQUEST_INCOMPLETE"));
+  assert.ok(codes.includes("STALE_RUN_RECOVERED"));
+});
+
+test("STALE_RUN_RECOVERED is NEVER attached on tenant_mismatch", async () => {
+  const store = fakeSupabase({
+    deals: [dealRow()],
+    deal_events: [staleRecoveredEvent()],
+  });
+  const s = await getDealAnalysisStatus({
+    dealId: DEAL,
+    callerBankId: "wrong_bank",
+    _sb: store.sb,
+  });
+  assert.equal(s.phase, "analysis_failed");
+  // Only TENANT_MISMATCH — stale recovery must not leak to a foreign caller
+  assert.equal(s.blockers.length, 1);
+  assert.equal(s.blockers[0].code, "TENANT_MISMATCH");
+});
+
 test("latestSuccessful captures last completed run + memo + decision", async () => {
   const memoRun = completedMemoRun();
   const s = await status({

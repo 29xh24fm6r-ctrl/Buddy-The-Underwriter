@@ -73,7 +73,10 @@ export type BankerAnalysisBlocker =
   | "SPREADS_NOT_READY"
   | "MODEL_SNAPSHOT_FAILED"
   | "RISK_RUN_FAILED"
+  | "AI_RISK_RUN_WRITE_FAILED"
+  | "RISK_RUN_MARKER_UPDATE_FAILED"
   | "MEMO_RUN_FAILED"
+  | "MEMO_RUN_MARKER_UPDATE_FAILED"
   | "MEMO_SECTION_WRITE_FAILED"
   | "DECISION_WRITE_FAILED"
   | "COMMITTEE_READY_WRITE_FAILED"
@@ -319,12 +322,36 @@ export async function runBankerAnalysisPipeline(
       return blocked(["RISK_RUN_FAILED"]);
     }
 
-    // 8a. Persist to ai_risk_runs (existing schema, read by credit-memo route)
-    const aiRiskRunId = await insertAiRiskRun(sb, input.dealId, input.bankId, riskOutput);
-    ids.aiRiskRunId = aiRiskRunId;
+    // 8a. Persist to ai_risk_runs — this row is read by the credit-memo
+    //     route, so a missing row breaks downstream consumers. Treat as a
+    //     hard failure: flip the running marker to failed and bail.
+    const aiRiskResult = await insertAiRiskRun(sb, input.dealId, input.bankId, riskOutput);
+    if (!aiRiskResult.ok) {
+      await failRiskRunMarker(
+        sb,
+        runningRiskRunId,
+        `ai_risk_run_write_failed: ${aiRiskResult.error}`,
+      );
+      ids.riskRunId = runningRiskRunId;
+      return blocked(["AI_RISK_RUN_WRITE_FAILED"], aiRiskResult.error);
+    }
+    ids.aiRiskRunId = aiRiskResult.id;
 
-    // 8b. Mark our risk_runs marker as completed (so memo_runs.risk_run_id FK works)
-    await completeRiskRunMarker(sb, runningRiskRunId, riskOutput);
+    // 8b. Mark our risk_runs marker as completed (so memo_runs.risk_run_id
+    //     FK works). The marker update is part of the success contract: if
+    //     it fails the audit row stays `running` and the next caller would
+    //     incorrectly interpret it as in-flight.
+    const riskMarkerResult = await completeRiskRunMarker(
+      sb,
+      runningRiskRunId,
+      riskOutput,
+    );
+    if (!riskMarkerResult.ok) {
+      return blocked(
+        ["RISK_RUN_MARKER_UPDATE_FAILED"],
+        riskMarkerResult.error,
+      );
+    }
     ids.riskRunId = runningRiskRunId;
 
     // 9. Memo run ─────────────────────────────────────────────────────────
@@ -356,7 +383,16 @@ export async function runBankerAnalysisPipeline(
       ids.memoRunId = memoRunId;
       return blocked(["MEMO_SECTION_WRITE_FAILED"], sectionsResult.error);
     }
-    await completeMemoRunMarker(sb, memoRunId);
+    // 9c. memo_run completion update is also part of the success contract.
+    //     A stale `running` marker here would block future runs from being
+    //     correctly classified.
+    const memoMarkerResult = await completeMemoRunMarker(sb, memoRunId);
+    if (!memoMarkerResult.ok) {
+      return blocked(
+        ["MEMO_RUN_MARKER_UPDATE_FAILED"],
+        memoMarkerResult.error,
+      );
+    }
     ids.memoRunId = memoRunId;
 
     // 10. Deal decision (system recommendation) ──────────────────────────
@@ -368,7 +404,7 @@ export async function runBankerAnalysisPipeline(
       decidedBy: actor,
       reconciliationStatus: ids.reconciliationStatus,
       memoRunId,
-      aiRiskRunId,
+      aiRiskRunId: aiRiskResult.id,
       snapshotId,
       reason: input.reason,
     });
@@ -423,7 +459,7 @@ export async function runBankerAnalysisPipeline(
       payload: {
         reason: input.reason,
         snapshot_id: snapshotId,
-        ai_risk_run_id: aiRiskRunId,
+        ai_risk_run_id: aiRiskResult.id,
         risk_run_id: runningRiskRunId,
         memo_run_id: memoRunId,
         decision_id: decisionId,
@@ -584,28 +620,45 @@ async function completeRiskRunMarker(
   sb: SupabaseClient,
   riskRunId: string,
   riskOutput: RiskOutput,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("risk_runs")
     .update({
       status: "completed",
       outputs: riskOutput as any,
     })
     .eq("id", riskRunId);
+  if (error) {
+    console.warn(
+      "[bankerAnalysis] risk_runs completion update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function failRiskRunMarker(
   sb: SupabaseClient,
   riskRunId: string,
   errorMsg: string,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("risk_runs")
     .update({
       status: "failed",
       error: errorMsg.slice(0, 500),
     })
     .eq("id", riskRunId);
+  if (error) {
+    // Best-effort: we're already in a failure path, just log.
+    console.warn(
+      "[bankerAnalysis] risk_runs failure update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function insertAiRiskRun(
@@ -613,7 +666,7 @@ async function insertAiRiskRun(
   dealId: string,
   bankId: string,
   riskOutput: RiskOutput,
-): Promise<string | null> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const { data, error } = await sb
     .from("ai_risk_runs")
     .insert({
@@ -627,10 +680,12 @@ async function insertAiRiskRun(
     .select("id")
     .single();
   if (error) {
-    console.warn("[bankerAnalysis] ai_risk_runs insert failed (non-fatal):", error.message);
-    return null;
+    console.warn("[bankerAnalysis] ai_risk_runs insert failed:", error.message);
+    return { ok: false, error: error.message };
   }
-  return (data as any)?.id ?? null;
+  const id = (data as any)?.id ?? null;
+  if (!id) return { ok: false, error: "ai_risk_runs_returned_no_id" };
+  return { ok: true, id };
 }
 
 async function insertMemoRunRunning(
@@ -658,22 +713,38 @@ async function insertMemoRunRunning(
 async function completeMemoRunMarker(
   sb: SupabaseClient,
   memoRunId: string,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("memo_runs")
     .update({ status: "completed" })
     .eq("id", memoRunId);
+  if (error) {
+    console.warn(
+      "[bankerAnalysis] memo_runs completion update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function failMemoRunMarker(
   sb: SupabaseClient,
   memoRunId: string,
   errorMsg: string,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("memo_runs")
     .update({ status: "failed", error: errorMsg.slice(0, 500) })
     .eq("id", memoRunId);
+  if (error) {
+    console.warn(
+      "[bankerAnalysis] memo_runs failure update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function insertMemoSections(

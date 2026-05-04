@@ -144,6 +144,7 @@ export async function getDealAnalysisStatus(
     decision,
     committeeReady,
     recon,
+    staleRecovery,
   ] = await Promise.all([
     loadLatestLoanRequest(sb, dealId),
     loadDocumentCount(sb, dealId, bankId),
@@ -154,6 +155,7 @@ export async function getDealAnalysisStatus(
     loadLatestDecision(sb, dealId),
     loadCommitteeReady(sb, dealId),
     loadReconciliation(sb, dealId),
+    loadLatestStaleRecovery(sb, dealId),
   ]);
 
   // ── Completed flags ─────────────────────────────────────────────────────
@@ -210,6 +212,65 @@ export async function getDealAnalysisStatus(
 
   // ── Phase resolution (strict priority) ─────────────────────────────────
   // Already handled: 1. tenant_mismatch.
+  const result = resolvePhase({
+    dealId,
+    bankId,
+    completed,
+    latest,
+    latestSuccessful,
+    riskRunInfo,
+    riskRunCompleted,
+    memo,
+    memoComplete,
+    memoSectionsExist,
+    decisionComplete,
+    decision,
+    spreadInfo,
+    committeeReadyFlag,
+  });
+
+  // STALE_RUN_RECOVERED is a fail-soft warning: it surfaces when a previous
+  // banker_analysis run was reset by the inline reaper and a fresh
+  // successful run hasn't superseded it yet. It NEVER changes the resolved
+  // phase — it just appends a `warning` blocker so the banker knows why
+  // there's a gap in the audit history.
+  return mergeStaleRecoveryWarning(result, staleRecovery, latestSuccessful);
+}
+
+type ResolvePhaseInput = {
+  dealId: string;
+  bankId: string;
+  completed: DealAnalysisCompleted;
+  latest: DealAnalysisLatest;
+  latestSuccessful: DealAnalysisLatestSuccessful;
+  riskRunInfo: RiskRunInfo;
+  riskRunCompleted: boolean;
+  memo: MemoInfo | null;
+  memoComplete: boolean;
+  memoSectionsExist: boolean;
+  decisionComplete: boolean;
+  decision: { id: string; created_at: string | null } | null;
+  spreadInfo: SpreadInfo | null;
+  committeeReadyFlag: boolean;
+};
+
+function resolvePhase(input: ResolvePhaseInput): DealAnalysisStatus {
+  const {
+    dealId,
+    bankId,
+    completed,
+    latest,
+    latestSuccessful,
+    riskRunInfo,
+    riskRunCompleted,
+    memo,
+    memoComplete,
+    memoSectionsExist,
+    decisionComplete,
+    spreadInfo,
+    committeeReadyFlag,
+  } = input;
+
   // 2. running_analysis
   if (riskRunInfo.runningRiskRunId) {
     return buildRunningStatus({
@@ -1005,6 +1066,69 @@ async function loadReconciliation(
     .limit(1)
     .maybeSingle();
   return (data as any) ?? null;
+}
+
+type StaleRecoveryEvent = {
+  recoveredAt: string | null;
+  riskRunId: string | null;
+} | null;
+
+async function loadLatestStaleRecovery(
+  sb: SupabaseClient,
+  dealId: string,
+): Promise<StaleRecoveryEvent> {
+  const { data } = await sb
+    .from("deal_events")
+    .select("payload, created_at")
+    .eq("deal_id", dealId)
+    .eq("kind", "banker_analysis.stale_run_recovered")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  const payload = (data as any).payload ?? {};
+  const meta = payload?.meta ?? {};
+  return {
+    recoveredAt: (data as any).created_at ?? null,
+    riskRunId:
+      typeof meta.risk_run_id === "string" ? meta.risk_run_id : null,
+  };
+}
+
+function mergeStaleRecoveryWarning(
+  base: DealAnalysisStatus,
+  recovery: StaleRecoveryEvent,
+  latestSuccessful: DealAnalysisLatestSuccessful,
+): DealAnalysisStatus {
+  if (!recovery || !recovery.recoveredAt) return base;
+  // If a successful run completed AFTER the recovery event, the stale row
+  // is no longer relevant — suppress the warning.
+  if (
+    latestSuccessful.completedAt &&
+    latestSuccessful.completedAt > recovery.recoveredAt
+  ) {
+    return base;
+  }
+  // Don't surface on tenant_mismatch — the user shouldn't see anything
+  // about this deal.
+  const isTenantMismatch =
+    base.blockers.length > 0 && base.blockers[0].code === "TENANT_MISMATCH";
+  if (isTenantMismatch) return base;
+
+  const warning: DealAnalysisBlocker = {
+    code: "STALE_RUN_RECOVERED",
+    severity: "warning",
+    title: "Previous run was reset",
+    message:
+      "A previous analysis run was interrupted and has been reset. The next run will start fresh.",
+    actionLabel: "Run analysis",
+    sourceTable: "risk_runs",
+    sourceId: recovery.riskRunId ?? undefined,
+  };
+  return {
+    ...base,
+    blockers: [warning, ...base.blockers],
+  };
 }
 
 // ─── Misc ───────────────────────────────────────────────────────────────────

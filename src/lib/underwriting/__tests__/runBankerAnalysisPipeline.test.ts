@@ -828,3 +828,98 @@ test("stale running risk_run is marked failed and emits stale_run_recovered", as
   assert.ok(recovery, "expected a banker_analysis.stale_run_recovered event");
   assert.equal((recovery as any).meta.risk_run_id, "rr_stale");
 });
+
+// ─── Strict success: ai_risk_runs + marker-update failures ─────────────────
+
+test("pipeline returns AI_RISK_RUN_WRITE_FAILED when ai_risk_runs insert fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "ai_risk_runs", op: "insert" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["AI_RISK_RUN_WRITE_FAILED"]);
+
+  // risk_runs marker was opened then flipped to failed
+  const failedRiskRun = store.tables.risk_runs.find(
+    (r) => r.status === "failed",
+  );
+  assert.ok(failedRiskRun, "risk_runs marker should be flipped to failed");
+  // No ai_risk_runs row landed
+  assert.equal(store.tables.ai_risk_runs.length, 0);
+  // Memo + decision never reached
+  assert.equal(store.tables.memo_runs.length, 0);
+  assert.equal(store.tables.deal_decisions.length, 0);
+});
+
+test("pipeline returns RISK_RUN_MARKER_UPDATE_FAILED when risk_runs completion update fails", async () => {
+  // Failure injection on `update` table=risk_runs causes ALL risk_runs
+  // updates to fail — both the completion update (the one we care about)
+  // and the failRiskRunMarker call that follows. The pipeline must still
+  // surface RISK_RUN_MARKER_UPDATE_FAILED, not return succeeded.
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "risk_runs", op: "update" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["RISK_RUN_MARKER_UPDATE_FAILED"]);
+  // ai_risk_runs DID succeed before the marker update was attempted
+  assert.equal(store.tables.ai_risk_runs.length, 1);
+  // Memo + decision never reached
+  assert.equal(store.tables.memo_runs.length, 0);
+  assert.equal(store.tables.deal_decisions.length, 0);
+});
+
+test("pipeline returns MEMO_RUN_MARKER_UPDATE_FAILED when memo_runs completion update fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "memo_runs", op: "update" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["MEMO_RUN_MARKER_UPDATE_FAILED"]);
+  // memo_sections did write
+  assert.ok(store.tables.memo_sections.length >= 1);
+  // No decision row
+  assert.equal(store.tables.deal_decisions.length, 0);
+});
