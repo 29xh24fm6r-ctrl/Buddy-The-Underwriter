@@ -294,6 +294,47 @@ update risk_runs
    and created_at < now() - interval '10 minutes';
 ```
 
+## SLA alerts
+
+`POST /api/observability/banker-analysis/alerts` is the cron-driven alert
+dispatcher. It pulls `loadBankerAnalysisSla({ windowHours: 24 })`, iterates
+the resulting `alerts[]`, and forwards each to Slack with 30-minute per-alert
+dedupe (recorded in `buddy_system_events` — `payload.kind =
+'banker_analysis.sla_alert_sent'`, `payload.alert_id = <id>`).
+
+Wired in `vercel.json` to run every 10 minutes.
+
+### Required environment
+
+```text
+BANKER_ANALYSIS_ALERTS_ENABLED=true   # off → route returns { ok: true, disabled: true }
+SLACK_WEBHOOK_URL=<secret>            # missing → returns alert_not_configured (no throw)
+CRON_SECRET=<secret>                  # used by hasValidWorkerSecret on cron invocations
+NEXT_PUBLIC_APP_URL=https://...       # optional; only used to render the metrics link in Slack
+```
+
+### Behaviour
+
+- Alerts are deduped per `alert_id` for **30 minutes** — a recurring
+  `latency_breach`, for example, fires once per half-hour at most.
+- The route only fires when the SLA endpoint actually has alerts. Empty
+  windows return `{ ok: true, sent: 0, skipped: 0, alerts: [] }`.
+- A missing `SLACK_WEBHOOK_URL` does **not** break the app — the sender
+  short-circuits with `alert_not_configured` and the route returns the
+  per-alert results normally (`sent: false`, `reason: "alert_not_configured"`).
+- A missing `BANKER_ANALYSIS_ALERTS_ENABLED=true` makes the route return
+  `{ ok: true, disabled: true }` — safe to land the cron entry before the
+  flag is configured.
+
+### Manual trigger
+
+```bash
+curl -X POST "$ORIGIN/api/observability/banker-analysis/alerts" \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+Or as a super-admin via Clerk session.
+
 ## Expected banker UX flow
 
 1. Banker opens a deal cockpit. The `DealAnalysisStatusCard` calls
