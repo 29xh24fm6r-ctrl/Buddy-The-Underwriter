@@ -296,13 +296,22 @@ update risk_runs
 
 ## SLA alerts
 
-`POST /api/observability/banker-analysis/alerts` is the cron-driven alert
+`/api/observability/banker-analysis/alerts` is the cron-driven alert
 dispatcher. It pulls `loadBankerAnalysisSla({ windowHours: 24 })`, iterates
 the resulting `alerts[]`, and forwards each to Slack with 30-minute per-alert
 dedupe (recorded in `buddy_system_events` — `payload.kind =
 'banker_analysis.sla_alert_sent'`, `payload.alert_id = <id>`).
 
-Wired in `vercel.json` to run every 10 minutes.
+Wired in `vercel.json` to run every 10 minutes via **GET** (Vercel cron
+invokes GET). Both methods are supported:
+
+| Method | Auth | Use case |
+|--------|------|----------|
+| `GET`  | `Authorization: Bearer $CRON_SECRET` (no super-admin fallback) | Vercel cron path |
+| `POST` | `Authorization: Bearer $CRON_SECRET` **or** super-admin Clerk session | Manual / operator trigger |
+
+The GET handler intentionally rejects super-admin sessions so a logged-in
+admin can't trigger an alert sweep by navigating to the URL in a browser.
 
 ### Required environment
 
@@ -328,12 +337,20 @@ NEXT_PUBLIC_APP_URL=https://...       # optional; only used to render the metric
 
 ### Manual trigger
 
+Either method works with `Authorization: Bearer $CRON_SECRET`:
+
 ```bash
+# POST — also accepts a super-admin Clerk session
 curl -X POST "$ORIGIN/api/observability/banker-analysis/alerts" \
+  -H "Authorization: Bearer $CRON_SECRET"
+
+# GET — same handler the Vercel cron uses; CRON_SECRET only
+curl "$ORIGIN/api/observability/banker-analysis/alerts" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-Or as a super-admin via Clerk session.
+Super-admin Clerk sessions are accepted on **POST only**. GET rejects
+super-admin to keep cron-style triggers off browser-driven paths.
 
 ## Expected banker UX flow
 
