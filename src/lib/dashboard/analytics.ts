@@ -39,13 +39,14 @@ export async function fetchDealsForDashboard(filters: {
 }) {
   const sb = supabaseAdmin();
 
-  // IMPORTANT:
-  // Cursor: adjust select fields to match your actual deals table.
-  // We assume a table named "deals" exists with common columns.
+  // The deals table does not have an `amount` column — that select used to
+  // raise schema-cache errors on every dashboard load and triggered repeated
+  // PostgREST retries. Loan size lives on `loan_amount` (mirrors the field
+  // used in src/app/api/deals/[dealId]/ai-risk/route.ts).
   let q = sb
     .from("deals")
     .select(
-      "id, amount, stage, deal_type, created_at, anticipated_close_date, closed_at, assigned_to_user_id, last_activity_at, missing_docs_count, underwriter_assigned"
+      "id, loan_amount, stage, deal_type, created_at, anticipated_close_date, closed_at, assigned_to_user_id, last_activity_at, missing_docs_count, underwriter_assigned"
     );
 
   if (filters.userId) q = q.eq("assigned_to_user_id", filters.userId);
@@ -57,7 +58,7 @@ export async function fetchDealsForDashboard(filters: {
 
   const deals: DealLike[] = (res.data || []).map((r: DealRow) => ({
     id: r.id,
-    amount: safeNum(r.amount),
+    amount: safeNum(r.loan_amount),
     stage: r.stage || "Unknown",
     deal_type: r.deal_type ?? null,
     created_at: r.created_at ?? null,

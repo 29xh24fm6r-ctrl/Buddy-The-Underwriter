@@ -17,16 +17,19 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runIntakeProcessing } from "@/lib/intake/processing/runIntakeProcessing";
+import { hasOutboxWork } from "@/lib/workers/idleProbe";
 
 const DEAD_LETTER_THRESHOLD = 5;
 const BACKOFF_BASE_SECONDS = 30;
 const BACKOFF_CAP_SECONDS = 3600; // 1 hour
+const INTAKE_KIND = "intake.process";
 
 export type OutboxResult = {
   claimed: number;
   processed: number;
   failed: number;
   dead_lettered: number;
+  idle?: boolean;
 };
 
 interface ClaimedRow {
@@ -51,6 +54,16 @@ export async function processIntakeOutbox(
   maxRows?: number,
 ): Promise<OutboxResult> {
   const sb = supabaseAdmin();
+
+  // ── Idle probe: skip the claim RPC entirely when there is no work ─────
+  const work = await hasOutboxWork({ sb, includeKinds: [INTAKE_KIND] });
+  if (!work) {
+    if (process.env.DEBUG_WORKERS === "true") {
+      console.log("[intake-outbox] idle_no_work");
+    }
+    return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0, idle: true };
+  }
+
   const claimOwner = `vercel-intake-${Date.now()}`;
 
   // ── Claim batch via RPC ────────────────────────────────────────────────

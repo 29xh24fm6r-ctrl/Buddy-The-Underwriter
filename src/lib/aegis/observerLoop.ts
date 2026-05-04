@@ -196,6 +196,14 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
       .eq("status", "alive")
       .lt("last_heartbeat_at", cutoff);
 
+    // Dedup window: do not emit a stuck_job row for the same worker_id more
+    // than once per 30 minutes. Avoids accumulating duplicate stuck-spreads
+    // events when a worker has been dead for hours.
+    const STUCK_JOB_DEDUP_MIN = 30;
+    const dedupCutoff = new Date(
+      Date.now() - STUCK_JOB_DEDUP_MIN * 60_000,
+    ).toISOString();
+
     for (const w of (deadWorkers ?? []) as any[]) {
       result.scanned.dead_workers++;
 
@@ -206,6 +214,22 @@ export async function runObserverTick(): Promise<ObserverTickResult> {
           updated_at: new Date().toISOString(),
         } as any)
         .eq("id", w.id);
+
+      // Check for a recent stuck_job event for this worker before emitting
+      const { data: recentDup } = await sb
+        .from("buddy_system_events" as any)
+        .select("id")
+        .eq("event_type", "stuck_job")
+        .eq("source_system", "observer")
+        .gt("created_at", dedupCutoff)
+        .filter("payload->>worker_id", "eq", w.id)
+        .limit(1);
+
+      if (recentDup && (recentDup as any[]).length > 0) {
+        // Already reported this worker recently — skip duplicate emission.
+        result.actions.workers_marked_dead++;
+        continue;
+      }
 
       writeSystemEvent({
         event_type: "stuck_job",

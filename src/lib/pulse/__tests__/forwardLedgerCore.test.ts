@@ -250,5 +250,172 @@ test("vercel.json: pulse cron has no secrets in URL", async () => {
     !pulseCron.path.includes("SECRET"),
     "Cron path must NOT contain SECRET",
   );
-  assert.equal(pulseCron.schedule, "*/2 * * * *", "Must run every 2 minutes");
+  // Cadence was relaxed from */2 to */5 by the worker-hardening patch — the
+  // forwarder is now singleton via advisory lock and short-circuits on idle,
+  // so the older cadence was burning Supabase RPS for no benefit.
+  assert.equal(pulseCron.schedule, "*/5 * * * *", "Must run every 5 minutes");
+});
+
+// ─── Idle-probe regression: stale claims are work, not idle ────────────────
+//
+// Bug: the first version of the idle probe filtered on
+// `pulse_forward_claimed_at IS NULL` only. A row claimed by a worker that
+// crashed before delivery would be invisible to the probe — so the forwarder
+// would early-return idle_no_work even though Step 1 (reclaim stale claims)
+// would have unstuck it. These tests prevent that regression.
+
+test("forwarder idle probe: source includes stale-threshold OR clause", async () => {
+  const fs = await import("node:fs");
+  const source = fs.readFileSync("src/lib/pulse/forwardLedgerCore.ts", "utf-8");
+
+  // The probe must use .or() with both branches: claimed_at IS NULL OR
+  // claimed_at < staleThreshold. An equivalent regex captures the shape.
+  const probeBlock = source.split("Idle probe:")[1] ?? "";
+  assert.ok(probeBlock.length > 0, "Idle probe section must exist");
+
+  assert.match(
+    probeBlock,
+    /\.or\(\s*[`"']pulse_forward_claimed_at\.is\.null,pulse_forward_claimed_at\.lt\.\$\{staleThreshold\}/,
+    "probe .or() must include both is.null and lt.${staleThreshold} for pulse_forward_claimed_at",
+  );
+
+  // Belt-and-suspenders: probe must NOT use the standalone
+  // .is("pulse_forward_claimed_at", null) filter — that was the original bug.
+  // (We allow the literal in the candidate-select path further down, so
+  //  scope the assertion to the probe block before "Step 1: Reclaim".)
+  const probeOnly = probeBlock.split(/Step 1: Reclaim/)[0] ?? "";
+  assert.doesNotMatch(
+    probeOnly,
+    /\.is\(\s*"pulse_forward_claimed_at"\s*,\s*null\s*\)/,
+    "probe must NOT use standalone .is(pulse_forward_claimed_at, null) — that hides stale claims",
+  );
+});
+
+test("forwarder idle probe: stale-claimed row is treated as work, not idle", async () => {
+  // Stub Supabase client. The probe runs:
+  //   from('deal_pipeline_ledger').select('id').is(...).is(...).or(...).limit(1)
+  // We capture the .or(...) argument and return a stale-claimed row to assert
+  // forwardLedgerBatch keeps going past the probe rather than short-circuiting.
+  const calls: { method: string; args: unknown[] }[] = [];
+  let probeOrFilter = "";
+
+  // Two builders: probe (returns one row), candidate-select (returns []).
+  let selectCount = 0;
+  function makeBuilder() {
+    const builder: any = {
+      _select: "",
+      from(table: string) {
+        calls.push({ method: "from", args: [table] });
+        return builder;
+      },
+      select(cols: string) {
+        builder._select = cols;
+        calls.push({ method: "select", args: [cols] });
+        selectCount++;
+        return builder;
+      },
+      update() {
+        calls.push({ method: "update", args: [] });
+        return builder;
+      },
+      is(col: string, val: unknown) {
+        calls.push({ method: "is", args: [col, val] });
+        return builder;
+      },
+      lt(col: string, val: unknown) {
+        calls.push({ method: "lt", args: [col, val] });
+        return builder;
+      },
+      or(expr: string) {
+        if (!probeOrFilter) probeOrFilter = expr;
+        calls.push({ method: "or", args: [expr] });
+        return builder;
+      },
+      order() {
+        return builder;
+      },
+      eq() {
+        return builder;
+      },
+      limit(_n: number) {
+        // Probe (1st select on this table): return one stale-claimed row
+        // Candidate select (2nd): return [] so the test ends quickly
+        if (selectCount === 1) {
+          return Promise.resolve({
+            data: [{ id: "stale-row-1" }],
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: [], error: null });
+      },
+    };
+    return builder;
+  }
+
+  const builder = makeBuilder();
+  const sb: any = {
+    from: (t: string) => builder.from(t),
+  };
+
+  // Set required env so the kill-switch and config gates pass.
+  const prevEnabled = process.env.PULSE_TELEMETRY_ENABLED;
+  const prevUrl = process.env.PULSE_BUDDY_INGEST_URL;
+  const prevToken = process.env.PULSE_INGEST_TOKEN;
+  process.env.PULSE_TELEMETRY_ENABLED = "true";
+  process.env.PULSE_BUDDY_INGEST_URL = "https://example.invalid/ingest";
+  process.env.PULSE_INGEST_TOKEN = "test-token";
+
+  try {
+    const { forwardLedgerBatch } = await import("../forwardLedgerCore");
+    const result = await forwardLedgerBatch({ max: 5, sb });
+
+    // The contract: stale-claimed rows must NOT register as idle. Even though
+    // the probe got 1 row back, no candidates were claimed downstream, so we
+    // expect a normal (non-idle) result with attempted=0.
+    assert.notEqual(
+      (result as any).reason,
+      "idle_no_work",
+      "stale-claimed rows must NOT trigger idle_no_work",
+    );
+    assert.equal(result.skipped, undefined);
+    assert.equal(result.attempted, 0);
+
+    // Probe filter must include both is.null and lt.${staleThreshold}.
+    assert.match(
+      probeOrFilter,
+      /pulse_forward_claimed_at\.is\.null/,
+      "probe must include the unclaimed branch",
+    );
+    assert.match(
+      probeOrFilter,
+      /pulse_forward_claimed_at\.lt\./,
+      "probe must include the stale-threshold branch",
+    );
+
+    // Probe phase (everything before Step 1's `update` call) must NOT use
+    // a standalone is(pulse_forward_claimed_at, null) — that was the bug.
+    // Step 2 candidate-select legitimately uses it because Step 1 already
+    // reclaimed any stale rows.
+    const firstUpdateIdx = calls.findIndex((c) => c.method === "update");
+    const probeCalls =
+      firstUpdateIdx === -1 ? calls : calls.slice(0, firstUpdateIdx);
+    const standaloneInProbe = probeCalls.find(
+      (c) =>
+        c.method === "is" &&
+        c.args[0] === "pulse_forward_claimed_at" &&
+        c.args[1] === null,
+    );
+    assert.equal(
+      standaloneInProbe,
+      undefined,
+      "probe must not call .is(pulse_forward_claimed_at, null) — that hides stale claims",
+    );
+  } finally {
+    if (prevEnabled === undefined) delete process.env.PULSE_TELEMETRY_ENABLED;
+    else process.env.PULSE_TELEMETRY_ENABLED = prevEnabled;
+    if (prevUrl === undefined) delete process.env.PULSE_BUDDY_INGEST_URL;
+    else process.env.PULSE_BUDDY_INGEST_URL = prevUrl;
+    if (prevToken === undefined) delete process.env.PULSE_INGEST_TOKEN;
+    else process.env.PULSE_INGEST_TOKEN = prevToken;
+  }
 });

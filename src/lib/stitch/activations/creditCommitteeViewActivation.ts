@@ -42,9 +42,11 @@ export async function getCreditCommitteeViewActivationData(
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
+    // `amount` is not a real deals column — schema cache errors used to fire
+    // here on every committee view render. Loan size is stored on `loan_amount`.
     const { data, error } = await sb
       .from("deals")
-      .select("id, display_name, nickname, borrower_name, name, amount, stage, risk_score, updated_at")
+      .select("id, display_name, nickname, borrower_name, name, loan_amount, stage, risk_score, updated_at")
       .eq("bank_id", bankId)
       .in("stage", ["committee_ready", "approved", "underwrite_in_progress"])
       .order("updated_at", { ascending: false })
@@ -58,7 +60,8 @@ export async function getCreditCommitteeViewActivationData(
     const rows: CommitteeActivationRow[] = (data ?? []).map((d: any) => {
       const name = String(d.display_name || d.nickname || d.borrower_name || d.name || "Untitled Deal");
       const borrower = String(d.borrower_name || d.name || "-");
-      const amount = typeof d.amount === "number" ? d.amount : Number(d.amount);
+      const amount =
+        typeof d.loan_amount === "number" ? d.loan_amount : Number(d.loan_amount);
       return {
         id: String(d.id),
         name,

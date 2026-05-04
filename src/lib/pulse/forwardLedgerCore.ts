@@ -120,6 +120,9 @@ const LEDGER_SELECT = [
 
 export async function forwardLedgerBatch(opts: {
   max?: number;
+  /** Inject a pre-built Supabase client. Used by unit tests; production
+   *  callers should leave this undefined and let supabaseAdmin() handle it. */
+  sb?: ReturnType<typeof supabaseAdmin>;
 }): Promise<ForwardResult> {
   const max = Math.min(opts.max ?? MAX_DEFAULT, MAX_CEILING);
 
@@ -134,11 +137,49 @@ export async function forwardLedgerBatch(opts: {
     return { ok: true, skipped: true, reason: "no_ingest_config", attempted: 0, forwarded: 0, failed: 0, deadlettered: 0 };
   }
 
-  const sb = supabaseAdmin();
+  const sb = opts.sb ?? supabaseAdmin();
   const env = getEnv();
+
   const claimId = crypto.randomUUID();
   const now = new Date().toISOString();
   const staleThreshold = new Date(Date.now() - CLAIM_TTL_MS).toISOString();
+
+  // ── Idle probe: cheap LIMIT 1 existence check before reclaim/claim path ──
+  // The forwarder is invoked on every cron tick. When deal_pipeline_ledger has
+  // no un-forwarded rows, we don't want to write the stale-reclaim UPDATE or
+  // run the candidate SELECT. A single LIMIT 1 read is enough to confirm idle.
+  //
+  // CRITICAL: the OR clause must include rows whose claim is older than the
+  // stale threshold. A row claimed by a dead worker before crashing is still
+  // un-forwarded work — Step 1 below will reclaim it. If the probe filtered on
+  // `pulse_forward_claimed_at IS NULL` only, those rows would be invisible
+  // here and the worker would short-circuit even though the claim path would
+  // have unstuck them.
+  {
+    const { data: any1 } = await sb
+      .from("deal_pipeline_ledger")
+      .select("id")
+      .is("pulse_forwarded_at", null)
+      .is("pulse_forward_deadletter_at", null)
+      .or(
+        `pulse_forward_claimed_at.is.null,pulse_forward_claimed_at.lt.${staleThreshold}`,
+      )
+      .limit(1);
+    if (!any1 || any1.length === 0) {
+      if (process.env.DEBUG_WORKERS === "true") {
+        console.log("[pulse-forwarder] idle_no_work");
+      }
+      return {
+        ok: true,
+        skipped: true,
+        reason: "idle_no_work",
+        attempted: 0,
+        forwarded: 0,
+        failed: 0,
+        deadlettered: 0,
+      };
+    }
+  }
 
   // ── Step 1: Reclaim stale claims ────────────────────────────────────────
   await sb
