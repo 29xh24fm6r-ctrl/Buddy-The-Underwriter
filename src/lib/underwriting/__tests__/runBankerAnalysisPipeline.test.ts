@@ -65,7 +65,12 @@ interface FakeFixtures {
   borrowers?: Row[];
 }
 
-function fakeSupabase(initial: FakeFixtures = {}) {
+type FailureSpec = { table: string; op: "insert" | "update" | "upsert" | "select" };
+
+function fakeSupabase(
+  initial: FakeFixtures = {},
+  failures: FailureSpec[] = [],
+) {
   const tables: Record<string, Row[]> = {
     deals: initial.deals ?? [],
     deal_loan_requests: initial.deal_loan_requests ?? [],
@@ -100,6 +105,10 @@ function fakeSupabase(initial: FakeFixtures = {}) {
     let _limit: number | null = null;
     let _wantSingle: "single" | "maybeSingle" | null = null;
     const _hasError = false;
+
+    function shouldFail(): boolean {
+      return failures.some((f) => f.table === table && f.op === action);
+    }
 
     const apply = (filter: (r: Row) => boolean) => {
       rows = rows.filter(filter);
@@ -181,6 +190,12 @@ function fakeSupabase(initial: FakeFixtures = {}) {
 
     function resolve(): Promise<{ data: any; error: any; count?: number }> {
       if (_hasError) return Promise.resolve({ data: null, error: { message: "fake_error" } });
+      if (shouldFail()) {
+        return Promise.resolve({
+          data: null,
+          error: { message: `fake_${action}_failed` },
+        });
+      }
 
       if (action === "insert") {
         const stamped = _insertRows.map((r) => ({
@@ -288,11 +303,16 @@ function makeDeps(opts: {
   fixtures?: FakeFixtures;
   reconcileStatus?: "CLEAN" | "FLAGS" | "CONFLICTS";
   grade?: string;
+  failures?: FailureSpec[];
+  /** Skip wiring cleanupStaleAnalysisRuns; default uses a no-op stub. */
+  realCleanup?: boolean;
 }): {
   deps: BankerAnalysisDeps;
   store: ReturnType<typeof fakeSupabase>;
+  events: any[];
 } {
-  const store = fakeSupabase(opts.fixtures);
+  const store = fakeSupabase(opts.fixtures, opts.failures ?? []);
+  const events: any[] = [];
   const deps: BankerAnalysisDeps = {
     sb: store.sb,
     computeEngine: async () => ({ snapshotId: "snap_test_1" }),
@@ -308,10 +328,18 @@ function makeDeps(opts: {
       reconciledAt: new Date().toISOString(),
     }),
     provider: stubProvider(opts.grade),
-    writeEvent: async () => ({ ok: true }),
+    writeEvent: async (args) => {
+      events.push(args);
+      return { ok: true };
+    },
     logPipelineLedger: async () => {},
+    // Default cleanup stub — most tests don't care about reaping. Tests that
+    // exercise the cleanup path opt in via realCleanup=true.
+    cleanupStaleAnalysisRuns: opts.realCleanup
+      ? undefined
+      : async () => ({ reaped: [] }),
   };
-  return { deps, store };
+  return { deps, store, events };
 }
 
 const DEAL = "deal_1";
@@ -447,15 +475,87 @@ test("pipeline blocks ALREADY_RUNNING when a recent risk_run is in flight", asyn
   assert.equal(store.tables.risk_runs.length, 1);
 });
 
-test("forceRun=true bypasses the in-flight idempotency guard", async () => {
-  const recent = new Date().toISOString();
+test("forceRun=true with stale running run is allowed (cleanup recovers, replay proceeds)", async () => {
+  // Stale = older than 10 minutes AND model_name matches the pipeline.
+  const stale = new Date(Date.now() - 11 * 60 * 1000).toISOString();
   const { deps, store } = makeDeps({
     fixtures: {
       deals: [dealRow()],
       deal_loan_requests: [loanReqRow()],
       deal_spreads: [readySpreadRow()],
       risk_runs: [
-        { id: "rr_inflight", deal_id: DEAL, status: "running", created_at: recent },
+        {
+          id: "rr_stale",
+          deal_id: DEAL,
+          status: "running",
+          model_name: "banker_analysis_pipeline",
+          created_at: stale,
+        },
+      ],
+    },
+    realCleanup: true,
+  });
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "admin_replay",
+    forceRun: true,
+    _deps: deps,
+  });
+  assert.equal(result.status, "succeeded");
+  // Cleanup flipped the stale row to failed
+  const reaped = store.tables.risk_runs.find((r) => r.id === "rr_stale");
+  assert.equal(reaped?.status, "failed");
+  assert.equal(reaped?.error, "stale_running_timeout");
+});
+
+test("forceRun=true with FRESH running run is rejected when no stale recovery / no failed latest", async () => {
+  const recent = new Date().toISOString();
+  const { deps } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+      risk_runs: [
+        {
+          id: "rr_fresh",
+          deal_id: DEAL,
+          status: "running",
+          // No model_name — wouldn't qualify for cleanup either way.
+          created_at: recent,
+        },
+      ],
+    },
+  });
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "admin_replay",
+    forceRun: true,
+    _deps: deps,
+  });
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["ALREADY_RUNNING"]);
+});
+
+test("forceRun=true with FRESH running but latest run failed is allowed", async () => {
+  // Two rows: latest is failed (newest), older one is still running.
+  // Replay should proceed because the latest terminal state is `failed`.
+  const newest = new Date(Date.now() - 1_000).toISOString();
+  const older = new Date(Date.now() - 30_000).toISOString();
+  const { deps } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+      risk_runs: [
+        { id: "rr_fail", deal_id: DEAL, status: "failed", created_at: newest },
+        {
+          id: "rr_running",
+          deal_id: DEAL,
+          status: "running",
+          created_at: older,
+        },
       ],
     },
   });
@@ -467,8 +567,6 @@ test("forceRun=true bypasses the in-flight idempotency guard", async () => {
     _deps: deps,
   });
   assert.equal(result.status, "succeeded");
-  // A new risk_run was opened in addition to the pre-existing one
-  assert.ok(store.tables.risk_runs.length >= 2);
 });
 
 // ─── Happy path: writes everything when CLEAN ───────────────────────────────
@@ -598,4 +696,288 @@ test("reconciliation_status is never null in the result after pipeline executes 
     });
     assert.equal(r.ids.reconciliationStatus, recon, `recon=${recon}`);
   }
+});
+
+// ─── Strict success: write-failure paths block the pipeline ────────────────
+
+test("pipeline returns MEMO_SECTION_WRITE_FAILED when memo_sections insert fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "memo_sections", op: "insert" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["MEMO_SECTION_WRITE_FAILED"]);
+
+  // memo_run was opened, then flipped to failed
+  assert.equal(store.tables.memo_runs.length, 1);
+  assert.equal(store.tables.memo_runs[0].status, "failed");
+
+  // No decision was written, no committee-ready
+  assert.equal(store.tables.deal_decisions.length, 0);
+  assert.equal(store.tables.deal_credit_memo_status.length, 0);
+});
+
+test("pipeline returns DECISION_WRITE_FAILED when deal_decisions insert fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "deal_decisions", op: "insert" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["DECISION_WRITE_FAILED"]);
+
+  // memo_run + sections did write, but decision did not
+  assert.equal(store.tables.memo_runs.length, 1);
+  assert.ok(store.tables.memo_sections.length >= 1);
+  assert.equal(store.tables.deal_decisions.length, 0);
+  // Committee-ready not set — pipeline never reached that gate
+  assert.equal(store.tables.deal_credit_memo_status.length, 0);
+});
+
+test("pipeline returns COMMITTEE_READY_WRITE_FAILED when committee-ready upsert fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "deal_credit_memo_status", op: "upsert" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["COMMITTEE_READY_WRITE_FAILED"]);
+
+  // Decision was written; committee-ready was attempted but rejected
+  assert.equal(store.tables.deal_decisions.length, 1);
+  assert.equal(store.tables.deal_credit_memo_status.length, 0);
+});
+
+// ─── Stale-run recovery emits an event ─────────────────────────────────────
+
+test("stale running risk_run is marked failed and emits stale_run_recovered", async () => {
+  const stale = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+  const { deps, store, events } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+      risk_runs: [
+        {
+          id: "rr_stale",
+          deal_id: DEAL,
+          status: "running",
+          model_name: "banker_analysis_pipeline",
+          created_at: stale,
+        },
+      ],
+    },
+    realCleanup: true,
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "succeeded");
+  const reaped = store.tables.risk_runs.find((r) => r.id === "rr_stale");
+  assert.equal(reaped?.status, "failed");
+  assert.equal(reaped?.error, "stale_running_timeout");
+
+  const recovery = events.find(
+    (e) => e.kind === "banker_analysis.stale_run_recovered",
+  );
+  assert.ok(recovery, "expected a banker_analysis.stale_run_recovered event");
+  assert.equal((recovery as any).meta.risk_run_id, "rr_stale");
+});
+
+// ─── Strict success: ai_risk_runs + marker-update failures ─────────────────
+
+test("pipeline returns AI_RISK_RUN_WRITE_FAILED when ai_risk_runs insert fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "ai_risk_runs", op: "insert" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["AI_RISK_RUN_WRITE_FAILED"]);
+
+  // risk_runs marker was opened then flipped to failed
+  const failedRiskRun = store.tables.risk_runs.find(
+    (r) => r.status === "failed",
+  );
+  assert.ok(failedRiskRun, "risk_runs marker should be flipped to failed");
+  // No ai_risk_runs row landed
+  assert.equal(store.tables.ai_risk_runs.length, 0);
+  // Memo + decision never reached
+  assert.equal(store.tables.memo_runs.length, 0);
+  assert.equal(store.tables.deal_decisions.length, 0);
+});
+
+test("pipeline returns RISK_RUN_MARKER_UPDATE_FAILED when risk_runs completion update fails", async () => {
+  // Failure injection on `update` table=risk_runs causes ALL risk_runs
+  // updates to fail — both the completion update (the one we care about)
+  // and the failRiskRunMarker call that follows. The pipeline must still
+  // surface RISK_RUN_MARKER_UPDATE_FAILED, not return succeeded.
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "risk_runs", op: "update" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["RISK_RUN_MARKER_UPDATE_FAILED"]);
+  // ai_risk_runs DID succeed before the marker update was attempted
+  assert.equal(store.tables.ai_risk_runs.length, 1);
+  // Memo + decision never reached
+  assert.equal(store.tables.memo_runs.length, 0);
+  assert.equal(store.tables.deal_decisions.length, 0);
+});
+
+test("pipeline emits banker_analysis.write_failed event for each write-failure blocker", async () => {
+  // One representative case per write-failure code. We assert the event
+  // payload includes the specific blocker code so the status layer can
+  // recover the granular failure reason.
+  const cases: Array<{
+    failures: FailureSpec[];
+    expectedBlocker: string;
+  }> = [
+    {
+      failures: [{ table: "ai_risk_runs", op: "insert" }],
+      expectedBlocker: "AI_RISK_RUN_WRITE_FAILED",
+    },
+    {
+      failures: [{ table: "memo_sections", op: "insert" }],
+      expectedBlocker: "MEMO_SECTION_WRITE_FAILED",
+    },
+    {
+      failures: [{ table: "deal_decisions", op: "insert" }],
+      expectedBlocker: "DECISION_WRITE_FAILED",
+    },
+    {
+      failures: [{ table: "deal_credit_memo_status", op: "upsert" }],
+      expectedBlocker: "COMMITTEE_READY_WRITE_FAILED",
+    },
+  ];
+
+  for (const c of cases) {
+    const { deps, events } = makeDeps({
+      fixtures: {
+        deals: [dealRow()],
+        deal_loan_requests: [loanReqRow()],
+        deal_spreads: [readySpreadRow()],
+      },
+      reconcileStatus: "CLEAN",
+      grade: "B+",
+      failures: c.failures,
+    });
+    await runBankerAnalysisPipeline({
+      dealId: DEAL,
+      bankId: BANK,
+      reason: "spreads_ready",
+      _deps: deps,
+    });
+    const writeFailedEvent = events.find(
+      (e) => e.kind === "banker_analysis.write_failed",
+    );
+    assert.ok(
+      writeFailedEvent,
+      `expected banker_analysis.write_failed event for ${c.expectedBlocker}`,
+    );
+    assert.equal(
+      (writeFailedEvent as any).meta.blocker,
+      c.expectedBlocker,
+      `event meta must carry blocker=${c.expectedBlocker}`,
+    );
+  }
+});
+
+test("pipeline returns MEMO_RUN_MARKER_UPDATE_FAILED when memo_runs completion update fails", async () => {
+  const { deps, store } = makeDeps({
+    fixtures: {
+      deals: [dealRow()],
+      deal_loan_requests: [loanReqRow()],
+      deal_spreads: [readySpreadRow()],
+    },
+    reconcileStatus: "CLEAN",
+    grade: "B+",
+    failures: [{ table: "memo_runs", op: "update" }],
+  });
+
+  const result = await runBankerAnalysisPipeline({
+    dealId: DEAL,
+    bankId: BANK,
+    reason: "spreads_ready",
+    _deps: deps,
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.blockers, ["MEMO_RUN_MARKER_UPDATE_FAILED"]);
+  // memo_sections did write
+  assert.ok(store.tables.memo_sections.length >= 1);
+  // No decision row
+  assert.equal(store.tables.deal_decisions.length, 0);
 });

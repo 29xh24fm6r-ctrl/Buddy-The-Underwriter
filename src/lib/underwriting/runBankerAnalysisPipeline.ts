@@ -73,8 +73,13 @@ export type BankerAnalysisBlocker =
   | "SPREADS_NOT_READY"
   | "MODEL_SNAPSHOT_FAILED"
   | "RISK_RUN_FAILED"
+  | "AI_RISK_RUN_WRITE_FAILED"
+  | "RISK_RUN_MARKER_UPDATE_FAILED"
   | "MEMO_RUN_FAILED"
+  | "MEMO_RUN_MARKER_UPDATE_FAILED"
+  | "MEMO_SECTION_WRITE_FAILED"
   | "DECISION_WRITE_FAILED"
+  | "COMMITTEE_READY_WRITE_FAILED"
   | "RECONCILIATION_CONFLICTS"
   | "RECONCILIATION_FLAGS"
   | "ALREADY_RUNNING";
@@ -124,6 +129,10 @@ export type BankerAnalysisDeps = {
   provider?: AIProvider;
   writeEvent?: typeof WriteEventFn;
   logPipelineLedger?: typeof LogPipelineLedgerFn;
+  /** Optional override — used by tests to skip the inline stale-run reaper. */
+  cleanupStaleAnalysisRuns?: (
+    args: { dealId: string; _deps?: { sb?: SupabaseClient; writeEvent?: typeof WriteEventFn } },
+  ) => Promise<{ reaped: Array<{ riskRunId: string; dealId: string }> }>;
 };
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -192,10 +201,72 @@ export async function runBankerAnalysisPipeline(
     message,
   });
 
+  // Surfaces granular write-failure reasons to the status layer. Some
+  // failures (marker-update failures) leave the audit row stuck in
+  // 'running', so the status helper can't infer the specific code from
+  // table state alone. Emitting an event here gives it a deterministic
+  // signal regardless of which write went wrong.
+  const WRITE_FAILURE_BLOCKERS: ReadonlySet<BankerAnalysisBlocker> = new Set([
+    "AI_RISK_RUN_WRITE_FAILED",
+    "RISK_RUN_MARKER_UPDATE_FAILED",
+    "MEMO_SECTION_WRITE_FAILED",
+    "MEMO_RUN_MARKER_UPDATE_FAILED",
+    "DECISION_WRITE_FAILED",
+    "COMMITTEE_READY_WRITE_FAILED",
+  ]);
+
+  const blockedWithWriteFailureEvent = async (
+    blocker: BankerAnalysisBlocker,
+    error: string | null | undefined,
+  ): Promise<BankerAnalysisResult> => {
+    if (WRITE_FAILURE_BLOCKERS.has(blocker)) {
+      try {
+        await emitEvent({
+          dealId: input.dealId,
+          kind: "banker_analysis.write_failed",
+          scope: "underwriting",
+          action: "run_pipeline",
+          meta: {
+            blocker,
+            error: error ? error.slice(0, 500) : null,
+            reason: input.reason,
+            ids: { ...ids },
+          },
+        });
+      } catch (e) {
+        console.warn(
+          "[bankerAnalysis] write_failed event emit failed (non-fatal):",
+          e instanceof Error ? e.message : "unknown",
+        );
+      }
+    }
+    return blocked([blocker], error ?? undefined);
+  };
+
   // 1. Validate deal + bank ──────────────────────────────────────────────
   const dealRow = await loadDeal(sb, input.dealId);
   if (!dealRow) return blocked(["DEAL_NOT_FOUND"]);
   if (dealRow.bank_id !== input.bankId) return blocked(["TENANT_MISMATCH"]);
+
+  // 1b. Reap stale 'running' rows for this deal so they don't block the run
+  //     with ALREADY_RUNNING. Stale = older than the cleanup cutoff (default
+  //     10 minutes) and model_name='banker_analysis_pipeline'.
+  let staleRecovered = false;
+  try {
+    const cleanup =
+      deps.cleanupStaleAnalysisRuns ??
+      (await import("./cleanupStaleAnalysisRuns")).cleanupStaleAnalysisRuns;
+    const cleanupResult = await cleanup({
+      dealId: input.dealId,
+      _deps: { sb, writeEvent: emitEvent },
+    });
+    staleRecovered = cleanupResult.reaped.length > 0;
+  } catch (e) {
+    console.warn(
+      "[bankerAnalysis] stale cleanup failed (non-fatal):",
+      e instanceof Error ? e.message : "unknown",
+    );
+  }
 
   // 2. Loan request gate ─────────────────────────────────────────────────
   const hasLoanReq = await hasCompleteLoanRequest(sb, input.dealId, dealRow.loan_amount);
@@ -230,13 +301,26 @@ export async function runBankerAnalysisPipeline(
   }
 
   // 4. Idempotency: don't double-run for the same deal in flight ─────────
-  if (!input.forceRun) {
-    const inFlight = await isAnotherRunInFlight(sb, input.dealId);
-    if (inFlight) {
+  //    `forceRun=true` is only honoured when one of the spec's replay
+  //    preconditions holds: no active running run, OR a stale run was just
+  //    recovered, OR the latest run is in a `failed` state. Otherwise the
+  //    pipeline rejects the replay so two runs cannot race for the same deal.
+  const inFlight = await isAnotherRunInFlight(sb, input.dealId);
+  if (inFlight) {
+    if (!input.forceRun) {
       return blocked(
         ["ALREADY_RUNNING"],
         "Another banker analysis run is in flight for this deal.",
       );
+    }
+    if (!staleRecovered) {
+      const latestFailed = await isLatestRunFailed(sb, input.dealId);
+      if (!latestFailed) {
+        return blocked(
+          ["ALREADY_RUNNING"],
+          "Another banker analysis run is in flight; replay rejected because no run failure or stale recovery preceded it.",
+        );
+      }
     }
   }
 
@@ -280,12 +364,39 @@ export async function runBankerAnalysisPipeline(
       return blocked(["RISK_RUN_FAILED"]);
     }
 
-    // 8a. Persist to ai_risk_runs (existing schema, read by credit-memo route)
-    const aiRiskRunId = await insertAiRiskRun(sb, input.dealId, input.bankId, riskOutput);
-    ids.aiRiskRunId = aiRiskRunId;
+    // 8a. Persist to ai_risk_runs — this row is read by the credit-memo
+    //     route, so a missing row breaks downstream consumers. Treat as a
+    //     hard failure: flip the running marker to failed and bail.
+    const aiRiskResult = await insertAiRiskRun(sb, input.dealId, input.bankId, riskOutput);
+    if (!aiRiskResult.ok) {
+      await failRiskRunMarker(
+        sb,
+        runningRiskRunId,
+        `ai_risk_run_write_failed: ${aiRiskResult.error}`,
+      );
+      ids.riskRunId = runningRiskRunId;
+      return blockedWithWriteFailureEvent(
+        "AI_RISK_RUN_WRITE_FAILED",
+        aiRiskResult.error,
+      );
+    }
+    ids.aiRiskRunId = aiRiskResult.id;
 
-    // 8b. Mark our risk_runs marker as completed (so memo_runs.risk_run_id FK works)
-    await completeRiskRunMarker(sb, runningRiskRunId, riskOutput);
+    // 8b. Mark our risk_runs marker as completed (so memo_runs.risk_run_id
+    //     FK works). The marker update is part of the success contract: if
+    //     it fails the audit row stays `running` and the next caller would
+    //     incorrectly interpret it as in-flight.
+    const riskMarkerResult = await completeRiskRunMarker(
+      sb,
+      runningRiskRunId,
+      riskOutput,
+    );
+    if (!riskMarkerResult.ok) {
+      return blockedWithWriteFailureEvent(
+        "RISK_RUN_MARKER_UPDATE_FAILED",
+        riskMarkerResult.error,
+      );
+    }
     ids.riskRunId = runningRiskRunId;
 
     // 9. Memo run ─────────────────────────────────────────────────────────
@@ -303,23 +414,58 @@ export async function runBankerAnalysisPipeline(
       return blocked(["MEMO_RUN_FAILED"]);
     }
 
-    await completeMemoRunMarker(sb, memoRunId);
-    await insertMemoSections(sb, memoRunId, memoOutput);
+    // 9b. memo_sections is part of the success contract — if the insert
+    //     fails, the memo is incomplete. Mark the memo_run failed and bail
+    //     with MEMO_SECTION_WRITE_FAILED so the UI can surface an explicit
+    //     retry, instead of silently reporting success.
+    const sectionsResult = await insertMemoSections(sb, memoRunId, memoOutput);
+    if (!sectionsResult.ok) {
+      await failMemoRunMarker(
+        sb,
+        memoRunId,
+        `memo_section_write_failed: ${sectionsResult.error}`,
+      );
+      ids.memoRunId = memoRunId;
+      return blockedWithWriteFailureEvent(
+        "MEMO_SECTION_WRITE_FAILED",
+        sectionsResult.error,
+      );
+    }
+    // 9c. memo_run completion update is also part of the success contract.
+    //     A stale `running` marker here would block future runs from being
+    //     correctly classified.
+    const memoMarkerResult = await completeMemoRunMarker(sb, memoRunId);
+    if (!memoMarkerResult.ok) {
+      return blockedWithWriteFailureEvent(
+        "MEMO_RUN_MARKER_UPDATE_FAILED",
+        memoMarkerResult.error,
+      );
+    }
     ids.memoRunId = memoRunId;
 
     // 10. Deal decision (system recommendation) ──────────────────────────
     const recommended = recommendationFromGrade(riskOutput.grade);
-    const decisionId = await insertSystemDecision(sb, {
+    const decisionResult = await insertSystemDecision(sb, {
       dealId: input.dealId,
       bankId: input.bankId,
       decision: recommended,
       decidedBy: actor,
       reconciliationStatus: ids.reconciliationStatus,
       memoRunId,
-      aiRiskRunId,
+      aiRiskRunId: aiRiskResult.id,
       snapshotId,
       reason: input.reason,
     });
+    if (!decisionResult.ok) {
+      // Decision write is part of the success contract. The risk run +
+      // memo + sections exist, but without a decision row the pipeline
+      // cannot claim success. Surface DECISION_WRITE_FAILED.
+      return blockedWithWriteFailureEvent(
+        "DECISION_WRITE_FAILED",
+        decisionResult.error,
+      );
+    }
+    const decisionId = decisionResult.id;
     ids.decisionId = decisionId;
 
     // 11. Committee-ready gate ────────────────────────────────────────────
@@ -337,7 +483,21 @@ export async function runBankerAnalysisPipeline(
       reconBlockers.length === 0 && recommended !== "tabled";
 
     if (committeeEligible) {
-      await upsertCommitteeReadySignal(sb, input.dealId, memoRunId, actor);
+      const upsertResult = await upsertCommitteeReadySignal(
+        sb,
+        input.dealId,
+        memoRunId,
+        actor,
+      );
+      if (!upsertResult.ok) {
+        // CLEAN reconciliation + non-tabled recommendation requires the
+        // committee-ready signal to land. If the upsert fails the deal
+        // would otherwise look "successful" but stall before committee.
+        return blockedWithWriteFailureEvent(
+          "COMMITTEE_READY_WRITE_FAILED",
+          upsertResult.error,
+        );
+      }
       ids.committeeReady = true;
     }
 
@@ -350,7 +510,7 @@ export async function runBankerAnalysisPipeline(
       payload: {
         reason: input.reason,
         snapshot_id: snapshotId,
-        ai_risk_run_id: aiRiskRunId,
+        ai_risk_run_id: aiRiskResult.id,
         risk_run_id: runningRiskRunId,
         memo_run_id: memoRunId,
         decision_id: decisionId,
@@ -471,6 +631,20 @@ async function isAnotherRunInFlight(
   return Array.isArray(data) && data.length > 0;
 }
 
+async function isLatestRunFailed(
+  sb: SupabaseClient,
+  dealId: string,
+): Promise<boolean> {
+  const { data } = await sb
+    .from("risk_runs")
+    .select("status")
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as any)?.status === "failed";
+}
+
 async function openRiskRunMarker(
   sb: SupabaseClient,
   dealId: string,
@@ -497,28 +671,45 @@ async function completeRiskRunMarker(
   sb: SupabaseClient,
   riskRunId: string,
   riskOutput: RiskOutput,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("risk_runs")
     .update({
       status: "completed",
       outputs: riskOutput as any,
     })
     .eq("id", riskRunId);
+  if (error) {
+    console.warn(
+      "[bankerAnalysis] risk_runs completion update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function failRiskRunMarker(
   sb: SupabaseClient,
   riskRunId: string,
   errorMsg: string,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("risk_runs")
     .update({
       status: "failed",
       error: errorMsg.slice(0, 500),
     })
     .eq("id", riskRunId);
+  if (error) {
+    // Best-effort: we're already in a failure path, just log.
+    console.warn(
+      "[bankerAnalysis] risk_runs failure update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function insertAiRiskRun(
@@ -526,7 +717,7 @@ async function insertAiRiskRun(
   dealId: string,
   bankId: string,
   riskOutput: RiskOutput,
-): Promise<string | null> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const { data, error } = await sb
     .from("ai_risk_runs")
     .insert({
@@ -540,10 +731,12 @@ async function insertAiRiskRun(
     .select("id")
     .single();
   if (error) {
-    console.warn("[bankerAnalysis] ai_risk_runs insert failed (non-fatal):", error.message);
-    return null;
+    console.warn("[bankerAnalysis] ai_risk_runs insert failed:", error.message);
+    return { ok: false, error: error.message };
   }
-  return (data as any)?.id ?? null;
+  const id = (data as any)?.id ?? null;
+  if (!id) return { ok: false, error: "ai_risk_runs_returned_no_id" };
+  return { ok: true, id };
 }
 
 async function insertMemoRunRunning(
@@ -571,30 +764,48 @@ async function insertMemoRunRunning(
 async function completeMemoRunMarker(
   sb: SupabaseClient,
   memoRunId: string,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("memo_runs")
     .update({ status: "completed" })
     .eq("id", memoRunId);
+  if (error) {
+    console.warn(
+      "[bankerAnalysis] memo_runs completion update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function failMemoRunMarker(
   sb: SupabaseClient,
   memoRunId: string,
   errorMsg: string,
-): Promise<void> {
-  await sb
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await sb
     .from("memo_runs")
     .update({ status: "failed", error: errorMsg.slice(0, 500) })
     .eq("id", memoRunId);
+  if (error) {
+    console.warn(
+      "[bankerAnalysis] memo_runs failure update failed:",
+      error.message,
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 async function insertMemoSections(
   sb: SupabaseClient,
   memoRunId: string,
   memo: MemoOutput,
-): Promise<void> {
-  if (!memo.sections || memo.sections.length === 0) return;
+): Promise<{ ok: true; inserted: number } | { ok: false; error: string }> {
+  if (!memo.sections || memo.sections.length === 0) {
+    return { ok: false, error: "memo_returned_zero_sections" };
+  }
   const rows = memo.sections.map((s) => ({
     memo_run_id: memoRunId,
     section_key: s.sectionKey,
@@ -604,8 +815,10 @@ async function insertMemoSections(
   }));
   const { error } = await sb.from("memo_sections").insert(rows);
   if (error) {
-    console.warn("[bankerAnalysis] memo_sections insert failed (non-fatal):", error.message);
+    console.warn("[bankerAnalysis] memo_sections insert failed:", error.message);
+    return { ok: false, error: error.message };
   }
+  return { ok: true, inserted: rows.length };
 }
 
 async function insertSystemDecision(
@@ -621,7 +834,7 @@ async function insertSystemDecision(
     snapshotId: string;
     reason: BankerAnalysisReason;
   },
-): Promise<string | null> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const { data, error } = await sb
     .from("deal_decisions")
     .insert({
@@ -642,10 +855,12 @@ async function insertSystemDecision(
     .select("id")
     .single();
   if (error) {
-    console.warn("[bankerAnalysis] deal_decisions insert failed (non-fatal):", error.message);
-    return null;
+    console.warn("[bankerAnalysis] deal_decisions insert failed:", error.message);
+    return { ok: false, error: error.message };
   }
-  return (data as any)?.id ?? null;
+  const id = (data as any)?.id ?? null;
+  if (!id) return { ok: false, error: "deal_decisions_returned_no_id" };
+  return { ok: true, id };
 }
 
 async function upsertCommitteeReadySignal(
@@ -653,7 +868,7 @@ async function upsertCommitteeReadySignal(
   dealId: string,
   memoRunId: string,
   actor: string,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   // deal_credit_memo_status uses deal_id as primary key.
   const { error } = await sb
     .from("deal_credit_memo_status")
@@ -668,8 +883,10 @@ async function upsertCommitteeReadySignal(
       { onConflict: "deal_id" },
     );
   if (error) {
-    console.warn("[bankerAnalysis] committee-ready upsert failed (non-fatal):", error.message);
+    console.warn("[bankerAnalysis] committee-ready upsert failed:", error.message);
+    return { ok: false, error: error.message };
   }
+  return { ok: true };
 }
 
 async function buildDealSnapshotForAi(

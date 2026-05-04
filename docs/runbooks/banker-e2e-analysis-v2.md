@@ -38,6 +38,38 @@ To disable the automatic post-spreads trigger (e.g. during incident response):
   rejected with `ALREADY_RUNNING`. `forceRun=true` bypasses that guard for
   admin replay.
 
+## Canonical analysis status
+
+Bankers and the UI consume a single endpoint:
+
+```
+GET /api/deals/[dealId]/analysis-status
+```
+
+It returns the canonical `DealAnalysisStatus` object — phase, blockers,
+completion checklist, latest references, last successful run, and exactly one
+`primaryAction`. The UI must never inspect raw analysis tables.
+
+### Phases (strict priority — first match wins)
+
+| # | Phase                       | Meaning |
+|---|-----------------------------|---------|
+| 1 | `analysis_failed` (TENANT_MISMATCH) | Caller's bank does not own this deal. |
+| 2 | `running_analysis`          | A non-stale `risk_runs.status='running'` row exists. |
+| 3 | `waiting_for_loan_request`  | `deals.loan_amount` is null and no `deal_loan_requests.requested_amount`. |
+| 4 | `waiting_for_documents`     | Loan request set, but no `deal_documents` rows. |
+| 5 | `waiting_for_spreads`       | Docs uploaded, but no `deal_spreads` row with `status='ready'`. |
+| 6 | `analysis_failed`           | Latest run failed, OR memo/decision/committee-ready writes are missing after a completed risk run. |
+| 7 | `review_reconciliation`     | Memo + decision succeeded, reconciliation returned `FLAGS` or `CONFLICTS`. |
+| 8 | `ready_for_committee`       | Memo + decision + CLEAN reconciliation + `deal_credit_memo_status='ready_for_committee'`. |
+| 9 | `not_started`               | All gates pass; nothing has been kicked off yet. |
+
+### Severity contract
+
+- `error` — blocks pipeline execution AND committee readiness.
+- `warning` — allows execution, blocks committee readiness.
+- `info` — informational only.
+
 ## Gates (and what they return)
 
 | Gate                     | Blocker code                  | Cause |
@@ -45,12 +77,17 @@ To disable the automatic post-spreads trigger (e.g. during incident response):
 | Deal lookup              | `DEAL_NOT_FOUND`              | No row in `deals`. |
 | Tenant match             | `TENANT_MISMATCH`             | `deals.bank_id` ≠ caller's bank. |
 | Loan request             | `LOAN_REQUEST_INCOMPLETE`     | No `deal_loan_requests.requested_amount` and `deals.loan_amount` is null. |
-| Spread readiness         | `SPREADS_NOT_READY`           | No `deal_spreads` row with `status = 'ready'`. |
-| In-flight idempotency    | `ALREADY_RUNNING`             | A recent `risk_runs` row with `status='running'` exists for the deal. |
+| Documents                | `DOCUMENTS_MISSING`           | No `deal_documents` rows for the deal. |
+| Spread readiness         | `SPREADS_NOT_STARTED` / `SPREADS_RUNNING` / `SPREADS_FAILED` / `SPREADS_NOT_READY` | No spread row, in-progress, error, or other non-ready state. The status helper picks the right one based on `deal_spreads.status`. |
+| In-flight idempotency    | `ALREADY_RUNNING`             | A recent `risk_runs` row with `status='running'` exists for the deal and replay preconditions are not met. |
 | Model snapshot           | `MODEL_SNAPSHOT_FAILED`       | `computeAuthoritativeEngine` returned no `snapshotId`. |
-| Risk generation          | `RISK_RUN_FAILED`             | AI provider threw. |
-| Memo generation          | `MEMO_RUN_FAILED`             | AI provider threw. |
-| Reconciliation           | `RECONCILIATION_FLAGS` / `RECONCILIATION_CONFLICTS` | Soft / hard cross-document checks failed. Memo + decision still written; committee-ready is **not** flipped. |
+| Risk generation          | `RISK_RUN_FAILED`             | AI provider threw. Action: **Retry analysis**. |
+| Memo generation          | `MEMO_RUN_FAILED`             | AI provider threw on memo step. Action: **Retry analysis**. |
+| Memo sections write      | `MEMO_SECTION_WRITE_FAILED`   | Memo generated successfully but the `memo_sections` insert failed. The memo run is flipped to `failed`. Action: **Retry analysis**. |
+| Decision write           | `DECISION_WRITE_FAILED`       | Memo + sections written but the `deal_decisions` insert failed. Action: **Retry analysis**. |
+| Committee-ready write    | `COMMITTEE_READY_WRITE_FAILED`| CLEAN reconciliation + non-tabled grade, but the `deal_credit_memo_status` upsert failed. Action: **Retry analysis**. |
+| Reconciliation           | `RECONCILIATION_FLAGS` / `RECONCILIATION_CONFLICTS` | Soft / hard cross-document checks failed. Memo + decision still written; committee-ready is **not** flipped. Phase resolves to `review_reconciliation`, NOT `analysis_failed`. |
+| Stale-run recovery       | `STALE_RUN_RECOVERED` (event) | A previous run's `risk_runs.status='running'` row was older than 10 minutes and has been reset to `failed` with `error='stale_running_timeout'`. The new run proceeds. |
 
 `reconciliationStatus` in the result is **never** null after the pipeline runs
 past the spread-readiness gate — it is always `CLEAN`, `FLAGS`, or `CONFLICTS`.
@@ -212,7 +249,15 @@ If any of those rows are missing on a deal that had a `SUCCEEDED` spreads job:
 
 ## Replay
 
-To force a re-run for a single deal (admin only):
+Force replay is only honoured when one of these preconditions holds:
+
+- no active `risk_runs.status='running'` row for the deal, OR
+- a stale running row was just recovered (older than 10 minutes), OR
+- the latest terminal `risk_runs` row is in `failed` state.
+
+If a fresh `running` row exists and none of the above apply, the pipeline
+returns `ALREADY_RUNNING` — `forceRun=true` does **not** punch through a
+genuinely concurrent run.
 
 ```bash
 curl -X POST "$ORIGIN/api/deals/<deal_id>/banker-analysis/run" \
@@ -221,9 +266,50 @@ curl -X POST "$ORIGIN/api/deals/<deal_id>/banker-analysis/run" \
      --cookie "<session>"
 ```
 
-`forceRun=true` bypasses the in-flight guard. The pipeline still respects all
-other gates (loan request, spreads ready, tenant). Each replay writes a new
+Replay still respects every gate that runs before the analysis tables touch:
+tenant match, loan request, spreads readiness. Each replay writes a new
 `risk_runs`, `memo_runs`, and `deal_decisions` row — they are append-only.
+
+## Stale-run recovery
+
+`runBankerAnalysisPipeline` calls `cleanupStaleAnalysisRuns` inline at the
+start of every run. The reaper:
+
+- selects `risk_runs` where `status='running'`,
+  `model_name='banker_analysis_pipeline'`, and
+  `created_at < now() - interval '10 minutes'`,
+- updates them to `status='failed'`, `error='stale_running_timeout'`,
+- emits one `deal_events.kind='banker_analysis.stale_run_recovered'` per row.
+
+This converts the silent "stuck deal" failure mode into an observable event
+plus an analysis-status `STALE_RUN_RECOVERED` warning.
+
+Manual SQL fallback (only if the inline reaper is somehow bypassed):
+
+```sql
+update risk_runs
+   set status = 'failed', error = 'stale_running_timeout'
+ where status = 'running'
+   and model_name = 'banker_analysis_pipeline'
+   and created_at < now() - interval '10 minutes';
+```
+
+## Expected banker UX flow
+
+1. Banker opens a deal cockpit. The `DealAnalysisStatusCard` calls
+   `GET /api/deals/[dealId]/analysis-status` and renders one of the eight
+   phases above.
+2. The card shows: phase label, completion checklist
+   (loan request → docs → spreads → snapshot → risk → memo → decision →
+   committee-ready), the active blockers (severity-tinted), exactly one
+   primary action, and the last successful analysis timestamp (if any).
+3. Banker clicks the primary action:
+   - `Run analysis` / `Retry analysis` (`POST` to `/api/deals/[dealId]/banker-analysis/run`)
+   - `Complete loan request`, `Upload documents`, `Review spreads`, or
+     `Review reconciliation` (`GET` link)
+   - `View credit memo` when `ready_for_committee`.
+4. After a `POST` action the card refreshes by re-calling the status route —
+   no SQL inspection or table-by-table debugging required.
 
 ## Why each table is touched
 

@@ -99,6 +99,12 @@ test("orchestrator: blockers cover required cases", () => {
     "MODEL_SNAPSHOT_FAILED",
     "RISK_RUN_FAILED",
     "MEMO_RUN_FAILED",
+    "AI_RISK_RUN_WRITE_FAILED",
+    "RISK_RUN_MARKER_UPDATE_FAILED",
+    "MEMO_RUN_MARKER_UPDATE_FAILED",
+    "MEMO_SECTION_WRITE_FAILED",
+    "DECISION_WRITE_FAILED",
+    "COMMITTEE_READY_WRITE_FAILED",
     "RECONCILIATION_CONFLICTS",
     "RECONCILIATION_FLAGS",
     "ALREADY_RUNNING",
@@ -108,6 +114,15 @@ test("orchestrator: blockers cover required cases", () => {
       `orchestrator must reference blocker code ${blocker}`,
     );
   }
+});
+
+test("orchestrator: invokes stale-run cleanup before opening a new run", () => {
+  const src = READ(ORCH);
+  assert.match(
+    src,
+    /cleanupStaleAnalysisRuns/,
+    "orchestrator must wire cleanupStaleAnalysisRuns",
+  );
 });
 
 // ── Route ───────────────────────────────────────────────────────────────────
