@@ -858,6 +858,50 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       meta: { jobId, spreadTypes: requested },
     });
 
+    // ── Banker E2E Analysis Pipeline (V2) ──────────────────────────────
+    // Awaited synchronously so the worker holds the lease until snapshot,
+    // risk run, memo run, decision and committee-ready are all written.
+    // Vercel-safe: no fire-and-forget. The pipeline has its own idempotency
+    // guard (in-flight risk_runs marker) so duplicate triggers are safe.
+    if (process.env.BANKER_ANALYSIS_AUTO_RUN !== "false") {
+      try {
+        const { runBankerAnalysisPipeline } = await import(
+          "@/lib/underwriting/runBankerAnalysisPipeline"
+        );
+        const analysis = await runBankerAnalysisPipeline({
+          dealId,
+          bankId,
+          reason: "spreads_ready",
+          actor: "system:spreads-worker",
+        });
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "banker_analysis.post_spreads",
+          uiState: analysis.status === "succeeded" ? "done" : "waiting",
+          uiMessage: `Banker analysis: ${analysis.status}${analysis.blockers.length ? ` (${analysis.blockers.join(",")})` : ""}`,
+          meta: {
+            status: analysis.status,
+            blockers: analysis.blockers,
+            ids: analysis.ids,
+            duration_ms: analysis.durationMs,
+          },
+        });
+      } catch (analysisErr: any) {
+        // Do not fail the spreads job — analysis is downstream of spread success.
+        // The pipeline already records its own failure via writeEvent;
+        // this catch only protects the worker contract.
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "banker_analysis.post_spreads_failed",
+          uiState: "error",
+          uiMessage: `Banker analysis raised: ${String(analysisErr?.message ?? analysisErr).slice(0, 200)}`,
+          meta: { jobId },
+        });
+      }
+    }
+
     return { ok: true as const, jobId };
   } catch (e: any) {
     const errMsg = String(e?.message ?? e);
