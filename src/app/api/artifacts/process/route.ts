@@ -60,12 +60,20 @@ export async function POST(req: NextRequest) {
 
     console.log("[artifacts/process] starting batch", { max });
 
-    // Aegis: heartbeat at batch start
-    sendHeartbeat({ workerId: `artifact-processor-${process.pid}`, workerType: "artifact_processor" }).catch(() => {});
+    // Heartbeat is sent only after we know there was work to do (results.length > 0)
+    // or after a failure is observed. Pure-idle invocations no longer write to
+    // buddy_workers — that was the source of heartbeat-spam at idle cron rate.
 
     const startTime = Date.now();
     const results = await processBatch(max);
     const duration = Date.now() - startTime;
+
+    if (results.length > 0) {
+      sendHeartbeat({
+        workerId: `artifact-processor-${process.pid}`,
+        workerType: "artifact_processor",
+      }).catch(() => {});
+    }
 
     const summary = {
       processed: results.length,

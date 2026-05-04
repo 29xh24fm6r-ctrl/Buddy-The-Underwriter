@@ -8,6 +8,12 @@ import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
 import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
+import {
+  WORKER_LOCK_KEYS,
+  withWorkerAdvisoryLock,
+  isWorkerLockSkip,
+} from "@/lib/workers/workerLock";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,19 +73,51 @@ export async function POST(req: NextRequest) {
     getContext: (opts: any) => ({ correlationId: opts?.leaseOwner }),
   });
 
-  // Aegis: heartbeat at tick start
-  sendHeartbeat({ workerId: leaseOwner, workerType: type.toLowerCase() }).catch(() => {});
+  // Heartbeat is intentionally NOT sent at tick start — pure-idle invocations
+  // (no jobs available) used to spam buddy_workers every cron tick. Heartbeats
+  // are now sent only after the first successful job pull, OR if any failure /
+  // stuck condition is detected downstream.
+  let heartbeatSent = false;
+  const beat = () => {
+    if (heartbeatSent) return;
+    heartbeatSent = true;
+    sendHeartbeat({ workerId: leaseOwner, workerType: type.toLowerCase() }).catch(
+      () => {},
+    );
+  };
 
   try {
     if (type === "SPREADS") {
-      const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize });
-      return NextResponse.json(r);
+      // Spreads worker is the only path that gets advisory-locked on this
+      // route — it's the one that historically produced "stuck spreads" rows.
+      const sb = supabaseAdmin();
+      const locked = await withWorkerAdvisoryLock({
+        sb,
+        lockKey: WORKER_LOCK_KEYS.SPREADS_WORKER,
+        workerName: "spreads-worker",
+        run: async () => {
+          const r = await guardedSpreads({ leaseOwner, maxJobs: batchSize });
+          if (r.processed > 0) beat();
+          return r;
+        },
+      });
+
+      if (isWorkerLockSkip(locked)) {
+        return NextResponse.json({
+          ok: true,
+          worker: "spreads_worker",
+          skipped: true,
+          reason: "lock_not_acquired",
+        });
+      }
+      return NextResponse.json(locked);
     }
 
     for (let i = 0; i < batchSize; i++) {
       if (type === "OCR" || type === "ALL") {
         const ocrResult = await guardedOcr(leaseOwner);
         if (ocrResult.ok) {
+          beat();
           results.push({ type: "OCR", ...ocrResult });
           continue;
         }
@@ -88,6 +126,7 @@ export async function POST(req: NextRequest) {
       if (type === "CLASSIFY" || type === "ALL") {
         const classifyResult = await guardedClassify(leaseOwner);
         if (classifyResult.ok) {
+          beat();
           results.push({ type: "CLASSIFY", ...classifyResult });
           continue;
         }
@@ -96,6 +135,7 @@ export async function POST(req: NextRequest) {
       if (type === "EXTRACT" || type === "ALL") {
         const extractResult = await guardedExtract(leaseOwner);
         if (extractResult.ok) {
+          beat();
           results.push({ type: "EXTRACT", ...extractResult });
           continue;
         }
@@ -109,6 +149,7 @@ export async function POST(req: NextRequest) {
     if (type === "ALL") {
       const spreadResult = await guardedSpreads({ leaseOwner, maxJobs: Math.max(1, batchSize) });
       if (spreadResult.ok && spreadResult.processed > 0) {
+        beat();
         results.push({ type: "SPREADS", ...spreadResult });
       }
 

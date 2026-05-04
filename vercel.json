@@ -6,35 +6,35 @@
     },
     {
       "path": "/api/jobs/worker/tick?type=SPREADS&batch_size=3",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/artifacts/process?max=20",
-      "schedule": "*/1 * * * *"
-    },
-    {
-      "path": "/api/pulse/cron-forward-ledger?max=5",
-      "schedule": "*/2 * * * *"
-    },
-    {
-      "path": "/api/ops/observer/tick",
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/pulse/cron-forward-ledger?max=25",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/ops/observer/tick",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/workers/intake-outbox?max=10",
-      "schedule": "*/1 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/workers/intake-recovery",
-      "schedule": "*/3 * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/workers/doc-extraction?max=5",
-      "schedule": "*/1 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/workers/pulse-outbox?max=8",
-      "schedule": "*/2 * * * *"
+      "path": "/api/workers/pulse-outbox?max=10",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/brokerage/cleanup-expired",

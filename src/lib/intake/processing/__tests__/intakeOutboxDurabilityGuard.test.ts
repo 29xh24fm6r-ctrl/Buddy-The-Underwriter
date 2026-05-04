@@ -306,9 +306,12 @@ describe("Intake Outbox Durability CI Guards", () => {
       (c: any) => typeof c.path === "string" && c.path.includes("/api/workers/intake-recovery"),
     );
     assert.ok(entry, "vercel.json must have a cron entry for /api/workers/intake-recovery");
+    // Frequency was tightened from */3 to */10 by the worker-hardening patch:
+    // recovery is best-effort backfill, not the hot path; the outbox path
+    // covers stuck rows on its own */5 cadence.
     assert.ok(
-      entry.schedule.includes("*/3"),
-      `recovery cron should run every 3 minutes (got: ${entry.schedule})`,
+      entry.schedule.includes("*/10"),
+      `recovery cron should run every 10 minutes (got: ${entry.schedule})`,
     );
   });
 
@@ -616,8 +619,8 @@ describe("Intake Outbox Durability CI Guards", () => {
     );
   });
 
-  // ── Guard 29: intake-outbox cron schedule is at most every 1 minute ──
-  test("[guard-29] vercel.json intake-outbox cron schedule fires every 1 minute", () => {
+  // ── Guard 29: intake-outbox cron schedule fires at least every 5 minutes ──
+  test("[guard-29] vercel.json intake-outbox cron schedule fires every 5 minutes or sooner", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf-8"));
     assert.ok(Array.isArray(pkg.crons), "vercel.json must have a crons array");
 
@@ -627,13 +630,21 @@ describe("Intake Outbox Durability CI Guards", () => {
     assert.ok(entry, "Guard 29: vercel.json must have a cron entry for /api/workers/intake-outbox");
 
     const schedule: string = entry.schedule ?? "";
-    // Accepts */1 * * * * (every 1 min) or * * * * * (every minute, same thing)
-    const isOncePerMinute =
-      schedule === "*/1 * * * *" || schedule === "* * * * *";
+    // After the worker-hardening patch the cadence is */5. Accept anything
+    // tighter (every minute, every 2 min, ...) but reject longer intervals
+    // (every 10 min, hourly).
+    const ALLOWED = new Set([
+      "* * * * *",
+      "*/1 * * * *",
+      "*/2 * * * *",
+      "*/3 * * * *",
+      "*/4 * * * *",
+      "*/5 * * * *",
+    ]);
     assert.ok(
-      isOncePerMinute,
-      `Guard 29: intake-outbox cron must fire every 1 minute (got: "${schedule}") — ` +
-      "a longer interval means unclaimed outbox rows can sit for >1 minute before pickup",
+      ALLOWED.has(schedule),
+      `Guard 29: intake-outbox cron must fire every 5 minutes or sooner (got: "${schedule}") — ` +
+      "a longer interval means unclaimed outbox rows can sit too long before pickup",
     );
   });
 });

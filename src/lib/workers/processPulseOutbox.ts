@@ -11,9 +11,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { hasOutboxWork } from "@/lib/workers/idleProbe";
 
 // Event kinds handled by intake-outbox worker — skip these
 const INTAKE_KINDS = new Set(["intake.process"]);
+const INTAKE_KINDS_LIST = Array.from(INTAKE_KINDS);
 
 const DEAD_LETTER_THRESHOLD = 10;
 const BACKOFF_BASE_SECONDS = 60;
@@ -26,6 +28,7 @@ export type PulseOutboxResult = {
   failed: number;
   dead_lettered: number;
   skipped_disabled: boolean;
+  idle?: boolean;
 };
 
 function backoffSeconds(attempts: number): number {
@@ -62,6 +65,27 @@ export async function processPulseOutbox(
   }
 
   const sb = supabaseAdmin();
+
+  // ── Idle probe: cheap LIMIT 1 existence check before opening claim path ──────
+  // If there is no eligible non-intake row, return immediately without writing
+  // a heartbeat or starting a claim transaction. This is the bulk of cron
+  // invocations and used to be the source of millions of identical claim
+  // queries against pg_stat_statements.
+  const work = await hasOutboxWork({ sb, excludeKinds: INTAKE_KINDS_LIST });
+  if (!work) {
+    if (process.env.DEBUG_WORKERS === "true") {
+      console.log("[pulse-outbox] idle_no_work");
+    }
+    return {
+      claimed: 0,
+      forwarded: 0,
+      failed: 0,
+      dead_lettered: 0,
+      skipped_disabled: false,
+      idle: true,
+    };
+  }
+
   const claimOwner = `pulse-outbox-${Date.now()}`;
   const now = new Date().toISOString();
 

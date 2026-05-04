@@ -4,13 +4,17 @@
  * Vercel Cron entry point for draining pipeline notification events
  * from buddy_outbox_events to Pulse.
  *
- * Schedule: every 2 minutes (vercel.json cron)
+ * Schedule: every 5 minutes (vercel.json cron)
  * Auth: CRON_SECRET or WORKER_SECRET
  *
  * Handles: checklist_reconciled, readiness_recomputed, artifact_processed,
  * manual_override, and all other non-intake outbox events.
  *
  * Does NOT handle intake.process events (those go to /api/workers/intake-outbox).
+ *
+ * Singleton across concurrent invocations via PostgreSQL advisory lock
+ * (WORKER_LOCK_KEYS.PULSE_OUTBOX). Idle invocations short-circuit before
+ * any heartbeat or claim transaction is written.
  */
 
 import "server-only";
@@ -18,12 +22,20 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { processPulseOutbox } from "@/lib/workers/processPulseOutbox";
+import {
+  WORKER_LOCK_KEYS,
+  withWorkerAdvisoryLock,
+  isWorkerLockSkip,
+} from "@/lib/workers/workerLock";
+import { resolveBatchSize } from "@/lib/workers/batchCaps";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
+  const start = Date.now();
   console.log("[pulse-outbox] cron_invocation_seen", {
     ts: new Date().toISOString(),
     ua: req.headers.get("user-agent") ?? null,
@@ -39,28 +51,62 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  try {
-    const max = Math.min(
-      Number(req.nextUrl.searchParams.get("max") ?? "50"),
-      200,
-    );
+  const max = resolveBatchSize(
+    req.nextUrl.searchParams.get("max"),
+    process.env.BUDDY_OUTBOX_BATCH_SIZE,
+    "outbox",
+  );
 
-    const result = await processPulseOutbox(max);
+  const sb = supabaseAdmin();
 
-    if (result.skipped_disabled) {
-      return NextResponse.json({
-        ok: true,
-        skipped: true,
-        reason: "PULSE_TELEMETRY_ENABLED not set or ingest config missing",
-      });
-    }
+  const result = await withWorkerAdvisoryLock({
+    sb,
+    lockKey: WORKER_LOCK_KEYS.PULSE_OUTBOX,
+    workerName: "pulse-outbox",
+    run: async () => processPulseOutbox(max),
+  });
 
-    return NextResponse.json({ ok: true, ...result });
-  } catch (err: any) {
-    console.error("[pulse-outbox] worker error:", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? "unexpected_error" },
-      { status: 500 },
-    );
+  const durationMs = Date.now() - start;
+
+  if (isWorkerLockSkip(result)) {
+    return NextResponse.json({
+      ok: true,
+      worker: "pulse_outbox",
+      skipped: true,
+      reason: "lock_not_acquired",
+      durationMs,
+    });
   }
+
+  if (result.skipped_disabled) {
+    return NextResponse.json({
+      ok: true,
+      worker: "pulse_outbox",
+      skipped: true,
+      reason: "telemetry_disabled",
+      durationMs,
+    });
+  }
+
+  if (result.idle) {
+    return NextResponse.json({
+      ok: true,
+      worker: "pulse_outbox",
+      skipped: true,
+      reason: "idle_no_work",
+      durationMs,
+    });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    worker: "pulse_outbox",
+    skipped: false,
+    reason: null,
+    claimed: result.claimed,
+    processed: result.forwarded,
+    failed: result.failed,
+    dead_lettered: result.dead_lettered,
+    durationMs,
+  });
 }

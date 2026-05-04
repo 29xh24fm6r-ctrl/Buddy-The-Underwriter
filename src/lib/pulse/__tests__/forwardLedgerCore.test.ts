@@ -250,5 +250,8 @@ test("vercel.json: pulse cron has no secrets in URL", async () => {
     !pulseCron.path.includes("SECRET"),
     "Cron path must NOT contain SECRET",
   );
-  assert.equal(pulseCron.schedule, "*/2 * * * *", "Must run every 2 minutes");
+  // Cadence was relaxed from */2 to */5 by the worker-hardening patch — the
+  // forwarder is now singleton via advisory lock and short-circuits on idle,
+  // so the older cadence was burning Supabase RPS for no benefit.
+  assert.equal(pulseCron.schedule, "*/5 * * * *", "Must run every 5 minutes");
 });

@@ -136,6 +136,35 @@ export async function forwardLedgerBatch(opts: {
 
   const sb = supabaseAdmin();
   const env = getEnv();
+
+  // ── Idle probe: cheap LIMIT 1 existence check before reclaim/claim path ──
+  // The forwarder is invoked on every cron tick. When deal_pipeline_ledger has
+  // no un-forwarded rows, we don't want to write the stale-reclaim UPDATE or
+  // run the candidate SELECT. A single LIMIT 1 read is enough to confirm idle.
+  {
+    const { data: any1 } = await sb
+      .from("deal_pipeline_ledger")
+      .select("id")
+      .is("pulse_forwarded_at", null)
+      .is("pulse_forward_deadletter_at", null)
+      .is("pulse_forward_claimed_at", null)
+      .limit(1);
+    if (!any1 || any1.length === 0) {
+      if (process.env.DEBUG_WORKERS === "true") {
+        console.log("[pulse-forwarder] idle_no_work");
+      }
+      return {
+        ok: true,
+        skipped: true,
+        reason: "idle_no_work",
+        attempted: 0,
+        forwarded: 0,
+        failed: 0,
+        deadlettered: 0,
+      };
+    }
+  }
+
   const claimId = crypto.randomUUID();
   const now = new Date().toISOString();
   const staleThreshold = new Date(Date.now() - CLAIM_TTL_MS).toISOString();
