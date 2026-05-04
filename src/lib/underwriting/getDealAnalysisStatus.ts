@@ -145,6 +145,7 @@ export async function getDealAnalysisStatus(
     committeeReady,
     recon,
     staleRecovery,
+    writeFailure,
   ] = await Promise.all([
     loadLatestLoanRequest(sb, dealId),
     loadDocumentCount(sb, dealId, bankId),
@@ -156,6 +157,7 @@ export async function getDealAnalysisStatus(
     loadCommitteeReady(sb, dealId),
     loadReconciliation(sb, dealId),
     loadLatestStaleRecovery(sb, dealId),
+    loadLatestWriteFailure(sb, dealId),
   ]);
 
   // ── Completed flags ─────────────────────────────────────────────────────
@@ -210,8 +212,38 @@ export async function getDealAnalysisStatus(
     completedAt: riskRunInfo.latestCompletedRiskRunCreatedAt,
   };
 
+  // ── Granular write-failure short-circuit ───────────────────────────────
+  // The pipeline emits `banker_analysis.write_failed` events for every
+  // write-failure blocker it returns. When such an event is more recent
+  // than the latest successful run, the status helper short-circuits to
+  // analysis_failed with the SPECIFIC code from the event — preserving
+  // the granular failure reason for the banker.
+  //
+  // This must run BEFORE `running_analysis` resolution because
+  // RISK_RUN_MARKER_UPDATE_FAILED leaves risk_runs stuck in 'running' (the
+  // update is what failed). Without this short-circuit the UI would show
+  // "Analysis running" until the next stale-reaper sweep.
+  const activeWriteFailure = pickActiveWriteFailure(
+    writeFailure,
+    latestSuccessful,
+  );
+  if (activeWriteFailure) {
+    return mergeStaleRecoveryWarning(
+      buildWriteFailureEventStatus({
+        dealId,
+        bankId,
+        completed,
+        latest,
+        latestSuccessful,
+        writeFailure: activeWriteFailure,
+      }),
+      staleRecovery,
+      latestSuccessful,
+    );
+  }
+
   // ── Phase resolution (strict priority) ─────────────────────────────────
-  // Already handled: 1. tenant_mismatch.
+  // Already handled: 1. tenant_mismatch + granular write-failure short-circuit.
   const result = resolvePhase({
     dealId,
     bankId,
@@ -1068,10 +1100,166 @@ async function loadReconciliation(
   return (data as any) ?? null;
 }
 
+type WriteFailureCode =
+  | "AI_RISK_RUN_WRITE_FAILED"
+  | "RISK_RUN_MARKER_UPDATE_FAILED"
+  | "MEMO_SECTION_WRITE_FAILED"
+  | "MEMO_RUN_MARKER_UPDATE_FAILED"
+  | "DECISION_WRITE_FAILED"
+  | "COMMITTEE_READY_WRITE_FAILED";
+
+const WRITE_FAILURE_CODES: ReadonlySet<WriteFailureCode> = new Set([
+  "AI_RISK_RUN_WRITE_FAILED",
+  "RISK_RUN_MARKER_UPDATE_FAILED",
+  "MEMO_SECTION_WRITE_FAILED",
+  "MEMO_RUN_MARKER_UPDATE_FAILED",
+  "DECISION_WRITE_FAILED",
+  "COMMITTEE_READY_WRITE_FAILED",
+]);
+
+type WriteFailureEvent = {
+  code: WriteFailureCode;
+  failedAt: string | null;
+  error: string | null;
+  ids: Record<string, unknown>;
+} | null;
+
+const WRITE_FAILURE_COPY: Record<
+  WriteFailureCode,
+  { title: string; message: string; sourceTable: string }
+> = {
+  AI_RISK_RUN_WRITE_FAILED: {
+    title: "Risk result write failed",
+    message:
+      "Risk analysis completed but the result row could not be saved. Retry analysis to recover.",
+    sourceTable: "ai_risk_runs",
+  },
+  RISK_RUN_MARKER_UPDATE_FAILED: {
+    title: "Risk run finalization failed",
+    message:
+      "Risk analysis completed but the audit row could not be marked complete. Retry analysis to recover.",
+    sourceTable: "risk_runs",
+  },
+  MEMO_SECTION_WRITE_FAILED: {
+    title: "Memo write failed",
+    message:
+      "Buddy generated the memo, but storing the sections failed. Retry analysis to recover.",
+    sourceTable: "memo_sections",
+  },
+  MEMO_RUN_MARKER_UPDATE_FAILED: {
+    title: "Memo finalization failed",
+    message:
+      "Buddy generated and stored the memo, but could not mark the run complete. Retry analysis to recover.",
+    sourceTable: "memo_runs",
+  },
+  DECISION_WRITE_FAILED: {
+    title: "Decision write failed",
+    message:
+      "Buddy generated the analysis, but writing the system decision failed. Retry analysis to recover.",
+    sourceTable: "deal_decisions",
+  },
+  COMMITTEE_READY_WRITE_FAILED: {
+    title: "Committee-ready write failed",
+    message:
+      "Buddy completed the analysis, but flipping the committee-ready signal failed. Retry analysis to recover.",
+    sourceTable: "deal_credit_memo_status",
+  },
+};
+
 type StaleRecoveryEvent = {
   recoveredAt: string | null;
   riskRunId: string | null;
 } | null;
+
+async function loadLatestWriteFailure(
+  sb: SupabaseClient,
+  dealId: string,
+): Promise<WriteFailureEvent> {
+  const { data } = await sb
+    .from("deal_events")
+    .select("payload, created_at")
+    .eq("deal_id", dealId)
+    .eq("kind", "banker_analysis.write_failed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  const payload = (data as any).payload ?? {};
+  const meta = payload?.meta ?? {};
+  const code = meta.blocker;
+  if (typeof code !== "string" || !WRITE_FAILURE_CODES.has(code as WriteFailureCode)) {
+    return null;
+  }
+  return {
+    code: code as WriteFailureCode,
+    failedAt: (data as any).created_at ?? null,
+    error: typeof meta.error === "string" ? meta.error : null,
+    ids: typeof meta.ids === "object" && meta.ids !== null ? meta.ids : {},
+  };
+}
+
+function pickActiveWriteFailure(
+  failure: WriteFailureEvent,
+  latestSuccessful: DealAnalysisLatestSuccessful,
+): WriteFailureEvent {
+  if (!failure || !failure.failedAt) return null;
+  // Suppress once a successful run completed AFTER the write failure.
+  if (
+    latestSuccessful.completedAt &&
+    latestSuccessful.completedAt > failure.failedAt
+  ) {
+    return null;
+  }
+  return failure;
+}
+
+function buildWriteFailureEventStatus(
+  ctx: PhaseCtx & { writeFailure: NonNullable<WriteFailureEvent> },
+): DealAnalysisStatus {
+  const copy = WRITE_FAILURE_COPY[ctx.writeFailure.code];
+  const idsAny = ctx.writeFailure.ids as Record<string, unknown>;
+  const sourceIdFromIds: Record<WriteFailureCode, string | undefined> = {
+    AI_RISK_RUN_WRITE_FAILED: stringOrUndef(idsAny.riskRunId ?? idsAny.aiRiskRunId),
+    RISK_RUN_MARKER_UPDATE_FAILED: stringOrUndef(idsAny.riskRunId),
+    MEMO_SECTION_WRITE_FAILED: stringOrUndef(idsAny.memoRunId),
+    MEMO_RUN_MARKER_UPDATE_FAILED: stringOrUndef(idsAny.memoRunId),
+    DECISION_WRITE_FAILED: stringOrUndef(idsAny.memoRunId ?? idsAny.decisionId),
+    COMMITTEE_READY_WRITE_FAILED: ctx.dealId,
+  };
+
+  const blocker: DealAnalysisBlocker = {
+    code: ctx.writeFailure.code,
+    severity: "error",
+    title: copy.title,
+    message: ctx.writeFailure.error
+      ? `${copy.message} (${ctx.writeFailure.error.slice(0, 200)})`
+      : copy.message,
+    actionLabel: "Retry analysis",
+    sourceTable: copy.sourceTable,
+    sourceId: sourceIdFromIds[ctx.writeFailure.code],
+  };
+
+  return {
+    dealId: ctx.dealId,
+    bankId: ctx.bankId,
+    phase: "analysis_failed",
+    blockers: [blocker],
+    completed: ctx.completed,
+    latest: ctx.latest,
+    latestSuccessful: ctx.latestSuccessful,
+    canRunAnalysis: true,
+    canForceReplay: true,
+    primaryAction: {
+      label: blocker.actionLabel,
+      href: `/deals/${ctx.dealId}`,
+      method: "POST",
+    },
+  };
+}
+
+function stringOrUndef(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
 
 async function loadLatestStaleRecovery(
   sb: SupabaseClient,

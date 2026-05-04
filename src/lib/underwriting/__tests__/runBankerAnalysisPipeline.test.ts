@@ -897,6 +897,64 @@ test("pipeline returns RISK_RUN_MARKER_UPDATE_FAILED when risk_runs completion u
   assert.equal(store.tables.deal_decisions.length, 0);
 });
 
+test("pipeline emits banker_analysis.write_failed event for each write-failure blocker", async () => {
+  // One representative case per write-failure code. We assert the event
+  // payload includes the specific blocker code so the status layer can
+  // recover the granular failure reason.
+  const cases: Array<{
+    failures: FailureSpec[];
+    expectedBlocker: string;
+  }> = [
+    {
+      failures: [{ table: "ai_risk_runs", op: "insert" }],
+      expectedBlocker: "AI_RISK_RUN_WRITE_FAILED",
+    },
+    {
+      failures: [{ table: "memo_sections", op: "insert" }],
+      expectedBlocker: "MEMO_SECTION_WRITE_FAILED",
+    },
+    {
+      failures: [{ table: "deal_decisions", op: "insert" }],
+      expectedBlocker: "DECISION_WRITE_FAILED",
+    },
+    {
+      failures: [{ table: "deal_credit_memo_status", op: "upsert" }],
+      expectedBlocker: "COMMITTEE_READY_WRITE_FAILED",
+    },
+  ];
+
+  for (const c of cases) {
+    const { deps, events } = makeDeps({
+      fixtures: {
+        deals: [dealRow()],
+        deal_loan_requests: [loanReqRow()],
+        deal_spreads: [readySpreadRow()],
+      },
+      reconcileStatus: "CLEAN",
+      grade: "B+",
+      failures: c.failures,
+    });
+    await runBankerAnalysisPipeline({
+      dealId: DEAL,
+      bankId: BANK,
+      reason: "spreads_ready",
+      _deps: deps,
+    });
+    const writeFailedEvent = events.find(
+      (e) => e.kind === "banker_analysis.write_failed",
+    );
+    assert.ok(
+      writeFailedEvent,
+      `expected banker_analysis.write_failed event for ${c.expectedBlocker}`,
+    );
+    assert.equal(
+      (writeFailedEvent as any).meta.blocker,
+      c.expectedBlocker,
+      `event meta must carry blocker=${c.expectedBlocker}`,
+    );
+  }
+});
+
 test("pipeline returns MEMO_RUN_MARKER_UPDATE_FAILED when memo_runs completion update fails", async () => {
   const { deps, store } = makeDeps({
     fixtures: {

@@ -457,6 +457,182 @@ test("every phase yields exactly ONE primaryAction", async () => {
 
 // ─── latestSuccessful tracking ─────────────────────────────────────────────
 
+// ─── Granular write-failure event surfacing ────────────────────────────────
+
+const writeFailureEvent = (
+  code: string,
+  opts: {
+    createdAt?: string;
+    error?: string;
+    ids?: Record<string, unknown>;
+  } = {},
+) => ({
+  id: `evt_${code}`,
+  deal_id: DEAL,
+  kind: "banker_analysis.write_failed",
+  payload: {
+    meta: {
+      blocker: code,
+      error: opts.error ?? null,
+      ids: opts.ids ?? {},
+    },
+  },
+  created_at: opts.createdAt ?? new Date().toISOString(),
+});
+
+test("RISK_RUN_MARKER_UPDATE_FAILED short-circuits running_analysis phase", async () => {
+  // risk_runs is stuck in 'running' (the marker update is what failed),
+  // so without the event-based override the helper would resolve to
+  // running_analysis and disable the action — leaving the banker stuck.
+  const recent = new Date().toISOString();
+  const s = await status({
+    deals: [dealRow()],
+    deal_loan_requests: [loanReqRow()],
+    deal_documents: [docRow()],
+    deal_spreads: [readySpread()],
+    risk_runs: [
+      {
+        id: "rr_stuck",
+        deal_id: DEAL,
+        status: "running",
+        model_name: "banker_analysis_pipeline",
+        created_at: recent,
+      },
+    ],
+    ai_risk_runs: [aiRiskRun()],
+    deal_events: [
+      writeFailureEvent("RISK_RUN_MARKER_UPDATE_FAILED", {
+        ids: { riskRunId: "rr_stuck" },
+      }),
+    ],
+  });
+  assert.equal(s.phase, "analysis_failed");
+  assert.equal(s.blockers.length, 1);
+  assert.equal(s.blockers[0].code, "RISK_RUN_MARKER_UPDATE_FAILED");
+  assert.equal(s.blockers[0].sourceId, "rr_stuck");
+  assert.equal(s.canRunAnalysis, true);
+  assert.equal(s.canForceReplay, true);
+});
+
+test("AI_RISK_RUN_WRITE_FAILED surfaces granular code instead of generic RISK_RUN_FAILED", async () => {
+  const s = await status({
+    deals: [dealRow()],
+    deal_loan_requests: [loanReqRow()],
+    deal_documents: [docRow()],
+    deal_spreads: [readySpread()],
+    risk_runs: [
+      {
+        id: "rr_failed",
+        deal_id: DEAL,
+        status: "failed",
+        error: "ai_risk_run_write_failed: db down",
+        created_at: new Date().toISOString(),
+      },
+    ],
+    deal_events: [
+      writeFailureEvent("AI_RISK_RUN_WRITE_FAILED", {
+        error: "db down",
+        ids: { riskRunId: "rr_failed" },
+      }),
+    ],
+  });
+  assert.equal(s.phase, "analysis_failed");
+  assert.equal(s.blockers[0].code, "AI_RISK_RUN_WRITE_FAILED");
+  // Specific UX message, not the generic "Risk analysis failed"
+  assert.match(s.blockers[0].title, /Risk result write/);
+});
+
+test("MEMO_RUN_MARKER_UPDATE_FAILED surfaces from event when memo_runs stuck running", async () => {
+  // memo_runs stuck in 'running' (completion update failed), sections wrote
+  // successfully. Without the event the helper falls back to the generic
+  // "memo run failed" inference; with it, the granular code surfaces.
+  const memoRun = {
+    id: "mr_stuck",
+    deal_id: DEAL,
+    status: "running",
+    created_at: new Date().toISOString(),
+  };
+  const s = await status({
+    deals: [dealRow()],
+    deal_loan_requests: [loanReqRow()],
+    deal_documents: [docRow()],
+    deal_spreads: [readySpread()],
+    risk_runs: [completedRiskRun()],
+    memo_runs: [memoRun],
+    memo_sections: [memoSection(memoRun.id)],
+    deal_events: [
+      writeFailureEvent("MEMO_RUN_MARKER_UPDATE_FAILED", {
+        ids: { memoRunId: memoRun.id },
+      }),
+    ],
+  });
+  assert.equal(s.phase, "analysis_failed");
+  assert.equal(s.blockers[0].code, "MEMO_RUN_MARKER_UPDATE_FAILED");
+  assert.equal(s.blockers[0].sourceId, memoRun.id);
+});
+
+test("write-failure event is suppressed when a successful run completes after it", async () => {
+  // Failure event is older than the latest successful risk run → should
+  // not appear. This mirrors STALE_RUN_RECOVERED suppression.
+  const earlier = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const later = new Date(Date.now() - 1 * 60 * 1000).toISOString();
+  const memoRun = { ...completedMemoRun(), created_at: later };
+  const s = await status({
+    deals: [dealRow()],
+    deal_loan_requests: [loanReqRow()],
+    deal_documents: [docRow()],
+    deal_spreads: [readySpread()],
+    risk_runs: [
+      {
+        id: "rr_ok",
+        deal_id: DEAL,
+        status: "completed",
+        model_name: "banker_analysis_pipeline",
+        created_at: later,
+      },
+    ],
+    memo_runs: [memoRun],
+    memo_sections: [memoSection(memoRun.id)],
+    deal_decisions: [{ ...decisionRow(), created_at: later }],
+    deal_credit_memo_status: [{ ...committeeReadyRow(), updated_at: later }],
+    deal_reconciliation_results: [{ ...cleanRecon(), reconciled_at: later }],
+    deal_events: [
+      writeFailureEvent("MEMO_SECTION_WRITE_FAILED", { createdAt: earlier }),
+    ],
+  });
+  assert.equal(s.phase, "ready_for_committee");
+  const failureBlocker = s.blockers.find((b) =>
+    [
+      "MEMO_SECTION_WRITE_FAILED",
+      "DECISION_WRITE_FAILED",
+      "COMMITTEE_READY_WRITE_FAILED",
+      "AI_RISK_RUN_WRITE_FAILED",
+      "RISK_RUN_MARKER_UPDATE_FAILED",
+      "MEMO_RUN_MARKER_UPDATE_FAILED",
+    ].includes(b.code),
+  );
+  assert.equal(
+    failureBlocker,
+    undefined,
+    "stale write-failure event should be suppressed by a newer successful run",
+  );
+});
+
+test("write-failure event is NEVER attached on tenant_mismatch", async () => {
+  const store = fakeSupabase({
+    deals: [dealRow()],
+    deal_events: [writeFailureEvent("AI_RISK_RUN_WRITE_FAILED")],
+  });
+  const s = await getDealAnalysisStatus({
+    dealId: DEAL,
+    callerBankId: "wrong_bank",
+    _sb: store.sb,
+  });
+  assert.equal(s.phase, "analysis_failed");
+  assert.equal(s.blockers.length, 1);
+  assert.equal(s.blockers[0].code, "TENANT_MISMATCH");
+});
+
 // ─── STALE_RUN_RECOVERED warning ───────────────────────────────────────────
 
 const staleRecoveredEvent = (createdAt?: string) => ({

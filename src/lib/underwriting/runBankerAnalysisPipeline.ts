@@ -201,6 +201,48 @@ export async function runBankerAnalysisPipeline(
     message,
   });
 
+  // Surfaces granular write-failure reasons to the status layer. Some
+  // failures (marker-update failures) leave the audit row stuck in
+  // 'running', so the status helper can't infer the specific code from
+  // table state alone. Emitting an event here gives it a deterministic
+  // signal regardless of which write went wrong.
+  const WRITE_FAILURE_BLOCKERS: ReadonlySet<BankerAnalysisBlocker> = new Set([
+    "AI_RISK_RUN_WRITE_FAILED",
+    "RISK_RUN_MARKER_UPDATE_FAILED",
+    "MEMO_SECTION_WRITE_FAILED",
+    "MEMO_RUN_MARKER_UPDATE_FAILED",
+    "DECISION_WRITE_FAILED",
+    "COMMITTEE_READY_WRITE_FAILED",
+  ]);
+
+  const blockedWithWriteFailureEvent = async (
+    blocker: BankerAnalysisBlocker,
+    error: string | null | undefined,
+  ): Promise<BankerAnalysisResult> => {
+    if (WRITE_FAILURE_BLOCKERS.has(blocker)) {
+      try {
+        await emitEvent({
+          dealId: input.dealId,
+          kind: "banker_analysis.write_failed",
+          scope: "underwriting",
+          action: "run_pipeline",
+          meta: {
+            blocker,
+            error: error ? error.slice(0, 500) : null,
+            reason: input.reason,
+            ids: { ...ids },
+          },
+        });
+      } catch (e) {
+        console.warn(
+          "[bankerAnalysis] write_failed event emit failed (non-fatal):",
+          e instanceof Error ? e.message : "unknown",
+        );
+      }
+    }
+    return blocked([blocker], error ?? undefined);
+  };
+
   // 1. Validate deal + bank ──────────────────────────────────────────────
   const dealRow = await loadDeal(sb, input.dealId);
   if (!dealRow) return blocked(["DEAL_NOT_FOUND"]);
@@ -333,7 +375,10 @@ export async function runBankerAnalysisPipeline(
         `ai_risk_run_write_failed: ${aiRiskResult.error}`,
       );
       ids.riskRunId = runningRiskRunId;
-      return blocked(["AI_RISK_RUN_WRITE_FAILED"], aiRiskResult.error);
+      return blockedWithWriteFailureEvent(
+        "AI_RISK_RUN_WRITE_FAILED",
+        aiRiskResult.error,
+      );
     }
     ids.aiRiskRunId = aiRiskResult.id;
 
@@ -347,8 +392,8 @@ export async function runBankerAnalysisPipeline(
       riskOutput,
     );
     if (!riskMarkerResult.ok) {
-      return blocked(
-        ["RISK_RUN_MARKER_UPDATE_FAILED"],
+      return blockedWithWriteFailureEvent(
+        "RISK_RUN_MARKER_UPDATE_FAILED",
         riskMarkerResult.error,
       );
     }
@@ -381,15 +426,18 @@ export async function runBankerAnalysisPipeline(
         `memo_section_write_failed: ${sectionsResult.error}`,
       );
       ids.memoRunId = memoRunId;
-      return blocked(["MEMO_SECTION_WRITE_FAILED"], sectionsResult.error);
+      return blockedWithWriteFailureEvent(
+        "MEMO_SECTION_WRITE_FAILED",
+        sectionsResult.error,
+      );
     }
     // 9c. memo_run completion update is also part of the success contract.
     //     A stale `running` marker here would block future runs from being
     //     correctly classified.
     const memoMarkerResult = await completeMemoRunMarker(sb, memoRunId);
     if (!memoMarkerResult.ok) {
-      return blocked(
-        ["MEMO_RUN_MARKER_UPDATE_FAILED"],
+      return blockedWithWriteFailureEvent(
+        "MEMO_RUN_MARKER_UPDATE_FAILED",
         memoMarkerResult.error,
       );
     }
@@ -412,7 +460,10 @@ export async function runBankerAnalysisPipeline(
       // Decision write is part of the success contract. The risk run +
       // memo + sections exist, but without a decision row the pipeline
       // cannot claim success. Surface DECISION_WRITE_FAILED.
-      return blocked(["DECISION_WRITE_FAILED"], decisionResult.error);
+      return blockedWithWriteFailureEvent(
+        "DECISION_WRITE_FAILED",
+        decisionResult.error,
+      );
     }
     const decisionId = decisionResult.id;
     ids.decisionId = decisionId;
@@ -442,8 +493,8 @@ export async function runBankerAnalysisPipeline(
         // CLEAN reconciliation + non-tabled recommendation requires the
         // committee-ready signal to land. If the upsert fails the deal
         // would otherwise look "successful" but stall before committee.
-        return blocked(
-          ["COMMITTEE_READY_WRITE_FAILED"],
+        return blockedWithWriteFailureEvent(
+          "COMMITTEE_READY_WRITE_FAILED",
           upsertResult.error,
         );
       }
