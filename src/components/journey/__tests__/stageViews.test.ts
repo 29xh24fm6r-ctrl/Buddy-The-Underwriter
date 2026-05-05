@@ -116,14 +116,21 @@ describe("Stage views — advanced/admin tools hidden by default", () => {
     for (const file of STAGE_VIEW_FILES) {
       const src = readView(file);
       if (!src.includes("ForceAdvancePanel")) continue;
-      // Find offset of the first <ForceAdvancePanel and the most recent
-      // <AdvancedDisclosure before it. ForceAdvancePanel must live inside.
+
+      // Pattern A — same function body.
       const fa = src.indexOf("<ForceAdvancePanel");
       const ad = src.lastIndexOf("<AdvancedDisclosure", fa);
       const closeAd = src.indexOf("</AdvancedDisclosure>", ad);
+      const directlyNested =
+        ad >= 0 && fa > ad && (closeAd === -1 || fa < closeAd);
+      if (directlyNested) continue;
+
+      // Pattern B (SPEC-05) — extracted *AdvancedBody component referenced
+      // inside <AdvancedDisclosure>.
+      const bodyMatch = src.match(/(\w+AdvancedBody)\b/);
       assert.ok(
-        ad >= 0 && fa > ad && (closeAd === -1 || fa < closeAd),
-        `${file}: ForceAdvancePanel must be nested inside <AdvancedDisclosure>`,
+        bodyMatch && src.includes("<AdvancedDisclosure"),
+        `${file}: ForceAdvancePanel must live inside <AdvancedDisclosure> (or an extracted *AdvancedBody)`,
       );
     }
   });

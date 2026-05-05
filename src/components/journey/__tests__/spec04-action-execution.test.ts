@@ -127,7 +127,7 @@ describe("SPEC-04 — runCockpitAction executor", () => {
   });
 
   it("V4: fix_blocker intent POSTs to the endpoint and tags the blockerId", async () => {
-    let captured: { url: string; body?: string } | null = null;
+    const captured: { url: string; body?: string }[] = [];
     const action: CockpitFixBlockerAction = {
       intent: "fix_blocker",
       label: "Generate Snapshot",
@@ -138,18 +138,18 @@ describe("SPEC-04 — runCockpitAction executor", () => {
       action,
       "deal-1",
       makeFetch(async (url, init) => {
-        captured = {
+        captured.push({
           url: String(url),
           body: typeof init?.body === "string" ? init.body : undefined,
-        };
+        });
         return jsonResponse({ ok: true });
       }),
     );
-    assert.ok(captured, "fetch must be called");
-    assert.equal(captured!.url, endpointFor("generate_snapshot", "deal-1"));
-    assert.match(captured!.body ?? "", /"intent":"fix_blocker"/);
+    assert.equal(captured.length, 1, "fetch must be called");
+    assert.equal(captured[0].url, endpointFor("generate_snapshot", "deal-1"));
+    assert.match(captured[0].body ?? "", /"intent":"fix_blocker"/);
     assert.match(
-      captured!.body ?? "",
+      captured[0].body ?? "",
       /"blockerId":"financial_snapshot_missing"/,
     );
     assert.equal(result.ok, true);
@@ -255,8 +255,16 @@ describe("SPEC-04 — PrimaryActionBar contract", () => {
   });
 
   it("V8: failed action renders an inline error chip", () => {
+    // SPEC-04 introduced the inline error chip; SPEC-05 moved the chip
+    // rendering into <ActionFeedback> (role="alert" lives there) while
+    // PrimaryActionBar keeps the dismiss control + the testid.
     assert.ok(PRIMARY_ACTION_BAR_SRC.includes('data-testid="primary-action-error"'));
-    assert.ok(PRIMARY_ACTION_BAR_SRC.includes('role="alert"'));
+    assert.ok(PRIMARY_ACTION_BAR_SRC.includes("<ActionFeedback"));
+    const actionFeedback = fs.readFileSync(
+      path.resolve(__dirname, "../stageViews/_shared/ActionFeedback.tsx"),
+      "utf-8",
+    );
+    assert.ok(actionFeedback.includes('role="alert"'));
   });
 
   it("V15: stage views never render <PrimaryActionBar> (shell still owns it)", () => {

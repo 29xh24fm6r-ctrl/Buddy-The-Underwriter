@@ -56,20 +56,15 @@ describe("SPEC-03 — CommitteeStageView is a real work surface", () => {
 describe("SPEC-03 — DecisionStageView is an audit + approval surface", () => {
   it("V3: renders approval conditions inline", () => {
     assert.ok(decisionSrc.includes("<ApprovalConditionsPanel"));
-    const conditionsPanel = fs.readFileSync(
-      path.resolve(ROOT, "decision/ApprovalConditionsPanel.tsx"),
-      "utf-8",
-    );
-    assert.ok(conditionsPanel.includes("/api/deals/${dealId}/conditions"));
+    // SPEC-05 lifted the conditions fetch to the stage view, so the URL
+    // now lives in DecisionStageView, not the panel.
+    assert.ok(decisionSrc.includes("/api/deals/${dealId}/conditions"));
   });
 
   it("V4: renders override audit trail inline", () => {
     assert.ok(decisionSrc.includes("<OverrideAuditPanel"));
-    const overridesPanel = fs.readFileSync(
-      path.resolve(ROOT, "decision/OverrideAuditPanel.tsx"),
-      "utf-8",
-    );
-    assert.ok(overridesPanel.includes("/api/deals/${dealId}/overrides"));
+    // SPEC-05 lifted the overrides fetch to the stage view.
+    assert.ok(decisionSrc.includes("/api/deals/${dealId}/overrides"));
   });
 
   it("renders DecisionSummaryPanel and DecisionLetterPanel", () => {
@@ -90,12 +85,10 @@ describe("SPEC-03 — ClosingStageView is conditions-first cockpit", () => {
 
   it("V6: renders exception tracker inline", () => {
     assert.ok(closingSrc.includes("<ExceptionTrackerPanel"));
-    const exceptionTracker = fs.readFileSync(
-      path.resolve(ROOT, "closing/ExceptionTrackerPanel.tsx"),
-      "utf-8",
-    );
-    assert.ok(exceptionTracker.includes("/financial-exceptions"));
-    assert.ok(exceptionTracker.includes("/post-close"));
+    // SPEC-05 lifted both fetches to the stage view (shared with
+    // PostCloseChecklistPanel), so the panel itself is presentation-only.
+    assert.ok(closingSrc.includes("/financial-exceptions"));
+    assert.ok(closingSrc.includes("/post-close"));
   });
 
   it("renders PostCloseChecklistPanel and ClosingDocsPanel", () => {
