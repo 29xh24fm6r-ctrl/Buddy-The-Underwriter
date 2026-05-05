@@ -14,6 +14,8 @@ import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
+import { useRegisterStageRefresher } from "./_shared/useStageDataRefresh";
+import { useStageDataContext } from "./_shared/StageDataProvider";
 
 const FALLBACK_VERIFY: VerifyUnderwriteResult = {
   ok: false,
@@ -57,45 +59,95 @@ export function UnderwritingStageView({
       subtitle={subtitle}
       advanced={
         <AdvancedDisclosure>
-          <SafeBoundary>
-            <DealOutputsPanel dealId={dealId} verify={verify ?? FALLBACK_VERIFY} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <PreviewUnderwritePanel dealId={dealId} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <DealStoryTimeline dealId={dealId} />
-          </SafeBoundary>
-          {isAdmin ? (
-            <SafeBoundary>
-              <ForceAdvancePanel dealId={dealId} currentStage={stage} />
-            </SafeBoundary>
-          ) : null}
+          <UnderwritingAdvancedBody
+            dealId={dealId}
+            isAdmin={isAdmin}
+            stage={stage}
+            verify={verify ?? FALLBACK_VERIFY}
+          />
         </AdvancedDisclosure>
       }
     >
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
-        <div className="space-y-4 lg:col-span-8">
-          <SafeBoundary>
-            <RiskDashboardPanel dealId={dealId} />
-          </SafeBoundary>
-          {/* StoryPanel keeps DealHealthPanel + BankerVoicePanel in the cockpit. */}
-          <SafeBoundary>
-            <StoryPanel dealId={dealId} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <UnderwritingControlPanel
-              dealId={dealId}
-              lifecycleStage={stage}
-            />
-          </SafeBoundary>
-        </div>
-        <div className="space-y-4 lg:col-span-4">
-          <SafeBoundary>
-            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-        </div>
-      </div>
+      <UnderwritingStageBody dealId={dealId} stage={stage} isAdmin={isAdmin} />
     </StageWorkspaceShell>
+  );
+}
+
+/**
+ * Heavy panels (RiskDashboardPanel, StoryPanel, UnderwritingControlPanel,
+ * ReadinessPanel) own their own data fetches today. SPEC-05 wires them up
+ * via the remount-key pattern so a successful cockpit action triggers fresh
+ * fetches without rewriting the panel internals.
+ */
+function UnderwritingStageBody({
+  dealId,
+  stage,
+  isAdmin,
+}: {
+  dealId: string;
+  stage: LifecycleState["stage"] | null;
+  isAdmin: boolean;
+}) {
+  const { refreshSeq } = useStageDataContext();
+  useRegisterStageRefresher("underwriting:remount", () => {});
+
+  return (
+    <div
+      key={`underwriting-stage-${refreshSeq}`}
+      className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
+    >
+      <div className="space-y-4 lg:col-span-8">
+        <SafeBoundary>
+          <RiskDashboardPanel dealId={dealId} />
+        </SafeBoundary>
+        {/* StoryPanel keeps DealHealthPanel + BankerVoicePanel in the cockpit. */}
+        <SafeBoundary>
+          <StoryPanel dealId={dealId} />
+        </SafeBoundary>
+        <SafeBoundary>
+          <UnderwritingControlPanel
+            dealId={dealId}
+            lifecycleStage={stage}
+          />
+        </SafeBoundary>
+      </div>
+      <div className="space-y-4 lg:col-span-4">
+        <SafeBoundary>
+          <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+        </SafeBoundary>
+      </div>
+    </div>
+  );
+}
+
+function UnderwritingAdvancedBody({
+  dealId,
+  isAdmin,
+  stage,
+  verify,
+}: {
+  dealId: string;
+  isAdmin: boolean;
+  stage: LifecycleState["stage"] | null;
+  verify: VerifyUnderwriteResult;
+}) {
+  const { refreshSeq } = useStageDataContext();
+  return (
+    <div key={`underwriting-advanced-${refreshSeq}`} className="space-y-3">
+      <SafeBoundary>
+        <DealOutputsPanel dealId={dealId} verify={verify} />
+      </SafeBoundary>
+      <SafeBoundary>
+        <PreviewUnderwritePanel dealId={dealId} />
+      </SafeBoundary>
+      <SafeBoundary>
+        <DealStoryTimeline dealId={dealId} />
+      </SafeBoundary>
+      {isAdmin ? (
+        <SafeBoundary>
+          <ForceAdvancePanel dealId={dealId} currentStage={stage} />
+        </SafeBoundary>
+      ) : null}
+    </div>
   );
 }

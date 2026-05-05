@@ -12,6 +12,8 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
+import { useRegisterStageRefresher } from "./_shared/useStageDataRefresh";
+import { useStageDataContext } from "./_shared/StageDataProvider";
 
 export function DocumentsStageView({
   dealId,
@@ -44,40 +46,80 @@ export function DocumentsStageView({
       subtitle={subtitle}
       advanced={
         <AdvancedDisclosure>
-          <SafeBoundary>
-            <DocumentsTabPanel dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <IntakeReviewTable dealId={dealId} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <DealStoryTimeline dealId={dealId} />
-          </SafeBoundary>
-          {isAdmin ? (
-            <SafeBoundary>
-              <ForceAdvancePanel dealId={dealId} currentStage={stage} />
-            </SafeBoundary>
-          ) : null}
+          <DocumentsAdvancedBody dealId={dealId} isAdmin={isAdmin} stage={stage} />
         </AdvancedDisclosure>
       }
     >
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
-        <div className="lg:col-span-5">
-          <SafeBoundary>
-            <LeftColumn dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-        </div>
-        <div className="lg:col-span-4">
-          <SafeBoundary>
-            <CenterColumn dealId={dealId} />
-          </SafeBoundary>
-        </div>
-        <div className="lg:col-span-3">
-          <SafeBoundary>
-            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-        </div>
-      </div>
+      <DocumentsStageBody dealId={dealId} isAdmin={isAdmin} />
     </StageWorkspaceShell>
+  );
+}
+
+/**
+ * Heavy panels (LeftColumn / CenterColumn / ReadinessPanel / DocumentsTabPanel /
+ * IntakeReviewTable) own their own internal fetches today. Per SPEC-05's
+ * "do not rewrite business logic" rule, we register a remount-style
+ * refresher: incrementing `refreshSeq` re-keys the wrapper so children
+ * unmount + remount, kicking off fresh fetches.
+ */
+function DocumentsStageBody({ dealId, isAdmin }: { dealId: string; isAdmin: boolean }) {
+  const { refreshSeq } = useStageDataContext();
+  // Refresher is intentionally a no-op at this level — the remount key
+  // does the real work. Registering it just satisfies the SPEC-05
+  // "every stage registers a refresher" invariant and gives us a hook
+  // for future fine-grained refreshers.
+  useRegisterStageRefresher("documents:remount", () => {});
+
+  return (
+    <div
+      key={`docs-stage-${refreshSeq}`}
+      className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
+    >
+      <div className="lg:col-span-5">
+        <SafeBoundary>
+          <LeftColumn dealId={dealId} isAdmin={isAdmin} />
+        </SafeBoundary>
+      </div>
+      <div className="lg:col-span-4">
+        <SafeBoundary>
+          <CenterColumn dealId={dealId} />
+        </SafeBoundary>
+      </div>
+      <div className="lg:col-span-3">
+        <SafeBoundary>
+          <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+        </SafeBoundary>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsAdvancedBody({
+  dealId,
+  isAdmin,
+  stage,
+}: {
+  dealId: string;
+  isAdmin: boolean;
+  stage: LifecycleState["stage"] | null;
+}) {
+  const { refreshSeq } = useStageDataContext();
+  return (
+    <div key={`docs-advanced-${refreshSeq}`} className="space-y-3">
+      <SafeBoundary>
+        <DocumentsTabPanel dealId={dealId} isAdmin={isAdmin} />
+      </SafeBoundary>
+      <SafeBoundary>
+        <IntakeReviewTable dealId={dealId} />
+      </SafeBoundary>
+      <SafeBoundary>
+        <DealStoryTimeline dealId={dealId} />
+      </SafeBoundary>
+      {isAdmin ? (
+        <SafeBoundary>
+          <ForceAdvancePanel dealId={dealId} currentStage={stage} />
+        </SafeBoundary>
+      ) : null}
+    </div>
   );
 }

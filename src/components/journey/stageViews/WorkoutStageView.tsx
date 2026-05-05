@@ -8,6 +8,8 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
+import { useRegisterStageRefresher } from "./_shared/useStageDataRefresh";
+import { useStageDataContext } from "./_shared/StageDataProvider";
 
 export function WorkoutStageView({
   dealId,
@@ -43,7 +45,19 @@ export function WorkoutStageView({
         </AdvancedDisclosure>
       }
     >
-      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+      <WorkoutStageBody dealId={dealId} />
+    </StageWorkspaceShell>
+  );
+}
+
+function WorkoutStageBody({ dealId }: { dealId: string }) {
+  const { refreshSeq } = useStageDataContext();
+  useRegisterStageRefresher("workout:remount", () => {});
+
+  return (
+    <div
+      key={`workout-stage-${refreshSeq}`}
+      className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
         <div className="mb-3 flex items-center gap-2">
           <span className="material-symbols-outlined text-amber-300 text-[20px]">build</span>
           <h3 className="text-sm font-semibold text-white">Special Assets</h3>
@@ -69,6 +83,5 @@ export function WorkoutStageView({
           </Link>
         </div>
       </div>
-    </StageWorkspaceShell>
   );
 }
