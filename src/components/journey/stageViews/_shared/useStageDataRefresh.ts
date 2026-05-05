@@ -4,14 +4,19 @@ import { useEffect } from "react";
 import {
   useStageDataContext,
   type StageRefreshScope,
+  type StageRefreshOptions,
 } from "./StageDataProvider";
 
 /**
  * Convenience hook — returns `refreshStageData` from the stage data context.
+ *
  * SPEC-06: accepts an optional scope argument.
+ * SPEC-07: scoped refreshes are strict by default; pass
+ *   `{ includeGlobal: true }` to also drain the legacy "all" bucket.
  */
 export function useStageDataRefresh(): (
   scope?: StageRefreshScope,
+  options?: StageRefreshOptions,
 ) => Promise<void> {
   return useStageDataContext().refreshStageData;
 }

@@ -51,12 +51,33 @@ const KNOWN_SCOPES: ReadonlySet<StageRefreshScope> = new Set([
   "closing",
 ]);
 
+export type StageRefreshOptions = {
+  /**
+   * SPEC-07: when true, scoped refreshes also drain the catch-all "all"
+   * bucket (legacy SPEC-06 behavior). False by default — scoped refreshes
+   * are strict.
+   */
+  includeGlobal?: boolean;
+};
+
 export type StageDataRefreshContext = {
   /**
    * Re-run registered refreshers, then router.refresh().
-   * `scope` is "all" by default. Unknown scopes fall back to "all".
+   *
+   * SPEC-07 contract:
+   *   refreshStageData()                 → "all" (legacy)
+   *   refreshStageData("all")            → every refresher across every bucket
+   *   refreshStageData("conditions")     → conditions bucket ONLY
+   *   refreshStageData("conditions",
+   *                    { includeGlobal: true })
+   *                                      → conditions + "all" (opt-in)
+   *
+   * Unknown scopes fall back to "all" without crashing.
    */
-  refreshStageData: (scope?: StageRefreshScope) => Promise<void>;
+  refreshStageData: (
+    scope?: StageRefreshScope,
+    options?: StageRefreshOptions,
+  ) => Promise<void>;
   /**
    * Register a refresher under a scope. The first arg is the scope (e.g.
    * "conditions") so a single mutation can refresh only that bucket.
@@ -125,9 +146,13 @@ export function StageDataProvider({ children }: { children: ReactNode }) {
 
   const refreshStageData: StageDataRefreshContext["refreshStageData"] =
     useCallback(
-      async (scope?: StageRefreshScope) => {
+      async (scope?: StageRefreshScope, options?: StageRefreshOptions) => {
         const requested: StageRefreshScope =
-          scope && KNOWN_SCOPES.has(scope) ? scope : "all";
+          scope === undefined
+            ? "all"
+            : KNOWN_SCOPES.has(scope)
+              ? scope
+              : "all";
 
         const fns: Array<() => Promise<void> | void> = [];
         if (requested === "all") {
@@ -136,13 +161,14 @@ export function StageDataProvider({ children }: { children: ReactNode }) {
             for (const fn of b.values()) fns.push(fn);
           }
         } else {
-          // The "all" bucket carries fallback / cross-cutting refreshers
-          // (e.g. SPEC-05 remount-key bumps) that should still run when
-          // a scope is specified — bumping refreshSeq is harmless.
-          const all = bucketsRef.current.get("all");
-          if (all) for (const fn of all.values()) fns.push(fn);
+          // SPEC-07: scoped refreshes are strict by default. The "all"
+          // bucket only joins when the caller opts in via includeGlobal.
           const specific = bucketsRef.current.get(requested);
           if (specific) for (const fn of specific.values()) fns.push(fn);
+          if (options?.includeGlobal) {
+            const all = bucketsRef.current.get("all");
+            if (all) for (const fn of all.values()) fns.push(fn);
+          }
         }
 
         await Promise.all(
