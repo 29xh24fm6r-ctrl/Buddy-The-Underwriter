@@ -20,13 +20,20 @@ import { toCockpitAction } from "@/lib/journey/getNextAction";
 import { toCockpitFixAction } from "@/lib/journey/getBlockerFixAction";
 import { getNextAction as getLifecycleNextAction } from "@/buddy/lifecycle/nextAction";
 import { getBlockerFixAction as getLifecycleBlockerFixAction } from "@/buddy/lifecycle/nextAction";
+import {
+  buildAdvisorMemorySummary,
+  type AdvisorBehaviorPattern,
+} from "./buildAdvisorMemorySummary";
 
 export type CockpitAdvisorSignalKind =
   | "next_best_action"
   | "blocked_reason"
   | "recent_change"
   | "readiness_warning"
-  | "risk_warning";
+  | "risk_warning"
+  /** SPEC-09 — emitted by the pattern detectors in
+   *  buildAdvisorMemorySummary. */
+  | "behavior_pattern_warning";
 
 export type CockpitAdvisorSignalSeverity = "info" | "warning" | "critical";
 
@@ -64,10 +71,14 @@ export type CockpitAdvisorSignal = {
 /**
  * SPEC-08 — priority floors per kind. Adjusted by severity / recency /
  * actionability inside the builder.
+ *
+ * SPEC-09 — `behavior_pattern_warning` slots between risk_warning and
+ * readiness_warning so a 3rd repeated failure outranks "documents 80%".
  */
 const PRIORITY_FLOOR: Record<CockpitAdvisorSignalKind, number> = {
-  blocked_reason: 800,        // critical surface — the deal cannot move
+  blocked_reason: 800,             // critical surface — the deal cannot move
   readiness_warning: 600,
+  behavior_pattern_warning: 550,   // SPEC-09
   risk_warning: 500,
   next_best_action: 400,
   recent_change: 200,
@@ -117,6 +128,14 @@ export type AdvisorTelemetryEvent = {
   ts: number;
   /** Human-friendly label of the action / mutation, when available. */
   label?: string | null;
+  /** SPEC-09 — lifecycle stage at the time of the event, when known. */
+  lifecycleStage?: string | null;
+};
+
+/** SPEC-09 — caller-provided observation list used by stale_blocker. */
+export type AdvisorBlockerObservationInput = {
+  code: string;
+  firstSeenAt: string;
 };
 
 export type BuildCockpitAdvisorSignalsInput = {
@@ -129,6 +148,12 @@ export type BuildCockpitAdvisorSignalsInput = {
   recentTelemetry?: AdvisorTelemetryEvent[];
   /** Deterministic clock for "recent change" cutoff. Default: Date.now(). */
   now?: number;
+  /**
+   * SPEC-09 — opt-in observation list for the stale_blocker pattern
+   * detector. Keyed by blocker code with the timestamp the cockpit first
+   * saw the blocker.
+   */
+  blockerObservations?: AdvisorBlockerObservationInput[];
 };
 
 const RECENT_TELEMETRY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -168,6 +193,18 @@ export function buildCockpitAdvisorSignals(
 
   for (const change of buildRecentChanges(input)) {
     signals.push(change);
+  }
+
+  // SPEC-09 — emit behavior_pattern_warning signals for each detected
+  // pattern. The memory summary is recomputed cheaply here from the same
+  // recentTelemetry input (pure, < 1ms in practice).
+  const memory = buildAdvisorMemorySummary({
+    recentTelemetry: input.recentTelemetry,
+    now: input.now,
+    blockerObservations: input.blockerObservations,
+  });
+  for (const pattern of memory.patterns) {
+    signals.push(buildPatternSignal(pattern, input.dealId));
   }
 
   // SPEC-08 — sort by priority desc; stable with respect to insertion order.
@@ -397,6 +434,72 @@ function stageLabelFor(stage: LifecycleStage | string): string {
 }
 
 /**
+ * SPEC-09 — turns a detected `AdvisorBehaviorPattern` into a
+ * `behavior_pattern_warning` signal. Each pattern type has its own
+ * messaging, severity floor, and rank-adjustment metadata.
+ */
+function buildPatternSignal(
+  pattern: AdvisorBehaviorPattern,
+  dealId: string,
+): CockpitAdvisorSignal {
+  let title = "Repeated workflow pattern";
+  let detail = "A repeated banker workflow pattern was detected.";
+  let severity: CockpitAdvisorSignalSeverity = "warning";
+  let rankReason = "Behavior pattern detected";
+  let action: CockpitAction | undefined;
+  let _failed = false;
+  let _undo = false;
+
+  switch (pattern.kind) {
+    case "repeated_action_failure":
+      title = `${pattern.actionType} failed ${pattern.count}× recently`;
+      detail =
+        "The same cockpit action keeps failing. Check the endpoint or retry on a fresh refresh.";
+      severity = pattern.count >= 5 ? "critical" : "warning";
+      rankReason = `repeated ${pattern.actionType} failure (${pattern.count}×)`;
+      _failed = true;
+      break;
+    case "repeated_inline_undo":
+      title = `${pattern.count} inline edits undone recently`;
+      detail =
+        "The banker has reversed multiple inline edits. Worth pausing to reconcile state before continuing.";
+      severity = "warning";
+      rankReason = `${pattern.count} inline edits undone`;
+      _undo = true;
+      break;
+    case "stage_oscillation":
+      title = "Deal is oscillating between stages";
+      detail = `Observed ${pattern.transitions} transitions across ${pattern.stagesObserved} stages.`;
+      severity = pattern.transitions >= 5 ? "critical" : "warning";
+      rankReason = `stage oscillation (${pattern.transitions} transitions)`;
+      action = {
+        intent: "navigate",
+        label: "Lifecycle Status",
+        href: `/deals/${dealId}/cockpit`,
+      };
+      break;
+    case "stale_blocker":
+      title = `Blocker open for >24h: ${pattern.code}`;
+      detail = `The blocker has been present since ${pattern.observedAt}.`;
+      severity = pattern.stalenessMs > 48 * 60 * 60 * 1000 ? "critical" : "warning";
+      rankReason = `stale blocker ${pattern.code}`;
+      break;
+  }
+
+  return withRanking({
+    kind: "behavior_pattern_warning",
+    severity,
+    title,
+    detail,
+    action,
+    source: "telemetry",
+    rankReason,
+    _failed,
+    _undo,
+  });
+}
+
+/**
  * SPEC-08 — fills in `priority`, `rankReason`, and `confidence` for a
  * partially-constructed signal. `priority` is computed from:
  *   - PRIORITY_FLOOR[kind]
@@ -408,31 +511,66 @@ function stageLabelFor(stage: LifecycleStage | string): string {
  */
 type SignalDraft = Omit<CockpitAdvisorSignal, "priority" | "rankReason" | "confidence"> & {
   rankReason: string;
-  /** internal — set true for failed recent_change events. */
+  /** internal — set true for failed recent_change / failure pattern events. */
   _failed?: boolean;
+  /** internal — set true for undo-pattern events. */
+  _undo?: boolean;
   /** internal — age in ms; used as a recency tie-breaker. */
   _ageMs?: number;
 };
 
+const ACTIONABLE_BUMP = 75;       // SPEC-09 widened from 25
+const FAILED_RECENT_BUMP = 250;
+const REPEATED_FAILURE_BUMP = 200;  // SPEC-09
+const REPEATED_UNDO_BUMP = 150;     // SPEC-09
+const RECENT_BUMP_UNDER_5MIN = 50;  // SPEC-09
+
 function withRanking(draft: SignalDraft): CockpitAdvisorSignal {
   const floor = PRIORITY_FLOOR[draft.kind];
   const sevBump = SEVERITY_BUMP[draft.severity];
-  const actionable = draft.action ? 25 : 0;
+  const actionable = draft.action ? ACTIONABLE_BUMP : 0;
+
+  // recent_change failures bump above generic recent_change.
   const failedRecentBump =
-    draft.kind === "recent_change" && draft._failed ? 250 : 0;
+    draft.kind === "recent_change" && draft._failed ? FAILED_RECENT_BUMP : 0;
+
+  // SPEC-09 — pattern bumps for behavior_pattern_warning signals.
+  const repeatedFailureBump =
+    draft.kind === "behavior_pattern_warning" && draft._failed
+      ? REPEATED_FAILURE_BUMP
+      : 0;
+  const repeatedUndoBump =
+    draft.kind === "behavior_pattern_warning" && draft._undo
+      ? REPEATED_UNDO_BUMP
+      : 0;
+
+  // Recency bump: events under 5 minutes get a +50 boost on top of the
+  // existing per-minute bump used for sort stability.
+  const recentBump =
+    typeof draft._ageMs === "number" && draft._ageMs < 5 * 60_000
+      ? RECENT_BUMP_UNDER_5MIN
+      : 0;
   const recencyBump =
     typeof draft._ageMs === "number"
       ? Math.max(0, 30 - Math.floor(draft._ageMs / 60_000))
       : 0;
 
   const priority =
-    floor + sevBump + actionable + failedRecentBump + recencyBump;
+    floor +
+    sevBump +
+    actionable +
+    failedRecentBump +
+    repeatedFailureBump +
+    repeatedUndoBump +
+    recentBump +
+    recencyBump;
 
   const confidence = CONFIDENCE[draft.source] ?? 0.65;
 
   // Strip internal-only fields before returning.
-  const { _failed, _ageMs, ...rest } = draft;
+  const { _failed, _undo, _ageMs, ...rest } = draft;
   void _failed;
+  void _undo;
   void _ageMs;
   return { ...rest, priority, confidence };
 }
