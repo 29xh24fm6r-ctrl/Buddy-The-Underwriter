@@ -94,10 +94,14 @@ describe("SPEC-10 V3-V7 — feedback mutations + ledger", () => {
   });
 
   it("V5: POST persists snoozed_until when state=snoozed", () => {
+    // SPEC-11 evolution: server now computes a `resolvedSnoozedUntil` so
+    // it can promote a `dismissed` request to `snoozed` after the
+    // dismiss-count threshold. The base path still derives from `state`.
     assert.match(
       FEEDBACK_ROUTE,
-      /snoozed_until: state === "snoozed" \? snoozedUntil : null/,
+      /resolvedSnoozedUntil = state === "snoozed" \? snoozedUntil : null/,
     );
+    assert.match(FEEDBACK_ROUTE, /snoozed_until: resolvedSnoozedUntil/);
   });
 
   it("V6: DELETE clears server feedback by signal key", () => {
@@ -129,13 +133,33 @@ describe("SPEC-10 V8 — repeated-dismissal auto-snooze", () => {
   });
 
   it("dismiss path counts repeats and routes to snooze on threshold", () => {
-    assert.match(FEEDBACK_HOOK, /readDismissCounts/);
-    assert.match(FEEDBACK_HOOK, /next >= REPEATED_DISMISS_THRESHOLD/);
-    assert.match(FEEDBACK_HOOK, /snoozeRaw\(signal, REPEATED_DISMISS_SNOOZE_MS, "repeated_dismissal"\)/);
+    // SPEC-11 evolution: the counter moved server-side to survive
+    // browser reinstalls + multi-device. Threshold + duration constants
+    // still live in the hook (used by the API layer too); the auto-snooze
+    // happens inside the POST handler now.
+    assert.match(FEEDBACK_ROUTE, /REPEATED_DISMISS_THRESHOLD = 3/);
+    assert.match(
+      FEEDBACK_ROUTE,
+      /REPEATED_DISMISS_SNOOZE_MS = 7 \* 24 \* 60 \* 60 \* 1000/,
+    );
+    assert.match(
+      FEEDBACK_ROUTE,
+      /wasDismissed && newDismissCount >= REPEATED_DISMISS_THRESHOLD/,
+    );
+    assert.match(FEEDBACK_ROUTE, /resolvedReason = "repeated_dismissal"/);
   });
 
   it("clear() resets the dismiss counter so a new 3-strikes window starts fresh", () => {
-    assert.match(FEEDBACK_HOOK, /delete counts\[key\];\s*writeDismissCounts/);
+    // SPEC-11 evolution: the counter is a column on
+    // `buddy_advisor_feedback`. The DELETE handler removes the entire row,
+    // which resets the counter to zero on the next dismiss. The hook no
+    // longer touches a localStorage counter — it only cleans up legacy
+    // entries on mount.
+    assert.match(FEEDBACK_DELETE_ROUTE, /\.delete\(\)/);
+    assert.match(
+      FEEDBACK_HOOK,
+      /window\.localStorage\.removeItem\(dismissKeyForDeal\(dealId\)\)/,
+    );
   });
 });
 
@@ -327,10 +351,15 @@ describe("SPEC-10 V22-V23 — purity preserved", () => {
   });
 
   it("V23: feedback application lives in the panel/hook, not the pure builder", () => {
-    // The pure builder doesn't import the feedback hook or know about
-    // dismissed/snoozed states. The panel applies feedback.
+    // The pure builder doesn't import the feedback hook directly. The
+    // panel still owns reading + applying live feedback rows to signals.
+    //
+    // SPEC-11 evolution: the builder may *consume* dismiss counts +
+    // acknowledged-at maps as plain inputs to derive `low_signal_value`
+    // hints, but it never reaches into the hook. Only string mentions
+    // appear in the doc comments / param names. The panel remains the
+    // sole importer of `useAdvisorSignalFeedback`.
     assert.ok(!/useAdvisorSignalFeedback/.test(ADVISOR_BUILDER));
-    assert.ok(!/dismissed/.test(ADVISOR_BUILDER));
     assert.match(ADVISOR_PANEL, /useAdvisorSignalFeedback/);
   });
 });

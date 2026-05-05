@@ -95,33 +95,6 @@ function writeStore(
   }
 }
 
-function readDismissCounts(dealId: string): Record<string, number> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(dismissKeyForDeal(dealId));
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeDismissCounts(
-  dealId: string,
-  counts: Record<string, number>,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      dismissKeyForDeal(dealId),
-      JSON.stringify(counts),
-    );
-  } catch {
-    // ignore
-  }
-}
-
 export type UseAdvisorSignalFeedbackResult = {
   /** Live snapshot of feedback by signalKey. */
   feedback: ReadonlyMap<string, AdvisorSignalFeedback>;

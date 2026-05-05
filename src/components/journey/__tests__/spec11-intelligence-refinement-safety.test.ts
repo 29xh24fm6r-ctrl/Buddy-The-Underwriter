@@ -3,15 +3,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import {
-  buildCockpitAdvisorSignals,
-  type AdvisorTelemetryEvent,
-} from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
+import { buildCockpitAdvisorSignals } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
 import type { LifecycleState } from "@/buddy/lifecycle/model";
 
 const STAGE_VIEWS = path.resolve(__dirname, "..", "stageViews");
 const SHARED = path.resolve(STAGE_VIEWS, "_shared");
-const ACTIONS = path.resolve(__dirname, "..", "actions");
 const LIB_JOURNEY = path.resolve(__dirname, "..", "..", "..", "lib", "journey");
 const ROOT_API = path.resolve(__dirname, "..", "..", "..", "app", "api", "deals", "[dealId]");
 const MIGRATIONS = path.resolve(__dirname, "..", "..", "..", "..", "supabase", "migrations");
