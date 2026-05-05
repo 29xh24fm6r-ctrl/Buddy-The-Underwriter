@@ -22,7 +22,9 @@ import { getNextAction as getLifecycleNextAction } from "@/buddy/lifecycle/nextA
 import { getBlockerFixAction as getLifecycleBlockerFixAction } from "@/buddy/lifecycle/nextAction";
 import {
   buildAdvisorMemorySummary,
+  ADVISOR_MEMORY_WINDOW_MS,
   type AdvisorBehaviorPattern,
+  type AdvisorMemoryWindow,
 } from "./buildAdvisorMemorySummary";
 
 export type CockpitAdvisorSignalKind =
@@ -154,6 +156,11 @@ export type BuildCockpitAdvisorSignalsInput = {
    * saw the blocker.
    */
   blockerObservations?: AdvisorBlockerObservationInput[];
+  /**
+   * SPEC-10 — named pattern-detection window. Defaults to "24h".
+   * Affects the memory summary internally consumed by the builder.
+   */
+  patternWindow?: AdvisorMemoryWindow;
 };
 
 const RECENT_TELEMETRY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -195,13 +202,14 @@ export function buildCockpitAdvisorSignals(
     signals.push(change);
   }
 
-  // SPEC-09 — emit behavior_pattern_warning signals for each detected
-  // pattern. The memory summary is recomputed cheaply here from the same
-  // recentTelemetry input (pure, < 1ms in practice).
+  // SPEC-09/10 — emit behavior_pattern_warning signals for each detected
+  // pattern. SPEC-10 default window for pattern detection is 24h (vs the
+  // 1h panel-summary default). Caller can override via patternWindow.
   const memory = buildAdvisorMemorySummary({
     recentTelemetry: input.recentTelemetry,
     now: input.now,
     blockerObservations: input.blockerObservations,
+    windowMs: ADVISOR_MEMORY_WINDOW_MS[input.patternWindow ?? "24h"],
   });
   for (const pattern of memory.patterns) {
     signals.push(buildPatternSignal(pattern, input.dealId));

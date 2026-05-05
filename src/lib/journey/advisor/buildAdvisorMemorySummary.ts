@@ -61,10 +61,26 @@ export type AdvisorTelemetryEventWithStage = AdvisorTelemetryEvent & {
   lifecycleStage?: string | null;
 };
 
+/**
+ * SPEC-10 — named memory windows.
+ *   "1h"  panel summary default
+ *   "24h" pattern detection default
+ *   "7d"  debug / "Why?" overlay
+ */
+export type AdvisorMemoryWindow = "1h" | "24h" | "7d";
+
+export const ADVISOR_MEMORY_WINDOW_MS: Record<AdvisorMemoryWindow, number> = {
+  "1h": 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+
 export type BuildAdvisorMemorySummaryInput = {
   recentTelemetry?: AdvisorTelemetryEvent[] | AdvisorTelemetryEventWithStage[];
-  /** Window in ms; defaults to 60 minutes. */
+  /** Explicit window in ms — wins over `window` when both are passed. */
   windowMs?: number;
+  /** SPEC-10 — named convenience window. */
+  window?: AdvisorMemoryWindow;
   /** Deterministic clock; defaults to Date.now(). */
   now?: number;
   /**
@@ -76,7 +92,7 @@ export type BuildAdvisorMemorySummaryInput = {
   blockerObservations?: AdvisorBlockerObservation[];
 };
 
-const DEFAULT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_WINDOW_MS = ADVISOR_MEMORY_WINDOW_MS["1h"];
 const STALE_BLOCKER_MS = 24 * 60 * 60 * 1000;
 
 export function buildAdvisorMemorySummary(
@@ -84,7 +100,9 @@ export function buildAdvisorMemorySummary(
 ): AdvisorMemorySummary {
   const events = input.recentTelemetry ?? [];
   const now = input.now ?? Date.now();
-  const windowMs = input.windowMs ?? DEFAULT_WINDOW_MS;
+  const windowMs =
+    input.windowMs ??
+    (input.window ? ADVISOR_MEMORY_WINDOW_MS[input.window] : DEFAULT_WINDOW_MS);
   const cutoff = now - windowMs;
 
   // Sort newest first so "last X" finds the most recent matching event.
