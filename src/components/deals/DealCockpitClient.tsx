@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect } from "react";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { SafeBoundary } from "@/components/SafeBoundary";
 import { LiveIndicator, ProcessingIndicator, CockpitToastStack } from "@/components/deals/LiveIndicator";
 import { CockpitDataProvider } from "@/buddy/cockpit";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
@@ -20,7 +19,7 @@ import { CockpitStateProvider, useCockpitStateContext } from "@/hooks/useCockpit
 import { LeftColumn } from "@/components/deals/cockpit/columns/LeftColumn";
 import { CenterColumn } from "@/components/deals/cockpit/columns/CenterColumn";
 import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
-import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryTabsPanel";
+// SPEC-01: SecondaryTabsPanel mount removed from banker cockpit. SPEC-02 will retire the component.
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
@@ -120,14 +119,14 @@ function DealCockpitClientInner({
   readiness: _readiness,
   lifecycleStage,
   ignitedEvent: _ignitedEvent,
-  intakeInitialized,
-  verify,
-  verifyLedger,
+  intakeInitialized: _intakeInitialized,
+  verify: _verify,
+  verifyLedger: _verifyLedger,
   unifiedLifecycleState,
   lifecycleAvailable: _lifecycleAvailable = true,
-  gatekeeperPrimaryRouting = false,
-  intakePhase,
-  intakeGateEnabled = false,
+  gatekeeperPrimaryRouting: _gatekeeperPrimaryRouting = false,
+  intakePhase: _intakePhase,
+  intakeGateEnabled: _intakeGateEnabled = false,
 }: DealCockpitClientProps) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const { deal: dealMeta, refresh: refreshMeta, setDeal: setDealMeta } = useDealMeta(dealId);
@@ -362,22 +361,9 @@ function DealCockpitClientInner({
             </div>
           </div>
 
-          {/* === SECONDARY TABS === */}
-          <SafeBoundary>
-            <SecondaryTabsPanel
-              dealId={dealId}
-              isAdmin={isAdmin}
-              lifecycleStage={stage}
-              intakeInitialized={intakeInitialized}
-              intakePhase={intakePhase}
-              intakeGateEnabled={intakeGateEnabled}
-              verify={verify}
-              verifyLedger={verifyLedger}
-              unifiedLifecycleState={unifiedLifecycleState}
-              onLifecycleStageChange={setStage}
-              gatekeeperPrimaryRouting={gatekeeperPrimaryRouting}
-            />
-          </SafeBoundary>
+          {/* SPEC-01: SecondaryTabsPanel removed from banker cockpit path.
+              Stage-driven navigation now lives in the JourneyRail.
+              SPEC-02 will retire SecondaryTabsPanel.tsx properly. */}
         </div>
       </div>
 

@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import DealNameInlineEditor from "@/components/deals/DealNameInlineEditor";
 import { FeasibilityScoreCapsule } from "@/components/feasibility/FeasibilityScoreCapsule";
-import { resolveDealLabel } from "@/lib/deals/dealLabel";
+import { resolveDealLabel, dealLabel as buildDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
+import { JourneyRail } from "@/components/journey/JourneyRail";
 
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
 import { useFinancialSnapshotDecision } from "@/hooks/useFinancialSnapshotDecision";
@@ -165,6 +166,7 @@ type DealShellDeal = {
   nickname: string | null;
   borrower_name: string | null;
   name: string | null;
+  legal_name?: string | null;
   amount: number | null;
   stage: string | null;
   risk_score: number | null;
@@ -262,38 +264,50 @@ export default function DealShell({
     return "bg-white/5 text-white/70 border-white/10";
   })();
 
-  const SBA_DEAL_TYPES = ["SBA", "sba_7a", "sba_504", "sba_express"] as const;
-  const isSbaDeal = SBA_DEAL_TYPES.includes(
-    (deal?.deal_type ?? "") as (typeof SBA_DEAL_TYPES)[number],
-  );
-
+  // SPEC-01 (banker journey rail): tabs reduced to utility tabs only.
+  // Stage-driven navigation now lives in the JourneyRail. Old stage-specific
+  // routes (builder, underwrite, committee-studio, credit-memo, borrower,
+  // feasibility, portal-inbox, post-close, reviews, special-assets,
+  // sba-package, classic-spreads, intelligence, structure, pricing) remain
+  // accessible by URL and from the rail; they are just no longer in the
+  // top tab strip.
   const tabs = [
-    { label: "Builder", href: `${base}/builder` },
-    { label: "Underwrite", href: `${base}/underwrite` },
-    { label: "Intelligence", href: `${base}/intelligence` },
     { label: "Documents", href: `${base}/documents` },
     { label: "Financials", href: `${base}/financials` },
-    { label: "Structure", href: `${base}/structure` },
     { label: "Risk", href: `${base}/risk` },
-    { label: "Pricing", href: `${base}/pricing` },
     { label: "Relationship", href: `${base}/relationship` },
-    { label: "Committee", href: `${base}/committee-studio` },
-    // Credit Memo is a first-class tab — opens inside the deal shell with full nav
-    { label: "Credit Memo", href: `${base}/credit-memo` },
-    { label: "Borrower", href: `${base}/borrower` },
-    { label: "Feasibility", href: `${base}/feasibility` },
-    { label: "Portal", href: `${base}/portal-inbox` },
-    { label: "Post-Close", href: `${base}/post-close` },
-    { label: "Reviews", href: `${base}/reviews` },
-    { label: "Special Assets", href: `${base}/special-assets` },
-    ...(isSbaDeal
-      ? [{ label: "SBA Package", href: `${base}/sba-package` }]
-      : []),
-    { label: "Classic Spreads", href: `${base}/classic-spreads` },
   ];
 
+  const railDealLabel = deal
+    ? buildDealLabel({
+        id: dealId,
+        display_name: displayName,
+        nickname,
+        borrower_name: borrowerName,
+        name: deal.name ?? null,
+        legal_name: deal.legal_name ?? null,
+      })
+    : null;
+
   return (
-    <div className="min-h-screen bg-[#0b0d10] text-white">
+    <div className="min-h-screen bg-[#0b0d10] text-white flex">
+      {/* Journey Rail (desktop persistent left) */}
+      <JourneyRail
+        dealId={dealId}
+        dealLabel={railDealLabel}
+        borrowerName={borrowerName ?? null}
+        variant="vertical"
+      />
+
+      <div className="flex-1 min-w-0">
+      {/* Journey Rail (mobile compact top) */}
+      <JourneyRail
+        dealId={dealId}
+        dealLabel={railDealLabel}
+        borrowerName={borrowerName ?? null}
+        variant="horizontal"
+      />
+
       {/* Deal header */}
       <div className="sticky top-0 z-40 border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <div className="mx-auto max-w-[1600px] px-6 py-3">
@@ -427,6 +441,7 @@ export default function DealShell({
 
       {/* Page content */}
       <div className="mx-auto max-w-[1600px]">{children}</div>
+      </div>
     </div>
   );
 }
