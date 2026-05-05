@@ -19,6 +19,7 @@ import {
   type FinancialExceptions,
 } from "./closing/ExceptionTrackerPanel";
 import { ConditionsInlineEditor } from "./conditions/ConditionsInlineEditor";
+import { CockpitAdvisorPanel } from "./_shared/CockpitAdvisorPanel";
 
 export function ClosingStageView({
   dealId,
@@ -89,7 +90,12 @@ function ClosingStageBody({
   const exceptionsError = financialExceptions.error ?? postClose.error;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+    <div className="space-y-4">
+      <SafeBoundary>
+        <CockpitAdvisorPanel dealId={dealId} />
+      </SafeBoundary>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
       <div className="space-y-4 lg:col-span-8">
         <SafeBoundary>
           <ConditionsInlineEditor dealId={dealId} surface="closing" />
@@ -119,6 +125,7 @@ function ClosingStageBody({
         <SafeBoundary>
           <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
         </SafeBoundary>
+      </div>
       </div>
     </div>
   );

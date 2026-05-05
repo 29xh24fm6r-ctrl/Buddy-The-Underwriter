@@ -14,6 +14,7 @@ import { MemoReconciliationPanel } from "./committee/MemoReconciliationPanel";
 import { CommitteePackagePanel } from "./committee/CommitteePackagePanel";
 import { ApprovalReadinessPanel } from "./committee/ApprovalReadinessPanel";
 import { useRegisterStageRefresher } from "./_shared/useStageDataRefresh";
+import { CockpitAdvisorPanel } from "./_shared/CockpitAdvisorPanel";
 
 export function CommitteeStageView({
   dealId,
@@ -95,11 +96,18 @@ function CommitteeStageBody({
     void fetchMemoSummary();
   }, [fetchMemoSummary]);
 
-  // Register the memo refresher so cockpit actions trigger a re-fetch.
-  useRegisterStageRefresher("committee:memo-summary", fetchMemoSummary);
+  // Register the memo refresher under scope: "memo" so a scoped refresh
+  // after a memo-relevant action only re-pulls memo data. Falls back to
+  // the legacy "all" path on `refreshStageData("all")`.
+  useRegisterStageRefresher("memo", "committee:memo-summary", fetchMemoSummary);
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+    <div className="space-y-4">
+      <SafeBoundary>
+        <CockpitAdvisorPanel dealId={dealId} memoSummary={memoSummary} />
+      </SafeBoundary>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
       <div className="space-y-4 lg:col-span-8">
         <SafeBoundary>
           <CreditMemoPanel
@@ -128,6 +136,7 @@ function CommitteeStageBody({
         <SafeBoundary>
           <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
         </SafeBoundary>
+      </div>
       </div>
     </div>
   );

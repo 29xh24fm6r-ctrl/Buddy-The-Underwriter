@@ -16,6 +16,7 @@ import {
 import { DecisionLetterPanel } from "./decision/DecisionLetterPanel";
 import { ConditionsInlineEditor } from "./conditions/ConditionsInlineEditor";
 import { OverrideInlineEditor } from "./decision/OverrideInlineEditor";
+import { CockpitAdvisorPanel } from "./_shared/CockpitAdvisorPanel";
 
 export function DecisionStageView({
   dealId,
@@ -73,35 +74,41 @@ function DecisionStageBody({
   );
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
-      <div className="space-y-4 lg:col-span-8">
-        <SafeBoundary>
-          <DecisionSummaryPanel
-            dealId={dealId}
-            decision={decision.data}
-            loading={decision.loading}
-            error={decision.error}
-          />
-        </SafeBoundary>
-        <SafeBoundary>
-          <ConditionsInlineEditor dealId={dealId} surface="decision" />
-        </SafeBoundary>
-        <SafeBoundary>
-          <OverrideInlineEditor dealId={dealId} />
-        </SafeBoundary>
-        <SafeBoundary>
-          <DecisionLetterPanel
-            dealId={dealId}
-            decision={decision.data}
-            loading={decision.loading}
-            error={decision.error}
-          />
-        </SafeBoundary>
-      </div>
-      <div className="space-y-4 lg:col-span-4">
-        <SafeBoundary>
-          <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-        </SafeBoundary>
+    <div className="space-y-4">
+      <SafeBoundary>
+        <CockpitAdvisorPanel dealId={dealId} />
+      </SafeBoundary>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+        <div className="space-y-4 lg:col-span-8">
+          <SafeBoundary>
+            <DecisionSummaryPanel
+              dealId={dealId}
+              decision={decision.data}
+              loading={decision.loading}
+              error={decision.error}
+            />
+          </SafeBoundary>
+          <SafeBoundary>
+            <ConditionsInlineEditor dealId={dealId} surface="decision" />
+          </SafeBoundary>
+          <SafeBoundary>
+            <OverrideInlineEditor dealId={dealId} />
+          </SafeBoundary>
+          <SafeBoundary>
+            <DecisionLetterPanel
+              dealId={dealId}
+              decision={decision.data}
+              loading={decision.loading}
+              error={decision.error}
+            />
+          </SafeBoundary>
+        </div>
+        <div className="space-y-4 lg:col-span-4">
+          <SafeBoundary>
+            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+          </SafeBoundary>
+        </div>
       </div>
     </div>
   );

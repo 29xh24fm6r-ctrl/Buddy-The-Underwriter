@@ -17,6 +17,7 @@ import { useStageDataContext } from "./_shared/StageDataProvider";
 import { RiskSummarySurface } from "./underwriting/RiskSummarySurface";
 import { BankerVoiceSurface } from "./underwriting/BankerVoiceSurface";
 import { UnderwritingActionsSurface } from "./underwriting/UnderwritingActionsSurface";
+import { CockpitAdvisorPanel } from "./_shared/CockpitAdvisorPanel";
 
 const FALLBACK_VERIFY: VerifyUnderwriteResult = {
   ok: false,
@@ -98,6 +99,10 @@ function UnderwritingStageBody({
 
   return (
     <div className="space-y-4">
+      <SafeBoundary>
+        <CockpitAdvisorPanel dealId={dealId} />
+      </SafeBoundary>
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:gap-4">
         <div className="space-y-3 lg:col-span-7">
           <SafeBoundary>

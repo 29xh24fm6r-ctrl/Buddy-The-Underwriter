@@ -16,6 +16,7 @@ import { useStageDataContext } from "./_shared/StageDataProvider";
 import { DocumentChecklistSurface } from "./documents/DocumentChecklistSurface";
 import { IntakeReviewSurface } from "./documents/IntakeReviewSurface";
 import { UploadRequestSurface } from "./documents/UploadRequestSurface";
+import { CockpitAdvisorPanel } from "./_shared/CockpitAdvisorPanel";
 
 export function DocumentsStageView({
   dealId,
@@ -74,6 +75,10 @@ function DocumentsStageBody({ dealId, isAdmin }: { dealId: string; isAdmin: bool
 
   return (
     <div className="space-y-4">
+      <SafeBoundary>
+        <CockpitAdvisorPanel dealId={dealId} />
+      </SafeBoundary>
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <SafeBoundary>
           <DocumentChecklistSurface dealId={dealId} />
