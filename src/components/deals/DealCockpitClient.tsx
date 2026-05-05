@@ -15,11 +15,11 @@ import { useDealMeta } from "@/hooks/useDealMeta";
 import { deriveDealHeader } from "@/lib/deals/deriveDealHeader";
 import { CockpitStateProvider, useCockpitStateContext } from "@/hooks/useCockpitState";
 
-// Keystone Cockpit: 3-column layout
-import { LeftColumn } from "@/components/deals/cockpit/columns/LeftColumn";
-import { CenterColumn } from "@/components/deals/cockpit/columns/CenterColumn";
-import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
-// SPEC-01: SecondaryTabsPanel mount removed from banker cockpit. SPEC-02 will retire the component.
+// SPEC-02: cockpit body is now stage-driven. The legacy 3-column layout
+// (LeftColumn/CenterColumn/RightColumn) is composed inside DocumentsStageView /
+// UnderwritingStageView / others, so column files stay in use.
+// SPEC-01: SecondaryTabsPanel mount removed from banker cockpit.
+import { StageModeView } from "@/components/journey/StageModeView";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
@@ -120,7 +120,7 @@ function DealCockpitClientInner({
   lifecycleStage,
   ignitedEvent: _ignitedEvent,
   intakeInitialized: _intakeInitialized,
-  verify: _verify,
+  verify,
   verifyLedger: _verifyLedger,
   unifiedLifecycleState,
   lifecycleAvailable: _lifecycleAvailable = true,
@@ -343,27 +343,10 @@ function DealCockpitClientInner({
           {/* Processing Micro-State */}
           <ProcessingIndicator />
 
-          {/* === KEYSTONE 3-COLUMN LAYOUT === */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-            {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
-            <div id="cockpit-documents" className="lg:col-span-4 order-3 lg:order-1">
-              <LeftColumn dealId={dealId} isAdmin={isAdmin} />
-            </div>
-
-            {/* Center Column: Year-Aware Checklist (mobile: 2nd) */}
-            <div className="lg:col-span-4 order-2 lg:order-2">
-              <CenterColumn dealId={dealId} />
-            </div>
-
-            {/* Right Column: Readiness + Primary CTA (mobile: 1st) */}
-            <div className="lg:col-span-4 order-1 lg:order-3">
-              <RightColumn dealId={dealId} isAdmin={isAdmin} />
-            </div>
-          </div>
-
-          {/* SPEC-01: SecondaryTabsPanel removed from banker cockpit path.
-              Stage-driven navigation now lives in the JourneyRail.
-              SPEC-02 will retire SecondaryTabsPanel.tsx properly. */}
+          {/* SPEC-02: Stage-driven cockpit body. The current lifecycle stage
+              selects exactly one StageModeView; legacy column components are
+              still composed inside DocumentsStageView / UnderwritingStageView. */}
+          <StageModeView dealId={dealId} isAdmin={isAdmin} verify={verify} />
         </div>
       </div>
 
