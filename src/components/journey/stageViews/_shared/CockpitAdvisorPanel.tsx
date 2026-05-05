@@ -6,27 +6,44 @@ import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
 import {
   buildCockpitAdvisorSignals,
   type AdvisorConditionRow,
-  type AdvisorMemoSummary,
   type AdvisorOverrideRow,
   type AdvisorTelemetryEvent,
   type CockpitAdvisorSignal,
 } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
+import {
+  buildAdvisorMemorySummary,
+  type AdvisorMemorySummary,
+} from "@/lib/journey/advisor/buildAdvisorMemorySummary";
 import { useCockpitAction } from "../../actions/useCockpitAction";
 import type { CockpitAction } from "../../actions/actionTypes";
+import { useRecentCockpitTelemetry } from "./useRecentCockpitTelemetry";
 
 /**
- * SPEC-07 — deterministic cockpit advisor panel.
+ * SPEC-07/08 — deterministic cockpit advisor panel.
  *
- * Renders the rules-driven `buildCockpitAdvisorSignals` output. Stages
- * pass any data they already own (conditions, overrides, memo summary,
- * recent telemetry) so the advisor sees the freshest picture without
- * adding new fetches.
+ * SPEC-08:
+ *   - Live telemetry pulled via useRecentCockpitTelemetry.
+ *   - Signals ranked by priority (built into buildCockpitAdvisorSignals).
+ *   - Compact "Recent activity" summary from buildAdvisorMemorySummary.
+ *
+ * Stages still pass the data they own (conditions, overrides, memo) so
+ * the advisor sees the freshest picture without adding fetches.
  */
 export type CockpitAdvisorPanelProps = {
   dealId: string;
   conditions?: AdvisorConditionRow[];
   overrides?: AdvisorOverrideRow[];
-  memoSummary?: AdvisorMemoSummary | null;
+  memoSummary?:
+    | {
+        required_keys?: string[];
+        present_keys?: string[];
+        missing_keys?: string[];
+      }
+    | null;
+  /**
+   * Override the live telemetry feed with caller-supplied events. Used in
+   * tests and for stages that already pull their own telemetry stream.
+   */
   recentTelemetry?: AdvisorTelemetryEvent[];
 };
 
@@ -54,6 +71,13 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
   const { dealId } = props;
   const { lifecycleState } = useCockpitDataContext();
 
+  // SPEC-08: live telemetry. Caller-supplied events take precedence (tests
+  // / advanced surfaces that already manage their own feed).
+  const liveTelemetry = useRecentCockpitTelemetry(dealId, {
+    enabled: !props.recentTelemetry,
+  });
+  const recentTelemetry = props.recentTelemetry ?? liveTelemetry.events;
+
   const signals = useMemo<CockpitAdvisorSignal[]>(
     () =>
       buildCockpitAdvisorSignals({
@@ -62,7 +86,7 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
         conditions: props.conditions,
         overrides: props.overrides,
         memoSummary: props.memoSummary ?? null,
-        recentTelemetry: props.recentTelemetry,
+        recentTelemetry,
       }),
     [
       dealId,
@@ -70,9 +94,21 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
       props.conditions,
       props.overrides,
       props.memoSummary,
-      props.recentTelemetry,
+      recentTelemetry,
     ],
   );
+
+  const memory = useMemo<AdvisorMemorySummary>(
+    () => buildAdvisorMemorySummary({ recentTelemetry }),
+    [recentTelemetry],
+  );
+
+  const showMemory =
+    Boolean(memory.lastActionAt) ||
+    Boolean(memory.lastMutationAt) ||
+    Boolean(memory.lastUndoAt) ||
+    memory.recentlyResolvedBlockers > 0 ||
+    memory.recentFailures > 0;
 
   return (
     <section
@@ -88,6 +124,10 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
           Deterministic
         </span>
       </header>
+
+      {showMemory ? (
+        <AdvisorMemorySection memory={memory} />
+      ) : null}
 
       {signals.length === 0 ? (
         <p className="text-xs text-white/50">
@@ -108,6 +148,68 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
   );
 }
 
+function AdvisorMemorySection({ memory }: { memory: AdvisorMemorySummary }) {
+  const items: { label: string; detail: string; tone: string }[] = [];
+
+  if (memory.lastActionAt && memory.lastActionLabel) {
+    items.push({
+      label: "Last action",
+      detail: `${memory.lastActionLabel} · ${formatRelative(memory.lastActionAt)}`,
+      tone: "text-blue-200",
+    });
+  }
+  if (memory.lastMutationAt && memory.lastMutationSummary) {
+    items.push({
+      label: "Last edit",
+      detail: `${memory.lastMutationSummary} · ${formatRelative(memory.lastMutationAt)}`,
+      tone: "text-emerald-200",
+    });
+  }
+  if (memory.lastUndoAt) {
+    items.push({
+      label: "Last undo",
+      detail: formatRelative(memory.lastUndoAt),
+      tone: "text-amber-200",
+    });
+  }
+  if (memory.recentlyResolvedBlockers > 0) {
+    items.push({
+      label: "Resolved blockers",
+      detail: `${memory.recentlyResolvedBlockers} in the last hour`,
+      tone: "text-emerald-200",
+    });
+  }
+  if (memory.recentFailures > 0) {
+    items.push({
+      label: "Recent failures",
+      detail: `${memory.recentFailures} action${memory.recentFailures === 1 ? "" : "s"}`,
+      tone: "text-rose-200",
+    });
+  }
+
+  return (
+    <div
+      data-testid="cockpit-advisor-memory"
+      className="mb-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2"
+    >
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-white/50">
+        Recent activity
+      </div>
+      <ul className="space-y-1">
+        {items.map((it) => (
+          <li
+            key={it.label}
+            className="flex items-baseline justify-between gap-2 text-[11px]"
+          >
+            <span className="text-white/50">{it.label}</span>
+            <span className={`truncate ${it.tone}`}>{it.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function AdvisorSignalRow({
   signal,
   dealId,
@@ -118,6 +220,7 @@ function AdvisorSignalRow({
   const tone = SEVERITY_TONE[signal.severity];
   const badge = SEVERITY_BADGE[signal.severity];
   const kindLabel = KIND_LABEL[signal.kind];
+  const confidencePct = Math.round(signal.confidence * 100);
 
   return (
     <li
@@ -125,6 +228,8 @@ function AdvisorSignalRow({
       data-advisor-kind={signal.kind}
       data-advisor-severity={signal.severity}
       data-advisor-source={signal.source}
+      data-advisor-priority={signal.priority}
+      data-advisor-confidence={signal.confidence}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -135,6 +240,12 @@ function AdvisorSignalRow({
               {kindLabel}
             </span>
             <span className="truncate text-sm text-white">{signal.title}</span>
+            <span
+              className="ml-auto text-[10px] text-white/40"
+              title={`Priority ${signal.priority} · ${signal.rankReason}`}
+            >
+              {confidencePct}%
+            </span>
           </div>
           {signal.detail ? (
             <div className="mt-1 text-[11px] text-white/60">{signal.detail}</div>
@@ -188,4 +299,15 @@ function AdvisorActionButton({
       <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
     </button>
   );
+}
+
+function formatRelative(iso: string): string {
+  const ts = new Date(iso).getTime();
+  const delta = Date.now() - ts;
+  if (delta < 60_000) return "just now";
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
+  return new Date(ts).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
