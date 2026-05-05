@@ -5,7 +5,6 @@ import type { LifecycleState } from "@/buddy/lifecycle/model";
 import type { NextAction } from "@/buddy/lifecycle/nextAction";
 import { ReadinessPanel } from "@/components/deals/cockpit/panels/ReadinessPanel";
 import RiskDashboardPanel from "@/components/deals/cockpit/panels/RiskDashboardPanel";
-import StoryPanel from "@/components/deals/cockpit/panels/StoryPanel";
 import { UnderwritingControlPanel } from "@/components/deals/UnderwritingControlPanel";
 import { DealOutputsPanel } from "@/components/deals/DealOutputsPanel";
 import { PreviewUnderwritePanel } from "@/components/deals/PreviewUnderwritePanel";
@@ -14,8 +13,10 @@ import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
-import { useRegisterStageRefresher } from "./_shared/useStageDataRefresh";
 import { useStageDataContext } from "./_shared/StageDataProvider";
+import { RiskSummarySurface } from "./underwriting/RiskSummarySurface";
+import { BankerVoiceSurface } from "./underwriting/BankerVoiceSurface";
+import { UnderwritingActionsSurface } from "./underwriting/UnderwritingActionsSurface";
 
 const FALLBACK_VERIFY: VerifyUnderwriteResult = {
   ok: false,
@@ -74,10 +75,15 @@ export function UnderwritingStageView({
 }
 
 /**
- * Heavy panels (RiskDashboardPanel, StoryPanel, UnderwritingControlPanel,
- * ReadinessPanel) own their own data fetches today. SPEC-05 wires them up
- * via the remount-key pattern so a successful cockpit action triggers fresh
- * fetches without rewriting the panel internals.
+ * SPEC-06: lifted summary surfaces own their own scoped data:
+ *   - RiskSummarySurface (lifecycle.derived signals)
+ *   - BankerVoiceSurface (banker voice + deal health, scoped remount)
+ *   - UnderwritingActionsSurface (runnable actions via shared runner)
+ *
+ * The legacy RiskDashboardPanel + UnderwritingControlPanel + ReadinessPanel
+ * remain mounted underneath for the deep workbench. They are NO LONGER
+ * remounted as a side effect of the whole body — only on a deliberate
+ * underwriting-scoped refresh.
  */
 function UnderwritingStageBody({
   dealId,
@@ -89,32 +95,46 @@ function UnderwritingStageBody({
   isAdmin: boolean;
 }) {
   const { refreshSeq } = useStageDataContext();
-  useRegisterStageRefresher("underwriting:remount", () => {});
 
   return (
-    <div
-      key={`underwriting-stage-${refreshSeq}`}
-      className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
-    >
-      <div className="space-y-4 lg:col-span-8">
-        <SafeBoundary>
-          <RiskDashboardPanel dealId={dealId} />
-        </SafeBoundary>
-        {/* StoryPanel keeps DealHealthPanel + BankerVoicePanel in the cockpit. */}
-        <SafeBoundary>
-          <StoryPanel dealId={dealId} />
-        </SafeBoundary>
-        <SafeBoundary>
-          <UnderwritingControlPanel
-            dealId={dealId}
-            lifecycleStage={stage}
-          />
-        </SafeBoundary>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:gap-4">
+        <div className="space-y-3 lg:col-span-7">
+          <SafeBoundary>
+            <RiskSummarySurface dealId={dealId} />
+          </SafeBoundary>
+          <SafeBoundary>
+            <UnderwritingActionsSurface dealId={dealId} />
+          </SafeBoundary>
+        </div>
+        <div className="space-y-3 lg:col-span-5">
+          <SafeBoundary>
+            <BankerVoiceSurface dealId={dealId} />
+          </SafeBoundary>
+        </div>
       </div>
-      <div className="space-y-4 lg:col-span-4">
-        <SafeBoundary>
-          <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-        </SafeBoundary>
+
+      {/* Legacy workbench — mounted under the lifted summary heads. */}
+      <div
+        key={`underwriting-legacy-${refreshSeq}`}
+        className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
+      >
+        <div className="space-y-4 lg:col-span-8">
+          <SafeBoundary>
+            <RiskDashboardPanel dealId={dealId} />
+          </SafeBoundary>
+          <SafeBoundary>
+            <UnderwritingControlPanel
+              dealId={dealId}
+              lifecycleStage={stage}
+            />
+          </SafeBoundary>
+        </div>
+        <div className="space-y-4 lg:col-span-4">
+          <SafeBoundary>
+            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+          </SafeBoundary>
+        </div>
       </div>
     </div>
   );
