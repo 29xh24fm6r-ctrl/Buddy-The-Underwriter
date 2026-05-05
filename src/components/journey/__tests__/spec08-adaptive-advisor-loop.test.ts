@@ -378,11 +378,10 @@ describe("SPEC-08 V19-V20 — condition row contract", () => {
   });
 
   it("V20: ConditionsInlineEditor declares row type compatible with contract", () => {
-    // The editor's local ConditionRow type must include id/title/status —
-    // the canonical fields. (Full contract widening is a future cleanup.)
-    assert.ok(CONDITIONS_EDITOR.includes("export type ConditionRow = {"));
-    assert.ok(/id:\s*string/.test(CONDITIONS_EDITOR));
-    assert.ok(/status\?:/.test(CONDITIONS_EDITOR));
+    // SPEC-09 migrated `ConditionRow` to alias the canonical
+    // DealConditionRow contract. The local re-export remains for back-compat.
+    assert.ok(CONDITIONS_EDITOR.includes("export type ConditionRow"));
+    assert.ok(CONDITIONS_EDITOR.includes("DealConditionRow"));
   });
 
   it("DealConditionRow contract is importable and matches the type shape", () => {
