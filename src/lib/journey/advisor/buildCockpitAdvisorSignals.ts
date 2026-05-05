@@ -46,6 +46,49 @@ export type CockpitAdvisorSignal = {
   detail: string;
   action?: CockpitAction;
   source: CockpitAdvisorSignalSource;
+  /**
+   * SPEC-08 — deterministic priority. Higher numbers surface first.
+   * See PRIORITY_BASE + severity/recency adjustments below.
+   */
+  priority: number;
+  /** Human-readable explanation for the priority. */
+  rankReason: string;
+  /**
+   * SPEC-08 — deterministic confidence in the signal's accuracy (0..1).
+   * Lifecycle blockers are highest (0.95); telemetry-only inferences are
+   * lowest (0.75); pure derived heuristics fall to 0.65.
+   */
+  confidence: number;
+};
+
+/**
+ * SPEC-08 — priority floors per kind. Adjusted by severity / recency /
+ * actionability inside the builder.
+ */
+const PRIORITY_FLOOR: Record<CockpitAdvisorSignalKind, number> = {
+  blocked_reason: 800,        // critical surface — the deal cannot move
+  readiness_warning: 600,
+  risk_warning: 500,
+  next_best_action: 400,
+  recent_change: 200,
+};
+
+/** Severity bumps. Stacks on the priority floor. */
+const SEVERITY_BUMP: Record<CockpitAdvisorSignalSeverity, number> = {
+  critical: 100,
+  warning: 40,
+  info: 0,
+};
+
+/** Confidence floors per source. */
+const CONFIDENCE: Record<CockpitAdvisorSignalSource, number> = {
+  blockers: 0.95,
+  lifecycle: 0.9,
+  documents: 0.9,
+  conditions: 0.85,
+  overrides: 0.85,
+  memo: 0.85,
+  telemetry: 0.75,
 };
 
 export type AdvisorConditionRow = {
@@ -127,7 +170,14 @@ export function buildCockpitAdvisorSignals(
     signals.push(change);
   }
 
-  return signals;
+  // SPEC-08 — sort by priority desc; stable with respect to insertion order.
+  return signals
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => {
+      if (b.s.priority !== a.s.priority) return b.s.priority - a.s.priority;
+      return a.i - b.i;
+    })
+    .map((entry) => entry.s);
 }
 
 function buildNextBestAction(
@@ -143,16 +193,18 @@ function buildNextBestAction(
   if (!action) return null;
 
   const stageLabel = stageLabelFor(input.state.stage);
-  return {
+  const severity: CockpitAdvisorSignalSeverity = "info";
+  return withRanking({
     kind: "next_best_action",
-    severity: "info",
+    severity,
     title: native.label,
     detail:
       native.description ??
       `Recommended next move while the deal is in ${stageLabel}.`,
     action,
     source: "lifecycle",
-  };
+    rankReason: "Lifecycle recommends the next stage move",
+  });
 }
 
 function buildBlockedReasons(
@@ -172,14 +224,30 @@ function blockedReasonForBlocker(
 ): CockpitAdvisorSignal {
   const fixNative = getLifecycleBlockerFixAction(blocker, dealId);
   const fixAction = toCockpitFixAction(fixNative, blocker.code);
-  return {
+  // Infrastructure-class blockers (deal_not_found, schema_mismatch,
+  // internal_error, *_fetch_failed) are critical — they break the deal's
+  // ability to advance at all. Stage-gating blockers are warnings.
+  const code = blocker.code;
+  const isCritical =
+    code === "deal_not_found" ||
+    code === "schema_mismatch" ||
+    code === "internal_error" ||
+    code === "data_fetch_failed" ||
+    code.endsWith("_fetch_failed");
+  const severity: CockpitAdvisorSignalSeverity = isCritical
+    ? "critical"
+    : "warning";
+  return withRanking({
     kind: "blocked_reason",
-    severity: "warning",
+    severity,
     title: blocker.message,
     detail: `Blocker code: ${blocker.code}.`,
     action: fixAction ?? undefined,
     source: "blockers",
-  };
+    rankReason: isCritical
+      ? "Critical lifecycle blocker"
+      : "Stage-gating blocker",
+  });
 }
 
 function buildReadinessWarning(
@@ -192,7 +260,7 @@ function buildReadinessWarning(
   const severity: CockpitAdvisorSignalSeverity =
     pct < READINESS_WARN_THRESHOLD_PCT ? "warning" : "info";
 
-  return {
+  return withRanking({
     kind: "readiness_warning",
     severity,
     title: `Document readiness ${pct}%`,
@@ -206,7 +274,8 @@ function buildReadinessWarning(
       href: `/deals/${input.dealId}/documents`,
     },
     source: "documents",
-  };
+    rankReason: `Documents ${pct}% — ${severity}-grade readiness gap`,
+  });
 }
 
 function buildRiskWarnings(
@@ -218,18 +287,21 @@ function buildRiskWarnings(
   const reviewable =
     input.overrides?.filter((o) => o.requires_review === true) ?? [];
   if (reviewable.length > 0) {
-    out.push({
-      kind: "risk_warning",
-      severity: reviewable.length >= 3 ? "critical" : "warning",
-      title: `${reviewable.length} override${reviewable.length === 1 ? "" : "s"} need review`,
-      detail: "Overrides are open and pending banker review.",
-      action: {
-        intent: "navigate",
-        label: "Open Decision Overrides",
-        href: `/deals/${input.dealId}/decision/overrides`,
-      },
-      source: "overrides",
-    });
+    out.push(
+      withRanking({
+        kind: "risk_warning",
+        severity: reviewable.length >= 3 ? "critical" : "warning",
+        title: `${reviewable.length} override${reviewable.length === 1 ? "" : "s"} need review`,
+        detail: "Overrides are open and pending banker review.",
+        action: {
+          intent: "navigate",
+          label: "Open Decision Overrides",
+          href: `/deals/${input.dealId}/decision/overrides`,
+        },
+        source: "overrides",
+        rankReason: `${reviewable.length} unreviewed override${reviewable.length === 1 ? "" : "s"}`,
+      }),
+    );
   }
 
   // Open required conditions → critical risk if any are still open.
@@ -242,36 +314,42 @@ function buildRiskWarnings(
         ),
     ) ?? [];
   if (openRequired.length > 0) {
-    out.push({
-      kind: "risk_warning",
-      severity: openRequired.length >= 3 ? "critical" : "warning",
-      title: `${openRequired.length} required condition${openRequired.length === 1 ? "" : "s"} still open`,
-      detail: "Required conditions must clear before closing.",
-      action: {
-        intent: "navigate",
-        label: "Open Conditions",
-        href: `/deals/${input.dealId}/conditions`,
-      },
-      source: "conditions",
-    });
+    out.push(
+      withRanking({
+        kind: "risk_warning",
+        severity: openRequired.length >= 3 ? "critical" : "warning",
+        title: `${openRequired.length} required condition${openRequired.length === 1 ? "" : "s"} still open`,
+        detail: "Required conditions must clear before closing.",
+        action: {
+          intent: "navigate",
+          label: "Open Conditions",
+          href: `/deals/${input.dealId}/conditions`,
+        },
+        source: "conditions",
+        rankReason: `${openRequired.length} open required condition${openRequired.length === 1 ? "" : "s"}`,
+      }),
+    );
   }
 
   // Memo gaps — required canonical facts missing.
   const memoMissing = input.memoSummary?.missing_keys?.length ?? 0;
   if (memoMissing > 0) {
-    out.push({
-      kind: "risk_warning",
-      severity: memoMissing >= 5 ? "critical" : "warning",
-      title: `${memoMissing} canonical memo fact${memoMissing === 1 ? "" : "s"} missing`,
-      detail:
-        "Memo cannot finalize until canonical facts are present. See reconciliation.",
-      action: {
-        intent: "navigate",
-        label: "Open Memo",
-        href: `/deals/${input.dealId}/credit-memo`,
-      },
-      source: "memo",
-    });
+    out.push(
+      withRanking({
+        kind: "risk_warning",
+        severity: memoMissing >= 5 ? "critical" : "warning",
+        title: `${memoMissing} canonical memo fact${memoMissing === 1 ? "" : "s"} missing`,
+        detail:
+          "Memo cannot finalize until canonical facts are present. See reconciliation.",
+        action: {
+          intent: "navigate",
+          label: "Open Memo",
+          href: `/deals/${input.dealId}/credit-memo`,
+        },
+        source: "memo",
+        rankReason: `${memoMissing} missing canonical memo fact${memoMissing === 1 ? "" : "s"}`,
+      }),
+    );
   }
 
   return out;
@@ -293,17 +371,68 @@ function buildRecentChanges(
 
   if (meaningful.length === 0) return [];
 
-  return meaningful.map((ev) => ({
-    kind: "recent_change",
-    severity:
-      ev.type.endsWith("_failed") ? "warning" : "info",
-    title: TELEMETRY_LABEL[ev.type] ?? ev.type,
-    detail:
-      ev.label ?? "A recent cockpit action affected this deal.",
-    source: "telemetry",
-  }));
+  const now = input.now ?? Date.now();
+  return meaningful.map((ev) => {
+    const failed = ev.type.endsWith("_failed");
+    const ageMs = Math.max(0, now - ev.ts);
+    return withRanking({
+      kind: "recent_change",
+      severity: failed ? "warning" : "info",
+      title: TELEMETRY_LABEL[ev.type] ?? ev.type,
+      detail: ev.label ?? "A recent cockpit action affected this deal.",
+      source: "telemetry",
+      rankReason: failed
+        ? "Recent failed cockpit telemetry"
+        : "Recent cockpit telemetry",
+      // SPEC-08 V10: failed mutations bump priority well above generic
+      // changes — they need banker attention now.
+      _failed: failed,
+      _ageMs: ageMs,
+    });
+  });
 }
 
 function stageLabelFor(stage: LifecycleStage | string): string {
   return STAGE_LABELS[stage as LifecycleStage] ?? String(stage);
+}
+
+/**
+ * SPEC-08 — fills in `priority`, `rankReason`, and `confidence` for a
+ * partially-constructed signal. `priority` is computed from:
+ *   - PRIORITY_FLOOR[kind]
+ *   - SEVERITY_BUMP[severity]
+ *   - actionability bump (signals carrying an action surface higher)
+ *   - failed-mutation special case (recent_change of failure type
+ *     gets a 250-point bump so it ranks above generic recent_change)
+ *   - small recency adjustment (newer wins on the same kind)
+ */
+type SignalDraft = Omit<CockpitAdvisorSignal, "priority" | "rankReason" | "confidence"> & {
+  rankReason: string;
+  /** internal — set true for failed recent_change events. */
+  _failed?: boolean;
+  /** internal — age in ms; used as a recency tie-breaker. */
+  _ageMs?: number;
+};
+
+function withRanking(draft: SignalDraft): CockpitAdvisorSignal {
+  const floor = PRIORITY_FLOOR[draft.kind];
+  const sevBump = SEVERITY_BUMP[draft.severity];
+  const actionable = draft.action ? 25 : 0;
+  const failedRecentBump =
+    draft.kind === "recent_change" && draft._failed ? 250 : 0;
+  const recencyBump =
+    typeof draft._ageMs === "number"
+      ? Math.max(0, 30 - Math.floor(draft._ageMs / 60_000))
+      : 0;
+
+  const priority =
+    floor + sevBump + actionable + failedRecentBump + recencyBump;
+
+  const confidence = CONFIDENCE[draft.source] ?? 0.65;
+
+  // Strip internal-only fields before returning.
+  const { _failed, _ageMs, ...rest } = draft;
+  void _failed;
+  void _ageMs;
+  return { ...rest, priority, confidence };
 }
