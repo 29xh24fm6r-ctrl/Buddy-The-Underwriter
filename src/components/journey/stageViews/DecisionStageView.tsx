@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { SafeBoundary } from "@/components/SafeBoundary";
 import type { LifecycleState } from "@/buddy/lifecycle/model";
 import type { NextAction } from "@/buddy/lifecycle/nextAction";
@@ -9,6 +8,10 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
+import { DecisionSummaryPanel } from "./decision/DecisionSummaryPanel";
+import { ApprovalConditionsPanel } from "./decision/ApprovalConditionsPanel";
+import { OverrideAuditPanel } from "./decision/OverrideAuditPanel";
+import { DecisionLetterPanel } from "./decision/DecisionLetterPanel";
 
 export function DecisionStageView({
   dealId,
@@ -30,7 +33,7 @@ export function DecisionStageView({
       dealId={dealId}
       action={action}
       blockers={blockers}
-      subtitle="Decision recorded. Capture conditions and approvals before closing."
+      subtitle="Decision recorded. Track conditions and overrides, then send the borrower-facing letter."
       advanced={
         <AdvancedDisclosure>
           <SafeBoundary>
@@ -45,8 +48,19 @@ export function DecisionStageView({
       }
     >
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
-        <div className="space-y-3 lg:col-span-8">
-          <DecisionWorkSurfaceCard dealId={dealId} />
+        <div className="space-y-4 lg:col-span-8">
+          <SafeBoundary>
+            <DecisionSummaryPanel dealId={dealId} />
+          </SafeBoundary>
+          <SafeBoundary>
+            <ApprovalConditionsPanel dealId={dealId} />
+          </SafeBoundary>
+          <SafeBoundary>
+            <OverrideAuditPanel dealId={dealId} />
+          </SafeBoundary>
+          <SafeBoundary>
+            <DecisionLetterPanel dealId={dealId} />
+          </SafeBoundary>
         </div>
         <div className="space-y-4 lg:col-span-4">
           <SafeBoundary>
@@ -55,35 +69,5 @@ export function DecisionStageView({
         </div>
       </div>
     </StageWorkspaceShell>
-  );
-}
-
-function DecisionWorkSurfaceCard({ dealId }: { dealId: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="material-symbols-outlined text-emerald-300 text-[20px]">how_to_vote</span>
-        <h3 className="text-sm font-semibold text-white">Decision Work Surface</h3>
-      </div>
-      <p className="text-xs text-white/60 mb-4">
-        Conditions, attestations, and approvals are managed on the decision surfaces.
-      </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Link
-          href={`/deals/${dealId}/decision`}
-          className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
-        >
-          Decision
-          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-        </Link>
-        <Link
-          href={`/deals/${dealId}/decision/overrides`}
-          className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
-        >
-          Overrides
-          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-        </Link>
-      </div>
-    </div>
   );
 }
