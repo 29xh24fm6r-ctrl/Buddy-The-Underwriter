@@ -25,6 +25,9 @@ export type ConditionRow = {
 
 type ConditionsListApi = {
   ok?: boolean;
+  /** SPEC-07 canonical shape. */
+  conditions?: ConditionRow[];
+  /** Deprecated alias kept for one cycle. */
   items?: ConditionRow[];
 };
 
@@ -54,15 +57,18 @@ export function ConditionsInlineEditor({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState("");
 
-  const items = conditions.data?.items ?? [];
+  // SPEC-07: prefer canonical `conditions`; fall back to legacy `items`
+  // alias during the deprecation window.
+  const items = conditions.data?.conditions ?? conditions.data?.items ?? [];
 
   const updateLocal = (
     updater: (rows: ConditionRow[]) => ConditionRow[],
   ): { previous: ConditionsListApi | null } => {
     const previous = conditions.data;
     conditions.setOptimisticData((current) => {
-      const list = current?.items ?? [];
-      return { ...(current ?? {}), items: updater(list) };
+      const list = current?.conditions ?? current?.items ?? [];
+      const next = updater(list);
+      return { ...(current ?? {}), conditions: next, items: next };
     });
     return { previous };
   };
@@ -102,6 +108,11 @@ export function ConditionsInlineEditor({
 
   async function handleStatus(row: ConditionRow, status: "satisfied" | "waived" | "open") {
     const previous = conditions.data;
+    const prevStatus = (row.status ?? "open") as
+      | "open"
+      | "satisfied"
+      | "waived"
+      | "rejected";
     updateLocal((rows) =>
       rows.map((r) => (r.id === row.id ? { ...r, status } : r)),
     );
@@ -117,11 +128,35 @@ export function ConditionsInlineEditor({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ condition_id: row.id, status }),
         }),
+      // SPEC-07: undo restores the previous status.
+      undo: {
+        label: `Undo "${status}"`,
+        optimistic: () =>
+          conditions.setOptimisticData((current) => {
+            const list =
+              current?.conditions ?? current?.items ?? [];
+            const next = list.map((r) =>
+              r.id === row.id ? { ...r, status: prevStatus } : r,
+            );
+            return { ...(current ?? {}), conditions: next, items: next };
+          }),
+        revert: () => conditions.setOptimisticData(() => previous),
+        request: () =>
+          fetch(`/api/deals/${dealId}/conditions/set-status`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              condition_id: row.id,
+              status: prevStatus,
+            }),
+          }),
+      },
     });
   }
 
   async function handleSaveNote(row: ConditionRow) {
     const description = editingDescription.trim();
+    const prevDescription = row.description ?? null;
     const previous = conditions.data;
     updateLocal((rows) =>
       rows.map((r) => (r.id === row.id ? { ...r, description } : r)),
@@ -139,6 +174,38 @@ export function ConditionsInlineEditor({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ description }),
         }),
+      // SPEC-07: reconcile canonical condition row from PATCH response so we
+      // skip the hard refresh and avoid the visible flicker.
+      reconcile: (serverJson: { condition?: ConditionRow }) => {
+        if (!serverJson?.condition) return false;
+        conditions.setOptimisticData((current) => {
+          const list = current?.conditions ?? current?.items ?? [];
+          const next = list.map((r) =>
+            r.id === row.id ? { ...r, ...serverJson.condition! } : r,
+          );
+          return { ...(current ?? {}), conditions: next, items: next };
+        });
+        return true;
+      },
+      // SPEC-07: undo restores the previous note.
+      undo: {
+        label: "Undo note edit",
+        optimistic: () =>
+          conditions.setOptimisticData((current) => {
+            const list = current?.conditions ?? current?.items ?? [];
+            const next = list.map((r) =>
+              r.id === row.id ? { ...r, description: prevDescription } : r,
+            );
+            return { ...(current ?? {}), conditions: next, items: next };
+          }),
+        revert: () => conditions.setOptimisticData(() => previous),
+        request: () =>
+          fetch(`/api/deals/${dealId}/conditions/${row.id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ description: prevDescription ?? "" }),
+          }),
+      },
     });
   }
 
@@ -195,6 +262,24 @@ export function ConditionsInlineEditor({
       {conditions.error ? (
         <div className="mb-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-200">
           {conditions.error}
+        </div>
+      ) : null}
+
+      {mutation.state.lastUndo ? (
+        <div
+          className="mb-3 inline-flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[11px] text-blue-100"
+          data-testid="conditions-undo-banner"
+          role="status"
+        >
+          <span>{mutation.state.lastUndo.label}</span>
+          <button
+            type="button"
+            onClick={() => void mutation.runUndo()}
+            className="rounded border border-blue-300/30 bg-blue-500/20 px-2 py-0.5 text-[11px] font-semibold text-blue-50 hover:bg-blue-500/30"
+            data-testid="conditions-undo-button"
+          >
+            Undo
+          </button>
         </div>
       ) : null}
 
