@@ -19,7 +19,10 @@ export type CockpitTelemetryKind =
   | "blocker_fix_started"
   | "blocker_fix_succeeded"
   | "blocker_fix_failed"
-  | "stage_data_refreshed";
+  | "stage_data_refreshed"
+  | "cockpit_inline_mutation_started"
+  | "cockpit_inline_mutation_succeeded"
+  | "cockpit_inline_mutation_failed";
 
 export type CockpitTelemetryEvent = {
   dealId: string;
@@ -128,6 +131,65 @@ export function logCockpitActionResult(
   const phase = result.ok ? "succeeded" : "failed";
   const ev = buildEvent(action, ctx, phase, result.errorMessage);
   postSignal(kindFor(action, phase), ev, fetchImpl);
+}
+
+/**
+ * SPEC-06 — inline mutation telemetry. Used by ConditionsInlineEditor /
+ * OverrideInlineEditor and any other inline edit surface. Always tags
+ * source="stage_cockpit" for attribution.
+ */
+export type InlineMutationKind = "add" | "update" | "status" | "review" | "delete";
+
+export type InlineMutationContext = {
+  dealId: string;
+  lifecycleStage: string | null;
+  /** Domain of the mutation: conditions, overrides, etc. */
+  domain: string;
+  /** What kind of mutation (add/update/status/review). */
+  kind: InlineMutationKind;
+  /** Optional id of the affected entity. */
+  entityId?: string | null;
+};
+
+export function logInlineMutationStarted(
+  ctx: InlineMutationContext,
+  fetchImpl: typeof fetch = fetch,
+): void {
+  postSignal(
+    "cockpit_inline_mutation_started",
+    {
+      dealId: ctx.dealId,
+      lifecycleStage: ctx.lifecycleStage,
+      intent: "fix_blocker",
+      actionType: null,
+      blockerId: ctx.entityId ?? null,
+      resultStatus: "started",
+      source: "stage_cockpit",
+    },
+    fetchImpl,
+  );
+}
+
+export function logInlineMutationResult(
+  ctx: InlineMutationContext,
+  ok: boolean,
+  errorMessage?: string,
+  fetchImpl: typeof fetch = fetch,
+): void {
+  postSignal(
+    ok ? "cockpit_inline_mutation_succeeded" : "cockpit_inline_mutation_failed",
+    {
+      dealId: ctx.dealId,
+      lifecycleStage: ctx.lifecycleStage,
+      intent: "fix_blocker",
+      actionType: null,
+      blockerId: ctx.entityId ?? null,
+      resultStatus: ok ? "succeeded" : "failed",
+      errorMessage,
+      source: "stage_cockpit",
+    },
+    fetchImpl,
+  );
 }
 
 export function logStageDataRefreshed(

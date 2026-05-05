@@ -9,7 +9,6 @@ import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
 import { useStageJsonResource } from "./_shared/useStageJsonResource";
-import { ClosingConditionsPanel } from "./closing/ClosingConditionsPanel";
 import {
   PostCloseChecklistPanel,
   type PostCloseData,
@@ -19,7 +18,7 @@ import {
   ExceptionTrackerPanel,
   type FinancialExceptions,
 } from "./closing/ExceptionTrackerPanel";
-import type { ConditionsList } from "./decision/ApprovalConditionsPanel";
+import { ConditionsInlineEditor } from "./conditions/ConditionsInlineEditor";
 
 export function ClosingStageView({
   dealId,
@@ -72,19 +71,18 @@ function ClosingStageBody({
   dealId: string;
   isAdmin: boolean;
 }) {
-  // Stage-owned data fetches. PostCloseChecklist and ExceptionTracker share
-  // the same /post-close payload, so we fetch it exactly once.
-  const conditions = useStageJsonResource<ConditionsList>(
-    `/api/deals/${dealId}/conditions`,
-    { id: "closing:conditions" },
-  );
+  // SPEC-06: closing conditions are now editable inline; the read-only
+  // ClosingConditionsPanel was replaced by ConditionsInlineEditor (which
+  // owns its own /conditions/list fetch under scope: "conditions").
+  // Post-close + financial exceptions remain stage-owned under their own
+  // scope, "closing".
   const postClose = useStageJsonResource<PostCloseData>(
     `/api/deals/${dealId}/post-close`,
-    { id: "closing:post-close" },
+    { id: "closing:post-close", scope: "closing" },
   );
   const financialExceptions = useStageJsonResource<FinancialExceptions>(
     `/api/deals/${dealId}/financial-exceptions`,
-    { id: "closing:financial-exceptions" },
+    { id: "closing:financial-exceptions", scope: "closing" },
   );
 
   const exceptionsLoading = financialExceptions.loading || postClose.loading;
@@ -94,12 +92,7 @@ function ClosingStageBody({
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
       <div className="space-y-4 lg:col-span-8">
         <SafeBoundary>
-          <ClosingConditionsPanel
-            dealId={dealId}
-            conditions={conditions.data}
-            loading={conditions.loading}
-            error={conditions.error}
-          />
+          <ConditionsInlineEditor dealId={dealId} surface="closing" />
         </SafeBoundary>
         <SafeBoundary>
           <PostCloseChecklistPanel
