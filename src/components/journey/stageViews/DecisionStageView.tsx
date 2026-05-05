@@ -13,15 +13,9 @@ import {
   DecisionSummaryPanel,
   type DecisionLatest,
 } from "./decision/DecisionSummaryPanel";
-import {
-  ApprovalConditionsPanel,
-  type ConditionsList,
-} from "./decision/ApprovalConditionsPanel";
-import {
-  OverrideAuditPanel,
-  type OverridesList,
-} from "./decision/OverrideAuditPanel";
 import { DecisionLetterPanel } from "./decision/DecisionLetterPanel";
+import { ConditionsInlineEditor } from "./conditions/ConditionsInlineEditor";
+import { OverrideInlineEditor } from "./decision/OverrideInlineEditor";
 
 export function DecisionStageView({
   dealId,
@@ -69,19 +63,13 @@ function DecisionStageBody({
   dealId: string;
   isAdmin: boolean;
 }) {
-  // Stage-owned data fetches. Each registers itself with the
-  // StageDataProvider so cockpit actions auto-refresh them.
+  // Decision summary + letter share /decision/latest under scope: "decision".
+  // Conditions + overrides are owned by their inline editors under their
+  // own scopes ("conditions" / "overrides"), so a status mutation triggers
+  // a scoped refresh of just that surface.
   const decision = useStageJsonResource<DecisionLatest>(
     `/api/deals/${dealId}/decision/latest`,
-    { id: "decision:latest" },
-  );
-  const conditions = useStageJsonResource<ConditionsList>(
-    `/api/deals/${dealId}/conditions`,
-    { id: "decision:conditions" },
-  );
-  const overrides = useStageJsonResource<OverridesList>(
-    `/api/deals/${dealId}/overrides`,
-    { id: "decision:overrides" },
+    { id: "decision:latest", scope: "decision" },
   );
 
   return (
@@ -96,20 +84,10 @@ function DecisionStageBody({
           />
         </SafeBoundary>
         <SafeBoundary>
-          <ApprovalConditionsPanel
-            dealId={dealId}
-            conditions={conditions.data}
-            loading={conditions.loading}
-            error={conditions.error}
-          />
+          <ConditionsInlineEditor dealId={dealId} surface="decision" />
         </SafeBoundary>
         <SafeBoundary>
-          <OverrideAuditPanel
-            dealId={dealId}
-            overrides={overrides.data}
-            loading={overrides.loading}
-            error={overrides.error}
-          />
+          <OverrideInlineEditor dealId={dealId} />
         </SafeBoundary>
         <SafeBoundary>
           <DecisionLetterPanel
