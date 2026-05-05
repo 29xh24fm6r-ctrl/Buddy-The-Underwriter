@@ -105,6 +105,9 @@ export function useRecentCockpitTelemetry(
       //  1. only cockpit families
       //  2. only events tagged for THIS deal (defense-in-depth even though
       //     the endpoint already filters by dealId)
+      // SPEC-10: lifecycleStage is now a first-class field on the emitted
+      // event so the stage_oscillation pattern detector works against the
+      // live telemetry stream, not just typed test fixtures.
       const filtered: AdvisorTelemetryEvent[] = items
         .filter((row) => {
           if (!isCockpitTelemetryType(row.type)) return false;
@@ -115,6 +118,10 @@ export function useRecentCockpitTelemetry(
           type: row.type,
           ts: typeof row.ts === "number" ? row.ts : Number(row.ts),
           label: extractLabel(row.payload),
+          lifecycleStage:
+            typeof row.payload?.lifecycleStage === "string"
+              ? (row.payload.lifecycleStage as string)
+              : null,
         }));
 
       setEvents(filtered);
