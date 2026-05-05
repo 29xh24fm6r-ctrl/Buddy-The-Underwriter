@@ -13,7 +13,15 @@ import { writeDealEvent } from "@/lib/events/dealEvents";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_FIELDS = new Set(["reason", "justification", "severity"]);
+const ALLOWED_FIELDS = new Set([
+  "reason",
+  "justification",
+  "severity",
+  // SPEC-07: needed to support "undo mark reviewed" — flips requires_review
+  // back to true. The dedicated /review POST handler stays as the canonical
+  // monotonic-to-false path; PATCH covers the bidirectional case.
+  "requires_review",
+]);
 
 export async function PATCH(
   req: NextRequest,

@@ -22,7 +22,8 @@ export type CockpitTelemetryKind =
   | "stage_data_refreshed"
   | "cockpit_inline_mutation_started"
   | "cockpit_inline_mutation_succeeded"
-  | "cockpit_inline_mutation_failed";
+  | "cockpit_inline_mutation_failed"
+  | "cockpit_inline_mutation_undone";
 
 export type CockpitTelemetryEvent = {
   dealId: string;
@@ -164,6 +165,29 @@ export function logInlineMutationStarted(
       actionType: null,
       blockerId: ctx.entityId ?? null,
       resultStatus: "started",
+      source: "stage_cockpit",
+    },
+    fetchImpl,
+  );
+}
+
+/**
+ * SPEC-07 — emit when a banker undoes a recent inline mutation. Tags
+ * source="stage_cockpit" like every other inline mutation event.
+ */
+export function logInlineMutationUndone(
+  ctx: InlineMutationContext,
+  fetchImpl: typeof fetch = fetch,
+): void {
+  postSignal(
+    "cockpit_inline_mutation_undone",
+    {
+      dealId: ctx.dealId,
+      lifecycleStage: ctx.lifecycleStage,
+      intent: "fix_blocker",
+      actionType: null,
+      blockerId: ctx.entityId ?? null,
+      resultStatus: "succeeded",
       source: "stage_cockpit",
     },
     fetchImpl,

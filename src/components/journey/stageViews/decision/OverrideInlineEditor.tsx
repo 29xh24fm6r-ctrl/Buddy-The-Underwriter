@@ -111,6 +111,7 @@ export function OverrideInlineEditor({ dealId }: { dealId: string }) {
 
   async function handleSaveReason(row: OverrideRow) {
     const reason = editingReason.trim();
+    const prevReason = row.reason ?? null;
     const previous = overrides.data;
     updateLocal((rows) =>
       rows.map((r) => (r.id === row.id ? { ...r, reason } : r)),
@@ -128,11 +129,46 @@ export function OverrideInlineEditor({ dealId }: { dealId: string }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ reason }),
         }),
+      // SPEC-07: merge canonical override row from PATCH response.
+      reconcile: (serverJson: { override?: OverrideRow }) => {
+        if (!serverJson?.override) return false;
+        overrides.setOptimisticData((current) => {
+          const list = current?.overrides ?? [];
+          return {
+            ...(current ?? {}),
+            overrides: list.map((r) =>
+              r.id === row.id ? { ...r, ...serverJson.override! } : r,
+            ),
+          };
+        });
+        return true;
+      },
+      undo: {
+        label: "Undo rationale edit",
+        optimistic: () =>
+          overrides.setOptimisticData((current) => {
+            const list = current?.overrides ?? [];
+            return {
+              ...(current ?? {}),
+              overrides: list.map((r) =>
+                r.id === row.id ? { ...r, reason: prevReason } : r,
+              ),
+            };
+          }),
+        revert: () => overrides.setOptimisticData(() => previous),
+        request: () =>
+          fetch(`/api/deals/${dealId}/overrides/${row.id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason: prevReason ?? "" }),
+          }),
+      },
     });
   }
 
   async function handleMarkReviewed(row: OverrideRow) {
     const previous = overrides.data;
+    const prevRequiresReview = row.requires_review ?? true;
     updateLocal((rows) =>
       rows.map((r) => (r.id === row.id ? { ...r, requires_review: false } : r)),
     );
@@ -148,6 +184,43 @@ export function OverrideInlineEditor({ dealId }: { dealId: string }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({}),
         }),
+      reconcile: (serverJson: { override?: OverrideRow }) => {
+        if (!serverJson?.override) return false;
+        overrides.setOptimisticData((current) => {
+          const list = current?.overrides ?? [];
+          return {
+            ...(current ?? {}),
+            overrides: list.map((r) =>
+              r.id === row.id ? { ...r, ...serverJson.override! } : r,
+            ),
+          };
+        });
+        return true;
+      },
+      // SPEC-07: undo flips requires_review back via PATCH (allowed for
+      // this field since SPEC-07 widens the allow-list).
+      undo: {
+        label: "Undo mark reviewed",
+        optimistic: () =>
+          overrides.setOptimisticData((current) => {
+            const list = current?.overrides ?? [];
+            return {
+              ...(current ?? {}),
+              overrides: list.map((r) =>
+                r.id === row.id
+                  ? { ...r, requires_review: prevRequiresReview }
+                  : r,
+              ),
+            };
+          }),
+        revert: () => overrides.setOptimisticData(() => previous),
+        request: () =>
+          fetch(`/api/deals/${dealId}/overrides/${row.id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ requires_review: prevRequiresReview }),
+          }),
+      },
     });
   }
 
@@ -220,6 +293,24 @@ export function OverrideInlineEditor({ dealId }: { dealId: string }) {
       {overrides.error ? (
         <div className="mb-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-200">
           {overrides.error}
+        </div>
+      ) : null}
+
+      {mutation.state.lastUndo ? (
+        <div
+          className="mb-3 inline-flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[11px] text-blue-100"
+          data-testid="override-undo-banner"
+          role="status"
+        >
+          <span>{mutation.state.lastUndo.label}</span>
+          <button
+            type="button"
+            onClick={() => void mutation.runUndo()}
+            className="rounded border border-blue-300/30 bg-blue-500/20 px-2 py-0.5 text-[11px] font-semibold text-blue-50 hover:bg-blue-500/30"
+            data-testid="override-undo-button"
+          >
+            Undo
+          </button>
         </div>
       ) : null}
 
