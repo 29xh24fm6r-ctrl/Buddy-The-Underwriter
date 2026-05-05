@@ -184,6 +184,8 @@ export function OverrideInlineEditor({ dealId }: { dealId: string }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({}),
         }),
+      // SPEC-08: review endpoint returns the canonical override row;
+      // reconcile from it rather than hard-refreshing the list.
       reconcile: (serverJson: { override?: OverrideRow }) => {
         if (!serverJson?.override) return false;
         overrides.setOptimisticData((current) => {

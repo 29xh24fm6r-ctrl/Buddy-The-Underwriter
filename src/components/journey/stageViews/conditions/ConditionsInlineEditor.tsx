@@ -128,6 +128,19 @@ export function ConditionsInlineEditor({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ condition_id: row.id, status }),
         }),
+      // SPEC-08: reconcile from canonical condition row when set-status
+      // returns one. Skips the immediate hard refresh.
+      reconcile: (serverJson: { condition?: ConditionRow }) => {
+        if (!serverJson?.condition) return false;
+        conditions.setOptimisticData((current) => {
+          const list = current?.conditions ?? current?.items ?? [];
+          const next = list.map((r) =>
+            r.id === row.id ? { ...r, ...serverJson.condition! } : r,
+          );
+          return { ...(current ?? {}), conditions: next, items: next };
+        });
+        return true;
+      },
       // SPEC-07: undo restores the previous status.
       undo: {
         label: `Undo "${status}"`,
