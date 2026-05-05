@@ -1,28 +1,29 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
-
-type MemoMissingApi = {
-  ok?: boolean;
-  required_keys?: string[];
-  present_keys?: string[];
-  missing_keys?: string[];
-  suggestions?: { key: string; suggestion: string }[];
-};
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
+import type { MemoSummary } from "./CreditMemoPanel";
 
 /**
  * Reconciliation between extracted facts, underwriting outputs, and memo
- * fields. Renders missing canonical facts inline with the suggested fix path
- * supplied by the canonical missing endpoint.
+ * fields.
+ *
+ * SPEC-04: data flows from `CommitteeStageView` (single fetch). This panel
+ * renders only.
  */
-export function MemoReconciliationPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<MemoMissingApi>(
-    `/api/deals/${dealId}/credit-memo/canonical/missing`,
-  );
-
-  const missing = data?.missing_keys ?? [];
+export function MemoReconciliationPanel({
+  dealId,
+  memoSummary,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  memoSummary: MemoSummary | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const missing = memoSummary?.missing_keys ?? [];
   const suggestionsByKey = new Map(
-    (data?.suggestions ?? []).map((s) => [s.key, s.suggestion]),
+    (memoSummary?.suggestions ?? []).map((s) => [s.key, s.suggestion]),
   );
 
   const rows: StatusRow[] = missing.map((key) => ({
@@ -39,7 +40,7 @@ export function MemoReconciliationPanel({ dealId }: { dealId: string }) {
       title="Memo Reconciliation"
       icon="rule"
       badge={
-        loading && !data
+        loading && !memoSummary
           ? null
           : missing.length === 0
             ? "ALL ALIGNED"
@@ -47,7 +48,7 @@ export function MemoReconciliationPanel({ dealId }: { dealId: string }) {
       }
       badgeTone={missing.length === 0 ? "success" : "warn"}
       summary={
-        loading && !data
+        loading && !memoSummary
           ? "Reconciling extracted facts, underwriting outputs, and memo fields…"
           : missing.length === 0
             ? "Memo data is reconciled — no missing canonical facts."

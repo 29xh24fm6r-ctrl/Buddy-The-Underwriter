@@ -1,25 +1,32 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch } from "../_shared/StatusListPanel";
+import { StatusListPanel } from "../_shared/StatusListPanel";
 
-type MemoMissingApi = {
-  ok?: boolean;
+export type MemoSummary = {
   required_keys?: string[];
   present_keys?: string[];
   missing_keys?: string[];
+  suggestions?: { key: string; suggestion: string }[];
 };
 
 /**
  * Inline credit memo summary for the committee stage.
  *
- * Pulls from the canonical-memo /missing endpoint to derive a coarse memo
- * readiness indicator without re-rendering the full memo here. Detailed
- * gap-by-gap reconciliation lives in MemoReconciliationPanel.
+ * SPEC-04: data is owned and fetched by `CommitteeStageView` and passed
+ * down. This panel renders only.
  */
-export function CreditMemoPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<MemoMissingApi>(
-    `/api/deals/${dealId}/credit-memo/canonical/missing`,
-  );
+export function CreditMemoPanel({
+  dealId,
+  memoSummary,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  memoSummary: MemoSummary | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const data = memoSummary;
 
   const required = data?.required_keys?.length ?? 0;
   const present = data?.present_keys?.length ?? 0;
@@ -37,15 +44,16 @@ export function CreditMemoPanel({ dealId }: { dealId: string }) {
 
   const tone = ready ? "success" : partial ? "warn" : "neutral";
 
-  const summary = loading && !data
-    ? "Loading memo state…"
-    : ready
-      ? "Canonical memo has all required facts. Open the memo to review qualitative sections."
-      : partial
-        ? `Memo has ${present} of ${required} required facts. Review reconciliation below.`
-        : data
-          ? "Memo not yet generated."
-          : "Status unavailable.";
+  const summary =
+    loading && !data
+      ? "Loading memo state…"
+      : ready
+        ? "Canonical memo has all required facts. Open the memo to review qualitative sections."
+        : partial
+          ? `Memo has ${present} of ${required} required facts. Review reconciliation below.`
+          : data
+            ? "Memo not yet generated."
+            : "Status unavailable.";
 
   return (
     <StatusListPanel

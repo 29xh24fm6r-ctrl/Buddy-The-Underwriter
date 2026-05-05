@@ -1,23 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
+import { useCockpitAction } from "../../actions/useCockpitAction";
+import type { CockpitRunnableAction } from "../../actions/actionTypes";
 import { StatusListPanel } from "../_shared/StatusListPanel";
 
 /**
- * Committee package panel — surfaces packet readiness from the cockpit's
- * lifecycle state and exposes a one-click generate action.
+ * Committee package panel.
  *
- * Reads `committeePacketReady` and `committeeRequired` from
- * lifecycleState.derived (no extra fetch needed).
+ * SPEC-04: packet generation now flows through the shared action runner
+ * (intent=runnable, actionType=generate_packet). The panel does NOT POST
+ * to the packet-generate endpoint directly — that removes split-brain
+ * behavior with PrimaryActionBar.
  */
 export function CommitteePackagePanel({ dealId }: { dealId: string }) {
   const { lifecycleState } = useCockpitDataContext();
+  const { state, run } = useCockpitAction(dealId);
   const derived = lifecycleState?.derived;
-
-  const [generating, setGenerating] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
 
   const required = derived?.committeeRequired ?? false;
   const ready = derived?.committeePacketReady ?? false;
@@ -32,26 +32,16 @@ export function CommitteePackagePanel({ dealId }: { dealId: string }) {
 
   const tone = !required ? "neutral" : ready ? "success" : "warn";
 
-  async function handleGenerate() {
-    if (generating) return;
-    setGenerating(true);
-    setFeedback(null);
-    try {
-      const res = await fetch(
-        `/api/deals/${dealId}/committee/packet/generate`,
-        { method: "POST" },
-      );
-      if (!res.ok) {
-        setFeedback(`Failed (${res.status}). Open the committee studio to retry.`);
-      } else {
-        setFeedback("Packet generation started. Refresh the page in a moment to see the result.");
-      }
-    } catch (err) {
-      setFeedback(`Failed: ${(err as Error).message}`);
-    } finally {
-      setGenerating(false);
-    }
-  }
+  const ACTION_ID = "committee-package:generate";
+  const isPending = state.status === "pending" && state.activeId === ACTION_ID;
+  const isFailed = state.status === "error" && state.activeId === ACTION_ID;
+  const succeeded = state.status === "success" && state.activeId === ACTION_ID;
+
+  const action: CockpitRunnableAction = {
+    intent: "runnable",
+    label: ready ? "Regenerate Packet" : "Generate Packet",
+    actionType: "generate_packet",
+  };
 
   return (
     <StatusListPanel
@@ -72,17 +62,23 @@ export function CommitteePackagePanel({ dealId }: { dealId: string }) {
         {required ? (
           <button
             type="button"
-            onClick={handleGenerate}
-            disabled={generating}
+            onClick={() => {
+              if (isPending) return;
+              void run(action, { id: ACTION_ID });
+            }}
+            disabled={isPending}
+            aria-busy={isPending}
             className="inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-100 hover:bg-blue-500/20 disabled:opacity-60"
             data-testid="committee-package-generate"
           >
-            <span className="material-symbols-outlined text-[14px]">refresh</span>
-            {generating
-              ? "Generating…"
-              : ready
-                ? "Regenerate Packet"
-                : "Generate Packet"}
+            <span
+              className={`material-symbols-outlined text-[14px] ${
+                isPending ? "animate-spin" : ""
+              }`}
+            >
+              {isPending ? "progress_activity" : "refresh"}
+            </span>
+            {isPending ? "Generating…" : action.label}
           </button>
         ) : null}
         <Link
@@ -93,9 +89,17 @@ export function CommitteePackagePanel({ dealId }: { dealId: string }) {
           <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
         </Link>
       </div>
-      {feedback ? (
-        <div className="mt-2 rounded-md border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/70">
-          {feedback}
+      {isFailed && state.errorMessage ? (
+        <div
+          className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-200"
+          role="alert"
+        >
+          Packet generation failed: {state.errorMessage}
+        </div>
+      ) : null}
+      {succeeded ? (
+        <div className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-200">
+          Packet generation started. The page is refreshing now.
         </div>
       ) : null}
     </StatusListPanel>
