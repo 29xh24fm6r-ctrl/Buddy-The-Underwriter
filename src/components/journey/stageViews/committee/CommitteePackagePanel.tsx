@@ -5,6 +5,10 @@ import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
 import { useCockpitAction } from "../../actions/useCockpitAction";
 import type { CockpitRunnableAction } from "../../actions/actionTypes";
 import { StatusListPanel } from "../_shared/StatusListPanel";
+import {
+  ActionFeedback,
+  OPTIMISTIC_MESSAGES,
+} from "../_shared/ActionFeedback";
 
 /**
  * Committee package panel.
@@ -34,8 +38,6 @@ export function CommitteePackagePanel({ dealId }: { dealId: string }) {
 
   const ACTION_ID = "committee-package:generate";
   const isPending = state.status === "pending" && state.activeId === ACTION_ID;
-  const isFailed = state.status === "error" && state.activeId === ACTION_ID;
-  const succeeded = state.status === "success" && state.activeId === ACTION_ID;
 
   const action: CockpitRunnableAction = {
     intent: "runnable",
@@ -89,19 +91,12 @@ export function CommitteePackagePanel({ dealId }: { dealId: string }) {
           <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
         </Link>
       </div>
-      {isFailed && state.errorMessage ? (
-        <div
-          className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-200"
-          role="alert"
-        >
-          Packet generation failed: {state.errorMessage}
-        </div>
-      ) : null}
-      {succeeded ? (
-        <div className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-200">
-          Packet generation started. The page is refreshing now.
-        </div>
-      ) : null}
+      <ActionFeedback
+        actionId={ACTION_ID}
+        state={state}
+        actionLabel={action.label}
+        optimisticMessage={OPTIMISTIC_MESSAGES.generate_packet}
+      />
     </StatusListPanel>
   );
 }

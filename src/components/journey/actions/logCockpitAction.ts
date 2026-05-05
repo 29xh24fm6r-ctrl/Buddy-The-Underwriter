@@ -34,12 +34,38 @@ export type CockpitTelemetryEvent = {
 
 const SIGNAL_RECORD_URL = "/api/buddy/signals/record";
 
+function isValidEvent(ev: CockpitTelemetryEvent): boolean {
+  if (!ev || typeof ev !== "object") return false;
+  if (typeof ev.dealId !== "string" || ev.dealId.length === 0) return false;
+  if (
+    ev.resultStatus !== "started" &&
+    ev.resultStatus !== "succeeded" &&
+    ev.resultStatus !== "failed"
+  ) {
+    return false;
+  }
+  if (ev.source !== "stage_cockpit") return false;
+  return true;
+}
+
+function devWarn(message: string, detail?: unknown): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+    // Surface in dev so a misconfigured telemetry call is visible during
+    // development. Production stays silent.
+    console.warn(`[cockpit-telemetry] ${message}`, detail);
+  }
+}
+
 function postSignal(
   kind: CockpitTelemetryKind,
   ev: CockpitTelemetryEvent,
   fetchImpl: typeof fetch = fetch,
 ): void {
   if (typeof window === "undefined") return;
+  if (!isValidEvent(ev)) {
+    devWarn("invalid telemetry payload, dropping", { kind, ev });
+    return;
+  }
   try {
     void fetchImpl(SIGNAL_RECORD_URL, {
       method: "POST",
@@ -58,11 +84,11 @@ function postSignal(
           errorMessage: ev.errorMessage ?? null,
         },
       }),
-    }).catch(() => {
-      // swallow — telemetry must never break the UI
+    }).catch((err) => {
+      devWarn("signal post failed", err);
     });
-  } catch {
-    // unreachable but keeps TS happy
+  } catch (err) {
+    devWarn("signal post threw", err);
   }
 }
 

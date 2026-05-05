@@ -14,6 +14,9 @@ import type {
 /**
  * Endpoint table for runnable / fix-blocker actions. Keep in sync with
  * existing server routes — SPEC-04 reuses what's already deployed.
+ *
+ * SPEC-05: hardened with an `unknown actionType` guard so a typo never
+ * silently calls `/api/deals/[dealId]/undefined`.
  */
 const ACTION_ENDPOINT: Record<ServerActionType, (dealId: string) => string> = {
   generate_packet: (dealId) =>
@@ -26,13 +29,29 @@ const ACTION_ENDPOINT: Record<ServerActionType, (dealId: string) => string> = {
     `/api/deals/${dealId}/notifications/remind`,
 };
 
+const KNOWN_ACTION_TYPES: ReadonlySet<string> = new Set(
+  Object.keys(ACTION_ENDPOINT),
+);
+
 export function endpointFor(actionType: ServerActionType, dealId: string): string {
-  return ACTION_ENDPOINT[actionType](dealId);
+  const builder = ACTION_ENDPOINT[actionType];
+  if (!builder) {
+    throw new Error(`unknown_action_type:${String(actionType)}`);
+  }
+  return builder(dealId);
+}
+
+/** Exposed for tests. */
+export function isKnownActionType(actionType: string): boolean {
+  return KNOWN_ACTION_TYPES.has(actionType);
 }
 
 /**
  * Execute a `CockpitAction`. Navigate intents return ok=true without doing
  * any work — the caller (useCockpitAction) is responsible for router.push.
+ *
+ * SPEC-05: unknown `actionType` returns a structured error WITHOUT calling
+ * fetch, so a typo can't accidentally hit a wrong URL.
  */
 export async function runCockpitAction(
   action: CockpitAction,
@@ -41,6 +60,14 @@ export async function runCockpitAction(
 ): Promise<CockpitActionResult> {
   if (action.intent === "navigate") {
     return { ok: true, status: "ok" };
+  }
+
+  if (!isKnownActionType(action.actionType)) {
+    return {
+      ok: false,
+      status: "error",
+      errorMessage: `unknown_action_type:${String(action.actionType)}`,
+    };
   }
 
   const endpoint = endpointFor(action.actionType, dealId);

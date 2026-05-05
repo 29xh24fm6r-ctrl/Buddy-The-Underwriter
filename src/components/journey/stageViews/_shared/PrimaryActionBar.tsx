@@ -4,6 +4,7 @@ import type { NextAction } from "@/buddy/lifecycle/nextAction";
 import { toCockpitAction } from "@/lib/journey/getNextAction";
 import { useCockpitAction } from "../../actions/useCockpitAction";
 import type { CockpitAction } from "../../actions/actionTypes";
+import { ActionFeedback, OPTIMISTIC_MESSAGES } from "./ActionFeedback";
 
 /**
  * SPEC-04 — primary action bar.
@@ -89,9 +90,9 @@ export function PrimaryActionBar({
 
   const ACTION_ID = "primary";
   const isPending = state.status === "pending" && state.activeId === ACTION_ID;
-  const errorMessage =
-    state.status === "error" && state.activeId === ACTION_ID
-      ? state.errorMessage
+  const optimisticMessage =
+    cockpitAction && cockpitAction.intent !== "navigate"
+      ? OPTIMISTIC_MESSAGES[cockpitAction.actionType] ?? null
       : null;
 
   const handleClick = (event: React.MouseEvent) => {
@@ -130,26 +131,26 @@ export function PrimaryActionBar({
         {labelDescription ? (
           <div className="text-xs text-blue-100/80">{labelDescription}</div>
         ) : null}
-        {errorMessage ? (
-          <div
-            className="mt-1 inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-200"
+        <ActionFeedback
+          actionId={ACTION_ID}
+          state={state}
+          actionLabel={cockpitAction.label}
+          optimisticMessage={optimisticMessage}
+          showRefreshedAt
+        />
+        {state.status === "error" && state.activeId === ACTION_ID ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              clearError();
+            }}
+            className="ml-1 text-[11px] text-rose-200/80 underline hover:text-rose-100"
+            aria-label="Dismiss error"
             data-testid="primary-action-error"
-            role="alert"
           >
-            <span className="material-symbols-outlined text-[14px]">error</span>
-            {errorMessage}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                clearError();
-              }}
-              className="ml-1 text-rose-200/80 hover:text-rose-100"
-              aria-label="Dismiss error"
-            >
-              ×
-            </button>
-          </div>
+            Dismiss
+          </button>
         ) : null}
       </div>
       <button

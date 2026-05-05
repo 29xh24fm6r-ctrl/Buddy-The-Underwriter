@@ -4,6 +4,7 @@ import type { LifecycleBlocker } from "@/buddy/lifecycle/model";
 import { getBlockerFixAction } from "@/lib/journey/getBlockerFixAction";
 import { useCockpitAction } from "../../actions/useCockpitAction";
 import type { CockpitAction } from "../../actions/actionTypes";
+import { ActionFeedback, OPTIMISTIC_MESSAGES } from "./ActionFeedback";
 
 /**
  * Renders blockers with plain-English fix paths.
@@ -42,8 +43,10 @@ export function StageBlockerList({
           const fix: CockpitAction | null = getBlockerFixAction(b, dealId);
           const id = `blocker:${b.code}`;
           const isPending = state.status === "pending" && state.activeId === id;
-          const isFailed =
-            state.status === "error" && state.activeId === id;
+          const optimisticMessage =
+            fix && fix.intent !== "navigate"
+              ? OPTIMISTIC_MESSAGES[fix.actionType] ?? null
+              : null;
 
           return (
             <li
@@ -56,17 +59,12 @@ export function StageBlockerList({
                   {b.code}
                 </div>
                 <div className="text-sm text-white/90">{b.message}</div>
-                {isFailed && state.errorMessage ? (
-                  <div
-                    className="mt-1 inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-200"
-                    role="alert"
-                  >
-                    <span className="material-symbols-outlined text-[12px]">
-                      error
-                    </span>
-                    {state.errorMessage}
-                  </div>
-                ) : null}
+                <ActionFeedback
+                  actionId={id}
+                  state={state}
+                  actionLabel={fix?.label ?? null}
+                  optimisticMessage={optimisticMessage}
+                />
               </div>
               {fix ? (
                 <button
