@@ -24,6 +24,8 @@ import {
   useAdvisorSignalFeedback,
   type AdvisorSignalEffectiveState,
 } from "./useAdvisorSignalFeedback";
+import { useBlockerObservations } from "./useBlockerObservations";
+import { useState } from "react";
 
 /**
  * SPEC-07/08/09 — deterministic cockpit advisor panel.
@@ -108,8 +110,19 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
   });
   const recentTelemetry = props.recentTelemetry ?? liveTelemetry.events;
 
-  // SPEC-09 feedback (localStorage).
+  // SPEC-09 feedback (now SPEC-10: server-first with localStorage fallback).
   const fb = useAdvisorSignalFeedback(dealId);
+
+  // SPEC-10 — blocker observations. The hook POSTs the current set of
+  // lifecycle blockers (so the server stamps first_seen / last_seen) and
+  // returns the persisted observations for the stale_blocker detector.
+  // Caller can still override via the `blockerObservations` prop.
+  const liveObservations = useBlockerObservations(
+    dealId,
+    lifecycleState?.blockers,
+  );
+  const blockerObservations =
+    props.blockerObservations ?? liveObservations.asAdvisorInput;
 
   const baseSignals = useMemo<CockpitAdvisorSignal[]>(
     () =>
@@ -120,7 +133,11 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
         overrides: props.overrides,
         memoSummary: props.memoSummary ?? null,
         recentTelemetry,
-        blockerObservations: props.blockerObservations,
+        blockerObservations,
+        // SPEC-10 — pattern detection looks back 24h for repeated_failure /
+        // repeated_undo / stage_oscillation; debug mode can widen via URL
+        // (?advisor=debug pulls a 7d window into memory below).
+        patternWindow: "24h",
       }),
     [
       dealId,
@@ -129,7 +146,7 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
       props.overrides,
       props.memoSummary,
       recentTelemetry,
-      props.blockerObservations,
+      blockerObservations,
     ],
   );
 
@@ -176,9 +193,11 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
     () =>
       buildAdvisorMemorySummary({
         recentTelemetry,
-        blockerObservations: props.blockerObservations,
+        blockerObservations,
+        // SPEC-10 — panel summary defaults to 1h. Debug mode opens to 7d.
+        window: debug ? "7d" : "1h",
       }),
-    [recentTelemetry, props.blockerObservations],
+    [recentTelemetry, blockerObservations, debug],
   );
 
   const showMemory =
@@ -380,6 +399,10 @@ function AdvisorSignalRow({
   onSnooze: (s: CockpitAdvisorSignal) => void;
   onClearFeedback: (s: CockpitAdvisorSignal) => void;
 }) {
+  // SPEC-10 — local "Why am I seeing this?" toggle. Default mode shows
+  // only rankReason / source / confidence. Debug mode keeps the full
+  // metadata block.
+  const [whyOpen, setWhyOpen] = useState(false);
   const tone = SEVERITY_TONE[signal.severity];
   const badge = SEVERITY_BADGE[signal.severity];
   const kindLabel = KIND_LABEL[signal.kind];
@@ -415,6 +438,44 @@ function AdvisorSignalRow({
           {signal.detail ? (
             <div className="mt-1 text-[11px] text-white/60">{signal.detail}</div>
           ) : null}
+
+          {/* SPEC-10 — Why am I seeing this? Default-mode-friendly. */}
+          {!debug ? (
+            <div className="mt-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setWhyOpen((v) => !v);
+                }}
+                className="text-[10px] text-white/40 underline hover:text-white/70"
+                data-testid="advisor-why-toggle"
+                aria-expanded={whyOpen}
+              >
+                Why?
+              </button>
+              {whyOpen ? (
+                <div
+                  className="mt-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-[10px] text-white/70"
+                  data-testid="advisor-why-block"
+                >
+                  <div>
+                    <span className="text-white/40">Reason:</span>{" "}
+                    {signal.rankReason}
+                  </div>
+                  <div>
+                    <span className="text-white/40">Source:</span>{" "}
+                    {signal.source}
+                  </div>
+                  <div>
+                    <span className="text-white/40">Confidence:</span>{" "}
+                    {confidencePct}%
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {debug ? (
             <div
               className="mt-1 rounded border border-white/10 bg-black/40 px-2 py-1 font-mono text-[10px] text-white/60"
