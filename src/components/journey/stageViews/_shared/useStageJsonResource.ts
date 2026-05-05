@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRegisterStageRefresher } from "./useStageDataRefresh";
+import type { StageRefreshScope } from "./StageDataProvider";
 
 /**
  * SPEC-05 — shared stage data hook.
@@ -13,6 +14,10 @@ import { useRegisterStageRefresher } from "./useStageDataRefresh";
  *   on next refresh" UX.
  * - Aborts in-flight requests on unmount + URL change.
  * - Never throws; surfaces errors via `error`.
+ *
+ * SPEC-06: optional `scope` registers the refresher in a specific bucket
+ * so scoped `refreshStageData("conditions")` only triggers conditions
+ * fetches.
  */
 export type StageJsonResource<T> = {
   data: T | null;
@@ -27,13 +32,15 @@ export type UseStageJsonResourceOptions = {
   id: string;
   /** When false, skip fetching (e.g. waiting on an upstream prerequisite). */
   enabled?: boolean;
+  /** SPEC-06 — refresh scope this resource belongs to. Default: "all". */
+  scope?: StageRefreshScope;
 };
 
 const NULL_RESPONSE = Symbol("NULL_RESPONSE");
 
 export function useStageJsonResource<T>(
   url: string | null,
-  { id, enabled = true }: UseStageJsonResourceOptions,
+  { id, enabled = true, scope = "all" }: UseStageJsonResourceOptions,
 ): StageJsonResource<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState<boolean>(Boolean(enabled && url));
@@ -79,7 +86,9 @@ export function useStageJsonResource<T>(
   }, [fetchOnce]);
 
   // Register with the stage data provider so cockpit actions refresh us.
-  useRegisterStageRefresher(id, fetchOnce);
+  // SPEC-06: scope-aware so `refreshStageData("conditions")` only re-runs
+  // conditions resources.
+  useRegisterStageRefresher(scope, id, fetchOnce);
 
   const setOptimisticData = useCallback(
     (updater: (current: T | null) => T | null) => {
