@@ -13,6 +13,7 @@ import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
 import BankerReviewPanel from "@/components/creditMemo/BankerReviewPanel";
+import SubmittedMemoView from "@/components/creditMemo/SubmittedMemoView";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -20,10 +21,14 @@ import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
 import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
 import { evaluateSbaEligibility } from "@/lib/sba/eligibilityEngine";
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
+import type { FloridaArmoryMemoSnapshot } from "@/lib/creditMemo/snapshot/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const FROZEN_STATUSES = ["banker_submitted", "underwriter_review", "finalized", "returned"] as const;
+type FrozenStatus = (typeof FROZEN_STATUSES)[number];
 
 export default async function CanonicalCreditMemoPage(props: {
   params: Promise<{ dealId: string }>;
@@ -35,6 +40,23 @@ export default async function CanonicalCreditMemoPage(props: {
   const bankId = bankPick.bankId;
 
   const sb = supabaseAdmin();
+
+  // Step 4 ownership rule: once a snapshot exists in any frozen state,
+  // the live builder is bypassed entirely. The underwriter sees exactly
+  // what the banker certified.
+  const frozen = await loadLatestFrozenSnapshot(sb, dealId);
+  if (frozen) {
+    return (
+      <SubmittedMemoView
+        dealId={dealId}
+        snapshotId={frozen.id}
+        status={frozen.status}
+        memoVersion={frozen.memo_version}
+        snapshot={frozen.memo_output_json}
+        underwriterFeedback={frozen.underwriter_feedback_json}
+      />
+    );
+  }
 
   const [{ data: snapshotRow }, { data: deal }, { data: loanRequest }] = await Promise.all([
     sb
@@ -277,4 +299,61 @@ export default async function CanonicalCreditMemoPage(props: {
       </div>
     </div>
   );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+type FrozenSnapshotRow = {
+  id: string;
+  status: FrozenStatus;
+  memo_version: number;
+  memo_output_json: FloridaArmoryMemoSnapshot;
+  underwriter_feedback_json: Record<string, unknown> | null;
+};
+
+async function loadLatestFrozenSnapshot(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+): Promise<FrozenSnapshotRow | null> {
+  const { data } = await sb
+    .from("credit_memo_snapshots")
+    .select("id, status, memo_version, memo_output_json, underwriter_feedback_json")
+    .eq("deal_id", dealId)
+    .in("status", FROZEN_STATUSES as unknown as string[])
+    .order("memo_version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return null;
+
+  const row = data as unknown as {
+    id: string;
+    status: string;
+    memo_version: number | null;
+    memo_output_json: unknown;
+    underwriter_feedback_json: unknown;
+  };
+
+  // Defensive: only render if memo_output_json looks like a Florida Armory
+  // snapshot. Legacy auto-pipeline snapshots predate this schema and must
+  // NOT be rendered through the frozen view — fall back to the live
+  // builder for those.
+  if (
+    !row.memo_output_json ||
+    typeof row.memo_output_json !== "object" ||
+    (row.memo_output_json as { schema_version?: unknown }).schema_version !== "florida_armory_v1"
+  ) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    status: row.status as FrozenStatus,
+    memo_version: typeof row.memo_version === "number" ? row.memo_version : 1,
+    memo_output_json: row.memo_output_json as FloridaArmoryMemoSnapshot,
+    underwriter_feedback_json:
+      row.underwriter_feedback_json && typeof row.underwriter_feedback_json === "object"
+        ? (row.underwriter_feedback_json as Record<string, unknown>)
+        : null,
+  };
 }
