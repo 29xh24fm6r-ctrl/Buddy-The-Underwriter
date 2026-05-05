@@ -1,8 +1,9 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
+import type { PostCloseData } from "./PostCloseChecklistPanel";
 
-type FinExceptionsApi = {
+export type FinancialExceptions = {
   ok?: boolean;
   exceptions?: Array<{
     id?: string;
@@ -14,17 +15,6 @@ type FinExceptionsApi = {
   }>;
 };
 
-type PostCloseExceptionsApi = {
-  ok?: boolean;
-  exceptions?: Array<{
-    id: string;
-    exceptionCode?: string;
-    severity?: string;
-    status?: string;
-    openedAt?: string | null;
-  }>;
-};
-
 const SEVERITY_TONE: Record<string, "danger" | "warn" | "info" | "neutral"> = {
   HIGH: "danger",
   CRITICAL: "danger",
@@ -33,18 +23,23 @@ const SEVERITY_TONE: Record<string, "danger" | "warn" | "info" | "neutral"> = {
 };
 
 /**
- * Exception tracker — combines financial validation exceptions and open
- * post-close monitoring exceptions into one inline list.
+ * Exception tracker — pure presentation. Combines stage-owned financial
+ * exceptions and post-close exception data.
  */
-export function ExceptionTrackerPanel({ dealId }: { dealId: string }) {
-  const fin = useJsonFetch<FinExceptionsApi>(
-    `/api/deals/${dealId}/financial-exceptions`,
-  );
-  const pc = useJsonFetch<PostCloseExceptionsApi>(
-    `/api/deals/${dealId}/post-close`,
-  );
-
-  const finRows: StatusRow[] = (fin.data?.exceptions ?? [])
+export function ExceptionTrackerPanel({
+  dealId,
+  financialExceptions,
+  postClose,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  financialExceptions: FinancialExceptions | null;
+  postClose: PostCloseData | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const finRows: StatusRow[] = (financialExceptions?.exceptions ?? [])
     .slice(0, 5)
     .map((e, i) => {
       const severity = (e.severity ?? "").toUpperCase();
@@ -57,7 +52,7 @@ export function ExceptionTrackerPanel({ dealId }: { dealId: string }) {
       };
     });
 
-  const pcRows: StatusRow[] = (pc.data?.exceptions ?? [])
+  const pcRows: StatusRow[] = (postClose?.exceptions ?? [])
     .slice(0, 5)
     .map((e) => {
       const severity = (e.severity ?? "").toUpperCase();
@@ -72,8 +67,6 @@ export function ExceptionTrackerPanel({ dealId }: { dealId: string }) {
 
   const rows = [...finRows, ...pcRows];
   const total = rows.length;
-  const loading = fin.loading || pc.loading;
-  const error = fin.error ?? pc.error ?? null;
 
   return (
     <StatusListPanel

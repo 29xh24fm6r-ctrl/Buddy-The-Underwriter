@@ -1,10 +1,11 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
 
-type DecisionApi = {
+export type DecisionLatest = {
   ok?: boolean;
   snapshot?: {
+    id?: string;
     decision?: string | null;
     decision_summary?: string | null;
     confidence?: number | string | null;
@@ -25,18 +26,24 @@ const TONE_FOR_DECISION: Record<string, "success" | "warn" | "danger" | "info" |
 };
 
 /**
- * Decision summary — displays current decision (approved / declined /
- * needs-more-info) and confidence pulled from /decision/latest.
+ * Decision summary — pure presentation. Data flows from DecisionStageView
+ * via the SPEC-05 stage-owned data pattern.
  */
-export function DecisionSummaryPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<DecisionApi>(
-    `/api/deals/${dealId}/decision/latest`,
-  );
-
-  const snapshot = data?.snapshot ?? null;
+export function DecisionSummaryPanel({
+  dealId,
+  decision,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  decision: DecisionLatest | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const snapshot = decision?.snapshot ?? null;
   const decisionRaw = snapshot?.decision ?? snapshot?.status ?? null;
-  const decision = decisionRaw ? String(decisionRaw).toLowerCase() : null;
-  const tone = decision ? TONE_FOR_DECISION[decision] ?? "neutral" : "neutral";
+  const decisionLower = decisionRaw ? String(decisionRaw).toLowerCase() : null;
+  const tone = decisionLower ? TONE_FOR_DECISION[decisionLower] ?? "neutral" : "neutral";
   const confidence = snapshot?.confidence ?? null;
   const createdAt = snapshot?.created_at ?? null;
 
@@ -80,7 +87,7 @@ export function DecisionSummaryPanel({ dealId }: { dealId: string }) {
       badge={decisionRaw ? String(decisionRaw).toUpperCase() : "NO DECISION"}
       badgeTone={tone}
       summary={
-        loading && !data
+        loading && !decision
           ? "Loading latest decision…"
           : snapshot
             ? "Latest committee decision recorded for this deal."

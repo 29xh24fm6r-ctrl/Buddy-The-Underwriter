@@ -1,8 +1,8 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
 
-type OverridesApi = {
+export type OverridesList = {
   ok?: boolean;
   overrides?: Array<{
     id?: string;
@@ -23,17 +23,20 @@ const SEVERITY_TONE: Record<string, "danger" | "warn" | "info" | "neutral"> = {
 };
 
 /**
- * Override audit trail — pulls from /api/deals/[dealId]/overrides and lists
- * recent decision overrides with rationale.
+ * Override audit trail — pure presentation. Data lifted to stage in SPEC-05.
  */
-export function OverrideAuditPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<OverridesApi>(
-    `/api/deals/${dealId}/overrides`,
-  );
-
-  const overrides = (data?.overrides ?? []).slice(0, 10);
-
-  const rows: StatusRow[] = overrides.map((o, i) => {
+export function OverrideAuditPanel({
+  dealId,
+  overrides,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  overrides: OverridesList | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const rows: StatusRow[] = (overrides?.overrides ?? []).slice(0, 10).map((o, i) => {
     const severity = (o.severity ?? "").toUpperCase();
     const tone = SEVERITY_TONE[severity] ?? "neutral";
     const oldVal = formatValue(o.old_value);
@@ -50,17 +53,19 @@ export function OverrideAuditPanel({ dealId }: { dealId: string }) {
     };
   });
 
+  const total = rows.length;
+
   return (
     <StatusListPanel
       testId="decision-override-audit-panel"
       title="Override Audit"
       icon="history_edu"
-      badge={loading && !data ? null : `${overrides.length}`}
-      badgeTone={overrides.length === 0 ? "success" : "info"}
+      badge={loading && !overrides ? null : `${total}`}
+      badgeTone={total === 0 ? "success" : "info"}
       summary={
-        loading && !data
+        loading && !overrides
           ? "Loading override history…"
-          : overrides.length === 0
+          : total === 0
             ? "No decision overrides have been recorded."
             : "Most recent overrides — full audit trail in the decision overrides surface."
       }

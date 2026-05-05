@@ -1,8 +1,8 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
 
-type PostCloseApi = {
+export type PostCloseData = {
   ok?: boolean;
   obligations?: Array<{
     id: string;
@@ -18,6 +18,13 @@ type PostCloseApi = {
     status?: string;
     severity?: string;
   }>;
+  exceptions?: Array<{
+    id: string;
+    exceptionCode?: string;
+    severity?: string;
+    status?: string;
+    openedAt?: string | null;
+  }>;
   annualReview?: { status?: string; dueAt?: string | null } | null;
   renewalPrep?: { status?: string; prepStartAt?: string | null } | null;
 };
@@ -32,15 +39,21 @@ const STATUS_TONE: Record<string, "success" | "warn" | "danger" | "info" | "neut
 };
 
 /**
- * Post-close obligations + cycle checklist surface. Pulls from
- * /api/deals/[dealId]/post-close and lists upcoming/overdue cycles.
+ * Post-close obligations + cycle checklist surface — pure presentation.
+ * Data lifted to stage.
  */
-export function PostCloseChecklistPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<PostCloseApi>(
-    `/api/deals/${dealId}/post-close`,
-  );
-
-  const cycles = data?.cycles ?? [];
+export function PostCloseChecklistPanel({
+  dealId,
+  postClose,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  postClose: PostCloseData | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const cycles = postClose?.cycles ?? [];
   const overdue = cycles.filter((c) => c.status === "overdue");
   const dueSoon = cycles.filter((c) => c.status === "due_soon" || c.status === "blocked");
 
@@ -58,7 +71,7 @@ export function PostCloseChecklistPanel({ dealId }: { dealId: string }) {
       title="Post-Close Checklist"
       icon="event_repeat"
       badge={
-        loading && !data
+        loading && !postClose
           ? null
           : cycles.length === 0
             ? "NONE"
@@ -76,7 +89,7 @@ export function PostCloseChecklistPanel({ dealId }: { dealId: string }) {
             : "success"
       }
       summary={
-        loading && !data
+        loading && !postClose
           ? "Loading post-close obligations…"
           : cycles.length === 0
             ? "No post-close obligations defined yet."

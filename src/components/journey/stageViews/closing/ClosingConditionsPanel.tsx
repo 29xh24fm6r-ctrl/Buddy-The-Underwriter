@@ -1,18 +1,7 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
-
-type ConditionsApi = {
-  ok?: boolean;
-  conditions?: Array<{
-    id?: string;
-    title?: string;
-    description?: string | null;
-    severity?: string | null;
-    status?: string | null;
-    pre_close?: boolean | null;
-  }>;
-};
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
+import type { ConditionsList } from "../decision/ApprovalConditionsPanel";
 
 const SEVERITY_TONE: Record<string, "danger" | "warn" | "info" | "neutral"> = {
   REQUIRED: "danger",
@@ -28,15 +17,20 @@ const STATUS_TONE: Record<string, "success" | "warn" | "info" | "neutral"> = {
 };
 
 /**
- * Pre-close conditions tracker. Reuses the shared `/conditions` API and
- * filters down to required/open conditions for the closing surface.
+ * Pre-close conditions tracker — pure presentation. Data lifted to stage.
  */
-export function ClosingConditionsPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<ConditionsApi>(
-    `/api/deals/${dealId}/conditions`,
-  );
-
-  const all = data?.conditions ?? [];
+export function ClosingConditionsPanel({
+  dealId,
+  conditions,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  conditions: ConditionsList | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const all = conditions?.conditions ?? [];
   const required = all.filter((c) => (c.severity ?? "").toUpperCase() === "REQUIRED");
   const open = all.filter(
     (c) => !["COMPLETE", "CLEARED"].includes((c.status ?? "OPEN").toUpperCase()),
@@ -64,7 +58,7 @@ export function ClosingConditionsPanel({ dealId }: { dealId: string }) {
       title="Closing Conditions"
       icon="checklist_rtl"
       badge={
-        loading && !data
+        loading && !conditions
           ? null
           : all.length === 0
             ? "NONE"
@@ -72,7 +66,7 @@ export function ClosingConditionsPanel({ dealId }: { dealId: string }) {
       }
       badgeTone={requiredOpen.length === 0 ? "success" : "warn"}
       summary={
-        loading && !data
+        loading && !conditions
           ? "Loading closing conditions…"
           : all.length === 0
             ? "No closing conditions on file."

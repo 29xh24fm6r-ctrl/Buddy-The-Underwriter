@@ -1,8 +1,8 @@
 "use client";
 
-import { StatusListPanel, useJsonFetch, type StatusRow } from "../_shared/StatusListPanel";
+import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
 
-type ConditionsApi = {
+export type ConditionsList = {
   ok?: boolean;
   conditions?: Array<{
     id?: string;
@@ -28,16 +28,20 @@ const STATUS_TONE: Record<string, "success" | "warn" | "info" | "neutral"> = {
 };
 
 /**
- * Approval conditions — inline list pulled from /api/deals/[dealId]/conditions.
- * Surfaces the count of open required conditions and lets the banker open
- * the full conditions surface for editing.
+ * Approval conditions — pure presentation. Data lifted to stage in SPEC-05.
  */
-export function ApprovalConditionsPanel({ dealId }: { dealId: string }) {
-  const { data, loading, error } = useJsonFetch<ConditionsApi>(
-    `/api/deals/${dealId}/conditions`,
-  );
-
-  const all = data?.conditions ?? [];
+export function ApprovalConditionsPanel({
+  dealId,
+  conditions,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  conditions: ConditionsList | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const all = conditions?.conditions ?? [];
   const required = all.filter((c) => (c.severity ?? "").toUpperCase() === "REQUIRED");
   const openRequired = required.filter(
     (c) => !["COMPLETE", "CLEARED"].includes((c.status ?? "").toUpperCase()),
@@ -46,8 +50,7 @@ export function ApprovalConditionsPanel({ dealId }: { dealId: string }) {
   const rows: StatusRow[] = all.slice(0, 8).map((c, i) => {
     const severity = (c.severity ?? "").toUpperCase();
     const status = (c.status ?? "OPEN").toUpperCase();
-    const tone =
-      STATUS_TONE[status] ?? SEVERITY_TONE[severity] ?? "neutral";
+    const tone = STATUS_TONE[status] ?? SEVERITY_TONE[severity] ?? "neutral";
     return {
       id: c.id ?? `${c.title ?? "condition"}-${i}`,
       label: c.title ?? "(unnamed condition)",
@@ -63,7 +66,7 @@ export function ApprovalConditionsPanel({ dealId }: { dealId: string }) {
       title="Approval Conditions"
       icon="task_alt"
       badge={
-        loading && !data
+        loading && !conditions
           ? null
           : all.length === 0
             ? "NONE"
@@ -71,7 +74,7 @@ export function ApprovalConditionsPanel({ dealId }: { dealId: string }) {
       }
       badgeTone={openRequired.length === 0 ? "success" : "warn"}
       summary={
-        loading && !data
+        loading && !conditions
           ? "Loading conditions…"
           : all.length === 0
             ? "No conditions defined for this deal."

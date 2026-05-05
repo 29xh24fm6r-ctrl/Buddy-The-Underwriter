@@ -1,33 +1,31 @@
 "use client";
 
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
-import { StatusListPanel, useJsonFetch } from "../_shared/StatusListPanel";
-
-type DecisionApi = {
-  ok?: boolean;
-  snapshot?: {
-    id?: string;
-    decision?: string | null;
-    created_at?: string | null;
-  } | null;
-};
+import { StatusListPanel } from "../_shared/StatusListPanel";
+import type { DecisionLatest } from "./DecisionSummaryPanel";
 
 /**
  * Decision letter / borrower-facing artifact panel.
  *
- * Surfaces attestation status (from lifecycle.derived.attestationSatisfied)
- * and exposes deep-links to the attestation flow + audit export. The actual
- * letter generation lives on the decision route surface.
+ * SPEC-05: receives decision data from DecisionStageView (shared with
+ * DecisionSummaryPanel), reads attestation status from lifecycle context.
  */
-export function DecisionLetterPanel({ dealId }: { dealId: string }) {
+export function DecisionLetterPanel({
+  dealId,
+  decision,
+  loading = false,
+  error = null,
+}: {
+  dealId: string;
+  decision: DecisionLatest | null;
+  loading?: boolean;
+  error?: string | null;
+}) {
   const { lifecycleState } = useCockpitDataContext();
   const attestationSatisfied = lifecycleState?.derived.attestationSatisfied ?? null;
 
-  const { data, loading, error } = useJsonFetch<DecisionApi>(
-    `/api/deals/${dealId}/decision/latest`,
-  );
-  const snapshotId = data?.snapshot?.id ?? null;
-  const decision = data?.snapshot?.decision ?? null;
+  const snapshotId = decision?.snapshot?.id ?? null;
+  const decisionLabel = decision?.snapshot?.decision ?? null;
 
   const status =
     attestationSatisfied === null
@@ -51,13 +49,13 @@ export function DecisionLetterPanel({ dealId }: { dealId: string }) {
       badge={status}
       badgeTone={tone}
       summary={
-        decision
+        decisionLabel
           ? attestationSatisfied
             ? "Attestations complete. Borrower-facing decision artifact is ready to send."
             : "Decision is recorded but attestations are still required before sending the letter."
           : "Decision must be recorded before generating a borrower-facing letter."
       }
-      loading={loading && !data}
+      loading={loading && !decision}
       error={error}
       rows={
         snapshotId

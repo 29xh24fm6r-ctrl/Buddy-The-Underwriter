@@ -8,10 +8,18 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
+import { useStageJsonResource } from "./_shared/useStageJsonResource";
 import { ClosingConditionsPanel } from "./closing/ClosingConditionsPanel";
-import { PostCloseChecklistPanel } from "./closing/PostCloseChecklistPanel";
+import {
+  PostCloseChecklistPanel,
+  type PostCloseData,
+} from "./closing/PostCloseChecklistPanel";
 import { ClosingDocsPanel } from "./closing/ClosingDocsPanel";
-import { ExceptionTrackerPanel } from "./closing/ExceptionTrackerPanel";
+import {
+  ExceptionTrackerPanel,
+  type FinancialExceptions,
+} from "./closing/ExceptionTrackerPanel";
+import type { ConditionsList } from "./decision/ApprovalConditionsPanel";
 
 export function ClosingStageView({
   dealId,
@@ -52,27 +60,73 @@ export function ClosingStageView({
         </AdvancedDisclosure>
       }
     >
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
-        <div className="space-y-4 lg:col-span-8">
-          <SafeBoundary>
-            <ClosingConditionsPanel dealId={dealId} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <PostCloseChecklistPanel dealId={dealId} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <ClosingDocsPanel dealId={dealId} />
-          </SafeBoundary>
-          <SafeBoundary>
-            <ExceptionTrackerPanel dealId={dealId} />
-          </SafeBoundary>
-        </div>
-        <div className="space-y-4 lg:col-span-4">
-          <SafeBoundary>
-            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-        </div>
-      </div>
+      <ClosingStageBody dealId={dealId} isAdmin={isAdmin} />
     </StageWorkspaceShell>
+  );
+}
+
+function ClosingStageBody({
+  dealId,
+  isAdmin,
+}: {
+  dealId: string;
+  isAdmin: boolean;
+}) {
+  // Stage-owned data fetches. PostCloseChecklist and ExceptionTracker share
+  // the same /post-close payload, so we fetch it exactly once.
+  const conditions = useStageJsonResource<ConditionsList>(
+    `/api/deals/${dealId}/conditions`,
+    { id: "closing:conditions" },
+  );
+  const postClose = useStageJsonResource<PostCloseData>(
+    `/api/deals/${dealId}/post-close`,
+    { id: "closing:post-close" },
+  );
+  const financialExceptions = useStageJsonResource<FinancialExceptions>(
+    `/api/deals/${dealId}/financial-exceptions`,
+    { id: "closing:financial-exceptions" },
+  );
+
+  const exceptionsLoading = financialExceptions.loading || postClose.loading;
+  const exceptionsError = financialExceptions.error ?? postClose.error;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+      <div className="space-y-4 lg:col-span-8">
+        <SafeBoundary>
+          <ClosingConditionsPanel
+            dealId={dealId}
+            conditions={conditions.data}
+            loading={conditions.loading}
+            error={conditions.error}
+          />
+        </SafeBoundary>
+        <SafeBoundary>
+          <PostCloseChecklistPanel
+            dealId={dealId}
+            postClose={postClose.data}
+            loading={postClose.loading}
+            error={postClose.error}
+          />
+        </SafeBoundary>
+        <SafeBoundary>
+          <ClosingDocsPanel dealId={dealId} />
+        </SafeBoundary>
+        <SafeBoundary>
+          <ExceptionTrackerPanel
+            dealId={dealId}
+            financialExceptions={financialExceptions.data}
+            postClose={postClose.data}
+            loading={exceptionsLoading}
+            error={exceptionsError}
+          />
+        </SafeBoundary>
+      </div>
+      <div className="space-y-4 lg:col-span-4">
+        <SafeBoundary>
+          <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+        </SafeBoundary>
+      </div>
+    </div>
   );
 }
