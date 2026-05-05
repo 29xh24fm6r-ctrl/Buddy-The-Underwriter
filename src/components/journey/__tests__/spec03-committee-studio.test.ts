@@ -35,13 +35,15 @@ describe("SPEC-03 — CommitteeStageView is a real work surface", () => {
 
   it("V2: includes reconciliation between extracted data, underwriting outputs, and memo fields", () => {
     assert.ok(committeeSrc.includes("<MemoReconciliationPanel"));
-    const reconciliationPanel = fs.readFileSync(
-      path.resolve(ROOT, "committee/MemoReconciliationPanel.tsx"),
-      "utf-8",
+    // SPEC-04 lifted memo fetch to CommitteeStageView. The panel still renders
+    // reconciliation; the data path is now stage-owned.
+    assert.ok(
+      committeeSrc.includes("/credit-memo/canonical/missing"),
+      "CommitteeStageView must read from the canonical missing endpoint",
     );
     assert.ok(
-      reconciliationPanel.includes("/credit-memo/canonical/missing"),
-      "MemoReconciliationPanel must read from the canonical missing endpoint",
+      committeeSrc.includes("memoSummary={memoSummary}"),
+      "memo data must flow into MemoReconciliationPanel via props",
     );
   });
 
@@ -157,15 +159,18 @@ describe("SPEC-03 — invariants from SPEC-02 still hold", () => {
     );
   });
 
-  it("V11: runnable actions display via PrimaryActionBar but never invoke server endpoints from inside it", () => {
-    // SPEC-04 owns runnable execution; SPEC-03 PrimaryActionBar must not call
-    // /api/.../action or any runnable endpoint directly. It still renders a
-    // navigate-style Link for runnable intents.
-    assert.ok(primaryActionBarSrc.includes("<Link"));
-    assert.ok(
-      !/fetch\s*\(/.test(primaryActionBarSrc),
-      "PrimaryActionBar must not call fetch — SPEC-04 owns runnable execution",
+  it("V11: runnable actions are executed through the unified action runner (SPEC-04)", () => {
+    // SPEC-04: PrimaryActionBar now POSTs runnable / fix_blocker actions
+    // through useCockpitAction → runCockpitAction. This invariant evolved from
+    // SPEC-03's "must not call fetch" guard once SPEC-04 took ownership of
+    // execution.
+    assert.ok(primaryActionBarSrc.includes("useCockpitAction"));
+    // The runner itself contains the fetch — PrimaryActionBar delegates.
+    const runnerSrc = fs.readFileSync(
+      path.resolve(__dirname, "../actions/runCockpitAction.ts"),
+      "utf-8",
     );
+    assert.ok(/fetch\s*\(/.test(runnerSrc) || runnerSrc.includes("fetchImpl"));
   });
 
   it("V12: lifecycle state is read from CockpitDataContext, not via useJourneyState", () => {

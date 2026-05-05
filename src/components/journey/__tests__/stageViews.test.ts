@@ -130,16 +130,19 @@ describe("Stage views — advanced/admin tools hidden by default", () => {
 });
 
 describe("PrimaryActionBar — renders single action and respects intent", () => {
-  it("renders a Link when intent is navigate/advance/runnable", () => {
-    assert.ok(ACTION_BAR.includes("<Link"));
-    assert.ok(ACTION_BAR.includes('href={href}'));
+  it("renders a button + executes through useCockpitAction (SPEC-04)", () => {
+    // SPEC-04 replaced the <Link> with a <button> that runs through the
+    // unified useCockpitAction pipeline so navigation, runnable, and
+    // fix_blocker share telemetry + refresh semantics.
+    assert.ok(ACTION_BAR.includes("useCockpitAction"));
+    assert.match(ACTION_BAR, /<button[\s\S]*data-testid="primary-action-cta"/);
   });
 
-  it("complete intent renders status chip (no link)", () => {
+  it("complete intent renders status chip (no executable button)", () => {
     assert.ok(ACTION_BAR.includes('intent === "complete"'));
   });
 
-  it("blocked intent renders amber chip (no link)", () => {
+  it("blocked intent renders amber chip (no executable button)", () => {
     assert.ok(ACTION_BAR.includes('intent === "blocked"'));
   });
 
