@@ -1,16 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CockpitAdvisorSignal } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
 
 /**
- * SPEC-09 — banker feedback for advisor signals.
+ * SPEC-09 → SPEC-10 — banker feedback for advisor signals.
  *
- * Stored in localStorage only. No backend persistence yet — that's a
- * later step once we know what bankers actually dismiss vs snooze.
+ * SPEC-10 changes:
+ *   - Server-first: GET /api/deals/[dealId]/advisor/feedback on mount.
+ *   - localStorage is now the OFFLINE fallback, mirrored from server state.
+ *   - Mutations POST/DELETE the server endpoint AND mirror locally so we
+ *     keep working when the network drops.
+ *   - Repeated dismissals (>= 3 of the same signalKey) auto-snooze the
+ *     signal for 7 days with reason="repeated_dismissal".
  *
- * Keys are stable across renders (see signalKey()) so a refresh does not
- * lose prior feedback.
+ * The hook degrades gracefully when the server feedback table is missing
+ * (the API returns `{ ok: false, error: "table_missing" }` and we keep
+ * using the localStorage cache).
  */
 
 export type AdvisorSignalFeedbackState =
@@ -24,6 +30,8 @@ export type AdvisorSignalFeedback = {
   state: AdvisorSignalFeedbackState;
   /** ISO timestamp when a snoozed signal becomes visible again. */
   until?: string;
+  /** SPEC-10 — populated when feedback was created by an automatic rule. */
+  reason?: string;
   createdAt: string;
 };
 
@@ -37,9 +45,16 @@ export function signalKey(dealId: string, signal: CockpitAdvisorSignal): string 
 }
 
 const STORAGE_KEY_PREFIX = "buddy.advisor.feedback.v1.";
+const DISMISS_HISTORY_PREFIX = "buddy.advisor.dismiss-count.v1.";
+const REPEATED_DISMISS_THRESHOLD = 3;
+const REPEATED_DISMISS_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function storageKeyForDeal(dealId: string): string {
   return `${STORAGE_KEY_PREFIX}${dealId}`;
+}
+
+function dismissKeyForDeal(dealId: string): string {
+  return `${DISMISS_HISTORY_PREFIX}${dealId}`;
 }
 
 function readStore(dealId: string): Map<string, AdvisorSignalFeedback> {
@@ -64,8 +79,34 @@ function writeStore(
     const arr = Array.from(store.values());
     window.localStorage.setItem(storageKeyForDeal(dealId), JSON.stringify(arr));
   } catch {
-    // localStorage failures are non-fatal — the advisor still works
-    // without persistence.
+    // localStorage failures are non-fatal.
+  }
+}
+
+function readDismissCounts(dealId: string): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(dismissKeyForDeal(dealId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDismissCounts(
+  dealId: string,
+  counts: Record<string, number>,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      dismissKeyForDeal(dealId),
+      JSON.stringify(counts),
+    );
+  } catch {
+    // ignore
   }
 }
 
@@ -106,11 +147,34 @@ export function deriveEffectiveState(
     if (until && new Date(until).getTime() > now) {
       return { kind: "hidden_snoozed", until };
     }
-    // Snooze elapsed — surface as visible again. The reaper logic in
-    // useAdvisorSignalFeedback removes the entry on next render.
     return { kind: "snooze_expired" };
   }
   return { kind: "visible" };
+}
+
+type ServerFeedbackRow = {
+  signal_key: string;
+  signal_kind: string;
+  signal_source: string;
+  state: AdvisorSignalFeedbackState;
+  snoozed_until?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+function fromServerRow(
+  row: ServerFeedbackRow,
+  dealId: string,
+): AdvisorSignalFeedback {
+  return {
+    signalKey: row.signal_key,
+    dealId,
+    state: row.state,
+    until: row.snoozed_until ?? undefined,
+    reason: row.reason ?? undefined,
+    createdAt: row.created_at ?? new Date().toISOString(),
+  };
 }
 
 export function useAdvisorSignalFeedback(
@@ -120,13 +184,49 @@ export function useAdvisorSignalFeedback(
 
   const store = useMemo(
     () => readStore(dealId),
-    // dealId change rebuilds the snapshot; bumping `version` forces a
-    // fresh read after writes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dealId, version],
   );
 
-  // Reap expired snoozes on every render the panel triggers.
+  // SPEC-10: hydrate from server on mount. If the fetch succeeds and returns
+  // ok=true, we replace localStorage with the server snapshot. If the server
+  // fails (offline, table missing, auth lapse), we keep using localStorage.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (hydrated.current) return;
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/deals/${encodeURIComponent(dealId)}/advisor/feedback`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          feedback?: ServerFeedbackRow[];
+        };
+        if (!json?.ok || cancelled) return;
+        const next = new Map<string, AdvisorSignalFeedback>();
+        for (const row of json.feedback ?? []) {
+          next.set(row.signal_key, fromServerRow(row, dealId));
+        }
+        writeStore(dealId, next);
+        setVersion((v) => v + 1);
+      } catch {
+        // server fetch failure → keep localStorage cache.
+      } finally {
+        hydrated.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dealId]);
+
+  // Reap expired snoozes locally on every render. The server cleans up
+  // separately; this just keeps the local cache honest.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const now = Date.now();
@@ -147,54 +247,160 @@ export function useAdvisorSignalFeedback(
     }
   }, [dealId, store]);
 
-  const update = useCallback(
-    (
-      key: string,
-      next: Omit<AdvisorSignalFeedback, "signalKey" | "dealId" | "createdAt">,
-    ) => {
+  const writeLocal = useCallback(
+    (key: string, entry: AdvisorSignalFeedback) => {
       const fresh = readStore(dealId);
-      fresh.set(key, {
-        signalKey: key,
-        dealId,
-        createdAt: new Date().toISOString(),
-        ...next,
-      });
+      fresh.set(key, entry);
       writeStore(dealId, fresh);
       setVersion((v) => v + 1);
+    },
+    [dealId],
+  );
+
+  const removeLocal = useCallback(
+    (key: string) => {
+      const fresh = readStore(dealId);
+      fresh.delete(key);
+      writeStore(dealId, fresh);
+      setVersion((v) => v + 1);
+    },
+    [dealId],
+  );
+
+  const persistServer = useCallback(
+    async (entry: {
+      signalKey: string;
+      signalKind: string;
+      signalSource: string;
+      state: AdvisorSignalFeedbackState;
+      snoozedUntil?: string | null;
+      reason?: string | null;
+    }) => {
+      try {
+        await fetch(
+          `/api/deals/${encodeURIComponent(dealId)}/advisor/feedback`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(entry),
+          },
+        );
+      } catch {
+        // best-effort — localStorage is the durable fallback
+      }
+    },
+    [dealId],
+  );
+
+  const removeServer = useCallback(
+    async (key: string) => {
+      try {
+        await fetch(
+          `/api/deals/${encodeURIComponent(
+            dealId,
+          )}/advisor/feedback/${encodeURIComponent(key)}`,
+          { method: "DELETE" },
+        );
+      } catch {
+        // best-effort
+      }
     },
     [dealId],
   );
 
   const acknowledge = useCallback(
     (signal: CockpitAdvisorSignal) => {
-      update(signalKey(dealId, signal), { state: "acknowledged" });
+      const key = signalKey(dealId, signal);
+      writeLocal(key, {
+        signalKey: key,
+        dealId,
+        state: "acknowledged",
+        createdAt: new Date().toISOString(),
+      });
+      void persistServer({
+        signalKey: key,
+        signalKind: signal.kind,
+        signalSource: signal.source,
+        state: "acknowledged",
+      });
     },
-    [dealId, update],
+    [dealId, writeLocal, persistServer],
+  );
+
+  const snoozeRaw = useCallback(
+    (signal: CockpitAdvisorSignal, durationMs: number, reason?: string) => {
+      const key = signalKey(dealId, signal);
+      const until = new Date(Date.now() + Math.max(durationMs, 0)).toISOString();
+      writeLocal(key, {
+        signalKey: key,
+        dealId,
+        state: "snoozed",
+        until,
+        reason,
+        createdAt: new Date().toISOString(),
+      });
+      void persistServer({
+        signalKey: key,
+        signalKind: signal.kind,
+        signalSource: signal.source,
+        state: "snoozed",
+        snoozedUntil: until,
+        reason: reason ?? null,
+      });
+    },
+    [dealId, writeLocal, persistServer],
   );
 
   const dismiss = useCallback(
     (signal: CockpitAdvisorSignal) => {
-      update(signalKey(dealId, signal), { state: "dismissed" });
+      const key = signalKey(dealId, signal);
+
+      // SPEC-10 — count repeat dismissals and auto-snooze 7d at the threshold.
+      const counts = readDismissCounts(dealId);
+      const next = (counts[key] ?? 0) + 1;
+      counts[key] = next;
+      writeDismissCounts(dealId, counts);
+
+      if (next >= REPEATED_DISMISS_THRESHOLD) {
+        snoozeRaw(signal, REPEATED_DISMISS_SNOOZE_MS, "repeated_dismissal");
+        return;
+      }
+
+      writeLocal(key, {
+        signalKey: key,
+        dealId,
+        state: "dismissed",
+        createdAt: new Date().toISOString(),
+      });
+      void persistServer({
+        signalKey: key,
+        signalKind: signal.kind,
+        signalSource: signal.source,
+        state: "dismissed",
+      });
     },
-    [dealId, update],
+    [dealId, writeLocal, persistServer, snoozeRaw],
   );
 
   const snooze = useCallback(
     (signal: CockpitAdvisorSignal, durationMs: number) => {
-      const until = new Date(Date.now() + Math.max(durationMs, 0)).toISOString();
-      update(signalKey(dealId, signal), { state: "snoozed", until });
+      snoozeRaw(signal, durationMs);
     },
-    [dealId, update],
+    [snoozeRaw],
   );
 
   const clear = useCallback(
     (signal: CockpitAdvisorSignal) => {
-      const fresh = readStore(dealId);
-      fresh.delete(signalKey(dealId, signal));
-      writeStore(dealId, fresh);
-      setVersion((v) => v + 1);
+      const key = signalKey(dealId, signal);
+      removeLocal(key);
+      void removeServer(key);
+      // Reset the dismiss counter so a future dismissal starts the
+      // 3-strikes window over.
+      const counts = readDismissCounts(dealId);
+      delete counts[key];
+      writeDismissCounts(dealId, counts);
     },
-    [dealId],
+    [dealId, removeLocal, removeServer],
   );
 
   const effectiveStateFor = useCallback(
@@ -214,7 +420,16 @@ export function __resetAdvisorFeedbackForTests(dealId: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(storageKeyForDeal(dealId));
+    window.localStorage.removeItem(dismissKeyForDeal(dealId));
   } catch {
     // ignore
   }
 }
+
+/** Test-only: configurable threshold inspector. */
+export const __SPEC10 = {
+  REPEATED_DISMISS_THRESHOLD,
+  REPEATED_DISMISS_SNOOZE_MS,
+  STORAGE_KEY_PREFIX,
+  DISMISS_HISTORY_PREFIX,
+};
