@@ -12,8 +12,10 @@ import { ForceAdvancePanel } from "@/components/deals/ForceAdvancePanel";
 import { DealStoryTimeline } from "@/components/deals/DealStoryTimeline";
 import { StageWorkspaceShell } from "./_shared/StageWorkspaceShell";
 import { AdvancedDisclosure } from "./_shared/AdvancedDisclosure";
-import { useRegisterStageRefresher } from "./_shared/useStageDataRefresh";
 import { useStageDataContext } from "./_shared/StageDataProvider";
+import { DocumentChecklistSurface } from "./documents/DocumentChecklistSurface";
+import { IntakeReviewSurface } from "./documents/IntakeReviewSurface";
+import { UploadRequestSurface } from "./documents/UploadRequestSurface";
 
 export function DocumentsStageView({
   dealId,
@@ -56,39 +58,53 @@ export function DocumentsStageView({
 }
 
 /**
- * Heavy panels (LeftColumn / CenterColumn / ReadinessPanel / DocumentsTabPanel /
- * IntakeReviewTable) own their own internal fetches today. Per SPEC-05's
- * "do not rewrite business logic" rule, we register a remount-style
- * refresher: incrementing `refreshSeq` re-keys the wrapper so children
- * unmount + remount, kicking off fresh fetches.
+ * SPEC-06: heads of the Documents stage are now stage-owned summary
+ * surfaces (DocumentChecklistSurface / IntakeReviewSurface /
+ * UploadRequestSurface) — each fetches via useStageJsonResource (scope:
+ * "documents") so they participate in scoped refresh.
+ *
+ * The legacy heavy panels (LeftColumn / CenterColumn / ReadinessPanel)
+ * still mount underneath for full per-row checklist editing; they remain
+ * remount-keyed via refreshSeq from SPEC-05 so router-level refreshes
+ * still recompose them. This is intentionally a layered approach: thin
+ * surfaces own the headline, full panels own the deep edit.
  */
 function DocumentsStageBody({ dealId, isAdmin }: { dealId: string; isAdmin: boolean }) {
   const { refreshSeq } = useStageDataContext();
-  // Refresher is intentionally a no-op at this level — the remount key
-  // does the real work. Registering it just satisfies the SPEC-05
-  // "every stage registers a refresher" invariant and gives us a hook
-  // for future fine-grained refreshers.
-  useRegisterStageRefresher("documents:remount", () => {});
 
   return (
-    <div
-      key={`docs-stage-${refreshSeq}`}
-      className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
-    >
-      <div className="lg:col-span-5">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <SafeBoundary>
-          <LeftColumn dealId={dealId} isAdmin={isAdmin} />
+          <DocumentChecklistSurface dealId={dealId} />
+        </SafeBoundary>
+        <SafeBoundary>
+          <IntakeReviewSurface dealId={dealId} />
+        </SafeBoundary>
+        <SafeBoundary>
+          <UploadRequestSurface dealId={dealId} />
         </SafeBoundary>
       </div>
-      <div className="lg:col-span-4">
-        <SafeBoundary>
-          <CenterColumn dealId={dealId} />
-        </SafeBoundary>
-      </div>
-      <div className="lg:col-span-3">
-        <SafeBoundary>
-          <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-        </SafeBoundary>
+
+      <div
+        key={`docs-stage-${refreshSeq}`}
+        className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
+      >
+        <div className="lg:col-span-5">
+          <SafeBoundary>
+            <LeftColumn dealId={dealId} isAdmin={isAdmin} />
+          </SafeBoundary>
+        </div>
+        <div className="lg:col-span-4">
+          <SafeBoundary>
+            <CenterColumn dealId={dealId} />
+          </SafeBoundary>
+        </div>
+        <div className="lg:col-span-3">
+          <SafeBoundary>
+            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+          </SafeBoundary>
+        </div>
       </div>
     </div>
   );
