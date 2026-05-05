@@ -6,6 +6,7 @@ import { STAGE_LABELS } from "@/buddy/lifecycle/model";
 import type { NextAction } from "@/buddy/lifecycle/nextAction";
 import { PrimaryActionBar } from "./PrimaryActionBar";
 import { StageBlockerList } from "./StageBlockerList";
+import { StageDataProvider } from "./StageDataProvider";
 
 /**
  * Common layout for every stage view:
@@ -35,26 +36,28 @@ export function StageWorkspaceShell({
   const stageLabel = stage ? STAGE_LABELS[stage] ?? stage : "Loading…";
 
   return (
-    <div
-      data-testid="stage-workspace-shell"
-      data-stage={stage ?? "unknown"}
-      className="space-y-4"
-    >
-      <header className="flex flex-col gap-1">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">
-          Current stage
-        </span>
-        <h2 className="text-xl font-semibold text-white">{stageLabel}</h2>
-        {subtitle ? <p className="text-sm text-white/60">{subtitle}</p> : null}
-      </header>
+    <StageDataProvider>
+      <div
+        data-testid="stage-workspace-shell"
+        data-stage={stage ?? "unknown"}
+        className="space-y-4"
+      >
+        <header className="flex flex-col gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+            Current stage
+          </span>
+          <h2 className="text-xl font-semibold text-white">{stageLabel}</h2>
+          {subtitle ? <p className="text-sm text-white/60">{subtitle}</p> : null}
+        </header>
 
-      <PrimaryActionBar action={action} dealId={dealId} />
+        <PrimaryActionBar action={action} dealId={dealId} />
 
-      <div className="space-y-4">{children}</div>
+        <div className="space-y-4">{children}</div>
 
-      <StageBlockerList dealId={dealId} blockers={blockers} />
+        <StageBlockerList dealId={dealId} blockers={blockers} />
 
-      {advanced ?? null}
-    </div>
+        {advanced ?? null}
+      </div>
+    </StageDataProvider>
   );
 }
