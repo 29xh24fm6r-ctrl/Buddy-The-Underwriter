@@ -1,20 +1,13 @@
 "use client";
 
 import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
+import type { DealOverridesApi } from "@/lib/journey/contracts/overrides";
 
-export type OverridesList = {
-  ok?: boolean;
-  overrides?: Array<{
-    id?: string;
-    field_path?: string;
-    old_value?: unknown;
-    new_value?: unknown;
-    reason?: string | null;
-    severity?: string | null;
-    requires_review?: boolean;
-    created_at?: string | null;
-  }>;
-};
+/**
+ * SPEC-09 — fallback (read-only) consumes the canonical DealOverridesApi
+ * shape from src/lib/journey/contracts/overrides.ts.
+ */
+export type OverridesList = DealOverridesApi;
 
 const SEVERITY_TONE: Record<string, "danger" | "warn" | "info" | "neutral"> = {
   HIGH: "danger",

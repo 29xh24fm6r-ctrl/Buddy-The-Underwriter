@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useStageJsonResource } from "../_shared/useStageJsonResource";
 import { useInlineMutation } from "../../actions/useInlineMutation";
+import type {
+  DealConditionRow,
+  DealConditionsApi,
+} from "@/lib/journey/contracts/conditions";
 
 /**
  * SPEC-06 — inline condition editor for Decision and Closing stages.
@@ -14,22 +18,15 @@ import { useInlineMutation } from "../../actions/useInlineMutation";
  * Inline actions: add condition, mark satisfied, mark waived, edit note.
  * Each mutation runs through useInlineMutation: optimistic update →
  * POST/PATCH → scoped refresh → telemetry.
+ *
+ * SPEC-09: migrated to the canonical DealConditionRow contract from
+ * src/lib/journey/contracts/conditions.ts. The local `ConditionRow`
+ * alias is preserved as a re-export for backward compatibility but the
+ * underlying type is identical.
  */
-export type ConditionRow = {
-  id: string;
-  title: string;
-  description?: string | null;
-  category?: string | null;
-  status?: string | null;
-};
+export type ConditionRow = DealConditionRow;
 
-type ConditionsListApi = {
-  ok?: boolean;
-  /** SPEC-07 canonical shape. */
-  conditions?: ConditionRow[];
-  /** Deprecated alias kept for one cycle. */
-  items?: ConditionRow[];
-};
+type ConditionsListApi = DealConditionsApi;
 
 const STATUS_TONE: Record<string, string> = {
   satisfied: "bg-emerald-500/15 text-emerald-200 border-emerald-500/30",
@@ -79,10 +76,12 @@ export function ConditionsInlineEditor({
     const tempId = `optimistic:${Date.now()}`;
     const optimisticRow: ConditionRow = {
       id: tempId,
+      deal_id: dealId,
       title,
       description: draftDescription.trim() || null,
       status: "open",
       category: null,
+      due_date: null,
     };
     const { previous } = updateLocal((rows) => [optimisticRow, ...rows]);
 

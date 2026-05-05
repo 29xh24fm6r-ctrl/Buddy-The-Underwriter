@@ -1,18 +1,14 @@
 "use client";
 
 import { StatusListPanel, type StatusRow } from "../_shared/StatusListPanel";
+import type { DealConditionsApi } from "@/lib/journey/contracts/conditions";
 
-export type ConditionsList = {
-  ok?: boolean;
-  conditions?: Array<{
-    id?: string;
-    title?: string;
-    description?: string;
-    severity?: string;
-    status?: string;
-    category?: string | null;
-  }>;
-};
+/**
+ * SPEC-09 — fallback (read-only) consumes the canonical DealConditionsApi
+ * shape directly. All fields the panel reads (title, severity, status,
+ * description, category) are part of the contract.
+ */
+export type ConditionsList = DealConditionsApi;
 
 const SEVERITY_TONE: Record<string, "danger" | "warn" | "info" | "neutral"> = {
   REQUIRED: "danger",

@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useStageJsonResource } from "../_shared/useStageJsonResource";
 import { useInlineMutation } from "../../actions/useInlineMutation";
+import type {
+  DealOverrideRow,
+  DealOverridesApi,
+} from "@/lib/journey/contracts/overrides";
 
 /**
  * SPEC-06 — inline override editor for the Decision stage.
@@ -16,23 +20,13 @@ import { useInlineMutation } from "../../actions/useInlineMutation";
  * old/new values — that depth lives on the dedicated /decision/overrides
  * surface. The cockpit version surfaces add/edit/review for the rationale
  * trail; field-path-level edits stay on the dedicated route.
+ *
+ * SPEC-09 — migrated to the canonical DealOverrideRow contract from
+ * src/lib/journey/contracts/overrides.ts.
  */
-export type OverrideRow = {
-  id: string;
-  field_path?: string;
-  old_value?: unknown;
-  new_value?: unknown;
-  reason?: string | null;
-  justification?: string | null;
-  severity?: string | null;
-  requires_review?: boolean;
-  created_at?: string | null;
-};
+export type OverrideRow = DealOverrideRow;
 
-type OverridesApi = {
-  ok?: boolean;
-  overrides?: OverrideRow[];
-};
+type OverridesApi = DealOverridesApi;
 
 const SEVERITY_OPTIONS = ["LOW", "MEDIUM", "HIGH"] as const;
 
@@ -71,8 +65,11 @@ export function OverrideInlineEditor({ dealId }: { dealId: string }) {
     const tempId = `optimistic:${Date.now()}`;
     const optimisticRow: OverrideRow = {
       id: tempId,
+      deal_id: dealId,
+      decision_snapshot_id: null,
       field_path,
       reason,
+      justification: null,
       severity: draftSeverity,
       requires_review: true,
       old_value: null,
