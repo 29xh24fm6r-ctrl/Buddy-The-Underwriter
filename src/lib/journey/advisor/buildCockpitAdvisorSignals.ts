@@ -35,7 +35,12 @@ export type CockpitAdvisorSignalKind =
   | "risk_warning"
   /** SPEC-09 — emitted by the pattern detectors in
    *  buildAdvisorMemorySummary. */
-  | "behavior_pattern_warning";
+  | "behavior_pattern_warning"
+  /** SPEC-11 — debug/admin-tier hint: a banker keeps dismissing or
+   *  ignoring this advisor surface; lower its priority. */
+  | "low_signal_value"
+  /** SPEC-11 — deterministic forward-looking warning. */
+  | "predictive_warning";
 
 export type CockpitAdvisorSignalSeverity = "info" | "warning" | "critical";
 
@@ -68,6 +73,11 @@ export type CockpitAdvisorSignal = {
    * lowest (0.75); pure derived heuristics fall to 0.65.
    */
   confidence: number;
+  /**
+   * SPEC-11 — populated for predictive_warning signals. Cites the
+   * deterministic rule that produced the prediction.
+   */
+  predictionReason?: string;
 };
 
 /**
@@ -76,14 +86,20 @@ export type CockpitAdvisorSignal = {
  *
  * SPEC-09 — `behavior_pattern_warning` slots between risk_warning and
  * readiness_warning so a 3rd repeated failure outranks "documents 80%".
+ *
+ * SPEC-11 — `predictive_warning` slots above generic recent_change but
+ * below readiness/risk; severity bumps push critical predictives higher.
+ * `low_signal_value` is intentionally floor-low; it's a debug/admin hint.
  */
 const PRIORITY_FLOOR: Record<CockpitAdvisorSignalKind, number> = {
   blocked_reason: 800,             // critical surface — the deal cannot move
   readiness_warning: 600,
   behavior_pattern_warning: 550,   // SPEC-09
   risk_warning: 500,
+  predictive_warning: 450,         // SPEC-11
   next_best_action: 400,
   recent_change: 200,
+  low_signal_value: 100,           // SPEC-11
 };
 
 /** Severity bumps. Stacks on the priority floor. */
@@ -161,6 +177,19 @@ export type BuildCockpitAdvisorSignalsInput = {
    * Affects the memory summary internally consumed by the builder.
    */
   patternWindow?: AdvisorMemoryWindow;
+  /**
+   * SPEC-11 — caller-supplied dismiss-count map keyed by signal key.
+   * Used by the `low_signal_value` detector. The panel passes this from
+   * the server-persisted feedback rows; tests pass directly.
+   */
+  dismissCountsBySignalKey?: Record<string, number>;
+  /**
+   * SPEC-11 — caller-supplied acknowledged-without-action timestamps,
+   * keyed by signal key. The detector emits low_signal_value if the
+   * banker acknowledged the signal more than 24h ago and never cleared
+   * it. Optional.
+   */
+  acknowledgedAtBySignalKey?: Record<string, string>;
 };
 
 const RECENT_TELEMETRY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -213,6 +242,16 @@ export function buildCockpitAdvisorSignals(
   });
   for (const pattern of memory.patterns) {
     signals.push(buildPatternSignal(pattern, input.dealId));
+  }
+
+  // SPEC-11 — predictive_warning signals.
+  for (const predictive of buildPredictiveWarnings(input)) {
+    signals.push(predictive);
+  }
+
+  // SPEC-11 — low_signal_value hints (debug-tier).
+  for (const low of buildLowSignalValueHints(input)) {
+    signals.push(low);
   }
 
   // SPEC-08 — sort by priority desc; stable with respect to insertion order.
@@ -441,6 +480,169 @@ function stageLabelFor(stage: LifecycleStage | string): string {
   return STAGE_LABELS[stage as LifecycleStage] ?? String(stage);
 }
 
+// ─── SPEC-11 — deterministic predictive warnings ──────────────────
+
+const STAGE_NEEDS_CONDITIONS: ReadonlySet<string> = new Set([
+  "closing_in_progress",
+  "closed",
+]);
+
+function buildPredictiveWarnings(
+  input: BuildCockpitAdvisorSignalsInput,
+): CockpitAdvisorSignal[] {
+  const out: CockpitAdvisorSignal[] = [];
+  if (!input.state) return out;
+  const derived = input.state.derived;
+
+  // 1) likely_committee_delay
+  // committee_required = true
+  // AND committee_packet_ready = false
+  // AND (memo gaps > 0 OR blockers > 0)
+  const committeeRequired = derived.committeeRequired ?? false;
+  const committeePacketReady = derived.committeePacketReady ?? false;
+  const memoGaps = input.memoSummary?.missing_keys?.length ?? 0;
+  const blockerCount = input.state.blockers.length;
+  if (committeeRequired && !committeePacketReady && (memoGaps > 0 || blockerCount > 0)) {
+    out.push(
+      withRanking({
+        kind: "predictive_warning",
+        severity: blockerCount >= 3 || memoGaps >= 5 ? "critical" : "warning",
+        title: "Committee likely to be delayed",
+        detail: `Packet not ready · ${memoGaps} memo gap${memoGaps === 1 ? "" : "s"} · ${blockerCount} blocker${blockerCount === 1 ? "" : "s"}.`,
+        action: {
+          intent: "navigate",
+          label: "Committee Studio",
+          href: `/deals/${input.dealId}/committee-studio`,
+        },
+        source: "lifecycle",
+        rankReason: "Predictive: committee delay imminent",
+        predictionReason: "likely_committee_delay",
+      }),
+    );
+  }
+
+  // 2) missing_required_condition
+  // closing stage AND open critical/warning conditions exist.
+  const stage = String(input.state.stage);
+  if (STAGE_NEEDS_CONDITIONS.has(stage) && Array.isArray(input.conditions)) {
+    const openCritical = input.conditions.filter((c) => {
+      const sev = (c.severity ?? "").toUpperCase();
+      const status = (c.status ?? "OPEN").toUpperCase();
+      const isOpen = !["COMPLETE", "CLEARED", "SATISFIED", "WAIVED"].includes(
+        status,
+      );
+      return isOpen && (sev === "REQUIRED" || sev === "CRITICAL" || sev === "IMPORTANT");
+    });
+    if (openCritical.length > 0) {
+      out.push(
+        withRanking({
+          kind: "predictive_warning",
+          severity: openCritical.length >= 3 ? "critical" : "warning",
+          title: `${openCritical.length} required condition${openCritical.length === 1 ? "" : "s"} still open before close`,
+          detail: "Closing cannot finalize until these clear.",
+          action: {
+            intent: "navigate",
+            label: "Open Conditions",
+            href: `/deals/${input.dealId}/conditions`,
+          },
+          source: "conditions",
+          rankReason: "Predictive: closing blocked by open conditions",
+          predictionReason: "missing_required_condition",
+        }),
+      );
+    }
+  }
+
+  // 3) high_risk_override_cluster
+  // unresolved overrides >= 3 OR critical overrides >= 1.
+  if (Array.isArray(input.overrides)) {
+    const unresolved = input.overrides.filter(
+      (o) => o.requires_review === true,
+    );
+    const critical = input.overrides.filter(
+      (o) => (o.severity ?? "").toUpperCase() === "CRITICAL" || (o.severity ?? "").toUpperCase() === "HIGH",
+    );
+    if (unresolved.length >= 3 || critical.length >= 1) {
+      out.push(
+        withRanking({
+          kind: "predictive_warning",
+          severity: critical.length >= 1 ? "critical" : "warning",
+          title:
+            critical.length >= 1
+              ? `${critical.length} critical override${critical.length === 1 ? "" : "s"} need review`
+              : `${unresolved.length} unresolved overrides`,
+          detail:
+            critical.length >= 1
+              ? "Critical overrides amplify decision risk."
+              : "Cluster of overrides pending review may slow approval.",
+          action: {
+            intent: "navigate",
+            label: "Decision Overrides",
+            href: `/deals/${input.dealId}/decision/overrides`,
+          },
+          source: "overrides",
+          rankReason: "Predictive: override cluster risk",
+          predictionReason: "high_risk_override_cluster",
+        }),
+      );
+    }
+  }
+
+  return out;
+}
+
+// ─── SPEC-11 — low_signal_value (debug/admin hint) ────────────────
+
+const LOW_SIGNAL_DISMISS_THRESHOLD = 3;
+const LOW_SIGNAL_ACK_AGE_MS = 24 * 60 * 60 * 1000;
+
+function buildLowSignalValueHints(
+  input: BuildCockpitAdvisorSignalsInput,
+): CockpitAdvisorSignal[] {
+  const out: CockpitAdvisorSignal[] = [];
+  const now = input.now ?? Date.now();
+
+  // Dismiss counter — if a signalKey has been dismissed >= 3 times,
+  // emit a low_signal_value entry for the panel's debug surface.
+  const counts = input.dismissCountsBySignalKey ?? {};
+  for (const [key, count] of Object.entries(counts)) {
+    if (count >= LOW_SIGNAL_DISMISS_THRESHOLD) {
+      out.push(
+        withRanking({
+          kind: "low_signal_value",
+          severity: "info",
+          title: `Repeatedly dismissed: ${key}`,
+          detail: `Dismissed ${count}× — consider tuning the rule that emits this.`,
+          source: "telemetry",
+          rankReason: "Repeated dismissals suggest low signal value",
+        }),
+      );
+    }
+  }
+
+  // Acknowledged-but-stale — if a banker acknowledged a signal more than
+  // 24h ago and the row still exists, treat the signal as low-value.
+  const acks = input.acknowledgedAtBySignalKey ?? {};
+  for (const [key, iso] of Object.entries(acks)) {
+    const ackMs = Date.parse(iso);
+    if (Number.isNaN(ackMs)) continue;
+    if (now - ackMs > LOW_SIGNAL_ACK_AGE_MS) {
+      out.push(
+        withRanking({
+          kind: "low_signal_value",
+          severity: "info",
+          title: `Acknowledged 24h+ ago: ${key}`,
+          detail: "Acknowledgement is stale — signal likely no longer relevant.",
+          source: "telemetry",
+          rankReason: "Stale acknowledgement",
+        }),
+      );
+    }
+  }
+
+  return out;
+}
+
 /**
  * SPEC-09 — turns a detected `AdvisorBehaviorPattern` into a
  * `behavior_pattern_warning` signal. Each pattern type has its own
@@ -519,6 +721,8 @@ function buildPatternSignal(
  */
 type SignalDraft = Omit<CockpitAdvisorSignal, "priority" | "rankReason" | "confidence"> & {
   rankReason: string;
+  /** SPEC-11 — populated for predictive_warning signals; copied through. */
+  predictionReason?: string;
   /** internal — set true for failed recent_change / failure pattern events. */
   _failed?: boolean;
   /** internal — set true for undo-pattern events. */

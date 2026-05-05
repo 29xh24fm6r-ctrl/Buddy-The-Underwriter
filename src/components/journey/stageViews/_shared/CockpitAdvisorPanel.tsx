@@ -78,6 +78,8 @@ const KIND_LABEL: Record<CockpitAdvisorSignal["kind"], string> = {
   readiness_warning: "Readiness",
   risk_warning: "Risk",
   behavior_pattern_warning: "Pattern",
+  predictive_warning: "Prediction",
+  low_signal_value: "Low signal",
 };
 
 type SignalGroup =
@@ -124,6 +126,29 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
   const blockerObservations =
     props.blockerObservations ?? liveObservations.asAdvisorInput;
 
+  // SPEC-11 — derive per-signalKey maps from the feedback store so the
+  // builder can emit low_signal_value entries for repeatedly-dismissed
+  // and stale-acknowledged signals.
+  const dismissCountsBySignalKey: Record<string, number> = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const entry of fb.feedback.values()) {
+      if (entry.dismissCount && entry.dismissCount > 0) {
+        out[entry.signalKey] = entry.dismissCount;
+      }
+    }
+    return out;
+  }, [fb.feedback]);
+
+  const acknowledgedAtBySignalKey: Record<string, string> = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const entry of fb.feedback.values()) {
+      if (entry.state === "acknowledged" && entry.createdAt) {
+        out[entry.signalKey] = entry.createdAt;
+      }
+    }
+    return out;
+  }, [fb.feedback]);
+
   const baseSignals = useMemo<CockpitAdvisorSignal[]>(
     () =>
       buildCockpitAdvisorSignals({
@@ -138,6 +163,9 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
         // repeated_undo / stage_oscillation; debug mode can widen via URL
         // (?advisor=debug pulls a 7d window into memory below).
         patternWindow: "24h",
+        // SPEC-11 — drives low_signal_value emissions.
+        dismissCountsBySignalKey,
+        acknowledgedAtBySignalKey,
       }),
     [
       dealId,
@@ -147,6 +175,8 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
       props.memoSummary,
       recentTelemetry,
       blockerObservations,
+      dismissCountsBySignalKey,
+      acknowledgedAtBySignalKey,
     ],
   );
 
@@ -245,6 +275,7 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
                 items={items}
                 dealId={dealId}
                 debug={debug}
+                feedback={fb.feedback}
                 onAcknowledge={fb.acknowledge}
                 onDismiss={fb.dismiss}
                 onSnooze={(s) => fb.snooze(s, SNOOZE_DURATION_MS)}
@@ -336,6 +367,7 @@ function AdvisorGroupSection({
   items,
   dealId,
   debug,
+  feedback,
   onAcknowledge,
   onDismiss,
   onSnooze,
@@ -348,6 +380,7 @@ function AdvisorGroupSection({
   }[];
   dealId: string;
   debug: boolean;
+  feedback: ReadonlyMap<string, import("./useAdvisorSignalFeedback").AdvisorSignalFeedback>;
   onAcknowledge: (s: CockpitAdvisorSignal) => void;
   onDismiss: (s: CockpitAdvisorSignal) => void;
   onSnooze: (s: CockpitAdvisorSignal) => void;
@@ -362,19 +395,23 @@ function AdvisorGroupSection({
         <span className="text-[10px] text-white/30">{items.length}</span>
       </div>
       <ul className="space-y-2">
-        {items.map((entry, idx) => (
-          <AdvisorSignalRow
-            key={`${entry.signal.kind}:${entry.signal.source}:${entry.signal.title}:${idx}`}
-            signal={entry.signal}
-            dealId={dealId}
-            isAcknowledged={group === "acknowledged"}
-            debug={debug}
-            onAcknowledge={onAcknowledge}
-            onDismiss={onDismiss}
-            onSnooze={onSnooze}
-            onClearFeedback={onClearFeedback}
-          />
-        ))}
+        {items.map((entry, idx) => {
+          const fb = feedback.get(signalKey(dealId, entry.signal));
+          return (
+            <AdvisorSignalRow
+              key={`${entry.signal.kind}:${entry.signal.source}:${entry.signal.title}:${idx}`}
+              signal={entry.signal}
+              dealId={dealId}
+              isAcknowledged={group === "acknowledged"}
+              debug={debug}
+              dismissCount={fb?.dismissCount ?? 0}
+              onAcknowledge={onAcknowledge}
+              onDismiss={onDismiss}
+              onSnooze={onSnooze}
+              onClearFeedback={onClearFeedback}
+            />
+          );
+        })}
       </ul>
     </div>
   );
@@ -385,6 +422,7 @@ function AdvisorSignalRow({
   dealId,
   isAcknowledged,
   debug,
+  dismissCount,
   onAcknowledge,
   onDismiss,
   onSnooze,
@@ -394,6 +432,8 @@ function AdvisorSignalRow({
   dealId: string;
   isAcknowledged: boolean;
   debug: boolean;
+  /** SPEC-11 — server-tracked dismiss count for this signal. */
+  dismissCount: number;
   onAcknowledge: (s: CockpitAdvisorSignal) => void;
   onDismiss: (s: CockpitAdvisorSignal) => void;
   onSnooze: (s: CockpitAdvisorSignal) => void;
@@ -484,9 +524,16 @@ function AdvisorSignalRow({
               <div>priority: {signal.priority}</div>
               <div>confidence: {signal.confidence}</div>
               <div>rankReason: {signal.rankReason}</div>
+              {signal.predictionReason ? (
+                <div>predictionReason: {signal.predictionReason}</div>
+              ) : null}
               <div>source: {signal.source}</div>
               <div>signalKey: {key}</div>
-              <div>feedback: {isAcknowledged ? "acknowledged" : "none"}</div>
+              <div>
+                feedback: {isAcknowledged ? "acknowledged" : "none"}
+                {" · "}
+                dismiss_count: {dismissCount}
+              </div>
             </div>
           ) : null}
         </div>

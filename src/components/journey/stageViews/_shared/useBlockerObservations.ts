@@ -5,19 +5,27 @@ import type { LifecycleBlocker } from "@/buddy/lifecycle/model";
 import type { AdvisorBlockerObservationInput } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
 
 /**
- * SPEC-10 — persists per-deal blocker observations.
+ * SPEC-10 → SPEC-11 — persists per-deal blocker observations.
  *
  * Stores `first_seen_at`, `last_seen_at`, `seen_count`, and `resolved_at`
  * server-side so the advisor's `stale_blocker` pattern detector can fire
  * across sessions and devices.
  *
+ * SPEC-11 changes:
+ *   - 250ms debounce on POST so a deal that flickers between blocker
+ *     states during ingest doesn't generate one round-trip per flicker.
+ *   - Sorted-key dedupe: if the new blocker set is identical to the
+ *     last-POSTed set, the request is skipped entirely.
+ *
  * Behavior:
- *   1. On mount and on every `blockers` change, POSTs the current set so
- *      the server stamps `last_seen_at` and increments `seen_count`.
- *   2. Reads observations back via GET; surfaces them as
- *      `AdvisorBlockerObservationInput[]` ready to feed the pure builder.
- *   3. Degrades silently if the table is missing — the advisor still
- *      runs (it just won't emit `stale_blocker` warnings).
+ *   1. On mount and on every distinct blocker-set change, debounces for
+ *      250ms then POSTs once.
+ *   2. Server upserts each key (incrementing seen_count) and stamps
+ *      resolved_at on missing keys.
+ *   3. Surfaces `asAdvisorInput` as { code, firstSeenAt }[] ready to
+ *      feed the pure stale_blocker detector.
+ *   4. Degrades silently when the table is missing — the advisor still
+ *      runs without stale_blocker warnings.
  */
 
 type ServerObservationRow = {
@@ -69,14 +77,21 @@ export function useBlockerObservations(
   const [error, setError] = useState<string | null>(null);
   const inflight = useRef<AbortController | null>(null);
 
-  /** Stable identity for the current blockers — avoids needless POSTs. */
+  /** SPEC-11: stable sorted-key identity for the current blockers; the
+   *  POST handler reads `lastPostedKey` to dedupe identical sets. */
   const blockerKey = useMemo(() => {
     if (!blockers) return "";
     return blockers.map((b) => b.code).sort().join("|");
   }, [blockers]);
+  const lastPostedKey = useRef<string | null>(null);
 
   const post = useCallback(async (): Promise<void> => {
     if (!dealId) {
+      setLoading(false);
+      return;
+    }
+    // SPEC-11 dedupe: skip the POST when the blocker set hasn't changed.
+    if (lastPostedKey.current === blockerKey) {
       setLoading(false);
       return;
     }
@@ -121,18 +136,24 @@ export function useBlockerObservations(
         return;
       }
       setObservations((json.observations ?? []).map(fromServerRow));
+      lastPostedKey.current = blockerKey;
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
       setError((err as Error).message ?? "fetch_failed");
     } finally {
       if (inflight.current === ctrl) setLoading(false);
     }
-  }, [dealId, blockers]);
+  }, [dealId, blockers, blockerKey]);
 
   useEffect(() => {
     if (!dealId) return;
-    void post();
+    // SPEC-11 — 250ms debounce. A deal that flickers between blocker
+    // states during ingest only generates one POST every 250ms.
+    const t = setTimeout(() => {
+      void post();
+    }, 250);
     return () => {
+      clearTimeout(t);
       inflight.current?.abort();
     };
     // post() is recomputed when dealId or blockerKey changes; we depend on

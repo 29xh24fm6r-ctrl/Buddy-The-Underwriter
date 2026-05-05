@@ -63,10 +63,17 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
+  // SPEC-11: filter expired snoozes server-side. Active rows are:
+  //   state != 'snoozed'
+  //   OR snoozed_until IS NULL
+  //   OR snoozed_until > now()
+  // Postgrest doesn't support `OR` cleanly across mixed columns, so we
+  // load all rows and filter in JS — the volume is bounded by per-deal
+  // signal cardinality (small).
   const res = await (sb as any)
     .from("buddy_advisor_feedback")
     .select(
-      "id, signal_key, signal_kind, signal_source, state, snoozed_until, reason, created_at, updated_at",
+      "id, signal_key, signal_kind, signal_source, state, snoozed_until, reason, dismiss_count, last_dismissed_at, created_at, updated_at",
     )
     .eq("bank_id", bankId)
     .eq("deal_id", dealId)
@@ -82,7 +89,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     );
   }
 
-  return NextResponse.json({ ok: true, feedback: res.data ?? [] });
+  const now = Date.now();
+  const active = (res.data ?? []).filter((row: any) => {
+    if (row.state !== "snoozed") return true;
+    if (!row.snoozed_until) return true;
+    return new Date(row.snoozed_until).getTime() > now;
+  });
+
+  return NextResponse.json({ ok: true, feedback: active });
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
@@ -125,6 +139,47 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const sb = supabaseAdmin();
+
+  // SPEC-11 — read existing row first so we can server-side track
+  // dismiss_count + auto-snooze on the third dismissal.
+  const REPEATED_DISMISS_THRESHOLD = 3;
+  const REPEATED_DISMISS_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  const existingRes = await (sb as any)
+    .from("buddy_advisor_feedback")
+    .select("id, dismiss_count, last_dismissed_at, state, snoozed_until")
+    .eq("bank_id", bankId)
+    .eq("deal_id", dealId)
+    .eq("user_id", userId)
+    .eq("signal_key", signalKey)
+    .maybeSingle();
+
+  if (existingRes.error && isMissingTableError(existingRes.error.message)) {
+    return NextResponse.json({ ok: false, error: "table_missing" });
+  }
+
+  const previous = existingRes.data ?? null;
+  const wasDismissed = state === "dismissed";
+  const newDismissCount = wasDismissed
+    ? (previous?.dismiss_count ?? 0) + 1
+    : previous?.dismiss_count ?? 0;
+  const lastDismissedAt = wasDismissed
+    ? new Date().toISOString()
+    : previous?.last_dismissed_at ?? null;
+
+  // Auto-snooze: when the dismiss count crosses the threshold we
+  // collapse the dismiss into a 7-day snooze, with reason recorded.
+  let resolvedState = state;
+  let resolvedSnoozedUntil = state === "snoozed" ? snoozedUntil : null;
+  let resolvedReason = reason;
+  if (wasDismissed && newDismissCount >= REPEATED_DISMISS_THRESHOLD) {
+    resolvedState = "snoozed";
+    resolvedSnoozedUntil = new Date(
+      Date.now() + REPEATED_DISMISS_SNOOZE_MS,
+    ).toISOString();
+    resolvedReason = "repeated_dismissal";
+  }
+
   const upsert = await (sb as any)
     .from("buddy_advisor_feedback")
     .upsert(
@@ -135,15 +190,17 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         signal_key: signalKey,
         signal_kind: signalKind,
         signal_source: signalSource,
-        state,
-        snoozed_until: state === "snoozed" ? snoozedUntil : null,
-        reason,
+        state: resolvedState,
+        snoozed_until: resolvedSnoozedUntil,
+        reason: resolvedReason,
+        dismiss_count: newDismissCount,
+        last_dismissed_at: lastDismissedAt,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "bank_id,deal_id,user_id,signal_key" },
     )
     .select(
-      "id, signal_key, signal_kind, signal_source, state, snoozed_until, reason, created_at, updated_at",
+      "id, signal_key, signal_kind, signal_source, state, snoozed_until, reason, dismiss_count, last_dismissed_at, created_at, updated_at",
     )
     .maybeSingle();
 
@@ -163,15 +220,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     await (sb as any).from("buddy_signal_ledger").insert({
       bank_id: bankId,
       deal_id: dealId,
-      type: SIGNAL_LEDGER_KIND[state] ?? "advisor_signal_feedback_updated",
+      type:
+        SIGNAL_LEDGER_KIND[resolvedState] ?? "advisor_signal_feedback_updated",
       source: "stage_cockpit",
       payload: {
         signalKey,
         signalKind,
         signalSource,
-        state,
-        snoozedUntil,
-        reason,
+        state: resolvedState,
+        snoozedUntil: resolvedSnoozedUntil,
+        reason: resolvedReason,
+        dismissCount: newDismissCount,
+        autoSnoozedFromDismissal:
+          wasDismissed && resolvedState === "snoozed",
       },
     });
   } catch {

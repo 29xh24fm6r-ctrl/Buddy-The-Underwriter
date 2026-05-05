@@ -4,19 +4,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CockpitAdvisorSignal } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
 
 /**
- * SPEC-09 → SPEC-10 — banker feedback for advisor signals.
+ * SPEC-09 → SPEC-10 → SPEC-11 — banker feedback for advisor signals.
  *
- * SPEC-10 changes:
- *   - Server-first: GET /api/deals/[dealId]/advisor/feedback on mount.
- *   - localStorage is now the OFFLINE fallback, mirrored from server state.
- *   - Mutations POST/DELETE the server endpoint AND mirror locally so we
- *     keep working when the network drops.
- *   - Repeated dismissals (>= 3 of the same signalKey) auto-snooze the
- *     signal for 7 days with reason="repeated_dismissal".
+ * SPEC-11 changes (vs SPEC-10):
+ *   - Repeated-dismissal counter is now SERVER-side
+ *     (buddy_advisor_feedback.dismiss_count). The browser no longer
+ *     tracks it. The server auto-converts dismiss → 7d snooze when
+ *     dismiss_count crosses 3 (reason="repeated_dismissal"). The hook
+ *     simply POSTs `state="dismissed"`; the server decides whether the
+ *     row ends up dismissed or auto-snoozed and returns the canonical
+ *     row, which the hook merges into local state.
+ *   - The SPEC-10 dismiss-count localStorage cache is no longer written.
+ *     Any leftover entries from SPEC-10 are cleaned up on next load.
+ *   - GET filters expired snoozes server-side (SPEC-11 §2).
  *
- * The hook degrades gracefully when the server feedback table is missing
- * (the API returns `{ ok: false, error: "table_missing" }` and we keep
- * using the localStorage cache).
+ * Persistence model (unchanged from SPEC-10):
+ *   - Server-first: GET on mount; localStorage replaced with snapshot
+ *     when ok=true.
+ *   - Mutations POST/DELETE the server AND mirror to localStorage as an
+ *     offline fallback.
+ *   - Hook degrades gracefully when the server endpoint returns
+ *     `{ ok: false, error: "table_missing" }`.
  */
 
 export type AdvisorSignalFeedbackState =
@@ -33,6 +41,10 @@ export type AdvisorSignalFeedback = {
   /** SPEC-10 — populated when feedback was created by an automatic rule. */
   reason?: string;
   createdAt: string;
+  /** SPEC-11 — server-side dismiss counter for repeated-dismissal logic. */
+  dismissCount?: number;
+  /** SPEC-11 — last dismissal timestamp from the server. */
+  lastDismissedAt?: string;
 };
 
 /**
@@ -159,6 +171,8 @@ type ServerFeedbackRow = {
   state: AdvisorSignalFeedbackState;
   snoozed_until?: string | null;
   reason?: string | null;
+  dismiss_count?: number | null;
+  last_dismissed_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -174,6 +188,8 @@ function fromServerRow(
     until: row.snoozed_until ?? undefined,
     reason: row.reason ?? undefined,
     createdAt: row.created_at ?? new Date().toISOString(),
+    dismissCount: row.dismiss_count ?? 0,
+    lastDismissedAt: row.last_dismissed_at ?? undefined,
   };
 }
 
@@ -191,10 +207,19 @@ export function useAdvisorSignalFeedback(
   // SPEC-10: hydrate from server on mount. If the fetch succeeds and returns
   // ok=true, we replace localStorage with the server snapshot. If the server
   // fails (offline, table missing, auth lapse), we keep using localStorage.
+  //
+  // SPEC-11: also clean up the legacy dismiss-count localStorage cache
+  // (the counter now lives on the server). Keeps the storage tidy for
+  // bankers who carry SPEC-10-era state across sessions.
   const hydrated = useRef(false);
   useEffect(() => {
     if (hydrated.current) return;
     if (typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(dismissKeyForDeal(dealId));
+    } catch {
+      // ignore
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -292,6 +317,45 @@ export function useAdvisorSignalFeedback(
     [dealId],
   );
 
+  /**
+   * SPEC-11 — POST to the server, then reconcile our local cache with the
+   * server's response. The server may have promoted a `dismissed` request
+   * to `snoozed` after the dismiss-count threshold; the local store needs
+   * to reflect the canonical row.
+   */
+  const persistServerAndReconcile = useCallback(
+    async (entry: {
+      signalKey: string;
+      signalKind: string;
+      signalSource: string;
+      state: AdvisorSignalFeedbackState;
+      snoozedUntil?: string | null;
+      reason?: string | null;
+    }) => {
+      try {
+        const res = await fetch(
+          `/api/deals/${encodeURIComponent(dealId)}/advisor/feedback`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(entry),
+          },
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          feedback?: ServerFeedbackRow | null;
+        };
+        if (!json?.ok || !json.feedback) return;
+        // Server may have flipped dismissed → snoozed. Mirror canonical.
+        writeLocal(entry.signalKey, fromServerRow(json.feedback, dealId));
+      } catch {
+        // best-effort
+      }
+    },
+    [dealId, writeLocal],
+  );
+
   const removeServer = useCallback(
     async (key: string) => {
       try {
@@ -355,31 +419,23 @@ export function useAdvisorSignalFeedback(
     (signal: CockpitAdvisorSignal) => {
       const key = signalKey(dealId, signal);
 
-      // SPEC-10 — count repeat dismissals and auto-snooze 7d at the threshold.
-      const counts = readDismissCounts(dealId);
-      const next = (counts[key] ?? 0) + 1;
-      counts[key] = next;
-      writeDismissCounts(dealId, counts);
-
-      if (next >= REPEATED_DISMISS_THRESHOLD) {
-        snoozeRaw(signal, REPEATED_DISMISS_SNOOZE_MS, "repeated_dismissal");
-        return;
-      }
-
+      // SPEC-11: server tracks dismiss_count and auto-snoozes at threshold.
+      // The browser writes a tentative dismissed entry and re-syncs from
+      // the server response (which may flip the row to snoozed).
       writeLocal(key, {
         signalKey: key,
         dealId,
         state: "dismissed",
         createdAt: new Date().toISOString(),
       });
-      void persistServer({
+      void persistServerAndReconcile({
         signalKey: key,
         signalKind: signal.kind,
         signalSource: signal.source,
         state: "dismissed",
       });
     },
-    [dealId, writeLocal, persistServer, snoozeRaw],
+    [dealId, writeLocal, persistServerAndReconcile],
   );
 
   const snooze = useCallback(
@@ -394,11 +450,10 @@ export function useAdvisorSignalFeedback(
       const key = signalKey(dealId, signal);
       removeLocal(key);
       void removeServer(key);
-      // Reset the dismiss counter so a future dismissal starts the
-      // 3-strikes window over.
-      const counts = readDismissCounts(dealId);
-      delete counts[key];
-      writeDismissCounts(dealId, counts);
+      // SPEC-11: dismiss_count lives server-side now and is reset by
+      // the DELETE handler (the row is removed entirely, taking the
+      // counter with it). The legacy localStorage counter is cleaned
+      // up on hook mount; nothing to do here.
     },
     [dealId, removeLocal, removeServer],
   );
