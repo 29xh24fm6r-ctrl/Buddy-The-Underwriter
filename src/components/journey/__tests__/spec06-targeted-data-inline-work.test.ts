@@ -149,11 +149,14 @@ describe("SPEC-06 V14 — Override mutations refresh only scope='overrides'", ()
   });
 });
 
-describe("SPEC-06 V15-V17 — Scoped refresh API", () => {
-  it("V15: refreshStageData calls only scope-specific + 'all' bucket refreshers", () => {
-    // Implementation runs Promise.all over (all bucket + specific bucket).
+describe("SPEC-06 V15-V17 — Scoped refresh API (SPEC-07 strict default)", () => {
+  it("V15 (evolved by SPEC-07): scoped refresh runs ONLY the scope's bucket by default", () => {
+    // SPEC-06 originally drained scope + "all" together. SPEC-07 tightened
+    // to strict-by-default; the "all" bucket joins only when the caller
+    // opts in via { includeGlobal: true }.
     assert.match(STAGE_DATA_PROVIDER, /bucketsRef\.current\.get\("all"\)/);
     assert.match(STAGE_DATA_PROVIDER, /bucketsRef\.current\.get\(requested\)/);
+    assert.ok(STAGE_DATA_PROVIDER.includes("includeGlobal"));
   });
 
   it("V16: refreshStageData('all') drains every bucket", () => {
@@ -166,7 +169,11 @@ describe("SPEC-06 V15-V17 — Scoped refresh API", () => {
   it("V17: unknown scope falls back to 'all' without crashing", () => {
     assert.match(
       STAGE_DATA_PROVIDER,
-      /KNOWN_SCOPES\.has\(scope\)\s*\?\s*scope\s*:\s*"all"/,
+      /KNOWN_SCOPES\.has\(scope\)/,
+    );
+    // Either ternary or assignment-to-"all" form must surface in the file.
+    assert.ok(
+      /\?\s*scope\s*:\s*"all"/.test(STAGE_DATA_PROVIDER),
     );
   });
 
