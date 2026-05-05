@@ -43,13 +43,47 @@ const ALL_STAGE_VIEWS: Record<string, string> = {
 };
 
 describe("SPEC-05 V1 — every major stage registers a refresher", () => {
+  // SPEC-06: some stages (Underwriting) now register through child surface
+  // components (BankerVoiceSurface / RiskSummarySurface / *Editor) rather
+  // than directly. The invariant ("the stage participates in the refresher
+  // graph") still holds via composition.
+  const STAGE_SURFACES: Record<string, string[]> = {
+    DocumentsStageView: [
+      "stageViews/documents/DocumentChecklistSurface.tsx",
+      "stageViews/documents/IntakeReviewSurface.tsx",
+      "stageViews/documents/UploadRequestSurface.tsx",
+    ],
+    UnderwritingStageView: [
+      "stageViews/underwriting/RiskSummarySurface.tsx",
+      "stageViews/underwriting/BankerVoiceSurface.tsx",
+    ],
+    DecisionStageView: [
+      "stageViews/conditions/ConditionsInlineEditor.tsx",
+      "stageViews/decision/OverrideInlineEditor.tsx",
+    ],
+    ClosingStageView: ["stageViews/conditions/ConditionsInlineEditor.tsx"],
+  };
+
   for (const [name, src] of Object.entries(ALL_STAGE_VIEWS)) {
-    it(`${name} calls useRegisterStageRefresher or useStageJsonResource`, () => {
+    it(`${name} calls useRegisterStageRefresher or useStageJsonResource (directly or via child surfaces)`, () => {
       const usesDirect = src.includes("useRegisterStageRefresher");
       const usesResource = src.includes("useStageJsonResource");
+      if (usesDirect || usesResource) return;
+
+      // Composition path: at least one referenced surface must register.
+      const surfaces = STAGE_SURFACES[name] ?? [];
+      const surfaceRegistered = surfaces.some((rel) => {
+        const fp = path.resolve(__dirname, "..", rel);
+        if (!fs.existsSync(fp)) return false;
+        const surfaceSrc = fs.readFileSync(fp, "utf-8");
+        return (
+          surfaceSrc.includes("useRegisterStageRefresher") ||
+          surfaceSrc.includes("useStageJsonResource")
+        );
+      });
       assert.ok(
-        usesDirect || usesResource,
-        `${name} must register at least one stage refresher`,
+        surfaceRegistered,
+        `${name} must register a refresher directly or through a child surface`,
       );
     });
   }
@@ -83,15 +117,26 @@ describe("SPEC-05 V2/V3 — successful action invokes registered refreshers + ro
 });
 
 describe("SPEC-05 V4 — DecisionStageView owns decision/conditions/overrides data", () => {
-  it("DecisionStageView fetches /decision/latest, /conditions, /overrides via useStageJsonResource", () => {
+  it("Decision stage owns /decision/latest at the view level and /conditions + /overrides via the inline editors (SPEC-06)", () => {
+    // /decision/latest still lives in DecisionStageView (shared by the
+    // summary + letter panels).
     assert.ok(DECISION_VIEW.includes("/api/deals/${dealId}/decision/latest"));
-    assert.ok(DECISION_VIEW.includes("/api/deals/${dealId}/conditions"));
-    assert.ok(DECISION_VIEW.includes("/api/deals/${dealId}/overrides"));
-    const occurrences = DECISION_VIEW.match(/useStageJsonResource/g) ?? [];
-    assert.ok(
-      occurrences.length >= 3,
-      "DecisionStageView must use useStageJsonResource for at least 3 endpoints",
+    assert.ok(DECISION_VIEW.includes("useStageJsonResource"));
+
+    // /conditions and /overrides now live inside the inline editors,
+    // which use useStageJsonResource under their own scopes.
+    const conditionsEditor = readFile(
+      STAGE_VIEWS,
+      "conditions/ConditionsInlineEditor.tsx",
     );
+    const overrideEditor = readFile(
+      STAGE_VIEWS,
+      "decision/OverrideInlineEditor.tsx",
+    );
+    assert.ok(conditionsEditor.includes("/api/deals/${dealId}/conditions"));
+    assert.ok(conditionsEditor.includes("useStageJsonResource"));
+    assert.ok(overrideEditor.includes("/api/deals/${dealId}/overrides"));
+    assert.ok(overrideEditor.includes("useStageJsonResource"));
   });
 
   for (const file of [
@@ -100,7 +145,11 @@ describe("SPEC-05 V4 — DecisionStageView owns decision/conditions/overrides da
     "decision/OverrideAuditPanel.tsx",
     "decision/DecisionLetterPanel.tsx",
   ]) {
-    it(`${file} no longer fetches independently`, () => {
+    it(`${file} no longer fetches independently (SPEC-05 read-only panels)`, () => {
+      // ApprovalConditionsPanel + OverrideAuditPanel are still in-tree as
+      // read-only presentational fallbacks; SPEC-06's stage views render
+      // the editors instead. Either way the panels themselves must remain
+      // fetch-free.
       const src = readFile(STAGE_VIEWS, file);
       assert.ok(!/fetch\s*\(/.test(src), `${file} must not call fetch`);
       assert.ok(
@@ -112,14 +161,17 @@ describe("SPEC-05 V4 — DecisionStageView owns decision/conditions/overrides da
 });
 
 describe("SPEC-05 V5 — ClosingStageView owns conditions/post-close/exception data", () => {
-  it("ClosingStageView fetches /conditions, /post-close, /financial-exceptions via useStageJsonResource", () => {
-    assert.ok(CLOSING_VIEW.includes("/api/deals/${dealId}/conditions"));
+  it("Closing stage owns /post-close + /financial-exceptions at the view level; /conditions lives in the inline editor (SPEC-06)", () => {
     assert.ok(CLOSING_VIEW.includes("/api/deals/${dealId}/post-close"));
     assert.ok(CLOSING_VIEW.includes("/api/deals/${dealId}/financial-exceptions"));
+    const editor = readFile(
+      STAGE_VIEWS,
+      "conditions/ConditionsInlineEditor.tsx",
+    );
+    assert.ok(editor.includes("/api/deals/${dealId}/conditions"));
   });
 
   for (const file of [
-    "closing/ClosingConditionsPanel.tsx",
     "closing/PostCloseChecklistPanel.tsx",
     "closing/ExceptionTrackerPanel.tsx",
   ]) {

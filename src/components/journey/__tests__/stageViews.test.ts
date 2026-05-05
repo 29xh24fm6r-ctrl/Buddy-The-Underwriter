@@ -160,24 +160,24 @@ describe("PrimaryActionBar — renders single action and respects intent", () =>
 });
 
 describe("Stage views — DealHealthPanel + BankerVoicePanel placement invariant", () => {
-  it("UnderwritingStageView keeps StoryPanel mounted (which carries DealHealthPanel + BankerVoicePanel)", () => {
+  it("UnderwritingStageView still surfaces DealHealthPanel + BankerVoicePanel via BankerVoiceSurface (SPEC-06)", () => {
     const src = readView("UnderwritingStageView.tsx");
     assert.ok(
-      src.includes("<StoryPanel"),
-      "UnderwritingStageView must mount StoryPanel — that's the canonical home for DealHealthPanel + BankerVoicePanel",
+      src.includes("<BankerVoiceSurface"),
+      "UnderwritingStageView must mount BankerVoiceSurface (the SPEC-06 wrapper that carries DealHealth + BankerVoice)",
     );
   });
 
-  it("StoryPanel still wraps DealHealthPanel + BankerVoicePanel (existing invariant)", () => {
-    const storyPanelSrc = fs.readFileSync(
+  it("BankerVoiceSurface mounts DealHealthPanel + BankerVoicePanel directly (SPEC-06)", () => {
+    const surfaceSrc = fs.readFileSync(
       path.resolve(
         __dirname,
-        "../../../components/deals/cockpit/panels/StoryPanel.tsx",
+        "../stageViews/underwriting/BankerVoiceSurface.tsx",
       ),
       "utf-8",
     );
-    assert.ok(storyPanelSrc.includes("<DealHealthPanel"));
-    assert.ok(storyPanelSrc.includes("<BankerVoicePanel"));
+    assert.ok(surfaceSrc.includes("<DealHealthPanel"));
+    assert.ok(surfaceSrc.includes("<BankerVoicePanel"));
   });
 });
 

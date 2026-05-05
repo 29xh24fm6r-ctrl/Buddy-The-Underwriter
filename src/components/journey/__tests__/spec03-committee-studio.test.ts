@@ -55,16 +55,27 @@ describe("SPEC-03 — CommitteeStageView is a real work surface", () => {
 
 describe("SPEC-03 — DecisionStageView is an audit + approval surface", () => {
   it("V3: renders approval conditions inline", () => {
-    assert.ok(decisionSrc.includes("<ApprovalConditionsPanel"));
-    // SPEC-05 lifted the conditions fetch to the stage view, so the URL
-    // now lives in DecisionStageView, not the panel.
-    assert.ok(decisionSrc.includes("/api/deals/${dealId}/conditions"));
+    // SPEC-06 replaced the read-only ApprovalConditionsPanel with the
+    // inline ConditionsInlineEditor, which owns its own /conditions/list
+    // fetch under scope: "conditions".
+    assert.ok(decisionSrc.includes("<ConditionsInlineEditor"));
+    const editor = fs.readFileSync(
+      path.resolve(ROOT, "conditions/ConditionsInlineEditor.tsx"),
+      "utf-8",
+    );
+    assert.ok(editor.includes("/api/deals/${dealId}/conditions/list"));
   });
 
   it("V4: renders override audit trail inline", () => {
-    assert.ok(decisionSrc.includes("<OverrideAuditPanel"));
-    // SPEC-05 lifted the overrides fetch to the stage view.
-    assert.ok(decisionSrc.includes("/api/deals/${dealId}/overrides"));
+    // SPEC-06 replaced the read-only OverrideAuditPanel with the inline
+    // OverrideInlineEditor, which owns its own /overrides fetch under
+    // scope: "overrides".
+    assert.ok(decisionSrc.includes("<OverrideInlineEditor"));
+    const editor = fs.readFileSync(
+      path.resolve(ROOT, "decision/OverrideInlineEditor.tsx"),
+      "utf-8",
+    );
+    assert.ok(editor.includes("/api/deals/${dealId}/overrides"));
   });
 
   it("renders DecisionSummaryPanel and DecisionLetterPanel", () => {
@@ -75,12 +86,14 @@ describe("SPEC-03 — DecisionStageView is an audit + approval surface", () => {
 
 describe("SPEC-03 — ClosingStageView is conditions-first cockpit", () => {
   it("V5: renders conditions tracker inline", () => {
-    assert.ok(closingSrc.includes("<ClosingConditionsPanel"));
-    const closingConditions = fs.readFileSync(
-      path.resolve(ROOT, "closing/ClosingConditionsPanel.tsx"),
+    // SPEC-06 replaced ClosingConditionsPanel with the editable
+    // ConditionsInlineEditor (surface="closing").
+    assert.ok(closingSrc.includes("<ConditionsInlineEditor"));
+    const editor = fs.readFileSync(
+      path.resolve(ROOT, "conditions/ConditionsInlineEditor.tsx"),
       "utf-8",
     );
-    assert.ok(closingConditions.includes("/api/deals/${dealId}/conditions"));
+    assert.ok(editor.includes("/api/deals/${dealId}/conditions/list"));
   });
 
   it("V6: renders exception tracker inline", () => {
