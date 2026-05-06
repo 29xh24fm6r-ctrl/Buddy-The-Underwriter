@@ -208,9 +208,9 @@ export function evaluateMemoInputReadiness(
   if (unfinalizedDocCount > 0) {
     blockers.push({
       code: "unfinalized_required_documents",
-      label: `${unfinalizedDocCount} required document${
-        unfinalizedDocCount === 1 ? " is" : "s are"
-      } not finalized`,
+      label: `Buddy is still processing ${unfinalizedDocCount} required document${
+        unfinalizedDocCount === 1 ? "" : "s"
+      }`,
       owner: "banker",
       fixPath: `/deals/${dealId}/intake`,
     });

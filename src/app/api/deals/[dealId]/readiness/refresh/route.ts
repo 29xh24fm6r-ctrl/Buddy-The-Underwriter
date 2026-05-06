@@ -25,6 +25,7 @@ export async function POST(
     const result = await buildUnifiedDealReadiness({
       dealId,
       runReconciliation: true,
+      runSelfHeal: true,
     });
     if (!result.ok) {
       const status = result.reason === "tenant_mismatch" ? 403 : 500;

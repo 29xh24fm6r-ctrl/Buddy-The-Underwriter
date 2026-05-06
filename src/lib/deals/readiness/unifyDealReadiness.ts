@@ -16,6 +16,18 @@ import type {
   UnifiedNextAction,
 } from "./types";
 
+// Subset of SelfHealReport that the unifier actually reads. Avoids a
+// server-only dependency on selfHealDeal.ts (this module is pure).
+export type SelfHealSummary = {
+  detected: {
+    documentsProcessingStalled: boolean;
+    researchMissing: boolean;
+    financialSnapshotStale: boolean;
+    collateralExtractionNeeded: boolean;
+    memoPrefillStale: boolean;
+  };
+};
+
 export type CreditMemoSubmissionStatus = {
   // Whether a banker_submitted snapshot exists for this deal.
   submitted: boolean;
@@ -30,6 +42,10 @@ export type UnifyDealReadinessArgs = {
   lifecycle: LifecycleState;
   memoInput: MemoInputReadiness | null;
   creditMemo: CreditMemoSubmissionStatus;
+  // Optional self-heal summary. When provided, recovery blockers are
+  // emitted into the appropriate group so the banker sees a clear,
+  // specific next action instead of a generic stall.
+  selfHeal?: SelfHealSummary | null;
   now?: Date;
 };
 
@@ -53,13 +69,14 @@ export function unifyDealReadiness(
   args: UnifyDealReadinessArgs,
 ): UnifiedDealReadiness {
   const { dealId, lifecycle, memoInput, creditMemo } = args;
+  const detected = args.selfHeal?.detected ?? null;
   const now = args.now ?? new Date();
 
   const groups = {
-    documents: buildDocumentsGroup(dealId, lifecycle),
-    financials: buildFinancialsGroup(dealId, lifecycle, memoInput),
-    research: buildResearchGroup(dealId, lifecycle, memoInput),
-    memo_inputs: buildMemoInputsGroup(dealId, memoInput),
+    documents: buildDocumentsGroup(dealId, lifecycle, detected),
+    financials: buildFinancialsGroup(dealId, lifecycle, memoInput, detected),
+    research: buildResearchGroup(dealId, lifecycle, memoInput, detected),
+    memo_inputs: buildMemoInputsGroup(dealId, memoInput, detected),
     credit_memo: buildCreditMemoGroup(dealId, lifecycle, creditMemo, memoInput),
   } satisfies Record<ReadinessGroupKey, ReadinessGroup>;
 
@@ -100,6 +117,7 @@ export function unifyDealReadiness(
 function buildDocumentsGroup(
   dealId: string,
   lifecycle: LifecycleState,
+  detected: SelfHealSummary["detected"] | null,
 ): ReadinessGroup {
   const blockers: UnifiedBlocker[] = [];
   const warnings: UnifiedBlocker[] = [];
@@ -112,6 +130,18 @@ function buildDocumentsGroup(
     ) {
       blockers.push(toUnified(lb, "documents", "banker", dealId));
     }
+  }
+  // Recovery blocker — surfaced when self-heal detects stuck queued/processing artifacts.
+  if (detected?.documentsProcessingStalled) {
+    blockers.push({
+      code: "documents_processing_stalled",
+      label: "Buddy is still processing documents — extraction has stalled",
+      group: "documents",
+      owner: "buddy",
+      severity: "blocker",
+      fixPath: `/deals/${dealId}/documents`,
+      fixLabel: "Resume document processing",
+    });
   }
   const ready =
     blockers.length === 0 &&
@@ -132,6 +162,7 @@ function buildFinancialsGroup(
   dealId: string,
   lifecycle: LifecycleState,
   memoInput: MemoInputReadiness | null,
+  detected: SelfHealSummary["detected"] | null,
 ): ReadinessGroup {
   const blockers: UnifiedBlocker[] = [];
   const warnings: UnifiedBlocker[] = [];
@@ -157,6 +188,19 @@ function buildFinancialsGroup(
     }
   }
 
+  // Recovery blocker — snapshot exists but is stale (>24h old).
+  if (detected?.financialSnapshotStale) {
+    blockers.push({
+      code: "financial_snapshot_stale_recovery",
+      label: "Financial snapshot is stale — recompute before submission",
+      group: "financials",
+      owner: "buddy",
+      severity: "blocker",
+      fixPath: `/deals/${dealId}/spreads`,
+      fixLabel: "Recompute financial snapshot",
+    });
+  }
+
   const ready = blockers.length === 0;
   return {
     key: "financials",
@@ -172,6 +216,7 @@ function buildResearchGroup(
   dealId: string,
   lifecycle: LifecycleState,
   memoInput: MemoInputReadiness | null,
+  detected: SelfHealSummary["detected"] | null,
 ): ReadinessGroup {
   const blockers: UnifiedBlocker[] = [];
   const warnings: UnifiedBlocker[] = [];
@@ -197,6 +242,25 @@ function buildResearchGroup(
     }
   }
 
+  // Recovery blocker — research has not been started (no completed missions).
+  if (detected?.researchMissing) {
+    // Skip if already covered by missing_research_quality_gate.
+    const alreadyHas = blockers.some(
+      (b) => b.code === "missing_research_quality_gate",
+    );
+    if (!alreadyHas) {
+      blockers.push({
+        code: "research_stalled",
+        label: "Buddy needs to run research before memo submission",
+        group: "research",
+        owner: "buddy",
+        severity: "blocker",
+        fixPath: `/deals/${dealId}/research`,
+        fixLabel: "Run research",
+      });
+    }
+  }
+
   const ready = blockers.length === 0;
   return {
     key: "research",
@@ -211,6 +275,7 @@ function buildResearchGroup(
 function buildMemoInputsGroup(
   dealId: string,
   memoInput: MemoInputReadiness | null,
+  detected: SelfHealSummary["detected"] | null,
 ): ReadinessGroup {
   const blockers: UnifiedBlocker[] = [];
   const warnings: UnifiedBlocker[] = [];
@@ -250,6 +315,32 @@ function buildMemoInputsGroup(
       severity: "blocker",
       fixPath: `/deals/${dealId}/memo-inputs`,
       fixLabel: "Open memo inputs",
+    });
+  }
+
+  // Recovery blocker — collateral docs detected but no rows materialized.
+  if (detected?.collateralExtractionNeeded) {
+    blockers.push({
+      code: "collateral_extraction_needed",
+      label: "Collateral was detected in documents but needs review",
+      group: "memo_inputs",
+      owner: "banker",
+      severity: "blocker",
+      fixPath: `/deals/${dealId}/memo-inputs#collateral`,
+      fixLabel: "Review collateral",
+    });
+  }
+
+  // Recovery warning — prefill suggestions are stale (advisory, not blocking).
+  if (detected?.memoPrefillStale) {
+    warnings.push({
+      code: "memo_prefill_stale",
+      label: "Buddy has new suggestions to review",
+      group: "memo_inputs",
+      owner: "banker",
+      severity: "warning",
+      fixPath: `/deals/${dealId}/memo-inputs`,
+      fixLabel: "Refresh suggestions",
     });
   }
 

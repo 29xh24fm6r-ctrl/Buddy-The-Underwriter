@@ -644,6 +644,18 @@ export async function runMission(
             // Non-fatal — claim ledger and gate failures must never block mission completion
             console.warn("[runMission] trust layer failed (non-fatal):", trustErr?.message);
           }
+
+          // Perfect Banker Flow v1.1 — research finished. Refresh readiness
+          // so the rail flips from "research_stalled" to ready without the
+          // banker manually reloading. Fire-and-forget.
+          try {
+            const { scheduleReadinessRefresh } = await import(
+              "@/lib/deals/readiness/refreshDealReadiness"
+            );
+            scheduleReadinessRefresh({ dealId, trigger: "research_completed" });
+          } catch {
+            // Hook is best-effort.
+          }
         } else {
           console.log("[runMission] BIE skipped: minimal quality (no usable company name or NAICS)");
         }

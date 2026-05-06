@@ -9,6 +9,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
 import type { DealCollateralItem } from "./types";
 
 const REVIEW_CONFIDENCE_THRESHOLD = 0.85;
@@ -98,6 +99,10 @@ export async function upsertCollateralItem(
     if (error || !data) {
       return { ok: false, reason: "persist_failed", error: error?.message };
     }
+    scheduleReadinessRefresh({
+      dealId: args.dealId,
+      trigger: "collateral_updated",
+    });
     return { ok: true, item: normalize(data) };
   }
 
@@ -133,6 +138,10 @@ export async function upsertCollateralItem(
   if (error || !data) {
     return { ok: false, reason: "persist_failed", error: error?.message };
   }
+  scheduleReadinessRefresh({
+    dealId: args.dealId,
+    trigger: "collateral_updated",
+  });
   return { ok: true, item: normalize(data) };
 }
 

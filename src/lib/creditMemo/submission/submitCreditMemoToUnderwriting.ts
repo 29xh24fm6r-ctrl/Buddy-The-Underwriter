@@ -229,6 +229,22 @@ export async function submitCreditMemoToUnderwriting(
     };
   }
 
+  // Perfect Banker Flow v1.1 — submission just changed lifecycle-relevant
+  // state (memo is now banker_submitted). Refresh readiness so the rail
+  // flips DealShell's CTA to "View Submitted Memo" without a manual reload.
+  try {
+    const { scheduleReadinessRefresh } = await import(
+      "@/lib/deals/readiness/refreshDealReadiness"
+    );
+    scheduleReadinessRefresh({
+      dealId: args.dealId,
+      trigger: "credit_memo_submitted",
+      actorId: args.bankerId,
+    });
+  } catch {
+    // Refresh is best-effort.
+  }
+
   return {
     ok: true,
     snapshotId: insertRes.data.id as string,

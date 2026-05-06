@@ -10,6 +10,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
 import type { DealFactConflict, FactConflictStatus } from "./types";
 
 export type ResolveFactConflictArgs = {
@@ -65,5 +66,10 @@ export async function resolveFactConflict(
   if (error || !data) {
     return { ok: false, reason: "persist_failed", error: error?.message };
   }
+  scheduleReadinessRefresh({
+    dealId: args.dealId,
+    trigger: "conflict_resolved",
+    actorId: args.bankerId,
+  });
   return { ok: true, conflict: data as DealFactConflict };
 }

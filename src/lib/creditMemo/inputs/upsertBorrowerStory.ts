@@ -7,6 +7,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
 import type { DealBorrowerStory } from "./types";
 
 export type UpsertBorrowerStoryArgs = {
@@ -81,6 +82,10 @@ export async function upsertBorrowerStory(
     if (error || !data) {
       return { ok: false, reason: "persist_failed", error: error?.message };
     }
+    scheduleReadinessRefresh({
+      dealId: args.dealId,
+      trigger: "borrower_story_updated",
+    });
     return { ok: true, story: data as DealBorrowerStory };
   }
 
@@ -92,5 +97,9 @@ export async function upsertBorrowerStory(
   if (error || !data) {
     return { ok: false, reason: "persist_failed", error: error?.message };
   }
+  scheduleReadinessRefresh({
+    dealId: args.dealId,
+    trigger: "borrower_story_updated",
+  });
   return { ok: true, story: data as DealBorrowerStory };
 }

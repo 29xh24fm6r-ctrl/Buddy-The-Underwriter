@@ -7,6 +7,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
 import type { DealManagementProfile } from "./types";
 
 export type UpsertManagementProfileArgs = {
@@ -83,6 +84,10 @@ export async function upsertManagementProfile(
     if (error || !data) {
       return { ok: false, reason: "persist_failed", error: error?.message };
     }
+    scheduleReadinessRefresh({
+      dealId: args.dealId,
+      trigger: "management_updated",
+    });
     return { ok: true, profile: data as DealManagementProfile };
   }
 
@@ -110,6 +115,10 @@ export async function upsertManagementProfile(
   if (error || !data) {
     return { ok: false, reason: "persist_failed", error: error?.message };
   }
+  scheduleReadinessRefresh({
+    dealId: args.dealId,
+    trigger: "management_updated",
+  });
   return { ok: true, profile: data as DealManagementProfile };
 }
 
@@ -136,5 +145,9 @@ export async function deleteManagementProfile(args: {
   if ((count ?? 0) === 0) {
     return { ok: false, reason: "not_found" };
   }
+  scheduleReadinessRefresh({
+    dealId: args.dealId,
+    trigger: "management_updated",
+  });
   return { ok: true };
 }

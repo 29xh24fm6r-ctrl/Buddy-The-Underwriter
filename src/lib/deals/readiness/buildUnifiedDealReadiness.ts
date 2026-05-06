@@ -9,6 +9,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { deriveLifecycleState } from "@/buddy/lifecycle/deriveLifecycleState";
 import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
+import { selfHealDeal, type SelfHealReport } from "./selfHealDeal";
 import {
   unifyDealReadiness,
   type CreditMemoSubmissionStatus,
@@ -22,10 +23,21 @@ export type BuildUnifiedDealReadinessArgs = {
   // GET /readiness endpoint also passes true so the rail reflects current
   // state. Pass false from background workers that just want to read.
   runReconciliation?: boolean;
+  // When true (default false), runs the self-heal layer before assembly.
+  // Self-heal runs cheap auto-fixes (collateral extraction) and surfaces
+  // recovery blockers for stuck-document / research-missing / stale-snapshot
+  // conditions. The /readiness/refresh route turns this on; lazy GETs
+  // leave it off to keep the path fast.
+  runSelfHeal?: boolean;
 };
 
 export type BuildUnifiedDealReadinessResult =
-  | { ok: true; readiness: UnifiedDealReadiness; bankId: string }
+  | {
+      ok: true;
+      readiness: UnifiedDealReadiness;
+      bankId: string;
+      selfHeal: SelfHealReport | null;
+    }
   | {
       ok: false;
       reason: "tenant_mismatch" | "lifecycle_failed" | "memo_input_failed";
@@ -40,6 +52,24 @@ export async function buildUnifiedDealReadiness(
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
   const { bankId } = access;
+
+  // Self-heal first so recoverable prerequisites (collateral extraction)
+  // are run before readiness is computed — saves the banker a round trip.
+  let selfHeal: SelfHealReport | null = null;
+  if (args.runSelfHeal === true) {
+    try {
+      selfHeal = await selfHealDeal({ dealId: args.dealId });
+    } catch (e) {
+      // Non-fatal: self-heal failures are logged in the helper. Fall
+      // through with selfHeal=null so the readiness layer still surfaces
+      // a "lifecycle_reconcile_failed"-style blocker.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[buildUnifiedDealReadiness] self-heal failed for ${args.dealId}:`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
 
   const lifecycle = await deriveLifecycleState(args.dealId);
 
@@ -57,9 +87,10 @@ export async function buildUnifiedDealReadiness(
     lifecycle,
     memoInput: memoInputReadiness,
     creditMemo,
+    selfHeal,
   });
 
-  return { ok: true, readiness, bankId };
+  return { ok: true, readiness, bankId, selfHeal };
 }
 
 async function loadCreditMemoSubmissionStatus(

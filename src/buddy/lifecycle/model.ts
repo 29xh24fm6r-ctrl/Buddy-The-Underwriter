@@ -101,6 +101,14 @@ export type LifecycleBlockerCode =
   | "missing_global_cash_flow"
   | "missing_debt_service_facts"
   | "unfinalized_required_documents"
+  // Perfect Banker Flow v1.1 — Failure Elimination Layer recovery blockers.
+  // Surfaced when the self-heal layer detects a recoverable failure mode.
+  | "documents_processing_stalled"
+  | "research_stalled"
+  | "financial_snapshot_stale_recovery"
+  | "collateral_extraction_needed"
+  | "memo_prefill_stale"
+  | "lifecycle_reconcile_failed"
   // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";

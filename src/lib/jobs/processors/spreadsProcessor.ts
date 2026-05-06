@@ -640,6 +640,18 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         : { jobId, error: (backfill as any).error },
     });
 
+    // Perfect Banker Flow v1.1 — facts just changed; refresh readiness so
+    // the rail and DealShell CTA reflect the new state without requiring
+    // the banker to refresh manually. Fire-and-forget by design.
+    try {
+      const { scheduleReadinessRefresh } = await import(
+        "@/lib/deals/readiness/refreshDealReadiness"
+      );
+      scheduleReadinessRefresh({ dealId, trigger: "spreads_completed" });
+    } catch {
+      // Refresh hook is best-effort; never fail the spread job for it.
+    }
+
     // Compute total debt service (proposed + existing) after facts materialized
     try {
       const { computeTotalDebtService } = await import(

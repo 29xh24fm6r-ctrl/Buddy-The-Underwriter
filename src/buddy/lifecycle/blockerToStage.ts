@@ -76,6 +76,24 @@ export function blockerGatesStage(code: LifecycleBlockerCode): LifecycleStage | 
     case "risk_pricing_not_finalized":
       return "closing_in_progress";
 
+    // === Perfect Banker Flow v1.1 — recovery blockers ===
+    // These are surfaced by the self-heal layer when a recoverable failure
+    // is detected. Each maps to the stage it gates so the rail explains
+    // exactly why the deal cannot advance.
+    case "documents_processing_stalled":
+      return "docs_in_progress";
+    case "collateral_extraction_needed":
+      return "memo_inputs_required";
+    case "memo_prefill_stale":
+      return "memo_inputs_required";
+    case "research_stalled":
+      return "memo_inputs_required";
+    case "financial_snapshot_stale_recovery":
+      return "underwrite_ready";
+    case "lifecycle_reconcile_failed":
+      // Reconciler failure is infrastructure-class — render at rail level.
+      return null;
+
     // === Infrastructure / fetch / fatal — render as rail-level banner ===
     case "deal_not_found":
     case "schema_mismatch":

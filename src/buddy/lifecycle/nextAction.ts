@@ -350,6 +350,108 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/intake`,
       };
 
+    // === Perfect Banker Flow v1.1 — recovery blockers ===
+    case "documents_processing_stalled":
+      return {
+        label: "Resume document processing",
+        href: `/deals/${dealId}/documents`,
+      };
+
+    case "collateral_extraction_needed":
+      return {
+        label: "Run collateral extraction",
+        href: `/deals/${dealId}/memo-inputs#collateral`,
+      };
+
+    case "memo_prefill_stale":
+      return {
+        label: "Refresh suggestions",
+        href: `/deals/${dealId}/memo-inputs`,
+      };
+
+    case "research_stalled":
+      return {
+        label: "Run research",
+        href: `/deals/${dealId}/research`,
+      };
+
+    case "financial_snapshot_stale_recovery":
+      return {
+        label: "Recompute financial snapshot",
+        action: "financial_snapshot.recompute",
+      };
+
+    case "lifecycle_reconcile_failed":
+      return {
+        label: "Refresh deal state",
+        href: `/deals/${dealId}/cockpit`,
+      };
+
+    // === Pre-existing blocker codes — explicit fix actions per v1.1 ===
+    // Every blocker must have a banker-readable next step. The CI guard
+    // perfectBankerFlowV11Guard.test.ts enforces full coverage.
+    case "identity_not_verified":
+      return {
+        label: "Verify borrower identity",
+        href: `/deals/${dealId}/borrower`,
+      };
+
+    case "underwrite_not_started":
+    case "underwrite_incomplete":
+      return {
+        label: "Open underwriting",
+        href: `/deals/${dealId}/underwrite`,
+      };
+
+    case "policy_exceptions_unresolved":
+      return {
+        label: "Resolve policy exceptions",
+        href: `/deals/${dealId}/policy-exceptions`,
+      };
+
+    case "schema_mismatch":
+      return {
+        label: "Refresh deal state",
+        href: `/deals/${dealId}/cockpit`,
+      };
+
+    case "intake_health_below_threshold":
+      return {
+        label: "Open intake review",
+        href: `/deals/${dealId}/intake`,
+      };
+
+    case "intake_confirmation_required":
+      return {
+        label: "Confirm intake",
+        href: `/deals/${dealId}/intake`,
+      };
+
+    case "financial_snapshot_stale":
+    case "financial_snapshot_build_failed":
+      return {
+        label: "Recompute financial snapshot",
+        action: "financial_snapshot.recompute",
+      };
+
+    case "financial_validation_open":
+      return {
+        label: "Resolve financial validation",
+        href: `/deals/${dealId}/financial-validation`,
+      };
+
+    case "critical_flags_unresolved":
+      return {
+        label: "Review critical risk flags",
+        href: `/deals/${dealId}/risk`,
+      };
+
+    case "borrower_not_attached":
+      return {
+        label: "Attach borrower",
+        href: `/deals/${dealId}/borrower`,
+      };
+
     // Infrastructure/fetch errors - no direct fix
     case "checklist_fetch_failed":
     case "snapshot_fetch_failed":

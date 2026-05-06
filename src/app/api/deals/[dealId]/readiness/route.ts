@@ -28,14 +28,36 @@ export async function GET(_req: Request, ctx: Context) {
 
     const [legacy, unified] = await Promise.all([
       getDealReadiness(dealId).catch(() => ({ ready: false, reason: null })),
-      buildUnifiedDealReadiness({ dealId, runReconciliation: true }),
+      buildUnifiedDealReadiness({
+        dealId,
+        runReconciliation: true,
+        runSelfHeal: true,
+      }),
     ]);
 
     if (!unified.ok) {
+      // Map the failure to a banker-visible recovery blocker so the rail
+      // never shows a dead-end "internal error". Specific reasons get
+      // specific codes so the banker has a clear next step.
+      const recoveryCode =
+        unified.reason === "tenant_mismatch"
+          ? "internal_error"
+          : "lifecycle_reconcile_failed";
       return NextResponse.json(
         {
           ok: false,
           reason: unified.reason,
+          recoveryBlocker: {
+            code: recoveryCode,
+            label:
+              recoveryCode === "lifecycle_reconcile_failed"
+                ? "Buddy could not refresh deal state — try again"
+                : "You don't have access to this deal",
+            owner: "buddy",
+            severity: "blocker",
+            fixPath: `/deals/${dealId}/cockpit`,
+            fixLabel: "Refresh deal state",
+          },
           error: unified.error ?? null,
           // Surface legacy fields when available so callers keep working.
           ready: (legacy as { ready?: boolean }).ready ?? false,

@@ -745,4 +745,17 @@ async function transitionPhaseAndEmit(
       fatal: opts.fatal ?? false,
     },
   });
+
+  // Perfect Banker Flow v1.1 — intake finalized; readiness state is
+  // about to change (docs ready / memo input prereqs unlocked). Refresh
+  // the unified readiness so the rail and DealShell CTA are accurate
+  // without requiring a manual page reload. Fire-and-forget.
+  try {
+    const { scheduleReadinessRefresh } = await import(
+      "@/lib/deals/readiness/refreshDealReadiness"
+    );
+    scheduleReadinessRefresh({ dealId, trigger: "document_finalized" });
+  } catch {
+    // Hook is best-effort — never block intake finalization on it.
+  }
 }
