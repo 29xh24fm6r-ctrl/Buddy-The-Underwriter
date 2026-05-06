@@ -17,6 +17,7 @@ const CANONICAL_STAGES: LifecycleStage[] = [
   "docs_requested",
   "docs_in_progress",
   "docs_satisfied",
+  "memo_inputs_required",
   "underwrite_ready",
   "underwrite_in_progress",
   "committee_ready",

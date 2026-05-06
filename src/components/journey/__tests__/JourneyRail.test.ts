@@ -17,6 +17,7 @@ const EXPECTED_LINEAR: LifecycleStage[] = [
   "docs_requested",
   "docs_in_progress",
   "docs_satisfied",
+  "memo_inputs_required",
   "underwrite_ready",
   "underwrite_in_progress",
   "committee_ready",
@@ -26,13 +27,13 @@ const EXPECTED_LINEAR: LifecycleStage[] = [
 ];
 
 describe("JourneyRail — canonical stage list", () => {
-  it("renders all 11 canonical lifecycle stages including workout", () => {
-    assert.equal(__JOURNEY_RAIL_CANONICAL_STAGES.length, 11);
+  it("renders all 12 canonical lifecycle stages including workout", () => {
+    assert.equal(__JOURNEY_RAIL_CANONICAL_STAGES.length, 12);
     assert.deepEqual(
-      __JOURNEY_RAIL_CANONICAL_STAGES.slice(0, 10),
+      __JOURNEY_RAIL_CANONICAL_STAGES.slice(0, 11),
       EXPECTED_LINEAR,
     );
-    assert.equal(__JOURNEY_RAIL_CANONICAL_STAGES[10], "workout");
+    assert.equal(__JOURNEY_RAIL_CANONICAL_STAGES[11], "workout");
   });
 
   it("linear stage order matches model.ts ALLOWED_STAGE_TRANSITIONS", () => {

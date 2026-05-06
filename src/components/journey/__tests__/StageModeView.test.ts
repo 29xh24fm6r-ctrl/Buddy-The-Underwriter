@@ -26,6 +26,7 @@ const STAGE_TO_VIEW: Record<LifecycleStage, string> = {
   docs_requested: "IntakeStageView",
   docs_in_progress: "DocumentsStageView",
   docs_satisfied: "DocumentsStageView",
+  memo_inputs_required: "DocumentsStageView",
   underwrite_ready: "UnderwritingStageView",
   underwrite_in_progress: "UnderwritingStageView",
   committee_ready: "CommitteeStageView",

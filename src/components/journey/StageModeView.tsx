@@ -70,6 +70,22 @@ export function StageModeView({
     );
   }
 
+  if (stage === "memo_inputs_required") {
+    // Reuse the documents-complete variant since the cockpit copy is
+    // identical from the user's perspective ("docs are done, do this
+    // next") — the action button (`Complete Memo Inputs`) is what
+    // changes. The dedicated memo-inputs page renders the actual surface.
+    return (
+      <DocumentsStageView
+        dealId={dealId}
+        state={state}
+        action={action}
+        variant="complete"
+        isAdmin={isAdmin}
+      />
+    );
+  }
+
   if (stage === "underwrite_ready") {
     return (
       <UnderwritingStageView

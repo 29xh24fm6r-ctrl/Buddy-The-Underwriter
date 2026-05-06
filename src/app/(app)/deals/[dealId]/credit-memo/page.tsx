@@ -13,6 +13,7 @@ import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
+import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
 import CanonicalMemoTemplate from "@/components/creditMemo/CanonicalMemoTemplate";
 import SpreadsAppendix from "@/components/creditMemo/SpreadsAppendix";
 import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonicalMemoPdfButton";
@@ -44,6 +45,34 @@ export default async function DealCreditMemoPage(props: {
   const bankId = bankPick.bankId;
 
   const sb = supabaseAdmin();
+
+  // ── Memo Input Completeness redirect guard ────────────────────────────
+  // If no banker_submitted snapshot exists yet AND memo inputs are not
+  // ready, route the banker to /memo-inputs instead of rendering a memo
+  // they cannot submit. Once submitted, the banker can return here to
+  // view the frozen snapshot.
+  const submittedRes = await (sb as any)
+    .from("credit_memo_snapshots")
+    .select("id", { head: true, count: "exact" })
+    .eq("deal_id", dealId)
+    .in("status", [
+      "banker_submitted",
+      "underwriter_review",
+      "returned",
+      "finalized",
+    ])
+    .limit(1);
+  const hasSubmittedSnapshot = (submittedRes?.count ?? 0) > 0;
+
+  if (!hasSubmittedSnapshot) {
+    const inputResult = await buildMemoInputPackage({
+      dealId,
+      runReconciliation: false,
+    });
+    if (inputResult.ok && !inputResult.package.readiness.ready) {
+      redirect(`/deals/${dealId}/memo-inputs`);
+    }
+  }
 
   const [{ data: snapshotRow }, { data: deal }, { data: loanRequest }] = await Promise.all([
     sb

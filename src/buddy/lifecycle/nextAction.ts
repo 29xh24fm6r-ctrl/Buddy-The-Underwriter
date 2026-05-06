@@ -61,8 +61,24 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     };
   }
 
-  // If there are blockers, show blocked state
+  // If there are blockers, show the top blocker's fix action directly
+  // rather than a generic "Resolve Blockers" prompt. The rail can always
+  // expand into the full list, but the primary CTA must be specific.
   if (state.blockers.length > 0) {
+    const top = state.blockers[0];
+    const fix = getBlockerFixAction(top, dealId);
+    if (fix) {
+      const href =
+        "href" in fix && typeof fix.href === "string"
+          ? fix.href
+          : `/deals/${dealId}/cockpit`;
+      return {
+        label: fix.label,
+        href,
+        intent: "navigate",
+        description: top.message,
+      };
+    }
     return {
       label: "Resolve Blockers",
       intent: "blocked",
@@ -102,6 +118,15 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
         href: `/deals/${dealId}/pricing`,
         intent: "navigate",
         description: "Configure pricing assumptions to unlock underwriting",
+      };
+
+    case "memo_inputs_required":
+      return {
+        label: "Complete Memo Inputs",
+        href: `/deals/${dealId}/memo-inputs`,
+        intent: "navigate",
+        description:
+          "Borrower story, management, collateral, and conflicts before underwriting",
       };
 
     case "underwrite_ready":
@@ -265,6 +290,64 @@ export function getBlockerFixAction(
       return {
         label: "View Stuck Documents",
         href: `/deals/${dealId}/documents`,
+      };
+
+    // === Memo Input Completeness Layer ===
+    case "missing_business_description":
+    case "missing_revenue_model":
+      return {
+        label: "Complete borrower story",
+        href: `/deals/${dealId}/memo-inputs#borrower-story`,
+      };
+
+    case "missing_management_profile":
+      return {
+        label: "Add management profile",
+        href: `/deals/${dealId}/memo-inputs#management`,
+      };
+
+    case "missing_collateral_item":
+      return {
+        label: "Add collateral",
+        href: `/deals/${dealId}/memo-inputs#collateral`,
+      };
+
+    case "missing_collateral_value":
+      return {
+        label: "Add collateral value",
+        href: `/deals/${dealId}/memo-inputs#collateral`,
+      };
+
+    case "missing_research_quality_gate":
+      return {
+        label: "Run research",
+        href: `/deals/${dealId}/research`,
+      };
+
+    case "open_fact_conflicts":
+      return {
+        label: "Resolve fact conflicts",
+        href: `/deals/${dealId}/memo-inputs#conflicts`,
+      };
+
+    case "missing_policy_exception_review":
+      return {
+        label: "Review policy exceptions",
+        href: `/deals/${dealId}/policy-exceptions`,
+      };
+
+    case "missing_dscr":
+    case "missing_global_cash_flow":
+    case "missing_debt_service_facts":
+      return {
+        label: "Generate financial snapshot",
+        href: `/deals/${dealId}/spreads`,
+      };
+
+    case "unfinalized_required_documents":
+      return {
+        label: "Finalize required documents",
+        href: `/deals/${dealId}/intake`,
       };
 
     // Infrastructure/fetch errors - no direct fix

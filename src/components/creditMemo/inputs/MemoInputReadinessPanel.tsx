@@ -32,6 +32,27 @@ export default function MemoInputReadinessPanel({ readiness }: Props) {
         </div>
       </header>
 
+      {/* Top required action — Perfect Banker Flow v1: tell the banker the
+          single next thing rather than a generic 62% score with no path. */}
+      {!readiness.ready && readiness.blockers.length > 0 ? (
+        <div className="mt-3 rounded-md border border-rose-300 bg-white p-3">
+          <div className="text-xs uppercase tracking-wide text-gray-500">
+            Next required action
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-gray-900">
+              {readiness.blockers[0].label}
+            </div>
+            <Link
+              href={readiness.blockers[0].fixPath}
+              className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700"
+            >
+              Fix now
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
         <Check label="Borrower story" ok={readiness.borrower_story_complete} />
         <Check label="Management" ok={readiness.management_complete} />

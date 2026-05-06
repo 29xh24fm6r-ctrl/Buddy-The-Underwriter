@@ -491,6 +491,37 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
+  // Memo Input Completeness Layer — read cached readiness row.
+  // Authoritative gate is evaluateMemoInputReadiness at submission time;
+  // this is the lifecycle's view of the same gate, refreshed by the
+  // /api/deals/[dealId]/readiness route.
+  let memoInputsReady: boolean | undefined;
+  let memoInputReadinessScore: number | null | undefined;
+  try {
+    const { data: readinessRow } = await (sb as any)
+      .from("deal_memo_input_readiness")
+      .select("readiness_score, blockers")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    if (readinessRow) {
+      const score =
+        typeof (readinessRow as any).readiness_score === "number"
+          ? (readinessRow as any).readiness_score
+          : null;
+      memoInputReadinessScore = score;
+      const blockers = Array.isArray((readinessRow as any).blockers)
+        ? ((readinessRow as any).blockers as unknown[])
+        : [];
+      memoInputsReady = score === 100 && blockers.length === 0;
+    } else {
+      memoInputReadinessScore = null;
+      memoInputsReady = false;
+    }
+  } catch {
+    memoInputReadinessScore = null;
+    memoInputsReady = undefined;
+  }
+
   const derived: LifecycleDerived = {
     readinessMode,
     documentsReady,
@@ -511,6 +542,8 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     hasLoanRequestWithAmount,
     researchComplete,
     criticalFlagsResolved,
+    memoInputsReady,
+    memoInputReadinessScore,
     ...gatekeeperDerived,
   };
 
@@ -701,7 +734,16 @@ function mapToUnifiedStage(
         derived.hasLoanRequestWithAmount;
 
       if (effectiveLoanRequest && derived.hasPricingAssumptions) {
-        return "underwrite_ready";
+        // Memo Input Completeness Layer gate. The deal has docs + loan
+        // request + pricing assumptions, but the credit memo cannot be
+        // assembled until the banker has certified borrower story,
+        // management, collateral, and resolved conflicts.
+        // Default to "blocked" when readiness is unknown (no row yet) so
+        // the rail directs the banker to /memo-inputs to fill it.
+        if (derived.memoInputsReady === true) {
+          return "underwrite_ready";
+        }
+        return "memo_inputs_required";
       }
       return "docs_satisfied";
 

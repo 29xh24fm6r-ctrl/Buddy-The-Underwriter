@@ -16,6 +16,7 @@ import ManagementProfilesForm from "@/components/creditMemo/inputs/ManagementPro
 import CollateralItemsTable from "@/components/creditMemo/inputs/CollateralItemsTable";
 import FactConflictsPanel from "@/components/creditMemo/inputs/FactConflictsPanel";
 import MemoInputReadinessPanel from "@/components/creditMemo/inputs/MemoInputReadinessPanel";
+import MemoInputSuggestionsBridge from "@/components/creditMemo/inputs/MemoInputSuggestionsBridge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +60,8 @@ export default async function MemoInputsPage(props: {
         </header>
 
         <MemoInputReadinessPanel readiness={pkg.readiness} />
+
+        <MemoInputSuggestionsBridge dealId={dealId} />
 
         <BorrowerStoryForm dealId={dealId} initial={pkg.borrower_story} />
 

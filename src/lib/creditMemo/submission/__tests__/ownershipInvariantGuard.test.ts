@@ -53,6 +53,14 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // Guarded structurally by intelligenceGuard.test.ts ([intel-2/3]).
   "src/app/api/deals/[dealId]/credit-memo/intelligence/route.ts",
   "src/lib/creditMemo/intelligence/analyzeUnderwriterDecisions.ts",
+  // Unified readiness — reads submitted snapshots to surface the right CTA.
+  // Guards: read-only (no .insert/.update with banker_submitted).
+  "src/lib/deals/readiness/buildUnifiedDealReadiness.ts",
+  "src/lib/deals/readiness/unifyDealReadiness.ts",
+  // Memo input redirect guard on the credit-memo page — read-only check
+  // for an existing submitted snapshot before deciding whether to redirect.
+  "src/app/(app)/deals/[dealId]/credit-memo/page.tsx",
+  "src/app/(app)/deals/[dealId]/credit-memo/__tests__/creditMemoRedirectGuard.test.ts",
 ]);
 
 const SKIP_DIRS = new Set([

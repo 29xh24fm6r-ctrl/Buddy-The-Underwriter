@@ -26,6 +26,21 @@ export function blockerGatesStage(code: LifecycleBlockerCode): LifecycleStage | 
     case "artifacts_processing_stalled":
       return "docs_satisfied";
 
+    // === memo_inputs_required ===
+    // Memo Input Completeness Layer — gates the bridge between docs and
+    // underwriting. Banker must complete borrower story, management,
+    // collateral, and resolve fact conflicts before underwriting can start.
+    case "missing_business_description":
+    case "missing_revenue_model":
+    case "missing_management_profile":
+    case "missing_collateral_item":
+    case "missing_collateral_value":
+    case "missing_research_quality_gate":
+    case "open_fact_conflicts":
+    case "missing_policy_exception_review":
+    case "unfinalized_required_documents":
+      return "memo_inputs_required";
+
     // === underwrite_ready ===
     case "pricing_assumptions_required":
     case "structural_pricing_missing":
@@ -34,6 +49,9 @@ export function blockerGatesStage(code: LifecycleBlockerCode): LifecycleStage | 
     case "financial_snapshot_stale":
     case "financial_snapshot_build_failed":
     case "financial_validation_open":
+    case "missing_dscr":
+    case "missing_global_cash_flow":
+    case "missing_debt_service_facts":
       return "underwrite_ready";
 
     // === underwrite_in_progress ===

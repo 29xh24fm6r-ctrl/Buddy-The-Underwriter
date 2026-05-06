@@ -289,6 +289,7 @@ function mapToUnderlyingStage(
       return "intake";
     case "docs_in_progress":
     case "docs_satisfied":
+    case "memo_inputs_required":
     case "underwrite_ready":
       return "collecting";
     case "underwrite_in_progress":

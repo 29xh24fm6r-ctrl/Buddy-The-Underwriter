@@ -29,6 +29,7 @@ export type LifecycleStage =
   | "docs_requested"
   | "docs_in_progress"
   | "docs_satisfied"
+  | "memo_inputs_required"
   | "underwrite_ready"
   | "underwrite_in_progress"
   | "committee_ready"
@@ -87,6 +88,19 @@ export type LifecycleBlockerCode =
   | "borrower_not_attached"
   // Pipeline stall blocker — emitted when artifacts stuck queued/processing
   | "artifacts_processing_stalled"
+  // Memo Input Completeness Layer — gates memo_inputs_required stage
+  | "missing_business_description"
+  | "missing_revenue_model"
+  | "missing_management_profile"
+  | "missing_collateral_item"
+  | "missing_collateral_value"
+  | "missing_research_quality_gate"
+  | "open_fact_conflicts"
+  | "missing_policy_exception_review"
+  | "missing_dscr"
+  | "missing_global_cash_flow"
+  | "missing_debt_service_facts"
+  | "unfinalized_required_documents"
   // Generic fallbacks (use specific codes above when possible)
   | "data_fetch_failed"
   | "internal_error";
@@ -181,6 +195,10 @@ export type LifecycleDerived = {
   gatekeeperMissingFinancialStatements?: boolean;
   /** Aggregated needs-review reason codes → count (e.g. { LOW_CONFIDENCE: 2 }) */
   gatekeeperNeedsReviewReasons?: Record<string, number>;
+  /** Memo Input Completeness Layer — true when readiness_score = 100 AND blockers = [] */
+  memoInputsReady?: boolean;
+  /** Memo Input Completeness — cached readiness score 0-100 (null when no row) */
+  memoInputReadinessScore?: number | null;
 };
 
 /**
@@ -223,7 +241,8 @@ export const ALLOWED_STAGE_TRANSITIONS: Record<LifecycleStage, LifecycleStage[]>
   intake_created: ["docs_requested"],
   docs_requested: ["docs_in_progress"],
   docs_in_progress: ["docs_satisfied"],
-  docs_satisfied: ["underwrite_ready"],
+  docs_satisfied: ["memo_inputs_required", "underwrite_ready"],
+  memo_inputs_required: ["underwrite_ready"],
   underwrite_ready: ["underwrite_in_progress"],
   underwrite_in_progress: ["committee_ready"],
   committee_ready: ["committee_decisioned"],
@@ -241,6 +260,7 @@ export const STAGE_LABELS: Record<LifecycleStage, string> = {
   docs_requested: "Documents Requested",
   docs_in_progress: "Collecting Documents",
   docs_satisfied: "Documents Complete",
+  memo_inputs_required: "Memo Inputs Required",
   underwrite_ready: "Ready for Underwriting",
   underwrite_in_progress: "Underwriting",
   committee_ready: "Ready for Committee",

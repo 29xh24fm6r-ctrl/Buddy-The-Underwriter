@@ -8,6 +8,7 @@ import { FeasibilityScoreCapsule } from "@/components/feasibility/FeasibilitySco
 import { resolveDealLabel, dealLabel as buildDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
 import { JourneyRail } from "@/components/journey/JourneyRail";
+import DealShellMemoCta from "@/components/deals/DealShellMemoCta";
 
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
 import { useFinancialSnapshotDecision } from "@/hooks/useFinancialSnapshotDecision";
@@ -362,17 +363,9 @@ export default function DealShell({
               </div>
             </div>
 
-            {/* Right: Key actions — Credit Memo button now points to in-shell route */}
+            {/* Right: Key actions — Credit Memo button is readiness-aware */}
             <div className="flex items-center gap-2 shrink-0">
-              <Link
-                href={`${base}/credit-memo`}
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary/90"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                  description
-                </span>
-                <span className="hidden sm:inline">Credit Memo</span>
-              </Link>
+              <DealShellMemoCta dealId={dealId} />
               <Link
                 href={`/deals/${dealId}/classic-spreads`}
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"

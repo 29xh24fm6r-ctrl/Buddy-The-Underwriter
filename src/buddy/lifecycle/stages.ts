@@ -17,6 +17,7 @@ export const LIFECYCLE_STAGES: StageDefinition[] = [
   { code: "docs_requested", requiresDocuments: true },
   { code: "docs_in_progress", requiresDocuments: true },
   { code: "docs_satisfied", requiresDocuments: true },
+  { code: "memo_inputs_required", requiresDocuments: true },
   { code: "underwrite_ready", requiresDocuments: true },
   { code: "underwrite_in_progress", requiresDocuments: false },
   { code: "committee_ready", requiresDocuments: false },

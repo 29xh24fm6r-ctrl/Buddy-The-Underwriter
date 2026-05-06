@@ -50,23 +50,32 @@ export function requireStageOrBlock(
 export const STAGES_AT_OR_BEYOND: Record<LifecycleStage, Set<LifecycleStage>> = {
   intake_created: new Set([
     "intake_created", "docs_requested", "docs_in_progress", "docs_satisfied",
+    "memo_inputs_required",
     "underwrite_ready", "underwrite_in_progress", "committee_ready",
     "committee_decisioned", "closing_in_progress", "closed", "workout",
   ]),
   docs_requested: new Set([
     "docs_requested", "docs_in_progress", "docs_satisfied",
+    "memo_inputs_required",
     "underwrite_ready", "underwrite_in_progress", "committee_ready",
     "committee_decisioned", "closing_in_progress", "closed", "workout",
   ]),
   docs_in_progress: new Set([
     "docs_in_progress", "docs_satisfied",
+    "memo_inputs_required",
     "underwrite_ready", "underwrite_in_progress", "committee_ready",
     "committee_decisioned", "closing_in_progress", "closed", "workout",
   ]),
   docs_satisfied: new Set([
-    "docs_satisfied", "underwrite_ready", "underwrite_in_progress",
+    "docs_satisfied", "memo_inputs_required",
+    "underwrite_ready", "underwrite_in_progress",
     "committee_ready", "committee_decisioned", "closing_in_progress",
     "closed", "workout",
+  ]),
+  memo_inputs_required: new Set([
+    "memo_inputs_required",
+    "underwrite_ready", "underwrite_in_progress", "committee_ready",
+    "committee_decisioned", "closing_in_progress", "closed", "workout",
   ]),
   underwrite_ready: new Set([
     "underwrite_ready", "underwrite_in_progress", "committee_ready",

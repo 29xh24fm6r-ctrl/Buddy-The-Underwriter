@@ -21,6 +21,9 @@ export function stageCanonicalRoute(stage: LifecycleStage, dealId: string): stri
     case "docs_satisfied":
       return `/deals/${dealId}/cockpit`;
 
+    case "memo_inputs_required":
+      return `/deals/${dealId}/memo-inputs`;
+
     case "underwrite_ready":
     case "underwrite_in_progress":
       return `/deals/${dealId}/underwrite`;
