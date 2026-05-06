@@ -12,6 +12,9 @@ import {
   type AdvisorTelemetryEvent,
   type CockpitAdvisorSignal,
 } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
+import type { DecisionQualityDecision } from "@/lib/journey/advisor/buildDecisionQualitySignals";
+import { buildDeterministicAdvisorExplanation } from "@/lib/journey/advisor/buildAdvisorExplanation";
+import type { AdvisorEvidence } from "@/lib/journey/advisor/evidence";
 import {
   buildAdvisorMemorySummary,
   type AdvisorMemorySummary,
@@ -57,6 +60,8 @@ export type CockpitAdvisorPanelProps = {
   recentTelemetry?: AdvisorTelemetryEvent[];
   /** SPEC-09 — opt-in for stale_blocker pattern detection. */
   blockerObservations?: AdvisorBlockerObservationInput[];
+  /** SPEC-12 — current decision snapshot for decision-quality predictors. */
+  decision?: DecisionQualityDecision | null;
 };
 
 const SEVERITY_TONE: Record<CockpitAdvisorSignal["severity"], string> = {
@@ -80,6 +85,10 @@ const KIND_LABEL: Record<CockpitAdvisorSignal["kind"], string> = {
   behavior_pattern_warning: "Pattern",
   predictive_warning: "Prediction",
   low_signal_value: "Low signal",
+  decision_quality_warning: "Decision quality",
+  committee_risk_warning: "Committee risk",
+  closing_risk_warning: "Closing risk",
+  documentation_risk_warning: "Doc risk",
 };
 
 type SignalGroup =
@@ -166,6 +175,8 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
         // SPEC-11 — drives low_signal_value emissions.
         dismissCountsBySignalKey,
         acknowledgedAtBySignalKey,
+        // SPEC-12 — drives decision-quality predictors.
+        decision: props.decision ?? null,
       }),
     [
       dealId,
@@ -177,6 +188,7 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
       blockerObservations,
       dismissCountsBySignalKey,
       acknowledgedAtBySignalKey,
+      props.decision,
     ],
   );
 
@@ -479,7 +491,10 @@ function AdvisorSignalRow({
             <div className="mt-1 text-[11px] text-white/60">{signal.detail}</div>
           ) : null}
 
-          {/* SPEC-10 — Why am I seeing this? Default-mode-friendly. */}
+          {/* SPEC-10/12 — Why this matters. Default-mode-friendly,
+            *  driven by deterministic explanation + evidence. Debug
+            *  fields (priority/predictionReason/dismiss_count) stay
+            *  hidden here; they live in the debug block below. */}
           {!debug ? (
             <div className="mt-1">
               <button
@@ -492,26 +507,13 @@ function AdvisorSignalRow({
                 data-testid="advisor-why-toggle"
                 aria-expanded={whyOpen}
               >
-                Why?
+                Why this matters
               </button>
               {whyOpen ? (
-                <div
-                  className="mt-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-[10px] text-white/70"
-                  data-testid="advisor-why-block"
-                >
-                  <div>
-                    <span className="text-white/40">Reason:</span>{" "}
-                    {signal.rankReason}
-                  </div>
-                  <div>
-                    <span className="text-white/40">Source:</span>{" "}
-                    {signal.source}
-                  </div>
-                  <div>
-                    <span className="text-white/40">Confidence:</span>{" "}
-                    {confidencePct}%
-                  </div>
-                </div>
+                <AdvisorWhyBlock
+                  signal={signal}
+                  confidencePct={confidencePct}
+                />
               ) : null}
             </div>
           ) : null}
@@ -639,6 +641,91 @@ function AdvisorActionButton({
       {isPending ? "Running…" : action.label}
       <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
     </button>
+  );
+}
+
+/**
+ * SPEC-12 — banker-facing "Why this matters" block.
+ *
+ * Renders:
+ *   - the deterministic explanation body
+ *   - evidence rows (label · value, severity-tinted)
+ *   - the recommended next step (echoes signal.action.label)
+ *
+ * Debug-only fields (priority, dismiss_count, predictionReason,
+ * signalKey) are intentionally NOT shown here — they remain in the
+ * debug block which is keyed by `?advisor=debug`.
+ */
+function AdvisorWhyBlock({
+  signal,
+  confidencePct,
+}: {
+  signal: CockpitAdvisorSignal;
+  confidencePct: number;
+}) {
+  const explanation = buildDeterministicAdvisorExplanation(signal);
+  const evidence = signal.evidence ?? [];
+
+  return (
+    <div
+      className="mt-1 rounded border border-white/10 bg-black/30 px-2 py-1 text-[10px] text-white/70"
+      data-testid="advisor-why-block"
+    >
+      {explanation.body ? (
+        <div data-testid="advisor-why-body" className="mb-1">
+          {explanation.body}
+        </div>
+      ) : null}
+      {evidence.length > 0 ? (
+        <div className="mb-1">
+          <div className="text-white/40">Evidence</div>
+          <ul
+            className="mt-0.5 space-y-0.5"
+            data-testid="advisor-why-evidence"
+          >
+            {evidence.slice(0, 6).map((ev, i) => (
+              <AdvisorEvidenceRow key={`${ev.source}:${ev.label}:${i}`} evidence={ev} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {signal.action ? (
+        <div data-testid="advisor-why-recommendation">
+          <span className="text-white/40">Recommended next step:</span>{" "}
+          <span className="text-white/80">{signal.action.label}</span>
+        </div>
+      ) : null}
+      <div>
+        <span className="text-white/40">Reason:</span> {signal.rankReason}
+      </div>
+      <div>
+        <span className="text-white/40">Source:</span> {signal.source}
+      </div>
+      <div>
+        <span className="text-white/40">Confidence:</span> {confidencePct}%
+      </div>
+    </div>
+  );
+}
+
+function AdvisorEvidenceRow({ evidence }: { evidence: AdvisorEvidence }) {
+  const tone =
+    evidence.severity === "critical"
+      ? "text-rose-300"
+      : evidence.severity === "warning"
+        ? "text-amber-200"
+        : "text-white/70";
+  return (
+    <li
+      className="flex items-baseline justify-between gap-2"
+      data-evidence-source={evidence.source}
+      data-evidence-severity={evidence.severity ?? "info"}
+    >
+      <span className="text-white/50">{evidence.label}</span>
+      <span className={`truncate ${tone}`}>
+        {evidence.value !== undefined ? String(evidence.value) : ""}
+      </span>
+    </li>
   );
 }
 

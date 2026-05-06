@@ -73,10 +73,19 @@ function DecisionStageBody({
     { id: "decision:latest", scope: "decision" },
   );
 
+  // SPEC-12 — feed the decision snapshot into the advisor so
+  // approval_without_conditions / attestation_gap fire here.
+  const advisorDecision = decision.data?.snapshot
+    ? {
+        decision: decision.data.snapshot.decision ?? null,
+        status: decision.data.snapshot.status ?? null,
+      }
+    : null;
+
   return (
     <div className="space-y-4">
       <SafeBoundary>
-        <CockpitAdvisorPanel dealId={dealId} />
+        <CockpitAdvisorPanel dealId={dealId} decision={advisorDecision} />
       </SafeBoundary>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">

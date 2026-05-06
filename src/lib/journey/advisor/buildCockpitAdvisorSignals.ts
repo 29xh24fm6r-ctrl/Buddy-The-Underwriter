@@ -26,6 +26,13 @@ import {
   type AdvisorBehaviorPattern,
   type AdvisorMemoryWindow,
 } from "./buildAdvisorMemorySummary";
+import type { AdvisorEvidence } from "./evidence";
+import {
+  buildDecisionQualitySignals,
+  type DecisionQualityDecision,
+  type DecisionQualityConditionRow,
+  type DecisionQualityOverrideRow,
+} from "./buildDecisionQualitySignals";
 
 export type CockpitAdvisorSignalKind =
   | "next_best_action"
@@ -40,7 +47,17 @@ export type CockpitAdvisorSignalKind =
    *  ignoring this advisor surface; lower its priority. */
   | "low_signal_value"
   /** SPEC-11 — deterministic forward-looking warning. */
-  | "predictive_warning";
+  | "predictive_warning"
+  /** SPEC-12 — decision-quality risks (approve-without-conditions,
+   *  missing-rationale, memo-mismatch, attestation-gap). */
+  | "decision_quality_warning"
+  /** SPEC-12 — committee failure / delay risks. */
+  | "committee_risk_warning"
+  /** SPEC-12 — closing-stage delay risks. */
+  | "closing_risk_warning"
+  /** SPEC-12 — documentation-tier risks; reserved for future doc
+   *  predictors. Currently surfaced via readiness_warning. */
+  | "documentation_risk_warning";
 
 export type CockpitAdvisorSignalSeverity = "info" | "warning" | "critical";
 
@@ -51,7 +68,9 @@ export type CockpitAdvisorSignalSource =
   | "overrides"
   | "memo"
   | "documents"
-  | "telemetry";
+  | "telemetry"
+  /** SPEC-12 — decision snapshot or attestation. */
+  | "decision";
 
 export type CockpitAdvisorSignal = {
   kind: CockpitAdvisorSignalKind;
@@ -76,8 +95,18 @@ export type CockpitAdvisorSignal = {
   /**
    * SPEC-11 — populated for predictive_warning signals. Cites the
    * deterministic rule that produced the prediction.
+   *
+   * SPEC-12 — also populated for committee/closing/decision_quality
+   * warnings so the panel can render "Why this matters" without an
+   * LLM round-trip.
    */
   predictionReason?: string;
+  /**
+   * SPEC-12 — deterministic evidence the signal was derived from.
+   * Required for predictive / decision-quality / committee / closing
+   * kinds. Empty/undefined for legacy SPEC-07–10 kinds.
+   */
+  evidence?: AdvisorEvidence[];
 };
 
 /**
@@ -93,6 +122,10 @@ export type CockpitAdvisorSignal = {
  */
 const PRIORITY_FLOOR: Record<CockpitAdvisorSignalKind, number> = {
   blocked_reason: 800,             // critical surface — the deal cannot move
+  decision_quality_warning: 700,   // SPEC-12 — above readiness, below blockers
+  committee_risk_warning: 650,     // SPEC-12
+  closing_risk_warning: 650,       // SPEC-12
+  documentation_risk_warning: 620, // SPEC-12 (reserved)
   readiness_warning: 600,
   behavior_pattern_warning: 550,   // SPEC-09
   risk_warning: 500,
@@ -114,6 +147,7 @@ const CONFIDENCE: Record<CockpitAdvisorSignalSource, number> = {
   blockers: 0.95,
   lifecycle: 0.9,
   documents: 0.9,
+  decision: 0.9,
   conditions: 0.85,
   overrides: 0.85,
   memo: 0.85,
@@ -190,6 +224,19 @@ export type BuildCockpitAdvisorSignalsInput = {
    * it. Optional.
    */
   acknowledgedAtBySignalKey?: Record<string, string>;
+  /**
+   * SPEC-12 — current decision snapshot. Used by decision-quality
+   * predictors (approval_without_conditions, attestation_gap, ...).
+   * Optional; absent decisions skip the relevant checks.
+   */
+  decision?: DecisionQualityDecision | null;
+  /**
+   * SPEC-12 — recent failed `generate_packet` action timestamp (ms).
+   * Used by committee_delay_risk predictor when caller has it; the
+   * builder also derives it from `recentTelemetry` so most callers
+   * don't need to pass this.
+   */
+  lastFailedPacketGenerationAt?: number | null;
 };
 
 const RECENT_TELEMETRY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -247,6 +294,38 @@ export function buildCockpitAdvisorSignals(
   // SPEC-11 — predictive_warning signals.
   for (const predictive of buildPredictiveWarnings(input)) {
     signals.push(predictive);
+  }
+
+  // SPEC-12 — committee + closing risk warnings.
+  for (const sig of buildCommitteeRiskWarnings(input)) {
+    signals.push(sig);
+  }
+  for (const sig of buildClosingRiskWarnings(input)) {
+    signals.push(sig);
+  }
+
+  // SPEC-12 — decision-quality warnings.
+  for (const dq of buildDecisionQualitySignals({
+    state: input.state,
+    decision: input.decision ?? null,
+    conditions: input.conditions as DecisionQualityConditionRow[] | undefined,
+    overrides: input.overrides as DecisionQualityOverrideRow[] | undefined,
+    memoSummary: input.memoSummary ?? null,
+    dealId: input.dealId,
+  })) {
+    signals.push(
+      withRanking({
+        kind: "decision_quality_warning",
+        severity: dq.severity,
+        title: dq.title,
+        detail: dq.detail,
+        action: dq.action,
+        source: dq.source,
+        rankReason: `Decision quality: ${dq.predictionReason}`,
+        predictionReason: dq.predictionReason,
+        evidence: dq.evidence,
+      }),
+    );
   }
 
   // SPEC-11 — low_signal_value hints (debug-tier).
@@ -503,6 +582,16 @@ function buildPredictiveWarnings(
   const memoGaps = input.memoSummary?.missing_keys?.length ?? 0;
   const blockerCount = input.state.blockers.length;
   if (committeeRequired && !committeePacketReady && (memoGaps > 0 || blockerCount > 0)) {
+    const evidence: AdvisorEvidence[] = [
+      { source: "lifecycle", label: "Committee required", value: true },
+      { source: "lifecycle", label: "Packet ready", value: false, severity: "warning" },
+    ];
+    if (memoGaps > 0) {
+      evidence.push({ source: "memo", label: "Memo gaps", value: memoGaps, severity: "warning" });
+    }
+    if (blockerCount > 0) {
+      evidence.push({ source: "blockers", label: "Open blockers", value: blockerCount, severity: "warning" });
+    }
     out.push(
       withRanking({
         kind: "predictive_warning",
@@ -517,6 +606,7 @@ function buildPredictiveWarnings(
         source: "lifecycle",
         rankReason: "Predictive: committee delay imminent",
         predictionReason: "likely_committee_delay",
+        evidence,
       }),
     );
   }
@@ -548,6 +638,15 @@ function buildPredictiveWarnings(
           source: "conditions",
           rankReason: "Predictive: closing blocked by open conditions",
           predictionReason: "missing_required_condition",
+          evidence: [
+            { source: "lifecycle", label: "Stage", value: stage },
+            {
+              source: "conditions",
+              label: "Open required/critical conditions",
+              value: openCritical.length,
+              severity: openCritical.length >= 3 ? "critical" : "warning",
+            },
+          ],
         }),
       );
     }
@@ -563,6 +662,23 @@ function buildPredictiveWarnings(
       (o) => (o.severity ?? "").toUpperCase() === "CRITICAL" || (o.severity ?? "").toUpperCase() === "HIGH",
     );
     if (unresolved.length >= 3 || critical.length >= 1) {
+      const evidence: AdvisorEvidence[] = [];
+      if (unresolved.length > 0) {
+        evidence.push({
+          source: "overrides",
+          label: "Unresolved overrides",
+          value: unresolved.length,
+          severity: unresolved.length >= 3 ? "warning" : "info",
+        });
+      }
+      if (critical.length > 0) {
+        evidence.push({
+          source: "overrides",
+          label: "Critical overrides",
+          value: critical.length,
+          severity: "critical",
+        });
+      }
       out.push(
         withRanking({
           kind: "predictive_warning",
@@ -583,10 +699,255 @@ function buildPredictiveWarnings(
           source: "overrides",
           rankReason: "Predictive: override cluster risk",
           predictionReason: "high_risk_override_cluster",
+          evidence,
         }),
       );
     }
   }
+
+  return out;
+}
+
+// ─── SPEC-12 — committee + closing risk warnings ──────────────────
+
+const CLOSING_STAGES: ReadonlySet<string> = new Set([
+  "closing_in_progress",
+  "closed",
+]);
+
+function lastFailedPacketGenerationFromTelemetry(
+  events: AdvisorTelemetryEvent[] | undefined,
+): number | null {
+  if (!events || events.length === 0) return null;
+  let bestTs: number | null = null;
+  for (const ev of events) {
+    if (!ev.type.endsWith("_failed")) continue;
+    const label = (ev.label ?? "").toLowerCase();
+    if (label.includes("packet") || label.includes("memo")) {
+      if (bestTs === null || ev.ts > bestTs) bestTs = ev.ts;
+    }
+  }
+  return bestTs;
+}
+
+function buildCommitteeRiskWarnings(
+  input: BuildCockpitAdvisorSignalsInput,
+): CockpitAdvisorSignal[] {
+  const out: CockpitAdvisorSignal[] = [];
+  if (!input.state) return out;
+  const derived = input.state.derived;
+  const committeeRequired = derived.committeeRequired ?? false;
+  if (!committeeRequired) return out;
+
+  const memoGaps = input.memoSummary?.missing_keys?.length ?? 0;
+  const blockers = input.state.blockers;
+  const blockerCount = blockers.length;
+  const criticalBlockers = blockers.filter(
+    (b) =>
+      b.code === "deal_not_found" ||
+      b.code === "schema_mismatch" ||
+      b.code === "internal_error" ||
+      b.code === "data_fetch_failed" ||
+      b.code.endsWith("_fetch_failed"),
+  );
+  const overrides = input.overrides ?? [];
+  const criticalOverrides = overrides.filter(
+    (o) =>
+      (o.severity ?? "").toUpperCase() === "CRITICAL" ||
+      (o.severity ?? "").toUpperCase() === "HIGH",
+  );
+  const readinessPct = derived.documentsReadinessPct ?? 0;
+
+  // 1) committee_failure_risk
+  // committee required AND (
+  //   critical overrides > 0
+  //   OR memo gaps >= 3
+  //   OR readiness < 80
+  //   OR critical blockers exist
+  // )
+  const failureTriggers: AdvisorEvidence[] = [];
+  if (criticalOverrides.length > 0) {
+    failureTriggers.push({
+      source: "overrides",
+      label: "Critical overrides",
+      value: criticalOverrides.length,
+      severity: "critical",
+    });
+  }
+  if (memoGaps >= 3) {
+    failureTriggers.push({
+      source: "memo",
+      label: "Memo gaps",
+      value: memoGaps,
+      severity: "warning",
+    });
+  }
+  if (readinessPct < 80) {
+    failureTriggers.push({
+      source: "documents",
+      label: "Document readiness",
+      value: `${readinessPct}%`,
+      severity: "warning",
+    });
+  }
+  if (criticalBlockers.length > 0) {
+    failureTriggers.push({
+      source: "blockers",
+      label: "Critical blockers",
+      value: criticalBlockers.length,
+      severity: "critical",
+    });
+  }
+  if (failureTriggers.length > 0) {
+    out.push(
+      withRanking({
+        kind: "committee_risk_warning",
+        severity:
+          criticalOverrides.length > 0 || criticalBlockers.length > 0
+            ? "critical"
+            : "warning",
+        title: "Committee likely to fail",
+        detail: "One or more high-risk signals threaten committee approval.",
+        action: {
+          intent: "navigate",
+          label: "Committee Studio",
+          href: `/deals/${input.dealId}/committee-studio`,
+        },
+        source: "lifecycle",
+        rankReason: "Predictive: committee failure risk",
+        predictionReason: "committee_failure_risk",
+        evidence: [
+          { source: "lifecycle", label: "Committee required", value: true },
+          ...failureTriggers,
+        ],
+      }),
+    );
+  }
+
+  // 2) committee_delay_risk
+  // committee required AND packet not ready
+  // AND (memo gaps > 0 OR unresolved blockers > 0 OR recent failed packet action)
+  const committeePacketReady = derived.committeePacketReady ?? false;
+  const lastFailedPacketAt =
+    input.lastFailedPacketGenerationAt ??
+    lastFailedPacketGenerationFromTelemetry(input.recentTelemetry);
+  if (
+    !committeePacketReady &&
+    (memoGaps > 0 || blockerCount > 0 || lastFailedPacketAt !== null)
+  ) {
+    const evidence: AdvisorEvidence[] = [
+      { source: "lifecycle", label: "Committee required", value: true },
+      { source: "lifecycle", label: "Packet ready", value: false, severity: "warning" },
+    ];
+    if (memoGaps > 0) {
+      evidence.push({ source: "memo", label: "Memo gaps", value: memoGaps, severity: "warning" });
+    }
+    if (blockerCount > 0) {
+      evidence.push({ source: "blockers", label: "Open blockers", value: blockerCount, severity: "warning" });
+    }
+    if (lastFailedPacketAt !== null) {
+      evidence.push({
+        source: "telemetry",
+        label: "Recent failed packet/memo action",
+        value: true,
+        severity: "warning",
+      });
+    }
+    out.push(
+      withRanking({
+        kind: "committee_risk_warning",
+        severity: "warning",
+        title: "Committee likely to be delayed",
+        detail:
+          "Packet generation has not completed and gating signals remain open.",
+        action: {
+          intent: "navigate",
+          label: "Committee Studio",
+          href: `/deals/${input.dealId}/committee-studio`,
+        },
+        source: "lifecycle",
+        rankReason: "Predictive: committee delay risk",
+        predictionReason: "committee_delay_risk",
+        evidence,
+      }),
+    );
+  }
+
+  return out;
+}
+
+function buildClosingRiskWarnings(
+  input: BuildCockpitAdvisorSignalsInput,
+): CockpitAdvisorSignal[] {
+  const out: CockpitAdvisorSignal[] = [];
+  if (!input.state) return out;
+  const stage = String(input.state.stage);
+  if (!CLOSING_STAGES.has(stage)) return out;
+
+  const derived = input.state.derived;
+  const docsReady = derived.documentsReady === true;
+  const docReadinessPct = derived.documentsReadinessPct ?? 0;
+
+  // closing_delay_risk:
+  //   stage in closing
+  //   AND (
+  //     open warning/critical conditions > 0
+  //     OR documentsReady = false
+  //     OR documentsReadinessPct < 90
+  //     OR unresolved financial exceptions > 0
+  //   )
+  const conds = input.conditions ?? [];
+  const openCritical = conds.filter((c) => {
+    const sev = (c.severity ?? "").toUpperCase();
+    const status = (c.status ?? "OPEN").toUpperCase();
+    const isOpen = !["COMPLETE", "CLEARED", "SATISFIED", "WAIVED"].includes(status);
+    return isOpen && (sev === "REQUIRED" || sev === "CRITICAL" || sev === "WARNING" || sev === "IMPORTANT");
+  });
+
+  const triggers: AdvisorEvidence[] = [];
+  if (openCritical.length > 0) {
+    triggers.push({
+      source: "conditions",
+      label: "Open warning/critical conditions",
+      value: openCritical.length,
+      severity: openCritical.length >= 3 ? "critical" : "warning",
+    });
+  }
+  if (!docsReady) {
+    triggers.push({
+      source: "documents",
+      label: "Documents ready",
+      value: false,
+      severity: "warning",
+    });
+  } else if (docReadinessPct < 90) {
+    triggers.push({
+      source: "documents",
+      label: "Document readiness",
+      value: `${docReadinessPct}%`,
+      severity: "warning",
+    });
+  }
+
+  if (triggers.length === 0) return out;
+
+  out.push(
+    withRanking({
+      kind: "closing_risk_warning",
+      severity: openCritical.length >= 3 ? "critical" : "warning",
+      title: "Closing likely to be delayed",
+      detail: "Closing stage gating signals are still open.",
+      action: {
+        intent: "navigate",
+        label: "Open Closing",
+        href: `/deals/${input.dealId}/closing`,
+      },
+      source: "lifecycle",
+      rankReason: "Predictive: closing delay risk",
+      predictionReason: "closing_delay_risk",
+      evidence: [{ source: "lifecycle", label: "Stage", value: stage }, ...triggers],
+    }),
+  );
 
   return out;
 }
@@ -723,6 +1084,8 @@ type SignalDraft = Omit<CockpitAdvisorSignal, "priority" | "rankReason" | "confi
   rankReason: string;
   /** SPEC-11 — populated for predictive_warning signals; copied through. */
   predictionReason?: string;
+  /** SPEC-12 — deterministic evidence rows; copied through. */
+  evidence?: AdvisorEvidence[];
   /** internal — set true for failed recent_change / failure pattern events. */
   _failed?: boolean;
   /** internal — set true for undo-pattern events. */
