@@ -14,6 +14,7 @@ import { buildFinancialSnapshot } from "@/lib/financials/buildFinancialSnapshot"
 
 export type OrchestrateIntakeResult = {
   ok: boolean;
+  criticalFailures?: string[];
   dealId: string;
   bankId: string;
   diagnostics: { steps: Array<{ name: string; ok: boolean; status?: string; error?: string }> };
@@ -22,6 +23,17 @@ export type OrchestrateIntakeResult = {
   financialSnapshot?: "created" | "already_present" | "missing";
   lifecycleAdvanced?: boolean;
 };
+
+// Critical steps must succeed for the orchestrator to claim ok=true.
+// A failure in any critical step propagates to result.criticalFailures and forces ok=false.
+// Non-critical steps (borrower/principals/financial extraction) may soft-fail without
+// affecting ok — their failures live in diagnostics for observability.
+const CRITICAL_STEPS = new Set<string>([
+  "ensure_checklist_seeded",
+  "ensure_slots",
+  "gatekeeper_classify",
+  "advance_lifecycle",
+]);
 
 async function logLedgerOnce(args: {
   sb: ReturnType<typeof supabaseAdmin>;
@@ -129,6 +141,7 @@ export async function orchestrateIntake(args: {
   const sb = supabaseAdmin();
   const diagnostics: OrchestrateIntakeResult["diagnostics"] = { steps: [] };
   const source = args.source ?? "system";
+  const criticalFailures: string[] = [];
 
   const step = async (name: string, fn: () => Promise<string | undefined>) => {
     try {
@@ -136,7 +149,11 @@ export async function orchestrateIntake(args: {
       diagnostics.steps.push({ name, ok: true, status });
     } catch (e: any) {
       const normalized = normalizeGoogleError(e);
-      diagnostics.steps.push({ name, ok: false, error: String(e?.message ?? e) });
+      const message = String(e?.message ?? e);
+      diagnostics.steps.push({ name, ok: false, error: message });
+      if (CRITICAL_STEPS.has(name)) {
+        criticalFailures.push(`${name}: ${message}`);
+      }
       if (normalized.code === "GOOGLE_UNKNOWN") {
         await logLedgerOnce({
           sb,
@@ -170,6 +187,27 @@ export async function orchestrateIntake(args: {
     });
 
     return seed?.stage ?? "seeded";
+  });
+
+  // PIV-3 / PIV-4 finding: deals created via paths that bypass igniteDeal()
+  // (bulk upload, public upload, recovery) end up with zero deterministic slots.
+  // Wire slot generation here as a critical, idempotent step so every deal that
+  // runs the orchestrator is guaranteed to have slots regardless of entry path.
+  // ensureCoreDocumentSlots delegates to ensureDeterministicSlotsForScenario,
+  // which is upsert-based on (deal_id, slot_key) and falls back to the 11-slot
+  // conventional baseline when no scenario row exists.
+  await step("ensure_slots", async () => {
+    const { ensureCoreDocumentSlots } = await import(
+      "@/lib/intake/slots/ensureCoreDocumentSlots"
+    );
+    const result = await ensureCoreDocumentSlots({
+      dealId: args.dealId,
+      bankId: args.bankId,
+    });
+    if (!result.ok) {
+      throw new Error(result.error ?? "ensure_slots_failed");
+    }
+    return `slots_upserted_${result.slotsCreated}`;
   });
 
   await step("gatekeeper_classify", async () => {
@@ -388,7 +426,8 @@ export async function orchestrateIntake(args: {
   });
 
   return {
-    ok: true,
+    ok: criticalFailures.length === 0,
+    criticalFailures: criticalFailures.length > 0 ? criticalFailures : undefined,
     dealId: args.dealId,
     bankId: args.bankId,
     diagnostics,

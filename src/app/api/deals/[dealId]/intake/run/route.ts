@@ -6,6 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { orchestrateIntake } from "@/lib/intake/orchestrateIntake";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,9 +52,20 @@ export async function POST(_req: Request, ctx: Ctx) {
       }
     } else {
       await sb.from("deals").update({ intake_state: "FAILED" }).eq("id", dealId);
+      void writeEvent({
+        dealId,
+        kind: "intake.orchestrator_critical_failure",
+        scope: "intake",
+        requiresHumanReview: true,
+        meta: {
+          source: "banker",
+          critical_failures: result?.criticalFailures ?? [],
+          steps: result?.diagnostics?.steps ?? [],
+        },
+      });
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { status: result?.ok ? 200 : 500 });
   } catch (error: any) {
     rethrowNextErrors(error);
 
