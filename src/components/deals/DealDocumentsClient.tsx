@@ -405,10 +405,13 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   const loadReextractStatus = useCallback(async () => {
     setReextractStatusState(applyFetchOutcome({ type: "start" }));
     try {
-      const res = await fetch(`/api/deals/${dealId}/reextract-all`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/deals/${dealId}/reprocess?scope=extract-all`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
       if (!res.ok) {
         setReextractStatusState(
           applyFetchOutcome({ type: "http_error", status: res.status }),
@@ -447,10 +450,13 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
   const loadReclassifyStatus = useCallback(async () => {
     setReclassifyStatusState(applyFetchOutcome({ type: "start" }));
     try {
-      const res = await fetch(`/api/deals/${dealId}/reclassify-all`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/deals/${dealId}/reprocess?scope=reclassify-all`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
       if (!res.ok) {
         setReclassifyStatusState(
           applyFetchOutcome({ type: "http_error", status: res.status }),
@@ -489,9 +495,11 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
     setReextractResult(null);
     setShowReextractModal(false);
     try {
-      const res = await fetch(`/api/deals/${dealId}/reextract-all`, {
+      const res = await fetch(`/api/deals/${dealId}/reprocess`, {
         method: "POST",
         cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "extract-all" }),
       });
       const json = await res.json();
       if (json?.ok) {
@@ -517,9 +525,11 @@ export default function DealDocumentsClient({ dealId }: { dealId: string }) {
     setReclassifyErrors([]);
     setShowReclassifyModal(false);
     try {
-      const res = await fetch(`/api/deals/${dealId}/reclassify-all`, {
+      const res = await fetch(`/api/deals/${dealId}/reprocess`, {
         method: "POST",
         cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "reclassify-all" }),
       });
       const json = await res.json();
       if (json?.ok) {

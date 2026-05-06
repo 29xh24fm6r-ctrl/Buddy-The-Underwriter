@@ -987,7 +987,7 @@ export function buildUnderwriteCommandBridgeActivationScript(): string {
             return;
           }
 
-          fetch("/api/deals/" + dealId + "/upload-links/create", {
+          fetch("/api/deals/" + dealId + "/upload-links", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ label: "Underwrite request link" }),

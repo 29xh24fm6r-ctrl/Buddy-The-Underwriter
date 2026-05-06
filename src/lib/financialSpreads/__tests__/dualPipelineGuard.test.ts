@@ -58,14 +58,17 @@ describe("dual pipeline guard", () => {
     );
   });
 
-  it("re-extract route uses shared spreadsForDocType mapping", () => {
-    const reExtractSrc = fs.readFileSync(
-      "src/app/api/deals/[dealId]/re-extract/route.ts",
+  it("reprocess route uses shared spreadsForDocType mapping", () => {
+    // The /re-extract sibling was consolidated into /reprocess as the
+    // scope="single-doc" branch (route-budget consolidation, see
+    // specs/platform/SPEC-2026-05-vercel-route-count-reduction.md).
+    const reprocessSrc = fs.readFileSync(
+      "src/app/api/deals/[dealId]/reprocess/route.ts",
       "utf-8",
     );
     assert.ok(
-      reExtractSrc.includes("docTypeToSpreadTypes"),
-      "re-extract route must import from shared docTypeToSpreadTypes",
+      reprocessSrc.includes("docTypeToSpreadTypes"),
+      "reprocess route must import from shared docTypeToSpreadTypes",
     );
   });
 

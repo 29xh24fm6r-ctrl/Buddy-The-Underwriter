@@ -54,7 +54,7 @@ export default function BorrowerUploadLinksCard({
 
   async function refresh() {
     setMsg(null);
-    const res = await fetch(`/api/deals/${dealId}/upload-links/list`, { cache: "no-store" });
+    const res = await fetch(`/api/deals/${dealId}/upload-links`, { cache: "no-store" });
     const json = await res.json();
     if (!res.ok || !json?.ok) {
       setMsg(json?.error || "Failed to load links.");
@@ -73,7 +73,7 @@ export default function BorrowerUploadLinksCard({
     setBusy(true);
     setMsg("Creating link…");
     try {
-      const res = await fetch(`/api/deals/${dealId}/upload-links/create`, {
+      const res = await fetch(`/api/deals/${dealId}/upload-links`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
