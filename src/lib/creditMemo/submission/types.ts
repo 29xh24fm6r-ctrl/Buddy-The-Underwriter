@@ -38,10 +38,14 @@ export type MemoReadinessContract = {
 
 export type MemoSubmissionFailureReason =
   | "readiness_failed"
+  | "input_readiness_failed"
   | "memo_load_failed"
   | "tenant_mismatch"
   | "missing_banker_id"
   | "persist_failed";
+
+// Imported lazily as a `type` so this module remains free of server-only deps.
+import type { MemoInputReadiness } from "@/lib/creditMemo/inputs/types";
 
 export type MemoSubmissionResult =
   | {
@@ -49,12 +53,14 @@ export type MemoSubmissionResult =
       snapshotId: string;
       memoVersion: number;
       readiness: MemoReadinessContract;
+      inputReadiness: MemoInputReadiness;
       inputHash: string;
     }
   | {
       ok: false;
       reason: MemoSubmissionFailureReason;
       readiness?: MemoReadinessContract;
+      inputReadiness?: MemoInputReadiness;
       error?: string;
     };
 

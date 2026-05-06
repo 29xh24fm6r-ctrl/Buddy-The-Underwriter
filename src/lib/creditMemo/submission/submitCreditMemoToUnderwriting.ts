@@ -23,6 +23,8 @@ import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
+import { buildMemoInputPackage } from "@/lib/creditMemo/inputs/buildMemoInputPackage";
+import { evaluateMemoInputReadiness } from "@/lib/creditMemo/inputs/evaluateMemoInputReadiness";
 import { evaluateMemoReadinessContract } from "./evaluateMemoReadinessContract";
 import { computeInputHash } from "./computeInputHash";
 import { buildMemoOutput } from "./buildMemoOutput";
@@ -53,6 +55,42 @@ export async function submitCreditMemoToUnderwriting(
     return { ok: false, reason: "tenant_mismatch", error: access.error };
   }
   const { bankId } = access;
+
+  // ── Memo Input Completeness Layer ─────────────────────────────────────
+  // Authoritative gate: evaluateMemoInputReadiness runs over the assembled
+  // package and rejects submissions that cannot prove story / management /
+  // collateral / financials / research / conflicts are all satisfied.
+  // CI guard memoInputCompletenessGuard.test.ts enforces this call site.
+  const inputPackageResult = await buildMemoInputPackage({
+    dealId: args.dealId,
+    runReconciliation: true,
+  });
+  if (!inputPackageResult.ok) {
+    return {
+      ok: false,
+      reason: "input_readiness_failed",
+      error: inputPackageResult.error ?? inputPackageResult.reason,
+    };
+  }
+  const inputPackage = inputPackageResult.package;
+  const inputReadiness = evaluateMemoInputReadiness({
+    dealId: args.dealId,
+    borrowerStory: inputPackage.borrower_story,
+    management: inputPackage.management_profiles,
+    collateral: inputPackage.collateral_items,
+    financialFacts: inputPackage.financial_facts,
+    research: inputPackage.research,
+    conflicts: inputPackage.conflicts.filter(
+      (c) => c.status === "open" || c.status === "acknowledged",
+    ),
+  });
+  if (!inputReadiness.ready) {
+    return {
+      ok: false,
+      reason: "input_readiness_failed",
+      inputReadiness,
+    };
+  }
 
   const memoResult = await buildCanonicalCreditMemo({
     dealId: args.dealId,
@@ -170,6 +208,8 @@ export async function submitCreditMemoToUnderwriting(
       data_sources_json: {
         manifest: dataSources,
         sources: memoOutput.sources,
+        memo_input_package: inputPackage,
+        memo_input_readiness: inputReadiness,
       } as unknown as Record<string, unknown>,
       banker_certification_json: {
         certification,
@@ -194,6 +234,7 @@ export async function submitCreditMemoToUnderwriting(
     snapshotId: insertRes.data.id as string,
     memoVersion: nextVersion,
     readiness,
+    inputReadiness,
     inputHash,
   };
 }

@@ -37,7 +37,8 @@ export async function POST(
 
     if (!result.ok) {
       const status =
-        result.reason === "readiness_failed"
+        result.reason === "readiness_failed" ||
+        result.reason === "input_readiness_failed"
           ? 409
           : result.reason === "tenant_mismatch"
             ? 403
@@ -49,6 +50,7 @@ export async function POST(
           ok: false,
           reason: result.reason,
           readiness: result.readiness ?? null,
+          inputReadiness: result.inputReadiness ?? null,
           error: result.error ?? null,
         },
         { status },
@@ -61,6 +63,7 @@ export async function POST(
       memoVersion: result.memoVersion,
       inputHash: result.inputHash,
       readiness: result.readiness,
+      inputReadiness: result.inputReadiness,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
