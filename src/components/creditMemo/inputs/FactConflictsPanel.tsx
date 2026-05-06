@@ -22,10 +22,11 @@ export default function FactConflictsPanel({ dealId, initial }: Props) {
     setBusyId(conflict.id);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/memo-inputs/conflicts`, {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          kind: "conflicts",
           id: conflict.id,
           status: newStatus,
           resolution,

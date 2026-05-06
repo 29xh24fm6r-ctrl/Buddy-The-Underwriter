@@ -75,10 +75,10 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/memo-inputs/management`, {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(asPayload(draft)),
+        body: JSON.stringify({ kind: "management", ...asPayload(draft) }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "save_failed");
@@ -97,10 +97,10 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/memo-inputs/management`, {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(asPayload(target)),
+        body: JSON.stringify({ kind: "management", ...asPayload(target) }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "save_failed");
@@ -124,7 +124,7 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
     setError(null);
     try {
       const res = await fetch(
-        `/api/deals/${dealId}/memo-inputs/management?id=${encodeURIComponent(
+        `/api/deals/${dealId}/memo-inputs?kind=management&id=${encodeURIComponent(
           target.id,
         )}`,
         { method: "DELETE" },
