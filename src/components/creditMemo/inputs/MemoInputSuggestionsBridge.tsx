@@ -20,22 +20,23 @@ export default function MemoInputSuggestionsBridge({ dealId }: { dealId: string 
     setError(null);
     try {
       if (path[0] === "borrower_story" && path[1]) {
-        await fetch(`/api/deals/${dealId}/memo-inputs/borrower-story`, {
+        await fetch(`/api/deals/${dealId}/memo-inputs`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ [path[1]]: value }),
         });
       } else if (path[0] === "management_profiles") {
-        await fetch(`/api/deals/${dealId}/memo-inputs/management`, {
+        await fetch(`/api/deals/${dealId}/memo-inputs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ person_name: value }),
+          body: JSON.stringify({ kind: "management", person_name: value }),
         });
       } else if (path[0] === "collateral_items") {
-        await fetch(`/api/deals/${dealId}/memo-inputs/collateral`, {
+        await fetch(`/api/deals/${dealId}/memo-inputs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            kind: "collateral",
             collateral_type: "general",
             description: value,
           }),

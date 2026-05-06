@@ -10,8 +10,9 @@ export const maxDuration = 15;
  * SPEC-13 — POST has been deprecated.
  *
  * The MemoCompletionWizard now writes through
- * `/api/deals/[dealId]/memo-inputs/from-wizard`, which persists to the
- * canonical `deal_borrower_story` / `deal_management_profiles` tables.
+ * `POST /api/deals/[dealId]/memo-inputs` with body
+ * `{ kind: "from-wizard", overrides }`, which persists to the canonical
+ * `deal_borrower_story` / `deal_management_profiles` tables.
  *
  * This handler is a no-op deprecation shim that returns
  * `{ ok: true, deprecated: true }` so older deployed clients (the wizard
@@ -37,7 +38,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       deprecated: true,
-      successor: `/api/deals/${dealId}/memo-inputs/from-wizard`,
+      successor: `/api/deals/${dealId}/memo-inputs`,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);

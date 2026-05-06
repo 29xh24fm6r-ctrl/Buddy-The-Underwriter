@@ -20,7 +20,7 @@ export default function MemoInputSuggestionsPanel({ dealId, onAccept }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/deals/${dealId}/memo-inputs/prefill`);
+        const res = await fetch(`/api/deals/${dealId}/memo-inputs?section=prefill`);
         const json = await res.json();
         if (!cancelled && json?.ok) setPrefill(json.prefill as MemoInputPrefill);
       } catch {

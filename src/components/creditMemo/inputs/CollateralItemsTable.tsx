@@ -90,10 +90,10 @@ export default function CollateralItemsTable({ dealId, initial }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/memo-inputs/collateral`, {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(asPayload(draft)),
+        body: JSON.stringify({ kind: "collateral", ...asPayload(draft) }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "save_failed");
@@ -112,10 +112,10 @@ export default function CollateralItemsTable({ dealId, initial }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/memo-inputs/collateral`, {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(asPayload(target)),
+        body: JSON.stringify({ kind: "collateral", ...asPayload(target) }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "save_failed");

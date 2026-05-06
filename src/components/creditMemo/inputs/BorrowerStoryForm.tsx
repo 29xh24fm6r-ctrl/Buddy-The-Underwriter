@@ -56,7 +56,7 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/memo-inputs/borrower-story`, {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
