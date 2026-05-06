@@ -86,9 +86,10 @@ describe("Phase 65J — Reviews Guards", () => {
     }
   });
 
-  it("Reviews tab in DealShell", () => {
-    const content = readFileSync(join(root, "src/app/(app)/deals/[dealId]/DealShell.tsx"), "utf-8");
-    assert.ok(content.includes("Reviews"), "DealShell must include Reviews tab");
-    assert.ok(content.includes("/reviews"), "DealShell must link to /reviews");
+  it("Reviews route remains reachable", () => {
+    // SPEC-01: stage-specific tabs were removed from DealShell. The /reviews
+    // route still exists and is reachable by URL.
+    const reviewsPage = join(root, "src/app/(app)/deals/[dealId]/reviews/page.tsx");
+    assert.ok(existsSync(reviewsPage), "/reviews page must exist");
   });
 });

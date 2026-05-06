@@ -80,10 +80,15 @@ describe("Phase 65K — Special Assets Guards", () => {
     assert.ok(content.includes("workout_stalled"));
   });
 
-  it("Special Assets tab in DealShell", () => {
-    const content = readFileSync(join(root, "src/app/(app)/deals/[dealId]/DealShell.tsx"), "utf-8");
-    assert.ok(content.includes("Special Assets"));
-    assert.ok(content.includes("/special-assets"));
+  it("Special Assets route is wired to the workout lifecycle stage", () => {
+    // SPEC-01: stage-specific tabs were removed from DealShell. The
+    // /special-assets route is now reached via the JourneyRail (workout stage).
+    const stageRoutes = readFileSync(
+      join(root, "src/components/journey/stageRoutes.ts"),
+      "utf-8",
+    );
+    assert.ok(stageRoutes.includes("/special-assets"));
+    assert.ok(stageRoutes.includes('"workout"'));
   });
 
   it("key server actions exist", () => {

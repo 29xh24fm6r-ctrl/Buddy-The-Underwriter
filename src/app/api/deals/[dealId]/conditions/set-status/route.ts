@@ -81,11 +81,17 @@ export async function POST(
       { status: 404 },
     );
 
-  const up = await sb
+  // SPEC-08: return canonical row so consumers can reconcile without
+  // a hard refresh.
+  const up = await (sb as any)
     .from("deal_conditions")
-    .update({ status })
+    .update({ status, updated_at: new Date().toISOString() })
     .eq("id", condition_id)
-    .eq("deal_id", dealId);
+    .eq("deal_id", dealId)
+    .select(
+      "id, deal_id, title, description, category, status, source, source_key, due_date, created_at, updated_at",
+    )
+    .maybeSingle();
 
   if (up.error)
     return NextResponse.json(
@@ -141,5 +147,5 @@ export async function POST(
     });
   } catch {}
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, condition: up.data ?? null });
 }

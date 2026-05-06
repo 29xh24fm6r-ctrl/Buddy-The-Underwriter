@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect } from "react";
 import React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { SafeBoundary } from "@/components/SafeBoundary";
 import { LiveIndicator, ProcessingIndicator, CockpitToastStack } from "@/components/deals/LiveIndicator";
 import { CockpitDataProvider } from "@/buddy/cockpit";
 import { emitBuddySignal } from "@/buddy/emitBuddySignal";
@@ -16,11 +15,11 @@ import { useDealMeta } from "@/hooks/useDealMeta";
 import { deriveDealHeader } from "@/lib/deals/deriveDealHeader";
 import { CockpitStateProvider, useCockpitStateContext } from "@/hooks/useCockpitState";
 
-// Keystone Cockpit: 3-column layout
-import { LeftColumn } from "@/components/deals/cockpit/columns/LeftColumn";
-import { CenterColumn } from "@/components/deals/cockpit/columns/CenterColumn";
-import { RightColumn } from "@/components/deals/cockpit/columns/RightColumn";
-import { SecondaryTabsPanel } from "@/components/deals/cockpit/panels/SecondaryTabsPanel";
+// SPEC-02: cockpit body is now stage-driven. The legacy 3-column layout
+// (LeftColumn/CenterColumn/RightColumn) is composed inside DocumentsStageView /
+// UnderwritingStageView / others, so column files stay in use.
+// SPEC-01: SecondaryTabsPanel mount removed from banker cockpit.
+import { StageModeView } from "@/components/journey/StageModeView";
 import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
@@ -120,14 +119,14 @@ function DealCockpitClientInner({
   readiness: _readiness,
   lifecycleStage,
   ignitedEvent: _ignitedEvent,
-  intakeInitialized,
+  intakeInitialized: _intakeInitialized,
   verify,
-  verifyLedger,
+  verifyLedger: _verifyLedger,
   unifiedLifecycleState,
   lifecycleAvailable: _lifecycleAvailable = true,
-  gatekeeperPrimaryRouting = false,
-  intakePhase,
-  intakeGateEnabled = false,
+  gatekeeperPrimaryRouting: _gatekeeperPrimaryRouting = false,
+  intakePhase: _intakePhase,
+  intakeGateEnabled: _intakeGateEnabled = false,
 }: DealCockpitClientProps) {
   const [stage, setStage] = useState<string | null>(lifecycleStage ?? null);
   const { deal: dealMeta, refresh: refreshMeta, setDeal: setDealMeta } = useDealMeta(dealId);
@@ -344,40 +343,10 @@ function DealCockpitClientInner({
           {/* Processing Micro-State */}
           <ProcessingIndicator />
 
-          {/* === KEYSTONE 3-COLUMN LAYOUT === */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-            {/* Left Column: Documents + Pipeline (mobile: 3rd) */}
-            <div id="cockpit-documents" className="lg:col-span-4 order-3 lg:order-1">
-              <LeftColumn dealId={dealId} isAdmin={isAdmin} />
-            </div>
-
-            {/* Center Column: Year-Aware Checklist (mobile: 2nd) */}
-            <div className="lg:col-span-4 order-2 lg:order-2">
-              <CenterColumn dealId={dealId} />
-            </div>
-
-            {/* Right Column: Readiness + Primary CTA (mobile: 1st) */}
-            <div className="lg:col-span-4 order-1 lg:order-3">
-              <RightColumn dealId={dealId} isAdmin={isAdmin} />
-            </div>
-          </div>
-
-          {/* === SECONDARY TABS === */}
-          <SafeBoundary>
-            <SecondaryTabsPanel
-              dealId={dealId}
-              isAdmin={isAdmin}
-              lifecycleStage={stage}
-              intakeInitialized={intakeInitialized}
-              intakePhase={intakePhase}
-              intakeGateEnabled={intakeGateEnabled}
-              verify={verify}
-              verifyLedger={verifyLedger}
-              unifiedLifecycleState={unifiedLifecycleState}
-              onLifecycleStageChange={setStage}
-              gatekeeperPrimaryRouting={gatekeeperPrimaryRouting}
-            />
-          </SafeBoundary>
+          {/* SPEC-02: Stage-driven cockpit body. The current lifecycle stage
+              selects exactly one StageModeView; legacy column components are
+              still composed inside DocumentsStageView / UnderwritingStageView. */}
+          <StageModeView dealId={dealId} isAdmin={isAdmin} verify={verify} />
         </div>
       </div>
 

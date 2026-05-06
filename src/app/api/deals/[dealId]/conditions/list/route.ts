@@ -75,11 +75,14 @@ export async function GET(
     linksByCondition.set(l.condition_id, arr);
   }
 
-  const items = (q.data ?? []).map((c: any) => ({
+  const conditions = (q.data ?? []).map((c: any) => ({
     ...c,
     linked_evidence: linksByCondition.get(c.id) ?? [],
     linked_doc_count: (linksByCondition.get(c.id) ?? []).length,
   }));
 
-  return NextResponse.json({ ok: true, items });
+  // SPEC-07: canonical shape is `{ conditions }`. `items` is kept as a
+  // deprecated alias for one cycle to avoid breaking ConditionsToCloseCard
+  // (and any other legacy consumer) before they migrate.
+  return NextResponse.json({ ok: true, conditions, items: conditions });
 }
