@@ -633,13 +633,42 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     });
 
     try {
-      await orchestrateIntake({
+      const orchResult = await orchestrateIntake({
         dealId: resolvedDealId,
         bankId: resolvedBankId,
         source: "builder",
       });
+      if (!orchResult.ok) {
+        // The auto-seed work itself succeeded; the follow-on orchestrator
+        // hit a critical failure (slot generation, gatekeeper, lifecycle).
+        // Surface it via ledger so it doesn't disappear silently — auto-seed
+        // remains a 200 response because the checklist seeding did complete.
+        await logLedgerEvent({
+          dealId: resolvedDealId,
+          bankId: resolvedBankId,
+          eventKey: "deal.intake.orchestrator_critical_failure",
+          uiState: "done",
+          uiMessage: "Intake orchestrator hit critical failures after auto-seed",
+          meta: {
+            source: "auto_seed",
+            critical_failures: orchResult.criticalFailures ?? [],
+            steps: orchResult.diagnostics?.steps ?? [],
+          },
+        });
+      }
     } catch (e) {
-      console.warn("[auto-seed] intake orchestrator failed (non-fatal)", e);
+      console.warn("[auto-seed] intake orchestrator threw (non-fatal)", e);
+      await logLedgerEvent({
+        dealId: resolvedDealId,
+        bankId: resolvedBankId,
+        eventKey: "deal.intake.orchestrator_threw",
+        uiState: "done",
+        uiMessage: "Intake orchestrator threw after auto-seed",
+        meta: {
+          source: "auto_seed",
+          error: (e as any)?.message ?? String(e),
+        },
+      });
     }
 
 

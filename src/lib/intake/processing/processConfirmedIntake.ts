@@ -536,6 +536,35 @@ export async function processConfirmedIntake(
     errors.push(`snapshot_recompute:${err?.message}`);
   }
 
+  // 3b-iii. Structural assertion: deals reaching processing without any
+  // deterministic slots indicate a wiring gap upstream (orchestrator's
+  // ensure_slots step skipped, or deal created via a path that bypasses
+  // both igniteDeal and the orchestrator). Emit a flagged ledger event so
+  // ops can investigate; do not abort processing yet — first ruling out
+  // false positives. Future hardening: promote to a hard invariant.
+  try {
+    const { count: slotCount } = await (sb as any)
+      .from("deal_document_slots")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
+
+    if ((slotCount ?? 0) === 0) {
+      errors.push("structural: deal completed processing with zero slots");
+      void writeEvent({
+        dealId,
+        kind: "intake.processing_no_slots",
+        scope: "intake",
+        requiresHumanReview: true,
+        meta: {
+          run_id: runId ?? null,
+          docs_processed: confirmedDocs.length,
+        },
+      });
+    }
+  } catch (err: any) {
+    errors.push(`slot_assertion:${err?.message}`);
+  }
+
   // 3c. Bootstrap lifecycle
   try {
     const { bootstrapDealLifecycle } = await import(
