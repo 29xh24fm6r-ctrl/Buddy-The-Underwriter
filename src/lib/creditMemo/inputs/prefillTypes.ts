@@ -9,7 +9,10 @@ export type SuggestionSource =
   | "research"
   | "deal"
   | "borrower"
-  | "buddy";
+  | "buddy"
+  /** SPEC-13 — banker-entered text in the legacy deal_memo_overrides
+   *  table, projected as a prefill suggestion. */
+  | "banker_override_legacy";
 
 export type SuggestedValue = {
   value: string;

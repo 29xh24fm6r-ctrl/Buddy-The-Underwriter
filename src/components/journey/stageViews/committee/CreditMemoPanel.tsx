@@ -14,6 +14,11 @@ export type MemoSummary = {
  *
  * SPEC-04: data is owned and fetched by `CommitteeStageView` and passed
  * down. This panel renders only.
+ *
+ * SPEC-13: the primary action is now readiness-aware. When memo inputs
+ * are missing, the link points at /memo-inputs and reads "Complete Memo
+ * Inputs" instead of dropping the banker into a memo they cannot
+ * submit.
  */
 export function CreditMemoPanel({
   dealId,
@@ -33,6 +38,9 @@ export function CreditMemoPanel({
   const missing = data?.missing_keys?.length ?? 0;
   const ready = data && missing === 0 && required > 0;
   const partial = data && missing > 0 && present > 0;
+  // SPEC-13 — drives the primary-link branching. `isReady` is true only
+  // when the memo summary reports zero missing keys.
+  const isReady = missing === 0;
 
   const status = !data
     ? "PENDING"
@@ -89,7 +97,14 @@ export function CreditMemoPanel({
           : []
       }
       links={[
-        { label: "Open Memo", href: `/deals/${dealId}/credit-memo` },
+        // SPEC-13: when memo inputs are not yet ready, drive the banker
+        // to the inputs surface instead of the memo itself.
+        isReady
+          ? { label: "Open Memo", href: `/deals/${dealId}/credit-memo` }
+          : {
+              label: "Complete Memo Inputs",
+              href: `/deals/${dealId}/memo-inputs`,
+            },
         { label: "Memo Template", href: `/deals/${dealId}/memo-template` },
       ]}
     />

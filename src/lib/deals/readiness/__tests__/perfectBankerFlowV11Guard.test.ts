@@ -169,15 +169,23 @@ test("[v11-3] every memo-input blocker code maps to a lifecycle stage", () => {
 // ─── Guard 4 ────────────────────────────────────────────────────────────────
 test("[v11-4] credit memo page never dead-ends — always redirects or renders", () => {
   const body = read(PATHS.memoPage);
-  // The page must call redirect when readiness is incomplete.
+  // SPEC-13 contract: when readiness is incomplete and no submitted
+  // snapshot exists, the page no longer calls redirect() silently —
+  // it renders <MemoInputsRedirectBanner /> on top of the memo-inputs
+  // body inline. The "never dead-ends" intent of v1.1 is preserved
+  // because the banker sees the inputs surface immediately.
   assert.match(
     body,
-    /redirect\(`\/deals\/\$\{dealId\}\/memo-inputs`\)/,
-    "Page must redirect to /memo-inputs when readiness is incomplete",
+    /MemoInputsRedirectBanner/,
+    "Page must render the redirect banner when readiness is incomplete",
   );
-  // It must NOT render a "blocked submit" view path. Specifically: if
-  // readiness fails to load (inputResult.ok=false), we should NOT
-  // pretend everything is fine. We allow rendering when memo is submitted.
+  assert.match(
+    body,
+    /MemoInputsBody/,
+    "Page must render the memo-inputs body inline so the banker is not dropped onto an empty page",
+  );
+  // The submitted-snapshot guard must remain so the banker can re-view
+  // memos that have already been submitted.
   assert.match(
     body,
     /hasSubmittedSnapshot/,

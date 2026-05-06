@@ -320,14 +320,29 @@ test("[guard-9a] memo-overrides PATCH route enforces isPermittedOverrideKey", ()
   );
 });
 
-test("[guard-9b] credit-memo/overrides POST route enforces filterQualitativeOverrides", () => {
+test("[guard-9b] credit-memo/overrides POST is a SPEC-13 deprecation shim", () => {
+  // SPEC-13: the POST handler no longer writes to deal_memo_overrides;
+  // the wizard's writes go through /api/deals/[dealId]/memo-inputs/from-wizard
+  // which targets the canonical deal_borrower_story / deal_management_profiles
+  // tables. The legacy POST is preserved as a no-op for one deploy
+  // cycle so older clients don't error out.
   const src = readFileSync(
     resolve(__dirname, "../../../app/api/deals/[dealId]/credit-memo/overrides/route.ts"),
     "utf-8",
   );
+  assert.match(
+    src,
+    /deprecated:\s*true/,
+    "POST must return { deprecated: true } so callers can migrate",
+  );
+  assert.match(
+    src,
+    /memo-inputs\/from-wizard/,
+    "POST must point callers at the SPEC-13 successor route",
+  );
   assert.ok(
-    src.includes("filterQualitativeOverrides"),
-    "credit-memo/overrides POST must filter overrides through policy",
+    !src.includes("filterQualitativeOverrides"),
+    "POST shim must not invoke the legacy override filter — no writes happen",
   );
 });
 

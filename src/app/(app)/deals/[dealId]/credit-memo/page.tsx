@@ -23,6 +23,8 @@ import RegenerateMemoButton from "@/components/creditMemo/RegenerateMemoButton";
 import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
 import BlockedMemoRecoveryPanel from "@/components/creditMemo/BlockedMemoRecoveryPanel";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
+import MemoInputsBody from "@/components/creditMemo/inputs/MemoInputsBody";
+import MemoInputsRedirectBanner from "@/components/creditMemo/MemoInputsRedirectBanner";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -70,7 +72,30 @@ export default async function DealCreditMemoPage(props: {
       runReconciliation: false,
     });
     if (inputResult.ok && !inputResult.package.readiness.ready) {
-      redirect(`/deals/${dealId}/memo-inputs`);
+      // SPEC-13: replace silent redirect() with a visible banner that
+      // the banker can read, sitting above an inline copy of the
+      // memo-inputs surface. The banner soft-redirects after 1.5s
+      // (client-side router push); the banker is never left wondering
+      // why the URL changed.
+      const pkg = inputResult.package;
+      const missingCount = pkg.readiness.blockers.length;
+      return (
+        <div className="bg-gray-50 min-h-screen">
+          <div className="mx-auto max-w-[1100px] p-8 space-y-6">
+            <MemoInputsRedirectBanner
+              dealId={dealId}
+              missingCount={missingCount}
+            />
+            <header>
+              <h1 className="text-xl font-semibold text-gray-900">Memo Inputs</h1>
+              <p className="text-sm text-gray-600">
+                Complete the inputs below before this memo can finalize.
+              </p>
+            </header>
+            <MemoInputsBody dealId={dealId} pkg={pkg} />
+          </div>
+        </div>
+      );
     }
   }
 

@@ -16,6 +16,13 @@ import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..", "..");
 const PREFILL = join(REPO_ROOT, "src/lib/creditMemo/inputs/prefillMemoInputs.ts");
+// SPEC-13 — pure helpers (buildBorrowerStorySuggestions / buildManagementSuggestions)
+// were extracted into a separate non-server-only module so unit tests can
+// import them. The structural invariants check both files.
+const PREFILL_PURE = join(
+  REPO_ROOT,
+  "src/lib/creditMemo/inputs/prefillMemoInputsPure.ts",
+);
 const TYPES = join(REPO_ROOT, "src/lib/creditMemo/inputs/prefillTypes.ts");
 
 function read(p: string) {
@@ -57,7 +64,9 @@ test("[prefill-4] prefill never writes directly — ownership goes through accep
 });
 
 test("[prefill-5] research narrative is the primary source for borrower story", () => {
-  const body = read(PREFILL);
+  // SPEC-13: pure builder lives in prefillMemoInputsPure.ts. Wrapper in
+  // prefillMemoInputs.ts re-exports.
+  const body = read(PREFILL) + "\n" + read(PREFILL_PURE);
   assert.match(
     body,
     /research\.industry_overview/,

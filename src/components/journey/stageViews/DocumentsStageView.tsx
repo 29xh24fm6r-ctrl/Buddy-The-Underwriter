@@ -53,7 +53,7 @@ export function DocumentsStageView({
         </AdvancedDisclosure>
       }
     >
-      <DocumentsStageBody dealId={dealId} isAdmin={isAdmin} />
+      <DocumentsStageBody dealId={dealId} />
     </StageWorkspaceShell>
   );
 }
@@ -70,9 +70,12 @@ export function DocumentsStageView({
  * still recompose them. This is intentionally a layered approach: thin
  * surfaces own the headline, full panels own the deep edit.
  */
-function DocumentsStageBody({ dealId, isAdmin }: { dealId: string; isAdmin: boolean }) {
-  const { refreshSeq } = useStageDataContext();
-
+function DocumentsStageBody({ dealId }: { dealId: string }) {
+  // SPEC-13: legacy LeftColumn / CenterColumn / ReadinessPanel block was
+  // mounted as a sibling of the lifted summary surfaces below them, which
+  // produced visual doubling on first paint. The block now lives inside
+  // <AdvancedDisclosure> (rendered by StageWorkspaceShell). First paint
+  // shows summary surfaces alone.
   return (
     <div className="space-y-4">
       <SafeBoundary>
@@ -90,27 +93,6 @@ function DocumentsStageBody({ dealId, isAdmin }: { dealId: string; isAdmin: bool
           <UploadRequestSurface dealId={dealId} />
         </SafeBoundary>
       </div>
-
-      <div
-        key={`docs-stage-${refreshSeq}`}
-        className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
-      >
-        <div className="lg:col-span-5">
-          <SafeBoundary>
-            <LeftColumn dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-        </div>
-        <div className="lg:col-span-4">
-          <SafeBoundary>
-            <CenterColumn dealId={dealId} />
-          </SafeBoundary>
-        </div>
-        <div className="lg:col-span-3">
-          <SafeBoundary>
-            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
-          </SafeBoundary>
-        </div>
-      </div>
     </div>
   );
 }
@@ -127,6 +109,24 @@ function DocumentsAdvancedBody({
   const { refreshSeq } = useStageDataContext();
   return (
     <div key={`docs-advanced-${refreshSeq}`} className="space-y-3">
+      {/* SPEC-13: legacy column block demoted under AdvancedDisclosure. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+        <div className="lg:col-span-5">
+          <SafeBoundary>
+            <LeftColumn dealId={dealId} isAdmin={isAdmin} />
+          </SafeBoundary>
+        </div>
+        <div className="lg:col-span-4">
+          <SafeBoundary>
+            <CenterColumn dealId={dealId} />
+          </SafeBoundary>
+        </div>
+        <div className="lg:col-span-3">
+          <SafeBoundary>
+            <ReadinessPanel dealId={dealId} isAdmin={isAdmin} />
+          </SafeBoundary>
+        </div>
+      </div>
       <SafeBoundary>
         <DocumentsTabPanel dealId={dealId} isAdmin={isAdmin} />
       </SafeBoundary>

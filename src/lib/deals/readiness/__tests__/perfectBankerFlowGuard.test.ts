@@ -97,12 +97,21 @@ test("[banker-flow-3] credit-memo submit route returns input readiness blockers"
 });
 
 // ─── Guard 4 ────────────────────────────────────────────────────────────────
-test("[banker-flow-4] credit-memo page redirects incomplete memo inputs to /memo-inputs", () => {
+test("[banker-flow-4] credit-memo page handles incomplete memo inputs without dead-ending", () => {
   const body = read(PATHS.creditMemoPage);
+  // SPEC-13 contract: when readiness.ready is false the page renders a
+  // <MemoInputsRedirectBanner /> on top of the inline memo-inputs body
+  // (no silent redirect()). The banker is dropped onto an actionable
+  // surface, never a blank page.
   assert.match(
     body,
-    /readiness\.ready[\s\S]*?redirect\(`\/deals\/\$\{dealId\}\/memo-inputs`\)/,
-    "Page must redirect to /memo-inputs when readiness.ready is false",
+    /readiness\.ready[\s\S]*?MemoInputsRedirectBanner/,
+    "Page must render the redirect banner when readiness.ready is false",
+  );
+  assert.match(
+    body,
+    /MemoInputsBody/,
+    "Page must render the memo-inputs body inline when readiness.ready is false",
   );
 });
 

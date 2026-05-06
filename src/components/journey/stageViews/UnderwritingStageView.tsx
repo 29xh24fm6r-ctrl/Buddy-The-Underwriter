@@ -70,7 +70,7 @@ export function UnderwritingStageView({
         </AdvancedDisclosure>
       }
     >
-      <UnderwritingStageBody dealId={dealId} stage={stage} isAdmin={isAdmin} />
+      <UnderwritingStageBody dealId={dealId} />
     </StageWorkspaceShell>
   );
 }
@@ -86,17 +86,12 @@ export function UnderwritingStageView({
  * remounted as a side effect of the whole body — only on a deliberate
  * underwriting-scoped refresh.
  */
-function UnderwritingStageBody({
-  dealId,
-  stage,
-  isAdmin,
-}: {
-  dealId: string;
-  stage: LifecycleState["stage"] | null;
-  isAdmin: boolean;
-}) {
-  const { refreshSeq } = useStageDataContext();
-
+function UnderwritingStageBody({ dealId }: { dealId: string }) {
+  // SPEC-13: legacy RiskDashboardPanel + UnderwritingControlPanel +
+  // ReadinessPanel block was a sibling of the lifted surfaces, which
+  // produced visual doubling on first paint. The legacy block now lives
+  // inside <AdvancedDisclosure> via UnderwritingAdvancedBody. First
+  // paint shows the lifted summary heads alone.
   return (
     <div className="space-y-4">
       <SafeBoundary>
@@ -118,8 +113,27 @@ function UnderwritingStageBody({
           </SafeBoundary>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Legacy workbench — mounted under the lifted summary heads. */}
+function UnderwritingAdvancedBody({
+  dealId,
+  isAdmin,
+  stage,
+  verify,
+}: {
+  dealId: string;
+  isAdmin: boolean;
+  stage: LifecycleState["stage"] | null;
+  verify: VerifyUnderwriteResult;
+}) {
+  const { refreshSeq } = useStageDataContext();
+  return (
+    <div key={`underwriting-advanced-${refreshSeq}`} className="space-y-3">
+      {/* SPEC-13: legacy workbench demoted under AdvancedDisclosure.
+       *  The remount key is preserved so a scoped refresh can still
+       *  recompose this block without router.refresh(). */}
       <div
         key={`underwriting-legacy-${refreshSeq}`}
         className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
@@ -141,24 +155,6 @@ function UnderwritingStageBody({
           </SafeBoundary>
         </div>
       </div>
-    </div>
-  );
-}
-
-function UnderwritingAdvancedBody({
-  dealId,
-  isAdmin,
-  stage,
-  verify,
-}: {
-  dealId: string;
-  isAdmin: boolean;
-  stage: LifecycleState["stage"] | null;
-  verify: VerifyUnderwriteResult;
-}) {
-  const { refreshSeq } = useStageDataContext();
-  return (
-    <div key={`underwriting-advanced-${refreshSeq}`} className="space-y-3">
       <SafeBoundary>
         <DealOutputsPanel dealId={dealId} verify={verify} />
       </SafeBoundary>

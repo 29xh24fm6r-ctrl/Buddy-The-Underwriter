@@ -15,6 +15,7 @@ import {
   reconcileDealFacts,
 } from "./reconcileDealFacts";
 import { writeMemoInputReadinessRow } from "./writeMemoInputReadiness";
+import { migrateLegacyOverridesToCanonical } from "./migrateLegacyOverridesAsync";
 import type {
   DealBorrowerStory,
   DealCollateralItem,
@@ -54,8 +55,33 @@ export async function buildMemoInputPackage(
     await reconcileDealFacts({ dealId: args.dealId });
   }
 
+  // SPEC-13 — auto-migration of legacy `deal_memo_overrides` JSON into
+  // canonical `deal_borrower_story` + `deal_management_profiles` rows.
+  // Gated on: borrower-story is empty AND legacy overrides are present.
+  // The wrapper itself is idempotent (it re-checks borrower-story
+  // existence inside the transaction), so re-entering this block on a
+  // racing build is safe.
+  let borrowerStory = await loadBorrowerStory(sb, args.dealId, bankId);
+  if (borrowerStory === null) {
+    const legacy = await loadBankerOverrides(sb, args.dealId, bankId);
+    if (Object.keys(legacy).length > 0) {
+      try {
+        await migrateLegacyOverridesToCanonical({
+          dealId: args.dealId,
+          bankId,
+          overrides: legacy,
+        });
+      } catch (err) {
+        // Migration is best-effort — never block package assembly.
+        console.warn("[memo-inputs] legacy override migration failed", err);
+      }
+      // Re-load borrower-story so the readiness evaluator sees the
+      // freshly-written row.
+      borrowerStory = await loadBorrowerStory(sb, args.dealId, bankId);
+    }
+  }
+
   const [
-    borrowerStory,
     management,
     collateral,
     financialFacts,
@@ -66,7 +92,6 @@ export async function buildMemoInputPackage(
     unfinalizedDocCount,
     policyExceptionsReviewed,
   ] = await Promise.all([
-    loadBorrowerStory(sb, args.dealId, bankId),
     loadManagementProfiles(sb, args.dealId, bankId),
     loadCollateralItems(sb, args.dealId, bankId),
     loadRequiredFinancialFacts(sb, args.dealId, bankId),

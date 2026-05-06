@@ -2,62 +2,50 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { filterQualitativeOverrides } from "@/lib/creditMemo/overridePolicy";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
 
+/**
+ * SPEC-13 — POST has been deprecated.
+ *
+ * The MemoCompletionWizard now writes through
+ * `/api/deals/[dealId]/memo-inputs/from-wizard`, which persists to the
+ * canonical `deal_borrower_story` / `deal_management_profiles` tables.
+ *
+ * This handler is a no-op deprecation shim that returns
+ * `{ ok: true, deprecated: true }` so older deployed clients (the wizard
+ * before this rewire shipped) don't error out for one deploy cycle.
+ *
+ * GET is preserved verbatim for read-back compatibility — the legacy
+ * data is still in `deal_memo_overrides` and is now consumed as a
+ * prefill source by `prefillMemoInputs`.
+ */
 export async function POST(
-  req: NextRequest,
+  _req: NextRequest,
   props: { params: Promise<{ dealId: string }> },
 ) {
   try {
     const { dealId } = await props.params;
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
-      return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
-    }
-    const bankId = access.bankId;
-
-    const body = await req.json().catch(() => ({}));
-    const rawOverrides = body?.overrides ?? {};
-
-    // Enforce override policy — only qualitative narrative keys are accepted
-    const { accepted, rejected } = filterQualitativeOverrides(rawOverrides);
-
-    const sb = supabaseAdmin();
-
-    // Phase 91: merge into existing overrides rather than overwrite, so that a
-    // partial submission (e.g. covenant-tab save) does not wipe unrelated keys
-    // from other tabs (business profile, qualitative overrides, etc.).
-    const { data: existing } = await sb
-      .from("deal_memo_overrides")
-      .select("overrides")
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId)
-      .maybeSingle();
-
-    const current = ((existing?.overrides as Record<string, unknown> | null) ?? {});
-    const merged: Record<string, unknown> = { ...current, ...accepted };
-
-    const { error } = await sb
-      .from("deal_memo_overrides")
-      .upsert(
-        { deal_id: dealId, bank_id: bankId, overrides: merged, updated_at: new Date().toISOString() },
-        { onConflict: "deal_id,bank_id" },
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: 403 },
       );
-
-    if (error) throw error;
-
+    }
     return NextResponse.json({
       ok: true,
-      overrides: merged,
-      rejected: rejected.length > 0 ? rejected : undefined,
+      deprecated: true,
+      successor: `/api/deals/${dealId}/memo-inputs/from-wizard`,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    console.error("[credit-memo/overrides POST]", e);
-    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
+    console.error("[credit-memo/overrides POST — deprecation shim]", e);
+    return NextResponse.json(
+      { ok: false, error: String(e) },
+      { status: 500 },
+    );
   }
 }
 
