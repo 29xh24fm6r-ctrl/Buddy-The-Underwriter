@@ -9,6 +9,7 @@ import type { VerifyUnderwriteResult } from "@/lib/deals/verifyUnderwriteCore";
 import Link from "next/link";
 import GlassToggles from "@/components/ui/GlassToggles";
 import { GlassCard, StatusPill, SecondaryCTA } from "@/components/ui/glass";
+import { JourneyMiniRail } from "@/components/journey/JourneyMiniRail";
 
 function formatMoney(amount: unknown): string {
   const n = typeof amount === "number" ? amount : Number(amount);
@@ -321,7 +322,7 @@ export default async function DealsPage({
                     {deal.amountLabel}
                   </td>
                   <td className="px-6 py-4 text-sm text-white/80">
-                    {deal.stage}
+                    <JourneyMiniRail stage={deal.stage} />
                   </td>
                   <td className="px-6 py-4">
                     {deal.status ? (

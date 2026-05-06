@@ -128,11 +128,14 @@ describe("Phase 65I — Post-Close Guards", () => {
     );
   });
 
-  // Guard 10: Post-close tab added to DealShell
-  it("post-close tab exists in DealShell", () => {
-    const p = join(root, "src/app/(app)/deals/[dealId]/DealShell.tsx");
-    const content = readFileSync(p, "utf-8");
-    assert.ok(content.includes("Post-Close"), "DealShell must include Post-Close tab");
-    assert.ok(content.includes("/post-close"), "DealShell must link to /post-close");
+  // Guard 10: SPEC-01 — /post-close is reached via JourneyRail closing stages.
+  it("post-close route is wired to closing/closed stages via stageRoutes", () => {
+    const stageRoutes = readFileSync(
+      join(root, "src/components/journey/stageRoutes.ts"),
+      "utf-8",
+    );
+    assert.ok(stageRoutes.includes("/post-close"));
+    assert.ok(stageRoutes.includes("closing_in_progress"));
+    assert.ok(stageRoutes.includes('"closed"'));
   });
 });

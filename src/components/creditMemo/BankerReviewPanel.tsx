@@ -85,6 +85,21 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Submission state — drives the "Submit to Underwriting" workflow.
+  // 'idle' | 'submitting' | 'submitted' | 'rejected'
+  const [submissionState, setSubmissionState] =
+    useState<"idle" | "submitting" | "submitted" | "rejected">("idle");
+  const [submissionResult, setSubmissionResult] = useState<{
+    snapshotId: string | null;
+    submittedAt: string | null;
+    memoVersion: number | null;
+    inputHash: string | null;
+  } | null>(null);
+  const [submissionBlockers, setSubmissionBlockers] = useState<
+    Array<{ code: string; label: string; owner: string }>
+  >([]);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+
   // ── Load overrides on mount ─────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -262,19 +277,61 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
     { id: "qual-tab",  ok: viewed.has("qualitative"), label: "Qualitative assessment reviewed" },
   ];
 
-  const markCommitteeReady = async () => {
-    if (!allRequiredDone) return;
-    await saveOverrides(
-      {
-        committee_ready: true,
-        committee_reviewed_at: new Date().toISOString(),
-      },
-      "checklist",
-    );
+  // Submit to underwriting — server-side gate replaces the prior
+  // UI-only "Mark as Committee-Ready" path.
+  const submitToUnderwriting = async () => {
+    if (!allRequiredDone || submissionState === "submitting") return;
+    setSubmissionState("submitting");
+    setSubmissionError(null);
+    setSubmissionBlockers([]);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/credit-memo/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bankerNotes:
+            typeof (overrides as any).committee_notes === "string"
+              ? (overrides as any).committee_notes
+              : null,
+          acknowledgedWarnings: [],
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 409) {
+        // Readiness contract rejected the submission. Surface the blockers
+        // so the banker can resolve them before retrying.
+        const blockers =
+          data?.readiness?.blockers && Array.isArray(data.readiness.blockers)
+            ? data.readiness.blockers
+            : [];
+        setSubmissionBlockers(blockers);
+        setSubmissionState("rejected");
+        return;
+      }
+
+      if (!res.ok || !data?.ok) {
+        setSubmissionError(data?.error ?? `HTTP ${res.status}`);
+        setSubmissionState("rejected");
+        return;
+      }
+
+      setSubmissionResult({
+        snapshotId: typeof data.snapshotId === "string" ? data.snapshotId : null,
+        submittedAt: new Date().toISOString(),
+        memoVersion: typeof data.memoVersion === "number" ? data.memoVersion : null,
+        inputHash: typeof data.inputHash === "string" ? data.inputHash : null,
+      });
+      setSubmissionState("submitted");
+    } catch (err: any) {
+      setSubmissionError(String(err?.message ?? err));
+      setSubmissionState("rejected");
+    }
   };
 
-  const isCommitteeReady = Boolean(overrides.committee_ready);
-  const reviewedAt = typeof overrides.committee_reviewed_at === "string" ? overrides.committee_reviewed_at : null;
+  const isSubmitted = submissionState === "submitted";
+  const submittedAt = submissionResult?.submittedAt ?? null;
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -293,9 +350,9 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
           }`}>
             {requiredDoneCount}/{requiredTotal} required fields complete
           </span>
-          {isCommitteeReady && (
+          {isSubmitted && (
             <span className={`text-[11px] font-semibold border rounded px-2 py-0.5 ${statusBadge("ok")}`}>
-              Committee-ready
+              Submitted to Underwriting
             </span>
           )}
         </div>
@@ -553,31 +610,78 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
                 ))}
               </ul>
 
+              {/* Submission rejection: surface server-side readiness blockers */}
+              {submissionState === "rejected" && submissionBlockers.length > 0 && (
+                <div className="mb-3 rounded border border-rose-200 bg-rose-50 px-3 py-2">
+                  <div className="text-[11px] font-semibold text-rose-700 uppercase mb-1">
+                    Submission rejected by server-side readiness contract
+                  </div>
+                  <ul className="space-y-1">
+                    {submissionBlockers.map((b) => (
+                      <li key={b.code} className="text-[11px] text-rose-800">
+                        <span className="font-semibold">{b.label}</span>
+                        <span className="text-rose-600"> · owner: {b.owner}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {submissionState === "rejected" && submissionError && submissionBlockers.length === 0 && (
+                <div className="mb-3 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1">
+                  Submission failed: {submissionError}
+                </div>
+              )}
+
+              {isSubmitted && submissionResult && (
+                <div className="mb-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <div className="text-[11px] font-semibold text-emerald-700 uppercase mb-1">
+                    Submitted to Underwriting
+                  </div>
+                  <div className="text-[11px] text-emerald-800 font-mono">
+                    {submittedAt && (
+                      <div>Submitted at: {new Date(submittedAt).toLocaleString()}</div>
+                    )}
+                    {submissionResult.memoVersion !== null && (
+                      <div>Memo version: v{submissionResult.memoVersion}</div>
+                    )}
+                    {submissionResult.snapshotId && (
+                      <div>Snapshot id: {submissionResult.snapshotId}</div>
+                    )}
+                    {submissionResult.inputHash && (
+                      <div>Input hash: {submissionResult.inputHash.slice(0, 16)}…</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-200">
                 <div className="text-[11px] text-gray-600">
-                  {isCommitteeReady && reviewedAt
-                    ? `Marked committee-ready at ${new Date(reviewedAt).toLocaleString()}.`
+                  {isSubmitted
+                    ? "This memo is locked. Underwriter receives the frozen snapshot."
                     : allRequiredDone
-                      ? "All required items complete. You may mark this memo committee-ready."
+                      ? "All required items complete. The server will re-validate before submission."
                       : `${requiredTotal - requiredDoneCount} required item${(requiredTotal - requiredDoneCount) !== 1 ? "s" : ""} remaining.`}
                 </div>
                 <button
                   type="button"
-                  disabled={!allRequiredDone || savingTab === "checklist"}
-                  onClick={markCommitteeReady}
+                  disabled={!allRequiredDone || submissionState === "submitting" || isSubmitted}
+                  onClick={submitToUnderwriting}
                   className={`text-xs font-semibold px-3 py-1.5 rounded transition-colors ${
-                    isCommitteeReady
-                      ? "bg-emerald-600 text-white"
+                    isSubmitted
+                      ? "bg-emerald-600 text-white cursor-default"
                       : !allRequiredDone
                         ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                        : "bg-gray-900 text-white hover:bg-gray-700"
+                        : submissionState === "submitting"
+                          ? "bg-sky-600 text-white"
+                          : "bg-gray-900 text-white hover:bg-gray-700"
                   }`}
                 >
-                  {savingTab === "checklist"
-                    ? "Saving…"
-                    : isCommitteeReady
-                      ? "Committee-Ready ✓"
-                      : "Mark as Committee-Ready"}
+                  {submissionState === "submitting"
+                    ? "Submitting…"
+                    : isSubmitted
+                      ? "Submitted ✓"
+                      : "Submit to Underwriting"}
                 </button>
               </div>
             </div>
