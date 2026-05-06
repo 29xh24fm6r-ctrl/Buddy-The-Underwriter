@@ -37,17 +37,17 @@ export default function PolicyLensCard({ dealId }: { dealId: string }) {
   const [err, setErr] = useState<string | null>(null);
 
   async function fetchMitigants() {
-    const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/policy/mitigants/list`, { method: "GET" });
+    const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/policy/mitigants`, { method: "GET" });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) return;
     setMitigants(json.items || []);
   }
 
   async function syncMitigants(actions: NextAction[]) {
-    await fetch(`/api/deals/${encodeURIComponent(dealId)}/policy/mitigants/sync`, {
+    await fetch(`/api/deals/${encodeURIComponent(dealId)}/policy/mitigants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actions }),
+      body: JSON.stringify({ action: "sync", actions }),
     }).catch(() => null);
   }
 
@@ -91,10 +91,10 @@ export default function PolicyLensCard({ dealId }: { dealId: string }) {
   const satisfiedCount = mitigants.filter(m => m.status === "satisfied").length;
 
   async function setMitigantStatus(mitigant_key: string, status: "open" | "satisfied" | "waived") {
-    await fetch(`/api/deals/${encodeURIComponent(dealId)}/policy/mitigants/set-status`, {
+    await fetch(`/api/deals/${encodeURIComponent(dealId)}/policy/mitigants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mitigant_key, status }),
+      body: JSON.stringify({ action: "set-status", mitigant_key, status }),
     });
     await fetchMitigants();
     await run();

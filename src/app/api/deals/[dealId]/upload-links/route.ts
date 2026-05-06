@@ -1,4 +1,18 @@
-// src/app/api/deals/[dealId]/upload-links/create/route.ts
+// Upload-links umbrella dispatcher.
+//
+// Consolidates the prior `/upload-links/list` (GET) and `/upload-links/create`
+// (POST) sibling routes into this single endpoint to reduce Vercel route-
+// manifest pressure (post-2026-05-06 too_many_routes incident — the project
+// is pinned near the 2048 deploy-route cap; see
+// specs/platform/SPEC-2026-05-vercel-route-count-reduction.md).
+//
+// /upload-links/revoke (POST) remains a sibling route and is intentionally
+// out of scope for this consolidation — it was not part of the approved
+// buffer set and has stable callers.
+//
+// Auth: every verb here goes through clerkAuth + ensureDealBankAccess,
+// preserving the exact behavior of the prior per-verb sibling routes.
+// Response shapes are byte-identical with the prior routes.
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
@@ -12,9 +26,13 @@ import {
 } from "@/lib/security/tokens";
 
 export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes need headroom beyond the default
+// 10s for cold-start auth + multi-step Supabase I/O. Preserved from the
+// pre-consolidation /upload-links/list route.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-type Body = {
+type CreateBody = {
   expiresInHours?: number; // default 72
   singleUse?: boolean; // default true
   password?: string | null; // optional
@@ -23,13 +41,57 @@ type Body = {
   uploaderEmailHint?: string | null;
 };
 
+// ── GET: list upload links (was /upload-links/list) ─────────────────────
+
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
+  const { userId } = await clerkAuth();
+  if (!userId)
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401 },
+    );
+
+  const { dealId } = await ctx.params;
+
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    const status = access.error === "unauthorized" ? 401 : 404;
+    return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
+  const { data, error } = await supabaseAdmin()
+    .from("deal_upload_links")
+    .select(
+      "id, deal_id, created_at, expires_at, revoked_at, single_use, used_at, require_password, label",
+    )
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
+
+  return NextResponse.json({ ok: true, links: data ?? [] });
+}
+
+// ── POST: create upload link (was /upload-links/create) ─────────────────
+
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { userId } = await clerkAuth();
   if (!userId) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "Unauthorized" },
+      { status: 401 },
+    );
   }
 
   const { dealId } = await ctx.params;
@@ -54,9 +116,9 @@ export async function POST(
     );
   }
 
-  let body: Body | null = null;
+  let body: CreateBody | null = null;
   try {
-    body = (await req.json()) as Body;
+    body = (await req.json()) as CreateBody;
   } catch {
     body = {};
   }
@@ -118,7 +180,10 @@ export async function POST(
     }
   })();
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || inferredOrigin || "").replace(/\/$/, "");
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || inferredOrigin || "").replace(
+    /\/$/,
+    "",
+  );
   const url = appUrl
     ? `${appUrl}/upload/${encodeURIComponent(token)}`
     : `/upload/${encodeURIComponent(token)}`;
