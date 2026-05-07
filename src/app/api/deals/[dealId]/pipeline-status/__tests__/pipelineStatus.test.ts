@@ -23,7 +23,14 @@ describe("pipeline-status route", () => {
     );
   });
 
-  it("uses requireRoleApi (not bare requireRole call)", () => {
+  it("uses requireDealCockpitAccess (API-safe wrapper, not bare requireRole)", () => {
+    // Auth wrapper migrated from `requireRoleApi` to
+    // `requireDealCockpitAccess(dealId, COCKPIT_ROLES)`, which returns an
+    // `{ ok, status }` envelope (no throw, no redirect) and bundles the
+    // bank-scoped tenant check inline. Both patterns are API-safe; this
+    // test now asserts the newer one. Bare `await requireRole(...)`
+    // remains banned because it redirects from server components and is
+    // unsafe inside API routes.
     const { readFileSync } = require("node:fs");
     const { resolve } = require("node:path");
     const source = readFileSync(
@@ -32,13 +39,13 @@ describe("pipeline-status route", () => {
     );
 
     assert.ok(
-      source.includes("requireRoleApi"),
-      "must use requireRoleApi for API routes",
+      source.includes("requireDealCockpitAccess"),
+      "must use requireDealCockpitAccess for API-safe role + tenant auth",
     );
     // Ensure no bare requireRole( calls (the function call pattern, not the import path)
     assert.ok(
       !source.match(/await\s+requireRole\(/),
-      "must NOT call bare requireRole() — use requireRoleApi()",
+      "must NOT call bare requireRole() — use requireDealCockpitAccess()",
     );
   });
 
