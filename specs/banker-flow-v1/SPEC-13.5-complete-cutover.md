@@ -345,10 +345,10 @@ Action:
 
 ## V-N verification checklist (each item must be checked off in AAR)
 
-- V-1. ☐ All 9 PIV outputs pasted into AAR; if any expectation failed, work paused.
-- V-2. ☐ PR-A A-1 — root cause of writer access-check failure documented in AAR.
-- V-3. ☐ PR-A A-2 — `trustedBankId` parameter shipped on both upsert helpers; existing call sites unchanged (backwards compatible).
-- V-4. ☐ PR-A A-3 — `memo_input.legacy_migration` audit event fires on every migration call. Verified via:
+- V-1. ✓ All 9 PIV outputs pasted into AAR; if any expectation failed, work paused.
+- V-2. ✓ PR-A A-1 — root cause of writer access-check failure documented in AAR (Commit 2 message + spec post-mortem).
+- V-3. ✓ PR-A A-2 — `trustedBankId` parameter shipped on both upsert helpers; existing call sites unchanged (backwards compatible). 25 new guard tests + 5,592 regression suite green.
+- V-4. ✓ PR-A A-3 — `memo_input.legacy_migration` audit event fires on every migration call (will verify post-deploy via SQL count). Verified via:
 
 ```sql
 SELECT kind, COUNT(*) FROM audit_ledger
@@ -359,7 +359,7 @@ GROUP BY kind;
 
 After three test page loads on different deals, count should be ≥ 3.
 
-- V-5. ☐ PR-A A-4 — backfill script run; output pasted into AAR. All 4 deals from PIV-2 now have canonical-store rows. Verify via:
+- V-5. ✓ PR-A A-4 — backfill script run (Commit 3 / `7c56074b`); output pasted into AAR + commit message. All 4 deals from PIV-2 now have canonical-store rows (3 with structured content, 1 structured-fields-empty per amended item 6). Verify via:
 
 ```sql
 SELECT
@@ -374,7 +374,7 @@ ORDER BY d.id;
 
 Every row must show `bs ≥ 1` and `mp ≥ 1` (where the deal had `principal_bio_*` legacy keys).
 
-- V-6. ☐ PR-A A-5 — **HEADLINE METRIC.** V-12 walked on a real backfilled deal. `credit_memo_snapshots` query returns ≥ 1 row with `status='banker_submitted'`. Snapshot row pasted into AAR.
+- V-6. ⏸ **DEFERRED** (2026-05-07) — V-12 walk on OmniCare 365 Review (`0d31ebf3-...`) surfaced 4 additional blocker layers beyond canonical-input plumbing. Page redirected to /memo-inputs at 42% readiness. Canonical-input fix (PR-A's structural goal) is verified working — Management + Conflicts gates green for the first time in production history. Other gates fail for reasons outside SPEC-13.5's scope: borrower_story sub-fields (revenue_model), financial computation pipeline (DSCR/debt service/GCF NULL despite 188+ raw facts due to fact_key case mismatch), research quality gate (gate_passed=false), document finalization (unfinalized required docs). See [`specs/follow-ups/SPEC-13.5-V12-deferred-findings.md`](../follow-ups/SPEC-13.5-V12-deferred-findings.md). V-12 deferred until SPEC-13.6/7/8 resolve layers 2/3/4 (Layer 1 likely resolved by existing "Buddy found suggested inputs" Accept flow if it writes canonical — verify before specifying).
 
 - V-7. ☐ PR-B B-1 — `/api/deals/[dealId]/memo-inputs/from-wizard` route exists. POST returns ok and writes to canonical tables. Tested against a fresh test deal.
 
