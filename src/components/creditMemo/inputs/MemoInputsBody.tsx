@@ -14,6 +14,7 @@ import CollateralItemsTable from "@/components/creditMemo/inputs/CollateralItems
 import FactConflictsPanel from "@/components/creditMemo/inputs/FactConflictsPanel";
 import MemoInputReadinessPanel from "@/components/creditMemo/inputs/MemoInputReadinessPanel";
 import MemoInputSuggestionsBridge from "@/components/creditMemo/inputs/MemoInputSuggestionsBridge";
+import CommitteeAnticipationPanel from "@/components/creditMemo/CommitteeAnticipationPanel";
 
 import type { MemoInputPackage } from "@/lib/creditMemo/inputs/types";
 
@@ -26,6 +27,8 @@ export default function MemoInputsBody({ dealId, pkg }: MemoInputsBodyProps) {
   return (
     <div className="space-y-6">
       <MemoInputReadinessPanel readiness={pkg.readiness} />
+
+      <CommitteeAnticipationPanel dealId={dealId} />
 
       <MemoInputSuggestionsBridge dealId={dealId} />
 

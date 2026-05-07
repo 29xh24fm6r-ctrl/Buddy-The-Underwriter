@@ -22,6 +22,7 @@ import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import RegenerateMemoButton from "@/components/creditMemo/RegenerateMemoButton";
 import BankerReviewPanel from "@/components/creditMemo/BankerReviewPanel";
 import BlockedMemoRecoveryPanel from "@/components/creditMemo/BlockedMemoRecoveryPanel";
+import CommitteeAnticipationPanel from "@/components/creditMemo/CommitteeAnticipationPanel";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
 import MemoInputsBody from "@/components/creditMemo/inputs/MemoInputsBody";
 import MemoInputsRedirectBanner from "@/components/creditMemo/MemoInputsRedirectBanner";
@@ -221,6 +222,11 @@ export default async function DealCreditMemoPage(props: {
         </div>
 
         <BlockedMemoRecoveryPanel dealId={dealId} />
+
+        {/* SPEC-FLOW-V1 PR2 / Fix #6: Committee Anticipation Engine — Buddy's pre-committee read */}
+        <div className="mb-6">
+          <CommitteeAnticipationPanel dealId={dealId} />
+        </div>
 
         <details className="mb-6 rounded-lg border border-gray-200 bg-white">
           <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800">
