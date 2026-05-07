@@ -85,4 +85,28 @@ None of these fields gate submission, so the road remains walkable.
 Resolution: build a separate canonical store for banker UI-state
 (deal_banker_review_state) with its own canonical writer endpoint.
 Migrate any persisted UI-state from deal_memo_overrides at the same time.
-File as SPEC-13.7 (companion to SPEC-13.6 borrower-story sub-fields).
+File as SPEC-13.9 (companion to SPEC-13.6 borrower-story sub-fields).
+*(Note: numbering revised from SPEC-13.7 → SPEC-13.9 because SPEC-13.7
+and SPEC-13.8 were taken below for borrower-flow + cockpit-endpoint
+deprecations discovered during PR-C.)*
+
+## SPEC-13.5 cleanup chain (filed during PR-C, 2026-05-07)
+
+Three follow-up specs queued for the SPEC-13.5 cleanup chain. Each
+unblocks a specific allowlist entry in
+`scripts/check-no-legacy-overrides-writes.sh`. Day-15 PR-D table drop
+is gated on all three closing.
+
+- [`SPEC-13.6-...`](#) — borrower_story sub-fields and downstream
+  blocker layers from V-12 walk (Layers 2/3/4 above).
+- [`SPEC-13.7-builder-story-canonical-migration.md`](./SPEC-13.7-builder-story-canonical-migration.md)
+  — borrower-flow journey writers
+  (`builderCanonicalWrite.ts:writeStoryCanonical` and
+  `borrower/update/route.ts`). 17 unique fields across both files.
+- [`SPEC-13.8-cockpit-memo-overrides-deprecation.md`](./SPEC-13.8-cockpit-memo-overrides-deprecation.md)
+  — cockpit-side `/memo-overrides` PATCH endpoint. Consumer audit then
+  migrate-or-deprecate decision.
+
+These three follow-ups close the legacy/canonical split entirely. Once
+they ship, the CI guard's allowlist is empty and the legacy table can
+be dropped.
