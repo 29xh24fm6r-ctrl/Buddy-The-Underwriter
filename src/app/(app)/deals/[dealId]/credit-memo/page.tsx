@@ -20,7 +20,7 @@ import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonica
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import RegenerateMemoButton from "@/components/creditMemo/RegenerateMemoButton";
-import MemoCompletionWizard from "@/components/creditMemo/MemoCompletionWizard";
+import BankerReviewPanel from "@/components/creditMemo/BankerReviewPanel";
 import BlockedMemoRecoveryPanel from "@/components/creditMemo/BlockedMemoRecoveryPanel";
 import MemoDataEntryCard from "@/components/creditMemo/MemoDataEntryCard";
 import MemoInputsBody from "@/components/creditMemo/inputs/MemoInputsBody";
@@ -212,14 +212,6 @@ export default async function DealCreditMemoPage(props: {
             >
               Print View
             </Link>
-            <MemoCompletionWizard
-              dealId={dealId}
-              principals={res.memo.management_qualifications.principals.map(p => ({
-                id: p.id,
-                name: p.name,
-              }))}
-              missingMetrics={res.memo.meta.readiness.missing_metrics}
-            />
             <RunResearchButton dealId={dealId} />
             <GenerateNarrativesButton dealId={dealId} />
             {/* Regenerates full memo data (picks up new spreads/facts) */}
@@ -230,13 +222,15 @@ export default async function DealCreditMemoPage(props: {
 
         <BlockedMemoRecoveryPanel dealId={dealId} />
 
-        <div className="mb-6">
-          <TranscriptUploadPanel dealId={dealId} />
-        </div>
-
-        <div className="mb-6">
-          <BankerVoicePanel dealId={dealId} />
-        </div>
+        <details className="mb-6 rounded-lg border border-gray-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800">
+            Voice notes & transcripts
+          </summary>
+          <div className="space-y-4 p-4 pt-0">
+            <TranscriptUploadPanel dealId={dealId} />
+            <BankerVoicePanel dealId={dealId} />
+          </div>
+        </details>
 
         <MemoDataEntryCard
           dealId={dealId}
@@ -248,6 +242,9 @@ export default async function DealCreditMemoPage(props: {
             annualDebtService: res.memo.financial_analysis.debt_service.value,
           }}
         />
+
+        <BankerReviewPanel dealId={dealId} memo={res.memo} />
+
         <CanonicalMemoTemplate memo={res.memo} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
