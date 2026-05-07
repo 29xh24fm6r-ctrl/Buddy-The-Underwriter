@@ -46,6 +46,7 @@ import {
 import { resolveFactConflict } from "@/lib/creditMemo/inputs/resolveFactConflict";
 import { loadAllFactConflicts } from "@/lib/creditMemo/inputs/reconcileDealFacts";
 import { prefillMemoInputs } from "@/lib/creditMemo/inputs/prefillMemoInputs";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -400,6 +401,7 @@ async function postFromWizard(
   if (Object.keys(storyPatch).length > 0) {
     const out = await upsertBorrowerStory({
       dealId,
+      trustedBankId: bankId,
       patch: storyPatch,
       source: "banker",
       confidence: 1,
@@ -429,12 +431,28 @@ async function postFromWizard(
     const personName = owners[ownerId] ?? "Unknown";
     const out = await upsertManagementProfile({
       dealId,
+      trustedBankId: bankId,
       patch: { person_name: personName, resume_summary: summary },
       source: "banker",
       confidence: 1,
     });
     if (out.ok) managementWrites += 1;
   }
+
+  // SPEC-13.5 PR-B Commit 1: emit audit event on every wizard write.
+  // Pairs with memo_input.legacy_migration (PR-A) and
+  // memo_input.deprecated_endpoint_hit (PR-B B-4) for full visibility
+  // into canonical writes vs. stale-client hits.
+  await writeEvent({
+    dealId,
+    kind: "memo_input.wizard_save",
+    meta: {
+      bank_id: bankId,
+      payload_keys: Object.keys(overrides),
+      borrower_story_written: borrowerStoryWritten,
+      management_writes: managementWrites,
+    },
+  });
 
   return NextResponse.json({
     ok: true,
