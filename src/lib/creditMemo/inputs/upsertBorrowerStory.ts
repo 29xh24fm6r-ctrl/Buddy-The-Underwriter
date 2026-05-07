@@ -31,6 +31,14 @@ export type UpsertBorrowerStoryArgs = {
   >;
   source?: DealBorrowerStory["source"];
   confidence?: number | null;
+  /**
+   * Optional pre-resolved bank scope. When supplied, skips ensureDealBankAccess
+   * and uses this value directly. INTERNAL ONLY — caller must have already
+   * verified tenant access. NEVER expose this parameter via an API route or
+   * accept it from request body / query params / headers. Doing so creates
+   * a tenant-isolation bypass.
+   */
+  trustedBankId?: string;
 };
 
 export type UpsertBorrowerStoryResult =
@@ -40,11 +48,16 @@ export type UpsertBorrowerStoryResult =
 export async function upsertBorrowerStory(
   args: UpsertBorrowerStoryArgs,
 ): Promise<UpsertBorrowerStoryResult> {
-  const access = await ensureDealBankAccess(args.dealId);
-  if (!access.ok) {
-    return { ok: false, reason: "tenant_mismatch", error: access.error };
+  let bankId: string;
+  if (args.trustedBankId) {
+    bankId = args.trustedBankId;
+  } else {
+    const access = await ensureDealBankAccess(args.dealId);
+    if (!access.ok) {
+      return { ok: false, reason: "tenant_mismatch", error: access.error };
+    }
+    bankId = access.bankId;
   }
-  const { bankId } = access;
 
   const sb = supabaseAdmin();
 

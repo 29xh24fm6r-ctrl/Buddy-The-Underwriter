@@ -28,6 +28,14 @@ export type UpsertManagementProfileArgs = {
   >;
   source?: DealManagementProfile["source"];
   confidence?: number | null;
+  /**
+   * Optional pre-resolved bank scope. When supplied, skips ensureDealBankAccess
+   * and uses this value directly. INTERNAL ONLY — caller must have already
+   * verified tenant access. NEVER expose this parameter via an API route or
+   * accept it from request body / query params / headers. Doing so creates
+   * a tenant-isolation bypass.
+   */
+  trustedBankId?: string;
 };
 
 export type UpsertManagementProfileResult =
@@ -45,11 +53,16 @@ export type UpsertManagementProfileResult =
 export async function upsertManagementProfile(
   args: UpsertManagementProfileArgs,
 ): Promise<UpsertManagementProfileResult> {
-  const access = await ensureDealBankAccess(args.dealId);
-  if (!access.ok) {
-    return { ok: false, reason: "tenant_mismatch", error: access.error };
+  let bankId: string;
+  if (args.trustedBankId) {
+    bankId = args.trustedBankId;
+  } else {
+    const access = await ensureDealBankAccess(args.dealId);
+    if (!access.ok) {
+      return { ok: false, reason: "tenant_mismatch", error: access.error };
+    }
+    bankId = access.bankId;
   }
-  const { bankId } = access;
 
   const sb = supabaseAdmin();
   const now = new Date().toISOString();
@@ -122,6 +135,14 @@ export async function upsertManagementProfile(
   return { ok: true, profile: data as DealManagementProfile };
 }
 
+/**
+ * SPEC-13.5: This function intentionally does NOT accept `trustedBankId`.
+ * Deletes are higher-risk than upserts (data loss, audit-trail gap), and the
+ * migration helper never deletes — only upserts. Per spec Risk #2, adding
+ * `trustedBankId` here would create a tenant-isolation bypass for an
+ * operation that has no legitimate caller needing it. Keep the unconditional
+ * `ensureDealBankAccess` call below.
+ */
 export async function deleteManagementProfile(args: {
   dealId: string;
   profileId: string;

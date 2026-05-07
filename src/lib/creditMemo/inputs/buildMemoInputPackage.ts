@@ -16,6 +16,7 @@ import {
 } from "./reconcileDealFacts";
 import { writeMemoInputReadinessRow } from "./writeMemoInputReadiness";
 import { migrateLegacyOverridesToCanonical } from "./migrateLegacyOverridesAsync";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import type {
   DealBorrowerStory,
   DealCollateralItem,
@@ -65,16 +66,63 @@ export async function buildMemoInputPackage(
   if (borrowerStory === null) {
     const legacy = await loadBankerOverrides(sb, args.dealId, bankId);
     if (Object.keys(legacy).length > 0) {
+      // SPEC-13.5 A-3: capture migration result + emit telemetry on every
+      // call. The previous version silently discarded the wrapper's return
+      // value — that's how this bug went undetected for ~2 months. Migration
+      // remains best-effort (catch + continue) but every outcome now lands
+      // in audit_ledger.
+      let migrationResult: Awaited<
+        ReturnType<typeof migrateLegacyOverridesToCanonical>
+      > | null = null;
+      let migrationError: string | null = null;
       try {
-        await migrateLegacyOverridesToCanonical({
+        migrationResult = await migrateLegacyOverridesToCanonical({
           dealId: args.dealId,
           bankId,
           overrides: legacy,
         });
       } catch (err) {
-        // Migration is best-effort — never block package assembly.
+        migrationError = err instanceof Error ? err.message : String(err);
         console.warn("[memo-inputs] legacy override migration failed", err);
       }
+
+      // Audit event — fires on every migration call, success or failure.
+      await writeEvent({
+        dealId: args.dealId,
+        kind: "memo_input.legacy_migration",
+        meta: {
+          bank_id: bankId,
+          legacy_keys_count: Object.keys(legacy).length,
+          borrower_story_written:
+            migrationResult?.borrowerStoryWritten ?? false,
+          management_writes: migrationResult?.managementWrites ?? 0,
+          skipped_reason:
+            migrationResult?.borrowerStorySkippedReason ?? null,
+          error: migrationError,
+        },
+      });
+
+      // SPEC-13.5 A-3: warn when migration ran but produced zero writes
+      // despite legacy keys being present. Excludes the borrower_story_exists
+      // (idempotent re-entry) case. Surfaces the "legacy data exists but
+      // unmappable" or "writer succeeded but no rows written" shape that
+      // makes the silent-failure mode visible going forward.
+      if (
+        migrationResult &&
+        !migrationResult.borrowerStoryWritten &&
+        migrationResult.managementWrites === 0 &&
+        migrationResult.borrowerStorySkippedReason !== "borrower_story_exists"
+      ) {
+        console.warn(
+          "[memo-inputs] legacy migration produced zero writes despite legacy overrides present",
+          {
+            dealId: args.dealId,
+            legacyKeyCount: Object.keys(legacy).length,
+            skipReason: migrationResult.borrowerStorySkippedReason,
+          },
+        );
+      }
+
       // Re-load borrower-story so the readiness evaluator sees the
       // freshly-written row.
       borrowerStory = await loadBorrowerStory(sb, args.dealId, bankId);

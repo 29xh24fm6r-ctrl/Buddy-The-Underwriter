@@ -69,14 +69,31 @@ export async function migrateLegacyOverridesToCanonical(
     | MigrateLegacyOverridesResult["borrowerStorySkippedReason"]
     | undefined;
 
+  // SPEC-13.5 addendum #10: args.bankId is trusted from caller — do NOT
+  // re-resolve via getCurrentBankId() or ensureDealBankAccess(). The caller
+  // (buildMemoInputPackage) has already verified tenant access. Re-resolution
+  // re-introduces the access-check failure mode this fix exists to eliminate.
+  // Pass `trustedBankId: args.bankId` through to writers so they skip their
+  // redundant access check.
   if (result.borrowerStory.kind === "write") {
     const out = await upsertBorrowerStory({
       dealId: args.dealId,
+      trustedBankId: args.bankId,
       patch: result.borrowerStory.write.patch,
       source: result.borrowerStory.write.source,
       confidence: result.borrowerStory.write.confidence,
     });
-    borrowerStoryWritten = out.ok;
+    if (!out.ok) {
+      // SPEC-13.5 A-3: throw on writer failure rather than silently
+      // recording `false`. Telemetry in buildMemoInputPackage captures this
+      // throw as `error` in the memo_input.legacy_migration audit event.
+      throw new Error(
+        `migrateLegacyOverrides: borrower_story upsert failed (${out.reason}${
+          out.error ? `: ${out.error}` : ""
+        })`,
+      );
+    }
+    borrowerStoryWritten = true;
   } else {
     borrowerStorySkippedReason = result.borrowerStory.reason;
   }
@@ -85,11 +102,20 @@ export async function migrateLegacyOverridesToCanonical(
   for (const mp of result.managementProfiles) {
     const out = await upsertManagementProfile({
       dealId: args.dealId,
+      trustedBankId: args.bankId,
       patch: mp.patch,
       source: mp.source,
       confidence: mp.confidence,
     });
-    if (out.ok) managementWrites += 1;
+    if (!out.ok) {
+      // SPEC-13.5 A-3: throw on writer failure (see borrower_story branch).
+      throw new Error(
+        `migrateLegacyOverrides: management_profile upsert failed (${out.reason}${
+          out.error ? `: ${out.error}` : ""
+        })`,
+      );
+    }
+    managementWrites += 1;
   }
 
   return {
