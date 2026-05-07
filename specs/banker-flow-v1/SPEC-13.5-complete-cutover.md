@@ -203,6 +203,8 @@ ORDER BY submitted_at DESC;
 
 End state: zero new writes to `deal_memo_overrides` from any UI surface. Wizard and BankerReviewPanel auto-save both write through canonical helpers.
 
+> **Audit correction (post-PIV-7 reread, 2026-05-07):** The original premise that "we need to create a new canonical write endpoint" was based on a misread of PIV-7's grep result. The grep returned `deal_memo_overrides` at line 67 of the legacy route file, which is the GET handler reading legacy data for prefill — NOT the POST writing to legacy. The legacy POST is already a deprecation shim (returns `{ ok: true, deprecated: true, successor: "/api/deals/[dealId]/memo-inputs" }`, no DB write). The successor endpoint also already exists at `/api/deals/[dealId]/memo-inputs` POST with `{ kind: "from-wizard", overrides }`. It correctly maps overrides to canonical fields and calls `upsertBorrowerStory` + `upsertManagementProfile`. The actual bug is that `MemoCompletionWizard` still POSTs to the deprecated shim URL, gets `{ ok: true }` back, and reports success while no canonical write occurs. **B-1 reframes from "build new endpoint" to "augment existing endpoint with `trustedBankId` + `memo_input.wizard_save` audit event."** **B-2 reduces to "change wizard's POST URL"** (and remove the stale "deprecation no-op shim" comment — which was forward-referencing PR-B's rewire and landed without the corresponding code change). **B-4: no shim conversion needed** — the legacy POST is already a shim. Per refinement R2, B-4's only remaining work is adding `memo_input.deprecated_endpoint_hit` telemetry to the existing shim so we can detect stale clients during the 14-day observation window. The successor endpoint is part of SPEC-INTAKE-V2's consolidated dispatcher (single route, verb+kind discriminator) deliberately built to free Vercel route-manifest entries — adding a new file would work against that constraint. Original B-1..B-4 text below preserved as historical record of original scope.
+
 **B-1. Create the new canonical write endpoint.** `POST /api/deals/[dealId]/memo-inputs/from-wizard` accepts the wizard's payload shape (a flat object with `business_description`, `revenue_mix`, `seasonality`, `principal_bio_<id>` keys) and:
 
 1. Calls `ensureDealBankAccess(dealId)` for tenant verification
@@ -399,7 +401,17 @@ Expected: 200 with `{ ok: true, deprecated: true, ... }`. Verify in DB that `dea
 SELECT updated_at FROM deal_memo_overrides WHERE deal_id = '[the deal]';
 ```
 
-- V-11. ☐ PR-B — fresh deal V-12 walk. Create a brand-new test deal, walk through to credit memo, fill BankerReviewPanel inputs (which now write to canonical), submit. Snapshot row appears. This proves the road is walkable for new deals, not just backfilled ones.
+- V-10b. ☐ PR-B R2 — after PR-B deploys, query audit_ledger for `memo_input.deprecated_endpoint_hit` daily. Spike on day 1 (cached clients refreshing) is expected; should approach zero by day 7. Persistent hits after day 7 indicate a code path PR-B missed.
+
+```sql
+SELECT date_trunc('day', created_at) AS day, COUNT(*) AS hits
+FROM audit_ledger
+WHERE kind = 'memo_input.deprecated_endpoint_hit'
+  AND created_at > NOW() - INTERVAL '7 days'
+GROUP BY 1 ORDER BY 1 DESC;
+```
+
+- V-11. ⏸ **DEFERRED for the same reasons as V-6** (2026-05-07) — fresh-deal V-12 walk depends on the same downstream blocker layers (borrower_story sub-fields, financial computation pipeline, research quality gate, document finalization). PR-B's structural acceptance is B-1..B-5 tests + the curl/grep checks; "fresh-deal walkable" is a separate verification gated on SPEC-13.6/7/8. PR-B's value (preventing NEW deals from accumulating legacy/canonical split) is independent of whether the road is currently walkable end-to-end. See [`specs/follow-ups/SPEC-13.5-V12-deferred-findings.md`](../follow-ups/SPEC-13.5-V12-deferred-findings.md).
 - V-12. ☐ PR-C C-1 — CI guard script shipped, integrated into workflow, fails on synthetic forbidden writes.
 - V-13. ☐ PR-C C-2 — observation view exists; daily run scheduled.
 - V-14. ☐ PR-C C-3 — follow-up ticket `specs/follow-ups/SPEC-13.5-table-deletion.md` filed.

@@ -47,3 +47,20 @@ Accept flow if it writes correctly to canonical — verify before specifying.
 
 ## V-12 deferred until
 All four layers either resolve or are explicitly out-of-scope.
+
+## V-11 deferred for the same reasons as V-6
+
+Fresh-deal V-12 walk (V-11 in the SPEC-13.5 V-N checklist) is deferred
+along with V-6. The fresh-deal walk requires the same readiness gates to
+unlock as the backfilled-deal walk: financial computation pipeline
+(Layer 2), research quality gate (Layer 3), document finalization
+(Layer 4). Layer 1 (borrower_story sub-fields) is the only gate a fresh
+deal could plausibly clear via the wizard rewire alone — but every
+other gate above remains blocked.
+
+PR-B's structural acceptance is therefore B-1..B-5 (tests + curl/grep
+checks). The "road walkable for new deals" verification stays deferred
+until layers 2/3/4 resolve.
+
+**Decision (2026-05-07):** PR-B ships on structural acceptance. V-11
+remains ⏸ until SPEC-13.6/7/8 close.
