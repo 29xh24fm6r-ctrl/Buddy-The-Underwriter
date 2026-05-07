@@ -40,9 +40,6 @@ export default function MemoCompletionWizard({ dealId, principals, missingMetric
   const save = async () => {
     setSaving(true);
     try {
-      // SPEC-13: writes go through the canonical memo-input tables
-      // (deal_borrower_story / deal_management_profiles). The legacy
-      // /credit-memo/overrides POST is now a deprecation no-op shim.
       const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

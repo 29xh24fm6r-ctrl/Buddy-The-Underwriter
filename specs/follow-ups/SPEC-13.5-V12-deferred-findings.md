@@ -64,3 +64,25 @@ until layers 2/3/4 resolve.
 
 **Decision (2026-05-07):** PR-B ships on structural acceptance. V-11
 remains ⏸ until SPEC-13.6/7/8 close.
+
+## SPEC-13.5 Option A consequence — BankerReviewPanel UI-state non-persistence
+
+PR-B routed BankerReviewPanel UI-state writes (tabs_viewed,
+qualitative_override_*, covenant_adjustments, committee_*) to the legacy
+/credit-memo/overrides POST shim. The shim no-ops + telemetry-pings;
+these fields therefore do NOT persist after page reload.
+
+Impact:
+- tabs_viewed: banker re-clicks tabs to re-mark "viewed" on reload (mild
+  UX friction, not blocking)
+- qualitative_override_*: banker re-enters score + reason if they reload
+  before submitting (annoying; readiness gate doesn't depend on these)
+- covenant_adjustments: banker re-enters covenant Keep/Modify/Remove
+  decisions if they reload (annoying; submit doesn't enforce these)
+
+None of these fields gate submission, so the road remains walkable.
+
+Resolution: build a separate canonical store for banker UI-state
+(deal_banker_review_state) with its own canonical writer endpoint.
+Migrate any persisted UI-state from deal_memo_overrides at the same time.
+File as SPEC-13.7 (companion to SPEC-13.6 borrower-story sub-fields).

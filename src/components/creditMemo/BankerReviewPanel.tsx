@@ -6,6 +6,12 @@ import type { QualitativeOverrides } from "@/components/creditMemo/MemoQualitati
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
+import {
+  routePartition,
+  flattenCanonicalForFromWizard,
+  hasAnyCanonicalField,
+  hasAnyUIStateField,
+} from "@/lib/creditMemo/inputs/routePartition";
 
 type Props = {
   dealId: string;
@@ -126,25 +132,67 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
   }, [dealId]);
 
   // ── Save helper ────────────────────────────────────────────────────────
+  // SPEC-13.5 PR-B B-3: dual-write via routePartition. Canonical fields
+  // (business_description, revenue_mix, seasonality, principal_bio_*)
+  // route to /memo-inputs (kind: "from-wizard"). UI-state fields
+  // (tabs_viewed, qualitative_override_*, covenant_*) route to the
+  // legacy /credit-memo/overrides shim — Option A: shim no-ops +
+  // telemetry-pings, UI-state does NOT persist after PR-B. See
+  // specs/follow-ups/SPEC-13.5-V12-deferred-findings.md.
   const saveOverrides = useCallback(
     async (patch: Partial<OverridesBag>, tag: TabKey) => {
       setSavingTab(tag);
       setSaveError(null);
       try {
-        const res = await fetch(`/api/deals/${dealId}/credit-memo/overrides`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ overrides: patch }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (data?.ok) {
-          setOverrides((data.overrides ?? {}) as OverridesBag);
-          setSavedAt(new Date().toISOString());
-        } else {
-          throw new Error(data?.error ?? "Save failed");
+        const { canonical, uiState } = routePartition(
+          patch as Record<string, unknown>,
+        );
+
+        const requests: Promise<Response>[] = [];
+
+        if (hasAnyCanonicalField(canonical)) {
+          const flatOverrides = flattenCanonicalForFromWizard(canonical);
+          requests.push(
+            fetch(`/api/deals/${dealId}/memo-inputs`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                kind: "from-wizard",
+                overrides: flatOverrides,
+              }),
+              signal: AbortSignal.timeout(15_000),
+            }),
+          );
         }
+
+        if (hasAnyUIStateField(uiState)) {
+          requests.push(
+            fetch(`/api/deals/${dealId}/credit-memo/overrides`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ overrides: uiState }),
+              signal: AbortSignal.timeout(15_000),
+            }),
+          );
+        }
+
+        if (requests.length === 0) {
+          // Nothing to write — no-op success.
+          setSavedAt(new Date().toISOString());
+          return;
+        }
+
+        const responses = await Promise.all(requests);
+        const failures = responses.filter((r) => !r.ok);
+        if (failures.length > 0) {
+          throw new Error(
+            `HTTP ${failures.map((r) => r.status).join(",")}`,
+          );
+        }
+        // Local state already reflects the patch via the caller's
+        // setOverrides call. Reflect persistence by stamping savedAt.
+        setOverrides((prev) => ({ ...prev, ...patch }));
+        setSavedAt(new Date().toISOString());
       } catch (err: any) {
         setSaveError(String(err?.message ?? err));
       } finally {
