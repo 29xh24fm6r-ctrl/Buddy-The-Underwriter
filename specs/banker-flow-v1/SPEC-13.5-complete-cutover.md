@@ -176,7 +176,7 @@ This is the single most important change. The bug existed for 2 months because n
 3. Asserts at least 1 borrower_story write per deal that HAS a business_description ≥ 20 chars in its legacy overrides. Deals with no business_description (or < 20 chars) produce zero borrower_story rows — this is correct, not a failure.
 4. Asserts at least 1 management_profile write per deal that HAS at least one principal_bio_* key with ≥ 20 chars of content. Deals with no principal_bio_* keys produce zero management_profile rows — also correct.
 5. Writes a backfill audit event per deal with the result counts
-6. Per-deal output: legacy_keys_found, borrower_story_writes, management_profile_writes, skipped_reason (when applicable). Test Pack 4-23-26 #1 (e505cd1c-86b4-4d73-88e3-bc71ef342d94) is the expected zero-output case (only banker_summary key in overrides, no canonical-mappable content). Document this in the script's output for clarity — it's not a failure.
+6. Per-deal output: legacy_keys_found, borrower_story_writes, management_profile_writes, skipped_reason (when applicable). Test Pack 4-23-26 #1 (e505cd1c-86b4-4d73-88e3-bc71ef342d94) is the expected "structured-fields-empty" case (only banker_summary key in overrides → maps to banker_notes, leaves business_description and structured underwriting fields NULL). Functionally equivalent to zero-output for the readiness contract gate, since the gate checks structured fields. The borrower_story row exists but doesn't unlock submission.
 
 Run via `pnpm tsx scripts/spec-13-5-backfill.ts`. Paste full output into AAR.
 
