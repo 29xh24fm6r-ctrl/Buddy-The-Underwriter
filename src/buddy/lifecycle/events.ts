@@ -63,6 +63,9 @@ export const LedgerEventType = {
   // Force-advance audit
   lifecycle_force_advanced: "deal.lifecycle.force_advanced",
 
+  // Lifecycle advancement attempt (blocked path) — SPEC-FLOW-V1 PR3
+  lifecycle_advance_attempted: "deal.lifecycle.advance_attempted",
+
   // Preview underwrite
   underwrite_preview_requested: "deal.underwrite.preview_requested",
   underwrite_preview_completed: "deal.underwrite.preview_completed",
@@ -112,4 +115,17 @@ export type BlockerResolvedPayload = {
   blockerCode: string;
   resolvedBy?: string;
   evidence?: Record<string, unknown>;
+};
+
+/**
+ * SPEC-FLOW-V1 PR3 — payload for lifecycle_advance_attempted events.
+ * Emitted from submitCreditMemoToUnderwriting when advanceDealLifecycle
+ * returns { ok: false } (blocked or otherwise). The snapshot is preserved
+ * regardless; this event captures the blocker codes for observability.
+ */
+export type LifecycleAdvanceAttemptedPayload = {
+  trigger: string;
+  snapshot_id: string;
+  result: string;
+  blockers: Array<{ code: string; message: string }>;
 };

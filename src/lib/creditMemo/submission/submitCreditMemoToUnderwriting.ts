@@ -29,6 +29,9 @@ import { evaluateMemoReadinessContract } from "./evaluateMemoReadinessContract";
 import { computeInputHash } from "./computeInputHash";
 import { buildMemoOutput } from "./buildMemoOutput";
 import { FloridaArmoryBuildError } from "@/lib/creditMemo/snapshot/types";
+import { advanceDealLifecycle } from "@/buddy/lifecycle/advanceDealLifecycle";
+import { writeEvent } from "@/lib/ledger/writeEvent";
+import { LedgerEventType } from "@/buddy/lifecycle/events";
 import type {
   BankerCertification,
   DataSourcesManifest,
@@ -228,6 +231,95 @@ export async function submitCreditMemoToUnderwriting(
       error: insertRes.error?.message ?? "unknown",
     };
   }
+
+  // SPEC-FLOW-V1 PR3 — emit canonical lifecycle event for the submission.
+  // Runs BEFORE scheduleReadinessRefresh: lifecycle event is canonical and
+  // must fire deterministically; readiness refresh is observability-side.
+  // The whole block is wrapped in try/catch so a thrown exception from the
+  // helper cannot orphan the snapshot insert that already succeeded above.
+  // (`snapshotId` is the same UUID written above; insertRes.data.id confirms
+  // the row landed.)
+  try {
+    const lifecycleResult = await advanceDealLifecycle(args.dealId, {
+      type: "banker",
+      id: args.bankerId,
+    });
+
+    if (!lifecycleResult.ok) {
+      // Lifecycle advance returned a structured failure (typically
+      // "blocked" with concrete blocker codes). Snapshot is preserved;
+      // emit advance_attempted so the blockers are captured for debugging.
+      console.warn(
+        "[submitCreditMemoToUnderwriting] lifecycle advance failed",
+        {
+          dealId: args.dealId,
+          bankerId: args.bankerId,
+          snapshotId,
+          error: lifecycleResult.error,
+          blockers:
+            "blockers" in lifecycleResult
+              ? lifecycleResult.blockers.map((b) => b.code)
+              : [],
+        },
+      );
+
+      void writeEvent({
+        dealId: args.dealId,
+        kind: LedgerEventType.lifecycle_advance_attempted,
+        actorUserId: args.bankerId,
+        input: {
+          trigger: "banker_memo_submitted",
+          snapshot_id: snapshotId,
+          result: lifecycleResult.error ?? "unknown",
+          blockers:
+            "blockers" in lifecycleResult
+              ? lifecycleResult.blockers.map((b) => ({
+                  code: b.code,
+                  message: b.message,
+                }))
+              : [],
+        },
+      }).catch(() => {});
+    }
+    // Lifecycle success path: advanceDealLifecycle already wrote
+    // deal.lifecycle.advanced — no additional event needed here.
+  } catch (e) {
+    // Lifecycle helper threw. Don't crash submit — the snapshot is the
+    // canonical artifact and is already written. Capture the exception
+    // shape in advance_attempted so debugging has the trace.
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn(
+      "[submitCreditMemoToUnderwriting] lifecycle advance threw",
+      { dealId: args.dealId, bankerId: args.bankerId, snapshotId, error: message },
+    );
+    void writeEvent({
+      dealId: args.dealId,
+      kind: LedgerEventType.lifecycle_advance_attempted,
+      actorUserId: args.bankerId,
+      input: {
+        trigger: "banker_memo_submitted",
+        snapshot_id: snapshotId,
+        result: "exception",
+        error: message,
+        blockers: [],
+      },
+    }).catch(() => {});
+  }
+
+  // SPEC-FLOW-V1 PR3 — advanceDealLifecycle (above) and scheduleReadinessRefresh
+  // (below) coexist by design:
+  //
+  //   - advanceDealLifecycle: emits canonical deal.lifecycle.advanced event,
+  //     enforces ALLOWED_STAGE_TRANSITIONS, syncs borrower-facing status.
+  //
+  //   - scheduleReadinessRefresh: runs buildUnifiedDealReadiness with
+  //     reconciliation + self-heal, then reconcileDealLifecycle (which can
+  //     advance to memo_inputs_required / underwrite_ready independent of
+  //     the canonical lifecycle event).
+  //
+  // They overlap in deriveLifecycleState only. Required by [v11-6] CI guard.
+  // Redundancy investigation deferred to:
+  //   specs/follow-ups/SPEC-readiness-refresh-vs-lifecycle-overlap.md
 
   // Perfect Banker Flow v1.1 — submission just changed lifecycle-relevant
   // state (memo is now banker_submitted). Refresh readiness so the rail
