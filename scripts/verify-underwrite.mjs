@@ -294,7 +294,19 @@ const isMain =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
-  await main();
+  // Async IIFE rather than top-level `await main()` — tsx's esbuild
+  // cjs transform does not support top-level await even in .mjs files,
+  // which surfaces when this module is imported by
+  // scripts/__tests__/verify-underwrite.test.ts under `node --test`.
+  // The IIFE preserves the direct-invocation entrypoint semantics.
+  (async () => {
+    try {
+      await main();
+    } catch (err) {
+      console.error(err);
+      process.exit(1);
+    }
+  })();
 }
 
 export { buildHeaders, main, probeAuthHeaders, resolveMeta };
