@@ -1,0 +1,213 @@
+/**
+ * Cash Flow Aggregator — standalone module.
+ *
+ * SPEC-FOUNDATION-V1-PR4-EXTRACT (Workstream B1 of SPEC-BANKER-HOLY-SHIT-V1)
+ *
+ * This aggregator mirrors the embedded compute pathway from
+ *   src/app/api/deals/[dealId]/classic-spread/route.ts
+ * as it stood at commit ce262f37. Any logic change here MUST be paired
+ * with a change to the route, or the route must be changed to call this
+ * module exclusively.
+ *
+ * What it does:
+ *   1. Reads proposed ADS from deal_structural_pricing
+ *   2. Reads latest-period NCADS (EBITDA → OBI → NET_INCOME fallback)
+ *   3. Computes DSCR = NCADS / proposedAds
+ *   4. Upserts ANNUAL_DEBT_SERVICE / DSCR / CASH_FLOW_AVAILABLE /
+ *      EXCESS_CASH_FLOW to deal_financial_facts
+ *
+ * What it does NOT do:
+ *   - Snapshot rebuild (stays in the route or caller)
+ *   - Conservative methodology (Stress A/B/C, living expense, pro-rata
+ *     affiliates) — deferred to Workstream B4
+ *   - Per-tenant policy — deferred to B4
+ *
+ * Do not import from this module in test files that need "server-only"
+ * avoidance. The module is server-only by nature (Supabase admin writes).
+ */
+
+import "server-only";
+
+import { supabaseAdmin } from "@/lib/supabase/admin";
+
+// ── Sentinel constants — match route exactly ───────────────────────────────
+const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
+const SENTINEL_DATE = "1900-01-01";
+const ON_CONFLICT_COLS =
+  "deal_id,bank_id,source_document_id,fact_type,fact_key,fact_period_start,fact_period_end,owner_type,owner_entity_id";
+
+// ── Result type ────────────────────────────────────────────────────────────
+
+export type RunCashFlowAggregatorResult =
+  | {
+      ok: true;
+      dealId: string;
+      bankId: string;
+      proposedAds: number;
+      ncads: number | null;
+      ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null;
+      latestPeriod: string;
+      dscr: number | null;
+      factsWritten: number;
+      factsAttempted: number;
+    }
+  | {
+      ok: false;
+      reason:
+        | "no_pricing_row"
+        | "invalid_proposed_ads"
+        | "no_ncads_candidates"
+        | "internal_error";
+      detail?: string;
+    };
+
+// ── Main function ──────────────────────────────────────────────────────────
+
+export async function runCashFlowAggregator(args: {
+  dealId: string;
+  bankId: string;
+}): Promise<RunCashFlowAggregatorResult> {
+  const { dealId, bankId } = args;
+  const sb = supabaseAdmin();
+
+  // 1. Read proposedAds from deal_structural_pricing
+  const { data: pricingRow } = await (sb as any)
+    .from("deal_structural_pricing")
+    .select("annual_debt_service_est")
+    .eq("deal_id", dealId)
+    .order("computed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const proposedAds = pricingRow?.annual_debt_service_est
+    ? Number(pricingRow.annual_debt_service_est)
+    : null;
+
+  if (proposedAds === null) {
+    return { ok: false, reason: "no_pricing_row" };
+  }
+  if (!(proposedAds > 0)) {
+    return {
+      ok: false,
+      reason: "invalid_proposed_ads",
+      detail: `annual_debt_service_est = ${pricingRow.annual_debt_service_est}`,
+    };
+  }
+
+  // 2. Read NCADS candidates
+  const { data: factRows } = await (sb as any)
+    .from("deal_financial_facts")
+    .select("fact_key, fact_value_num, fact_period_end")
+    .eq("deal_id", dealId)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
+    .in("fact_key", ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"])
+    .not("fact_value_num", "is", null)
+    .order("fact_period_end", { ascending: false })
+    .limit(10);
+
+  if (!factRows || factRows.length === 0) {
+    return { ok: false, reason: "no_ncads_candidates" };
+  }
+
+  // 3. Apply fallback logic — match route exactly
+  const latestPeriod = (factRows as any[])[0].fact_period_end as string;
+  const periodFacts = (factRows as any[]).filter(
+    (r: any) => r.fact_period_end === latestPeriod,
+  );
+
+  const ncads: number | null =
+    periodFacts.find((r: any) => r.fact_key === "EBITDA")?.fact_value_num ??
+    periodFacts.find((r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME")
+      ?.fact_value_num ??
+    periodFacts.find((r: any) => r.fact_key === "NET_INCOME")?.fact_value_num ??
+    null;
+
+  const ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null =
+    periodFacts.find((r: any) => r.fact_key === "EBITDA")
+      ? "EBITDA"
+      : periodFacts.find((r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME")
+        ? "ORDINARY_BUSINESS_INCOME"
+        : periodFacts.find((r: any) => r.fact_key === "NET_INCOME")
+          ? "NET_INCOME"
+          : null;
+
+  // 4. Compute DSCR
+  const dscrValue =
+    ncads !== null && isFinite(Number(ncads))
+      ? Math.round((Number(ncads) / proposedAds) * 100) / 100
+      : null;
+
+  // 5. Build facts to write
+  const persistDate = new Date().toISOString().slice(0, 10);
+
+  const factsToWrite = [
+    { key: "ANNUAL_DEBT_SERVICE", value: proposedAds },
+    { key: "DSCR", value: dscrValue },
+    ...(ncads !== null && Number(ncads) > 0
+      ? [
+          { key: "CASH_FLOW_AVAILABLE", value: Number(ncads) },
+          { key: "EXCESS_CASH_FLOW", value: Number(ncads) - proposedAds },
+        ]
+      : []),
+  ].filter(
+    (f): f is { key: string; value: number } =>
+      f.value !== null && Number.isFinite(f.value),
+  );
+
+  // 6. Execute upserts
+  let factsWritten = 0;
+  for (const f of factsToWrite) {
+    const { error: upsertErr } = await (sb as any)
+      .from("deal_financial_facts")
+      .upsert(
+        {
+          deal_id: dealId,
+          bank_id: bankId,
+          source_document_id: SENTINEL_UUID,
+          fact_type: "FINANCIAL_ANALYSIS",
+          fact_key: f.key,
+          fact_period_start: SENTINEL_DATE,
+          fact_period_end: persistDate,
+          fact_value_num: f.value,
+          fact_value_text: null,
+          currency: "USD",
+          confidence: 0.95,
+          provenance: {
+            source_type: "STRUCTURAL",
+            source_ref: "computed:classic_spread:v1",
+            as_of_date: persistDate,
+            extractor: "classicSpread:debtService:v1",
+          },
+          owner_type: "DEAL",
+          owner_entity_id: SENTINEL_UUID,
+          is_superseded: false,
+        },
+        {
+          onConflict: ON_CONFLICT_COLS,
+        } as any,
+      );
+
+    if (upsertErr) {
+      console.warn(
+        `[runCashFlowAggregator] upsert failed for ${f.key}:`,
+        upsertErr.message,
+      );
+    } else {
+      factsWritten++;
+    }
+  }
+
+  return {
+    ok: true,
+    dealId,
+    bankId,
+    proposedAds,
+    ncads: ncads !== null ? Number(ncads) : null,
+    ncadsSource,
+    latestPeriod,
+    dscr: dscrValue,
+    factsWritten,
+    factsAttempted: factsToWrite.length,
+  };
+}

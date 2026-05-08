@@ -56,99 +56,23 @@ export async function GET(_req: Request, ctx: Ctx) {
     // Bridge: persist computed debt service metrics → facts → snapshot.
     // Awaited before response — Vercel kills background promises on response send.
     // Non-fatal: PDF always returns regardless of bridge outcome.
+    //
+    // SPEC-FOUNDATION-V1-PR4-EXTRACT: the embedded compute logic that was
+    // inline here is now extracted to runCashFlowAggregator. The route calls
+    // the standalone module, then rebuilds the snapshot. Behavioral parity
+    // with the pre-extraction code verified via PRECHECK on Samaritus
+    // (DSCR 2.94, four facts written, commit ce262f37).
     try {
-      const sb = (await import("@/lib/supabase/admin")).supabaseAdmin();
-
-      const { data: pricingRow } = await (sb as any)
-        .from("deal_structural_pricing")
-        .select("annual_debt_service_est")
-        .eq("deal_id", dealId)
-        .order("computed_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const proposedAds = pricingRow?.annual_debt_service_est
-        ? Number(pricingRow.annual_debt_service_est)
-        : null;
-
-      if (proposedAds !== null && proposedAds > 0) {
-        const { data: factRows } = await (sb as any)
-          .from("deal_financial_facts")
-          .select("fact_key, fact_value_num, fact_period_end")
-          .eq("deal_id", dealId)
-          .eq("is_superseded", false)
-          .neq("resolution_status", "rejected")
-          .in("fact_key", ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"])
-          .not("fact_value_num", "is", null)
-          .order("fact_period_end", { ascending: false })
-          .limit(10);
-
-        let ncads: number | null = null;
-        if (factRows && factRows.length > 0) {
-          const latestPeriod = (factRows as any[])[0].fact_period_end;
-          const periodFacts = (factRows as any[]).filter(
-            (r: any) => r.fact_period_end === latestPeriod,
-          );
-          ncads =
-            periodFacts.find((r: any) => r.fact_key === "EBITDA")?.fact_value_num ??
-            periodFacts.find((r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME")?.fact_value_num ??
-            periodFacts.find((r: any) => r.fact_key === "NET_INCOME")?.fact_value_num ??
-            null;
-        }
-
-        const dscrValue =
-          ncads !== null && isFinite(Number(ncads))
-            ? Math.round((Number(ncads) / proposedAds) * 100) / 100
-            : null;
-
-        const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
-        const SENTINEL_DATE = "1900-01-01";
-        const persistDate = new Date().toISOString().slice(0, 10);
-
-        const factsToWrite = [
-          { key: "ANNUAL_DEBT_SERVICE", value: proposedAds },
-          { key: "DSCR", value: dscrValue },
-          ...(ncads !== null && Number(ncads) > 0 ? [
-            { key: "CASH_FLOW_AVAILABLE", value: Number(ncads) },
-            { key: "EXCESS_CASH_FLOW", value: Number(ncads) - proposedAds },
-          ] : []),
-        ].filter((f): f is { key: string; value: number } =>
-          f.value !== null && Number.isFinite(f.value)
+      const { runCashFlowAggregator } = await import(
+        "@/lib/financialFacts/runCashFlowAggregator"
+      );
+      const aggregatorResult = await runCashFlowAggregator({ dealId, bankId });
+      if (!aggregatorResult.ok) {
+        console.warn(
+          "[classic-spread] aggregator returned non-ok (non-fatal):",
+          aggregatorResult.reason,
+          aggregatorResult.detail ?? "",
         );
-
-        for (const f of factsToWrite) {
-          const { error: upsertErr } = await (sb as any)
-            .from("deal_financial_facts")
-            .upsert({
-              deal_id: dealId,
-              bank_id: bankId,
-              source_document_id: SENTINEL_UUID,
-              fact_type: "FINANCIAL_ANALYSIS",
-              fact_key: f.key,
-              fact_period_start: SENTINEL_DATE,
-              fact_period_end: persistDate,
-              fact_value_num: f.value,
-              fact_value_text: null,
-              currency: "USD",
-              confidence: 0.95,
-              provenance: {
-                source_type: "STRUCTURAL",
-                source_ref: "computed:classic_spread:v1",
-                as_of_date: persistDate,
-                extractor: "classicSpread:debtService:v1",
-              },
-              owner_type: "DEAL",
-              owner_entity_id: SENTINEL_UUID,
-              is_superseded: false,
-            }, {
-              onConflict: "deal_id,bank_id,source_document_id,fact_type,fact_key,fact_period_start,fact_period_end,owner_type,owner_entity_id",
-            } as any);
-
-          if (upsertErr) {
-            console.warn(`[classic-spread] upsert failed for ${f.key}:`, upsertErr.message);
-          }
-        }
-
       }
 
       // Always build + persist snapshot from whatever facts exist — not gated on ADS
