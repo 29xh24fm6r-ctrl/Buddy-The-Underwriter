@@ -91,7 +91,7 @@ export async function extractCollateralFromDocuments(args: {
   const { data: docs } = await (sb as any)
     .from("deal_documents")
     .select(
-      "id, canonical_type, document_type, original_name, assigned_owner_id",
+      "id, canonical_type, document_type, original_filename, assigned_owner_id",
     )
     .in("id", docIds);
 
@@ -109,7 +109,7 @@ export async function extractCollateralFromDocuments(args: {
     if (!isCollateralCategory(canonical)) continue;
 
     const collateralType = canonicalToCollateralType(canonical);
-    const description = String(doc.original_name ?? canonical);
+    const description = String(doc.original_filename ?? canonical);
 
     let market: number | null = null;
     let appraised: number | null = null;
