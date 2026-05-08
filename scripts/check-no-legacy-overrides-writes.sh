@@ -29,6 +29,17 @@ SCAN_DIR="${1:-src}"
 # correctly when invoked against a temp dir in tests.
 
 ALLOWLIST=(
+  # SPEC-FOUNDATION-V1 PR1 — the migration helper's rekey operation.
+  # When legacy deal_memo_overrides are migrated to canonical
+  # deal_management_profiles, the migration assigns new UUIDs. The
+  # principal_bio_{legacyId} override keys must be rewritten to
+  # principal_bio_{canonicalId} in the same transaction so the readiness
+  # contract can find the bio under the correct key. This is a migration
+  # write (not a new feature write) and is the only code path that
+  # updates deal_memo_overrides.overrides JSONB keys.
+  # Spec: specs/foundation-v1/SPEC-FOUNDATION-V1-PR1-orphaned-principal-bio.md
+  "src/lib/creditMemo/inputs/migrateLegacyOverridesAsync.ts"
+
   # SPEC-13.5 explicit out-of-scope per spec addendum (Scope > Out of
   # scope > "Builder Story step write target. Separate consolidation.").
   # The Builder Story step is on the borrower-side flow and writes a

@@ -413,20 +413,95 @@ export async function computeCollateralValues(args: {
     ? { value: stabilized.value, source: `Facts:${FACT.COLLATERAL.type}.${FACT.COLLATERAL.keys.STABILIZED_VALUE}`, updated_at: stabilized.created_at }
     : pendingMetric();
 
-  // Prefer explicit gross value, but allow AS_IS_VALUE as a fallback so existing fact pipelines still show something.
-  const grossMetric: MetricValue = gross
+  // Prefer explicit gross value, then AS_IS_VALUE fallback.
+  let grossMetric: MetricValue = gross
     ? { value: gross.value, source: `Facts:${FACT.COLLATERAL.type}.${FACT.COLLATERAL.keys.GROSS_VALUE}`, updated_at: gross.created_at }
     : asIsMetric.value !== null
       ? { value: asIsMetric.value, source: `Facts:${FACT.COLLATERAL.type}.${FACT.COLLATERAL.keys.AS_IS_VALUE}`, updated_at: asIsMetric.updated_at }
       : pendingMetric();
 
-  const netMetric: MetricValue = net
+  let netMetric: MetricValue = net
     ? { value: net.value, source: `Facts:${FACT.COLLATERAL.type}.${FACT.COLLATERAL.keys.NET_VALUE}`, updated_at: net.created_at }
     : pendingMetric();
 
-  const discountedMetric: MetricValue = discounted
+  let discountedMetric: MetricValue = discounted
     ? { value: discounted.value, source: `Facts:${FACT.COLLATERAL.type}.${FACT.COLLATERAL.keys.DISCOUNTED_VALUE}`, updated_at: discounted.created_at }
     : pendingMetric();
+
+  // SPEC-FOUNDATION-V1 PR2 — 3rd-tier fallback: when no collateral facts
+  // exist, sum deal_collateral_items (banker-entered canonical store data).
+  // Facts remain authoritative when present; this only triggers for the
+  // orphan case where bankers entered collateral but no fact materializer
+  // ran. Provenance label is distinct so memo readers can identify the source.
+  //
+  // Note: deal_collateral_items has no bank_id column — filter by deal_id
+  // only. (PIV-5 addendum during PR2 found the column absent from schema.)
+  const needsFallback =
+    grossMetric.value === null &&
+    netMetric.value === null &&
+    discountedMetric.value === null;
+
+  if (needsFallback) {
+    const sb = supabaseAdmin();
+    const { data: collateralRows } = await (sb as any)
+      .from("deal_collateral_items")
+      .select("estimated_value, market_value, net_lendable_value, advance_rate")
+      .eq("deal_id", args.dealId);
+
+    const rows = (collateralRows ?? []) as Array<{
+      estimated_value: number | null;
+      market_value: number | null;
+      net_lendable_value: number | null;
+      advance_rate: number | null;
+    }>;
+
+    if (rows.length > 0) {
+      const now = new Date().toISOString();
+
+      // grossValue: prefer market_value per item, fall back to estimated_value
+      let grossSum: number | null = null;
+      for (const r of rows) {
+        const v = numOrNull(r.market_value) ?? numOrNull(r.estimated_value);
+        if (v !== null) grossSum = (grossSum ?? 0) + v;
+      }
+      if (grossSum !== null && grossSum > 0) {
+        grossMetric = {
+          value: grossSum,
+          source: "Canonical:DEAL_COLLATERAL_ITEMS:SUM",
+          updated_at: now,
+        };
+      }
+
+      // netValue: sum net_lendable_value where present
+      let netSum: number | null = null;
+      for (const r of rows) {
+        const v = numOrNull(r.net_lendable_value);
+        if (v !== null) netSum = (netSum ?? 0) + v;
+      }
+      if (netSum !== null && netSum > 0) {
+        netMetric = {
+          value: netSum,
+          source: "Canonical:DEAL_COLLATERAL_ITEMS:NET_LENDABLE_SUM",
+          updated_at: now,
+        };
+      }
+
+      // discountedValue: sum (estimated_value × advance_rate) where both present
+      let discSum: number | null = null;
+      for (const r of rows) {
+        const ev = numOrNull(r.estimated_value) ?? numOrNull(r.market_value);
+        const ar = numOrNull(r.advance_rate);
+        if (ev !== null && ar !== null) discSum = (discSum ?? 0) + ev * ar;
+      }
+      if (discSum !== null && discSum > 0) {
+        discountedMetric = {
+          value: discSum,
+          source: "Canonical:DEAL_COLLATERAL_ITEMS:DISCOUNTED_SUM",
+          updated_at: now,
+        };
+      }
+    }
+  }
 
   return {
     asIsValue: asIsMetric,
@@ -435,6 +510,11 @@ export async function computeCollateralValues(args: {
     netValue: netMetric,
     discountedValue: discountedMetric,
   };
+}
+
+function numOrNull(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return null;
 }
 
 export function computeDiscountedCoverageRatio(args: {
