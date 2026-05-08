@@ -6,6 +6,7 @@ import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { Icon } from "@/components/ui/Icon";
 import { BorrowerMagicStatus } from "@/components/borrower/BorrowerMagicStatus";
 import { BorrowerNextUploadCard } from "@/components/borrower/BorrowerNextUploadCard";
+import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { createClient } from "@supabase/supabase-js";
 
 // Borrower uses anon client + RPCs (SECURITY DEFINER pattern)
@@ -194,6 +195,9 @@ export function PortalClient({ token }: { token: string }) {
 
           {/* Borrower Magic Status */}
           <BorrowerMagicStatus token={token} />
+
+          {/* Sprint 3: Trident preview package (business plan / projections / feasibility) */}
+          <TridentPreviewCard token={token} />
 
           {/* Next Upload Card */}
           <BorrowerNextUploadCard
