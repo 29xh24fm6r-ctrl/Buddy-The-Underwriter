@@ -99,6 +99,11 @@ export async function buildMemoInputPackage(
           skipped_reason:
             migrationResult?.borrowerStorySkippedReason ?? null,
           error: migrationError,
+          // SPEC-FOUNDATION-V1 PR1: override key rewriting telemetry
+          override_keys_rewritten:
+            migrationResult?.overrideKeysRewritten ?? 0,
+          orphaned_override_keys:
+            migrationResult?.orphanedOverrideKeys ?? [],
         },
       });
 
