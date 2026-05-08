@@ -606,6 +606,22 @@ creating new underwriting control planes.
 
 ---
 
+## SPEC-FOUNDATION-V1 — Bullet-proof Underwriting Foundation (2026-05)
+
+**SPEC-FOUNDATION-V1 PR1 — Orphaned principal_bio override rekey** (shipped 2026-05-08, merge commit `96c744c9`)
+- A-1 forward fix: `migrateLegacyOverridesAsync.ts` captures `legacyPrincipalId → canonicalPrincipalId` map and rewrites `principal_bio_{legacyId}` → `principal_bio_{canonicalId}` in `deal_memo_overrides` in the same transaction. UUID_RE filter preserves non-UUID keys (e.g. `principal_bio_general`).
+- A-2 telemetry: `memo_input.legacy_migration` audit event extended with `override_keys_rewritten` + `orphaned_override_keys`.
+- A-3 backfill: `scripts/foundation-pr1-rekey-principal-bios.ts` executed against 4 SPEC-13.5 deals 2026-05-08:
+  - Samaritus (`0279ed32`): 1 key rekeyed (MICHAEL NEWMARK), audit event `34b6c445-5349-4b8d-800b-fcaaa68bbaa3` written.
+  - OmniCare May 1 (`80fe6f7a`): no-op (only `principal_bio_general` present, non-UUID suffix correctly skipped).
+  - OmniCare Review (`0d31ebf3`): 2 orphans flagged (duplicate "Matt Hunt" canonical profiles → ambiguous match → preserved). Filed: `specs/follow-ups/SPEC-FOUNDATION-V1-PR1-omnicare-review-matt-hunt-duplicates.md` (commit `888d48b0`). Deferred — stage `collecting`.
+  - Test Pack #1 (`e505cd1c`): no-op (no `principal_bio_%` keys).
+- A-4 CI guard: 8 source-level tests pinning rekey logic + script contract.
+- Status: management_bio gate clears for Samaritus (verified via PR2's V-8).
+- Next blockers: PR2 (collateral_value), PR3 (T12 audit), PR4 (dscr_computed via cash flow aggregator).
+
+---
+
 ## Next Phases (priority order)
 
 1. **Ship D1 + D3** (Test Pack Run 1 blockers, specs drafted 2026-04-22). Tight, shippable. Unblocks continuation of the banker-side test pack and fixes `deals.display_name` on every future deal.
