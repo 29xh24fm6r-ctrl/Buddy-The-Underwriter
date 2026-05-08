@@ -30,6 +30,9 @@ export type MigrateLegacyOverridesResult = {
   managementWrites: number;
   /** Reason for skipping a borrower-story write, if applicable. */
   borrowerStorySkippedReason?: "borrower_story_exists" | "no_useful_keys";
+  // SPEC-FOUNDATION-V1 PR1: override key rewriting telemetry
+  overrideKeysRewritten: number;
+  orphanedOverrideKeys: string[];
 };
 
 export async function migrateLegacyOverridesToCanonical(
@@ -99,6 +102,9 @@ export async function migrateLegacyOverridesToCanonical(
   }
 
   let managementWrites = 0;
+  // SPEC-FOUNDATION-V1 PR1: capture the legacy-to-canonical id mapping
+  // so we can rekey principal_bio_{legacyId} override keys afterward.
+  const legacyToCanonicalId = new Map<string, string>();
   for (const mp of result.managementProfiles) {
     const out = await upsertManagementProfile({
       dealId: args.dealId,
@@ -115,12 +121,56 @@ export async function migrateLegacyOverridesToCanonical(
         })`,
       );
     }
+    legacyToCanonicalId.set(mp.ownershipEntityId, out.profile.id);
     managementWrites += 1;
+  }
+
+  // SPEC-FOUNDATION-V1 PR1: rewrite principal_bio_{legacyId} → principal_bio_{canonicalId}
+  // in deal_memo_overrides so the readiness contract can find the bio under
+  // the correct key. Only UUID-shaped suffixes are rekeyed; non-UUID keys
+  // (e.g., principal_bio_general) are preserved as-is.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const PRINCIPAL_BIO_PREFIX = "principal_bio_";
+  let overrideKeysRewritten = 0;
+  const orphanedOverrideKeys: string[] = [];
+
+  if (legacyToCanonicalId.size > 0) {
+    const rewritten: Record<string, unknown> = {};
+    let changed = false;
+    for (const [key, value] of Object.entries(args.overrides)) {
+      if (key.startsWith(PRINCIPAL_BIO_PREFIX)) {
+        const suffix = key.slice(PRINCIPAL_BIO_PREFIX.length);
+        if (UUID_RE.test(suffix)) {
+          const canonicalId = legacyToCanonicalId.get(suffix);
+          if (canonicalId && canonicalId !== suffix) {
+            rewritten[`${PRINCIPAL_BIO_PREFIX}${canonicalId}`] = value;
+            overrideKeysRewritten += 1;
+            changed = true;
+            continue;
+          } else if (!canonicalId) {
+            // UUID-shaped key that didn't match any profile we just created.
+            // Preserve it but flag for human review.
+            orphanedOverrideKeys.push(key);
+          }
+        }
+      }
+      rewritten[key] = value;
+    }
+
+    if (changed) {
+      await (sb as any)
+        .from("deal_memo_overrides")
+        .update({ overrides: rewritten })
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", args.bankId);
+    }
   }
 
   return {
     borrowerStoryWritten,
     managementWrites,
     borrowerStorySkippedReason,
+    overrideKeysRewritten,
+    orphanedOverrideKeys,
   };
 }
