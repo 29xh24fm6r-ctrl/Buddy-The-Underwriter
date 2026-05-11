@@ -20,11 +20,11 @@
  * auth which needs a Vercel OIDC token. Expect narrative length 0 locally.
  * Production (Vercel runtime) will exercise the success path.
  */
-import { config as loadEnv } from "dotenv";
+import dotenv from "dotenv";
 import { resolve } from "path";
 
-loadEnv({ path: resolve(process.cwd(), ".env") });
-loadEnv({ path: resolve(process.cwd(), ".env.local"), override: true });
+dotenv.config({ path: resolve(process.cwd(), ".env") });
+dotenv.config({ path: resolve(process.cwd(), ".env.local"), override: true });
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
