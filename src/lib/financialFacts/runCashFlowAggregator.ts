@@ -18,9 +18,12 @@
  *
  * What it does NOT do:
  *   - Snapshot rebuild (stays in the route or caller)
- *   - Conservative methodology (Stress A/B/C, living expense, pro-rata
- *     affiliates) — deferred to Workstream B4
- *   - Per-tenant policy — deferred to B4
+ *   - Stress methodology (Stress A/B/C) — deferred to B4.1
+ *   - Per-tenant policy packs — deferred to v1.1 of B4
+ *
+ * SPEC-B4 (Batch 2): now slate-aware on Axis 1 (NCADS source).
+ * Axes 4 + 5 live in persistGlobalCashFlow.ts. Axes 2 + 3 deferred
+ * to v1.1 (require wiring upstream EBITDA / officer comp writers).
  *
  * Do not import from this module in test files that need "server-only"
  * avoidance. The module is server-only by nature (Supabase admin writes).

@@ -11,6 +11,10 @@ import type {
   StatementPeriod,
 } from "./types";
 import { loadPersonalIncome } from "./personalIncomeLoader";
+import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
+import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
+import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
+import { buildRationale } from "@/lib/methodology/rationaleTemplates";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1052,6 +1056,7 @@ function deriveAuditMethod(
 
 async function buildGlobalCashFlowSection(
   dealId: string,
+  bankId?: string | null,
 ): Promise<GlobalCashFlowSection | null> {
   const sb = supabaseAdmin();
 
@@ -1216,6 +1221,28 @@ async function buildGlobalCashFlowSection(
     else coverageStatus = "DEFICIT";
   }
 
+  // SPEC-B4 — Load methodology entries for the PDF methodology block
+  let methodologyEntries: GlobalCashFlowSection["methodology"] | undefined;
+  if (bankId) {
+    try {
+      const { slate } = await loadDealMethodology(dealId, bankId);
+      methodologyEntries = (Object.keys(slate) as Array<keyof typeof slate>).map((axisId) => {
+        const axisConfig = (METHODOLOGY_AXES as any)[axisId];
+        const variantConfig = axisConfig?.variants?.find((v: any) => v.id === slate[axisId]);
+        return {
+          axisId: axisId as "ncads_source" | "ebitda_addback_stack" | "officer_comp" | "affiliate_ownership" | "living_expense",
+          axisLabel: axisConfig?.label ?? axisId,
+          chosenVariantId: slate[axisId],
+          chosenVariantLabel: variantConfig?.label ?? slate[axisId],
+          rationale: buildRationale(axisId as any, slate[axisId]),
+          isDefault: slate[axisId] === (DEFAULT_METHODOLOGY_SLATE as any)[axisId],
+        };
+      });
+    } catch {
+      // Non-fatal — methodology entries are supplemental to the PDF
+    }
+  }
+
   return {
     taxYear,
     entityCashFlowAvailable,
@@ -1225,6 +1252,7 @@ async function buildGlobalCashFlowSection(
     proposedAnnualDebtService: proposedDebtService,
     globalDscr,
     coverageStatus,
+    methodology: methodologyEntries,
   };
 }
 
@@ -1310,7 +1338,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   const cfPeriods = periods.length >= 2 ? statementPeriods : [];
 
   // Global cash flow section (Phase 18 facts → Phase 19 PDF page)
-  const globalCashFlow = await buildGlobalCashFlowSection(dealId);
+  const globalCashFlow = await buildGlobalCashFlowSection(dealId, deal?.bank_id);
 
   // Personal income section — load PERSONAL_INCOME facts if any exist
   const personalIncome = deal?.bank_id

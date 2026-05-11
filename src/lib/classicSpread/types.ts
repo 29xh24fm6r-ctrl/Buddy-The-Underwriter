@@ -54,6 +54,19 @@ export type GlobalCashFlowSection = {
   proposedAnnualDebtService: number | null;
   globalDscr: number | null;
   coverageStatus: "ADEQUATE" | "TIGHT" | "DEFICIT" | "UNKNOWN";
+  /**
+   * SPEC-B4 — Methodology slate decisions used to compute this GCF.
+   * One entry per axis, including defaults. PDF renderer skips Axis 5
+   * (living_expense) to keep the methodology block compact.
+   */
+  methodology?: Array<{
+    axisId: "ncads_source" | "ebitda_addback_stack" | "officer_comp" | "affiliate_ownership" | "living_expense";
+    axisLabel: string;
+    chosenVariantId: string;
+    chosenVariantLabel: string;
+    rationale: string;
+    isDefault: boolean;
+  }>;
 };
 
 export type ClassicSpreadInput = {

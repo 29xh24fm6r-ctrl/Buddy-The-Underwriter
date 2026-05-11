@@ -58,7 +58,10 @@ export type CockpitAdvisorSignalKind =
   | "closing_risk_warning"
   /** SPEC-12 — documentation-tier risks; reserved for future doc
    *  predictors. Currently surfaced via readiness_warning. */
-  | "documentation_risk_warning";
+  | "documentation_risk_warning"
+  /** SPEC-B4 — surfaces methodology variant decisions Buddy applied
+   *  (or banker overrode) on the canonical chain. */
+  | "methodology_explained";
 
 export type CockpitAdvisorSignalSeverity = "info" | "warning" | "critical";
 
@@ -138,6 +141,7 @@ const PRIORITY_FLOOR: Record<CockpitAdvisorSignalKind, number> = {
   risk_warning: 500,
   predictive_warning: 450,         // SPEC-11
   next_best_action: 400,
+  methodology_explained: 350,      // SPEC-B4 — informational; below action, above recent
   recent_change: 200,
   low_signal_value: 100,           // SPEC-11
 };
@@ -244,6 +248,16 @@ export type BuildCockpitAdvisorSignalsInput = {
    * don't need to pass this.
    */
   lastFailedPacketGenerationAt?: number | null;
+  /**
+   * SPEC-B4 — Methodology context for emitting methodology_explained signals.
+   * When omitted, no methodology signals emit (backward compat for callers
+   * that haven't been updated yet). When present, one signal is emitted per
+   * axis where the chosen variant differs from the system default.
+   */
+  methodologyContext?: {
+    slate: import("@/lib/methodology/types").MethodologySlate;
+    isAllDefaults: boolean;
+  };
 };
 
 const RECENT_TELEMETRY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -338,6 +352,11 @@ export function buildCockpitAdvisorSignals(
   // SPEC-11 — low_signal_value hints (debug-tier).
   for (const low of buildLowSignalValueHints(input)) {
     signals.push(low);
+  }
+
+  // SPEC-B4 — methodology_explained signals
+  for (const sig of buildMethodologyExplanations(input)) {
+    signals.push(sig);
   }
 
   // SPEC-08 — sort by priority desc; stable with respect to insertion order.
@@ -1146,6 +1165,58 @@ const FAILED_RECENT_BUMP = 250;
 const REPEATED_FAILURE_BUMP = 200;  // SPEC-09
 const REPEATED_UNDO_BUMP = 150;     // SPEC-09
 const RECENT_BUMP_UNDER_5MIN = 50;  // SPEC-09
+
+// ─── SPEC-B4 — methodology_explained signals ──────────────────────
+
+function buildMethodologyExplanations(
+  input: BuildCockpitAdvisorSignalsInput,
+): CockpitAdvisorSignal[] {
+  if (!input.methodologyContext) return [];
+
+  // Lazy require to avoid circular import; only loaded when methodology context present
+  const { DEFAULT_METHODOLOGY_SLATE } = require("@/lib/methodology/methodologyDefaults") as {
+    DEFAULT_METHODOLOGY_SLATE: import("@/lib/methodology/types").MethodologySlate;
+  };
+  const { METHODOLOGY_AXES } = require("@/lib/methodology/methodologyAxes") as {
+    METHODOLOGY_AXES: Record<string, {
+      label: string;
+      variants: Array<{ id: string; label: string; rationale: string }>;
+    }>;
+  };
+
+  const out: CockpitAdvisorSignal[] = [];
+  const slate = input.methodologyContext.slate;
+
+  for (const axisId of Object.keys(slate) as Array<keyof typeof slate>) {
+    const chosenVariant = slate[axisId];
+    const defaultVariant = (DEFAULT_METHODOLOGY_SLATE as any)[axisId];
+    if (chosenVariant === defaultVariant) continue;
+
+    const axisConfig = METHODOLOGY_AXES[axisId as string];
+    if (!axisConfig) continue;
+
+    const variantConfig = axisConfig.variants.find((v) => v.id === chosenVariant);
+    if (!variantConfig) continue;
+
+    out.push(
+      withRanking({
+        kind: "methodology_explained",
+        severity: "info",
+        title: `${axisConfig.label}: ${variantConfig.label}`,
+        detail: variantConfig.rationale,
+        action: {
+          intent: "navigate",
+          label: "Review methodology",
+          href: `/deals/${input.dealId}/methodology`,
+        },
+        source: "lifecycle",
+        rankReason: `Non-default variant on ${axisConfig.label}`,
+      }),
+    );
+  }
+
+  return out;
+}
 
 function withRanking(draft: SignalDraft): CockpitAdvisorSignal {
   const floor = PRIORITY_FLOOR[draft.kind];

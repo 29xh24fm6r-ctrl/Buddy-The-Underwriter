@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useCockpitDataContext } from "@/buddy/cockpit/useCockpitData";
 import {
@@ -91,6 +91,7 @@ const KIND_LABEL: Record<CockpitAdvisorSignal["kind"], string> = {
   committee_risk_warning: "Committee risk",
   closing_risk_warning: "Closing risk",
   documentation_risk_warning: "Doc risk",
+  methodology_explained: "Methodology",
 };
 
 type SignalGroup =
@@ -137,6 +138,24 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
   const blockerObservations =
     props.blockerObservations ?? liveObservations.asAdvisorInput;
 
+  // SPEC-B4 — load methodology context for methodology_explained signals.
+  // Client-side fetch to avoid server-only dependency in client component.
+  const [methodologyContext, setMethodologyContext] = useState<{
+    slate: import("@/lib/methodology/types").MethodologySlate;
+    isAllDefaults: boolean;
+  } | undefined>(undefined);
+
+  useEffect(() => {
+    fetch(`/api/deals/${dealId}/methodology`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.slate) {
+          setMethodologyContext({ slate: data.slate, isAllDefaults: data.isAllDefaults });
+        }
+      })
+      .catch(() => {}); // Non-fatal — methodology signals are optional
+  }, [dealId]);
+
   // SPEC-11 — derive per-signalKey maps from the feedback store so the
   // builder can emit low_signal_value entries for repeatedly-dismissed
   // and stale-acknowledged signals.
@@ -179,6 +198,8 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
         acknowledgedAtBySignalKey,
         // SPEC-12 — drives decision-quality predictors.
         decision: props.decision ?? null,
+        // SPEC-B4 — drives methodology_explained signals.
+        methodologyContext,
       }),
     [
       dealId,
@@ -187,6 +208,7 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
       props.overrides,
       props.memoSummary,
       recentTelemetry,
+      methodologyContext,
       blockerObservations,
       dismissCountsBySignalKey,
       acknowledgedAtBySignalKey,

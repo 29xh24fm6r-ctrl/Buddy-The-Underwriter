@@ -84,6 +84,20 @@ export type CreditMemoBindings = {
     global: { total: number; populated: number; status: "complete" | "partial" | "empty" };
   };
 
+  /**
+   * SPEC-B4 — Methodology rationale strings sourced from
+   * provenance.methodology of the relevant facts. Memo templates
+   * consume these via existing binding mechanism (binding('cfaMethodologyRationale'), etc.).
+   * Null when the underlying fact lacks methodology provenance
+   * (e.g. pre-B4 facts).
+   */
+  methodology?: {
+    cfaMethodologyRationale: string | null;
+    ebitdaMethodologyRationale: string | null;
+    officerCompMethodologyRationale: string | null;
+    gcfMethodologyRationale: string | null;
+  };
+
   // Full provenance trail — every populated numeric field must have an entry
   provenance: CreditMemoProvenance[];
 };
