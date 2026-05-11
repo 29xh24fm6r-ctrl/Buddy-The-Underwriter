@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeDebtService } from "./debtServiceMath";
 
 export type TotalDebtServiceResult = {
@@ -198,6 +199,26 @@ export async function computeTotalDebtService(args: {
           ownerType: "DEAL",
           ownerEntityId: SENTINEL_UUID,
         });
+      } else {
+        // SPEC-FOUNDATION-V1 PR5a — graceful degradation: CASH_FLOW_AVAILABLE
+        // fact is null even after the aggregator ran (PR5a inserted it before
+        // this function in the spreadsProcessor chain). ADS facts were still
+        // written above; DSCR is skipped. Emit a warning event so operators
+        // can diagnose why the prerequisite was missing.
+        console.warn("[computeTotalDebtService] MISSING_PREREQ_NOI: CASH_FLOW_AVAILABLE fact is null, skipping DSCR computation", {
+          dealId,
+          totalAds: total,
+        });
+        void writeEvent({
+          dealId,
+          kind: "deal.compute.missing_prereq",
+          meta: {
+            error_code: "MISSING_PREREQ_NOI",
+            severity: "warning",
+            detail: "CASH_FLOW_AVAILABLE fact is null after aggregator ran; DSCR skipped. ADS facts written.",
+            total_ads: total,
+          },
+        }).catch(() => {});
       }
 
       // Step 6: If GCF available, compute and write GCF_DSCR

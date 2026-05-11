@@ -640,6 +640,49 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         : { jobId, error: (backfill as any).error },
     });
 
+    // SPEC-FOUNDATION-V1 PR5a — run the cash flow aggregator BEFORE
+    // computeTotalDebtService so CASH_FLOW_AVAILABLE is populated when
+    // computeTotalDebtService reads it for DSCR computation. The aggregator
+    // writes ADS / DSCR / CFA / ECF from the NCADS fallback chain
+    // (EBITDA → OBI → NET_INCOME) + deal_structural_pricing.annual_debt_service_est.
+    // Non-fatal: if the aggregator fails, computeTotalDebtService's graceful
+    // NOI-null path handles the case.
+    try {
+      const { runCashFlowAggregator } = await import(
+        "@/lib/financialFacts/runCashFlowAggregator"
+      );
+      const aggregatorResult = await runCashFlowAggregator({ dealId, bankId });
+      if (aggregatorResult.ok) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "aggregator.canonical_run",
+          uiState: "done",
+          uiMessage: `Aggregator wrote ${aggregatorResult.factsWritten} facts (NCADS: ${aggregatorResult.ncadsSource ?? "none"}, DSCR: ${aggregatorResult.dscr ?? "n/a"})`,
+          meta: {
+            jobId,
+            factsWritten: aggregatorResult.factsWritten,
+            ncadsSource: aggregatorResult.ncadsSource,
+            dscr: aggregatorResult.dscr,
+            proposedAds: aggregatorResult.proposedAds,
+          },
+        });
+      } else {
+        console.warn("[spreadsProcessor] aggregator returned non-ok (non-fatal)", {
+          dealId,
+          jobId,
+          reason: aggregatorResult.reason,
+          detail: aggregatorResult.detail,
+        });
+      }
+    } catch (aggErr: any) {
+      console.warn("[spreadsProcessor] aggregator threw (non-fatal)", {
+        dealId,
+        jobId,
+        error: aggErr?.message,
+      });
+    }
+
     // Perfect Banker Flow v1.1 — facts just changed; refresh readiness so
     // the rail and DealShell CTA reflect the new state without requiring
     // the banker to refresh manually. Fire-and-forget by design.
