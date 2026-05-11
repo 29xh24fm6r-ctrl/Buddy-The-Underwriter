@@ -60,8 +60,9 @@ test("[pr5a-order-4] aggregator call is wrapped in try/catch (non-fatal)", () =>
     preceding.includes("try {") || preceding.includes("try{"),
     "runCashFlowAggregator must be inside a try/catch block.",
   );
-  // Search forwards for 'catch' within 1000 chars
-  const following = body.slice(aggIdx, aggIdx + 1000);
+  // Search forwards for 'catch' within 2000 chars (PR5d added canonical
+  // events between the aggregator result handling and the catch clause)
+  const following = body.slice(aggIdx, aggIdx + 2000);
   assert.ok(
     following.includes("catch"),
     "Try block containing runCashFlowAggregator must have a catch clause.",
