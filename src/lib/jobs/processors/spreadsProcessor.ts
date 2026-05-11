@@ -419,6 +419,52 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }
 
     for (const spreadType of readyTypes) {
+      // ── CLASSIC_PDF: dispatch to dedicated worker ────────────────────────
+      // CLASSIC_PDF uses its own render pipeline (PDFKit, not template-based).
+      // It handles preflight, rendering, and persistence internally.
+      // No CAS claiming needed — the worker upserts with onConflict.
+      if (spreadType === "CLASSIC_PDF") {
+        try {
+          const { renderClassicPdfSpread } = await import(
+            "@/lib/classicSpread/classicPdfWorker"
+          );
+          const pdfResult = await renderClassicPdfSpread({ dealId, bankId });
+          if (pdfResult.ok) {
+            // SPEC-B3-FIX-1: count CLASSIC_PDF success in completedTypes so
+            // jobs that only request CLASSIC_PDF (canonical recompute, stage
+            // transition, /ensure) are marked SUCCEEDED, not FAILED with
+            // NO_SPREADS_RENDERED. Build Principle #11 — observability must
+            // reflect reality.
+            completedTypes.add(spreadType);
+            void logLedgerEvent({
+              dealId, bankId,
+              eventKey: "spread.classic_pdf.ready",
+              uiState: "done",
+              uiMessage: "Classic spread PDF cached",
+              meta: { jobId, pdfSha256: pdfResult.pdfSha256, pdfSizeBytes: pdfResult.pdfSizeBytes },
+            });
+          } else {
+            void logLedgerEvent({
+              dealId, bankId,
+              eventKey: "spread.classic_pdf.failed",
+              uiState: "error",
+              uiMessage: `Classic spread PDF failed: ${pdfResult.error}`,
+              meta: { jobId, errorCode: pdfResult.errorCode, error: pdfResult.error },
+            });
+          }
+        } catch (pdfErr: any) {
+          console.warn("[spreadsProcessor] CLASSIC_PDF worker failed:", pdfErr?.message);
+          void logLedgerEvent({
+            dealId, bankId,
+            eventKey: "spread.classic_pdf.failed",
+            uiState: "error",
+            uiMessage: `Classic spread PDF failed: ${pdfErr?.message}`,
+            meta: { jobId, error: pdfErr?.message },
+          });
+        }
+        continue;
+      }
+
       // Defense-in-depth: skip types with no registered template
       const tpl = getSpreadTemplate(spreadType);
       if (!tpl) {

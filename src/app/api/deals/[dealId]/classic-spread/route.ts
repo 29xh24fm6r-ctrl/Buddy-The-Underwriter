@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
@@ -7,6 +8,9 @@ import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import type { ClassicPdfCachedPayload } from "@/lib/classicSpread/classicPdfWorker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +86,58 @@ export async function GET(_req: Request, ctx: Ctx) {
       await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
     } catch (bridgeErr: any) {
       console.warn("[classic-spread] bridge persist failed (non-fatal):", bridgeErr?.message);
+    }
+
+    // SPEC-B3 cache shim: persist the just-generated PDF to deal_spreads so
+    // the /cached endpoint can serve it without re-rendering. Fire-and-forget.
+    try {
+      const pdfSha256 = createHash("sha256").update(pdf).digest("hex");
+      const generatedAt = new Date().toISOString();
+
+      // Get latest facts timestamp for staleness comparison
+      const sb = supabaseAdmin();
+      const { data: latestFact } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("updated_at")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const cachePayload: ClassicPdfCachedPayload = {
+        pdf_base64: Buffer.from(pdf).toString("base64"),
+        pdf_sha256: pdfSha256,
+        pdf_size_bytes: pdf.length,
+        canonicalFactsTimestamp: latestFact?.updated_at ?? null,
+        generatedAt,
+      };
+
+      await (sb as any)
+        .from("deal_spreads")
+        .upsert(
+          {
+            deal_id: dealId,
+            bank_id: bankId,
+            spread_type: "CLASSIC_PDF",
+            spread_version: 1,
+            owner_type: "DEAL",
+            owner_entity_id: SENTINEL_UUID,
+            status: "ready",
+            inputs_hash: null,
+            rendered_json: cachePayload,
+            rendered_html: null,
+            rendered_csv: null,
+            error: null,
+            error_code: null,
+            finished_at: generatedAt,
+            updated_at: generatedAt,
+          },
+          { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
+        );
+    } catch (cacheErr: any) {
+      // Non-fatal — the PDF is already generated, cache is supplemental
+      console.warn("[classic-spread] cache shim failed (non-fatal):", cacheErr?.message);
     }
 
     return new NextResponse(new Uint8Array(pdf), {

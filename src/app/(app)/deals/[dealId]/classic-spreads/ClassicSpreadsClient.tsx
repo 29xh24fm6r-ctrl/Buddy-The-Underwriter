@@ -13,7 +13,11 @@ export default function ClassicSpreadsClient({ dealId }: { dealId: string }) {
     setState("loading");
     setError(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/classic-spread`);
+      // SPEC-B3: try cached endpoint first, fall back to sync route
+      let res = await fetch(`/api/deals/${dealId}/classic-spread/cached`);
+      if (res.status === 404 || res.status === 409) {
+        res = await fetch(`/api/deals/${dealId}/classic-spread`);
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(text || `Error ${res.status}`);

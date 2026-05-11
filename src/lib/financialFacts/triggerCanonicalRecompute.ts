@@ -98,6 +98,23 @@ export async function triggerCanonicalRecompute(args: {
 
     const jobId = (result as any)?.jobId ?? null;
 
+    // SPEC-B3: enqueue CLASSIC_PDF as a separate job (not bundled with JSON spreads).
+    // Two independent failure modes — JSON spread enqueue already succeeded above.
+    try {
+      await enqueueSpreadRecompute({
+        dealId,
+        bankId,
+        spreadTypes: ["CLASSIC_PDF"] as SpreadType[],
+        meta: {
+          triggerReason: reason,
+          source: "canonical_recompute",
+          ...(extraMeta ?? {}),
+        },
+      });
+    } catch (pdfErr: any) {
+      console.warn("[triggerCanonicalRecompute] failed to enqueue CLASSIC_PDF (non-fatal):", pdfErr?.message);
+    }
+
     // Emit canonical ledger event
     const sb = supabaseAdmin();
     const eventKey =
