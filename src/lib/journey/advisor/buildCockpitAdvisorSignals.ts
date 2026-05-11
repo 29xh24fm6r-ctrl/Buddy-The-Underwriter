@@ -9,6 +9,7 @@
  * it's strictly rules-driven so the cockpit can ship with a trustworthy
  * floor of advice.
  */
+import { buildRiskScore, mapScoreToSeverity, COMMITTEE_RISK_THRESHOLDS } from "./buildRiskScore";
 import type {
   LifecycleBlocker,
   LifecycleStage,
@@ -773,9 +774,6 @@ function buildCommitteeRiskWarnings(
       o.requires_review === true &&
       (o.severity ?? "").toUpperCase() === "WARNING",
   );
-  const { buildRiskScore, mapScoreToSeverity, COMMITTEE_RISK_THRESHOLDS } =
-    require("./buildRiskScore") as typeof import("./buildRiskScore");
-
   const score = buildRiskScore({
     overrides,
     memoGaps,

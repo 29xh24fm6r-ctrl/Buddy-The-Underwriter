@@ -21,14 +21,9 @@ export interface ScoreConfidenceMapping {
 
 /**
  * Map a risk score (0–N integer) to a confidence label.
- * Higher score = more risk = LOWER confidence in committee success.
- * So score >= 70 (critical risk) maps to LOW confidence, not high.
- *
- * Wait — re-reading SPEC-12.1: the mapping is:
- *   score >= 70 → "Very high confidence" (0.95)
- * This means the SCORE reflects the model's confidence in its risk
- * assessment, not the committee's chance of passing. A high score means
- * "we are very confident this deal has committee risk."
+ * Score reflects the model's confidence in its risk assessment, not
+ * the committee's chance of passing. A high score (≥70) means high
+ * confidence in the risk assessment itself.
  */
 export function mapScoreToConfidence(score: number): ScoreConfidenceMapping {
   if (score >= 70) return { label: "Very high confidence", numeric: 0.95 };

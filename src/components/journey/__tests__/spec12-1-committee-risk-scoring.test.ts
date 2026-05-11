@@ -166,3 +166,59 @@ test("[spec12.1-18] signalContentHash produces stable hash", () => {
   const body = read("src/components/journey/stageViews/_shared/useAdvisorSignalThrottle.ts");
   assert.match(body, /export function signalContentHash/, "signalContentHash must be exported for testing");
 });
+
+// ── PR5i-FOLLOWUP-1: throttle wiring guard ─────────────────────────────────
+
+test("[spec12.1-19] CockpitAdvisorPanel imports and calls useAdvisorSignalThrottle", () => {
+  const body = read("src/components/journey/stageViews/_shared/CockpitAdvisorPanel.tsx");
+  assert.match(
+    body,
+    /import.*useAdvisorSignalThrottle.*from/,
+    "Panel must import useAdvisorSignalThrottle",
+  );
+  // Strip comments to find the actual call
+  const stripped = body.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(
+    stripped,
+    /useAdvisorSignalThrottle\(\s*dealId/,
+    "Panel must call useAdvisorSignalThrottle(dealId, ...)",
+  );
+  assert.match(
+    stripped,
+    /throttledSignals/,
+    "Panel must use throttledSignals (not baseSignals directly) in annotated loop",
+  );
+});
+
+test("[spec12.1-20] annotated loop iterates throttledSignals, not baseSignals", () => {
+  const body = read("src/components/journey/stageViews/_shared/CockpitAdvisorPanel.tsx");
+  // Find the annotated useMemo and confirm it iterates throttledSignals
+  const annotatedIdx = body.indexOf("const annotated:");
+  assert.ok(annotatedIdx > 0, "annotated variable must exist");
+  const annotatedBlock = body.slice(annotatedIdx, annotatedIdx + 1000);
+  assert.match(
+    annotatedBlock,
+    /for\s*\(\s*const signal of throttledSignals\b/,
+    "annotated loop must iterate throttledSignals, not baseSignals",
+  );
+  assert.match(
+    annotatedBlock,
+    /throttledSignals.*fb/s,
+    "annotated useMemo deps must include throttledSignals",
+  );
+});
+
+test("[spec12.1-21] buildCockpitAdvisorSignals uses ES import for buildRiskScore (not require)", () => {
+  const body = read("src/lib/journey/advisor/buildCockpitAdvisorSignals.ts");
+  assert.match(
+    body,
+    /^import\s*\{[^}]*buildRiskScore[^}]*\}\s*from\s*["']\.\/buildRiskScore["']/m,
+    "Must use top-of-file ES import for buildRiskScore, not require()",
+  );
+  // Strip comments and confirm no require("./buildRiskScore") remains
+  const stripped = body.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(
+    !stripped.includes('require("./buildRiskScore")'),
+    "Must not use require() for buildRiskScore — use ES import",
+  );
+});

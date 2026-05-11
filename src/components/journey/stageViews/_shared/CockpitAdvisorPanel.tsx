@@ -15,6 +15,7 @@ import {
 import type { DecisionQualityDecision } from "@/lib/journey/advisor/buildDecisionQualitySignals";
 import { buildDeterministicAdvisorExplanation } from "@/lib/journey/advisor/buildAdvisorExplanation";
 import { resolveConfidenceLabel } from "@/lib/journey/advisor/confidenceLabel";
+import { useAdvisorSignalThrottle } from "./useAdvisorSignalThrottle";
 import type { AdvisorEvidence } from "@/lib/journey/advisor/evidence";
 import {
   buildAdvisorMemorySummary,
@@ -199,9 +200,15 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
     group: SignalGroup;
   };
 
+  // SPEC-12.1 — throttle rapid signal refreshes. Content-hash keyed,
+  // severity escalation bypasses. suppressedCount held for SPEC-12.2's
+  // "(N hidden)" group title — not rendered in this PR.
+  const throttle = useAdvisorSignalThrottle(dealId, baseSignals);
+  const throttledSignals = throttle.filteredSignals;
+
   const annotated: Annotated[] = useMemo(() => {
     const out: Annotated[] = [];
-    for (const signal of baseSignals) {
+    for (const signal of throttledSignals) {
       // SPEC-12.1 — below-threshold signals hidden in default mode, shown in debug
       if (signal.belowThreshold && !debug) continue;
       const eff = fb.effectiveStateFor(signal);
@@ -223,7 +230,7 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
       });
     }
     return out.sort((a, b) => b.signal.priority - a.signal.priority);
-  }, [baseSignals, fb]);
+  }, [throttledSignals, fb, debug]);
 
   const groups: Record<SignalGroup, Annotated[]> = {
     critical: [],
