@@ -136,5 +136,21 @@ export async function POST(
     console.warn("[pricing/inputs] structural pricing seed failed (non-fatal):", err?.message);
   }
 
+  // SPEC-FOUNDATION-V1 PR5b — trigger canonical recompute when structural
+  // pricing changes. ADS is a key input to DSCR; when it changes, the
+  // GLOBAL_CASH_FLOW spread needs to re-render with the new debt service.
+  try {
+    const { triggerCanonicalRecompute } = await import(
+      "@/lib/financialFacts/triggerCanonicalRecompute"
+    );
+    void triggerCanonicalRecompute({
+      dealId,
+      bankId,
+      reason: "structural_pricing_updated",
+    });
+  } catch {
+    // Canonical recompute trigger is best-effort; never fail the pricing save for it.
+  }
+
   return NextResponse.json({ ok: true, inputs: data });
 }
