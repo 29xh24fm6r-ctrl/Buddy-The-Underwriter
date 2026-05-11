@@ -4,7 +4,13 @@
  * Computes adjusted EBITDA from extracted financial facts with standard
  * add-backs, partnership-specific items, and non-recurring adjustments.
  * Pure function — no DB, no server-only.
+ *
+ * SPEC-B4: Optional methodologySlate parameter controls which add-backs
+ * are included. When omitted, uses "standard" (all add-backs — matches
+ * pre-B4 behavior).
  */
+
+import type { MethodologySlate } from "@/lib/methodology/types";
 
 export type EbitdaAddBack = {
   key: string;
@@ -36,12 +42,16 @@ function fmt(n: number): string {
 export function computeEbitda(
   facts: FactMap,
   formType: string,
+  methodologySlate?: MethodologySlate,
 ): EbitdaAnalysis {
   const reportedOBI = val(facts, "ORDINARY_BUSINESS_INCOME");
   const addBacks: EbitdaAddBack[] = [];
   const warnings: string[] = [];
 
-  // --- Standard add-backs ---
+  // SPEC-B4: determine add-back stack variant
+  const addBackVariant = methodologySlate?.ebitda_addback_stack ?? "standard";
+
+  // --- Core add-backs (included in all variants) ---
 
   const interest = val(facts, "INTEREST_EXPENSE");
   if (interest !== null && interest !== 0) {
@@ -76,26 +86,30 @@ export function computeEbitda(
     });
   }
 
-  const s179 = val(facts, "SECTION_179_EXPENSE");
-  if (s179 !== null && s179 !== 0) {
-    addBacks.push({
-      key: "SECTION_179_EXPENSE",
-      label: "Section 179 Expense",
-      value: s179,
-      source: "EXTRACTED",
-      notes: "",
-    });
-  }
+  // --- Expanded add-backs (standard + aggressive only, NOT conservative) ---
 
-  const bonusDepr = val(facts, "BONUS_DEPRECIATION");
-  if (bonusDepr !== null && bonusDepr !== 0) {
-    addBacks.push({
-      key: "BONUS_DEPRECIATION",
-      label: "Bonus Depreciation",
-      value: bonusDepr,
-      source: "EXTRACTED",
-      notes: "",
-    });
+  if (addBackVariant !== "conservative") {
+    const s179 = val(facts, "SECTION_179_EXPENSE");
+    if (s179 !== null && s179 !== 0) {
+      addBacks.push({
+        key: "SECTION_179_EXPENSE",
+        label: "Section 179 Expense",
+        value: s179,
+        source: "EXTRACTED",
+        notes: "",
+      });
+    }
+
+    const bonusDepr = val(facts, "BONUS_DEPRECIATION");
+    if (bonusDepr !== null && bonusDepr !== 0) {
+      addBacks.push({
+        key: "BONUS_DEPRECIATION",
+        label: "Bonus Depreciation",
+        value: bonusDepr,
+        source: "EXTRACTED",
+        notes: "",
+      });
+    }
   }
 
   // --- Partnership-specific ---
@@ -114,28 +128,30 @@ export function computeEbitda(
     }
   }
 
-  // --- Non-recurring ---
+  // --- Non-recurring (standard + aggressive only, NOT conservative) ---
 
-  const nrExpense = val(facts, "NON_RECURRING_EXPENSE");
-  if (nrExpense !== null && nrExpense !== 0) {
-    addBacks.push({
-      key: "NON_RECURRING_EXPENSE",
-      label: "Non-Recurring Expense Add-Back",
-      value: nrExpense,
-      source: "EXTRACTED",
-      notes: "",
-    });
-  }
+  if (addBackVariant !== "conservative") {
+    const nrExpense = val(facts, "NON_RECURRING_EXPENSE");
+    if (nrExpense !== null && nrExpense !== 0) {
+      addBacks.push({
+        key: "NON_RECURRING_EXPENSE",
+        label: "Non-Recurring Expense Add-Back",
+        value: nrExpense,
+        source: "EXTRACTED",
+        notes: "",
+      });
+    }
 
-  const nrIncome = val(facts, "NON_RECURRING_INCOME");
-  if (nrIncome !== null && nrIncome !== 0) {
-    addBacks.push({
-      key: "NON_RECURRING_INCOME",
-      label: "Non-Recurring Income Deduction",
-      value: -nrIncome,
-      source: "EXTRACTED",
-      notes: "",
-    });
+    const nrIncome = val(facts, "NON_RECURRING_INCOME");
+    if (nrIncome !== null && nrIncome !== 0) {
+      addBacks.push({
+        key: "NON_RECURRING_INCOME",
+        label: "Non-Recurring Income Deduction",
+        value: -nrIncome,
+        source: "EXTRACTED",
+        notes: "",
+      });
+    }
   }
 
   // --- Interest-in-COGS detection ---

@@ -6,7 +6,14 @@
  * computes Global DSCR.
  *
  * Pure function — no DB, no server-only, fully deterministic.
+ *
+ * SPEC-B4: Optional methodologySlate parameter controls ownership fallback
+ * (axis 4: affiliate_ownership) and personal obligations treatment
+ * (axis 5: living_expense). When omitted, uses pre-B4 behavior
+ * (ownershipPct ?? 1, stated obligations as-is).
  */
+
+import type { MethodologySlate } from "@/lib/methodology/types";
 
 // ---------------------------------------------------------------------------
 // Input types
@@ -84,18 +91,57 @@ export type GcfResult = {
 // Pure computation
 // ---------------------------------------------------------------------------
 
-export function computeGlobalCashFlow(inputs: GcfInputs): GcfResult {
+// SPEC-B4: IRS National Standards minimum living expense floors (2025)
+// Applied when living_expense variant is "sba_sop_minimum"
+const SBA_LIVING_EXPENSE_FLOOR_SINGLE = 24_000;  // annual
+const SBA_LIVING_EXPENSE_FLOOR_FAMILY = 48_000;  // annual, family of 4
+
+export function computeGlobalCashFlow(
+  inputs: GcfInputs,
+  methodologySlate?: MethodologySlate,
+): GcfResult {
   const warnings: string[] = [];
+
+  // SPEC-B4: resolve methodology variants
+  const ownershipVariant = methodologySlate?.affiliate_ownership ?? "standard";
+  const livingExpenseVariant = methodologySlate?.living_expense ?? "standard";
 
   // --- Entity contributions ---
   const entityResults: GcfEntityResult[] = [];
   let totalEntityCashFlow: number | null = null;
 
   for (const e of inputs.entities) {
-    if (e.ownershipPct === null) {
-      warnings.push(
-        `Ownership percentage unknown for "${e.entityName}" — assuming 100%`,
-      );
+    // SPEC-B4 axis 4: ownership fallback behavior
+    let effectiveOwnershipPct: number | null = e.ownershipPct;
+
+    if (ownershipVariant === "conservative") {
+      // Conservative: unknown → 0 (exclude), below 50% → exclude
+      if (e.ownershipPct === null) {
+        effectiveOwnershipPct = 0;
+        warnings.push(
+          `Ownership unknown for "${e.entityName}" — excluded (conservative methodology)`,
+        );
+      } else if (e.ownershipPct < 0.50) {
+        effectiveOwnershipPct = 0;
+        warnings.push(
+          `Ownership ${(e.ownershipPct * 100).toFixed(0)}% for "${e.entityName}" — excluded below 50% floor (conservative methodology)`,
+        );
+      }
+    } else if (ownershipVariant === "documented_only") {
+      // Documented-only: unknown → 0 (exclude)
+      if (e.ownershipPct === null) {
+        effectiveOwnershipPct = 0;
+        warnings.push(
+          `Ownership undocumented for "${e.entityName}" — excluded (documented-only methodology)`,
+        );
+      }
+    } else {
+      // Standard: unknown → assume 100%
+      if (e.ownershipPct === null) {
+        warnings.push(
+          `Ownership percentage unknown for "${e.entityName}" — assuming 100%`,
+        );
+      }
     }
 
     // Gross cash flow = net income + depreciation + interest (EBITDA proxy)
@@ -107,7 +153,9 @@ export function computeGlobalCashFlow(inputs: GcfInputs): GcfResult {
     // Allocated = gross × ownership %
     let allocatedCashFlow: number | null = null;
     if (grossCashFlow !== null) {
-      const pct = e.ownershipPct ?? 1;
+      const pct = ownershipVariant === "standard"
+        ? (effectiveOwnershipPct ?? 1)
+        : (effectiveOwnershipPct ?? 0);
       allocatedCashFlow = grossCashFlow * pct;
     }
 
@@ -140,7 +188,20 @@ export function computeGlobalCashFlow(inputs: GcfInputs): GcfResult {
   for (const s of inputs.sponsors) {
     let netPersonalCashFlow: number | null = null;
     if (s.totalPersonalIncome !== null) {
-      netPersonalCashFlow = s.totalPersonalIncome - (s.personalObligations ?? 0);
+      // SPEC-B4 axis 5: living expense treatment
+      let effectiveObligations = s.personalObligations ?? 0;
+
+      if (livingExpenseVariant === "sba_sop_minimum") {
+        // Apply IRS National Standards floor
+        const sopFloor = SBA_LIVING_EXPENSE_FLOOR_SINGLE; // TODO: use household size when available
+        effectiveObligations = Math.max(effectiveObligations, sopFloor);
+      } else if (livingExpenseVariant === "buffered") {
+        // Stated × 1.10x
+        effectiveObligations = effectiveObligations * 1.10;
+      }
+      // "standard" — use stated as-is (no transformation)
+
+      netPersonalCashFlow = s.totalPersonalIncome - effectiveObligations;
     } else {
       warnings.push(
         `Personal income unknown for "${s.ownerName}" — excluded from global cash flow`,
