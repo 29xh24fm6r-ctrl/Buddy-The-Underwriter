@@ -677,7 +677,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         : `Facts materialization failed: ${(backfill as any).error}`,
       meta: backfill.ok
         ? { jobId, factsWritten: backfill.factsWritten, notes: backfill.notes }
-        : { jobId, error: (backfill as any).error },
+        : { jobId, error: (backfill as any).error, notes: (backfill as any).notes ?? [] },
     });
 
     // PR5d — canonical.recompute.backfill.completed
@@ -695,7 +695,7 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         triggerReason,
         ok: backfill.ok,
         factsWritten: backfill.ok ? backfill.factsWritten : 0,
-        notes: backfill.ok ? backfill.notes : [],
+        notes: backfill.ok ? backfill.notes : ((backfill as any).notes ?? []),
         error: backfill.ok ? null : (backfill as any).error,
       },
     }).catch(() => {});

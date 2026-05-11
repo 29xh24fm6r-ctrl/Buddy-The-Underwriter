@@ -156,7 +156,7 @@ async function getAllSpreadsForType(args: {
 export async function backfillCanonicalFactsFromSpreads(args: {
   dealId: string;
   bankId: string;
-}): Promise<{ ok: true; factsWritten: number; notes: string[] } | { ok: false; error: string }> {
+}): Promise<{ ok: true; factsWritten: number; notes: string[] } | { ok: false; error: string; notes?: string[] }> {
   try {
     const notes: string[] = [];
     let factsWritten = 0;
@@ -878,7 +878,9 @@ export async function backfillCanonicalFactsFromSpreads(args: {
 
     // If we attempted writes but ALL failed, report as error (not false green)
     if (writes.length > 0 && factsWritten === 0) {
-      return { ok: false as const, error: `All ${writes.length} fact writes failed` };
+      // SPEC-FOUNDATION-V1 PR5e — include per-write notes so ledger captures
+      // the actual database error per upsert, not just the aggregated count.
+      return { ok: false as const, error: `All ${writes.length} fact writes failed`, notes };
     }
 
     return { ok: true, factsWritten, notes };
