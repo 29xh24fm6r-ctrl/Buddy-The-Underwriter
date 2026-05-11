@@ -27,11 +27,11 @@
  *   - SUPABASE_SERVICE_ROLE_KEY
  *   - GEMINI_API_KEY
  */
-import { config as loadEnv } from "dotenv";
+import dotenv from "dotenv";
 import { resolve } from "path";
 
-loadEnv({ path: resolve(process.cwd(), ".env") });
-loadEnv({ path: resolve(process.cwd(), ".env.local"), override: true });
+dotenv.config({ path: resolve(process.cwd(), ".env") });
+dotenv.config({ path: resolve(process.cwd(), ".env.local"), override: true });
 
 import { runGatekeeperForDocument } from "@/lib/gatekeeper/runGatekeeper";
 import { supabaseAdmin } from "@/lib/supabase/admin";
