@@ -9,6 +9,7 @@
  * it's strictly rules-driven so the cockpit can ship with a trustworthy
  * floor of advice.
  */
+import { buildRiskScore, mapScoreToSeverity, COMMITTEE_RISK_THRESHOLDS } from "./buildRiskScore";
 import type {
   LifecycleBlocker,
   LifecycleStage,
@@ -107,6 +108,12 @@ export type CockpitAdvisorSignal = {
    * kinds. Empty/undefined for legacy SPEC-07–10 kinds.
    */
   evidence?: AdvisorEvidence[];
+  /** SPEC-12.1 — risk score (committee failure-risk signals only). */
+  riskScore?: number;
+  /** SPEC-12.1 — risk factor breakdown (committee failure-risk signals only). */
+  riskFactors?: import("./buildRiskScore").RiskScore["factors"];
+  /** SPEC-12.1 — internal marker; signals emitted below threshold. */
+  belowThreshold?: boolean;
 };
 
 /**
@@ -758,71 +765,105 @@ function buildCommitteeRiskWarnings(
   );
   const readinessPct = derived.documentsReadinessPct ?? 0;
 
-  // 1) committee_failure_risk
-  // committee required AND (
-  //   critical overrides > 0
-  //   OR memo gaps >= 3
-  //   OR readiness < 80
-  //   OR critical blockers exist
-  // )
-  const failureTriggers: AdvisorEvidence[] = [];
-  if (criticalOverrides.length > 0) {
-    failureTriggers.push({
+  // 1) committee_failure_risk — SPEC-12.1: score-based emission
+  // Replaces the prior trigger-based logic. Score is a deterministic
+  // graduated integer; severity is derived from thresholds; evidence is
+  // derived 1-to-1 from the score's factors (non-negotiable #5).
+  const warningOverrides = overrides.filter(
+    (o) =>
+      o.requires_review === true &&
+      (o.severity ?? "").toUpperCase() === "WARNING",
+  );
+  const score = buildRiskScore({
+    overrides,
+    memoGaps,
+    blockers,
+    readinessPct,
+  });
+  const sev = mapScoreToSeverity(score.total, COMMITTEE_RISK_THRESHOLDS);
+
+  // Build evidence from factors (single source of truth — non-negotiable #5)
+  const evidenceFromFactors: AdvisorEvidence[] = [
+    { source: "lifecycle", label: "Committee required", value: true },
+  ];
+  if (score.factors.criticalOverrides.points > 0) {
+    evidenceFromFactors.push({
       source: "overrides",
       label: "Critical overrides",
-      value: criticalOverrides.length,
+      value: score.factors.criticalOverrides.count,
       severity: "critical",
     });
   }
-  if (memoGaps >= 3) {
-    failureTriggers.push({
+  if (score.factors.warningOverrides.points > 0) {
+    evidenceFromFactors.push({
+      source: "overrides",
+      label: "Warning overrides needing review",
+      value: score.factors.warningOverrides.count,
+      severity: "warning",
+    });
+  }
+  if (score.factors.memoGaps.points > 0) {
+    evidenceFromFactors.push({
       source: "memo",
       label: "Memo gaps",
-      value: memoGaps,
+      value: score.factors.memoGaps.count,
       severity: "warning",
     });
   }
-  if (readinessPct < 80) {
-    failureTriggers.push({
+  if (score.factors.blockers.points > 0) {
+    evidenceFromFactors.push({
+      source: "blockers",
+      label: "Open blockers",
+      value: score.factors.blockers.count,
+      severity: "warning",
+    });
+  }
+  if (score.factors.readinessPenalty.points > 0) {
+    evidenceFromFactors.push({
       source: "documents",
       label: "Document readiness",
-      value: `${readinessPct}%`,
+      value: `${score.factors.readinessPenalty.pct}%`,
       severity: "warning",
     });
   }
-  if (criticalBlockers.length > 0) {
-    failureTriggers.push({
-      source: "blockers",
-      label: "Critical blockers",
-      value: criticalBlockers.length,
-      severity: "critical",
-    });
-  }
-  if (failureTriggers.length > 0) {
-    out.push(
-      withRanking({
-        kind: "committee_risk_warning",
-        severity:
-          criticalOverrides.length > 0 || criticalBlockers.length > 0
-            ? "critical"
-            : "warning",
-        title: "Committee likely to fail",
-        detail: "One or more high-risk signals threaten committee approval.",
-        action: {
-          intent: "navigate",
-          label: "Committee Studio",
-          href: `/deals/${input.dealId}/committee-studio`,
-        },
-        source: "lifecycle",
-        rankReason: "Predictive: committee failure risk",
-        predictionReason: "committee_failure_risk",
-        evidence: [
-          { source: "lifecycle", label: "Committee required", value: true },
-          ...failureTriggers,
-        ],
-      }),
-    );
-  }
+
+  // Emit signal regardless of severity (below_threshold still emits;
+  // panel hides by default, debug shows — non-negotiable #8)
+  const isBelowThreshold = sev === "below_threshold";
+  const emittedSeverity: CockpitAdvisorSignalSeverity =
+    sev === "critical"
+      ? "critical"
+      : sev === "warning"
+        ? "warning"
+        : "info"; // below_threshold gets info severity
+
+  out.push(
+    withRanking({
+      kind: "committee_risk_warning",
+      severity: emittedSeverity,
+      title:
+        sev === "critical"
+          ? "Committee likely to fail"
+          : sev === "warning"
+            ? "Committee at risk of failure"
+            : "Committee risk monitored",
+      detail: isBelowThreshold
+        ? "Risk signals are below the warning threshold but tracked."
+        : "Deterministic risk score indicates committee failure risk.",
+      action: {
+        intent: "navigate",
+        label: "Committee Studio",
+        href: `/deals/${input.dealId}/committee-studio`,
+      },
+      source: "lifecycle",
+      rankReason: `Risk score ${score.total} (${sev})`,
+      predictionReason: "committee_failure_risk",
+      evidence: evidenceFromFactors,
+      _riskScore: score.total,
+      _riskFactors: score.factors,
+      _belowThreshold: isBelowThreshold,
+    }),
+  );
 
   // 2) committee_delay_risk
   // committee required AND packet not ready
@@ -1092,6 +1133,12 @@ type SignalDraft = Omit<CockpitAdvisorSignal, "priority" | "rankReason" | "confi
   _undo?: boolean;
   /** internal — age in ms; used as a recency tie-breaker. */
   _ageMs?: number;
+  /** SPEC-12.1 internal — risk score for committee failure-risk signals. */
+  _riskScore?: number;
+  /** SPEC-12.1 internal — risk factor breakdown. */
+  _riskFactors?: import("./buildRiskScore").RiskScore["factors"];
+  /** SPEC-12.1 internal — below threshold marker. */
+  _belowThreshold?: boolean;
 };
 
 const ACTIONABLE_BUMP = 75;       // SPEC-09 widened from 25
@@ -1143,9 +1190,22 @@ function withRanking(draft: SignalDraft): CockpitAdvisorSignal {
   const confidence = CONFIDENCE[draft.source] ?? 0.65;
 
   // Strip internal-only fields before returning.
-  const { _failed, _undo, _ageMs, ...rest } = draft;
+  // SPEC-12.1: thread _riskScore, _riskFactors, _belowThreshold into the
+  // public signal shape (without underscore prefix).
+  const {
+    _failed, _undo, _ageMs,
+    _riskScore, _riskFactors, _belowThreshold,
+    ...rest
+  } = draft;
   void _failed;
   void _undo;
   void _ageMs;
-  return { ...rest, priority, confidence };
+  return {
+    ...rest,
+    priority,
+    confidence,
+    ...(typeof _riskScore === "number" ? { riskScore: _riskScore } : {}),
+    ...(_riskFactors ? { riskFactors: _riskFactors } : {}),
+    ...(_belowThreshold ? { belowThreshold: true } : {}),
+  };
 }
