@@ -1,0 +1,5 @@
+Check 1: ebitdaEngine EXISTS, methodologySlate refs: 3
+Check 2: zero hits — engines not called from canonical writers
+Check 3: EBITDA written only via backfill (NOI proxy)
+Check 4: OFFICER_COMP_EXCESS_ADDBACK not in CANONICAL_FACTS — will add
+Check 5: deal_entities schema TBD (Supabase MCP)
