@@ -139,6 +139,13 @@ export async function runCashFlowAggregator(args: {
       : null;
 
   // 5. Build facts to write
+  // SPEC-FOUNDATION-V1 PR5h — use SENTINEL_DATE for fact_period_end instead
+  // of today's date. The aggregator's facts are "current best estimate"
+  // derived from structural pricing + latest-period NCADS, not period-specific
+  // financial data. Using today's date created a new row on every run because
+  // fact_period_end is part of the natural-uniqueness constraint. SENTINEL_DATE
+  // matches the convention used by computeTotalDebtService, backfill, and
+  // persistGlobalCashFlow, making the upsert idempotent across runs.
   const persistDate = new Date().toISOString().slice(0, 10);
 
   const factsToWrite = [
@@ -168,7 +175,7 @@ export async function runCashFlowAggregator(args: {
           fact_type: "FINANCIAL_ANALYSIS",
           fact_key: f.key,
           fact_period_start: SENTINEL_DATE,
-          fact_period_end: persistDate,
+          fact_period_end: SENTINEL_DATE,
           fact_value_num: f.value,
           fact_value_text: null,
           currency: "USD",
