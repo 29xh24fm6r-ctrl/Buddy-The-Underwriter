@@ -250,6 +250,50 @@ export async function buildCreditMemoBindings(args: {
     return { total, populated, status };
   }
 
+  // SPEC-B4 — Extract methodology rationale strings from provenance JSONB.
+  function extractMethodologyRationale(
+    factType: string,
+    factKey: string,
+    axisFilter?: string,
+  ): string | null {
+    const match = facts.find(
+      (f) => f.fact_type === factType && f.fact_key === factKey,
+    );
+    if (!match) return null;
+
+    const methodologyArr = match.provenance?.methodology;
+    if (!Array.isArray(methodologyArr) || methodologyArr.length === 0) return null;
+
+    const entry = axisFilter
+      ? methodologyArr.find((m: any) => m.axis === axisFilter)
+      : methodologyArr[0];
+
+    return entry?.rationale ?? null;
+  }
+
+  const methodology = {
+    cfaMethodologyRationale: extractMethodologyRationale(
+      "FINANCIAL_ANALYSIS",
+      "CASH_FLOW_AVAILABLE",
+      "ncads_source",
+    ),
+    // Axes 2 + 3 not yet wired to canonical chain in v1.0
+    ebitdaMethodologyRationale: null,
+    officerCompMethodologyRationale: null,
+    gcfMethodologyRationale: (() => {
+      const match = facts.find(
+        (f) => f.fact_type === "FINANCIAL_ANALYSIS" && f.fact_key === "GCF_GLOBAL_CASH_FLOW",
+      );
+      if (!match) return null;
+      const arr = match.provenance?.methodology;
+      if (!Array.isArray(arr) || arr.length === 0) return null;
+      const parts = arr
+        .map((m: any) => m.rationale)
+        .filter((r: any) => typeof r === "string" && r.length > 0);
+      return parts.length > 0 ? parts.join(" ") : null;
+    })(),
+  };
+
   return {
     dealId,
     bankId,
@@ -261,6 +305,7 @@ export async function buildCreditMemoBindings(args: {
     property,
     sponsors,
     global,
+    methodology,
     completeness: {
       deal: completenessStatus(dealFields),
       personal: completenessStatus(personalFields),

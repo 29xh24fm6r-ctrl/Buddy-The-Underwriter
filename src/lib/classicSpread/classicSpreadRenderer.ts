@@ -438,6 +438,49 @@ function fmtCurrency(val: number | null): string {
   return `$${val.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-B4 — Methodology Block (on GCF page)
+// ---------------------------------------------------------------------------
+
+function renderMethodologyBlock(
+  doc: PDFKit.PDFDocument,
+  gcf: GlobalCashFlowSection,
+  startY: number,
+): number {
+  if (!gcf.methodology || gcf.methodology.length === 0) return startY;
+
+  // Skip Axis 5 (living_expense) — too detail-heavy for PDF; lives in picker only
+  const visibleEntries = gcf.methodology.filter((m) => m.axisId !== "living_expense");
+  if (visibleEntries.length === 0) return startY;
+
+  const rightEdge = doc.page.width - PAGE_MARGIN;
+  const contentWidth = rightEdge - PAGE_MARGIN;
+  let y = startY;
+
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor("#333333");
+  doc.text("METHODOLOGY", PAGE_MARGIN, y, { width: contentWidth });
+  y += 14;
+
+  doc.moveTo(PAGE_MARGIN, y).lineTo(rightEdge, y).lineWidth(0.3).stroke("#cccccc");
+  y += 6;
+
+  doc.fillColor("#000000");
+  for (const entry of visibleEntries) {
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
+    const heading = `${entry.axisLabel}: ${entry.chosenVariantLabel}`;
+    doc.text(heading, PAGE_MARGIN + 8, y + 2, { width: contentWidth - 8 });
+    y += ROW_HEIGHT;
+
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
+    const rationaleHeight = doc.heightOfString(entry.rationale, { width: contentWidth - 16 });
+    doc.text(entry.rationale, PAGE_MARGIN + 16, y + 1, { width: contentWidth - 16 });
+    y += rationaleHeight + 4;
+    doc.fillColor("#000000");
+  }
+
+  return y + 8;
+}
+
 function renderGlobalCashFlowPage(
   doc: PDFKit.PDFDocument,
   input: ClassicSpreadInput,
@@ -587,6 +630,9 @@ function renderGlobalCashFlowPage(
   doc.text(statusLabel, PAGE_MARGIN + 14, y + 9, { width: contentWidth - 24, lineBreak: false });
   doc.fillColor("#000000");
   y += barHeight + 16;
+
+  // SPEC-B4 — Methodology block (renders after coverage signal bar)
+  y = renderMethodologyBlock(doc, gcf, y);
 
   // ── Footer ──────────────────────────────────────────────────────────────
   const footerTop = doc.page.height - PAGE_MARGIN - FOOTER_HEIGHT + 8;

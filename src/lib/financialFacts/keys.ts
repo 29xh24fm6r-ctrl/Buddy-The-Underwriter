@@ -1,7 +1,16 @@
 import "server-only";
 
+import type { MethodologyProvenance } from "@/lib/methodology/types";
+
 export type FinancialFactSourceType = "SPREAD" | "DOC_EXTRACT" | "MANUAL" | "STRUCTURAL";
 
+/**
+ * Provenance JSONB stored on deal_financial_facts.provenance.
+ *
+ * SPEC-B4 (Batch 2): added optional `methodology` field as ALWAYS-ARRAY shape.
+ * Single-axis facts carry a 1-element array; multi-axis facts (GCF) carry
+ * N-element. Readers iterate uniformly without shape branching.
+ */
 export type FinancialFactProvenance = {
   source_type: FinancialFactSourceType;
   source_ref: string; // e.g. `deal_spreads:GLOBAL_CASH_FLOW:v1` or `deal_documents:<uuid>`
@@ -16,6 +25,16 @@ export type FinancialFactProvenance = {
     snippet: string;
   }>;
   raw_snippets?: string[];
+
+  /**
+   * SPEC-B4: methodology audit trail. Always an array when present.
+   *   - Aggregator facts (ANNUAL_DEBT_SERVICE, DSCR, CASH_FLOW_AVAILABLE,
+   *     EXCESS_CASH_FLOW) carry [Axis 1 entry].
+   *   - GCF facts (GCF_GLOBAL_CASH_FLOW, GCF_DSCR, GLOBAL_CASH_FLOW) carry
+   *     [Axis 4 entry, Axis 5 entry].
+   * Existing facts (pre-Batch 2) have undefined methodology.
+   */
+  methodology?: MethodologyProvenance[];
 };
 
 export type CanonicalFact = {
