@@ -29,6 +29,12 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
+import { computeSlateHash } from "@/lib/methodology/slateHash";
+import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
+import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
+import { buildRationale } from "@/lib/methodology/rationaleTemplates";
+import type { MethodologyProvenance } from "@/lib/methodology/types";
 
 // ── Sentinel constants — match route exactly ───────────────────────────────
 const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
@@ -69,6 +75,11 @@ export async function runCashFlowAggregator(args: {
 }): Promise<RunCashFlowAggregatorResult> {
   const { dealId, bankId } = args;
   const sb = supabaseAdmin();
+
+  // SPEC-B4 — Load methodology slate (banker choices merged over defaults)
+  const { slate: methodologySlate, isAllDefaults } =
+    await loadDealMethodology(dealId, bankId);
+  const slateHash = computeSlateHash(methodologySlate);
 
   // 1. Read proposedAds from deal_structural_pricing
   const { data: pricingRow } = await (sb as any)
@@ -116,21 +127,47 @@ export async function runCashFlowAggregator(args: {
     (r: any) => r.fact_period_end === latestPeriod,
   );
 
-  const ncads: number | null =
-    periodFacts.find((r: any) => r.fact_key === "EBITDA")?.fact_value_num ??
-    periodFacts.find((r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME")
-      ?.fact_value_num ??
-    periodFacts.find((r: any) => r.fact_key === "NET_INCOME")?.fact_value_num ??
-    null;
+  // SPEC-B4 — NCADS source decision varies by methodology slate (Axis 1)
+  //   "standard"        → EBITDA → OBI → NET_INCOME fallback (matches pre-B4 behavior)
+  //   "conservative"    → NET_INCOME only (no operational add-backs)
+  //   "tax_return_basis" → OBI only (what the IRS sees)
+  const ncadsVariant = methodologySlate.ncads_source;
 
-  const ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null =
-    periodFacts.find((r: any) => r.fact_key === "EBITDA")
+  let ncads: number | null = null;
+  let ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null = null;
+
+  if (ncadsVariant === "conservative") {
+    const niRow = periodFacts.find((r: any) => r.fact_key === "NET_INCOME");
+    ncads = niRow?.fact_value_num ?? null;
+    ncadsSource = niRow ? "NET_INCOME" : null;
+  } else if (ncadsVariant === "tax_return_basis") {
+    const obiRow = periodFacts.find(
+      (r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME",
+    );
+    ncads = obiRow?.fact_value_num ?? null;
+    ncadsSource = obiRow ? "ORDINARY_BUSINESS_INCOME" : null;
+  } else {
+    // "standard" — current behavior preserved exactly
+    const ebitdaRow = periodFacts.find((r: any) => r.fact_key === "EBITDA");
+    const obiRow = periodFacts.find(
+      (r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME",
+    );
+    const niRow = periodFacts.find((r: any) => r.fact_key === "NET_INCOME");
+
+    ncads =
+      ebitdaRow?.fact_value_num ??
+      obiRow?.fact_value_num ??
+      niRow?.fact_value_num ??
+      null;
+
+    ncadsSource = ebitdaRow
       ? "EBITDA"
-      : periodFacts.find((r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME")
+      : obiRow
         ? "ORDINARY_BUSINESS_INCOME"
-        : periodFacts.find((r: any) => r.fact_key === "NET_INCOME")
+        : niRow
           ? "NET_INCOME"
           : null;
+  }
 
   // 4. Compute DSCR
   const dscrValue =
@@ -162,6 +199,22 @@ export async function runCashFlowAggregator(args: {
       f.value !== null && Number.isFinite(f.value),
   );
 
+  // SPEC-B4 — Build methodology provenance for Axis 1 (NCADS source)
+  const ncadsAxis = METHODOLOGY_AXES.ncads_source;
+  const methodologyProvenance: MethodologyProvenance[] = [
+    {
+      axis: "ncads_source",
+      chosen_variant: ncadsVariant,
+      alternatives_considered: ncadsAxis.variants
+        .map((v) => v.id)
+        .filter((id) => id !== ncadsVariant),
+      rationale: buildRationale("ncads_source", ncadsVariant),
+      slate_hash: slateHash,
+      is_default:
+        ncadsVariant === DEFAULT_METHODOLOGY_SLATE.ncads_source && isAllDefaults,
+    },
+  ];
+
   // 6. Execute upserts
   let factsWritten = 0;
   for (const f of factsToWrite) {
@@ -182,9 +235,10 @@ export async function runCashFlowAggregator(args: {
           confidence: 0.95,
           provenance: {
             source_type: "STRUCTURAL",
-            source_ref: "computed:classic_spread:v1",
+            source_ref: "computed:classic_spread:v2",
             as_of_date: persistDate,
-            extractor: "classicSpread:debtService:v1",
+            extractor: "runCashFlowAggregator:v2",
+            methodology: methodologyProvenance,
           },
           owner_type: "DEAL",
           owner_entity_id: SENTINEL_UUID,

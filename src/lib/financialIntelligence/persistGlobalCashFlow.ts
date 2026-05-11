@@ -17,6 +17,12 @@ import {
   type GcfSponsorInput,
   type GcfResult,
 } from "./computeGlobalCashFlow";
+import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
+import { computeSlateHash } from "@/lib/methodology/slateHash";
+import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
+import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
+import { buildRationale } from "@/lib/methodology/rationaleTemplates";
+import type { MethodologyProvenance } from "@/lib/methodology/types";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -32,6 +38,11 @@ export async function persistGlobalCashFlow(args: {
   try {
     const sb = supabaseAdmin();
     const notes: string[] = [];
+
+    // SPEC-B4 — Load methodology slate (banker choices merged over defaults)
+    const { slate: methodologySlate, isAllDefaults } =
+      await loadDealMethodology(args.dealId, args.bankId);
+    const slateHash = computeSlateHash(methodologySlate);
 
     // ── 1. Load deal entities ──────────────────────────────────────────────
     const { data: entityRows, error: entErr } = await (sb as any)
@@ -196,12 +207,54 @@ export async function persistGlobalCashFlow(args: {
     });
 
     // ── 6. Compute ─────────────────────────────────────────────────────────
-    const result = computeGlobalCashFlow({
-      entities,
-      sponsors,
-      proposedDebtService,
-      existingDebtService,
-    });
+    const result = computeGlobalCashFlow(
+      {
+        entities,
+        sponsors,
+        proposedDebtService,
+        existingDebtService,
+      },
+      methodologySlate,
+    );
+
+    // SPEC-B4 — GCF facts are affected by Axis 4 (affiliate_ownership) and
+    // Axis 5 (living_expense). Provenance is a 2-element array (always-array
+    // shape; readers iterate uniformly).
+    const ownershipAxis = METHODOLOGY_AXES.affiliate_ownership;
+    const livingExpenseAxis = METHODOLOGY_AXES.living_expense;
+
+    const methodologyProvenance: MethodologyProvenance[] = [
+      {
+        axis: "affiliate_ownership",
+        chosen_variant: methodologySlate.affiliate_ownership,
+        alternatives_considered: ownershipAxis.variants
+          .map((v) => v.id)
+          .filter((id) => id !== methodologySlate.affiliate_ownership),
+        rationale: buildRationale(
+          "affiliate_ownership",
+          methodologySlate.affiliate_ownership,
+        ),
+        slate_hash: slateHash,
+        is_default:
+          methodologySlate.affiliate_ownership ===
+            DEFAULT_METHODOLOGY_SLATE.affiliate_ownership && isAllDefaults,
+      },
+      {
+        axis: "living_expense",
+        chosen_variant: methodologySlate.living_expense,
+        alternatives_considered: livingExpenseAxis.variants
+          .map((v) => v.id)
+          .filter((id) => id !== methodologySlate.living_expense),
+        rationale: buildRationale(
+          "living_expense",
+          methodologySlate.living_expense,
+        ),
+        slate_hash: slateHash,
+        is_default:
+          methodologySlate.living_expense ===
+            DEFAULT_METHODOLOGY_SLATE.living_expense && isAllDefaults,
+      },
+    ];
 
     // ── 7. Persist GCF facts ───────────────────────────────────────────────
     let factsWritten = 0;
@@ -219,11 +272,12 @@ export async function persistGlobalCashFlow(args: {
         confidence: result.globalCashFlowAvailable === null ? null : 0.85,
         provenance: {
           source_type: "SPREAD",
-          source_ref: "computeGlobalCashFlow:v1",
+          source_ref: "computeGlobalCashFlow:v2",
           as_of_date: null,
-          extractor: "persistGlobalCashFlow:v1",
+          extractor: "persistGlobalCashFlow:v2",
           calc: "entity_cash_flow + personal_cash_flow",
           confidence: result.globalCashFlowAvailable === null ? null : 0.85,
+          methodology: methodologyProvenance,
         },
       }),
     );
@@ -240,11 +294,12 @@ export async function persistGlobalCashFlow(args: {
         confidence: result.globalDscr === null ? null : 0.85,
         provenance: {
           source_type: "SPREAD",
-          source_ref: "computeGlobalCashFlow:v1",
+          source_ref: "computeGlobalCashFlow:v2",
           as_of_date: null,
-          extractor: "persistGlobalCashFlow:v1",
+          extractor: "persistGlobalCashFlow:v2",
           calc: "global_cash_flow_available / total_debt_service",
           confidence: result.globalDscr === null ? null : 0.85,
+          methodology: methodologyProvenance,
         },
       }),
     );
@@ -261,11 +316,12 @@ export async function persistGlobalCashFlow(args: {
         confidence: result.globalCashFlowAvailable === null ? null : 0.85,
         provenance: {
           source_type: "SPREAD",
-          source_ref: "computeGlobalCashFlow:v1",
+          source_ref: "computeGlobalCashFlow:v2",
           as_of_date: null,
-          extractor: "persistGlobalCashFlow:v1",
+          extractor: "persistGlobalCashFlow:v2",
           calc: "entity_cash_flow + personal_cash_flow (legacy compat)",
           confidence: result.globalCashFlowAvailable === null ? null : 0.85,
+          methodology: methodologyProvenance,
         },
       }),
     );
