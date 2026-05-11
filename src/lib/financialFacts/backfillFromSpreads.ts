@@ -164,6 +164,26 @@ export async function backfillCanonicalFactsFromSpreads(args: {
     const writes: Array<Promise<any>> = [];
     const baseConfidence = 0.85;
 
+    // SPEC-FOUNDATION-V1 PR5i — null-write gating. Skip upserts where
+    // the source value is null/undefined. Writing null-valued canonical
+    // facts creates phantom rows that downstream readers must filter out.
+    // Behind feature flag BACKFILL_NULL_GATE_ENABLED (default true).
+    const BACKFILL_NULL_GATE =
+      process.env.BACKFILL_NULL_GATE_ENABLED !== "false";
+
+    async function gatedUpsert(
+      upsertArgs: Parameters<typeof upsertDealFinancialFact>[0],
+    ) {
+      if (
+        BACKFILL_NULL_GATE &&
+        (upsertArgs.factValueNum == null ||
+          !Number.isFinite(upsertArgs.factValueNum))
+      ) {
+        return { ok: true }; // Skip null writes, report as non-failure
+      }
+      return upsertDealFinancialFact(upsertArgs);
+    }
+
     const gcf = await getLatestSpreadRow({ dealId: args.dealId, bankId: args.bankId, spreadType: "GLOBAL_CASH_FLOW" });
     if (!gcf?.rendered_json) {
       notes.push("GLOBAL_CASH_FLOW spread missing (no spreads-to-facts backfill possible for DSCR/CFA/ADS). ");
@@ -200,7 +220,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
 
     // FACT: CASH_FLOW_AVAILABLE
     writes.push(
-      upsertDealFinancialFact({
+      gatedUpsert({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
@@ -220,7 +240,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
 
     // FACT: ANNUAL_DEBT_SERVICE
     writes.push(
-      upsertDealFinancialFact({
+      gatedUpsert({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
@@ -240,7 +260,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
 
     // FACT: DSCR
     writes.push(
-      upsertDealFinancialFact({
+      gatedUpsert({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
@@ -260,7 +280,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
 
     // FACT: DSCR_STRESSED_300BPS (optional)
     writes.push(
-      upsertDealFinancialFact({
+      gatedUpsert({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
@@ -287,7 +307,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
     }
 
     writes.push(
-      upsertDealFinancialFact({
+      gatedUpsert({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
@@ -325,7 +345,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         tryFindRowNumberForCol(t12.rendered_json, { rowKey: "NOI", colKey: "TTM" }) ?? tryFindRowNumber(t12.rendered_json, { key: "NOI" });
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -344,7 +364,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       );
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -363,7 +383,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       );
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -385,7 +405,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       // REVENUE = TOTAL_INCOME (in property context, total rental + other income)
       const revenue = totalIncomeTtm;
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -410,7 +430,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         tryFindRowNumberForCol(t12.rendered_json, { rowKey: "COST_OF_GOODS_SOLD", colKey: "TTM" }) ??
         tryFindRowNumber(t12.rendered_json, { key: "COGS" });
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -436,7 +456,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         grossProfitCalc = "REVENUE - COGS";
       }
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -458,7 +478,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       // EBITDA ≈ NOI for real estate (no depreciation in T12 cash-basis)
       const ebitda = noiTtm;
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -484,7 +504,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         tryFindRowNumberForCol(t12.rendered_json, { rowKey: "CASH_FLOW_AFTER_DEBT", colKey: "TTM" }) ??
         tryFindRowNumber(t12.rendered_json, { key: "CASH_FLOW_AFTER_DEBT" });
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -531,7 +551,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       })();
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -550,7 +570,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       );
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -569,7 +589,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       );
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -616,7 +636,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
           tryFindRowNumberForCol(bs.rendered_json, { rowKey: bf.rowKey, colKey: bsColKey }) ??
           tryFindRowNumber(bs.rendered_json, { key: bf.rowKey });
         writes.push(
-          upsertDealFinancialFact({
+          gatedUpsert({
             dealId: args.dealId,
             bankId: args.bankId,
             sourceDocumentId: null,
@@ -650,7 +670,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         workingCapital = totalCurrentAssets - totalCurrentLiabilities;
       }
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -678,7 +698,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
           ? totalCurrentAssets / totalCurrentLiabilities
           : null);
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -714,7 +734,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
           ? bsTotalLiabilities / bsNetWorth
           : null);
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -750,7 +770,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
           tryFindRowNumber(pi.rendered_json, { key: "total_personal_income" });
 
         writes.push(
-          upsertDealFinancialFact({
+          gatedUpsert({
             dealId: args.dealId,
             bankId: args.bankId,
             sourceDocumentId: null,
@@ -794,7 +814,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         for (const pf of pfsFacts) {
           const val = tryFindRowNumber(pfs.rendered_json, { key: pf.rowKey });
           writes.push(
-            upsertDealFinancialFact({
+            gatedUpsert({
               dealId: args.dealId,
               bankId: args.bankId,
               sourceDocumentId: null,
@@ -832,7 +852,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
         tryFindRowNumber(gcf.rendered_json, { key: "gcf_dscr" });
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
@@ -851,7 +871,7 @@ export async function backfillCanonicalFactsFromSpreads(args: {
       );
 
       writes.push(
-        upsertDealFinancialFact({
+        gatedUpsert({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: null,
