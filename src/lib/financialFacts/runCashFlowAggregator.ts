@@ -108,6 +108,33 @@ export async function runCashFlowAggregator(args: {
     };
   }
 
+  // SPEC-B4.1.2 — try entity-summed EBITDA first (slate-aware, per-entity)
+  let entityEbitdaSum: number | null = null;
+  {
+    const { data: entityEbitdaRows } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_value_num, fact_period_end, owner_entity_id, provenance")
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .eq("owner_type", "ENTITY")
+      .eq("fact_key", "EBITDA")
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .not("fact_value_num", "is", null)
+      .order("fact_period_end", { ascending: false });
+
+    if (entityEbitdaRows && entityEbitdaRows.length > 0) {
+      const latestEntityPeriod = (entityEbitdaRows as any[])[0].fact_period_end;
+      const periodRows = (entityEbitdaRows as any[]).filter(
+        (r: any) => r.fact_period_end === latestEntityPeriod,
+      );
+      entityEbitdaSum = periodRows.reduce(
+        (sum: number, r: any) => sum + Number(r.fact_value_num),
+        0,
+      );
+    }
+  }
+
   // 2. Read NCADS candidates
   const { data: factRows } = await (sb as any)
     .from("deal_financial_facts")
@@ -150,26 +177,32 @@ export async function runCashFlowAggregator(args: {
     ncads = obiRow?.fact_value_num ?? null;
     ncadsSource = obiRow ? "ORDINARY_BUSINESS_INCOME" : null;
   } else {
-    // "standard" — current behavior preserved exactly
-    const ebitdaRow = periodFacts.find((r: any) => r.fact_key === "EBITDA");
-    const obiRow = periodFacts.find(
-      (r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME",
-    );
-    const niRow = periodFacts.find((r: any) => r.fact_key === "NET_INCOME");
+    // "standard" — prefer entity-summed EBITDA (SPEC-B4.1.2), fall back to
+    // deal-scoped EBITDA fact (legacy / RE), then OBI, then NI
+    if (entityEbitdaSum !== null) {
+      ncads = entityEbitdaSum;
+      ncadsSource = "EBITDA";
+    } else {
+      const ebitdaRow = periodFacts.find((r: any) => r.fact_key === "EBITDA");
+      const obiRow = periodFacts.find(
+        (r: any) => r.fact_key === "ORDINARY_BUSINESS_INCOME",
+      );
+      const niRow = periodFacts.find((r: any) => r.fact_key === "NET_INCOME");
 
-    ncads =
-      ebitdaRow?.fact_value_num ??
-      obiRow?.fact_value_num ??
-      niRow?.fact_value_num ??
-      null;
+      ncads =
+        ebitdaRow?.fact_value_num ??
+        obiRow?.fact_value_num ??
+        niRow?.fact_value_num ??
+        null;
 
-    ncadsSource = ebitdaRow
-      ? "EBITDA"
-      : obiRow
-        ? "ORDINARY_BUSINESS_INCOME"
-        : niRow
-          ? "NET_INCOME"
-          : null;
+      ncadsSource = ebitdaRow
+        ? "EBITDA"
+        : obiRow
+          ? "ORDINARY_BUSINESS_INCOME"
+          : niRow
+            ? "NET_INCOME"
+            : null;
+    }
   }
 
   // 4. Compute DSCR
@@ -217,6 +250,24 @@ export async function runCashFlowAggregator(args: {
         ncadsVariant === DEFAULT_METHODOLOGY_SLATE.ncads_source && isAllDefaults,
     },
   ];
+
+  // SPEC-B4.1.2 — when NCADS came from entity-summed EBITDA, attach Axis 2 provenance
+  if (entityEbitdaSum !== null && ncadsSource === "EBITDA") {
+    const ebitdaAxis = METHODOLOGY_AXES.ebitda_addback_stack;
+    const ebitdaVariant = methodologySlate.ebitda_addback_stack;
+    methodologyProvenance.push({
+      axis: "ebitda_addback_stack",
+      chosen_variant: ebitdaVariant,
+      alternatives_considered: ebitdaAxis.variants
+        .map((v) => v.id)
+        .filter((id) => id !== ebitdaVariant),
+      rationale: buildRationale("ebitda_addback_stack", ebitdaVariant),
+      slate_hash: slateHash,
+      is_default:
+        ebitdaVariant === DEFAULT_METHODOLOGY_SLATE.ebitda_addback_stack &&
+        isAllDefaults,
+    });
+  }
 
   // 6. Execute upserts
   let factsWritten = 0;

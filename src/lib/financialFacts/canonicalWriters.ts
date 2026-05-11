@@ -104,6 +104,54 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       "reads the fact rather than computes it — chicken-and-egg. See runCashFlowAggregator.notes.",
   },
 
+  computeBusinessEbitdaFacts: {
+    name: "computeBusinessEbitdaFacts",
+    role: "compute",
+    ownedFactKeys: ["EBITDA"],
+    bootstrapsForDownstream: [],
+    reads: {
+      factKeys: [
+        "ORDINARY_BUSINESS_INCOME", "INTEREST_EXPENSE", "DEPRECIATION",
+        "AMORTIZATION", "SECTION_179_EXPENSE", "BONUS_DEPRECIATION",
+        "NON_RECURRING_EXPENSE", "NON_RECURRING_INCOME", "GUARANTEED_PAYMENTS",
+      ],
+      tables: ["deal_entities", "deal_methodology_choices"],
+    },
+    runsAfter: ["backfillCanonicalFactsFromSpreads"],
+    runsBefore: ["analyzeOfficerCompFacts", "runCashFlowAggregator"],
+    invariant:
+      "On exit, for each OPCO entity where ORDINARY_BUSINESS_INCOME is non-null, " +
+      "an entity-scoped EBITDA fact is written via the slate-aware ebitdaEngine " +
+      "with methodology provenance for ebitda_addback_stack. " +
+      "When zero OPCO entities exist, no-ops cleanly (factsWritten=0).",
+    loadBearing: false,
+    notes:
+      "SPEC-B4.1.2. Entity-scoped EBITDA facts are read by runCashFlowAggregator " +
+      "when ncads_source='standard'. Property-context (RE) deals with no OPCO entities " +
+      "fall back to the deal-scoped EBITDA fact written by backfill (NOI proxy path).",
+  },
+
+  analyzeOfficerCompFacts: {
+    name: "analyzeOfficerCompFacts",
+    role: "compute",
+    ownedFactKeys: ["OFFICER_COMP_EXCESS_ADDBACK"],
+    bootstrapsForDownstream: [],
+    reads: {
+      factKeys: ["OFFICER_COMPENSATION", "GROSS_RECEIPTS", "GUARANTEED_PAYMENTS"],
+      tables: ["deal_entities", "deal_methodology_choices"],
+    },
+    runsAfter: ["computeBusinessEbitdaFacts"],
+    runsBefore: ["runCashFlowAggregator"],
+    invariant:
+      "On exit, for each OPCO entity, OFFICER_COMP_EXCESS_ADDBACK is written (0 when " +
+      "flag is NORMAL/LOW/INSUFFICIENT or variant is no_normalization). " +
+      "Methodology provenance attached for the officer_comp axis.",
+    loadBearing: false,
+    notes:
+      "SPEC-B4.1.2. The add-back fact is observational for memo/snapshot consumers " +
+      "to display officer comp normalization in EBITDA waterfalls.",
+  },
+
   computeTotalDebtService: {
     name: "computeTotalDebtService",
     role: "compute",

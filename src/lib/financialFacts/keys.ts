@@ -83,6 +83,7 @@ export type CanonicalFact = {
     | "COGS"
     | "GROSS_PROFIT"
     | "EBITDA"
+    | "OFFICER_COMP_EXCESS_ADDBACK"
     | "NET_INCOME"
     // Balance sheet computed metrics
     | "WORKING_CAPITAL"
@@ -289,6 +290,8 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
   COGS: { canonical_key: "COGS", fact_type: "FINANCIAL_ANALYSIS", fact_key: "COGS" },
   GROSS_PROFIT: { canonical_key: "GROSS_PROFIT", fact_type: "FINANCIAL_ANALYSIS", fact_key: "GROSS_PROFIT" },
   EBITDA: { canonical_key: "EBITDA", fact_type: "FINANCIAL_ANALYSIS", fact_key: "EBITDA" },
+  /** SPEC-B4.1.2 — excess officer comp add-back written by analyzeOfficerCompFacts. */
+  OFFICER_COMP_EXCESS_ADDBACK: { canonical_key: "OFFICER_COMP_EXCESS_ADDBACK", fact_type: "FINANCIAL_ANALYSIS", fact_key: "OFFICER_COMP_EXCESS_ADDBACK" },
   NET_INCOME: { canonical_key: "NET_INCOME", fact_type: "FINANCIAL_ANALYSIS", fact_key: "NET_INCOME" },
 
   // Balance sheet computed metrics

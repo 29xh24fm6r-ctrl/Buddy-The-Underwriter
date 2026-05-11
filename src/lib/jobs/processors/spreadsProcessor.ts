@@ -747,6 +747,42 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }).catch(() => {});
 
     // ─────────────────────────────────────────────────────────────────────
+    // SPEC-B4.1.2 — Entity-level slate-aware EBITDA + officer comp
+    //
+    // These writers run AFTER backfill (which propagates spread-rendered
+    // facts) and BEFORE the aggregator (which reads EBITDA as NCADS).
+    // They produce entity-scoped EBITDA and OFFICER_COMP_EXCESS_ADDBACK
+    // facts with methodology provenance for Axes 2 + 3.
+    // ─────────────────────────────────────────────────────────────────────
+    try {
+      const { computeBusinessEbitdaFacts } = await import(
+        "@/lib/financialFacts/computeBusinessEbitdaFacts"
+      );
+      const ebitdaResult = await computeBusinessEbitdaFacts({ dealId, bankId });
+      if (!ebitdaResult.ok) {
+        console.warn(
+          `[spreadsProcessor] computeBusinessEbitdaFacts failed: ${ebitdaResult.error}`,
+        );
+      }
+    } catch (ebitdaErr: any) {
+      console.warn("[spreadsProcessor] computeBusinessEbitdaFacts threw:", ebitdaErr?.message);
+    }
+
+    try {
+      const { analyzeOfficerCompFacts } = await import(
+        "@/lib/financialFacts/analyzeOfficerCompFacts"
+      );
+      const officerResult = await analyzeOfficerCompFacts({ dealId, bankId });
+      if (!officerResult.ok) {
+        console.warn(
+          `[spreadsProcessor] analyzeOfficerCompFacts failed: ${officerResult.error}`,
+        );
+      }
+    } catch (officerErr: any) {
+      console.warn("[spreadsProcessor] analyzeOfficerCompFacts threw:", officerErr?.message);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // BOOTSTRAP-WRITER-DO-NOT-REMOVE
     //
     // SPEC-FOUNDATION-V1 PR5i — Cold-start bootstrap writer for CASH_FLOW_AVAILABLE.
