@@ -70,6 +70,16 @@ const eslintConfig = defineConfig([
       }],
     },
   },
+  // Ban named imports of `config` from dotenv (forces default-import pattern)
+  {
+    files: ["**/*.ts", "**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": ["error", {
+        selector: 'ImportDeclaration[source.value="dotenv"] > ImportSpecifier[imported.name="config"]',
+        message: "Don't import dotenv's `config` as a named export — dotenv 16.x exports CommonJS-style. Use `import dotenv from \"dotenv\"; dotenv.config(...)` instead.",
+      }],
+    },
+  },
 ]);
 
 export default eslintConfig;

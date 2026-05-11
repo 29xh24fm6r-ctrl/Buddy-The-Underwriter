@@ -1,5 +1,5 @@
-import { config } from "dotenv";
-config();
+import dotenv from "dotenv";
+dotenv.config();
 
 export function env(key: string): string {
   const val = process.env[key];
