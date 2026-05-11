@@ -14,6 +14,7 @@ import {
 } from "@/lib/journey/advisor/buildCockpitAdvisorSignals";
 import type { DecisionQualityDecision } from "@/lib/journey/advisor/buildDecisionQualitySignals";
 import { buildDeterministicAdvisorExplanation } from "@/lib/journey/advisor/buildAdvisorExplanation";
+import { resolveConfidenceLabel } from "@/lib/journey/advisor/confidenceLabel";
 import type { AdvisorEvidence } from "@/lib/journey/advisor/evidence";
 import {
   buildAdvisorMemorySummary,
@@ -201,6 +202,8 @@ export function CockpitAdvisorPanel(props: CockpitAdvisorPanelProps) {
   const annotated: Annotated[] = useMemo(() => {
     const out: Annotated[] = [];
     for (const signal of baseSignals) {
+      // SPEC-12.1 — below-threshold signals hidden in default mode, shown in debug
+      if (signal.belowThreshold && !debug) continue;
       const eff = fb.effectiveStateFor(signal);
       if (eff.kind === "hidden_dismissed" || eff.kind === "hidden_snoozed") {
         continue;
@@ -459,6 +462,11 @@ function AdvisorSignalRow({
   const badge = SEVERITY_BADGE[signal.severity];
   const kindLabel = KIND_LABEL[signal.kind];
   const confidencePct = Math.round(signal.confidence * 100);
+  // SPEC-12.1 — trust-language label replaces raw percentage
+  const confidenceLabel = resolveConfidenceLabel({
+    riskScore: signal.riskScore,
+    decimalConfidence: signal.confidence,
+  });
   const key = signalKey(dealId, signal);
 
   return (
@@ -469,6 +477,7 @@ function AdvisorSignalRow({
       data-advisor-source={signal.source}
       data-advisor-priority={signal.priority}
       data-advisor-confidence={signal.confidence}
+      data-advisor-confidence-label={confidenceLabel}
       data-advisor-signal-key={key}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -484,7 +493,7 @@ function AdvisorSignalRow({
               className="ml-auto text-[10px] text-white/40"
               title={`Priority ${signal.priority} · ${signal.rankReason}`}
             >
-              {confidencePct}%
+              {confidenceLabel}
             </span>
           </div>
           {signal.detail ? (
@@ -513,6 +522,7 @@ function AdvisorSignalRow({
                 <AdvisorWhyBlock
                   signal={signal}
                   confidencePct={confidencePct}
+                  confidenceLabel={confidenceLabel}
                 />
               ) : null}
             </div>
@@ -525,6 +535,13 @@ function AdvisorSignalRow({
             >
               <div>priority: {signal.priority}</div>
               <div>confidence: {signal.confidence}</div>
+              {signal.riskScore !== undefined ? (
+                <div>riskScore: {signal.riskScore}</div>
+              ) : null}
+              {signal.riskFactors ? (
+                <div>riskFactors: {JSON.stringify(signal.riskFactors)}</div>
+              ) : null}
+              {signal.belowThreshold ? <div>belowThreshold: true</div> : null}
               <div>rankReason: {signal.rankReason}</div>
               {signal.predictionReason ? (
                 <div>predictionReason: {signal.predictionReason}</div>
@@ -659,9 +676,11 @@ function AdvisorActionButton({
 function AdvisorWhyBlock({
   signal,
   confidencePct,
+  confidenceLabel,
 }: {
   signal: CockpitAdvisorSignal;
   confidencePct: number;
+  confidenceLabel: string;
 }) {
   const explanation = buildDeterministicAdvisorExplanation(signal);
   const evidence = signal.evidence ?? [];
@@ -702,7 +721,7 @@ function AdvisorWhyBlock({
         <span className="text-white/40">Source:</span> {signal.source}
       </div>
       <div>
-        <span className="text-white/40">Confidence:</span> {confidencePct}%
+        <span className="text-white/40">Confidence:</span> {confidenceLabel}
       </div>
     </div>
   );
