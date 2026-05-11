@@ -142,3 +142,28 @@ test("[spec-b4-v29] picker client posts to /api/deals/[dealId]/methodology", () 
   assert.match(body, /method:\s*"POST"/, "Must use POST method");
   assert.match(body, /axis,\s*variant/, "Body must include axis + variant");
 });
+
+// ── V-30: cockpit caller wires methodologyContext into the advisor builder ─
+
+test("[spec-b4-v30] cockpit advisor caller passes methodologyContext to builder", () => {
+  const CALLER_PATH = "src/components/journey/stageViews/_shared/CockpitAdvisorPanel.tsx";
+
+  assert.ok(existsSync(join(REPO_ROOT, CALLER_PATH)), `Caller file must exist at: ${CALLER_PATH}`);
+
+  const body = readFileSync(join(REPO_ROOT, CALLER_PATH), "utf8");
+
+  // Evidence (a): one of two loading patterns
+  const hasServerLoad = /from\s+["']@\/lib\/methodology\/loadDealMethodology["']/.test(body);
+  const hasClientFetch = /fetch\s*\([^)]*\/api\/deals\/[^)]*\/methodology/.test(body);
+  assert.ok(
+    hasServerLoad || hasClientFetch,
+    "Caller must load methodology server-side (loadDealMethodology import) or client-side (fetch to /api/deals/.../methodology)",
+  );
+
+  // Evidence (b): methodologyContext literal appears
+  assert.match(
+    body,
+    /methodologyContext/,
+    "Caller must reference methodologyContext (the property name passed to the advisor builder)",
+  );
+});
