@@ -866,6 +866,57 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
+    // SPEC-FOUNDATION-V1 PR5g — Within-job GLOBAL_CASH_FLOW re-render.
+    // The first GLOBAL_CASH_FLOW render at chain step 2 reads facts BEFORE
+    // backfill (step 3), aggregator (step 4), computeTotalDebtService (step 5),
+    // and persistGlobalCashFlow (step 6) populate canonical facts. Re-render
+    // now so the spread's rendered_json reflects current fact state within
+    // this same job. renderSpread is idempotent via upsert. This deliberately
+    // bypasses the CAS claim flow — the spread is already in `ready` state
+    // owned by this job, and CAS protects against concurrent processors, not
+    // intentional repeat renders within one job's lease.
+    if (completedTypes.has("GLOBAL_CASH_FLOW" as SpreadType)) {
+      try {
+        const { renderSpread: renderSpreadAgain } = await import(
+          "@/lib/financialSpreads/renderSpread"
+        );
+        const secondRender = await renderSpreadAgain({
+          dealId,
+          bankId,
+          spreadType: "GLOBAL_CASH_FLOW" as SpreadType,
+          ownerType: ownerType ?? "DEAL",
+          ownerEntityId: ownerEntityId,
+        });
+        if ((secondRender as any).ok) {
+          void logLedgerEvent({
+            dealId,
+            bankId,
+            eventKey: "canonical.recompute.spread_rerendered",
+            uiState: "done",
+            uiMessage: "GLOBAL_CASH_FLOW re-rendered with canonical facts",
+            meta: {
+              triggerReason: typeof (jobMeta as any).triggerReason === "string"
+                ? (jobMeta as any).triggerReason
+                : "unknown",
+              spreadType: "GLOBAL_CASH_FLOW",
+              renderPass: 2,
+              notes: ["rendered_after_canonical_chain", "facts_now_current"],
+            },
+          }).catch(() => {});
+        } else {
+          console.warn(
+            "[spreadsProcessor] GLOBAL_CASH_FLOW second render returned non-ok",
+            { dealId, jobId, error: (secondRender as any).error },
+          );
+        }
+      } catch (rerenderErr: any) {
+        console.warn(
+          "[spreadsProcessor] GLOBAL_CASH_FLOW second render threw (non-fatal)",
+          { dealId, jobId, error: rerenderErr?.message },
+        );
+      }
+    }
+
     // SPEC-FOUNDATION-V1 PR5b — trigger canonical GLOBAL_CASH_FLOW recompute
     // after the full canonical chain completes (backfill → aggregator → TDS → GCF).
     // The debounce inside triggerCanonicalRecompute coalesces rapid re-triggers
