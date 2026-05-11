@@ -624,6 +624,46 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         uiMessage: `${spreadType} spread rendered`,
         meta: { jobId, spreadType },
       });
+
+      // PR5d — canonical.recompute.spread_rendered (GLOBAL_CASH_FLOW only)
+      if (spreadType === "GLOBAL_CASH_FLOW") {
+        try {
+          const { data: gcfSpread } = await (sb as any)
+            .from("deal_spreads")
+            .select("rendered_json, status")
+            .eq("deal_id", dealId)
+            .eq("bank_id", bankId)
+            .eq("spread_type", "GLOBAL_CASH_FLOW")
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const gcfRows = gcfSpread?.rendered_json?.rows ?? [];
+          const dscrRow = (gcfRows as any[]).find((r: any) => r.key === "DSCR");
+          const dscrRowValue = dscrRow?.values?.[0]?.value ?? null;
+          const gcfDscrRow = (gcfRows as any[]).find((r: any) => r.key === "GCF_DSCR");
+          const triggerReasonForSpread = typeof (jobMeta as any).triggerReason === "string"
+            ? (jobMeta as any).triggerReason
+            : "unknown";
+          void logLedgerEvent({
+            dealId, bankId,
+            eventKey: "canonical.recompute.spread_rendered",
+            uiState: dscrRowValue != null ? "done" : "working",
+            uiMessage: dscrRowValue != null
+              ? `GCF spread: DSCR=${dscrRowValue}`
+              : "GCF spread rendered but DSCR row is null",
+            meta: {
+              triggerReason: triggerReasonForSpread,
+              spreadType: "GLOBAL_CASH_FLOW",
+              spreadStatus: gcfSpread?.status ?? "unknown",
+              dscrRowValue,
+              hasGlobalDscrRow: !!gcfDscrRow,
+              notes: ["rendered_at_chain_step_2", "facts_written_after_render", "next_render_will_pick_up_new_facts"],
+            },
+          }).catch(() => {});
+        } catch {
+          // Canonical spread_rendered event is fire-and-forget
+        }
+      }
     }
 
     // Materialize canonical facts from rendered spreads
@@ -639,6 +679,26 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
         ? { jobId, factsWritten: backfill.factsWritten, notes: backfill.notes }
         : { jobId, error: (backfill as any).error },
     });
+
+    // PR5d — canonical.recompute.backfill.completed
+    const triggerReason = typeof (jobMeta as any).triggerReason === "string"
+      ? (jobMeta as any).triggerReason
+      : "unknown";
+    void logLedgerEvent({
+      dealId, bankId,
+      eventKey: "canonical.recompute.backfill.completed",
+      uiState: backfill.ok ? "done" : "error",
+      uiMessage: backfill.ok
+        ? `Backfill: ${backfill.factsWritten} facts written`
+        : `Backfill failed: ${(backfill as any).error}`,
+      meta: {
+        triggerReason,
+        ok: backfill.ok,
+        factsWritten: backfill.ok ? backfill.factsWritten : 0,
+        notes: backfill.ok ? backfill.notes : [],
+        error: backfill.ok ? null : (backfill as any).error,
+      },
+    }).catch(() => {});
 
     // SPEC-FOUNDATION-V1 PR5a — run the cash flow aggregator BEFORE
     // computeTotalDebtService so CASH_FLOW_AVAILABLE is populated when
@@ -667,6 +727,21 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
             proposedAds: aggregatorResult.proposedAds,
           },
         });
+        // PR5d — canonical.recompute.aggregator.completed
+        void logLedgerEvent({
+          dealId, bankId,
+          eventKey: "canonical.recompute.aggregator.completed",
+          uiState: "done",
+          uiMessage: `Aggregator: ${aggregatorResult.factsWritten} facts, DSCR=${aggregatorResult.dscr ?? "n/a"}`,
+          meta: {
+            triggerReason,
+            ok: true,
+            factsWritten: aggregatorResult.factsWritten,
+            factsAttempted: aggregatorResult.factsAttempted,
+            ncadsSource: aggregatorResult.ncadsSource,
+            dscr: aggregatorResult.dscr,
+          },
+        }).catch(() => {});
       } else {
         console.warn("[spreadsProcessor] aggregator returned non-ok (non-fatal)", {
           dealId,
@@ -674,6 +749,14 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           reason: aggregatorResult.reason,
           detail: aggregatorResult.detail,
         });
+        // PR5d — canonical.recompute.aggregator.completed (skipped path)
+        void logLedgerEvent({
+          dealId, bankId,
+          eventKey: "canonical.recompute.aggregator.completed",
+          uiState: "error",
+          uiMessage: `Aggregator skipped: ${aggregatorResult.reason}`,
+          meta: { triggerReason, ok: false, reason: aggregatorResult.reason },
+        }).catch(() => {});
       }
     } catch (aggErr: any) {
       console.warn("[spreadsProcessor] aggregator threw (non-fatal)", {
@@ -710,6 +793,24 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           uiMessage: `Total debt: proposed $${totalDebt.data.proposed?.toFixed(0) ?? "0"}, existing $${totalDebt.data.existing?.toFixed(0) ?? "0"}`,
           meta: { jobId, ...totalDebt.data },
         });
+        // PR5d — canonical.recompute.compute_total_debt_service.completed
+        void logLedgerEvent({
+          dealId, bankId,
+          eventKey: "canonical.recompute.compute_total_debt_service.completed",
+          uiState: totalDebt.data.dscr != null ? "done" : "working",
+          uiMessage: totalDebt.data.dscr != null
+            ? `TDS: DSCR=${totalDebt.data.dscr.toFixed(3)}, ADS=$${totalDebt.data.total?.toFixed(0) ?? "0"}`
+            : `TDS: DSCR missing (MISSING_PREREQ_NOI), ADS=$${totalDebt.data.total?.toFixed(0) ?? "0"}`,
+          meta: {
+            triggerReason,
+            proposed: totalDebt.data.proposed,
+            existing: totalDebt.data.existing,
+            total: totalDebt.data.total,
+            dscr: totalDebt.data.dscr,
+            dscrStressed: totalDebt.data.dscr_stressed_300bps,
+            missingPrereqNoi: totalDebt.data.dscr == null,
+          },
+        }).catch(() => {});
       }
     } catch (debtErr: any) {
       console.warn("[spreadsProcessor] total debt failed (non-fatal)", {
@@ -741,6 +842,21 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
             sponsorCount: gcf.result.sponsors.length,
           },
         });
+        // PR5d — canonical.recompute.gcf.completed
+        void logLedgerEvent({
+          dealId, bankId,
+          eventKey: "canonical.recompute.gcf.completed",
+          uiState: gcf.result.globalDscr != null ? "done" : "working",
+          uiMessage: `GCF: $${gcf.result.globalCashFlowAvailable?.toFixed(0) ?? "n/a"}, DSCR=${gcf.result.globalDscr?.toFixed(2) ?? "n/a"}`,
+          meta: {
+            triggerReason,
+            globalCashFlow: gcf.result.globalCashFlowAvailable,
+            globalDscr: gcf.result.globalDscr,
+            factsWritten: gcf.factsWritten,
+            warningCount: (gcf as any).notes?.length ?? 0,
+            warnings: (gcf as any).notes ?? [],
+          },
+        }).catch(() => {});
       }
     } catch (gcfErr: any) {
       console.warn("[spreadsProcessor] global cash flow failed (non-fatal)", {
