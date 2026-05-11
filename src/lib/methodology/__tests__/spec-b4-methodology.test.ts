@@ -85,7 +85,7 @@ test("[spec-b4-v4] DEFAULT_METHODOLOGY_SLATE matches spec defaults", () => {
   assert.equal(DEFAULT_METHODOLOGY_SLATE.ebitda_addback_stack, "conservative", "ebitda_addback_stack default must be conservative");
   assert.equal(DEFAULT_METHODOLOGY_SLATE.officer_comp, "standard", "officer_comp default must be standard");
   assert.equal(DEFAULT_METHODOLOGY_SLATE.affiliate_ownership, "conservative", "affiliate_ownership default must be conservative");
-  assert.equal(DEFAULT_METHODOLOGY_SLATE.living_expense, "sba_sop_minimum", "living_expense default must be sba_sop_minimum");
+  assert.equal(DEFAULT_METHODOLOGY_SLATE.living_expense, "standard", "living_expense default must be standard (v1.0); sba_sop_minimum is v1.0.1 target after household size wires in");
 });
 
 // ── V-5: loadDealMethodology exists ───────────────────────────────────────

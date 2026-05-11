@@ -23,28 +23,31 @@ CREATE TABLE IF NOT EXISTS deal_methodology_choices (
   )
 );
 
-CREATE INDEX idx_deal_methodology_choices_deal
+CREATE INDEX IF NOT EXISTS idx_deal_methodology_choices_deal
   ON deal_methodology_choices(deal_id, bank_id);
 
 ALTER TABLE deal_methodology_choices ENABLE ROW LEVEL SECURITY;
 
--- RLS: tenant-scoped read/write (same shape as deal_financial_facts)
-CREATE POLICY "Users can read methodology choices for their bank's deals"
+-- Service role bypass (used by supabaseAdmin())
+CREATE POLICY "deal_methodology_choices_service_role"
   ON deal_methodology_choices
-  FOR SELECT
-  USING (
-    bank_id IN (
-      SELECT bank_id FROM bank_members
-      WHERE user_id = auth.uid()
-    )
-  );
+  FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
 
-CREATE POLICY "Users can write methodology choices for their bank's deals"
+-- Authenticated tenant scope (Phase 84A JWT-claims pattern;
+-- matches deal_financial_facts policy from 20260418_phase_84_rls_tenant_wall_batch_a.sql)
+CREATE POLICY "deal_methodology_choices_tenant_scope"
   ON deal_methodology_choices
-  FOR ALL
+  FOR ALL TO authenticated
   USING (
-    bank_id IN (
-      SELECT bank_id FROM bank_members
-      WHERE user_id = auth.uid()
+    bank_id::text = COALESCE(
+      current_setting('request.jwt.claims', true)::jsonb->>'bank_id',
+      ''
+    )
+  )
+  WITH CHECK (
+    bank_id::text = COALESCE(
+      current_setting('request.jwt.claims', true)::jsonb->>'bank_id',
+      ''
     )
   );
