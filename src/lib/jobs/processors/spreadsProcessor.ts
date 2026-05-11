@@ -700,13 +700,49 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       },
     }).catch(() => {});
 
-    // SPEC-FOUNDATION-V1 PR5a — run the cash flow aggregator BEFORE
-    // computeTotalDebtService so CASH_FLOW_AVAILABLE is populated when
-    // computeTotalDebtService reads it for DSCR computation. The aggregator
-    // writes ADS / DSCR / CFA / ECF from the NCADS fallback chain
-    // (EBITDA → OBI → NET_INCOME) + deal_structural_pricing.annual_debt_service_est.
-    // Non-fatal: if the aggregator fails, computeTotalDebtService's graceful
-    // NOI-null path handles the case.
+    // ─────────────────────────────────────────────────────────────────────
+    // BOOTSTRAP-WRITER-DO-NOT-REMOVE
+    //
+    // SPEC-FOUNDATION-V1 PR5i — Cold-start bootstrap writer for CASH_FLOW_AVAILABLE.
+    //
+    // This call is NOT redundant cleanup. It is load-bearing.
+    //
+    // Why it is load-bearing:
+    //
+    // 1. The GLOBAL_CASH_FLOW spread template (globalCashFlow.ts) READS the
+    //    canonical CASH_FLOW_AVAILABLE fact rather than computing it from raw
+    //    inputs.
+    //
+    // 2. backfillCanonicalFactsFromSpreads READS the GLOBAL_CASH_FLOW spread's
+    //    rendered_json and propagates values back to canonical facts.
+    //
+    // 3. Therefore, on a fresh deal's first canonical chain run, no writer
+    //    upstream of the aggregator can produce CASH_FLOW_AVAILABLE. The GCF
+    //    spread renders with cfa=null because the fact does not exist yet;
+    //    backfill propagates the null; computeTotalDebtService skips DSCR with
+    //    MISSING_PREREQ_NOI.
+    //
+    // 4. The aggregator reads EBITDA / ORDINARY_BUSINESS_INCOME / NET_INCOME
+    //    directly from deal_financial_facts (extraction-written) and computes
+    //    CASH_FLOW_AVAILABLE from them. It is the ONLY writer in the canonical
+    //    chain that can do this on cold-start.
+    //
+    // 5. The route's aggregator call (in /api/deals/[dealId]/classic-spread/route.ts)
+    //    is defense-in-depth for banker-initiated PDF generation, NOT a substitute
+    //    for this call. Deals never touched by the route would have null
+    //    CASH_FLOW_AVAILABLE indefinitely without this call site.
+    //
+    // What protects this call from removal:
+    //
+    // - This comment block.
+    // - canonicalWriters.ts registry entry: loadBearing: true.
+    // - Regression test in canonicalChainInvariants.test.ts: stubbing this
+    //   call to no-op causes the test to FAIL with INVARIANT_BOOTSTRAP_MISSED.
+    //
+    // If you are reading this comment and considering removing this call,
+    // STOP. Read the registry. Read the regression test. Read SPEC-FOUNDATION-V1-PR5I.
+    // The substrate has been hardened against this exact removal attempt.
+    // ─────────────────────────────────────────────────────────────────────
     try {
       const { runCashFlowAggregator } = await import(
         "@/lib/financialFacts/runCashFlowAggregator"
@@ -757,6 +793,28 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           uiMessage: `Aggregator skipped: ${aggregatorResult.reason}`,
           meta: { triggerReason, ok: false, reason: aggregatorResult.reason },
         }).catch(() => {});
+        // PR5i — BOOTSTRAP_FAILED_CASH_FLOW_AVAILABLE when aggregator can't
+        // find NCADS candidates. Operators see this as a specific signal that
+        // DSCR will be null for this deal until raw NCADS facts exist.
+        if (aggregatorResult.reason === "no_ncads_candidates") {
+          void writeSystemEvent({
+            deal_id: dealId,
+            bank_id: bankId,
+            event_type: "warning",
+            severity: "warning",
+            error_class: "transient",
+            error_code: "BOOTSTRAP_FAILED_CASH_FLOW_AVAILABLE",
+            error_message:
+              "Aggregator could not bootstrap CASH_FLOW_AVAILABLE: no EBITDA, ORDINARY_BUSINESS_INCOME, or NET_INCOME facts with non-null values exist for this deal.",
+            source_system: "spreads_processor",
+            source_job_id: jobId,
+            source_job_table: "deal_spread_jobs",
+            payload: {
+              candidatesChecked: ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"],
+              impact: "DSCR computation will be skipped; memo will show null DSCR until raw NCADS facts exist",
+            },
+          }).catch(() => {});
+        }
       }
     } catch (aggErr: any) {
       console.warn("[spreadsProcessor] aggregator threw (non-fatal)", {
@@ -934,6 +992,34 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     } catch {
       // Canonical recompute trigger is best-effort.
+    }
+
+    // SPEC-FOUNDATION-V1 PR5i — Assert canonical chain invariants (observed, not enforced).
+    // Runs after all writers + triggers, before readiness recompute. Emits violations
+    // as structured warnings. Does NOT block the chain.
+    try {
+      const { assertCanonicalChainInvariants } = await import(
+        "@/lib/financialFacts/assertCanonicalChainInvariants"
+      );
+      const invariantResult = await assertCanonicalChainInvariants({ dealId, bankId });
+      void logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "canonical.recompute.invariants_checked",
+        uiState: invariantResult.ok ? "done" : "error",
+        uiMessage: invariantResult.ok
+          ? "All canonical chain invariants satisfied"
+          : `${(invariantResult as any).violations.length} invariant violation(s)`,
+        meta: {
+          triggerReason,
+          ok: invariantResult.ok,
+          violations: invariantResult.ok ? [] : (invariantResult as any).violations,
+        },
+      }).catch(() => {});
+    } catch (invErr: any) {
+      console.warn("[spreadsProcessor] invariant assertion failed (non-fatal)", {
+        dealId, jobId, error: invErr?.message,
+      });
     }
 
     // Recompute deal readiness after facts are materialized (non-fatal)
