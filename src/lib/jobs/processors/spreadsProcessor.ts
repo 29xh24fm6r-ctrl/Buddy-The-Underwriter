@@ -750,6 +750,25 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
+    // SPEC-FOUNDATION-V1 PR5b — trigger canonical GLOBAL_CASH_FLOW recompute
+    // after the full canonical chain completes (backfill → aggregator → TDS → GCF).
+    // The debounce inside triggerCanonicalRecompute coalesces rapid re-triggers
+    // within 5s. This ensures the GLOBAL_CASH_FLOW spread picks up any facts
+    // written during this processing batch.
+    try {
+      const { triggerCanonicalRecompute } = await import(
+        "@/lib/financialFacts/triggerCanonicalRecompute"
+      );
+      void triggerCanonicalRecompute({
+        dealId,
+        bankId,
+        reason: "extraction_batch_complete",
+        meta: { jobId },
+      });
+    } catch {
+      // Canonical recompute trigger is best-effort.
+    }
+
     // Recompute deal readiness after facts are materialized (non-fatal)
     try {
       const { recomputeDealReady } = await import("@/lib/deals/readiness");

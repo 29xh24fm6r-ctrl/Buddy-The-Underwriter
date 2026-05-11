@@ -130,6 +130,22 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: res.error }, { status: 500 });
     }
 
+    // SPEC-FOUNDATION-V1 PR5b — emit canonical recompute event for banker-initiated
+    // refresh. The enqueueSpreadRecompute call above handles the actual job creation;
+    // this adds the canonical ledger event + debounce wrapper for observability.
+    try {
+      const { triggerCanonicalRecompute } = await import(
+        "@/lib/financialFacts/triggerCanonicalRecompute"
+      );
+      void triggerCanonicalRecompute({
+        dealId,
+        bankId: access.bankId,
+        reason: "banker_initiated_refresh",
+      });
+    } catch {
+      // Canonical recompute trigger is best-effort.
+    }
+
     return NextResponse.json({ ok: true, dealId, enqueued: res.enqueued, jobId: res.jobId ?? null });
   } catch (e: any) {
     rethrowNextErrors(e);
