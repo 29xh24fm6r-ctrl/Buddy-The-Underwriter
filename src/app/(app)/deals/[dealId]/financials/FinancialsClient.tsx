@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSpreadOutput } from "@/hooks/useSpreadOutput";
+import { ClassicSpreadDownloadLink } from "@/components/deals/ClassicSpreadDownloadLink";
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────
 
@@ -507,14 +508,11 @@ export default function FinancialsClient({ dealId }: { dealId: string }) {
 
       {/* ── Panel E: Actions bar ──────────────────────────────────────────── */}
       <div className="flex items-center gap-3 pt-2 border-t border-white/5">
-        <a
-          href={`/api/deals/${dealId}/classic-spread`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary/90"
-        >
-          &darr; Classic Spread PDF
-        </a>
+        <ClassicSpreadDownloadLink
+          dealId={dealId}
+          label="&darr; Classic Spread PDF"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        />
         <button
           type="button"
           disabled

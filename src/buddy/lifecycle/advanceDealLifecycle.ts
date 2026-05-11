@@ -131,6 +131,15 @@ export async function advanceDealLifecycle(
   // 6. Sync borrower-facing deal_status (fail-soft)
   await syncBorrowerStatus(dealId, nextStage, actor);
 
+  // 6b. SPEC-B3: enqueue CLASSIC_PDF pre-render on underwriting stage transitions.
+  // Fire-and-forget — PDF cache is supplemental, never blocks advancement.
+  if (
+    nextStage === "underwrite_in_progress" ||
+    nextStage === "committee_ready"
+  ) {
+    enqueueClassicPdfPreRender(dealId).catch(() => {});
+  }
+
   // 7. Re-derive state to return current truth
   const newState = await deriveLifecycleState(dealId);
 
@@ -371,4 +380,30 @@ export async function forceAdvanceLifecycle(
     advanced: true,
     state: newState,
   };
+}
+
+/**
+ * SPEC-B3 — Enqueue CLASSIC_PDF pre-render on stage transition.
+ *
+ * Resolves bankId from the deal, then enqueues a CLASSIC_PDF spread job.
+ * Fire-and-forget — never throws, never blocks the caller.
+ */
+async function enqueueClassicPdfPreRender(dealId: string): Promise<void> {
+  try {
+    const sb = supabaseAdmin();
+    const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
+    if (!deal?.bank_id) return;
+
+    const { enqueueSpreadRecompute } = await import(
+      "@/lib/financialSpreads/enqueueSpreadRecompute"
+    );
+    await enqueueSpreadRecompute({
+      dealId,
+      bankId: deal.bank_id,
+      spreadTypes: ["CLASSIC_PDF"],
+      meta: { source: "lifecycle_stage_transition" },
+    });
+  } catch (err: any) {
+    console.warn("[advanceDealLifecycle] CLASSIC_PDF pre-render enqueue failed (non-fatal):", err?.message);
+  }
 }

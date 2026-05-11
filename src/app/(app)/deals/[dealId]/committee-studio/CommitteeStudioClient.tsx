@@ -296,7 +296,7 @@ function PackageLinksGrid({ dealId }: { dealId: string }) {
     { label: "Risk Flags", href: `/deals/${dealId}/risk`, icon: "\u26A0\uFE0F" },
     { label: "Structure", href: `/deals/${dealId}/structure`, icon: "\uD83C\uDFD7\uFE0F" },
     { label: "Relationship", href: `/deals/${dealId}/relationship`, icon: "\uD83E\uDD1D" },
-    { label: "Classic Spread PDF", href: `/api/deals/${dealId}/classic-spread/pdf`, icon: "\uD83D\uDCC4", external: true },
+    { label: "Classic Spread PDF", href: `/api/deals/${dealId}/classic-spread/cached`, icon: "\uD83D\uDCC4", external: true },
   ];
 
   return (

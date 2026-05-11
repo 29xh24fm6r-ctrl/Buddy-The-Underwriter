@@ -59,7 +59,40 @@ export function getSpreadTemplate(type: SpreadType): SpreadTemplate | null {
   if (type === "T12") return t12Template();
   if (type === "RENT_ROLL") return rentRollTemplate();
   if (type === "STANDARD") return standardTemplate();
+  if (type === "CLASSIC_PDF") return classicPdfTemplate();
   return null;
+}
+
+/**
+ * SPEC-B3 — CLASSIC_PDF template registration.
+ *
+ * CLASSIC_PDF is NOT rendered via the template system. It uses its own
+ * pipeline: loadClassicSpreadData → renderClassicSpread (PDFKit).
+ *
+ * This template exists so that:
+ *   - enqueueSpreadRecompute validates CLASSIC_PDF as a known type
+ *   - Placeholder rows get the correct spread_version
+ *   - The spreadsProcessor's prereq check passes (no facts required)
+ *
+ * The render() function throws — the processor dispatches CLASSIC_PDF
+ * to classicPdfWorker.renderClassicPdfSpread() instead.
+ */
+function classicPdfTemplate(): SpreadTemplate {
+  return {
+    spreadType: "CLASSIC_PDF",
+    title: "Classic Financial Spread (PDF)",
+    version: 1,
+    priority: 100, // runs last — depends on all other spreads completing
+    prerequisites: () => ({
+      note: "CLASSIC_PDF uses its own preflight (BS + IS row count), not fact-level prerequisites",
+    }),
+    columns: [],
+    render: () => {
+      throw new Error(
+        "CLASSIC_PDF must not be rendered via the template system — use classicPdfWorker.renderClassicPdfSpread()",
+      );
+    },
+  };
 }
 
 function standardTemplate(): SpreadTemplate {
