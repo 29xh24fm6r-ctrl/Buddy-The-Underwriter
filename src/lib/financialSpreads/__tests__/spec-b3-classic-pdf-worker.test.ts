@@ -136,3 +136,56 @@ test("[spec-b3-v14] legacy classic-spread route persists PDF to deal_spreads cac
   assert.match(body, /upsert/, "Legacy route must upsert to deal_spreads");
   assert.match(body, /cache shim/, "Legacy route must have cache shim comment");
 });
+
+// ── SPEC-B3-FIX-1: completedTypes accounting ─────────────────────────────
+
+test("[spec-b3-v15] CLASSIC_PDF success path adds to completedTypes", () => {
+  const body = read("src/lib/jobs/processors/spreadsProcessor.ts");
+
+  // Find the CLASSIC_PDF dispatch block
+  const classicIdx = body.indexOf('spreadType === "CLASSIC_PDF"');
+  assert.ok(classicIdx > 0, "Processor must have CLASSIC_PDF dispatch");
+
+  // Locate the success branch — `if (pdfResult.ok) {`
+  const okBranchIdx = body.indexOf("if (pdfResult.ok)", classicIdx);
+  assert.ok(okBranchIdx > classicIdx, "CLASSIC_PDF dispatch must check pdfResult.ok");
+
+  // Locate the else (failure) branch
+  const elseBranchIdx = body.indexOf("} else {", okBranchIdx);
+  assert.ok(elseBranchIdx > okBranchIdx, "CLASSIC_PDF dispatch must have failure else branch");
+
+  // The success branch is the slice between `if (pdfResult.ok) {` and `} else {`
+  const successBlock = body.slice(okBranchIdx, elseBranchIdx);
+
+  // The success branch MUST add to completedTypes — otherwise the job is
+  // marked FAILED with NO_SPREADS_RENDERED on every successful CLASSIC_PDF-only run.
+  // This is the defect SPEC-B3-FIX-1 fixes.
+  assert.match(
+    successBlock,
+    /completedTypes\.add\(spreadType\)/,
+    "CLASSIC_PDF success branch MUST call completedTypes.add(spreadType) — without this, jobs with only CLASSIC_PDF requested are marked FAILED with NO_SPREADS_RENDERED",
+  );
+});
+
+test("[spec-b3-v16] CLASSIC_PDF failure paths do not add to completedTypes", () => {
+  const body = read("src/lib/jobs/processors/spreadsProcessor.ts");
+
+  const classicIdx = body.indexOf('spreadType === "CLASSIC_PDF"');
+  assert.ok(classicIdx > 0);
+
+  // The full CLASSIC_PDF dispatch block ends at the `continue;` statement
+  const continueIdx = body.indexOf("continue;", classicIdx);
+  assert.ok(continueIdx > classicIdx, "CLASSIC_PDF dispatch must end with continue");
+
+  // The failure branch (else) and catch block live between the success branch end and the continue
+  const okBranchIdx = body.indexOf("if (pdfResult.ok)", classicIdx);
+  const elseBranchIdx = body.indexOf("} else {", okBranchIdx);
+  const failureAndCatchBlock = body.slice(elseBranchIdx, continueIdx);
+
+  // Failure paths MUST NOT add to completedTypes — counting a failure as
+  // success would corrupt the partial-render warning logic.
+  assert.ok(
+    !failureAndCatchBlock.includes("completedTypes.add(spreadType)"),
+    "CLASSIC_PDF failure branches MUST NOT call completedTypes.add — only the success path should count",
+  );
+});

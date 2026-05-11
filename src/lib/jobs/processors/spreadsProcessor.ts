@@ -430,6 +430,12 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           );
           const pdfResult = await renderClassicPdfSpread({ dealId, bankId });
           if (pdfResult.ok) {
+            // SPEC-B3-FIX-1: count CLASSIC_PDF success in completedTypes so
+            // jobs that only request CLASSIC_PDF (canonical recompute, stage
+            // transition, /ensure) are marked SUCCEEDED, not FAILED with
+            // NO_SPREADS_RENDERED. Build Principle #11 — observability must
+            // reflect reality.
+            completedTypes.add(spreadType);
             void logLedgerEvent({
               dealId, bankId,
               eventKey: "spread.classic_pdf.ready",
