@@ -1,47 +1,54 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { redirect } from "next/navigation";
 import { UploadPageClient } from "./client";
+import {
+  consumeBorrowerPortalLink,
+  PortalLinkError,
+} from "@/lib/portal/portalLinkState";
+
+const TERMINAL_COPY: Record<string, { title: string; body: string }> = {
+  link_not_found: {
+    title: "Invalid link",
+    body: "This upload link is not recognized. Please contact your lender for a fresh link.",
+  },
+  link_expired: {
+    title: "Link expired",
+    body: "This upload link has expired. Please contact your lender for a fresh link.",
+  },
+  link_consumed: {
+    title: "Link already used",
+    body: "This upload link has already been used. Please contact your lender for a fresh link.",
+  },
+  link_revoked: {
+    title: "Link no longer valid",
+    body: "A newer upload link was issued. Please use the most recent link your lender sent you.",
+  },
+  portal_link_rpc_failed: {
+    title: "Something went wrong",
+    body: "We couldn't validate this link. Please try again, or contact your lender.",
+  },
+};
+
+function ErrorPanel({ code }: { code: string }) {
+  const copy = TERMINAL_COPY[code] ?? TERMINAL_COPY.portal_link_rpc_failed;
+  return (
+    <div className="min-h-dvh bg-neutral-950 text-neutral-100 flex items-center justify-center">
+      <div className="rounded-2xl bg-white text-neutral-900 p-6 shadow-lg max-w-md">
+        <h1 className="text-lg font-semibold">{copy.title}</h1>
+        <p className="mt-2 text-sm text-neutral-600">{copy.body}</p>
+      </div>
+    </div>
+  );
+}
 
 export default async function UploadPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const sb = supabaseAdmin();
 
-  // Validate token
-  const { data: link, error } = await sb
-    .from("borrower_portal_links")
-    .select("id, deal_id, expires_at, used_at")
-    .eq("token", token)
-    .maybeSingle();
-
-  if (error || !link) {
-    return (
-      <div className="min-h-dvh bg-neutral-950 text-neutral-100 flex items-center justify-center">
-        <div className="rounded-2xl bg-white text-neutral-900 p-6 shadow-lg max-w-md">
-          <h1 className="text-lg font-semibold">Invalid or expired link</h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            This upload link is no longer valid. Please contact your lender for a fresh link.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (link.expires_at && new Date(link.expires_at) < new Date()) {
-    return (
-      <div className="min-h-dvh bg-neutral-950 text-neutral-100 flex items-center justify-center">
-        <div className="rounded-2xl bg-white text-neutral-900 p-6 shadow-lg max-w-md">
-          <h1 className="text-lg font-semibold">Link expired</h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            This upload link has expired. Please contact your lender for a fresh link.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Mark as used
-  if (!link.used_at) {
-    await sb.from("borrower_portal_links").update({ used_at: new Date().toISOString() }).eq("id", link.id);
+  try {
+    await consumeBorrowerPortalLink(token);
+  } catch (err) {
+    if (err instanceof PortalLinkError) {
+      return <ErrorPanel code={err.code} />;
+    }
+    return <ErrorPanel code="portal_link_rpc_failed" />;
   }
 
   return <UploadPageClient token={token} />;
