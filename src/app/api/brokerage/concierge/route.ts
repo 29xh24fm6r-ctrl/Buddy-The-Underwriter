@@ -222,15 +222,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           confidence: 1,
           requires_human_review: false,
         });
+        const blockedFacts =
+          (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+        const blockedProgress = computeProgress(blockedFacts);
         return NextResponse.json({
           ok: true,
           dealId: session.deal_id,
           buddyResponse: blockerMessage,
-          extractedFacts:
-            (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
-          progressPct: computeProgress(
-            (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
-          ),
+          extractedFacts: blockedFacts,
+          progressPct: blockedProgress,
           nextQuestion: null,
           sessionClaimed: false,
           tridentPreview: {
@@ -244,6 +244,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               blockers: ensure.blockers,
             },
           },
+          sessionId: session.deal_id,
+          assistantMessage: blockerMessage,
+          nextRequiredFields: computeNextRequiredFields(blockedFacts),
+          readinessHint: readinessHintFromProgress(blockedProgress),
         });
       }
 
@@ -323,6 +327,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 error: generationResult.error,
               },
         },
+        sessionId: session.deal_id,
+        assistantMessage: TRIDENT_PREVIEW_RESPONSE,
+        nextRequiredFields: computeNextRequiredFields(existingFacts),
+        readinessHint: readinessHintFromProgress(progressPct),
       });
     }
 
@@ -395,6 +403,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         assumptionsConfirmation: ensure.ok
           ? { ok: true, assumptionsId: ensure.assumptionsId }
           : { ok: false, blockers: ensure.blockers },
+        sessionId: session.deal_id,
+        assistantMessage: buddyMessage,
+        nextRequiredFields: computeNextRequiredFields(existingFacts),
+        readinessHint: readinessHintFromProgress(progressPct),
       });
     }
 
@@ -531,12 +543,51 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       nextQuestion: buddyOutput.next_question,
       sessionClaimed,
       tridentPreview: null,
+      // SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 4 — canonical response
+      // surface. Aliased alongside the existing fields so legacy clients
+      // keep working while new code can target the documented contract.
+      sessionId: session.deal_id,
+      assistantMessage: buddyOutput.message,
+      nextRequiredFields: computeNextRequiredFields(mergedFacts),
+      readinessHint: readinessHintFromProgress(progressPct),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[brokerage-concierge] error:", msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
+}
+
+// SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 4 response shape.
+export type BrokerageConciergeResponse = {
+  ok: boolean;
+  sessionId: string;
+  dealId?: string;
+  assistantMessage: string;
+  nextRequiredFields: string[];
+  readinessHint?: string;
+};
+
+function computeNextRequiredFields(facts: Record<string, any>): string[] {
+  const missing: string[] = [];
+  if (!facts?.borrower?.first_name) missing.push("borrower.first_name");
+  if (!facts?.borrower?.email) missing.push("borrower.email");
+  if (!facts?.business?.legal_name && !facts?.business?.industry_description) {
+    missing.push("business.legal_name_or_industry");
+  }
+  if (!facts?.loan?.amount_requested) missing.push("loan.amount_requested");
+  if (!facts?.loan?.use_of_proceeds) missing.push("loan.use_of_proceeds");
+  if (typeof facts?.business?.is_franchise !== "boolean") {
+    missing.push("business.is_franchise");
+  }
+  return missing;
+}
+
+function readinessHintFromProgress(progressPct: number): string {
+  if (progressPct >= 100) return "Ready to upload supporting documents.";
+  if (progressPct >= 60) return "Almost there — a few facts to go.";
+  if (progressPct >= 30) return "Good start — keep going.";
+  return "Tell Buddy a bit more about your business and loan need.";
 }
 
 // ── Prompt builders ──────────────────────────────────────────────────────
