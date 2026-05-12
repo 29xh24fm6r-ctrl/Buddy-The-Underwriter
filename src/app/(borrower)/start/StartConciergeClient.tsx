@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
+import {
+  BrokerageStageStrip,
+  deriveBrokerageStage,
+} from "@/components/brokerage/BrokerageStageStrip";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "voice";
@@ -25,6 +29,14 @@ export function StartConciergeClient() {
 
   return (
     <div>
+      <div className="mb-5">
+        <BrokerageStageStrip
+          activeStage={deriveBrokerageStage({
+            hasDealId: Boolean(dealId),
+            progressPct: 0,
+          })}
+        />
+      </div>
       <div className="mb-4 p-1 bg-slate-100 rounded-lg flex gap-1">
         <button
           onClick={() => setMode("chat")}
