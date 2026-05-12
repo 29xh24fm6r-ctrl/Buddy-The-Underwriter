@@ -411,7 +411,7 @@ export default function IntakeMetricsClient() {
 
     async function loadAtomic() {
       try {
-        const res = await fetch("/api/admin/intake/atomic-metrics", {
+        const res = await fetch("/api/admin/intake?view=atomic-metrics", {
           cache: "no-store",
         });
         const json = await res.json();
@@ -439,7 +439,7 @@ export default function IntakeMetricsClient() {
 
     async function loadTopLeaks() {
       try {
-        const res = await fetch("/api/admin/intake/top-leaks", {
+        const res = await fetch("/api/admin/intake?view=top-leaks", {
           cache: "no-store",
         });
         const json = await res.json();
@@ -469,7 +469,7 @@ export default function IntakeMetricsClient() {
 
     async function loadIdentity() {
       try {
-        const res = await fetch("/api/admin/intake/identity", {
+        const res = await fetch("/api/admin/intake?view=identity", {
           cache: "no-store",
         });
         const json = await res.json();
@@ -501,7 +501,7 @@ export default function IntakeMetricsClient() {
 
     async function loadSegmentation() {
       try {
-        const res = await fetch("/api/admin/intake/segmentation", {
+        const res = await fetch("/api/admin/intake?view=segmentation", {
           cache: "no-store",
         });
         const json = await res.json();
@@ -525,7 +525,7 @@ export default function IntakeMetricsClient() {
 
     async function loadOverrideIntelligence() {
       try {
-        const res = await fetch("/api/admin/intake/override", {
+        const res = await fetch("/api/admin/intake?view=override", {
           cache: "no-store",
         });
         const json = await res.json();
@@ -552,7 +552,7 @@ export default function IntakeMetricsClient() {
 
     async function loadIntakeGovernance() {
       try {
-        const res = await fetch("/api/admin/intake/reliability", {
+        const res = await fetch("/api/admin/intake?view=reliability", {
           cache: "no-store",
         });
         const json = await res.json();
@@ -585,7 +585,7 @@ export default function IntakeMetricsClient() {
 
     async function loadIntakeSignal() {
       try {
-        const res = await fetch("/api/admin/intake/signal", {
+        const res = await fetch("/api/admin/intake?view=signal", {
           cache: "no-store",
         });
         const json = await res.json();
