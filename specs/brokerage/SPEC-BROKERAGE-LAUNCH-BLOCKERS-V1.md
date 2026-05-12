@@ -558,21 +558,28 @@ Do NOT touch:
 
 ## 9. Definition of pilot-ready
 
-Buddy SBA Brokerage is pilot-ready (i.e. cleared for the first 10–15
-**real** borrowers) when, on top of the §3 acceptance criteria:
+Buddy SBA Brokerage is pilot-ready when **all** of the following are
+true:
 
-- The §3.7 synthetic borrower run reports `pass_rate >= 13/15` in two
-  consecutive runs separated by ≥ 24 hours.
-- The `/admin/brokerage/listings` summary page and all five tile-linked
-  detail pages render with zero red error tiles for 7 consecutive
-  days against preview.
-- The Stage A RLS migration (§3.4 + §3.5) is applied and the CI guard
-  is green.
-- No new draft deal has been orphaned (no `deals` row with
-  `origin='brokerage_anonymous'` and no matching
-  `borrower_session_tokens` row) in the last 7 days.
-- The on-call runbook entry for "stuck OCR" points at the §3.6
-  drilldowns.
-- The unpushed lint commit `84b0ad0` is either landed (proxy
-  recovered) or its lint cleanups have been reapplied inline; the
-  branch is lint-clean.
+1. **10 synthetic borrower deals** can enter through `/start`.
+2. **No duplicate draft deals** are created by session refresh / retry.
+3. Each borrower can **upload documents** through the existing upload
+   path.
+4. **Failed OCR / upload states are visible to ops** (the §3.6
+   drilldowns are wired and rendering).
+5. **Borrower session tables are not publicly exposed** (Stage A RLS
+   from §3.4 + §3.5 is applied; anon-key probes return zero rows).
+6. **Portal links expire and cannot be reused after consumption** (the
+   §3.3 RPC-backed state machine is the single enforcement point).
+7. **All tests pass from the `bd9e29b` baseline**:
+   - `pnpm typecheck`
+   - `pnpm lint`
+   - `pnpm test:unit`
+   - `pnpm guard:all`
+
+Pilot-ready is a single-shot gate. The first 10 real borrowers are
+opened only after every item above is independently verified. The
+unpushed lint commit `84b0ad0` is **not** a precondition — if proxy
+auth recovers and it lands, fold it forward; if not, reapply the
+equivalent lint cleanups inline when an adjacent file is already being
+touched.
