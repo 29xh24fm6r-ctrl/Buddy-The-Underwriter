@@ -11,7 +11,7 @@
 // See src/lib/.../BUDDY_PROJECT_ROADMAP.md for the two build principles
 // that codify this.
 //
-// This script supports TWO modes:
+// This script supports THREE modes:
 //
 //   FAST (default)        — source-file count, multiplied to approximate
 //                           Vercel's accounting. Runs in <1s. Advisory.
@@ -24,6 +24,12 @@
 //                           Used by .github/workflows/build-check.yml
 //                           AFTER the Next.js build completes, to
 //                           actually block merges.
+//
+//   BUDGET (--budget)     — uses the authoritative post-build source and
+//                           fixed Buddy guardrails:
+//                             warning >= 1980
+//                             error   >= 2020
+//                           Intended for CI / release blocking.
 //
 // ──────────────────────────────────────────────────────────────────────────
 // CALIBRATION NOTE — Next.js 16.1.x
@@ -79,6 +85,8 @@ const VERCEL_ROUTE_CAP = 2048;
 const ABSOLUTE_ERROR_CEILING = 2020;
 const HEADROOM_FROM_TODAY = 30;
 const WARNING_GAP = 120;
+const BUDGET_WARNING_THRESHOLD = 1980;
+const BUDGET_ERROR_THRESHOLD = 2020;
 
 // Calibration against known data point:
 // Deployment dpl_BwicDiAu3wRGAv1agSZqTy7zf6b9 (commit efdf70c9, 2026-04-22)
@@ -104,6 +112,7 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--manifest") args.mode = "manifest";
+    else if (a === "--budget") args.mode = "budget";
     else if (a === "--fast") args.mode = "fast";
     else if (a === "--json") args.json = true;
     else if (a === "--baseline") {
@@ -122,7 +131,7 @@ function printHelp() {
   console.log(`count-routes.mjs — Vercel route-cap observability (Spec FIX-C)
 
 Usage:
-  node scripts/count-routes.mjs [--manifest] [--json] [--baseline N]
+  node scripts/count-routes.mjs [--manifest|--budget] [--json] [--baseline N]
 
 Modes:
   (default) fast       Source-file count × RSC multiplier + overhead.
@@ -130,6 +139,11 @@ Modes:
   --manifest           Parse .vercel/output/config.json (if present) or
                        .next/routes-manifest.json. Authoritative. Requires
                        a completed Next.js build. Used by build-check CI.
+  --budget             Same source preference as --manifest, but enforces
+                       fixed Buddy guardrails:
+                         warning >= ${BUDGET_WARNING_THRESHOLD}
+                         error   >= ${BUDGET_ERROR_THRESHOLD}
+                       Fails with exit code 1 at or above ${BUDGET_ERROR_THRESHOLD}.
 
 Flags:
   --json               Machine-readable output for CI parsing.
@@ -424,6 +438,13 @@ function computeThresholds(currentCount) {
   return { errorThreshold, warningThreshold };
 }
 
+function computeBudgetThresholds() {
+  return {
+    errorThreshold: BUDGET_ERROR_THRESHOLD,
+    warningThreshold: BUDGET_WARNING_THRESHOLD,
+  };
+}
+
 function classifyStatus(count, thresholds) {
   if (count >= thresholds.errorThreshold) return "error";
   if (count >= thresholds.warningThreshold) return "warning";
@@ -498,7 +519,7 @@ async function main() {
   const args = parseArgs(process.argv);
 
   let result;
-  if (args.mode === "manifest") {
+  if (args.mode === "manifest" || args.mode === "budget") {
     result = await countManifest();
     if (result.error) {
       if (args.json) {
@@ -512,7 +533,10 @@ async function main() {
     result = await countFast();
   }
 
-  const thresholds = computeThresholds(result.total);
+  const thresholds =
+    args.mode === "budget"
+      ? computeBudgetThresholds()
+      : computeThresholds(result.total);
   const status = classifyStatus(result.total, thresholds);
   const delta = args.baseline != null ? result.total - args.baseline : null;
   const deltaFlagged = delta != null && Math.abs(delta) >= DELTA_FLAG_THRESHOLD;
