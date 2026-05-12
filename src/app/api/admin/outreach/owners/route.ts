@@ -1,4 +1,4 @@
-// src/app/api/admin/outreach/owners/tick/route.ts
+// src/app/api/admin/outreach/owners/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";

@@ -92,7 +92,7 @@ export default function AuditAdminClient() {
     setBusy(true);
     setError(null);
     try {
-      const url = new URL("/api/admin/audit/list", window.location.origin);
+      const url = new URL("/api/admin/audit", window.location.origin);
       url.searchParams.set("limit", "50");
       if (opts?.cursor) url.searchParams.set("cursor", opts.cursor);
       if (q.trim()) url.searchParams.set("q", q.trim());

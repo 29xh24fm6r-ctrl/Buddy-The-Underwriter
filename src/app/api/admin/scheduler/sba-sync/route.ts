@@ -1,4 +1,4 @@
-// src/app/api/admin/scheduler/sba-sync/tick/route.ts
+// src/app/api/admin/scheduler/sba-sync/route.ts
 import { NextResponse } from "next/server";
 import { sbaSyncCore } from "@/lib/sba/sync";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";

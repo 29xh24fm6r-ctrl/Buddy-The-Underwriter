@@ -1,12 +1,11 @@
 import "server-only";
 
 /**
- * Phase 65G — Tempo Processor
+ * Phase 65G — Auto-Advance Processor
  *
- * POST /api/admin/tempo/process
+ * POST /api/admin/auto-advance
  *
- * Computes SLA snapshots, derives urgency, detects stuckness,
- * and persists escalation events for all active deals.
+ * Evaluates and executes deterministic stage advancement for active deals.
  * Auth: CRON_SECRET bearer token.
  */
 
@@ -15,10 +14,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
 import { deriveBuddyExplanation } from "@/core/explanation/deriveBuddyExplanation";
 import { deriveNextActions } from "@/core/actions/deriveNextActions";
-import { deriveDealAgingSnapshot } from "@/core/sla/deriveDealAgingSnapshot";
-import { deriveEscalationCandidates } from "@/core/sla/deriveEscalationCandidates";
-import { persistEscalationCandidates } from "@/core/sla/persistEscalationCandidates";
-import { writeSlaSnapshot } from "@/core/sla/writeSlaSnapshot";
+import { evaluateAutoAdvance } from "@/core/auto-advance/evaluateAutoAdvance";
+import { executeAutoAdvance } from "@/core/auto-advance/executeAutoAdvance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,36 +38,52 @@ export async function POST(req: NextRequest) {
       .limit(200);
 
     if (!deals || deals.length === 0) {
-      return NextResponse.json({ ok: true, processed: 0 });
+      return NextResponse.json({ ok: true, processed: 0, advanced: 0 });
     }
 
     let processed = 0;
+    let advanced = 0;
     let errors = 0;
+    const advances: Array<{ dealId: string; from: string | null; to: string }> = [];
 
     for (const deal of deals) {
       try {
         const state = await getBuddyCanonicalState(deal.id);
         const explanation = deriveBuddyExplanation(state);
-        const { primaryAction } = deriveNextActions({
+        const { nextActions } = deriveNextActions({
           canonicalState: state,
           explanation,
         });
 
-        const snapshot = await deriveDealAgingSnapshot({
-          dealId: deal.id,
+        // Check borrower campaign completion
+        const { data: openCampaigns } = await sb
+          .from("borrower_request_campaigns")
+          .select("id")
+          .eq("deal_id", deal.id)
+          .in("status", ["sent", "in_progress"]);
+
+        const evaluation = evaluateAutoAdvance({
           canonicalStage: state.lifecycle,
           blockerCodes: state.blockers.map((b) => b.code),
-          primaryAction,
+          borrowerCampaignsComplete: (openCampaigns?.length ?? 0) === 0,
+          nextActions,
         });
 
-        await writeSlaSnapshot(snapshot, deal.bank_id);
-
-        const escalations = deriveEscalationCandidates(snapshot);
-        await persistEscalationCandidates(deal.id, deal.bank_id, escalations);
+        if (evaluation.eligible) {
+          const result = await executeAutoAdvance(deal.id, deal.bank_id, evaluation);
+          if (result.advanced) {
+            advanced++;
+            advances.push({
+              dealId: deal.id,
+              from: result.fromStage,
+              to: result.toStage!,
+            });
+          }
+        }
 
         processed++;
       } catch (err) {
-        console.warn(`[tempo/process] Error processing deal ${deal.id}:`, err);
+        console.warn(`[auto-advance/process] Error processing deal ${deal.id}:`, err);
         errors++;
       }
     }
@@ -80,10 +93,12 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
       totalDeals: deals.length,
       processed,
+      advanced,
       errors,
+      advances,
     });
   } catch (err) {
-    console.error("[POST /api/admin/tempo/process] error:", err);
+    console.error("[POST /api/admin/auto-advance] error:", err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }

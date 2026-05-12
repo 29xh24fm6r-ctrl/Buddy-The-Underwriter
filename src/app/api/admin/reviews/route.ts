@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * POST /api/admin/reviews/process
+ * POST /api/admin/reviews
  *
  * Background processor for annual review + renewal cases.
  * Auth: CRON_SECRET.
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), ...stats });
   } catch (err) {
-    console.error("[POST /api/admin/reviews/process]", err);
+    console.error("[POST /api/admin/reviews]", err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }

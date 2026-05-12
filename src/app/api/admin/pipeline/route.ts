@@ -22,7 +22,7 @@ type ReplayResponse =
     };
 
 /**
- * POST /api/admin/pipeline/replay
+ * POST /api/admin/pipeline
  * 
  * Re-emit a ledger event for UI testing.
  * 

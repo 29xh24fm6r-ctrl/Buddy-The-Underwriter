@@ -52,7 +52,7 @@ test("SLA/tempo/auto-advance migration exists", () => {
 
 // ── Guard 4: Tempo processor exists ──────────────────────────
 test("tempo processor route exists", () => {
-  const f = "src/app/api/admin/tempo/process/route.ts";
+  const f = "src/app/api/admin/tempo/route.ts";
   assert.ok(fs.existsSync(path.resolve(root, f)), `Missing: ${f}`);
   const content = fs.readFileSync(path.resolve(root, f), "utf8");
   assert.ok(content.includes("CRON_SECRET"), "Must auth via CRON_SECRET");
@@ -63,7 +63,7 @@ test("tempo processor route exists", () => {
 
 // ── Guard 5: Auto-advance processor exists ───────────────────
 test("auto-advance processor route exists", () => {
-  const f = "src/app/api/admin/auto-advance/process/route.ts";
+  const f = "src/app/api/admin/auto-advance/route.ts";
   assert.ok(fs.existsSync(path.resolve(root, f)), `Missing: ${f}`);
   const content = fs.readFileSync(path.resolve(root, f), "utf8");
   assert.ok(content.includes("CRON_SECRET"), "Must auth via CRON_SECRET");
@@ -94,8 +94,8 @@ test("no Omega imports in SLA/auto-advance layers", () => {
     "src/core/auto-advance/evaluateAutoAdvance.ts",
     "src/core/auto-advance/executeAutoAdvance.ts",
     "src/app/api/deals/[dealId]/tempo/route.ts",
-    "src/app/api/admin/tempo/process/route.ts",
-    "src/app/api/admin/auto-advance/process/route.ts",
+    "src/app/api/admin/tempo/route.ts",
+    "src/app/api/admin/auto-advance/route.ts",
   ];
   for (const f of files) {
     const content = fs.readFileSync(path.resolve(root, f), "utf8");

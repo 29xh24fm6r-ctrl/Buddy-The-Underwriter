@@ -18,7 +18,7 @@ function hasValidWorkerSecret(req: NextRequest): boolean {
 }
 
 /**
- * GET /api/admin/gatekeeper/metrics
+ * GET /api/admin/gatekeeper
  *
  * Returns gatekeeper classification metrics:
  * - total classified, NEEDS_REVIEW rate, by-route/doc-type breakdown

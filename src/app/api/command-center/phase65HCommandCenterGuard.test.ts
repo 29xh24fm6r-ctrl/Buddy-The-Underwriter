@@ -118,7 +118,7 @@ describe("Phase 65H — Command Center Guards", () => {
 
   // Guard 8: Background processor route exists with CRON_SECRET auth
   it("background processor uses CRON_SECRET auth", () => {
-    const routePath = join(ROOT, "src/app/api/admin/command-center/process/route.ts");
+    const routePath = join(ROOT, "src/app/api/admin/command-center/route.ts");
     assert.ok(existsSync(routePath), "process route must exist");
     const content = readFileSync(routePath, "utf-8");
     assert.ok(content.includes("CRON_SECRET"), "must use CRON_SECRET auth");

@@ -13,7 +13,7 @@ function authzError(err: any) {
 }
 
 /**
- * POST /api/admin/nudges/batch
+ * POST /api/admin/nudges
  * 
  * Batch process nudges for all active deals
  * 

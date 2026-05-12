@@ -75,7 +75,7 @@ export default function AuditLedgerClient() {
         if (filters.q) params.set("q", filters.q);
         if (!reset && cursor) params.set("cursor", cursor);
 
-        const res = await fetch(`/api/admin/audit/list?${params.toString()}`, {
+        const res = await fetch(`/api/admin/audit?${params.toString()}`, {
           cache: "no-store",
         });
         const data = await res.json();

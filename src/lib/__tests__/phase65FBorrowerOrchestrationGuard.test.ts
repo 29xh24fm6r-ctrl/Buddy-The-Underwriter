@@ -88,7 +88,7 @@ test("portal request-status does not expose blocker codes", () => {
 
 // ── Guard 6: Reminder processor route exists ─────────────────
 test("reminder processor route exists", () => {
-  const f = "src/app/api/admin/borrower-reminders/process/route.ts";
+  const f = "src/app/api/admin/borrower-reminders/route.ts";
   assert.ok(fs.existsSync(path.resolve(root, f)), `Missing: ${f}`);
   const content = fs.readFileSync(path.resolve(root, f), "utf8");
   assert.ok(content.includes("processBorrowerReminders"), "Must call processor");

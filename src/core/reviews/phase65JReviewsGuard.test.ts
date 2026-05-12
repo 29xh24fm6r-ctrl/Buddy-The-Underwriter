@@ -39,7 +39,7 @@ describe("Phase 65J — Reviews Guards", () => {
   });
 
   it("processor route uses CRON_SECRET", () => {
-    const p = join(root, "src/app/api/admin/reviews/process/route.ts");
+    const p = join(root, "src/app/api/admin/reviews/route.ts");
     assert.ok(existsSync(p), "processor must exist");
     assert.ok(readFileSync(p, "utf-8").includes("CRON_SECRET"));
   });

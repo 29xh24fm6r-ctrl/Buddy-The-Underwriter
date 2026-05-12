@@ -38,7 +38,7 @@ async function buildSamplePdfBytes(): Promise<Buffer> {
 }
 
 /**
- * GET /api/admin/health/gemini
+ * GET /api/admin/health
  *
  * Admin-only live probe that actually calls Vertex/Gemini OCR.
  * Useful to verify that the deployed environment has *working* permissions.

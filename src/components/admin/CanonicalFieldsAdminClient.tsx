@@ -40,7 +40,7 @@ export default function CanonicalFieldsAdminClient() {
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch("/api/admin/canonical-fields/stats", { cache: "no-store" });
+      const r = await fetch("/api/admin/canonical-fields", { cache: "no-store" });
       const j = (await r.json().catch(() => null)) as LoadResponse | null;
       if (!j?.ok) throw new Error(j?.error ?? `Failed to load (${r.status})`);
       setStats(j.stats ?? []);

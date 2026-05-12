@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * POST /api/admin/relationships/command-surface/process
+ * POST /api/admin/relationships/command-surface
  * Background snapshot processor for active relationships.
  * Requires CRON_SECRET auth — not banker-facing.
  */

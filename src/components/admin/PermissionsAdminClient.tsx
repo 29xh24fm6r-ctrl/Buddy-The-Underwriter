@@ -100,7 +100,7 @@ export default function PermissionsAdminClient() {
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch("/api/admin/users/list", { cache: "no-store" });
+      const r = await fetch("/api/admin/users", { cache: "no-store" });
       const j = (await r.json().catch(() => null)) as LoadResponse | null;
       if (!j?.ok) throw new Error(j?.error ?? `Failed to load users (${r.status})`);
       setRows(j.users ?? []);

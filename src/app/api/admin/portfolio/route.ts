@@ -1,5 +1,5 @@
 /**
- * POST /api/admin/portfolio/aggregate
+ * POST /api/admin/portfolio
  * 
  * Triggers portfolio aggregation for a bank.
  * Run nightly via cron/scheduled function.

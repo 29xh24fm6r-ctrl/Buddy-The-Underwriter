@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * POST /api/admin/command-center/process
+ * POST /api/admin/command-center
  *
  * Background snapshot processor.
  * Auth: Bearer token (CRON_SECRET) for cron/admin use.

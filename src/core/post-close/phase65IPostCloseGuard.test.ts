@@ -51,7 +51,7 @@ describe("Phase 65I — Post-Close Guards", () => {
 
   // Guard 3: Background processor uses CRON_SECRET
   it("processor route uses CRON_SECRET auth", () => {
-    const p = join(root, "src/app/api/admin/post-close/process/route.ts");
+    const p = join(root, "src/app/api/admin/post-close/route.ts");
     assert.ok(existsSync(p), "processor route must exist");
     const content = readFileSync(p, "utf-8");
     assert.ok(content.includes("CRON_SECRET"), "must use CRON_SECRET");

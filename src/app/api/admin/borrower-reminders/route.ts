@@ -3,7 +3,7 @@ import "server-only";
 /**
  * Phase 65F — Borrower Campaign Reminder Processor Route
  *
- * POST /api/admin/borrower-reminders/process
+ * POST /api/admin/borrower-reminders
  *
  * Processes due borrower campaign reminders.
  * Auth: Bearer token (CRON_SECRET) for cron/admin use.
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       ...result,
     });
   } catch (err) {
-    console.error("[POST /api/admin/borrower-reminders/process] error:", err);
+    console.error("[POST /api/admin/borrower-reminders] error:", err);
     return NextResponse.json(
       { ok: false, error: String(err) },
       { status: 500 },

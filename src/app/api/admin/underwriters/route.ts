@@ -1,4 +1,4 @@
-// src/app/api/admin/underwriters/workload/route.ts
+// src/app/api/admin/underwriters/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";

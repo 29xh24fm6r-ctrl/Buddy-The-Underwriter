@@ -26,7 +26,7 @@ function parseBool(v: string | null): boolean | null {
 }
 
 /**
- * GET /api/admin/audit/list
+ * GET /api/admin/audit
  * 
  * Super-admin audit/compliance ledger.
  * Source: public.audit_ledger (canonical read interface)
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
     const { data: events, error } = (await query) as any;
 
     if (error) {
-      console.error("[/api/admin/audit/list]", error.message, {
+      console.error("[/api/admin/audit]", error.message, {
         details: error.details,
         hint: error.hint,
       });
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     const a = authzError(err);
     if (a) return NextResponse.json(a.body, { status: a.status });
-    console.error("[/api/admin/audit/list]", err);
+    console.error("[/api/admin/audit]", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
       { status: 500 },

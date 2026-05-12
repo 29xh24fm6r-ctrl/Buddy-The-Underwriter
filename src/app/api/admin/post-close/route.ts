@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * POST /api/admin/post-close/process
+ * POST /api/admin/post-close
  *
  * Background processor for post-close monitoring.
  * Auth: Bearer token (CRON_SECRET).
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       ...stats,
     });
   } catch (err) {
-    console.error("[POST /api/admin/post-close/process]", err);
+    console.error("[POST /api/admin/post-close]", err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }

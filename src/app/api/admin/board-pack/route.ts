@@ -1,5 +1,5 @@
 /**
- * POST /api/admin/board-pack/generate
+ * POST /api/admin/board-pack
  * 
  * Generates board-ready quarterly risk pack.
  */
