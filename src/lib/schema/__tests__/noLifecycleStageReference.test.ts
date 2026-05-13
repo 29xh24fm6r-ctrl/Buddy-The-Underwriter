@@ -6,6 +6,12 @@
  * Any code referencing lifecycle_stage will cause PostgREST error 42703.
  *
  * This guard permanently prevents schema drift recurrence.
+ *
+ * Match precision: bare `lifecycle_stage` token only — i.e., not followed
+ * by `_word`. Identifiers like `lifecycle_stage_transition` (a job metadata
+ * source tag) and `lifecycle_stage_at_launch` (a real column on
+ * underwriting_launch_snapshots) are distinct symbols and not false
+ * positives.
  */
 
 import { describe, test } from "node:test";
@@ -55,7 +61,10 @@ describe("Schema drift guard: no lifecycle_stage references", () => {
       if (ALLOWED_FILES.has(rel)) continue; // legitimate non-deals column refs
 
       const content = readFileSync(filePath, "utf-8");
-      if (content.includes("lifecycle_stage")) {
+      // Match `lifecycle_stage` only when NOT followed by an identifier char.
+      // This excludes legitimate distinct symbols like `lifecycle_stage_transition`
+      // (a job-meta source tag) and `lifecycle_stage_at_launch` (a separate column).
+      if (/lifecycle_stage(?![_a-zA-Z0-9])/.test(content)) {
         violations.push(rel);
       }
     }
