@@ -237,16 +237,31 @@ export async function finalizeExtractionRun(args: FinalizeRunArgs): Promise<void
     })
     .eq("id", args.runId);
 
-  // Fire post-extraction IRS identity validation (non-blocking, dynamic import)
+  // SPEC-EXTRACT-VALIDATOR-WIRE-1 (rev 2) §2b — fetch the doc row first so
+  // the validator can route via ai_form_numbers + canonical_type (not the
+  // old bare canonical-type string that always missed BUSINESS_TAX_RETURN).
+  // Still fire-and-forget; validation must never break extraction.
   if (args.status === "succeeded") {
     void (async () => {
       try {
+        const { data: docRow } = await (sb as any)
+          .from("deal_documents")
+          .select("canonical_type, ai_form_numbers, document_type, ai_tax_year, doc_year")
+          .eq("id", args.documentId)
+          .maybeSingle();
+
+        if (!docRow) return; // doc deleted between extraction and finalize — skip silently
+
         const { runPostExtractionValidation } = await import("./postExtractionValidator");
         await runPostExtractionValidation(
           args.documentId,
           args.dealId,
-          (args.metrics?.canonicalType as string) ?? "UNKNOWN",
-          (args.metrics?.taxYear as number) ?? null,
+          {
+            canonical_type: docRow.canonical_type,
+            ai_form_numbers: docRow.ai_form_numbers,
+            document_type: docRow.document_type,
+          },
+          docRow.ai_tax_year ?? docRow.doc_year ?? (args.metrics?.taxYear as number) ?? null,
         );
       } catch { /* validation must never break extraction */ }
     })();
