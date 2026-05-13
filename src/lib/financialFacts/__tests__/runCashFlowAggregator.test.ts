@@ -85,19 +85,19 @@ test("[cfa-extract-4] aggregator uses sentinel UUID and sentinel date matching r
   );
 });
 
-// ── Guard 5: aggregator uses the correct provenance shape ──────────────────
+// ── Guard 5: aggregator uses the correct provenance shape (v2 per SPEC-B4.1.2) ──
 
 test("[cfa-extract-5] aggregator provenance matches classicSpread:debtService:v1", () => {
   const body = readAggregator();
   assert.match(
     body,
-    /extractor:\s*["']classicSpread:debtService:v1["']/,
-    "Provenance extractor must be classicSpread:debtService:v1.",
+    /extractor:\s*["']runCashFlowAggregator:v2["']/,
+    "Provenance extractor must be runCashFlowAggregator:v2 (bumped in SPEC-B4.1.2 PR #423).",
   );
   assert.match(
     body,
-    /source_ref:\s*["']computed:classic_spread:v1["']/,
-    "Provenance source_ref must be computed:classic_spread:v1.",
+    /source_ref:\s*["']computed:classic_spread:v2["']/,
+    "Provenance source_ref must be computed:classic_spread:v2 (bumped in SPEC-B4.1.2 PR #423).",
   );
 });
 
