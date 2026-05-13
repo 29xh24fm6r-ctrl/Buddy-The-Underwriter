@@ -1,0 +1,16 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+mockServerOnly();
+const require = createRequire(import.meta.url);
+const m = require("../launchGate") as typeof import("../launchGate");
+test("all gates run",async()=>{const r=await m.runLaunchGate({skipBuild:true});assert.ok(["LAUNCH_READY","NOT_LAUNCH_READY"].includes(r.overall));assert.ok(r.gates.length>=8);assert.ok(r.elapsed>=0);});
+test("PII → NOT_LAUNCH_READY",async()=>{const r=await m.runLaunchGate({skipBuild:true,dbData:{listings:[{id:"l1",deal_id:"d1",status:"claiming",kfs:{borrowerName:"X"}}],deals:[{id:"d1",borrower_name:"X"}]}});assert.equal(r.overall,"NOT_LAUNCH_READY");});
+test("strict blocks warnings",async()=>{const r=await m.runLaunchGate({skipBuild:true,strict:true});if(r.warning>0)assert.equal(r.overall,"NOT_LAUNCH_READY");});
+test("skip-build",async()=>{const r=await m.runLaunchGate({skipBuild:true});assert.equal(r.gates.find(g=>g.name==="production_build")?.status,"skip");});
+test("JSON serializable",async()=>{const r=await m.runLaunchGate({skipBuild:true});const j=JSON.parse(JSON.stringify(r));assert.ok(["LAUNCH_READY","NOT_LAUNCH_READY"].includes(j.overall));});
+test("gate filter",async()=>{const r=await m.runLaunchGate({skipBuild:true,gate:"security_audit"});assert.equal(r.gates.length,1);assert.equal(r.gates[0].name,"security_audit");});
+test("firstRepair surfaces",async()=>{const r=await m.runLaunchGate({skipBuild:true,dbData:{listings:[{id:"l1",deal_id:"d1",status:"claiming",kfs:{borrowerName:"X"}}],deals:[{id:"d1",borrower_name:"X"}]}});if(r.critical>0)assert.ok(r.firstRepair);});
+test("categories correct",()=>{assert.equal(m.checkGoldenRunPresence().category,"transaction_flow");assert.equal(m.checkIntegritySweepPresence().category,"transaction_flow");assert.equal(m.checkRaceHarnessPresence().category,"marketplace");assert.equal(m.runSecurityGate().category,"security");assert.equal(m.checkClosingPresence().category,"closing");assert.equal(m.checkOpsPresence().category,"operations");assert.equal(m.checkEnvVars().category,"operations");assert.equal(m.checkBuildPresence().category,"production_build");assert.equal(m.checkMigrations().category,"operations");});
+test("gate fields",async()=>{const r=await m.runLaunchGate({skipBuild:true});for(const g of r.gates){assert.ok(g.name);assert.ok(g.category);assert.ok(["pass","fail","skip","warn"].includes(g.status));assert.ok(typeof g.duration==="number");assert.ok(Array.isArray(g.repairs));}});
