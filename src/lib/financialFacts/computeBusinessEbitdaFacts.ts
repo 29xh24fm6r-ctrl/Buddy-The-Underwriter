@@ -1,10 +1,19 @@
 /**
  * SPEC-B4.1.2 — Canonical writer for entity-level slate-aware EBITDA.
+ * SPEC-B4.1.4 — Conditional officer-comp fold-in per methodology contract.
  *
  * For each operating entity (OPCO) on the deal, reads tax-return-derived
- * facts, calls the slate-aware ebitdaEngine.computeEbitda function, and
- * writes the result as an entity-scoped EBITDA fact with methodology
- * provenance for the ebitda_addback_stack axis.
+ * facts, calls the slate-aware ebitdaEngine.computeEbitda function. When
+ * the methodology slate's ebitda_addback_stack is "aggressive" AND
+ * officer_comp is not "no_normalization", additionally calls
+ * analyzeOfficerComp and folds the excess-comp addback into the EBITDA
+ * value before persisting. Otherwise EBITDA is persisted as-is and
+ * officer-comp remains a separate observational fact written by
+ * analyzeOfficerCompFacts.
+ *
+ * Methodology provenance attached to the EBITDA fact carries an
+ * ebitda_addback_stack axis entry always, plus an officer_comp axis
+ * entry when the fold-in applied.
  *
  * Role in canonical chain:
  *   role: compute
@@ -22,6 +31,8 @@ import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
 import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
 import { buildRationale } from "@/lib/methodology/rationaleTemplates";
 import { computeEbitda } from "@/lib/financialIntelligence/ebitdaEngine";
+import { analyzeOfficerComp } from "@/lib/financialIntelligence/officerCompEngine";
+import { applyOfficerCompFoldIn } from "@/lib/methodology/applyOfficerCompFoldIn";
 import type { MethodologyProvenance } from "@/lib/methodology/types";
 
 const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
@@ -37,6 +48,9 @@ const EBITDA_INPUT_KEYS = [
   "NON_RECURRING_INCOME",
   "GUARANTEED_PAYMENTS",
   "COST_OF_GOODS_SOLD",
+  // SPEC-B4.1.4 — officer-comp inputs needed by analyzeOfficerComp for conditional fold-in
+  "OFFICER_COMPENSATION",
+  "GROSS_RECEIPTS",
 ];
 
 export type ComputeBusinessEbitdaResult =
@@ -136,13 +150,49 @@ export async function computeBusinessEbitdaFacts(args: {
 
       const analysis = computeEbitda(factMap, formType, slate);
 
-      perEntity.push({
-        entityId,
-        adjustedEbitda: analysis.adjustedEbitda,
-        addBackCount: analysis.addBacks.length,
+      // SPEC-B4.1.4 — conditional officer-comp fold-in per methodology contract.
+      // Policy lives in applyOfficerCompFoldIn; this writer and the picker's
+      // projection MUST both go through that helper to stay in lockstep.
+      const officerCompAnalysis = analyzeOfficerComp(factMap, formType, slate);
+      const foldInDecision = applyOfficerCompFoldIn({
+        slate,
+        officerCompAdjustedEbitdaImpact: officerCompAnalysis.adjustedEbitdaImpact,
       });
 
-      if (analysis.adjustedEbitda === null) continue;
+      const finalEbitda =
+        analysis.adjustedEbitda !== null
+          ? analysis.adjustedEbitda + foldInDecision.foldInAmount
+          : null;
+
+      perEntity.push({
+        entityId,
+        adjustedEbitda: finalEbitda,
+        addBackCount: analysis.addBacks.length + (foldInDecision.shouldFold ? 1 : 0),
+      });
+
+      if (finalEbitda === null) continue;
+
+      // SPEC-B4.1.4 — augment provenance with officer_comp axis only when fold-in applied
+      const entityMethodologyProvenance: MethodologyProvenance[] = [...methodologyProvenance];
+      if (foldInDecision.shouldFold) {
+        const officerCompAxisDef = METHODOLOGY_AXES.officer_comp;
+        const officerCompVariant = slate.officer_comp;
+        entityMethodologyProvenance.push({
+          axis: "officer_comp",
+          chosen_variant: officerCompVariant,
+          alternatives_considered: officerCompAxisDef.variants
+            .map((v) => v.id)
+            .filter((id) => id !== officerCompVariant),
+          rationale: buildRationale("officer_comp", officerCompVariant),
+          slate_hash: slateHash,
+          is_default:
+            officerCompVariant === DEFAULT_METHODOLOGY_SLATE.officer_comp && isAllDefaults,
+        });
+      }
+
+      const calcString = foldInDecision.shouldFold
+        ? `${analysis.adjustedEbitdaComponents} + Officer Comp Normalization $${foldInDecision.foldInAmount.toLocaleString("en-US")}`
+        : analysis.adjustedEbitdaComponents;
 
       const result = await upsertDealFinancialFact({
         dealId,
@@ -150,15 +200,15 @@ export async function computeBusinessEbitdaFacts(args: {
         sourceDocumentId: SENTINEL_UUID,
         factType: "FINANCIAL_ANALYSIS",
         factKey: "EBITDA",
-        factValueNum: analysis.adjustedEbitda,
+        factValueNum: finalEbitda,
         confidence: 0.9,
         provenance: {
           source_type: "STRUCTURAL",
-          source_ref: `computeBusinessEbitdaFacts:v1:${entityId}`,
+          source_ref: `computeBusinessEbitdaFacts:v2:${entityId}`,
           as_of_date: latestPeriod,
-          extractor: "computeBusinessEbitdaFacts:v1",
-          calc: analysis.adjustedEbitdaComponents,
-          methodology: methodologyProvenance,
+          extractor: "computeBusinessEbitdaFacts:v2",
+          calc: calcString,
+          methodology: entityMethodologyProvenance,
         },
         ownerType: "ENTITY",
         ownerEntityId: entityId,

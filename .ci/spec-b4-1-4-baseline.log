@@ -1,0 +1,22 @@
+=== Check 1: B4.1.3 present (branch stacked on origin/feat/b4-1-3-projection-preview) ===
+B4.1.3 projection file EXISTS
+B4.1.3 preview route EXISTS
+
+=== Check 2: writer does not yet call analyzeOfficerComp (expect 0) ===
+0
+
+=== Check 3: projection unconditionally folds today ===
+54-    if (projectedEbitda !== null) {
+55:      projectedNcads = projectedEbitda + projectedOfficerCompAddback;
+56-    } else if (facts.ORDINARY_BUSINESS_INCOME !== null) {
+57-      projectedNcads = facts.ORDINARY_BUSINESS_INCOME;
+58-    } else if (facts.NET_INCOME !== null) {
+59-      projectedNcads = facts.NET_INCOME;
+
+=== Check 4: contract says aggressive includes officer-comp ===
+      {
+        id: "aggressive",
+        label: "Aggressive (standard + officer comp normalization)",
+        description: "Standard stack plus officer compensation normalization for closely-held entities.",
+        rationale: "Full normalization maximizes EBITDA for entities where owner comp is discretionary.",
+        conservatismRank: 10,
