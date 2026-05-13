@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type {
   MethodologyAxis,
@@ -9,6 +9,37 @@ import type {
   MethodologySlate,
   MethodologyVariantId,
 } from "@/lib/methodology/types";
+
+// ── Preview response types ────────────────────────────────────────────────
+
+type PreviewVariantRow = {
+  variantId: string;
+  isCurrent: boolean;
+  projectedDscr: number | null;
+  projectedNcads: number | null;
+  deltaDscr: number | null;
+};
+
+type PreviewResponse =
+  | {
+      ok: true;
+      projectable: true;
+      currentDscr: number | null;
+      currentNcads: number | null;
+      proposedAds: number;
+      formType: string;
+      axes: Record<string, {
+        currentVariant: string;
+        variants: PreviewVariantRow[];
+      }>;
+    }
+  | {
+      ok: true;
+      projectable: false;
+      reason: string;
+    };
+
+// ── Component ─────────────────────────────────────────────────────────────
 
 type Props = {
   dealId: string;
@@ -36,6 +67,34 @@ export function MethodologyPickerClient(props: Props) {
   const [savingAxis, setSavingAxis] = useState<MethodologyAxisId | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // SPEC-B4.1.3 — projection preview state
+  const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPreview() {
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const resp = await fetch(`/api/deals/${props.dealId}/methodology/preview`);
+        if (!resp.ok) {
+          setPreviewError(`Preview unavailable (HTTP ${resp.status})`);
+          return;
+        }
+        const data = await resp.json();
+        if (!cancelled) setPreview(data);
+      } catch (err: any) {
+        if (!cancelled) setPreviewError(err?.message ?? "Preview failed");
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }
+    fetchPreview();
+    return () => { cancelled = true; };
+  }, [props.dealId]);
+
   async function saveAxis(axis: MethodologyAxisId, variant: MethodologyVariantId) {
     setSavingAxis(axis);
     setSaveError(null);
@@ -60,6 +119,14 @@ export function MethodologyPickerClient(props: Props) {
     } finally {
       setSavingAxis(null);
     }
+  }
+
+  // Helper to get the projection row for a variant
+  function getProjectionRow(axisId: string, variantId: string): PreviewVariantRow | null {
+    if (!preview || !preview.projectable) return null;
+    const axisPreview = preview.axes[axisId];
+    if (!axisPreview) return null;
+    return axisPreview.variants.find((v) => v.variantId === variantId) ?? null;
   }
 
   const axisIds = Object.keys(props.axes) as MethodologyAxisId[];
@@ -97,6 +164,8 @@ export function MethodologyPickerClient(props: Props) {
             <div className="mt-4 space-y-2">
               {axis.variants.map((variant) => {
                 const isChecked = chosenVariantId === variant.id;
+                const row = getProjectionRow(axisId, variant.id);
+
                 return (
                   <label
                     key={variant.id}
@@ -127,6 +196,41 @@ export function MethodologyPickerClient(props: Props) {
                       </div>
                       <div className="text-xs text-gray-500 mt-1 italic">
                         {variant.rationale}
+                      </div>
+
+                      {/* SPEC-B4.1.3 — Projection preview row */}
+                      <div className="mt-2 text-xs font-medium" data-testid={`projection-${axisId}-${variant.id}`}>
+                        {previewLoading ? (
+                          <span className="text-gray-400 font-mono">&mdash;</span>
+                        ) : previewError || !preview || !preview.projectable ? (
+                          <span className="text-gray-400 italic">
+                            Projection unavailable
+                            {preview && !preview.projectable && "reason" in preview
+                              ? ` \u2014 ${preview.reason}`
+                              : ""}
+                          </span>
+                        ) : row ? (
+                          row.isCurrent ? (
+                            <span className="text-gray-900">
+                              Current &middot; DSCR {row.projectedDscr?.toFixed(2) ?? "\u2014"}x
+                            </span>
+                          ) : (
+                            <span className="text-gray-900">
+                              Projected DSCR {row.projectedDscr?.toFixed(2) ?? "\u2014"}x{" "}
+                              <span className={
+                                row.deltaDscr !== null && row.deltaDscr < 0
+                                  ? "text-red-600"
+                                  : row.deltaDscr !== null && row.deltaDscr > 0
+                                    ? "text-green-600"
+                                    : "text-gray-400"
+                              }>
+                                ({row.deltaDscr !== null
+                                  ? (row.deltaDscr >= 0 ? "+" : "") + row.deltaDscr.toFixed(2)
+                                  : "0.00"})
+                              </span>
+                            </span>
+                          )
+                        ) : null}
                       </div>
                     </div>
                   </label>

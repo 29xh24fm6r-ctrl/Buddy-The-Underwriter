@@ -1,0 +1,17 @@
+=== Check 1: B4.1.2 writers ===
+EXISTS
+EXISTS
+
+=== Check 2: engines slate-aware ===
+ebitdaEngine EXISTS, methodologySlate refs: 3
+officerCompEngine EXISTS, methodologySlate refs: 3
+
+=== Check 3: methodology API route ===
+EXISTS
+route.ts
+
+=== Check 4: picker UI path ===
+src/app/(app)/deals/[dealId]/methodology/MethodologyPickerClient.tsx
+
+=== Check 5: auth helper ===
+3
