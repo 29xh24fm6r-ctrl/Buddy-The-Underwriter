@@ -1,0 +1,6 @@
+-- BRK-10N Conversion Funnel
+CREATE TABLE IF NOT EXISTS public.brokerage_leads (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text, phone text, first_name text, last_name text, business_name text, loan_amount_requested numeric, loan_purpose text, source text, status text NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','converted','disqualified','unresponsive')), converted_deal_id uuid REFERENCES public.deals(id), converted_at timestamptz, metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS brokerage_leads_email_idx ON public.brokerage_leads (email);
+ALTER TABLE public.brokerage_leads ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS public.brokerage_conversion_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), lead_id uuid REFERENCES public.brokerage_leads(id), deal_id uuid REFERENCES public.deals(id), event_type text NOT NULL CHECK (event_type IN ('lead_captured','session_started','deal_created','concierge_started','email_claimed','converted')), source text, metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE public.brokerage_conversion_events ENABLE ROW LEVEL SECURITY;
