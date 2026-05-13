@@ -1,0 +1,55 @@
+=== SPEC-EXTRACT-VALIDATOR-WIRE-1 §0 baseline (executed against origin/main @ 28c8f49a) ===
+
+--- Check 1a: deal_document_validation_results row count ---
+Result: 0 rows (matches spec premise)
+
+--- Check 1b: deal_extraction_exceptions row count ---
+Result: 0 rows (matches spec premise)
+
+--- Check 1c: deal_documents sample (BUSINESS_TAX_RETURN with ai_form_numbers) ---
+Result: 5 rows returned. ai_form_numbers populated with form numbers including 1065 and 1120.
+  id=71e8b196-... ai_form_numbers=[1065] ai_tax_year=2022 doc_year=2022
+  id=a7ac8cec-... ai_form_numbers=[1065] ai_tax_year=2023 doc_year=2023
+  id=8d6a526c-... ai_form_numbers=[1065] ai_tax_year=2024 doc_year=2024
+  id=81659857-... ai_form_numbers=[1120] ai_tax_year=2024 doc_year=2024
+  id=89f6b768-... ai_form_numbers=[1120] ai_tax_year=2022 doc_year=2022
+  (Conclusion: the resolver's ai_form_numbers-priority design will work on real data.)
+
+--- Check 2: grep for runPostExtractionValidation callers ---
+Command:
+  grep -rn "runPostExtractionValidation" src/ --include="*.ts" --include="*.tsx" \
+    | grep -v "src/lib/extraction/postExtractionValidator.ts" \
+    | grep -v "__tests__"
+
+Result:
+src/lib/extraction/runRecord.ts:244:        const { runPostExtractionValidation } = await import("./postExtractionValidator");
+src/lib/extraction/runRecord.ts:245:        await runPostExtractionValidation(
+
+--- Check 2: FINDING — non-zero production callers ---
+
+Caller: src/lib/extraction/runRecord.ts:244-250, inside finalizeExtractionRun().
+Path: geminiDocumentExtractor.ts:200 → finalizeExtractionRun → (status==succeeded) → runPostExtractionValidation.
+
+Current call signature in production:
+  runPostExtractionValidation(
+    args.documentId,
+    args.dealId,
+    (args.metrics?.canonicalType as string) ?? "UNKNOWN",
+    (args.metrics?.taxYear as number) ?? null,
+  )
+
+This is the OLD signature (canonicalType: string).
+
+=== §0 conclusion ===
+The spec is materially wrong on PIV claim 1: the validator IS wired into the
+pipeline. It fires per-document on every successful extraction. The diagnosis
+of WHY deal_document_validation_results is empty remains correct: the validator
+is called with canonicalType="BUSINESS_TAX_RETURN", DOC_TYPE_TO_IRS_FORM has
+no entry, validator returns SKIPPED, and SKIPPED outcomes do not currently
+persist a row. So §1, the SKIPPED-persistence portion of §2, §4, §5, and the
+doc update remain valuable. But §3 (a second wire-up at the batch level) is
+likely duplicative and risks double-validation. §2's signature change is a
+real breaking change to runRecord.ts, requiring the compatibility-layer path
+from §2 OR updating runRecord.ts to construct a docRow.
+
+Per prompt instruction, EXECUTION STOPPED pending review.
