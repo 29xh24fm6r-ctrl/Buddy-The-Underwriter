@@ -28,9 +28,27 @@
  * Fast model — default for all high-volume Gemini tasks.
  * Replaces: gemini-2.0-flash (RETIRED), gemini-1.5-flash (RETIRED),
  *           gemini-2.5-flash, gemini-3-flash-preview (all unified here).
- * Validated working on both REST and VertexAI SDK paths.
+ *
+ * SPEC-GEMINI-FLASH-LITE-MIGRATION-1: switched from gemini-3-flash-preview
+ * to gemini-3.1-flash-lite (GA May 7, 2026). The preview model was 404'ing
+ * on Vertex AI us-central1 for this project; deterministic OCR-regex
+ * fallback was masking the failure since at least May 1, 2026.
+ *
+ * Why Flash-Lite: GA (not preview), available on `us` multi-region,
+ * 50% cheaper than 3-flash-preview ($0.25/$1.50 vs $0.50/$3.00 per M tokens),
+ * 2.5x faster TTFT, 45% faster output. Quality matches 2.5 Flash per
+ * Arena.ai Elo (1432). Distilled from Gemini 3 Pro — inherits Pro's
+ * instruction-following at Flash-tier cost.
+ *
+ * Validated working on:
+ *   - REST: https://generativelanguage.googleapis.com (via Gemini API)
+ *   - Vertex: location MUST be `us` multi-region or `global`, NOT us-central1
+ *
+ * Vertex AI region availability per Google docs:
+ *   https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-lite
+ *   Supported regions: global, us, eu
  */
-export const GEMINI_FLASH = "gemini-3-flash-preview";
+export const GEMINI_FLASH = "gemini-3.1-flash-lite";
 
 /**
  * Deep reasoning model — thinking mode, complex analysis.

@@ -66,3 +66,22 @@ test("[gemini-8] geminiClient does NOT change the model string", () => {
   // No hardcoded "gemini-3.1-flash-lite" or other model swap
   assert.doesNotMatch(SRC, /"gemini-3\.1-flash-lite"/);
 });
+
+// SPEC-GEMINI-FLASH-LITE-MIGRATION-1 additions ──────────────────────────────
+
+test("[gemini-9] geminiClient location default is `us` multi-region", () => {
+  // Locate getGoogleLocation function body
+  const fnMatch = SRC.match(/function\s+getGoogleLocation[\s\S]*?\n\}/);
+  assert.ok(fnMatch, "getGoogleLocation function not found");
+  const body = fnMatch[0];
+  // Default must be "us"
+  assert.match(body, /\|\|\s*["']us["']/);
+  // Must NOT default to us-central1
+  assert.doesNotMatch(body, /\|\|\s*["']us-central1["']/);
+});
+
+test("[gemini-10] geminiClient maxOutputTokens bumped to 16384", () => {
+  assert.match(SRC, /maxOutputTokens:\s*16384/);
+  // Must NOT still have the old 8192
+  assert.doesNotMatch(SRC, /maxOutputTokens:\s*8192/);
+});

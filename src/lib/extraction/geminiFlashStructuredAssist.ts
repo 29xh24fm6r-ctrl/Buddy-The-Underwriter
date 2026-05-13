@@ -78,10 +78,13 @@ function getGoogleProjectId(): string {
 }
 
 function getGoogleLocation(): string {
+  // SPEC-GEMINI-FLASH-LITE-MIGRATION-1: aligned with geminiClient.ts —
+  // gemini-3.1-flash-lite requires `us` multi-region or `global`.
+  // us-central1 returns 404 for this model.
   return (
     process.env.GOOGLE_CLOUD_LOCATION ||
     process.env.GOOGLE_CLOUD_REGION ||
-    "us-central1"
+    "us"
   );
 }
 

@@ -3,8 +3,11 @@ import "server-only";
 /**
  * Gemini-Primary Extraction Client
  *
- * Thin wrapper around Vertex AI Gemini 2.0 Flash for primary fact extraction.
- * Reuses auth chain from geminiFlashStructuredAssist.ts.
+ * Thin wrapper around Vertex AI Gemini 3.1 Flash-Lite for primary fact
+ * extraction. Reuses auth chain from geminiFlashStructuredAssist.ts.
+ *
+ * Model: gemini-3.1-flash-lite (GA, since May 7, 2026)
+ * Vertex location: `us` multi-region (REQUIRED — not deployed to us-central1)
  *
  * NEVER THROWS — returns { ok: false, failureReason } on any failure.
  */
@@ -46,10 +49,17 @@ function getGoogleProjectId(): string {
 }
 
 function getGoogleLocation(): string {
+  // SPEC-GEMINI-FLASH-LITE-MIGRATION-1: changed default from "us-central1"
+  // to "us" multi-region. gemini-3.1-flash-lite is deployed to
+  // global/us/eu multi-region endpoints, NOT to regional endpoints like
+  // us-central1. Empirical: every call to us-central1 returned
+  // 404 Publisher Model not found for project buddy-the-underwriter.
+  // "us" multi-region preserves US data residency (relevant for SBA/bank
+  // tenant compliance) while solving the availability gap.
   return (
     process.env.GOOGLE_CLOUD_LOCATION ||
     process.env.GOOGLE_CLOUD_REGION ||
-    "us-central1"
+    "us"
   );
 }
 
@@ -130,7 +140,12 @@ export async function callGeminiForExtraction(args: {
       // downsamples below readable resolution.
       const generationConfig: Record<string, unknown> = {
         responseMimeType: "application/json",
-        maxOutputTokens: 8192,
+        // SPEC-GEMINI-FLASH-LITE-MIGRATION-1: bumped from 8192 to 16384.
+        // gemini-3.1-flash-lite supports up to 65535 output tokens. Tax-return
+        // JSON output (Form 1120 with Schedule L, M-1, M-2, Form 1125-A) plus
+        // model reasoning can exceed 8K. 16K leaves headroom without inviting
+        // runaway thinking budget consumption.
+        maxOutputTokens: 16384,
       };
       if (isGemini3Model(GEMINI_MODEL)) {
         // Gemini 3 Flash supports minimal | low | medium | high.
