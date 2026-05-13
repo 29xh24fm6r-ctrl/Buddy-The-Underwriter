@@ -3,22 +3,8 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { getFormSpec, validateDocumentFacts, isSpreadGenerationAllowed } from "@/lib/irsKnowledge";
-import type { IrsFormType, ValidationStatus } from "@/lib/irsKnowledge/types";
-
-// ── Canonical doc type → IRS form type map ──────────────────────────
-
-const DOC_TYPE_TO_IRS_FORM: Record<string, IrsFormType> = {
-  TAX_RETURN_1065: "FORM_1065",
-  TAX_RETURN_1120: "FORM_1120",
-  TAX_RETURN_1120S: "FORM_1120S",
-  TAX_RETURN_1040: "FORM_1040",
-  PARTNERSHIP_RETURN: "FORM_1065",
-  CORPORATE_RETURN: "FORM_1120",
-  S_CORP_RETURN: "FORM_1120S",
-  PERSONAL_TAX_RETURN: "FORM_1040",
-  INDIVIDUAL_TAX_RETURN: "FORM_1040",
-  SCHEDULE_E: "SCHEDULE_E",
-};
+import type { ValidationStatus } from "@/lib/irsKnowledge/types";
+import { resolveIrsFormType, isTaxReturnDocument } from "./resolveIrsFormType";
 
 // ── Return type ─────────────────────────────────────────────────────
 
@@ -35,23 +21,67 @@ export type PostExtractionValidationResult = {
 /**
  * Run IRS identity validation after a successful extraction.
  *
+ * SPEC-EXTRACT-VALIDATOR-WIRE-1 (rev 2) §2a — accepts a docRow shape
+ * (canonical_type, ai_form_numbers, document_type) rather than a bare
+ * canonical-type string. Three self-gates run before any work:
+ *
+ *   1. deals.validation_disabled = true  →  SKIPPED, no row.
+ *   2. Document is not a tax return       →  SKIPPED, no row.
+ *   3. Tax-return doc, unresolved form    →  SKIPPED + persisted audit row.
+ *
  * CRITICAL: Never throws. Returns SKIPPED on any error.
  * Validation must never break extraction.
  */
 export async function runPostExtractionValidation(
   documentId: string,
   dealId: string,
-  canonicalType: string,
+  docRow: {
+    canonical_type: string | null;
+    ai_form_numbers: string[] | null;
+    document_type: string | null;
+  },
   taxYear: number | null,
 ): Promise<PostExtractionValidationResult> {
+  const sb = supabaseAdmin();
+
   try {
-    // a) Map canonical doc type → IRS form type
-    const irsFormType = DOC_TYPE_TO_IRS_FORM[canonicalType];
-    if (!irsFormType) {
+    // Self-gate 1: tenant escape hatch. No row persisted; the deal-level flag IS the audit trail.
+    const { data: dealRow } = await (sb as any)
+      .from("deals")
+      .select("validation_disabled")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (dealRow?.validation_disabled) {
       return {
         documentId,
         status: "SKIPPED",
-        summary: `No IRS form mapping for type: ${canonicalType}`,
+        summary: "validation_disabled=true on deal",
+        spreadGenerationAllowed: true,
+        requiresAnalystSignOff: false,
+      };
+    }
+
+    // Self-gate 2: only tax-return documents get IRS identity validation. No row for non-tax docs.
+    if (!isTaxReturnDocument(docRow)) {
+      return {
+        documentId,
+        status: "SKIPPED",
+        summary: `Not a tax-return document (canonical_type=${docRow.canonical_type})`,
+        spreadGenerationAllowed: true,
+        requiresAnalystSignOff: false,
+      };
+    }
+
+    // a) Resolve IRS form type — tax-return doc but unresolvable form gets an audit row.
+    const irsFormType = resolveIrsFormType(docRow);
+    if (!irsFormType) {
+      const summary = `No IRS form type resolvable. canonical_type=${docRow.canonical_type}, ai_form_numbers=${JSON.stringify(docRow.ai_form_numbers)}`;
+      await persistSkipped(sb, dealId, documentId, summary);
+      return {
+        documentId,
+        status: "SKIPPED",
+        summary,
         spreadGenerationAllowed: true,
         requiresAnalystSignOff: false,
       };
@@ -60,17 +90,18 @@ export async function runPostExtractionValidation(
     // b) Get form spec
     const spec = getFormSpec(irsFormType, taxYear ?? 2024);
     if (!spec) {
+      const summary = `No form spec for ${irsFormType} ${taxYear}`;
+      await persistSkipped(sb, dealId, documentId, summary, irsFormType, taxYear);
       return {
         documentId,
         status: "SKIPPED",
-        summary: `No form spec for ${irsFormType} ${taxYear}`,
+        summary,
         spreadGenerationAllowed: true,
         requiresAnalystSignOff: false,
       };
     }
 
     // c) Query facts for this document
-    const sb = supabaseAdmin();
     const { data: factRows, error: factsError } = await (sb as any)
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num")
@@ -78,12 +109,14 @@ export async function runPostExtractionValidation(
       .eq("source_document_id", documentId);
 
     if (factsError || !factRows || factRows.length === 0) {
+      const summary = factsError
+        ? `Facts query failed: ${factsError.message}`
+        : "No facts found for document";
+      await persistSkipped(sb, dealId, documentId, summary, irsFormType, taxYear);
       return {
         documentId,
         status: "SKIPPED",
-        summary: factsError
-          ? `Facts query failed: ${factsError.message}`
-          : "No facts found for document",
+        summary,
         spreadGenerationAllowed: true,
         requiresAnalystSignOff: false,
       };
@@ -191,4 +224,36 @@ export async function runPostExtractionValidation(
       requiresAnalystSignOff: false,
     };
   }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+async function persistSkipped(
+  sb: any,
+  dealId: string,
+  documentId: string,
+  summary: string,
+  formType: string | null = null,
+  taxYear: number | null = null,
+): Promise<void> {
+  await sb
+    .from("deal_document_validation_results")
+    .upsert(
+      {
+        document_id: documentId,
+        deal_id: dealId,
+        form_type: formType,
+        tax_year: taxYear,
+        status: "SKIPPED",
+        check_results: [],
+        passed_count: 0,
+        failed_count: 0,
+        skipped_count: 0,
+        summary,
+        validated_at: new Date().toISOString(),
+      },
+      { onConflict: "document_id" },
+    )
+    .then(() => {})
+    .catch(() => {});
 }

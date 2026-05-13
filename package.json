@@ -18,6 +18,7 @@
     "test:invariants": "node --import tsx --test src/lib/intake/__invariants__/*.test.ts src/lib/spreads/__invariants__/*.test.ts",
     "postinstall": "node src/scripts/copy-pdf-worker.mjs",
     "smoke:upload-record": "node scripts/smoke-upload-record.mjs",
+    "backfill:validation": "tsx --conditions=react-server scripts/backfill-extraction-validation.ts",
     "guard:admin": "node scripts/admin-routes-guard.mjs",
     "guard:canonical": "node scripts/guard-no-deal-files.mjs && node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
     "guard:reminders": "node scripts/guard-no-legacy-reminder-fields.mjs && node scripts/guard-reminder-subscriptions-canonical.mjs",
