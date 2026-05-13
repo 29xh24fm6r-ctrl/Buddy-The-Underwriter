@@ -150,3 +150,39 @@ test("[b4-1-3-v9] proposedAds=0 returns null DSCR gracefully", () => {
   });
   assert.equal(result.projectedDscr, null);
 });
+
+// ── SPEC-B4.1.4 — conditional officer-comp fold-in at the projection layer ──
+
+test("[b4-1-3-v10] (SPEC-B4.1.4) standard ebitda_addback_stack does NOT fold officer-comp into NCADS", () => {
+  const highCompFacts = { ...baseFacts(), OFFICER_COMPENSATION: 500_000 };
+  const result = projectDscrForVariant({
+    facts: highCompFacts,
+    formType: "FORM_1120",
+    currentSlate: defaultSlate(), // standard everywhere
+    override: null,
+    proposedAds: 400_000,
+  });
+  assert.ok(result.projectedOfficerCompAddback > 0, "EXTREME_HIGH comp must produce a non-zero addback");
+  assert.equal(
+    result.projectedNcads,
+    result.projectedEbitda,
+    "Standard variant must NOT fold officer-comp into NCADS",
+  );
+});
+
+test("[b4-1-3-v11] (SPEC-B4.1.4) aggressive ebitda_addback_stack DOES fold officer-comp into NCADS", () => {
+  const highCompFacts = { ...baseFacts(), OFFICER_COMPENSATION: 500_000 };
+  const result = projectDscrForVariant({
+    facts: highCompFacts,
+    formType: "FORM_1120",
+    currentSlate: defaultSlate(),
+    override: { axis: "ebitda_addback_stack", variant: "aggressive" },
+    proposedAds: 400_000,
+  });
+  assert.ok(result.projectedOfficerCompAddback > 0, "EXTREME_HIGH comp must produce a non-zero addback");
+  assert.equal(
+    result.projectedNcads,
+    result.projectedEbitda! + result.projectedOfficerCompAddback,
+    "Aggressive variant must fold officer-comp into NCADS",
+  );
+});
