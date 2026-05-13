@@ -128,6 +128,11 @@ function mapFailureReasonToCode(
 ): ExtractionFailureCode {
   const r = (reason ?? "").toLowerCase();
   if (!r) return "UNKNOWN_FATAL";
+  // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: empty_response is distinct from
+  // schema mismatch (model returned no text) and from invalid_json (model
+  // returned text that failed parse). Must be checked first so the
+  // finishReason suffix doesn't get pattern-matched by other branches.
+  if (r.includes("empty_response")) return "STRUCTURED_EMPTY_RESPONSE";
   if (r.includes("timeout")) return "STRUCTURED_TIMEOUT";
   if (r.includes("unsupported_doc_type") || r.includes("classification")) return "CLASSIFICATION_UNKNOWN";
   if (r.includes("zero_items") || r.includes("schema")) return "STRUCTURED_SCHEMA_MISMATCH";
@@ -203,6 +208,14 @@ export async function extractWithGeminiPrimary(args: {
         documentId: args.documentId,
         status: result.ok ? "succeeded" : "failed",
         failureCode: result.ok ? null : mapFailureReasonToCode(result.failureReason),
+        // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: surface the raw failure reason
+        // (including any `empty_response:<finishReason>` suffix) so the
+        // ledger row carries diagnostic detail instead of NULL.
+        // FinalizeRunArgs.failureDetail is Record<string, unknown> | null, so
+        // we wrap the string in an object keyed by failure_reason_raw.
+        failureDetail: result.ok
+          ? null
+          : { failure_reason_raw: result.failureReason ?? null },
         outputHash: result.ok && result.items.length > 0
           ? computeRunOutputHash(result.items)
           : null,

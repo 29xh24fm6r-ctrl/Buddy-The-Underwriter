@@ -20,6 +20,12 @@ export const EXTRACTION_FAILURE_CODES = {
   STRUCTURED_TIMEOUT: "STRUCTURED_TIMEOUT",
   STRUCTURED_INVALID_JSON: "STRUCTURED_INVALID_JSON",
   STRUCTURED_SCHEMA_MISMATCH: "STRUCTURED_SCHEMA_MISMATCH",
+  // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: distinct code for "model returned no
+  // text part" — separate from invalid JSON (text but unparseable) and from
+  // schema mismatch (parsed JSON but wrong shape). Diagnostic for cases where
+  // Gemini 3 Flash's dynamic thinking consumes the output budget through
+  // reasoning alone, leaving the candidate with empty content.parts.
+  STRUCTURED_EMPTY_RESPONSE: "STRUCTURED_EMPTY_RESPONSE",
 
   // Validation layer
   VALIDATION_FAILED: "VALIDATION_FAILED",
