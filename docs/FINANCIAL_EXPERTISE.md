@@ -523,13 +523,21 @@ The following gaps exist where institutional-grade expertise is built but not fu
 
 ### Gap 1 — Classifier output → IRS form mapping
 
+**Status: Closed in SPEC-EXTRACT-VALIDATOR-WIRE-1 (rev 2).**
+
+The fix shipped as a runtime sub-classifier (`src/lib/extraction/resolveIrsFormType.ts`) that reads `deal_documents.ai_form_numbers` (populated by Tier 1 anchors at 0.97 confidence) and falls back to `canonical_type`. The validator was refactored to accept a `docRow` and call the resolver. SKIPPED outcomes on tax-return documents now persist audit rows in `deal_document_validation_results`, so the empty-table symptom that hid this gap from operators is itself resolved. A `deals.validation_disabled` escape hatch was added for false-positive recovery.
+
+The historical record below is preserved.
+
+---
+
 **Symptom.** Business tax returns get classified as the generic `BUSINESS_TAX_RETURN` rather than as `FORM_1120` / `FORM_1120S` / `FORM_1065`. The validator's `DOC_TYPE_TO_IRS_FORM` mapping in `postExtractionValidator.ts` doesn't handle `BUSINESS_TAX_RETURN`, so the validator returns `SKIPPED` and the four gates never fire on the documents that need them most.
 
 **Evidence.** OmniCare deal has 3 business tax returns, all `canonical_type = "BUSINESS_TAX_RETURN"`, with zero rows in `deal_document_validation_results` and zero rows in `deal_extraction_exceptions`. Garbage facts (`WAGES_W2 = 3`, `F4562_BONUS_DEPRECIATION = 11`, `F1125E_COMPENSATION = 100`) persist without being caught.
 
 **Fix.** Either sub-classify at the classifier level using already-detected `formNumbers` from Tier 1 anchors, or add a runtime sub-classifier in `postExtractionValidator.ts` that routes generic `BUSINESS_TAX_RETURN` to the correct form spec.
 
-**Spec.** SPEC-EXTRACT-CLASSIFIER-1 (to be drafted).
+**Spec.** SPEC-EXTRACT-VALIDATOR-WIRE-1 (rev 2) — runtime sub-classifier path was chosen.
 
 ### Gap 2 — Multi-OPCO fact scoping
 
