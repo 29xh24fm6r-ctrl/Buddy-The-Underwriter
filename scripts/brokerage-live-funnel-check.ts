@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
-import { config } from "dotenv";
-config({ path: ".env.local" });
-config();
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import { createClient } from "@supabase/supabase-js";
 import { runLiveFunnelCheck } from "../src/lib/brokerage/liveFunnelCheck";
 

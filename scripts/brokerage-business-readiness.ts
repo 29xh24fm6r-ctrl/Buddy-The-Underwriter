@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
-import { config } from "dotenv";
-config({ path: ".env.local" });
-config();
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import { runBusinessReadinessGate } from "../src/lib/brokerage/businessReadinessGate";
 const skipBuild = process.argv.includes("--skip-build");
 const skipGolden = process.argv.includes("--skip-golden");
