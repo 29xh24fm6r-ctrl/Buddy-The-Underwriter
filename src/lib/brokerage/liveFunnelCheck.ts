@@ -5,9 +5,9 @@
  * actually works end-to-end against a real or stubbed database.
  */
 
-import { config } from "dotenv";
-config({ path: ".env.local" });
-config();
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 export type FunnelCheckResult = {
   ok: boolean;
