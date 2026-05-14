@@ -293,7 +293,9 @@ async function handleExtractAll(dealId: string) {
       const appBaseUrl =
         process.env.NEXT_PUBLIC_APP_URL ??
         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      const secret = process.env.CRON_SECRET ?? process.env.WORKER_SECRET ?? "";
+      // SPEC-WORKER-SECRET-FANOUT-AUTH-1: prefer WORKER_SECRET — see
+      // processConfirmedIntake.ts for the explanation.
+      const secret = process.env.WORKER_SECRET ?? process.env.CRON_SECRET ?? "";
 
       // Fire-and-forget — do not await
       void fanOutDocExtraction(queued, appBaseUrl, secret);

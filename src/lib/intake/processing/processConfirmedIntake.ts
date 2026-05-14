@@ -495,8 +495,11 @@ export async function processConfirmedIntake(
         process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
           : "http://localhost:3000";
+      // SPEC-WORKER-SECRET-FANOUT-AUTH-1: prefer WORKER_SECRET (application-
+      // managed) over CRON_SECRET (Vercel auto-injects on cron headers but
+      // does not expose it as process.env to non-cron-triggered routes).
       const secret =
-        process.env.CRON_SECRET ?? process.env.WORKER_SECRET ?? "";
+        process.env.WORKER_SECRET ?? process.env.CRON_SECRET ?? "";
 
       // Fire-and-forget — do not await extraction completion
       void fanOutDocExtraction(extractableCount, appBaseUrl, secret);
