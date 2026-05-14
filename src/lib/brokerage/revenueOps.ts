@@ -38,13 +38,13 @@ export async function calculateFinalLenderReferralFee(dealId: string, lenderBank
 
 export async function markFeesEarned(dealId: string, verificationId: string, sb: SB): Promise<{ updated: number }> {
   const { data } = await sb.from("brokerage_fee_ledger").select("id, fee_type, amount_cents, status").eq("deal_id", dealId).in("status", ["estimated", "disclosed"]);
-  let u = 0; for (const e of (data ?? []) as Row[]) { await sb.from("brokerage_fee_ledger").update({ status: "earned" }).eq("id", e.id); await emitRE(sb, dealId, "fee_earned", { feeLedgerId: String(e.id), amountCents: num(e.amount_cents), source: "fee_ledger", metadata: { verification_id: verificationId, fee_type: str(e.fee_type) } }); u++; }
+  let u = 0; for (const e of (data ?? []) as Row[]) { await sb.from("brokerage_fee_ledger").update({ status: "earned" }).eq("id", e.id); await emitRE(sb, dealId, "fee_earned", { feeLedgerId: String(e.id), amountCents: num(e.amount_cents) ?? undefined, source: "fee_ledger", metadata: { verification_id: verificationId, fee_type: str(e.fee_type) } }); u++; }
   return { updated: u };
 }
 
 export async function markFeesFunded(dealId: string, verificationId: string, sb: SB): Promise<{ updated: number }> {
   const { data } = await sb.from("brokerage_fee_ledger").select("id, fee_type, amount_cents, status").eq("deal_id", dealId).in("status", ["earned"]);
-  let u = 0; for (const e of (data ?? []) as Row[]) { await sb.from("brokerage_fee_ledger").update({ status: "funded", funding_verified_at: now() }).eq("id", e.id); await emitRE(sb, dealId, "fee_funded", { feeLedgerId: String(e.id), amountCents: num(e.amount_cents), source: "fee_ledger", metadata: { verification_id: verificationId, fee_type: str(e.fee_type) } }); u++; }
+  let u = 0; for (const e of (data ?? []) as Row[]) { await sb.from("brokerage_fee_ledger").update({ status: "funded", funding_verified_at: now() }).eq("id", e.id); await emitRE(sb, dealId, "fee_funded", { feeLedgerId: String(e.id), amountCents: num(e.amount_cents) ?? undefined, source: "fee_ledger", metadata: { verification_id: verificationId, fee_type: str(e.fee_type) } }); u++; }
   return { updated: u };
 }
 

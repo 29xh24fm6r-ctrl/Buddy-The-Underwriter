@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runBrokerageCommsForDeal } from "@/lib/brokerage/commsOrchestrator";
+import type { BankerAlertPurpose } from "@/lib/brokerage/bankerAlerts";
 import { requireBrokerageCommsAdmin, redactResponseSecrets } from "@/lib/brokerage/commsAuth";
 
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ export async function POST(
         borrowerNudges: body.purposes?.borrowerNudges !== false,
         bankerAlerts: body.purposes?.bankerAlerts !== false,
       },
-      alertPurpose: typeof body.alertPurpose === "string" ? body.alertPurpose : undefined,
+      alertPurpose: typeof body.alertPurpose === "string" ? (body.alertPurpose as BankerAlertPurpose) : undefined,
     });
 
     return NextResponse.json(redactResponseSecrets({ ok: true, ...result }));

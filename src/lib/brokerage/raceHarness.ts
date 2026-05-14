@@ -57,9 +57,9 @@ async function pick(db: RaceSupabaseStub, claimId: string, dealId: string) {
   if (ep2) { if (String(ep2.claim_id) === claimId) return { ok: true, pickId: String(ep2.id) }; return { ok: false, error: "different_claim_already_picked" }; }
   const ts = new Date().toISOString(); const pid = `pick-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
   db.tables.marketplace_picks.push({ id: pid, listing_id: lid, deal_id: dealId, claim_id: claimId, picked_lender_bank_id: cl.lender_bank_id, status: "picked", borrower_selected_at: ts });
-  await db.from("marketplace_claims").update({ status: "picked", updated_at: ts }).eq("id", claimId);
-  await db.from("marketplace_claims").update({ status: "rejected", expired_at: ts, updated_at: ts }).eq("listing_id", lid).eq("status", "active").neq("id", claimId);
-  await db.from("marketplace_listings").update({ status: "picked", picked_at: ts, updated_at: ts }).eq("id", lid);
+  await (db.from("marketplace_claims").update({ status: "picked", updated_at: ts }).eq("id", claimId) as unknown as Promise<unknown>);
+  await (db.from("marketplace_claims").update({ status: "rejected", expired_at: ts, updated_at: ts }).eq("listing_id", lid).eq("status", "active").neq("id", claimId) as unknown as Promise<unknown>);
+  await (db.from("marketplace_listings").update({ status: "picked", picked_at: ts, updated_at: ts }).eq("id", lid) as unknown as Promise<unknown>);
   db.tables.marketplace_audit_log.push({ id: `a-${Date.now()}`, listing_id: lid, deal_id: dealId, actor_scope: "borrower", action: "borrower_pick", metadata: { claim_id: claimId, pick_id: pid } });
   return { ok: true, pickId: pid };
 }

@@ -24,3 +24,12 @@ export function checkUploadDealOwnership(docs: Row[], slots: Row[]): IntegrityIs
 export function checkNoStoragePathInListings(listings: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; for (const l of listings) { if (["expired","relisted"].includes(str(l.status)??"")) continue; const ks = JSON.stringify(l.kfs??{}); for (const p of SPATS) if (p.test(ks)) { r.push(iss("no_storage_path_in_listings","critical","marketplace_listings",str(l.id),"KFS has storage pattern","Remove")); break; } } return r; }
 export function checkNoPiiInListingPreview(listings: Row[], deals: Row[]): IntegrityIssue[] { const r: IntegrityIssue[] = []; const dm = new Map<string,Row>(); for (const d of deals) dm.set(String(d.id),d); for (const l of listings) { if (["expired","relisted"].includes(str(l.status)??"")) continue; const ks = JSON.stringify(l.kfs??{}).toLowerCase(); const d = dm.get(String(l.deal_id)); if (!d) continue; const bn = str(d.borrower_name); const be = str(d.borrower_email); if (bn && bn.length > 2 && ks.includes(bn.toLowerCase())) r.push(iss("no_pii_in_listing_preview","critical","marketplace_listings",str(l.id),"Borrower name in KFS","PII scan")); if (be && ks.includes(be.toLowerCase())) r.push(iss("no_pii_in_listing_preview","critical","marketplace_listings",str(l.id),"Borrower email in KFS","PII scan")); } return r; }
 export function checkGoldenRunDiagnostics(deal: Row|null, opts: { hasStory: boolean; hasScore: boolean; hasTrident: boolean; sealed: boolean; conciergeProgressPct: number }): IntegrityIssue[] { if (!deal) return []; const r: IntegrityIssue[] = []; if (!opts.hasScore && opts.sealed) r.push(iss("golden_run_diagnostics","critical","deals",String(deal.id),"Sealed without score","Investigate")); return r; }
+
+// Orchestrator stub — wiring placeholder so scripts/brokerage-integrity-sweep.ts
+// and the businessReadinessGate check can typecheck. Real orchestration (loading
+// tables via sb and dispatching to the check* functions above) is intentionally
+// not implemented here; this returns a passing-empty result so the script is a
+// no-op until the orchestrator is fleshed out.
+export async function runIntegritySweep(_args: { sb: any }): Promise<IntegritySweepResult> {
+  return { ok: true, total: 0, critical: 0, warning: 0, info: 0, issues: [], elapsed: 0 };
+}

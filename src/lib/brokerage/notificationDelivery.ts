@@ -14,7 +14,7 @@ const SENS = /token_hash|rawToken|raw_token|service_role_key|password|secret/gi;
 function strip(t: string): string { return t.replace(SENS, "[REDACTED]"); }
 const COOL_H = 4;
 
-export function shouldNotifySubscription(alert: Alert, sub: { severity_filter: string; active: boolean; channel: string }, outbox: Row[]): boolean {
+export function shouldNotifySubscription(alert: Alert, sub: Row, outbox: Row[]): boolean {
   if (!sub.active || alert.status !== "active") return false;
   const sf = str(sub.severity_filter) ?? "critical";
   if (sf === "critical" && alert.severity !== "critical") return false;
