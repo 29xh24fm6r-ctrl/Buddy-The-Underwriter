@@ -221,6 +221,12 @@ export async function processCommsOutboxItem(
       totalAttempts: attempt,
       lastFailureCode: decision.failureCode,
     });
+
+    // Phase 12B: escalate exhausted borrower nudges to banker
+    if (isBorrowerNudgeTrigger(item.triggerKey) && item.dealId) {
+      void fireNudgeEscalation(item.dealId, "borrower_nudge_exhausted", sb);
+    }
+
     return "exhausted";
   }
 
@@ -228,6 +234,12 @@ export async function processCommsOutboxItem(
   await sb.from("brokerage_comms_outbox")
     .update({ status: "failed", attempt_count: attempt, last_failure_code: decision.failureCode })
     .eq("id", item.id);
+
+  // Phase 12B: escalate failed borrower nudges to banker
+  if (isBorrowerNudgeTrigger(item.triggerKey) && item.dealId) {
+    void fireNudgeEscalation(item.dealId, "borrower_nudge_failed", sb);
+  }
+
   return "failed";
 }
 
@@ -275,6 +287,27 @@ export async function processDueCommsOutbox(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+// ── Phase 12B: nudge escalation helpers ────────────────────────────────────
+
+const BORROWER_NUDGE_TRIGGERS = new Set(["missing_documents"]);
+
+function isBorrowerNudgeTrigger(triggerKey: string | null): boolean {
+  return triggerKey != null && BORROWER_NUDGE_TRIGGERS.has(triggerKey);
+}
+
+async function fireNudgeEscalation(
+  dealId: string,
+  event: "borrower_nudge_failed" | "borrower_nudge_exhausted",
+  sb: SB,
+): Promise<void> {
+  try {
+    const { handleLifecycleHook } = await import("@/lib/brokerage/commsLifecycleHooks");
+    await handleLifecycleHook({ dealId, event }, sb);
+  } catch {
+    // Fire-and-forget — must never break outbox processing
+  }
+}
 
 function mapRow(row: Row): OutboxItem {
   return {
