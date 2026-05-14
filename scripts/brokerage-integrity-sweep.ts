@@ -1,4 +1,7 @@
 #!/usr/bin/env tsx
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 import { createClient } from "@supabase/supabase-js";
 import { runIntegritySweep } from "../src/lib/brokerage/integritySweep";
 const allowCritical = process.argv.includes("--allow-critical");

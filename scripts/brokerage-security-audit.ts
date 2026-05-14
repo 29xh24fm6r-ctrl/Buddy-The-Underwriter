@@ -1,4 +1,7 @@
 #!/usr/bin/env tsx
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 import { runSecurityAudit } from "../src/lib/brokerage/securityAudit";
 async function main() {
   console.log("BROKERAGE SECURITY AUDIT");

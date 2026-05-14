@@ -1,4 +1,7 @@
 #!/usr/bin/env tsx
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 import { createClient } from "@supabase/supabase-js";
 import { runGoldenBrokerageRun, cleanupGoldenRun } from "../src/lib/brokerage/goldenRun";
 const cleanup = process.argv.includes("--cleanup");
