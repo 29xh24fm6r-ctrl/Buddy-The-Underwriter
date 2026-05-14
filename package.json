@@ -47,6 +47,7 @@
     "brokerage:notify": "tsx scripts/brokerage-notify.ts",
     "brokerage:borrower-comms": "tsx scripts/brokerage-borrower-comms.ts",
     "brokerage:lender-comms": "tsx scripts/brokerage-lender-comms.ts",
+    "brokerage:comms:qa": "tsx scripts/brokerage-comms-qa.ts",
     "vercel:preview:url": "node scripts/vercel-latest-url.mjs",
     "verify:underwrite": "node scripts/verify-underwrite.mjs",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
