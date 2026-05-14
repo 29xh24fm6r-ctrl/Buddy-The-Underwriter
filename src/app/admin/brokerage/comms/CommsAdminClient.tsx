@@ -10,7 +10,7 @@ type LedgerEvent = { event_type: string; channel: string; recipient_masked: stri
 // ── Sub-components ──────────────────────────────────────────────────────────
 
 function CommsModeBanner() {
-  const mode = "stub"; // Read from API in production
+  const mode = "stub" as "stub" | "dry_run" | "live"; // Read from API in production
   const color = mode === "live" ? "bg-red-900/40 border-red-700 text-red-200" : mode === "dry_run" ? "bg-amber-900/40 border-amber-700 text-amber-200" : "bg-neutral-800 border-neutral-700 text-neutral-300";
   return (
     <div className={`rounded-md border p-3 text-sm ${color}`} data-testid="comms-mode-banner">
