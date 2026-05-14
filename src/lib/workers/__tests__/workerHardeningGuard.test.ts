@@ -24,23 +24,27 @@ test("processPulseOutbox: imports and calls hasOutboxWork before claim path", ()
   assert.ok(probeIdx > 0 && probeIdx < reclaimIdx, "probe must precede reclaim");
 });
 
-test("processIntakeOutbox: idle probe gates claim_intake_outbox_batch RPC", () => {
+test("processIntakeOutbox: idle probe gates claimWithXactLock", () => {
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1 — claim now goes through
+  // claim_intake_outbox_with_xact_lock RPC (called via claimWithXactLock)
+  // instead of claim_intake_outbox_batch directly.
   const src = READ("src/lib/workers/processIntakeOutbox.ts");
   assert.match(src, /hasOutboxWork/);
   const probeIdx = src.indexOf("hasOutboxWork(");
-  // Match the actual rpc call site, not the doc comment at the top.
-  const rpcMatch = src.match(/sb\.rpc\(\s*"claim_intake_outbox_batch"/);
-  assert.ok(rpcMatch && rpcMatch.index, "must call claim_intake_outbox_batch");
-  assert.ok(probeIdx > 0 && probeIdx < (rpcMatch.index ?? 0), "probe must precede claim RPC");
+  const claimMatch = src.match(/claimWithXactLock\(/);
+  assert.ok(claimMatch && claimMatch.index, "must call claimWithXactLock");
+  assert.ok(probeIdx > 0 && probeIdx < (claimMatch.index ?? 0), "probe must precede claim path");
 });
 
-test("processDocExtractionOutbox: idle probe gates claim RPC", () => {
+test("processDocExtractionOutbox: idle probe gates claimWithXactLock", () => {
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1 — claim now goes through
+  // claim_doc_extraction_with_xact_lock RPC (called via claimWithXactLock).
   const src = READ("src/lib/workers/processDocExtractionOutbox.ts");
   assert.match(src, /hasOutboxWork/);
   const probeIdx = src.indexOf("hasOutboxWork(");
-  const rpcMatch = src.match(/sb\.rpc\(\s*"claim_doc_extraction_outbox_batch"/);
-  assert.ok(rpcMatch && rpcMatch.index, "must call claim_doc_extraction_outbox_batch");
-  assert.ok(probeIdx > 0 && probeIdx < (rpcMatch.index ?? 0), "probe must precede claim RPC");
+  const claimMatch = src.match(/claimWithXactLock\(/);
+  assert.ok(claimMatch && claimMatch.index, "must call claimWithXactLock");
+  assert.ok(probeIdx > 0 && probeIdx < (claimMatch.index ?? 0), "probe must precede claim path");
 });
 
 // ── Worker route dispatch + handler contracts ─────────────────────────────
@@ -60,20 +64,20 @@ test("pulse-outbox handler: wraps in withWorkerAdvisoryLock", () => {
   assert.match(src, /WORKER_LOCK_KEYS\.PULSE_OUTBOX/);
 });
 
-test("doc-extraction handler: wraps in withWorkerAdvisoryLock", () => {
+test("doc-extraction handler: delegates to processDocExtractionOutbox (xact-lock inside)", () => {
   const src = READ("src/app/api/workers/[...path]/_handlers/doc-extraction.ts");
-  assert.match(src, /withWorkerAdvisoryLock/);
-  assert.match(src, /WORKER_LOCK_KEYS\.DOC_EXTRACTION_OUTBOX/);
+  assert.doesNotMatch(src, /withWorkerAdvisoryLock/);
+  assert.match(src, /processDocExtractionOutbox/);
 });
 
-test("intake-outbox handler: processes without advisory lock and surfaces idle_no_work", () => {
+test("intake-outbox handler: delegates to processIntakeOutbox (xact-lock inside)", () => {
   const src = READ("src/app/api/workers/[...path]/_handlers/intake-outbox.ts");
   assert.doesNotMatch(src, /withWorkerAdvisoryLock/);
   assert.match(src, /processIntakeOutbox/);
-  assert.match(src, /idle_no_work/);
 });
 
 test("ledger-forwarder route: wraps in withWorkerAdvisoryLock", () => {
+  // Not yet migrated to xact-lock (operates on a different table; no claim RPC).
   const src = READ("src/app/api/pulse/cron-forward-ledger/route.ts");
   assert.match(src, /withWorkerAdvisoryLock/);
   assert.match(src, /WORKER_LOCK_KEYS\.LEDGER_FORWARDER/);
@@ -98,7 +102,10 @@ test("cron routes return observability JSON shape", () => {
   }
 });
 
-test("cron routes emit lock_not_acquired skip", () => {
+test("cron routes still on withWorkerAdvisoryLock surface lock_not_acquired skip", () => {
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1 — doc-extraction and intake-outbox
+  // no longer surface this skip code at the route layer; lock contention is
+  // now expected to be invisible (RPC-internal).
   for (const path of [
     "src/app/api/workers/[...path]/_handlers/pulse-outbox.ts",
     "src/app/api/workers/[...path]/_handlers/doc-extraction.ts",
@@ -194,7 +201,9 @@ test("observerLoop: stuck_job dedup window is 30 minutes", () => {
 
 // ── vercel.json cron frequencies ──────────────────────────────────────────
 
-test("vercel.json: outbox crons run every 5 minutes, not every 1-2", () => {
+test("vercel.json: outbox crons match expected schedules", () => {
+  // SPEC-EXTRACTION-PIPELINE-SPEED-1 tightened doc-extraction to */2 (was */5).
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1 made it safe to keep at */2 (no leak).
   const cfg = JSON.parse(READ("vercel.json"));
   const byPathPrefix = (prefix: string) =>
     cfg.crons.find((c: any) => String(c.path).startsWith(prefix));

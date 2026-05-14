@@ -6,10 +6,15 @@
  * Schedule: every 5 minutes (vercel.json cron)
  * Auth: CRON_SECRET or WORKER_SECRET (via hasValidWorkerSecret)
  *
- * SPEC-INTAKE-FLOW-FIX-1: Advisory lock wraps ONLY the idle probe + claim
- * step (milliseconds). Processing happens OUTSIDE the lock. This prevents
- * pgBouncer connection recycling from orphaning the lock when Gemini OCR
- * calls take 30-120s per document.
+<<<<<<< HEAD:src/app/api/workers/[...path]/_handlers/intake-outbox.ts
+ * Claims undelivered intake.process outbox rows via the transaction-scoped
+ * claim_intake_outbox_with_xact_lock RPC and executes runIntakeProcessing()
+ * for each. The advisory lock is held only for the claim transaction —
+ * processing happens after the function returns, with no lock held.
+ *
+ * Singleton-claim semantics via PostgreSQL transaction-scoped advisory lock
+ * (WORKER_LOCK_KEYS.INTAKE_OUTBOX = 42001003). See
+ * SPEC-ADVISORY-LOCK-XACT-MIGRATION-1.
  */
 
 import "server-only";
@@ -21,7 +26,7 @@ import { resolveBatchSize } from "@/lib/workers/batchCaps";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes — durable processing window
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const start = Date.now();
@@ -44,12 +49,7 @@ export async function GET(req: NextRequest) {
     "outbox",
   );
 
-  // SPEC-INTAKE-FLOW-FIX-1: No advisory lock wrapper here.
-  // processIntakeOutbox uses claim_intake_outbox_batch RPC with
-  // FOR UPDATE SKIP LOCKED — the claim itself is the concurrency guard.
-  // The advisory lock was previously held across the entire processing
-  // loop (including Gemini OCR), causing zombie locks on pgBouncer
-  // connection recycling.
+  // claimWithXactLock is invoked inside processIntakeOutbox itself.
   const result = await processIntakeOutbox(max);
 
   const durationMs = Date.now() - start;

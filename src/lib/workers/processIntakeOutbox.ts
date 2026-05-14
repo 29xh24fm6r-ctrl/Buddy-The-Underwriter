@@ -18,6 +18,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runIntakeProcessing } from "@/lib/intake/processing/runIntakeProcessing";
 import { hasOutboxWork } from "@/lib/workers/idleProbe";
+import { claimWithXactLock, isClaimSkip } from "@/lib/workers/workerLock";
 
 const DEAD_LETTER_THRESHOLD = 5;
 const BACKOFF_BASE_SECONDS = 30;
@@ -50,6 +51,11 @@ function backoffSeconds(attempts: number): number {
   );
 }
 
+/**
+ * Cron-tick entrypoint. Acquires the xact-lock + claims a batch in one
+ * round-trip via claimWithXactLock, then delegates per-row work to
+ * processClaimedIntakeRows.
+ */
 export async function processIntakeOutbox(
   maxRows?: number,
 ): Promise<OutboxResult> {
@@ -66,22 +72,37 @@ export async function processIntakeOutbox(
 
   const claimOwner = `vercel-intake-${Date.now()}`;
 
-  // ── Claim batch via RPC ────────────────────────────────────────────────
-  const { data: rows, error: claimErr } = await sb.rpc(
-    "claim_intake_outbox_batch",
-    {
-      p_claim_owner: claimOwner,
-      p_claim_ttl_seconds: 300,
-      p_limit: maxRows ?? 5,
-    },
-  );
+  const claim = await claimWithXactLock({
+    sb,
+    workerName: "intake-outbox",
+    claimOwner,
+    claimTtlSeconds: 300,
+    limit: maxRows ?? 5,
+  });
 
-  if (claimErr) {
-    console.error("[intake-outbox] claim RPC failed:", claimErr.message);
+  if (isClaimSkip(claim)) {
     return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
   }
 
-  const claimed = (rows as ClaimedRow[] | null) ?? [];
+  if (claim.rows.length === 0) {
+    return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
+  }
+
+  return processClaimedIntakeRows(claim.rows);
+}
+
+/**
+ * Processes already-claimed intake rows. Pure per-row processing loop — no
+ * claim logic, no advisory locks. Separated from the cron entrypoint so the
+ * route layer (or other callers) can claim via claimWithXactLock and hand
+ * rows directly to this function.
+ */
+export async function processClaimedIntakeRows(
+  rows: Array<ClaimedRow & { lock_acquired?: boolean }>,
+): Promise<OutboxResult> {
+  const sb = supabaseAdmin();
+  const claimed = rows as ClaimedRow[];
+
   if (claimed.length === 0) {
     return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
   }

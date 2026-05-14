@@ -15,6 +15,7 @@ import { extractByDocType } from "@/lib/extract/router/extractByDocType";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { hasOutboxWork } from "@/lib/workers/idleProbe";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
+import { claimWithXactLock, isClaimSkip } from "@/lib/workers/workerLock";
 
 const DEAD_LETTER_THRESHOLD = 5;
 const BACKOFF_BASE_SECONDS = 30;
@@ -41,6 +42,11 @@ function backoffSeconds(attempts: number): number {
   return Math.min(Math.pow(2, attempts) * BACKOFF_BASE_SECONDS, BACKOFF_CAP_SECONDS);
 }
 
+/**
+ * Cron-tick entrypoint. Acquires the xact-lock + claims a batch in one
+ * round-trip via claimWithXactLock, then delegates per-row work to
+ * processClaimedExtractionRows.
+ */
 export async function processDocExtractionOutbox(
   maxRows?: number,
 ): Promise<DocExtractionResult> {
@@ -57,21 +63,37 @@ export async function processDocExtractionOutbox(
 
   const claimOwner = `vercel-doc-extract-${Date.now()}`;
 
-  const { data: rows, error: claimErr } = await sb.rpc(
-    "claim_doc_extraction_outbox_batch",
-    {
-      p_claim_owner: claimOwner,
-      p_claim_ttl_seconds: 300,
-      p_limit: maxRows ?? 10,
-    },
-  );
+  const claim = await claimWithXactLock({
+    sb,
+    workerName: "doc-extraction",
+    claimOwner,
+    claimTtlSeconds: 300,
+    limit: maxRows ?? 10,
+  });
 
-  if (claimErr) {
-    console.error("[doc-extraction] claim RPC failed:", claimErr.message);
+  if (isClaimSkip(claim)) {
     return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
   }
 
-  const claimed = (rows as ClaimedRow[] | null) ?? [];
+  if (claim.rows.length === 0) {
+    return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
+  }
+
+  return processClaimedExtractionRows(claim.rows);
+}
+
+/**
+ * Processes already-claimed extraction rows. Pure per-row processing loop —
+ * no claim logic, no advisory locks. Exists as a separate export so the
+ * route layer can claim via claimWithXactLock and hand rows directly to
+ * this function without round-tripping through the claim path again.
+ */
+export async function processClaimedExtractionRows(
+  rows: Array<ClaimedRow & { lock_acquired?: boolean }>,
+): Promise<DocExtractionResult> {
+  const sb = supabaseAdmin();
+  const claimed = rows as ClaimedRow[];
+
   if (claimed.length === 0) {
     return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
   }

@@ -48,3 +48,15 @@ test("[cron-3] other cron schedules are unchanged", () => {
   assert.equal(intakeOutbox?.schedule, "*/5 * * * *", "intake-outbox cron unchanged");
   assert.equal(pulseOutbox?.schedule, "*/5 * * * *", "pulse-outbox cron unchanged");
 });
+
+test("[cron-4] lock-janitor cron exists and runs every 5 minutes", () => {
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1: belt-and-suspenders janitor that
+  // terminates idle postgrest connections holding stale worker advisory locks.
+  const config = JSON.parse(readFileSync(VERCEL_JSON, "utf8"));
+  const crons = config.crons ?? [];
+  const janitor = crons.find((c: any) =>
+    typeof c?.path === "string" && c.path.startsWith("/api/workers/lock-janitor"),
+  );
+  assert.ok(janitor, "lock-janitor cron must exist in vercel.json");
+  assert.equal(janitor.schedule, "*/5 * * * *");
+});
