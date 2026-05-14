@@ -28,6 +28,9 @@ const isPublicRoute = createRouteMatcher([
   "/start(.*)",
   "/for-banks(.*)",
   "/pricing(.*)",
+  "/brokerage(.*)",
+  "/underwriter(.*)",
+  "/apply(.*)",
   "/portal/owner/(.*)",
   "/portal/share/(.*)",
   "/upload(.*)",
@@ -81,6 +84,29 @@ function getClientIp(req: Request): string | null {
 
 export default clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
+
+  // ── Domain-based routing for homepage ────────────────────────────────
+  if (p === "/") {
+    const host = req.headers.get("host") ?? req.nextUrl.hostname;
+    const h = host.toLowerCase().replace(/:\d+$/, "");
+
+    // buddybrokerage.com → 301 to buddysba.com
+    if (h.includes("buddybrokerage")) {
+      const target = new URL(req.nextUrl.toString());
+      target.hostname = "buddysba.com";
+      target.port = "";
+      return NextResponse.redirect(target.toString(), 301);
+    }
+
+    // buddytheunderwriter.com → rewrite to /underwriter
+    if (h.includes("buddytheunderwriter")) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/underwriter";
+      return NextResponse.rewrite(url);
+    }
+
+    // buddysba.com / localhost / preview → default brokerage page (no rewrite needed)
+  }
 
   const e2eEnabled = process.env.E2E === "1";
   const e2eGuard = process.env.PLAYWRIGHT === "1" || process.env.NODE_ENV === "test";

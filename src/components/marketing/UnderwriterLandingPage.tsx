@@ -118,6 +118,21 @@ export function UnderwriterLandingPage() {
           Request demo
         </Link>
       </section>
+
+      {/* Borrower cross-nav — secondary */}
+      <section className="border-t border-neutral-200 bg-white py-12" data-section="borrower-cross-nav">
+        <div className="mx-auto max-w-3xl px-6 text-center">
+          <p className="text-sm text-neutral-500">
+            Business owner seeking SBA financing?{" "}
+            <Link
+              href="/brokerage"
+              className="font-medium text-neutral-700 underline transition hover:text-neutral-900"
+            >
+              Visit BuddySBA.com
+            </Link>
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
