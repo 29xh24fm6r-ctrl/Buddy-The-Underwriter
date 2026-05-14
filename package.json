@@ -51,6 +51,7 @@
     "brokerage:comms:readiness": "tsx scripts/brokerage-comms-readiness.ts",
     "brokerage:comms:dry-run": "tsx scripts/brokerage-comms-dry-run.ts",
     "brokerage:comms:live-preflight": "tsx scripts/brokerage-comms-live-preflight.ts",
+    "brokerage:comms:regression": "tsx scripts/brokerage-comms-regression.ts",
     "vercel:preview:url": "node scripts/vercel-latest-url.mjs",
     "verify:underwrite": "node scripts/verify-underwrite.mjs",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
