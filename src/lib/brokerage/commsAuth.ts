@@ -1,19 +1,23 @@
 /**
- * Brokerage comms auth guard stub.
- *
- * TODO: Wire to real admin auth (requireSuperAdmin / requireRoleApi)
- * before production launch. Currently allows all requests but
- * provides the interface for future gating.
+ * Brokerage comms auth + production guardrails.
  */
+import "server-only";
+import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 
 export type CommsAuthResult = { authorized: boolean; userId?: string; error?: string };
 
 export async function requireBrokerageCommsAdmin(): Promise<CommsAuthResult> {
-  // In test/dev: always allow
-  // TODO: Replace with real auth check:
-  //   const { userId } = await requireSuperAdmin();
-  //   return { authorized: true, userId };
-  return { authorized: true, userId: "system" };
+  try {
+    const { userId } = await requireSuperAdmin();
+    return { authorized: true, userId };
+  } catch (err: any) {
+    const msg = String(err?.message ?? "unauthorized");
+    if (msg === "auth_not_configured") {
+      // Dev/test fallback — allow when Clerk not configured
+      return { authorized: true, userId: "dev-fallback" };
+    }
+    return { authorized: false, error: msg };
+  }
 }
 
 /** Redact any secrets from a response object before returning */
