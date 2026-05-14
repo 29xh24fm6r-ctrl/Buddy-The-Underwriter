@@ -123,9 +123,9 @@ test("secrets are redacted from timeline events", () => {
 
 test("events group by day", () => {
   const events: import("../dealTimeline").TimelineEvent[] = [
-    { id: "1", dealId: "d1", timestamp: "2026-05-14T10:00:00Z", category: "document", title: "A", description: "", actorType: "system", severity: "info", relatedEntityType: null, relatedEntityId: null, metadataSafe: {} },
-    { id: "2", dealId: "d1", timestamp: "2026-05-14T14:00:00Z", category: "comms", title: "B", description: "", actorType: "system", severity: "info", relatedEntityType: null, relatedEntityId: null, metadataSafe: {} },
-    { id: "3", dealId: "d1", timestamp: "2026-05-13T10:00:00Z", category: "readiness", title: "C", description: "", actorType: "system", severity: "info", relatedEntityType: null, relatedEntityId: null, metadataSafe: {} },
+    { id: "1", dealId: "d1", timestamp: "2026-05-14T10:00:00Z", category: "document", title: "A", description: "", actorType: "system", severity: "info", relatedEntityType: null, relatedEntityId: null, metadataSafe: {}, href: null },
+    { id: "2", dealId: "d1", timestamp: "2026-05-14T14:00:00Z", category: "comms", title: "B", description: "", actorType: "system", severity: "info", relatedEntityType: null, relatedEntityId: null, metadataSafe: {}, href: null },
+    { id: "3", dealId: "d1", timestamp: "2026-05-13T10:00:00Z", category: "readiness", title: "C", description: "", actorType: "system", severity: "info", relatedEntityType: null, relatedEntityId: null, metadataSafe: {}, href: null },
   ];
   const groups = m.groupTimelineEventsByDay(events);
   assert.equal(groups.length, 2);

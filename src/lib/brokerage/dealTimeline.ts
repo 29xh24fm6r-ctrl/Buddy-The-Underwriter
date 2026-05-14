@@ -23,6 +23,7 @@ export type TimelineEvent = {
   relatedEntityType: string | null;
   relatedEntityId: string | null;
   metadataSafe: Record<string, unknown>;
+  href: string | null;
 };
 
 export type TimelineDayGroup = {
@@ -33,6 +34,10 @@ export type TimelineDayGroup = {
 export type TimelineOptions = {
   limit?: number;
   categories?: TimelineCategory[];
+  severities?: TimelineSeverity[];
+  actorTypes?: TimelineActorType[];
+  from?: string;
+  to?: string;
   newestFirst?: boolean;
 };
 
@@ -81,6 +86,41 @@ function safeMeta(raw: Record<string, unknown> | null | undefined): Record<strin
   try { return JSON.parse(cleaned); } catch { return {}; }
 }
 
+// ── Deep link helpers ──────────────────────────────────────────────────────
+
+const SAFE_HREF_PREFIX = /^\/(?:admin|deals)\//;
+
+function resolveDocumentHref(dealId: string, docId: string | null): string | null {
+  if (!docId) return null;
+  return `/deals/${dealId}#document-${docId}`;
+}
+
+function resolveCommsHref(dealId: string): string | null {
+  return `/admin/brokerage/comms?dealId=${dealId}`;
+}
+
+function resolveReadinessHref(dealId: string): string | null {
+  return `/deals/${dealId}#readiness`;
+}
+
+// ── Filter validation ──────────────────────────────────────────────────────
+
+const VALID_CATEGORIES = new Set<TimelineCategory>(["document", "readiness", "comms", "banker_action", "system"]);
+const VALID_SEVERITIES = new Set<TimelineSeverity>(["info", "success", "warning", "error"]);
+const VALID_ACTOR_TYPES = new Set<TimelineActorType>(["borrower", "banker", "system", "provider"]);
+
+function validateArray<T>(arr: unknown[] | undefined, valid: Set<T>): T[] | undefined {
+  if (!arr || !Array.isArray(arr) || arr.length === 0) return undefined;
+  const filtered = arr.filter(v => valid.has(v as T)) as T[];
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+function parseIsoDate(v: string | undefined): number | null {
+  if (!v) return null;
+  const ms = new Date(v).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 // ── Normalizers ────────────────────────────────────────────────────────────
 
 function normalizeTimelineEvent(source: string, row: Row, dealId: string): TimelineEvent | null {
@@ -117,6 +157,7 @@ function normalizeDealEvent(row: Row, dealId: string): TimelineEvent {
     title = kind.replace(/[._]/g, " ");
   }
 
+  const docId = str(payload?.document_id as unknown) ?? str(payload?.source_id as unknown) ?? null;
   return {
     id: str(row.id) ?? `de-${row.created_at}`,
     dealId,
@@ -127,8 +168,9 @@ function normalizeDealEvent(row: Row, dealId: string): TimelineEvent {
     actorType,
     severity,
     relatedEntityType: str(payload?.source_table as unknown) ?? null,
-    relatedEntityId: str(payload?.document_id as unknown) ?? str(payload?.source_id as unknown) ?? null,
+    relatedEntityId: docId,
     metadataSafe: safeMeta(payload),
+    href: category === "document" ? resolveDocumentHref(dealId, docId) : category === "readiness" ? resolveReadinessHref(dealId) : null,
   };
 }
 
@@ -144,11 +186,12 @@ function normalizePipelineEvent(row: Row, dealId: string): TimelineEvent {
 
   const title = uiMessage || stage.replace(/[._]/g, " ");
 
+  const cat: TimelineCategory = stage.includes("upload") ? "document" : "system";
   return {
     id: str(row.id) ?? `pl-${row.created_at}`,
     dealId,
     timestamp: row.created_at ?? new Date().toISOString(),
-    category: stage.includes("upload") ? "document" : "system",
+    category: cat,
     title: redactSecrets(title),
     description: "",
     actorType: "system",
@@ -156,16 +199,18 @@ function normalizePipelineEvent(row: Row, dealId: string): TimelineEvent {
     relatedEntityType: null,
     relatedEntityId: null,
     metadataSafe: safeMeta(row.payload as Record<string, unknown>),
+    href: null,
   };
 }
 
 function normalizeTimelineEventRow(row: Row, dealId: string): TimelineEvent {
   const kind = str(row.kind) ?? "timeline";
+  const cat: TimelineCategory = kind.includes("document") || kind.includes("upload") ? "document" : "banker_action";
   return {
     id: str(row.id) ?? `tl-${row.created_at}`,
     dealId,
     timestamp: row.created_at ?? new Date().toISOString(),
-    category: kind.includes("document") || kind.includes("upload") ? "document" : "banker_action",
+    category: cat,
     title: str(row.title) ?? kind,
     description: str(row.detail) ?? "",
     actorType: row.created_by ? "banker" : "system",
@@ -173,6 +218,7 @@ function normalizeTimelineEventRow(row: Row, dealId: string): TimelineEvent {
     relatedEntityType: null,
     relatedEntityId: null,
     metadataSafe: {},
+    href: null,
   };
 }
 
@@ -201,6 +247,7 @@ function normalizeCommsLedgerEvent(row: Row, dealId: string): TimelineEvent {
     relatedEntityType: "comms_ledger",
     relatedEntityId: null,
     metadataSafe: safeMeta(meta),
+    href: resolveCommsHref(dealId),
   };
 }
 
@@ -230,6 +277,7 @@ function normalizeCommsOutboxEvent(row: Row, dealId: string): TimelineEvent {
     relatedEntityType: "comms_outbox",
     relatedEntityId: str(row.id),
     metadataSafe: { trigger_key: triggerKey, channel, status, attempt_count: row.attempt_count ?? 0 },
+    href: resolveCommsHref(dealId),
   };
 }
 
@@ -272,10 +320,23 @@ export async function getDealTimeline(
   for (const row of commsLedger) { const e = normalizeTimelineEvent("brokerage_comms_ledger", row, dealId); if (e) all.push(e); }
   for (const row of commsOutbox) { const e = normalizeTimelineEvent("brokerage_comms_outbox", row, dealId); if (e) all.push(e); }
 
-  // Filter by category if specified
-  let filtered = opts?.categories
-    ? all.filter(e => opts.categories!.includes(e.category))
-    : all;
+  // Apply filters (invalid values silently ignored via validateArray)
+  let filtered = all;
+
+  const cats = validateArray(opts?.categories, VALID_CATEGORIES);
+  if (cats) filtered = filtered.filter(e => cats.includes(e.category));
+
+  const sevs = validateArray(opts?.severities, VALID_SEVERITIES);
+  if (sevs) filtered = filtered.filter(e => sevs.includes(e.severity));
+
+  const actors = validateArray(opts?.actorTypes, VALID_ACTOR_TYPES);
+  if (actors) filtered = filtered.filter(e => actors.includes(e.actorType));
+
+  const fromMs = parseIsoDate(opts?.from);
+  if (fromMs != null) filtered = filtered.filter(e => new Date(e.timestamp).getTime() >= fromMs);
+
+  const toMs = parseIsoDate(opts?.to);
+  if (toMs != null) filtered = filtered.filter(e => new Date(e.timestamp).getTime() <= toMs);
 
   // Sort
   filtered.sort((a, b) => newestFirst
