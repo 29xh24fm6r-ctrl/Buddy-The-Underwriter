@@ -22,7 +22,7 @@
  * Current prompt version. Increment on ANY prompt text change.
  * Recorded in deal_extraction_runs.prompt_version.
  */
-export const PROMPT_VERSION = "flash_prompts_v2";
+export const PROMPT_VERSION = "flash_prompts_v3";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -332,6 +332,27 @@ function buildArAgingPrompt(ocrText: string): StructuredAssistPrompt {
       "set formField 'aging_type' to 'AP'.\n\n" +
       "Standard aging buckets are: Current, 1-30, 31-60, 61-90, 91+ (or 'Over 90' or '91 and over').\n" +
       "Some reports use different bucket labels. Map to the closest standard bucket.\n\n" +
+      "CRITICAL — COLUMN ALIGNMENT FOR SPARSE ROWS:\n" +
+      "AR aging reports are wide tables. Many customer rows have values in only " +
+      "some buckets, with the others empty (rendered as blank space, '-', or nothing). " +
+      "You MUST use column position to determine which bucket each value belongs to:\n\n" +
+      "1. First, identify the header row to lock in the column order: Customer, Current, " +
+      "1-30, 31-60, 61-90, 91+, Total (or whatever buckets this report uses).\n" +
+      "2. For each customer row, scan left-to-right and align each value to the column " +
+      "it sits under. A wide whitespace gap means an EMPTY bucket — do NOT collapse " +
+      "values together as if all buckets had data.\n" +
+      "3. If a row has a value followed by significant whitespace followed by another " +
+      "value, the values belong to NON-ADJACENT buckets. Use horizontal position to " +
+      "determine which buckets, NOT the order of appearance.\n" +
+      "4. CROSS-CHECK: for each row, sum your assigned bucket values (excluding Total). " +
+      "This sum MUST equal the Total column. If it doesn't, re-examine column alignment " +
+      "before emitting the row.\n" +
+      "5. Negative values in parentheses or with leading minus sign belong to the " +
+      "bucket they appear under, regardless of sign.\n\n" +
+      "Example sparse row:\n" +
+      "  'Affinity Cellular    9032.18                                  -8066.89    965.29'\n" +
+      "  → Customer='Affinity Cellular', Current=9032.18, 1-30=0, 31-60=0, 61-90=0, 91+=-8066.89, Total=965.29\n" +
+      "  Verification: 9032.18 + 0 + 0 + 0 + (-8066.89) = 965.29 ✓\n\n" +
       "For each (customer × bucket) cell with a non-empty value, emit ONE entity:\n" +
       "  - type: 'ar_aging_cell'\n" +
       "  - mentionText: the original value as it appears in the document (with commas/parens preserved)\n" +
