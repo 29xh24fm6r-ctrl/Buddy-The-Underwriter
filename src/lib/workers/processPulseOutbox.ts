@@ -13,9 +13,35 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hasOutboxWork } from "@/lib/workers/idleProbe";
 
-// Event kinds handled by intake-outbox worker — skip these
-const INTAKE_KINDS = new Set(["intake.process"]);
-const INTAKE_KINDS_LIST = Array.from(INTAKE_KINDS);
+/**
+ * SPEC-OUTBOX-ROUTING-AND-LOCATION-CENTRALIZATION-1
+ *
+ * Allowlist of event kinds that Pulse forwards to the Pulse Omega ingest
+ * endpoint. Previously this worker used a denylist (excludeKinds), which
+ * silently consumed any new outbox kind that wasn't explicitly excluded.
+ *
+ * The 2026-05-14 production incident: doc.extract events meant for the
+ * doc-extraction worker were silently claimed and delivered to Pulse
+ * because the denylist only excluded "intake.process". This blocked
+ * OmniCare re-extraction for hours.
+ *
+ * New rule: Pulse explicitly opts into every kind it forwards. Adding
+ * a new outbox kind in the future requires an intentional decision
+ * here (and in the corresponding consumer worker). The default is
+ * "Pulse does not claim this." A future Aegis watchdog will surface
+ * unclaimed outbox kinds; silent consumption is no longer possible.
+ *
+ * Pulse forwards: telemetry / lifecycle / observability events.
+ * Pulse does NOT forward: events that have a dedicated consumer
+ * (intake.process → intake-outbox; doc.extract → doc-extraction).
+ */
+const PULSE_KINDS = new Set([
+  "checklist_reconciled",
+  "readiness_recomputed",
+  "artifact_processed",
+  "manual_override",
+]);
+const PULSE_KINDS_LIST = Array.from(PULSE_KINDS);
 
 const DEAD_LETTER_THRESHOLD = 10;
 const BACKOFF_BASE_SECONDS = 60;
@@ -71,7 +97,7 @@ export async function processPulseOutbox(
   // a heartbeat or starting a claim transaction. This is the bulk of cron
   // invocations and used to be the source of millions of identical claim
   // queries against pg_stat_statements.
-  const work = await hasOutboxWork({ sb, excludeKinds: INTAKE_KINDS_LIST });
+  const work = await hasOutboxWork({ sb, includeKinds: PULSE_KINDS_LIST });
   if (!work) {
     if (process.env.DEBUG_WORKERS === "true") {
       console.log("[pulse-outbox] idle_no_work");
@@ -98,10 +124,11 @@ export async function processPulseOutbox(
     .is("delivered_at", null)
     .is("dead_lettered_at", null);
 
-  // Select unclaimed, undelivered, non-intake events
+  // SPEC-OUTBOX-ROUTING-AND-LOCATION-CENTRALIZATION-1: filter by allowlist
   const { data: candidates, error: selectErr } = await (sb as any)
     .from("buddy_outbox_events")
     .select("id, kind, deal_id, bank_id, payload, attempts")
+    .in("kind", PULSE_KINDS_LIST)
     .is("delivered_at", null)
     .is("dead_lettered_at", null)
     .is("claimed_at", null)
@@ -119,9 +146,12 @@ export async function processPulseOutbox(
     };
   }
 
-  // Filter out intake events
+  // SPEC-OUTBOX-ROUTING-AND-LOCATION-CENTRALIZATION-1: filtering now happens
+  // in the SQL `IN (...)` clause above. Defense-in-depth check retained:
+  // drop any row that slipped through (e.g. race with a kind added between
+  // SQL emit and code deploy).
   const filtered = (candidates as any[]).filter(
-    (r) => !INTAKE_KINDS.has(r.kind),
+    (r) => PULSE_KINDS.has(r.kind),
   );
 
   if (filtered.length === 0) {

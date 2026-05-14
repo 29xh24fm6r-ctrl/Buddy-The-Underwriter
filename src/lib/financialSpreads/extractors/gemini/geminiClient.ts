@@ -18,6 +18,7 @@ import {
   getVertexAuthOptions,
 } from "@/lib/gcpAdcBootstrap";
 import { MODEL_EXTRACTION, isGemini3Model } from "@/lib/ai/models";
+import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import type { GeminiExtractionPrompt } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -46,21 +47,6 @@ function getGoogleProjectId(): string {
     );
   }
   return projectId;
-}
-
-function getGoogleLocation(): string {
-  // SPEC-GEMINI-FLASH-LITE-MIGRATION-1: changed default from "us-central1"
-  // to "us" multi-region. gemini-3.1-flash-lite is deployed to
-  // global/us/eu multi-region endpoints, NOT to regional endpoints like
-  // us-central1. Empirical: every call to us-central1 returned
-  // 404 Publisher Model not found for project buddy-the-underwriter.
-  // "us" multi-region preserves US data residency (relevant for SBA/bank
-  // tenant compliance) while solving the availability gap.
-  return (
-    process.env.GOOGLE_CLOUD_LOCATION ||
-    process.env.GOOGLE_CLOUD_REGION ||
-    "us"
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +103,7 @@ export async function callGeminiForExtraction(args: {
     const googleAuthOptions = await getVertexAuthOptions();
     const vertexAI = new VertexAI({
       project: getGoogleProjectId(),
-      location: getGoogleLocation(),
+      location: getVertexLocation(),
       ...(googleAuthOptions
         ? { googleAuthOptions: googleAuthOptions as any }
         : {}),

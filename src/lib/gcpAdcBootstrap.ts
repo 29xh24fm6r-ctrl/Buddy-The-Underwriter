@@ -5,6 +5,7 @@ import type { GoogleAuthOptions } from "google-auth-library";
 import { getVercelOidcToken } from "@/lib/google/getVercelOidcToken";
 import { getVercelWifAuthClient } from "@/lib/gcp/vercelAuth";
 import { GEMINI_FLASH } from "@/lib/ai/models";
+import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 const WIF_CREDENTIALS_PATH = "/tmp/gcp-wif.json";
@@ -107,8 +108,7 @@ export async function runVertexAdcSmokeTest(): Promise<{ ok: true; model: string
     throw new Error("Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT or GCS_PROJECT_ID.");
   }
 
-  const location =
-    process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
+  const location = getVertexLocation();
   const model = process.env.GEMINI_MODEL || GEMINI_FLASH;
 
   const googleAuthOptions = await getVertexAuthOptions();

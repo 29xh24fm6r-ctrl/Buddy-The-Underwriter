@@ -2,6 +2,7 @@ import "server-only";
 
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
+import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { buildStructuredAssistPrompt, PROMPT_VERSION } from "./geminiFlashPrompts";
 import { validateStructuredOutput } from "./schemas/structuredOutput";
 import { computeStructuredOutputHash } from "./outputCanonicalization";
@@ -77,17 +78,6 @@ function getGoogleProjectId(): string {
   return projectId;
 }
 
-function getGoogleLocation(): string {
-  // SPEC-GEMINI-FLASH-LITE-MIGRATION-1: aligned with geminiClient.ts —
-  // gemini-3.1-flash-lite requires `us` multi-region or `global`.
-  // us-central1 returns 404 for this model.
-  return (
-    process.env.GOOGLE_CLOUD_LOCATION ||
-    process.env.GOOGLE_CLOUD_REGION ||
-    "us"
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
@@ -138,7 +128,7 @@ export async function extractStructuredAssist(args: {
     const googleAuthOptions = await getVertexAuthOptions();
     const vertexAI = new VertexAI({
       project: getGoogleProjectId(),
-      location: getGoogleLocation(),
+      location: getVertexLocation(),
       ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
     });
 

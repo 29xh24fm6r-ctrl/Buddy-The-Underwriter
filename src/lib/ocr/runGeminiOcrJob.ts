@@ -2,6 +2,7 @@ import "server-only";
 import { VertexAI } from "@google-cloud/vertexai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { MODEL_OCR } from "@/lib/ai/models";
+import { getVertexLocation } from "@/lib/ai/vertexLocation";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -47,10 +48,6 @@ function getGoogleProjectId(): string {
     );
   }
   return projectId;
-}
-
-function getGoogleLocation(): string {
-  return process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
 }
 
 function getGeminiModelFromEnv(): string | null {
@@ -101,7 +98,7 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
   const googleAuthOptions = await getVertexAuthOptions();
   const vertexAI = new VertexAI({
     project: getGoogleProjectId(),
-    location: getGoogleLocation(),
+    location: getVertexLocation(),
     ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
   });
 
