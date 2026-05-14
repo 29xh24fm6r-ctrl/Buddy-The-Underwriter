@@ -19,7 +19,7 @@
  * Routing classes determine which extraction engine processes a document.
  *
  * GEMINI_STRUCTURED: Gemini OCR + advisory Gemini Flash structured assist
- *                    (tax returns, income statements, balance sheets, PFS)
+ *                    (tax returns, income statements, balance sheets, PFS, AR aging)
  * GEMINI_PACKET:     Gemini OCR with multi-page/tabular awareness
  *                    (generic financials)
  * GEMINI_STANDARD:   Standard Gemini OCR — single-pass text extraction
@@ -182,10 +182,10 @@ const ROUTING_CLASS_MAP: Record<ExtendedCanonicalType, RoutingClass> = {
   INCOME_STATEMENT: "GEMINI_STRUCTURED",
   BALANCE_SHEET: "GEMINI_STRUCTURED",
   PFS: "GEMINI_STRUCTURED",
+  AR_AGING: "GEMINI_STRUCTURED",  // SPEC-AR-AGING-STRUCTURED-ASSIST-1: moved from GEMINI_PACKET to leverage Gemini Flash table parsing
 
   // GEMINI_PACKET: Tabular/multi-page docs
   FINANCIAL_STATEMENT: "GEMINI_PACKET",
-  AR_AGING: "GEMINI_PACKET",
 
   // GEMINI_STRUCTURED: Upgraded from GEMINI_STANDARD for extraction
   BANK_STATEMENT: "GEMINI_STRUCTURED",

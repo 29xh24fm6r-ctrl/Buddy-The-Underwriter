@@ -316,6 +316,47 @@ function buildIncomeStatementPrompt(ocrText: string): StructuredAssistPrompt {
 }
 
 // ---------------------------------------------------------------------------
+// AR Aging
+// ---------------------------------------------------------------------------
+
+function buildArAgingPrompt(ocrText: string): StructuredAssistPrompt {
+  return {
+    promptVersion: PROMPT_VERSION,
+    systemInstruction: SYSTEM_PREFIX,
+    userPrompt:
+      "Extract the accounts receivable aging table from this document.\n\n" +
+      "This is an A/R (accounts receivable) aging report. It lists customers " +
+      "owed amounts by age bucket. DO NOT process this if the document is an " +
+      "A/P (accounts payable / vendor) aging report — those are different. " +
+      "If the document is A/P aging, return an empty entities array and " +
+      "set formField 'aging_type' to 'AP'.\n\n" +
+      "Standard aging buckets are: Current, 1-30, 31-60, 61-90, 91+ (or 'Over 90' or '91 and over').\n" +
+      "Some reports use different bucket labels. Map to the closest standard bucket.\n\n" +
+      "For each (customer × bucket) cell with a non-empty value, emit ONE entity:\n" +
+      "  - type: 'ar_aging_cell'\n" +
+      "  - mentionText: the original value as it appears in the document (with commas/parens preserved)\n" +
+      "  - confidence: how clearly the value sits in that (customer, bucket) intersection (0.5 ambiguous, 0.95+ unambiguous)\n" +
+      "  - normalizedValue.moneyValue.units: whole-dollar amount (negative for credits/contra balances)\n" +
+      "  - normalizedValue.moneyValue.nanos: fractional cents as nanos (cents × 10,000,000)\n" +
+      "Plus formFields for each cell tagging which customer and which bucket:\n" +
+      "  - name: 'ar_aging_cell:<row_index>:<bucket>' where bucket is one of: customer, current, d1_30, d31_60, d61_90, d91_plus, total\n" +
+      "  - value: the cell value (customer name as string for the 'customer' bucket; numeric string otherwise)\n" +
+      "  - confidence: same as the entity\n\n" +
+      "Use row_index starting at 0 for the first customer row. Skip header and footer/total rows.\n" +
+      "For empty cells (blank or '-' in the document), emit no entity for that (row, bucket) pair.\n" +
+      "If a value appears in parentheses like '(123.45)', that is negative — emit negative units/nanos.\n\n" +
+      "Also emit these document-level formFields:\n" +
+      "  - aging_type: 'AR' (or 'AP' if this is actually an AP aging report)\n" +
+      "  - entity_name: the company name the aging report is FOR (the lender's customer)\n" +
+      "  - as_of_date: the report date (format YYYY-MM-DD)\n" +
+      "  - grand_total: the grand total amount across all customers (numeric string)\n" +
+      "  - customer_count: number of customer rows extracted (numeric string)\n\n" +
+      ENTITY_FORMAT_INSTRUCTION +
+      "\n\nDocument text:\n" + ocrText,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -336,6 +377,8 @@ export function buildStructuredAssistPrompt(
       return buildBalanceSheetPrompt(ocrText);
     case "INCOME_STATEMENT":
       return buildIncomeStatementPrompt(ocrText);
+    case "AR_AGING":
+      return buildArAgingPrompt(ocrText);
     default:
       return null;
   }

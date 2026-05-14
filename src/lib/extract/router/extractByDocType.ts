@@ -149,7 +149,10 @@ function resolveRoutingClass(doc: ExtractByDocTypeResult["doc"]): {
 
 // ─── Gemini OCR Path ─────────────────────────────────────────────────────────
 
-async function extractWithGeminiOcr(doc: ExtractByDocTypeResult["doc"]): Promise<{
+async function extractWithGeminiOcr(
+  doc: ExtractByDocTypeResult["doc"],
+  canonicalType: string,
+): Promise<{
   result: ExtractResult;
   provider_metrics: ProviderMetrics;
 }> {
@@ -181,7 +184,7 @@ async function extractWithGeminiOcr(doc: ExtractByDocTypeResult["doc"]): Promise
     uiMessage: `Gemini OCR extraction completed`,
     meta: {
       docId: doc.id,
-      docType: doc.type,
+      docType: canonicalType,
       pages,
       model: ocrResult.model,
       provider_metrics,
@@ -194,7 +197,7 @@ async function extractWithGeminiOcr(doc: ExtractByDocTypeResult["doc"]): Promise
         extractedText: ocrResult.text,
         pageCount: pages,
         model: ocrResult.model,
-        docType: doc.type,
+        docType: canonicalType,  // SPEC-AR-AGING-STRUCTURED-ASSIST-1: use canonical type, not raw doc.type
       },
       tables: [],
       evidence: [],
@@ -451,7 +454,7 @@ export async function extractByDocType(
 
   try {
     // Step 1: Always extract with Gemini OCR
-    const { result, provider_metrics } = await extractWithGeminiOcr(doc);
+    const { result, provider_metrics } = await extractWithGeminiOcr(doc, canonicalType);
 
     // Step 2: For structured-eligible types, run advisory structured assist
     // Respects shadow/canary/active mode (H1-H2)
@@ -500,13 +503,32 @@ export async function extractByDocType(
     }
 
     // AR_AGING-specific table normalization. We need document_extracts.tables_json
-    // populated for the AR collateral processor — Gemini OCR returns text only,
-    // so reconstruct the table from text (or normalize native tables if present).
+    // populated for the AR collateral processor.
+    //
+    // Priority order:
+    //   1. Synthesize a native-table-shaped rows array from structured assist output
+    //      (Gemini Flash). Highest confidence — Gemini reads the table semantically.
+    //   2. Use any tables already on result.tables (rare; Gemini OCR doesn't emit tables).
+    //   3. Fall back to text reconstruction inside arAgingTableExtractor.
     if (canonicalType === "AR_AGING" || doc.type === "AR_AGING") {
       const { extractArAgingTables } = await import("@/lib/extraction/arAgingTableExtractor");
+      const { synthesizeArAgingTableFromStructuredAssist } = await import(
+        "@/lib/extract/router/synthesizeArAgingTable"
+      );
+
+      // SPEC-AR-AGING-STRUCTURED-ASSIST-1: prefer structured-assist-derived table
+      const synthesized = synthesizeArAgingTableFromStructuredAssist(
+        result.fields.structuredJson ?? null,
+      );
+
+      const tablesForExtractor =
+        synthesized && synthesized.rows.length > 1
+          ? [synthesized]
+          : result.tables;
+
       const arOut = extractArAgingTables({
         text: result.fields.extractedText,
-        tables: result.tables,
+        tables: tablesForExtractor,
         fields: result.fields,
         filename: doc.original_filename ?? null,
       });
