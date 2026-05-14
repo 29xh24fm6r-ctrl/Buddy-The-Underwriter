@@ -283,6 +283,29 @@ async function handleExtractAll(dealId: string) {
     }
   }
 
+  // SPEC-EXTRACTION-PIPELINE-SPEED-1: fire parallel worker invocations
+  // immediately. Same pattern as processConfirmedIntake.ts.
+  if (queued > 0) {
+    try {
+      const { fanOutDocExtraction } = await import(
+        "@/lib/intake/processing/fanOutDocExtraction"
+      );
+      const appBaseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      const secret = process.env.CRON_SECRET ?? process.env.WORKER_SECRET ?? "";
+
+      // Fire-and-forget — do not await
+      void fanOutDocExtraction(queued, appBaseUrl, secret);
+    } catch (err: any) {
+      // Non-fatal — cron handles extraction if fan-out fails
+      console.warn("[handleExtractAll] fan-out failed (non-fatal)", {
+        dealId,
+        error: err?.message,
+      });
+    }
+  }
+
   await logLedgerEvent({
     dealId,
     bankId: access.bankId,

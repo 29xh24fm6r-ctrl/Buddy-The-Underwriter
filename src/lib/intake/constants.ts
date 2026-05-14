@@ -53,5 +53,15 @@ export const SOFT_DEADLINE_MS = 4 * 60 * 1000;
  */
 export const PROCESSING_OBSERVABILITY_VERSION = "observability_v1";
 
-/** Maximum concurrent extraction Lambdas to fire on intake completion. */
-export const MAX_CONCURRENT_EXTRACTIONS = 6;
+/**
+ * Maximum concurrent extraction Lambdas to fire on intake completion
+ * or Re-extract All trigger.
+ *
+ * Capped well under Gemini Flash paid-tier limit (1500 RPM). At 12 parallel
+ * extractions, each averaging 20-30s, peak load is ~30 requests/min from
+ * fan-out — leaves headroom for cron, structured-assist retries, and
+ * other pipeline traffic.
+ *
+ * Raised from 6 to 12 in SPEC-EXTRACTION-PIPELINE-SPEED-1.
+ */
+export const MAX_CONCURRENT_EXTRACTIONS = 12;
