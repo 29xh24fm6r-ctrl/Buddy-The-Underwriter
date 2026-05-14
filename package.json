@@ -33,6 +33,7 @@
     "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "golden:brokerage": "tsx scripts/golden-brokerage-run.ts",
+    "brokerage:live-funnel": "tsx scripts/brokerage-live-funnel-check.ts",
     "brokerage:integrity": "tsx scripts/brokerage-integrity-sweep.ts",
     "brokerage:race": "tsx scripts/brokerage-race-harness.ts",
     "brokerage:security": "tsx scripts/brokerage-security-audit.ts",
