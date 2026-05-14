@@ -12,13 +12,14 @@ import "server-only";
  * NEVER THROWS — returns { ok: false, failureReason } on any failure.
  */
 
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenAI } from "@google/genai";
 import {
   ensureGcpAdcBootstrap,
   getVertexAuthOptions,
 } from "@/lib/gcpAdcBootstrap";
 import { MODEL_EXTRACTION, isGemini3Model } from "@/lib/ai/models";
 import { getVertexLocation } from "@/lib/ai/vertexLocation";
+import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 import type { GeminiExtractionPrompt } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -101,7 +102,10 @@ export async function callGeminiForExtraction(args: {
   try {
     await ensureGcpAdcBootstrap();
     const googleAuthOptions = await getVertexAuthOptions();
-    const vertexAI = new VertexAI({
+    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true uses
+    // Vertex backend + WIF auth, same as the old @google-cloud/vertexai SDK.
+    const ai = new GoogleGenAI({
+      vertexai: true,
       project: getGoogleProjectId(),
       location: getVertexLocation(),
       ...(googleAuthOptions
@@ -146,11 +150,6 @@ export async function callGeminiForExtraction(args: {
       } else {
         generationConfig.temperature = isRetry ? 0.0 : GEMINI_TEMPERATURE;
       }
-      const model = vertexAI.getGenerativeModel({
-        model: GEMINI_MODEL,
-        generationConfig,
-      });
-
       // Native PDF path: send the actual document as inlineData + instructions
       // OCR text path: prompt already contains embedded OCR text
       const userParts = args.pdfBase64
@@ -165,16 +164,20 @@ export async function callGeminiForExtraction(args: {
           ]
         : [{ text: args.prompt.userPrompt }];
 
-      const generatePromise = model.generateContent({
+      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai folds model + config +
+      // systemInstruction into a single ai.models.generateContent call.
+      // systemInstruction moves into `config`.
+      const generatePromise = ai.models.generateContent({
+        model: GEMINI_MODEL,
         contents: [
           {
             role: "user",
             parts: userParts as any,
           },
         ],
-        systemInstruction: {
-          role: "system",
-          parts: [{ text: systemInstruction }],
+        config: {
+          ...generationConfig,
+          systemInstruction,
         },
       });
 
@@ -194,11 +197,18 @@ export async function callGeminiForExtraction(args: {
         ),
       ]);
 
-      const candidate = (resp as any)?.response?.candidates?.[0];
+      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai exposes `candidates` at
+      // top level (no `.response` wrapper) and a top-level `.text` accessor.
+      // Defense-in-depth: try both.
+      const candidate = (resp as any)?.candidates?.[0];
       const parts = candidate?.content?.parts ?? [];
-      const rawText = parts
-        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-        .join("")
+      const rawText = (
+        (resp as any)?.text ??
+        parts
+          .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+          .join("")
+      )
+        .toString()
         .trim();
 
       if (!rawText) {
@@ -207,7 +217,8 @@ export async function callGeminiForExtraction(args: {
         // instead of collapsing into UNKNOWN_FATAL with null detail.
         const finishReason: string | undefined = candidate?.finishReason;
         const safetyRatings: unknown = candidate?.safetyRatings;
-        const promptFeedback: unknown = (resp as any)?.response?.promptFeedback;
+        const promptFeedback: unknown =
+          (resp as any)?.promptFeedback ?? (resp as any)?.response?.promptFeedback;
 
         // Tag the failure reason so the orchestrator's mapFailureReasonToCode
         // can route this to STRUCTURED_EMPTY_RESPONSE instead of UNKNOWN_FATAL.
@@ -280,6 +291,24 @@ export async function callGeminiForExtraction(args: {
     };
   } catch (err: any) {
     const latencyMs = Date.now() - started;
+    // SPEC-VERTEX-SDK-MIGRATION-1: classify SDK errors so the
+    // HTML-response failure mode surfaces with a stable code.
+    const classification = classifySdkError(err);
+    if (classification.isHtmlResponse) {
+      console.error("[GeminiClient] SDK_HTML_RESPONSE — Vertex returned HTML where JSON expected", {
+        documentId: args.documentId,
+        rawSnippet: classification.rawSnippet,
+        code: classification.code,
+        latencyMs,
+      });
+      return {
+        ok: false,
+        rawJson: null,
+        latencyMs,
+        model: GEMINI_MODEL,
+        failureReason: `SDK_HTML_RESPONSE:${classification.rawSnippet.slice(0, 80)}`,
+      };
+    }
     console.warn("[GeminiClient] Failed", {
       documentId: args.documentId,
       error: err?.message || String(err),

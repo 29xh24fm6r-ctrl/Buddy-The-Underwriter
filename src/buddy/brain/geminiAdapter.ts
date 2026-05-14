@@ -2,9 +2,11 @@
 import "server-only";
 
 import type { BuddyContextPack } from "@/buddy/brain/types";
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenAI } from "@google/genai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { GEMINI_FLASH } from "@/lib/ai/models";
+import { getVertexLocation } from "@/lib/ai/vertexLocation";
+import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 
 function getGoogleProjectId(): string {
   const projectId =
@@ -20,20 +22,17 @@ function getGoogleProjectId(): string {
   return projectId;
 }
 
-function getGoogleLocation(): string {
-  return process.env.GOOGLE_CLOUD_LOCATION || process.env.GOOGLE_CLOUD_REGION || "us-central1";
-}
-
 export async function geminiShadowAnalyze(ctx: BuddyContextPack) {
   const model = process.env.GEMINI_MODEL ?? GEMINI_FLASH;
   await ensureGcpAdcBootstrap();
   const googleAuthOptions = await getVertexAuthOptions();
-  const vertex = new VertexAI({
+  // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
+  const ai = new GoogleGenAI({
+    vertexai: true,
     project: getGoogleProjectId(),
-    location: getGoogleLocation(),
+    location: getVertexLocation(),
     ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
   });
-  const gemini = vertex.getGenerativeModel({ model });
 
   const prompt = [
     "You are Buddy Shadow Brain. Return STRICT JSON only. No markdown.",
@@ -45,27 +44,28 @@ export async function geminiShadowAnalyze(ctx: BuddyContextPack) {
     `ctx=${JSON.stringify(ctx)}`,
   ].join("\n");
 
-  const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.2 },
-  };
-
   const started = Date.now();
   const timeoutMs = 10_000;
 
   try {
-    const latencyMs = Date.now() - started;
+    // SPEC-VERTEX-SDK-MIGRATION-1: ai.models.generateContent unified call
     const res = (await Promise.race([
-      gemini.generateContent({
-        contents: body.contents,
-        generationConfig: body.generationConfig,
+      ai.models.generateContent({
+        model,
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: { temperature: 0.2 },
       }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error("gemini_timeout")), timeoutMs),
       ),
     ])) as any;
 
-    const text = (res as any)?.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const latencyMs = Date.now() - started;
+    // SPEC-VERTEX-SDK-MIGRATION-1: response shape (no `.response` wrapper)
+    const text =
+      (res as any)?.text ??
+      (res as any)?.candidates?.[0]?.content?.parts?.[0]?.text ??
+      "";
     let parsed: any = null;
     try {
       parsed = JSON.parse(text);
@@ -74,7 +74,20 @@ export async function geminiShadowAnalyze(ctx: BuddyContextPack) {
     }
 
     return { model, latencyMs, resultJson: parsed };
-  } finally {
-    // no-op
+  } catch (err: unknown) {
+    const latencyMs = Date.now() - started;
+    const classification = classifySdkError(err);
+    if (classification.isHtmlResponse) {
+      console.error("[geminiShadowAnalyze] SDK_HTML_RESPONSE", {
+        model,
+        rawSnippet: classification.rawSnippet,
+        latencyMs,
+      });
+    }
+    return {
+      model,
+      latencyMs,
+      resultJson: { intent: "unknown", missing: null, notes: "error", confidence: 0 },
+    };
   }
 }

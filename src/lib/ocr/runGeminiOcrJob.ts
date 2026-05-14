@@ -1,8 +1,9 @@
 import "server-only";
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenAI } from "@google/genai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { MODEL_OCR } from "@/lib/ai/models";
 import { getVertexLocation } from "@/lib/ai/vertexLocation";
+import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -96,7 +97,9 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
 
   await ensureGcpAdcBootstrap();
   const googleAuthOptions = await getVertexAuthOptions();
-  const vertexAI = new VertexAI({
+  // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
+  const ai = new GoogleGenAI({
+    vertexai: true,
     project: getGoogleProjectId(),
     location: getVertexLocation(),
     ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
@@ -121,8 +124,10 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     tried.push(modelName);
 
     try {
-      const model = vertexAI.getGenerativeModel({ model: modelName });
-      const generatePromise = model.generateContent({
+      // SPEC-VERTEX-SDK-MIGRATION-1: ai.models.generateContent unified call.
+      // Model is selected per-attempt inside the fallback loop.
+      const generatePromise = ai.models.generateContent({
+        model: modelName,
         contents: [
           {
             role: "user",
@@ -149,10 +154,13 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
         ),
       ]);
 
-      const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
+      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai response shape — no `.response` wrapper
+      const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
       const textRaw =
-        parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("") || "";
-      const text = textRaw.trim();
+        (resp as any)?.text ??
+        parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("") ??
+        "";
+      const text = String(textRaw).trim();
 
       const finalText = text.match(/\[Page\s+\d+\]/i)
         ? text
@@ -172,6 +180,19 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
       return { text: finalText, pageCount, model: modelName };
     } catch (e: any) {
       lastError = e;
+
+      // SPEC-VERTEX-SDK-MIGRATION-1: classify SDK errors. HTML-response failures
+      // get a wrapped throw with a clear prefix so processDocExtractionOutbox
+      // records "SDK_HTML_RESPONSE:" in last_error verbatim.
+      const classification = classifySdkError(e);
+      if (classification.isHtmlResponse) {
+        console.error("[GeminiOCR] SDK_HTML_RESPONSE — Vertex returned HTML where JSON expected", {
+          fileName,
+          model: modelName,
+          rawSnippet: classification.rawSnippet,
+        });
+        throw new Error(`SDK_HTML_RESPONSE: ${classification.rawSnippet.slice(0, 120)}`, { cause: e });
+      }
 
       const isTimeout = e?.message?.includes("OCR timeout");
       if (isVertexModelNotFoundError(e) || isTimeout) {

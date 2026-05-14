@@ -20,6 +20,10 @@ export const EXTRACTION_FAILURE_CODES = {
   STRUCTURED_TIMEOUT: "STRUCTURED_TIMEOUT",
   STRUCTURED_INVALID_JSON: "STRUCTURED_INVALID_JSON",
   STRUCTURED_SCHEMA_MISMATCH: "STRUCTURED_SCHEMA_MISMATCH",
+  // SPEC-VERTEX-SDK-MIGRATION-1: HTML response from Vertex API gateway
+  // (e.g., when the SDK request format is rejected and the gateway returns
+  // a "<!DOCTYPE html>..." error page instead of the structured JSON error).
+  SDK_HTML_RESPONSE: "SDK_HTML_RESPONSE",
   // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: distinct code for "model returned no
   // text part" — separate from invalid JSON (text but unparseable) and from
   // schema mismatch (parsed JSON but wrong shape). Diagnostic for cases where

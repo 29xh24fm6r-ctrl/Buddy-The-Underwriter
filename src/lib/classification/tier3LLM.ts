@@ -12,13 +12,15 @@
  */
 
 import "server-only";
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenAI } from "@google/genai";
 import {
   ensureGcpAdcBootstrap,
   getVertexAuthOptions,
 } from "@/lib/gcpAdcBootstrap";
 import type { NormalizedDocument, Tier3Result, EvidenceItem } from "./types";
 import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
+import { getVertexLocation } from "@/lib/ai/vertexLocation";
+import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -36,14 +38,6 @@ function getGoogleProjectId(): string {
     );
   }
   return projectId;
-}
-
-function getGoogleLocation(): string {
-  return (
-    process.env.GOOGLE_CLOUD_LOCATION ||
-    process.env.GOOGLE_CLOUD_REGION ||
-    "us-central1"
-  );
 }
 
 function getClassifierModel(): string {
@@ -213,17 +207,18 @@ Classify this document and extract key information. Respond with JSON only.`;
     await ensureGcpAdcBootstrap();
     const googleAuthOptions = await getVertexAuthOptions();
 
-    const vertexAI = new VertexAI({
+    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
+    const ai = new GoogleGenAI({
+      vertexai: true,
       project: getGoogleProjectId(),
-      location: getGoogleLocation(),
+      location: getVertexLocation(),
       ...(googleAuthOptions
         ? { googleAuthOptions: googleAuthOptions as any }
         : {}),
     });
 
-    const model = vertexAI.getGenerativeModel({ model: modelName });
-
-    const resp = await model.generateContent({
+    const resp = await ai.models.generateContent({
+      model: modelName,
       contents: [
         {
           role: "user",
@@ -232,11 +227,14 @@ Classify this document and extract key information. Respond with JSON only.`;
       ],
     });
 
-    const parts =
-      (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
-    const textRaw = parts
-      .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-      .join("");
+    // SPEC-VERTEX-SDK-MIGRATION-1: response shape — no `.response` wrapper
+    const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
+    const textRaw =
+      (resp as any)?.text ??
+      parts
+        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+        .join("") ??
+      "";
 
     if (!textRaw) {
       throw new Error("No text response from Gemini");
@@ -294,10 +292,19 @@ Classify this document and extract key information. Respond with JSON only.`;
       model: modelName,
     };
   } catch (error: any) {
-    console.error("[tier3LLM] Gemini classification failed", {
-      filename: doc.filename,
-      error: error?.message,
-    });
+    // SPEC-VERTEX-SDK-MIGRATION-1: classify HTML-response failures
+    const classification = classifySdkError(error);
+    if (classification.isHtmlResponse) {
+      console.error("[tier3LLM] SDK_HTML_RESPONSE — Vertex returned HTML where JSON expected", {
+        filename: doc.filename,
+        rawSnippet: classification.rawSnippet,
+      });
+    } else {
+      console.error("[tier3LLM] Gemini classification failed", {
+        filename: doc.filename,
+        error: error?.message,
+      });
+    }
 
     return {
       matched: false,

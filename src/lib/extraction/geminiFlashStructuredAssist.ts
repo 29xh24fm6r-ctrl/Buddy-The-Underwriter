@@ -1,8 +1,9 @@
 import "server-only";
 
-import { VertexAI } from "@google-cloud/vertexai";
+import { GoogleGenAI } from "@google/genai";
 import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { getVertexLocation } from "@/lib/ai/vertexLocation";
+import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 import { buildStructuredAssistPrompt, PROMPT_VERSION } from "./geminiFlashPrompts";
 import { validateStructuredOutput } from "./schemas/structuredOutput";
 import { computeStructuredOutputHash } from "./outputCanonicalization";
@@ -126,7 +127,9 @@ export async function extractStructuredAssist(args: {
 
     await ensureGcpAdcBootstrap();
     const googleAuthOptions = await getVertexAuthOptions();
-    const vertexAI = new VertexAI({
+    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
+    const ai = new GoogleGenAI({
+      vertexai: true,
       project: getGoogleProjectId(),
       location: getVertexLocation(),
       ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
@@ -150,21 +153,18 @@ export async function extractStructuredAssist(args: {
       if (!isGemini3Model(GEMINI_MODEL)) {
         generationConfig.temperature = isRetry ? 0.0 : GEMINI_TEMPERATURE;
       }
-      const model = vertexAI.getGenerativeModel({
+      // SPEC-VERTEX-SDK-MIGRATION-1: ai.models.generateContent unified call
+      const generatePromise = ai.models.generateContent({
         model: GEMINI_MODEL,
-        generationConfig,
-      });
-
-      const generatePromise = model.generateContent({
         contents: [
           {
             role: "user",
             parts: [{ text: prompt.userPrompt }],
           },
         ],
-        systemInstruction: {
-          role: "system",
-          parts: [{ text: systemInstruction }],
+        config: {
+          ...generationConfig,
+          systemInstruction,
         },
       });
 
@@ -179,11 +179,15 @@ export async function extractStructuredAssist(args: {
         ),
       ]);
 
-      // Extract response text
-      const parts = (resp as any)?.response?.candidates?.[0]?.content?.parts ?? [];
-      const rawText = parts
-        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-        .join("")
+      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai response shape (no `.response` wrapper)
+      const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
+      const rawText = (
+        (resp as any)?.text ??
+        parts
+          .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+          .join("")
+      )
+        .toString()
         .trim();
 
       if (!rawText) {
@@ -262,6 +266,17 @@ export async function extractStructuredAssist(args: {
     return null;
   } catch (err: any) {
     const latencyMs = Date.now() - started;
+    // SPEC-VERTEX-SDK-MIGRATION-1: classify SDK errors before falling through.
+    const classification = classifySdkError(err);
+    if (classification.isHtmlResponse) {
+      console.error("[StructuredAssist] SDK_HTML_RESPONSE — Vertex returned HTML where JSON expected", {
+        documentId: args.documentId,
+        canonicalType: args.canonicalType,
+        rawSnippet: classification.rawSnippet,
+        latencyMs,
+      });
+      return null;
+    }
     console.warn("[StructuredAssist] Failed — deterministic extractors will use OCR regex", {
       documentId: args.documentId,
       canonicalType: args.canonicalType,

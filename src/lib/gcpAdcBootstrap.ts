@@ -102,7 +102,8 @@ export async function runVertexAdcSmokeTest(): Promise<{ ok: true; model: string
 
   await ensureGcpAdcBootstrap();
 
-  const { VertexAI } = await import("@google-cloud/vertexai");
+  // SPEC-VERTEX-SDK-MIGRATION-1: dynamic import of new SDK
+  const { GoogleGenAI } = await import("@google/genai");
   const project = getProjectId();
   if (!project) {
     throw new Error("Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT or GCS_PROJECT_ID.");
@@ -112,16 +113,18 @@ export async function runVertexAdcSmokeTest(): Promise<{ ok: true; model: string
   const model = process.env.GEMINI_MODEL || GEMINI_FLASH;
 
   const googleAuthOptions = await getVertexAuthOptions();
-  const vertex = new VertexAI({
+  const ai = new GoogleGenAI({
+    vertexai: true,
     project,
     location,
     ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
   });
-  const gen = vertex.getGenerativeModel({ model });
 
-  await gen.generateContent({
+  // No temperature override; default is fine for a smoke test. Gemini 3.x
+  // rejects sub-1.0 temperatures anyway.
+  await ai.models.generateContent({
+    model,
     contents: [{ role: "user", parts: [{ text: "OK" }] }],
-    generationConfig: { temperature: 0 },
   });
 
   return { ok: true, model };

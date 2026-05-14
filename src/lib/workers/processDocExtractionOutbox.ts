@@ -14,6 +14,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractByDocType } from "@/lib/extract/router/extractByDocType";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { hasOutboxWork } from "@/lib/workers/idleProbe";
+import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 
 const DEAD_LETTER_THRESHOLD = 5;
 const BACKOFF_BASE_SECONDS = 30;
@@ -191,11 +192,22 @@ export async function processDocExtractionOutbox(
       processed += 1;
     } catch (err: any) {
       const elapsedMs = Date.now() - startMs;
+
+      // SPEC-VERTEX-SDK-MIGRATION-1: classify SDK errors so the
+      // HTML-response failure mode surfaces with a stable code in
+      // last_error. Watchdog queries grep for SDK_HTML_RESPONSE.
+      const classification = classifySdkError(err);
+      const rawMessage = err?.message?.slice(0, 200) ?? "unknown";
+      const recordedError = classification.isHtmlResponse
+        ? `SDK_HTML_RESPONSE: ${rawMessage}`
+        : rawMessage;
+
       console.error("[doc-extraction] extraction failed", {
         rowId: row.id,
         docId,
         dealId,
-        error: err?.message?.slice(0, 200),
+        code: classification.code,
+        error: rawMessage,
         elapsedMs,
       });
 
@@ -205,7 +217,8 @@ export async function processDocExtractionOutbox(
         scope: "intake",
         meta: {
           doc_id: docId,
-          error: err?.message?.slice(0, 200),
+          code: classification.code,
+          error: rawMessage,
           elapsed_ms: elapsedMs,
         },
       });
@@ -213,7 +226,7 @@ export async function processDocExtractionOutbox(
       const isDeadLetter = await markFailed(
         sb,
         row.id,
-        err?.message?.slice(0, 500) ?? "unknown",
+        recordedError.slice(0, 500),
         row.attempts,
       );
 
