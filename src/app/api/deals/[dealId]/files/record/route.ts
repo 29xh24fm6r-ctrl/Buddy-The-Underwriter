@@ -1034,6 +1034,13 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
+    // Phase 12B: fire comms lifecycle hook — documents_received
+    if (documentId) {
+      void import("@/lib/brokerage/commsLifecycleHooks")
+        .then((m) => m.handleLifecycleHook({ dealId, event: "documents_received" }, sb))
+        .catch(() => {});
+    }
+
     console.log("[files/record] recorded file", {
       dealId,
       file_id,
