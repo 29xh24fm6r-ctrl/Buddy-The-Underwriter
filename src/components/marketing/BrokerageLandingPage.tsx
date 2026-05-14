@@ -101,6 +101,25 @@ export function BrokerageLandingPage() {
           Start your SBA package
         </Link>
       </section>
+
+      {/* Bank platform entry — secondary */}
+      <section className="border-t border-neutral-200 bg-white py-12" data-section="bank-platform-entry">
+        <div className="mx-auto max-w-3xl px-6 text-center">
+          <h3 className="text-sm font-semibold text-neutral-500">
+            For banks and SBA lenders
+          </h3>
+          <p className="mt-3 text-sm text-neutral-600">
+            Looking for <strong>Buddy The Underwriter</strong>, our bank-facing
+            underwriting intelligence platform?
+          </p>
+          <Link
+            href="/underwriter"
+            className="mt-5 inline-flex rounded-full border border-neutral-300 px-6 py-2.5 text-sm font-medium text-neutral-600 transition hover:border-neutral-500 hover:text-neutral-900"
+          >
+            Explore the banking platform
+          </Link>
+        </div>
+      </section>
     </main>
   );
 }

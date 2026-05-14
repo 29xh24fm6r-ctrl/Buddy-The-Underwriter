@@ -1,5 +1,5 @@
-import { BrandSplitPage } from "@/components/marketing/BrandSplitPage";
+import { BrokerageLandingPage } from "@/components/marketing/BrokerageLandingPage";
 
 export default function Home() {
-  return <BrandSplitPage />;
+  return <BrokerageLandingPage />;
 }
