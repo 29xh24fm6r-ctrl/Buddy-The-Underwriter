@@ -56,6 +56,7 @@
     "brokerage:comms:regression": "tsx scripts/brokerage-comms-regression.ts",
     "brokerage:borrower-regression": "node --import tsx --test src/lib/portal/__tests__/borrowerExperienceFoundation.test.ts src/lib/portal/__tests__/borrowerExperienceRegression.test.ts src/lib/server/__tests__/borrowerPortalAuthGuard.test.ts",
     "brokerage:timeline:regression": "node --test --import tsx src/lib/brokerage/__tests__/dealTimeline.test.ts src/lib/brokerage/__tests__/dealTimelineFilters.test.ts src/lib/brokerage/__tests__/dealTimelineExport.test.ts src/lib/brokerage/__tests__/timelineCloseoutRegression.test.ts",
+    "brokerage:comms:lifecycle-regression": "node --test --import tsx src/lib/brokerage/__tests__/commsLifecycleHooks.test.ts src/lib/brokerage/__tests__/commsLifecycleWiring.test.ts src/lib/brokerage/__tests__/commsLifecycleObservability.test.ts src/lib/brokerage/__tests__/lifecycleCommsRegression.test.ts",
     "vercel:preview:url": "node scripts/vercel-latest-url.mjs",
     "verify:underwrite": "node scripts/verify-underwrite.mjs",
     "check:icons": "node scripts/check-no-material-icon-tokens.mjs",
