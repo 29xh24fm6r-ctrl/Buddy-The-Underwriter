@@ -29,6 +29,7 @@
 | [brokerage-comms-qa.md](brokerage-comms-qa.md) | QA harness usage, scenarios, safety rules |
 | [brokerage-comms-release-checklist.md](brokerage-comms-release-checklist.md) | Required env vars, DNS, Telnyx, SMS compliance, rollout procedure |
 | [brokerage-comms-live-rollout.md](brokerage-comms-live-rollout.md) | stub → dry_run → live progression, rollback, emergency disable |
+| [brokerage-lifecycle-comms.md](brokerage-lifecycle-comms.md) | Phase 12 lifecycle hooks runbook, call sites, troubleshooting |
 
 ## Commands
 
@@ -38,7 +39,27 @@
 | `pnpm brokerage:comms:readiness` | Release checklist status |
 | `pnpm brokerage:comms:dry-run` | Full dry-run verification |
 | `pnpm brokerage:comms:live-preflight` | Live mode preflight |
-| `pnpm brokerage:comms:regression` | Full regression sweep |
+| `pnpm brokerage:comms:regression` | Full regression sweep (Phase 11) |
+| `pnpm brokerage:comms:lifecycle-regression` | Lifecycle comms regression (Phase 12) |
+
+## Lifecycle-Triggered Comms (Phase 12)
+
+| Phase | Module | Purpose |
+|-------|--------|---------|
+| 12A | `commsLifecycleHooks.ts` | Routes 6 lifecycle events to comms pipeline via orchestrator/outbox |
+| 12B | Call site wiring | `readiness.ts`, upload routes, `commsOutbox.ts` — fire-and-forget hooks |
+| 12C | `commsLifecycleObservability.ts` | Summary, event views, admin UI section, `GET /api/brokerage/comms/lifecycle` |
+| 12D | Runbook + regression lock | [brokerage-lifecycle-comms.md](brokerage-lifecycle-comms.md) + 10 regression tests |
+
+**Key invariants:**
+- All hooks route through `handleLifecycleHook()` — no direct adapter calls
+- `processOutbox=false` always — hooks enqueue only
+- Hook failures never block uploads, readiness, or outbox processing
+- Idempotency inherited from outbox layer (daily dedup)
+
+**Rollback:** Comment out `void import(...)` at any call site, or set `BROKERAGE_COMMS_MODE=stub`.
+
+See [brokerage-lifecycle-comms.md](brokerage-lifecycle-comms.md) for full runbook.
 
 ## Governance
 
