@@ -141,7 +141,7 @@ export function usePrimaryCTA(
             loanRequestBlocker === "loan_request_missing"
               ? "No loan request yet — set product, amount, and term to unblock the pipeline"
               : "Loan request needs additional fields before analysis can run",
-          href: `/deals/${dealId}/cockpit?tab=setup`,
+          href: `/deals/${dealId}/loan-request`,
         };
       }
 

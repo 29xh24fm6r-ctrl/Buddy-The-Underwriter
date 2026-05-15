@@ -490,16 +490,7 @@ export function ReadinessPanel({ dealId, isAdmin, onServerAction, onAdvance }: P
                         blocker.code === "loan_request_missing" ||
                         blocker.code === "loan_request_incomplete"
                       ) {
-                        router.push(`/deals/${dealId}/cockpit?tab=setup`);
-                        requestAnimationFrame(() => {
-                          try {
-                            document
-                              .getElementById("secondary-tabs-panel")
-                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                          } catch {
-                            /* DOM may be unmounted mid-navigation */
-                          }
-                        });
+                        router.push(`/deals/${dealId}/loan-request`);
                       } else if (blocker.code.startsWith("required_documents")) {
                         window.location.hash = "#cockpit-documents";
                       } else if (blocker.code.includes("review")) {

@@ -132,6 +132,8 @@ export function getDealNextStep(input: NextStepInput): DealNextStep {
   if (input.builderPartiesIncomplete) {
     return {
       label: "Complete Deal Parties",
+      // TODO(SPEC-LOAN-REQUEST-CTA-FIX-1): destination still dead; builder-parties
+      // page does not yet exist. Tracked as follow-up spec.
       href: `/deals/${dealId}/cockpit?tab=setup`,
       reason: "Required participation roles are incomplete in Builder",
       priority: "soon",
@@ -141,6 +143,8 @@ export function getDealNextStep(input: NextStepInput): DealNextStep {
   if (input.builderCollateralMissing) {
     return {
       label: "Configure Collateral",
+      // TODO(SPEC-LOAN-REQUEST-CTA-FIX-1): destination still dead; builder-collateral
+      // page does not yet exist. Tracked as follow-up spec.
       href: `/deals/${dealId}/cockpit?tab=setup`,
       reason: "Collateral configuration is required for this deal structure",
       priority: "soon",
