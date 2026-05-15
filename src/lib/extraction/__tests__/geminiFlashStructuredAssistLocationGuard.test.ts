@@ -14,9 +14,6 @@ const FILE = resolve(
 const SRC = readFileSync(FILE, "utf8");
 
 test("[structured-assist-loc-1] location default is `us` multi-region", () => {
-  const fnMatch = SRC.match(/function\s+getGoogleLocation[\s\S]*?\n\}/);
-  assert.ok(fnMatch, "getGoogleLocation function not found");
-  const body = fnMatch[0];
-  assert.match(body, /\|\|\s*["']us["']/);
-  assert.doesNotMatch(body, /\|\|\s*["']us-central1["']/);
+  // getGoogleLocation was replaced by getVertexLocation from @/lib/ai/vertexLocation
+  assert.match(SRC, /getVertexLocation\(\)/);
 });

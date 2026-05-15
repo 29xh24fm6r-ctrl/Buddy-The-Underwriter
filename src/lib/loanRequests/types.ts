@@ -119,6 +119,8 @@ export interface LoanRequest {
   source: "banker" | "borrower_portal" | "api" | "system" | null;
 }
 
+export type RateIndex = "SOFR" | "UST_5Y" | "PRIME";
+
 export interface LoanRequestInput {
   product_type: ProductType;
   requested_amount?: number | null;
@@ -127,6 +129,9 @@ export interface LoanRequestInput {
   requested_term_months?: number | null;
   requested_amort_months?: number | null;
   rate_type_preference?: RatePreference | null;
+  requested_rate_index?: RateIndex | null;
+  requested_spread_bps?: number | null;
+  requested_interest_only_months?: number | null;
   request_details?: RequestDetails;
   property_type?: string | null;
   occupancy_type?: OccupancyType | null;

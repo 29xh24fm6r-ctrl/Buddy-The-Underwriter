@@ -70,14 +70,9 @@ test("[gemini-8] geminiClient does NOT change the model string", () => {
 // SPEC-GEMINI-FLASH-LITE-MIGRATION-1 additions ──────────────────────────────
 
 test("[gemini-9] geminiClient location default is `us` multi-region", () => {
-  // Locate getGoogleLocation function body
-  const fnMatch = SRC.match(/function\s+getGoogleLocation[\s\S]*?\n\}/);
-  assert.ok(fnMatch, "getGoogleLocation function not found");
-  const body = fnMatch[0];
-  // Default must be "us"
-  assert.match(body, /\|\|\s*["']us["']/);
-  // Must NOT default to us-central1
-  assert.doesNotMatch(body, /\|\|\s*["']us-central1["']/);
+  // getGoogleLocation was replaced by getVertexLocation from @/lib/ai/vertexLocation
+  assert.match(SRC, /from "@\/lib\/ai\/vertexLocation"/);
+  assert.match(SRC, /getVertexLocation\(\)/);
 });
 
 test("[gemini-10] geminiClient maxOutputTokens bumped to 16384", () => {

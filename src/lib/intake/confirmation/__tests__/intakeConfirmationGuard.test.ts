@@ -1088,11 +1088,11 @@ test("[guard-67] Error-path cleanup pins spread_version", () => {
 
 // ── Guard 68: ALL_SPREAD_TYPES has 7 members, no duplicates ───────────
 
-test("[guard-68] ALL_SPREAD_TYPES has 7 members, no duplicates", async () => {
+test("[guard-68] ALL_SPREAD_TYPES has 8 members, no duplicates", async () => {
   const { ALL_SPREAD_TYPES } = await import("@/lib/financialSpreads/types");
-  assert.strictEqual(ALL_SPREAD_TYPES.length, 7, "Must have 7 spread types");
+  assert.strictEqual(ALL_SPREAD_TYPES.length, 8, "Must have 8 spread types");
   const unique = new Set(ALL_SPREAD_TYPES);
-  assert.strictEqual(unique.size, 7, "Must have no duplicates");
+  assert.strictEqual(unique.size, 8, "Must have no duplicates");
 });
 
 // ── Guard 69: Observer auto-heals stuck generating spreads ────────────
