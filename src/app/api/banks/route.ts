@@ -61,7 +61,7 @@ export async function GET() {
  *   bank_code_conflict   — generated code collided (retry should fix)
  *   bank_insert_failed   — DB insert failed for unknown reason
  *   profile_setup_failed — profile couldn't be created after bank
- *   membership_failed    — membership couldn't be created after bank + profile
+ *   membership_create_failed — membership couldn't be created after bank + profile
  *
  * Idempotent: if the user already has a bank with the same name, returns that bank.
  */

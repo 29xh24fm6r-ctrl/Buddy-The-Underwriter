@@ -152,7 +152,7 @@ test("all five error codes are representable", () => {
     "bank_code_conflict",
     "bank_insert_failed",
     "profile_setup_failed",
-    "membership_failed",
+    "membership_create_failed",
   ];
   assert.equal(codes.length, 5);
   // Verify all are strings

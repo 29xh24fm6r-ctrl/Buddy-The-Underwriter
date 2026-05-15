@@ -26,7 +26,7 @@ function friendlyError(raw: string, detail?: string | null): string {
     return "Could not create the bank. Please try again or contact support.";
   if (lower === "profile_setup_failed")
     return "Your bank was created, but we couldn\u2019t finish setting up your profile. Please try again.";
-  if (lower === "membership_failed")
+  if (lower === "membership_create_failed")
     return "Your bank was created, but we couldn\u2019t link your account. Please try again.";
 
   // ── Legacy / selection errors ─────────────────────────────────────

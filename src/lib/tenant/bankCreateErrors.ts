@@ -7,7 +7,7 @@ export type BankCreateError =
   | "bank_code_conflict"
   | "bank_insert_failed"
   | "profile_setup_failed"
-  | "membership_failed";
+  | "membership_create_failed";
 
 /**
  * Classify a DB error from the banks insert into a structured cause.

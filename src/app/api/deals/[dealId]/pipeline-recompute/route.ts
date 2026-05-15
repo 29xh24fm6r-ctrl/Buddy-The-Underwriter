@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
@@ -23,6 +24,7 @@ const VALID_SCOPES = new Set(["ALL", "DOCS", "EXTRACT", "SPREADS"]);
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
+    await requireRoleApi(["super_admin"]);
 
     const { dealId } = await ctx.params;
     const access = await ensureDealBankAccess(dealId);
@@ -185,6 +187,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: true, dealId, scope, counts });
   } catch (e: any) {
     rethrowNextErrors(e);
+
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
 
     console.error("[/api/deals/[dealId]/pipeline-recompute]", e);
     return NextResponse.json(
