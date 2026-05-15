@@ -78,7 +78,7 @@ export function MethodologyPickerClient(props: Props) {
       setPreviewLoading(true);
       setPreviewError(null);
       try {
-        const resp = await fetch(`/api/deals/${props.dealId}/methodology/preview`);
+        const resp = await fetch(`/api/deals/${props.dealId}/methodology?preview=1`);
         if (!resp.ok) {
           setPreviewError(`Preview unavailable (HTTP ${resp.status})`);
           return;

@@ -3,7 +3,7 @@
  * SPEC-B4.1.4 — Officer-comp fold-in is conditional on the methodology
  *               contract, matching computeBusinessEbitdaFacts:v2 exactly.
  *
- * Pure function — no DB, no server imports. Used by the /methodology/preview
+ * Pure function — no DB, no server imports. Used by methodology preview mode
  * endpoint to show the banker the impact of each variant before they commit.
  *
  * Mirrors the canonical chain's EBITDA computation:
