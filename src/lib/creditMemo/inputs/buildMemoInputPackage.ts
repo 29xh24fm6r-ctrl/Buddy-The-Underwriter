@@ -17,6 +17,7 @@ import {
 import { writeMemoInputReadinessRow } from "./writeMemoInputReadiness";
 import { migrateLegacyOverridesToCanonical } from "./migrateLegacyOverridesAsync";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
 import type {
   DealBorrowerStory,
   DealCollateralItem,
@@ -265,23 +266,32 @@ async function loadCollateralItems(
     );
 }
 
+/**
+ * SPEC-MEMO-READINESS-WIRE-1: The four required financial facts the memo
+ * readiness evaluator gates on. Keys MUST come from CANONICAL_FACTS so that a
+ * future registry rename can never leave this reader querying stale strings.
+ */
+const REQUIRED_FACT_KEYS = {
+  dscr: CANONICAL_FACTS.DSCR.fact_key,
+  annualDebtService: CANONICAL_FACTS.ANNUAL_DEBT_SERVICE.fact_key,
+  globalCashFlow: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key,
+  loanAmount: CANONICAL_FACTS.BANK_LOAN_TOTAL.fact_key,
+} as const;
+
 async function loadRequiredFinancialFacts(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
   bankId: string,
 ): Promise<RequiredFinancialFacts> {
+  const queryKeys = Object.values(REQUIRED_FACT_KEYS);
+
   const { data } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, period_end, created_at")
+    .select("fact_key, fact_value_num, fact_period_end, created_at")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("is_superseded", false)
-    .in("fact_key", [
-      "dscr",
-      "annual_debt_service",
-      "global_cash_flow",
-      "loan_amount",
-    ]);
+    .in("fact_key", queryKeys);
 
   // Pick the most recent value per fact_key.
   const latest = new Map<string, { value: number | null; recorded: string }>();
@@ -298,10 +308,10 @@ async function loadRequiredFinancialFacts(
   }
 
   return {
-    dscr: latest.get("dscr")?.value ?? null,
-    annualDebtService: latest.get("annual_debt_service")?.value ?? null,
-    globalCashFlow: latest.get("global_cash_flow")?.value ?? null,
-    loanAmount: latest.get("loan_amount")?.value ?? null,
+    dscr: latest.get(REQUIRED_FACT_KEYS.dscr)?.value ?? null,
+    annualDebtService: latest.get(REQUIRED_FACT_KEYS.annualDebtService)?.value ?? null,
+    globalCashFlow: latest.get(REQUIRED_FACT_KEYS.globalCashFlow)?.value ?? null,
+    loanAmount: latest.get(REQUIRED_FACT_KEYS.loanAmount)?.value ?? null,
   };
 }
 
