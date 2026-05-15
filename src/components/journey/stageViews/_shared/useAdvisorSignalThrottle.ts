@@ -54,7 +54,7 @@ export function useAdvisorSignalThrottle(
   options?: { now?: number; throttleMs?: number },
 ): UseAdvisorSignalThrottleResult {
   const stateRef = useRef<Map<string, ThrottleEntry>>(new Map());
-  const now = options?.now ?? Date.now();
+  const now = options?.now ?? new Date().getTime();
   const throttleMs = options?.throttleMs ?? THROTTLE_MS;
 
   return useMemo(() => {
