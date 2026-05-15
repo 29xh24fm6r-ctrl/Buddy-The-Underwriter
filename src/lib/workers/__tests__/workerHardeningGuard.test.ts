@@ -191,7 +191,7 @@ test("vercel.json: outbox crons run every 5 minutes, not every 1-2", () => {
     cfg.crons.find((c: any) => String(c.path).startsWith(prefix));
 
   assert.equal(byPathPrefix("/api/workers/intake-outbox").schedule, "*/5 * * * *");
-  assert.equal(byPathPrefix("/api/workers/doc-extraction").schedule, "*/5 * * * *");
+  assert.equal(byPathPrefix("/api/workers/doc-extraction").schedule, "*/2 * * * *");
   assert.equal(byPathPrefix("/api/workers/pulse-outbox").schedule, "*/5 * * * *");
   assert.equal(byPathPrefix("/api/pulse/cron-forward-ledger").schedule, "*/5 * * * *");
   assert.equal(byPathPrefix("/api/artifacts/process").schedule, "*/5 * * * *");

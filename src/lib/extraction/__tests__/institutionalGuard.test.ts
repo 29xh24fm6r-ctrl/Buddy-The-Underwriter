@@ -43,8 +43,8 @@ import {
 // ── A2: Failure Codes ────────────────────────────────────────────────
 
 describe("A2: Failure Codes", () => {
-  it("has exactly 12 failure codes", () => {
-    assert.equal(Object.keys(EXTRACTION_FAILURE_CODES).length, 12);
+  it("has exactly 14 failure codes", () => {
+    assert.equal(Object.keys(EXTRACTION_FAILURE_CODES).length, 14);
   });
 
   it("all codes are non-empty strings", () => {

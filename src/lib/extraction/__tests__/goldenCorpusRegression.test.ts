@@ -161,7 +161,7 @@ describe("G2: CI Regression Guards", () => {
   });
 
   it("all failure codes are standardized (no freeform)", () => {
-    assert.equal(VALID_FAILURE_CODES.size, 12);
+    assert.equal(VALID_FAILURE_CODES.size, 14);
     for (const code of VALID_FAILURE_CODES) {
       assert.ok(
         Object.values(EXTRACTION_FAILURE_CODES).includes(code as any),
