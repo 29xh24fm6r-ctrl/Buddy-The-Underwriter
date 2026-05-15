@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
-import { config } from "dotenv";
-config({ path: ".env.local" });
-config();
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import { runAllCommsQaScenarios, assertQaSafeMode } from "../src/lib/brokerage/commsQaHarness";
 import { runReadinessCheck } from "../src/lib/brokerage/commsRollout";
 async function main() {
