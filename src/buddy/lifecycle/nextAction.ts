@@ -91,6 +91,8 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     case "intake_created":
       return {
         label: "Set Up Intake",
+        // TODO(SPEC-LOAN-REQUEST-CTA-FIX-1): destination still dead; intake-setup
+        // page does not yet exist. checklist_not_seeded follow-up spec.
         href: `/deals/${dealId}/cockpit?tab=setup`,
         intent: "navigate",
         description: "Configure intake form and seed checklist",
@@ -199,6 +201,8 @@ export function getBlockerFixAction(
     case "checklist_not_seeded":
       return {
         label: "Set Up Intake",
+        // TODO(SPEC-LOAN-REQUEST-CTA-FIX-1): destination still dead; checklist_not_seeded
+        // needs its own intake-setup page. Tracked as follow-up spec.
         href: `/deals/${dealId}/cockpit?tab=setup`,
       };
 
@@ -247,13 +251,13 @@ export function getBlockerFixAction(
     case "loan_request_missing":
       return {
         label: "Add Loan Request",
-        href: `/deals/${dealId}/cockpit?tab=setup`,
+        href: `/deals/${dealId}/loan-request`,
       };
 
     case "loan_request_incomplete":
       return {
         label: "Complete Loan Request",
-        href: `/deals/${dealId}/cockpit?tab=setup`,
+        href: `/deals/${dealId}/loan-request`,
       };
 
     case "spreads_incomplete":
