@@ -115,6 +115,24 @@ export async function processDocExtractionOutbox(
         })
         .eq("id", row.id);
 
+      // Transition deal_documents.intake_status from LOCKED_FOR_PROCESSING
+      // → CLASSIFIED_PENDING_REVIEW now that extraction has succeeded.
+      // Guard: only update if still LOCKED_FOR_PROCESSING (don't overwrite
+      // USER_CONFIRMED or AUTO_CONFIRMED set by a concurrent banker action).
+      const { error: statusErr } = await sb
+        .from("deal_documents")
+        .update({ intake_status: "CLASSIFIED_PENDING_REVIEW" })
+        .eq("id", docId)
+        .eq("intake_status", "LOCKED_FOR_PROCESSING");
+
+      if (statusErr) {
+        console.warn("[doc-extraction] failed to reset intake_status (non-fatal)", {
+          docId,
+          dealId,
+          error: statusErr.message,
+        });
+      }
+
       // AR collateral hook — outbox-path equivalent of the gate in
       // extractProcessor.ts. Without this, AR_AGING docs extracted via the
       // outbox path never reach processArCollateral and downstream tables
