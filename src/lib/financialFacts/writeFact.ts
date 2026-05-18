@@ -55,6 +55,7 @@ export async function upsertDealFinancialFact(args: {
 
   ownerType?: string;
   ownerEntityId?: string | null;
+  sourceCanonicalType?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const sb = supabaseAdmin();
@@ -64,6 +65,25 @@ export async function upsertDealFinancialFact(args: {
     const periodEnd = args.factPeriodEnd ?? SENTINEL_DATE;
     const ownerType = args.ownerType ?? "DEAL";
     const ownerEntityId = args.ownerEntityId ?? SENTINEL_UUID;
+
+    // SPEC-FACT-DISAMBIGUATION-1: Resolve source_canonical_type.
+    // If caller provided it, use it. Otherwise auto-resolve from deal_documents
+    // when we have a real (non-sentinel) source document ID.
+    let sourceCanonicalType = args.sourceCanonicalType ?? null;
+    if (!sourceCanonicalType && sourceDocId !== SENTINEL_UUID) {
+      try {
+        const { data: docRow } = await (sb as any)
+          .from("deal_documents")
+          .select("canonical_type")
+          .eq("id", sourceDocId)
+          .maybeSingle();
+        if (docRow?.canonical_type) {
+          sourceCanonicalType = docRow.canonical_type as string;
+        }
+      } catch {
+        // Non-fatal — fact still writes without the denormalized type
+      }
+    }
 
     // Phase 1A: Compute deterministic identity hash
     const identityHash = computeFactIdentityHash({
@@ -116,6 +136,7 @@ export async function upsertDealFinancialFact(args: {
       owner_entity_id: ownerEntityId,
       fact_identity_hash: identityHash,
       is_superseded: false,
+      source_canonical_type: sourceCanonicalType,
     };
 
     // Phase 6: Include drift data if detected

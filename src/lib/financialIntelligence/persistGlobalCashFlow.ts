@@ -11,6 +11,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
 import {
   computeGlobalCashFlow,
   type GcfEntityInput,
@@ -58,39 +59,36 @@ export async function persistGlobalCashFlow(args: {
     const { data: factRows, error: factErr } = await (sb as any)
       .from("deal_financial_facts")
       .select(
-        "fact_type, fact_key, fact_value_num, owner_type, owner_entity_id",
+        "id, fact_type, fact_key, fact_value_num, fact_value_text, fact_period_start, fact_period_end, confidence, provenance, created_at, owner_type, owner_entity_id, source_canonical_type",
       )
       .eq("deal_id", args.dealId)
-      .eq("bank_id", args.bankId);
+      .eq("bank_id", args.bankId)
+      .eq("is_superseded", false);
 
     if (factErr) {
       return { ok: false, error: `fact_load_failed: ${factErr.message}` };
     }
 
-    const facts = (factRows ?? []) as Array<{
-      fact_type: string;
-      fact_key: string;
-      fact_value_num: number | null;
-      owner_type: string | null;
-      owner_entity_id: string | null;
-    }>;
+    const facts = (factRows ?? []) as any[];
 
-    // Helper: find fact value
+    // SPEC-FACT-DISAMBIGUATION-1: use selectBestFact for priority-based selection
     function findFact(opts: {
       factType: string;
       factKey: string;
       ownerType?: string;
       ownerEntityId?: string;
+      sourceCanonicalType?: string;
     }): number | null {
-      const match = facts.find((f) => {
+      let candidates = facts.filter((f: any) => {
         if (f.fact_type !== opts.factType) return false;
         if (f.fact_key !== opts.factKey) return false;
         if (opts.ownerType && f.owner_type !== opts.ownerType) return false;
-        if (opts.ownerEntityId && f.owner_entity_id !== opts.ownerEntityId)
-          return false;
+        if (opts.ownerEntityId && f.owner_entity_id !== opts.ownerEntityId) return false;
+        if (opts.sourceCanonicalType && f.source_canonical_type !== opts.sourceCanonicalType) return false;
         return true;
       });
-      return match?.fact_value_num ?? null;
+      const { chosen } = selectBestFact(candidates);
+      return chosen?.fact_value_num ?? null;
     }
 
     // ── 3. Build entity inputs ─────────────────────────────────────────────

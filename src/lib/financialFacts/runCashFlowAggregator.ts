@@ -32,6 +32,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
 import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
 import { computeSlateHash } from "@/lib/methodology/slateHash";
 import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
@@ -253,61 +254,50 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // SPEC-NCADS-CCORP-FINAL-1: Disambiguate TAXABLE_INCOME by source document type.
-  // TAXABLE_INCOME appears in both Form 1120 (C-Corp taxable income, e.g. $200,925)
-  // and Form 1040 (personal taxable income, e.g. $0) under the same fact_key.
-  // Two-step query: supabase-js v2 !inner join does not filter parent rows.
+  // SPEC-FACT-DISAMBIGUATION-1: C-Corp addback using source_canonical_type
+  // column — single-step filter, no two-step deal_documents lookup needed.
   const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
   if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
-    // Step 1: get document IDs for business tax returns on this deal
-    const { data: bizTaxDocs } = await (sb as any)
-      .from("deal_documents")
-      .select("id")
+    const { data: ccorpFacts } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("id, fact_key, fact_value_num, fact_period_start, fact_period_end, fact_value_text, confidence, provenance, created_at, resolution_status, source_canonical_type")
       .eq("deal_id", dealId)
-      .eq("canonical_type", "BUSINESS_TAX_RETURN");
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .eq("source_canonical_type", "BUSINESS_TAX_RETURN")
+      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
+      .not("fact_value_num", "is", null)
+      .limit(15);
 
-    const bizTaxDocIds: string[] = (bizTaxDocs ?? [])
-      .map((d: any) => d.id as string)
-      .filter(Boolean);
+    if (ccorpFacts && (ccorpFacts as any[]).length > 0) {
+      const allFacts = ccorpFacts as any[];
+      const latestPeriod = allFacts
+        .map((r: any) => r.fact_period_end as string)
+        .filter(Boolean)
+        .sort()
+        .reverse()[0];
+      const periodFacts = allFacts.filter((r: any) => r.fact_period_end === latestPeriod);
 
-    if (bizTaxDocIds.length > 0) {
-      // Step 2: get addback facts scoped to those 1120 documents only
-      const { data: ccorpFacts } = await (sb as any)
-        .from("deal_financial_facts")
-        .select("fact_key, fact_value_num, fact_period_end, resolution_status")
-        .eq("deal_id", dealId)
-        .eq("is_superseded", false)
-        .neq("resolution_status", "rejected")
-        .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
-        .in("source_document_id", bizTaxDocIds)
-        .not("fact_value_num", "is", null)
-        .order("fact_period_end", { ascending: false })
-        .order("fact_value_num", { ascending: false })
-        .limit(15);
+      const taxableFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "TAXABLE_INCOME" && Number(r.fact_value_num) > 0,
+      );
+      const officerFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "OFFICER_COMPENSATION",
+      );
+      const deprFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "DEPRECIATION",
+      );
 
-      if (ccorpFacts && (ccorpFacts as any[]).length > 0) {
-        const latestCcorp = (ccorpFacts as any[])[0].fact_period_end;
-        const periodCcorp = (ccorpFacts as any[]).filter(
-          (r: any) => r.fact_period_end === latestCcorp,
-        );
+      const { chosen: bestTaxable } = selectBestFact(taxableFacts);
+      const { chosen: bestOfficer } = selectBestFact(officerFacts);
+      const { chosen: bestDepr } = selectBestFact(deprFacts);
 
-        const taxable = periodCcorp.find(
-          (r: any) => r.fact_key === "TAXABLE_INCOME" && Number(r.fact_value_num) > 0,
-        );
-        const officerComp = periodCcorp.find(
-          (r: any) => r.fact_key === "OFFICER_COMPENSATION",
-        );
-        const depr = periodCcorp.find(
-          (r: any) => r.fact_key === "DEPRECIATION",
-        );
-
-        if (taxable && officerComp) {
-          ncads =
-            Number(taxable.fact_value_num) +
-            Number(officerComp.fact_value_num) +
-            Number(depr?.fact_value_num ?? 0);
-          ncadsSource = "EBITDA"; // C-Corp addback method
-        }
+      if (bestTaxable && bestOfficer) {
+        ncads =
+          Number(bestTaxable.fact_value_num) +
+          Number(bestOfficer.fact_value_num) +
+          Number(bestDepr?.fact_value_num ?? 0);
+        ncadsSource = "EBITDA"; // C-Corp addback method
       }
     }
   }
@@ -315,14 +305,14 @@ export async function runCashFlowAggregator(args: {
   // Diagnostic warnings
   const ncadsWarnings: string[] = [];
 
-  // C-Corp addback annotation — reuse bizTaxDocIds if available
+  // C-Corp addback annotation
   if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0) {
-    // Re-read the specific values used for the annotation message
     const { data: ccorpCheck } = await (sb as any)
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num")
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
+      .eq("source_canonical_type", "BUSINESS_TAX_RETURN")
       .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
       .not("fact_value_num", "is", null)
       .limit(10);
