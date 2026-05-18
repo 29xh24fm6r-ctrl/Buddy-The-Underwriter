@@ -116,7 +116,6 @@ export async function persistGlobalCashFlow(args: {
           ? ent.ownership_percent / 100
           : null;
 
-      // Try entity-level NOI/income from tax return or IS facts
       const netIncome =
         findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "NOI_TTM" }) ??
         findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
@@ -130,7 +129,7 @@ export async function persistGlobalCashFlow(args: {
         factKey: "DEPRECIATION",
       });
 
-      const interestExpense = null; // Not separately captured yet
+      const interestExpense = null;
 
       const debtService = findFact({
         factType: "FINANCIAL_ANALYSIS",
@@ -150,8 +149,6 @@ export async function persistGlobalCashFlow(args: {
     }
 
     // ── 3a. Fallback: ownership_entities when deal_entities is empty ──────
-    // SPEC-ENTITY-MODEL-RECONCILIATION-1: deal_entities is V1; ownership engine
-    // writes to ownership_entities. Bridge here until tables are unified.
     if (entities.length === 0) {
       const { data: ownershipRows } = await (sb as any)
         .from("ownership_entities")
@@ -165,7 +162,6 @@ export async function persistGlobalCashFlow(args: {
         const ownershipPct =
           typeof ent.ownership_pct === "number" ? ent.ownership_pct / 100 : 1.0;
 
-        // For deal-scoped entities, read EBITDA/NET_INCOME from deal-scoped facts
         const netIncome =
           findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
           findFact({ factType: "TAX_RETURN", factKey: "NET_INCOME" }) ??
@@ -222,8 +218,7 @@ export async function persistGlobalCashFlow(args: {
       }
     }
 
-    // ── 4a. Fallback: ownership_entities individuals when no PERSONAL facts ──
-    // SPEC-ENTITY-MODEL-RECONCILIATION-1
+    // Fallback: ownership_entities individuals when no PERSONAL facts
     if (personalEntityIds.size === 0) {
       const { data: personRows } = await (sb as any)
         .from("ownership_entities")

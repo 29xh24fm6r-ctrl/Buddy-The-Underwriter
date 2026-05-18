@@ -135,7 +135,6 @@ export async function runCashFlowAggregator(args: {
       );
     } else {
       // SPEC-ENTITY-MODEL-RECONCILIATION-1: Fallback to deal-scoped EBITDA
-      // (extraction writes owner_type='DEAL', not 'ENTITY')
       const { data: dealScopedEbitda } = await (sb as any)
         .from("deal_financial_facts")
         .select("fact_value_num, fact_period_end")
@@ -164,15 +163,12 @@ export async function runCashFlowAggregator(args: {
     .neq("resolution_status", "rejected")
     .in("fact_key", ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"])
     .not("fact_value_num", "is", null)
-    .order("resolution_status", { ascending: true })  // 'active' sorts before 'inferred'
+    .order("resolution_status", { ascending: true })  // 'active' before 'inferred'
     .order("fact_period_end", { ascending: false })
     .limit(10);
 
   if (!factRows || factRows.length === 0) {
-    // SPEC-ENTITY-MODEL-RECONCILIATION-1: TAX_RETURN fallback as last resort
-    // when no EBITDA/OBI/NET_INCOME facts exist. GROSS_RECEIPTS is revenue,
-    // not net income — DSCR computed this way will be overstated. This is a
-    // last-resort bridge; proper fix is SPEC-BUSINESS-ANNUAL-SPREAD-1.
+    // TAX_RETURN fallback as last resort
     const { data: taxFallback } = await (sb as any)
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num, fact_period_end")
@@ -189,18 +185,17 @@ export async function runCashFlowAggregator(args: {
       return { ok: false, reason: "no_ncads_candidates" };
     }
 
-    // Prefer NET_INCOME > ORDINARY_INCOME > GROSS_RECEIPTS as NCADS proxy
     const niRow = (taxFallback as any[]).find((r: any) => r.fact_key === "NET_INCOME");
     const oiRow = (taxFallback as any[]).find((r: any) => r.fact_key === "ORDINARY_INCOME");
     const grRow = (taxFallback as any[]).find((r: any) => r.fact_key === "GROSS_RECEIPTS");
     const useRow = niRow ?? oiRow ?? grRow;
     if (!useRow) return { ok: false, reason: "no_ncads_candidates" };
 
-    // Re-assign for downstream logic — map TAX_RETURN keys to NCADS keys
     (factRows as any) = [{
       fact_key: niRow ? "NET_INCOME" : oiRow ? "ORDINARY_BUSINESS_INCOME" : "NET_INCOME",
       fact_value_num: useRow.fact_value_num,
       fact_period_end: useRow.fact_period_end,
+      resolution_status: "active",
     }];
   }
 
@@ -258,9 +253,8 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // SPEC-OFFICER-COMP-ADDBACK-1: C-Corp addback when NET_INCOME=0/null or
-  // when NCADS came from an inferred (spread-derived) NET_INCOME — check if
-  // there's a real tax-return TAXABLE_INCOME that gives a better NCADS
+  // SPEC-OFFICER-COMP-ADDBACK-1: C-Corp addback when NET_INCOME is zero/null
+  // or when NCADS came from an inferred (spread-derived) NET_INCOME
   const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
   if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
     const { data: ccorpFacts } = await (sb as any)
@@ -272,6 +266,7 @@ export async function runCashFlowAggregator(args: {
       .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
       .not("fact_value_num", "is", null)
       .order("fact_period_end", { ascending: false })
+      .order("fact_value_num", { ascending: false })
       .limit(10);
 
     if (ccorpFacts && ccorpFacts.length > 0) {
@@ -279,12 +274,15 @@ export async function runCashFlowAggregator(args: {
       const periodCcorp = (ccorpFacts as any[]).filter(
         (r: any) => r.fact_period_end === latestCcorp,
       );
-      // Only apply when we have real tax return data (active), not spread inferences
+      // Only apply when we have real tax return data (active), exclude zero
       const taxable = periodCcorp.find(
-        (r: any) => r.fact_key === "TAXABLE_INCOME" && r.resolution_status === "active",
+        (r: any) => r.fact_key === "TAXABLE_INCOME"
+          && r.resolution_status === "active"
+          && Number(r.fact_value_num) > 0,
       );
       const officerComp = periodCcorp.find(
-        (r: any) => r.fact_key === "OFFICER_COMPENSATION" && r.resolution_status === "active",
+        (r: any) => r.fact_key === "OFFICER_COMPENSATION"
+          && r.resolution_status === "active",
       );
       const depr = periodCcorp.find((r: any) => r.fact_key === "DEPRECIATION");
 
@@ -298,11 +296,10 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // SPEC-NCADS-SUPERSEDED-FALLBACK-1: diagnostic warnings
+  // Diagnostic warnings
   const ncadsWarnings: string[] = [];
 
-  // C-Corp addback annotation — only if the addback path actually fired
-  // (ncadsIsInferred was true before addback, and ncadsSource changed to EBITDA)
+  // C-Corp addback annotation
   if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0) {
     const { data: ccorpCheck } = await (sb as any)
       .from("deal_financial_facts")
@@ -312,7 +309,7 @@ export async function runCashFlowAggregator(args: {
       .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
       .not("fact_value_num", "is", null)
       .limit(3);
-    const taxVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "TAXABLE_INCOME");
+    const taxVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "TAXABLE_INCOME" && Number(r.fact_value_num) > 0);
     const ocVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "OFFICER_COMPENSATION");
     const depVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "DEPRECIATION");
     if (taxVal && ocVal) {

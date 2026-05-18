@@ -344,8 +344,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       }, { status: 422 });
     }
 
-    // Run cash flow aggregator to compute DSCR/ANNUAL_DEBT_SERVICE from structural pricing.
-    // Must happen BEFORE snapshot builder reads facts.
+    // Run cash flow aggregator to compute DSCR/ADS from structural pricing
+    let aggregatorWarnings: string[] = [];
     try {
       const { runCashFlowAggregator } = await import("@/lib/financialFacts/runCashFlowAggregator");
       const aggResult = await runCashFlowAggregator({ dealId, bankId: access.bankId });
@@ -353,12 +353,13 @@ export async function POST(_req: Request, ctx: Ctx) {
         console.warn("[recompute] runCashFlowAggregator returned", aggResult.reason, aggResult.detail ?? "");
       } else {
         console.log("[recompute] aggregator wrote", aggResult.factsWritten, "facts, DSCR=", aggResult.dscr);
+        aggregatorWarnings = aggResult.ncadsWarnings ?? [];
       }
     } catch (aggErr: any) {
       console.warn("[recompute] runCashFlowAggregator threw (non-fatal)", aggErr?.message);
     }
 
-    // Run GCF persist to ensure CASH_FLOW_AVAILABLE is written from entity/sponsor data
+    // Run GCF persist to ensure CASH_FLOW_AVAILABLE is written
     try {
       const { persistGlobalCashFlow } = await import(
         "@/lib/financialIntelligence/persistGlobalCashFlow"
@@ -380,7 +381,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 300 },
     });
 
-    // Persist dscr_stressed_300bps fact so the snapshot builder can read it
+    // Persist dscr_stressed_300bps fact
     const stressedDscr = stress.stresses.rateUp.dscr;
     if (stressedDscr !== null && Number.isFinite(stressedDscr)) {
       try {
@@ -408,9 +409,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       }
     }
 
-    // Inject dscr_stressed_300bps directly into snapshot so this response includes it
-    // (fact was just persisted but snapshot was already built — next recompute would
-    // find it in DB; this avoids a second buildDealFinancialSnapshotForBank call)
+    // Inject dscr_stressed_300bps into snapshot so this response includes it
     if (stressedDscr !== null && Number.isFinite(stressedDscr)) {
       (snapshot as any).dscr_stressed_300bps = {
         value_num: stressedDscr,
@@ -514,23 +513,20 @@ export async function POST(_req: Request, ctx: Ctx) {
       "revenue", "cogs", "gross_profit", "ebitda", "net_income",
       "working_capital", "current_ratio", "debt_to_equity",
     ] as const;
-    const populatedMetrics = METRIC_KEYS.filter(
-      (k) => (snapshot as any)[k]?.value_num != null,
-    );
     // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter out CRE/TTM keys for CONVENTIONAL/SBA
     const dealType = (dealMeta as any)?.deal_type ?? null;
     const relevantKeys = filterRequiredKeysForDealType(METRIC_KEYS, dealType);
     const relevantPopulated = relevantKeys.filter(
-      (k) => (snapshot as any)[k]?.value_num != null,
+      (k: string) => (snapshot as any)[k]?.value_num != null,
     );
     const completeness = Math.round(
       (relevantPopulated.length / relevantKeys.length) * 100,
     );
     const missingKeys = relevantKeys.filter(
-      (k) => (snapshot as any)[k]?.value_num == null,
+      (k: string) => (snapshot as any)[k]?.value_num == null,
     );
 
-    // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter snapshot's internal missing_required_keys
+    // Filter snapshot's internal missing_required_keys
     if ((snapshot as any).missing_required_keys) {
       (snapshot as any).missing_required_keys = filterRequiredKeysForDealType(
         (snapshot as any).missing_required_keys,
@@ -575,6 +571,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       facts_count: factsVis.total,
       completeness,
       missing_keys: missingKeys,
+      ncadsWarnings: aggregatorWarnings,
       ...dscrBlocker,
       snapshot,
       stress,
