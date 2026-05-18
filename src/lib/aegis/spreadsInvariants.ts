@@ -92,13 +92,15 @@ async function checkSpreadGeneratingTimeout(
       result.spreads_generating_timeout++;
 
       if (isCritical) {
+        // Reset to queued so spreads retry instead of dying permanently
         await sb
           .from("deal_spreads" as any)
           .update({
-            status: "error",
-            finished_at: new Date().toISOString(),
-            error: `[observer] stuck ${Math.round(minutesStuck)}min — auto-healed`,
-            error_code: "TIMEOUT",
+            status: "queued",
+            finished_at: null,
+            error: `[observer] reset after ${Math.round(minutesStuck)}min timeout — retrying`,
+            error_code: null,
+            attempts: 0,
             error_details_json: {
               minutesStuck: Math.round(minutesStuck),
               autoHealed: true,

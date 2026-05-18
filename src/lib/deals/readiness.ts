@@ -44,12 +44,15 @@ export async function computeDealReadiness(
 ): Promise<DealReadinessResult> {
   const sb = supabaseAdmin();
 
-  // 1. Check for in-flight uploads
+  // 1. Check for genuinely unfinalized uploads — only UPLOADED/LOCKED_FOR_PROCESSING.
+  // CLASSIFIED_PENDING_REVIEW and beyond means the doc is processed; finalized_at
+  // null on those is a stale artifact, not actual incompleteness.
   const { count: uploadsPending } = await sb
     .from("deal_documents")
     .select("id", { count: "exact", head: true })
     .eq("deal_id", dealId)
-    .is("finalized_at", null);
+    .is("finalized_at", null)
+    .in("intake_status", ["UPLOADED", "LOCKED_FOR_PROCESSING"]);
 
   if (uploadsPending && uploadsPending > 0) {
     return {

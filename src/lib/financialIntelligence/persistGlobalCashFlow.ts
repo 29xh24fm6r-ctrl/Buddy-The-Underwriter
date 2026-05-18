@@ -148,13 +148,21 @@ export async function persistGlobalCashFlow(args: {
 
     // ── 3a. Fallback: ownership_entities when deal_entities is empty ──────
     if (entities.length === 0) {
-      const { data: ownershipRows } = await (sb as any)
+      const { data: ownershipRowsRaw } = await (sb as any)
         .from("ownership_entities")
         .select("id, display_name, entity_type, ownership_pct")
         .eq("deal_id", args.dealId)
         .eq("entity_type", "company");
 
-      for (const ent of ownershipRows ?? []) {
+      // Filter out placeholder entities (same logic as usableEntityRows)
+      const ownershipRows = (ownershipRowsRaw ?? []).filter((e: any) => {
+        if (!e.display_name) return false;
+        const name = String(e.display_name).trim().toLowerCase();
+        if (name === "borrower" || name === "pending autofill" || name === "") return false;
+        return true;
+      });
+
+      for (const ent of ownershipRows) {
         const entityId = ent.id as string;
         const entityName = (ent.display_name ?? "Borrower Entity") as string;
         const ownershipPct =

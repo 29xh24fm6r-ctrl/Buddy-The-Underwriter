@@ -1,6 +1,6 @@
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 
-export type SbaEligibilityStatus = "eligible" | "conditional" | "ineligible";
+export type SbaEligibilityStatus = "eligible" | "conditional" | "ineligible" | "not_applicable";
 
 export type SbaEligibilityInput = {
   snapshot: DealFinancialSnapshotV1;
@@ -30,6 +30,13 @@ function normalizeList(values: string[] | null | undefined): string[] {
 }
 
 export function evaluateSbaEligibility(input: SbaEligibilityInput): SbaEligibilityResult {
+  // SBA eligibility is only relevant for SBA loan products.
+  // CONVENTIONAL deals return not_applicable immediately.
+  const dealTypeNorm = (input.dealType ?? "").toUpperCase();
+  if (dealTypeNorm === "CONVENTIONAL" || dealTypeNorm === "CRE" || dealTypeNorm === "C_AND_I") {
+    return { status: "not_applicable", reasons: [], missing: [] };
+  }
+
   const reasons: string[] = [];
   const missing: string[] = [];
 
