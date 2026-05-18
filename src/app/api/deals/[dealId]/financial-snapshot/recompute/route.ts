@@ -358,6 +358,16 @@ export async function POST(_req: Request, ctx: Ctx) {
       console.warn("[recompute] runCashFlowAggregator threw (non-fatal)", aggErr?.message);
     }
 
+    // Run GCF persist to ensure CASH_FLOW_AVAILABLE is written from entity/sponsor data
+    try {
+      const { persistGlobalCashFlow } = await import(
+        "@/lib/financialIntelligence/persistGlobalCashFlow"
+      );
+      await persistGlobalCashFlow({ dealId, bankId: access.bankId });
+    } catch (gcfErr: any) {
+      console.warn("[recompute] persistGlobalCashFlow failed (non-fatal)", gcfErr?.message);
+    }
+
     const [snapshot, dealMeta, loanMeta] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId, bankId: access.bankId }),
       loadDealMeta(dealId),
@@ -369,6 +379,34 @@ export async function POST(_req: Request, ctx: Ctx) {
       loanTerms: loanMeta.loanTerms,
       stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
     });
+
+    // Persist dscr_stressed_300bps fact so the snapshot builder can read it
+    const stressedDscr = stress.stresses.rateUp.dscr;
+    if (stressedDscr !== null && Number.isFinite(stressedDscr)) {
+      try {
+        const { upsertDealFinancialFact } = await import("@/lib/financialFacts/writeFact");
+        await upsertDealFinancialFact({
+          dealId,
+          bankId: access.bankId,
+          sourceDocumentId: "00000000-0000-0000-0000-000000000000",
+          factType: "FINANCIAL_ANALYSIS",
+          factKey: "DSCR_STRESSED_300BPS",
+          factValueNum: stressedDscr,
+          confidence: 0.85,
+          provenance: {
+            source_type: "STRUCTURAL",
+            source_ref: "computed:stress:rate_up_300bps",
+            as_of_date: new Date().toISOString().slice(0, 10),
+            extractor: "financialStressEngine:rateUp:v1",
+            calc: `base_dscr=${stress.base.dscr} rate_up_300bps`,
+          },
+          ownerType: "DEAL",
+          ownerEntityId: "00000000-0000-0000-0000-000000000000",
+        });
+      } catch (stressErr: any) {
+        console.warn("[recompute] dscr_stressed_300bps persist failed (non-fatal)", stressErr?.message);
+      }
+    }
 
     const sba = evaluateSbaEligibility({
       snapshot,
