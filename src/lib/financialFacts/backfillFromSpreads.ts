@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { RenderedSpread, SpreadType } from "@/lib/financialSpreads/types";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { isT12CanonicalFactSource } from "@/lib/spreads/t12Eligibility";
 
 function norm(s: string) {
   return s.trim().toLowerCase();
@@ -327,10 +328,26 @@ export async function backfillCanonicalFactsFromSpreads(args: {
     );
     }
 
+    // SPEC-T12-GATE-1: Check whether T12 may source canonical facts for this deal
+    const { data: dealForT12 } = await (supabaseAdmin() as any)
+      .from("deals")
+      .select("deal_type, has_monthly_statements")
+      .eq("id", args.dealId)
+      .maybeSingle();
+    const t12CanSource = isT12CanonicalFactSource({
+      deal_type: dealForT12?.deal_type ?? null,
+      has_monthly_statements: dealForT12?.has_monthly_statements ?? false,
+    });
+
     // Optional: T12 TTM-derived memo inputs
-    const t12 = await getLatestSpreadRow({ dealId: args.dealId, bankId: args.bankId, spreadType: "T12" });
+    if (!t12CanSource) {
+      notes.push(`T12 skipped as canonical fact source (deal_type=${dealForT12?.deal_type ?? "unknown"}, SPEC-T12-GATE-1). `);
+    }
+    const t12 = t12CanSource
+      ? await getLatestSpreadRow({ dealId: args.dealId, bankId: args.bankId, spreadType: "T12" })
+      : null;
     if (!t12?.rendered_json) {
-      notes.push("Operating performance spread missing (no spreads-to-facts backfill possible for NOI_TTM/TOTAL_INCOME_TTM/OPEX_TTM). ");
+      if (t12CanSource) notes.push("Operating performance spread missing (no spreads-to-facts backfill possible for NOI_TTM/TOTAL_INCOME_TTM/OPEX_TTM). ");
     } else {
       const asOfDate = extractAsOfDate(t12.rendered_json);
       const sourceRef = `deal_spreads:T12:v${t12.spread_version}`;

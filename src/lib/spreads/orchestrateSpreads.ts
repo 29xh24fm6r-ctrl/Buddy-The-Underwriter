@@ -20,6 +20,7 @@ import { writeSystemEvent } from "@/lib/aegis";
 import { runSpreadPreflight } from "@/lib/spreads/preflight/runSpreadPreflight";
 import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
+import { isT12Eligible } from "@/lib/spreads/t12Eligibility";
 import type {
   PreflightBlocker,
   RunReason,
@@ -176,11 +177,26 @@ export async function orchestrateSpreads(
       .eq("deal_id", dealId)
       .eq("is_active", true);
 
+    // SPEC-T12-GATE-1: Check T12 eligibility before enqueuing spreads
+    const { data: dealRow } = await (sb as any)
+      .from("deals")
+      .select("deal_type, has_monthly_statements")
+      .eq("id", dealId)
+      .maybeSingle();
+    const t12Check = isT12Eligible({
+      deal_type: dealRow?.deal_type ?? null,
+      has_monthly_statements: dealRow?.has_monthly_statements ?? false,
+    });
+
     // Enqueue spreads per doc (preserves sourceDocumentId for owner resolution)
     const enqueueErrors: string[] = [];
     for (const doc of activeDocs ?? []) {
       if (!doc.canonical_type) continue;
-      const spreadTypes = spreadsForDocType(doc.canonical_type);
+      let spreadTypes = spreadsForDocType(doc.canonical_type);
+      // Gate: skip T12 generation for ineligible deals
+      if (!t12Check.eligible) {
+        spreadTypes = spreadTypes.filter((t) => t !== "T12");
+      }
       if (spreadTypes.length === 0) continue;
 
       try {
