@@ -7,10 +7,15 @@
  * Columns: Urgency, Deal/Borrower, Stage, Why, Blocking, Primary Action, Age, Activity, Actions
  */
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { BankerQueueItem } from "@/core/command-center/types";
 import BankerQueueRowActions from "./BankerQueueRowActions";
 import WorkQueueTimelineActivity from "./WorkQueueTimelineActivity";
+
+type BatchedLatestMap = Record<string, { event: unknown | null } | undefined>;
+
+const BATCH_PAGE_SIZE = 50;
 
 type Props = {
   items: BankerQueueItem[];
@@ -56,6 +61,61 @@ export default function BankerQueueTable({
   onViewActivity,
   executingDealId,
 }: Props) {
+  const visibleDealIdsKey = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const it of items) {
+      if (!seen.has(it.dealId)) {
+        seen.add(it.dealId);
+        ordered.push(it.dealId);
+        if (ordered.length >= BATCH_PAGE_SIZE) break;
+      }
+    }
+    return ordered.join(",");
+  }, [items]);
+
+  const [latestByDealId, setLatestByDealId] = useState<BatchedLatestMap>({});
+  const [batchFailed, setBatchFailed] = useState(false);
+
+  useEffect(() => {
+    if (!visibleDealIdsKey) {
+      setLatestByDealId({});
+      setBatchFailed(false);
+      return;
+    }
+    let cancelled = false;
+    setBatchFailed(false);
+    fetch(`/api/brokerage/deals/timeline/latest?dealIds=${encodeURIComponent(visibleDealIdsKey)}`, {
+      credentials: "same-origin",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled) return;
+        const entries = Array.isArray(json?.entries) ? json.entries : null;
+        if (!entries) {
+          setBatchFailed(true);
+          setLatestByDealId({});
+          return;
+        }
+        const next: BatchedLatestMap = {};
+        for (const e of entries) {
+          if (e && typeof e === "object" && typeof (e as { dealId?: unknown }).dealId === "string") {
+            const row = e as { dealId: string; event: unknown | null };
+            next[row.dealId] = { event: row.event ?? null };
+          }
+        }
+        setLatestByDealId(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBatchFailed(true);
+        setLatestByDealId({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleDealIdsKey]);
+
   if (items.length === 0) {
     return (
       <div className="glass-card rounded-xl p-8 text-center text-white/40">
@@ -179,6 +239,7 @@ export default function BankerQueueTable({
                 <WorkQueueTimelineActivity
                   dealId={item.dealId}
                   fallbackTimestamp={item.latestActivityAt}
+                  prefetched={batchFailed ? undefined : latestByDealId[item.dealId] ?? undefined}
                 />
               </td>
 

@@ -30,9 +30,21 @@ type LatestActivity = {
   timestamp: string;
 };
 
+type ExternalTimelineEvent = {
+  category?: unknown;
+  severity?: unknown;
+  title?: unknown;
+  timestamp?: unknown;
+};
+
+export type WorkQueueLatestEvent = {
+  event: ExternalTimelineEvent | null;
+};
+
 type Props = {
   dealId: string;
   fallbackTimestamp: string | null;
+  prefetched?: WorkQueueLatestEvent | null;
 };
 
 const CATEGORY_DOT: Record<TimelineCategory, string> = {
@@ -72,22 +84,15 @@ function formatRelativeTime(iso: string | null): string {
   return `${days}d ago`;
 }
 
-function parseLatestEvent(payload: unknown): LatestActivity | null {
-  if (!payload || typeof payload !== "object") return null;
-  const events = (payload as { events?: unknown }).events;
-  if (!Array.isArray(events) || events.length === 0) return null;
-  const first = events[0] as Record<string, unknown> | undefined;
+function normalizeEventShape(first: Record<string, unknown> | null | undefined): LatestActivity | null {
   if (!first || typeof first !== "object") return null;
-
   const category = first.category;
   const severity = first.severity;
   const title = first.title;
   const timestamp = first.timestamp;
-
   if (typeof title !== "string" || typeof timestamp !== "string") return null;
   if (typeof category !== "string" || !VALID_CATEGORIES.includes(category as TimelineCategory)) return null;
   if (typeof severity !== "string" || !VALID_SEVERITIES.includes(severity as TimelineSeverity)) return null;
-
   return {
     category: category as TimelineCategory,
     severity: severity as TimelineSeverity,
@@ -96,12 +101,29 @@ function parseLatestEvent(payload: unknown): LatestActivity | null {
   };
 }
 
-export default function WorkQueueTimelineActivity({ dealId, fallbackTimestamp }: Props) {
-  const [latest, setLatest] = useState<LatestActivity | null>(null);
-  const [loaded, setLoaded] = useState(false);
+function parseLatestEvent(payload: unknown): LatestActivity | null {
+  if (!payload || typeof payload !== "object") return null;
+  const events = (payload as { events?: unknown }).events;
+  if (!Array.isArray(events) || events.length === 0) return null;
+  return normalizeEventShape(events[0] as Record<string, unknown> | undefined);
+}
+
+export default function WorkQueueTimelineActivity({ dealId, fallbackTimestamp, prefetched }: Props) {
+  const hasPrefetch = prefetched !== undefined && prefetched !== null;
+  const prefetchedLatest = hasPrefetch ? normalizeEventShape(prefetched!.event as Record<string, unknown> | null | undefined) : null;
+
+  const [latest, setLatest] = useState<LatestActivity | null>(prefetchedLatest);
+  const [loaded, setLoaded] = useState<boolean>(hasPrefetch);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (hasPrefetch) {
+      setLatest(prefetchedLatest);
+      setLoaded(true);
+      setFailed(false);
+      return;
+    }
+
     let cancelled = false;
     fetch(`/api/brokerage/deals/${dealId}/timeline?limit=1`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
@@ -119,7 +141,8 @@ export default function WorkQueueTimelineActivity({ dealId, fallbackTimestamp }:
     return () => {
       cancelled = true;
     };
-  }, [dealId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId, hasPrefetch, prefetched?.event]);
 
   const href = `/deals/${dealId}#timeline`;
 
@@ -180,4 +203,4 @@ export default function WorkQueueTimelineActivity({ dealId, fallbackTimestamp }:
 }
 
 // Exposed for unit tests.
-export const __internal = { shortenTitle, formatRelativeTime, parseLatestEvent };
+export const __internal = { shortenTitle, formatRelativeTime, parseLatestEvent, normalizeEventShape };
