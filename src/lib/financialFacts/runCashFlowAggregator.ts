@@ -257,13 +257,22 @@ export async function runCashFlowAggregator(args: {
   // or when NCADS came from an inferred (spread-derived) NET_INCOME
   const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
   if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
+    // Join deal_documents to filter by canonical_type=BUSINESS_TAX_RETURN.
+    // Disambiguates TAXABLE_INCOME from 1120 vs 1040 (same fact_key).
     const { data: ccorpFacts } = await (sb as any)
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_period_end, resolution_status")
+      .select(`
+        fact_key,
+        fact_value_num,
+        fact_period_end,
+        resolution_status,
+        deal_documents!inner ( canonical_type )
+      `)
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
+      .eq("deal_documents.canonical_type", "BUSINESS_TAX_RETURN")
       .not("fact_value_num", "is", null)
       .order("fact_period_end", { ascending: false })
       .order("fact_value_num", { ascending: false })
@@ -274,15 +283,11 @@ export async function runCashFlowAggregator(args: {
       const periodCcorp = (ccorpFacts as any[]).filter(
         (r: any) => r.fact_period_end === latestCcorp,
       );
-      // Only apply when we have real tax return data (active), exclude zero
       const taxable = periodCcorp.find(
-        (r: any) => r.fact_key === "TAXABLE_INCOME"
-          && r.resolution_status === "active"
-          && Number(r.fact_value_num) > 0,
+        (r: any) => r.fact_key === "TAXABLE_INCOME" && Number(r.fact_value_num) > 0,
       );
       const officerComp = periodCcorp.find(
-        (r: any) => r.fact_key === "OFFICER_COMPENSATION"
-          && r.resolution_status === "active",
+        (r: any) => r.fact_key === "OFFICER_COMPENSATION",
       );
       const depr = periodCcorp.find((r: any) => r.fact_key === "DEPRECIATION");
 

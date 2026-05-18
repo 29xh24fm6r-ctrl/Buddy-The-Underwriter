@@ -344,6 +344,25 @@ export async function POST(_req: Request, ctx: Ctx) {
       }, { status: 422 });
     }
 
+    // Invalidate stale aggregator-computed facts before recomputing.
+    // Written with source_document_id = SENTINEL_UUID — supersede so snapshot
+    // reads fresh values, not stale ones from a previous wrong computation.
+    try {
+      await (sb as any)
+        .from("deal_financial_facts")
+        .update({ is_superseded: true })
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId)
+        .in("fact_key", [
+          "DSCR", "ANNUAL_DEBT_SERVICE", "CASH_FLOW_AVAILABLE",
+          "EXCESS_CASH_FLOW", "GCF_GLOBAL_CASH_FLOW", "GCF_DSCR",
+          "GLOBAL_CASH_FLOW", "GCF_CASH_AVAILABLE", "DSCR_STRESSED_300BPS",
+        ])
+        .eq("source_document_id", "00000000-0000-0000-0000-000000000000");
+    } catch (invalidateErr: any) {
+      console.warn("[recompute] stale fact invalidation failed (non-fatal)", invalidateErr?.message);
+    }
+
     // Run cash flow aggregator to compute DSCR/ADS from structural pricing
     let aggregatorWarnings: string[] = [];
     try {
