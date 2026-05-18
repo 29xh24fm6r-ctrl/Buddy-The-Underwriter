@@ -130,6 +130,15 @@ export default function BrokerageTimelinePanel({ dealId }: { dealId: string }) {
 
   const hasFilters = categoryFilter.size > 0 || severityFilter.size > 0 || actorFilter.size > 0;
 
+  function buildExportHref(format: "markdown" | "json"): string {
+    const params = new URLSearchParams();
+    params.set("format", format);
+    if (categoryFilter.size > 0) params.set("categories", Array.from(categoryFilter).join(","));
+    if (severityFilter.size > 0) params.set("severities", Array.from(severityFilter).join(","));
+    if (actorFilter.size > 0) params.set("actorTypes", Array.from(actorFilter).join(","));
+    return `/api/brokerage/deals/${dealId}/timeline/export?${params.toString()}`;
+  }
+
   const loadTimeline = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -170,15 +179,26 @@ export default function BrokerageTimelinePanel({ dealId }: { dealId: string }) {
           <div className="text-lg font-semibold text-white">Deal Timeline</div>
           <div className="text-sm text-white/60">Unified activity feed</div>
         </div>
-        <button
-          type="button"
-          onClick={loadTimeline}
-          disabled={loading}
-          className="rounded bg-neutral-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-600 disabled:opacity-50"
-          data-testid="timeline-refresh"
-        >
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={buildExportHref("markdown")}
+            className="rounded bg-neutral-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-600"
+            data-testid="timeline-export"
+            data-format="markdown"
+            download
+          >
+            Export timeline
+          </a>
+          <button
+            type="button"
+            onClick={loadTimeline}
+            disabled={loading}
+            className="rounded bg-neutral-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-600 disabled:opacity-50"
+            data-testid="timeline-refresh"
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Filter controls */}
