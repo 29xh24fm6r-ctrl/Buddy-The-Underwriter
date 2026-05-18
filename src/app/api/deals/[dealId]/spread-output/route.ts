@@ -103,6 +103,28 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // --- Ratios: derived inline as safety net, V2 authoritative wins ---
     const derivedRatios = deriveInlineRatios(factsResult.facts, factsResult.years);
     const ratiosResult: Record<string, number | null> = { ...derivedRatios };
+
+    // Fallback: if inline DSCR is null/0, read from latest financial snapshot
+    // (aggregator writes DSCR to deal_financial_facts, snapshot builder picks it up)
+    if (ratiosResult["ratio_dscr_final"] == null || ratiosResult["ratio_dscr_final"] === 0) {
+      try {
+        const { data: snapRow } = await sb
+          .from("financial_snapshots")
+          .select("snapshot_json")
+          .eq("deal_id", dealId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const snapDscr = (snapRow as any)?.snapshot_json?.dscr?.value_num;
+        if (typeof snapDscr === "number" && snapDscr > 0) {
+          ratiosResult["DSCR"] = snapDscr;
+          ratiosResult["ratio_dscr_final"] = snapDscr;
+        }
+      } catch {
+        // Non-fatal — inline DSCR stays null
+      }
+    }
+
     if (authResult) {
       for (const [k, v] of Object.entries(authResult.computedMetrics)) {
         if (v !== null) ratiosResult[k] = v;

@@ -256,6 +256,9 @@ export async function runCashFlowAggregator(args: {
 
   // SPEC-FACT-DISAMBIGUATION-1: C-Corp addback using source_canonical_type
   // column — single-step filter, no two-step deal_documents lookup needed.
+  let ccorpTaxableUsed: number | null = null;
+  let ccorpOfficerUsed: number | null = null;
+  let ccorpDeprUsed: number | null = null;
   const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
   if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
     const { data: ccorpFacts } = await (sb as any)
@@ -293,10 +296,10 @@ export async function runCashFlowAggregator(args: {
       const { chosen: bestDepr } = selectBestFact(deprFacts);
 
       if (bestTaxable && bestOfficer) {
-        ncads =
-          Number(bestTaxable.fact_value_num) +
-          Number(bestOfficer.fact_value_num) +
-          Number(bestDepr?.fact_value_num ?? 0);
+        ccorpTaxableUsed = Number(bestTaxable.fact_value_num);
+        ccorpOfficerUsed = Number(bestOfficer.fact_value_num);
+        ccorpDeprUsed = Number(bestDepr?.fact_value_num ?? 0);
+        ncads = ccorpTaxableUsed + ccorpOfficerUsed + ccorpDeprUsed;
         ncadsSource = "EBITDA"; // C-Corp addback method
       }
     }
@@ -305,27 +308,14 @@ export async function runCashFlowAggregator(args: {
   // Diagnostic warnings
   const ncadsWarnings: string[] = [];
 
-  // C-Corp addback annotation
-  if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0) {
-    const { data: ccorpCheck } = await (sb as any)
-      .from("deal_financial_facts")
-      .select("fact_key, fact_value_num")
-      .eq("deal_id", dealId)
-      .eq("is_superseded", false)
-      .eq("source_canonical_type", "BUSINESS_TAX_RETURN")
-      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
-      .not("fact_value_num", "is", null)
-      .limit(10);
-    const taxVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "TAXABLE_INCOME" && Number(r.fact_value_num) > 0);
-    const ocVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "OFFICER_COMPENSATION");
-    const depVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "DEPRECIATION");
-    if (taxVal && ocVal) {
-      ncadsWarnings.push(
-        `C-Corp addback applied: taxable_income($${Number(taxVal.fact_value_num).toLocaleString()}) ` +
-        `+ officer_comp($${Number(ocVal.fact_value_num).toLocaleString()}) ` +
-        `+ depreciation($${Number(depVal?.fact_value_num ?? 0).toLocaleString()}) = $${(ncads ?? 0).toLocaleString()}`,
-      );
-    }
+  // C-Corp addback annotation — uses in-memory values from addback computation
+  if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0
+      && ccorpTaxableUsed !== null && ccorpOfficerUsed !== null) {
+    ncadsWarnings.push(
+      `C-Corp addback applied: taxable_income($${ccorpTaxableUsed.toLocaleString()}) ` +
+      `+ officer_comp($${ccorpOfficerUsed.toLocaleString()}) ` +
+      `+ depreciation($${(ccorpDeprUsed ?? 0).toLocaleString()}) = $${ncads.toLocaleString()}`,
+    );
   }
 
   if (ncads === 0 && ncadsSource === "NET_INCOME") {
