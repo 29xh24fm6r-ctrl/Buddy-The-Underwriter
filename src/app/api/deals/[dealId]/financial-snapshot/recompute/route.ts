@@ -344,6 +344,20 @@ export async function POST(_req: Request, ctx: Ctx) {
       }, { status: 422 });
     }
 
+    // Run cash flow aggregator to compute DSCR/ANNUAL_DEBT_SERVICE from structural pricing.
+    // Must happen BEFORE snapshot builder reads facts.
+    try {
+      const { runCashFlowAggregator } = await import("@/lib/financialFacts/runCashFlowAggregator");
+      const aggResult = await runCashFlowAggregator({ dealId, bankId: access.bankId });
+      if (!aggResult.ok) {
+        console.warn("[recompute] runCashFlowAggregator returned", aggResult.reason, aggResult.detail ?? "");
+      } else {
+        console.log("[recompute] aggregator wrote", aggResult.factsWritten, "facts, DSCR=", aggResult.dscr);
+      }
+    } catch (aggErr: any) {
+      console.warn("[recompute] runCashFlowAggregator threw (non-fatal)", aggErr?.message);
+    }
+
     const [snapshot, dealMeta, loanMeta] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId, bankId: access.bankId }),
       loadDealMeta(dealId),
@@ -458,6 +472,17 @@ export async function POST(_req: Request, ctx: Ctx) {
       (k) => (snapshot as any)[k]?.value == null,
     );
 
+    // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter snapshot's internal missing_required_keys
+    if ((snapshot as any).missing_required_keys) {
+      (snapshot as any).missing_required_keys = filterRequiredKeysForDealType(
+        (snapshot as any).missing_required_keys,
+        dealType,
+      );
+    }
+    if ((snapshot as any).completeness_pct !== undefined) {
+      (snapshot as any).completeness_pct = completeness;
+    }
+
     // Telemetry: snapshot succeeded
     await logLedgerEvent({
       dealId,
@@ -475,7 +500,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     });
 
     // SPEC-NCADS-SUPERSEDED-FALLBACK-1: surface DSCR blocker when null
-    const dscrBlocker = (snapshot as any).dscr?.value == null
+    const dscrBlocker = (snapshot as any).dscr?.value_num == null
       ? {
           dscr_blocker: "no_ncads_candidates",
           dscr_blocker_detail:
