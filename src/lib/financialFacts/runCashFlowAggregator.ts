@@ -257,8 +257,65 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
+  // SPEC-OFFICER-COMP-ADDBACK-1: C-Corp addback when NET_INCOME=0 or null
+  // If TAXABLE_INCOME + OFFICER_COMPENSATION exist, compute real NCADS as
+  // taxable_income + officer_comp + depreciation (standard C-Corp NCADS formula)
+  if ((ncads === null || ncads === 0) && ncadsVariant === "standard") {
+    const { data: ccorpFacts } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, fact_period_end")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
+      .not("fact_value_num", "is", null)
+      .order("fact_period_end", { ascending: false })
+      .limit(10);
+
+    if (ccorpFacts && ccorpFacts.length > 0) {
+      const latestCcorp = (ccorpFacts as any[])[0].fact_period_end;
+      const periodCcorp = (ccorpFacts as any[]).filter(
+        (r: any) => r.fact_period_end === latestCcorp,
+      );
+      const taxable = periodCcorp.find((r: any) => r.fact_key === "TAXABLE_INCOME");
+      const officerComp = periodCcorp.find((r: any) => r.fact_key === "OFFICER_COMPENSATION");
+      const depr = periodCcorp.find((r: any) => r.fact_key === "DEPRECIATION");
+
+      if (taxable && officerComp) {
+        ncads =
+          Number(taxable.fact_value_num) +
+          Number(officerComp.fact_value_num) +
+          Number(depr?.fact_value_num ?? 0);
+        ncadsSource = "EBITDA"; // C-Corp addback method
+      }
+    }
+  }
+
   // SPEC-NCADS-SUPERSEDED-FALLBACK-1: diagnostic warnings
   const ncadsWarnings: string[] = [];
+
+  // C-Corp addback annotation
+  if (ncadsSource === "EBITDA" && ncads !== null && ncads > 0) {
+    // Check if this came from the C-Corp addback path (taxable + officer_comp)
+    const { data: ccorpCheck } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
+      .not("fact_value_num", "is", null)
+      .limit(3);
+    const taxVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "TAXABLE_INCOME");
+    const ocVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "OFFICER_COMPENSATION");
+    const depVal = (ccorpCheck ?? []).find((r: any) => r.fact_key === "DEPRECIATION");
+    if (taxVal && ocVal) {
+      ncadsWarnings.push(
+        `C-Corp addback applied: taxable_income($${Number(taxVal.fact_value_num).toLocaleString()}) ` +
+        `+ officer_comp($${Number(ocVal.fact_value_num).toLocaleString()}) ` +
+        `+ depreciation($${Number(depVal?.fact_value_num ?? 0).toLocaleString()}) = $${(ncads ?? 0).toLocaleString()}`,
+      );
+    }
+  }
 
   if (ncads === 0 && ncadsSource === "NET_INCOME") {
     ncadsWarnings.push(

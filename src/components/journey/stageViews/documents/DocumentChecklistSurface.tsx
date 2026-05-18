@@ -26,9 +26,9 @@ export function DocumentChecklistSurface({ dealId }: { dealId: string }) {
     { id: "documents:checklist", scope: "documents" },
   );
 
-  const receivedCount = data?.received?.length ?? 0;
-  const pendingCount = data?.pending?.length ?? 0;
-  const optionalCount = data?.optional?.length ?? 0;
+  const receivedCount = Array.isArray(data?.received) ? data.received.length : 0;
+  const pendingCount = Array.isArray(data?.pending) ? data.pending.length : 0;
+  const optionalCount = Array.isArray(data?.optional) ? data.optional.length : 0;
   const total = receivedCount + pendingCount;
   const state = data?.state ?? "empty";
   const tone =

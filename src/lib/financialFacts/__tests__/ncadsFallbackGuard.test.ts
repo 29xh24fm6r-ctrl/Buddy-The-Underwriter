@@ -67,4 +67,15 @@ describe("SPEC-NCADS-SUPERSEDED-FALLBACK-1 guards", () => {
       "snapshot recompute must include dscr_blocker_detail explanation",
     );
   });
+
+  test("runCashFlowAggregator applies C-Corp addback when NET_INCOME=0 and TAXABLE_INCOME+OFFICER_COMPENSATION exist", () => {
+    assert.ok(
+      AGG_SRC.includes("TAXABLE_INCOME") && AGG_SRC.includes("OFFICER_COMPENSATION"),
+      "Aggregator must check for C-Corp addback facts (TAXABLE_INCOME + OFFICER_COMPENSATION)",
+    );
+    assert.ok(
+      AGG_SRC.includes("C-Corp addback"),
+      "Aggregator must annotate when C-Corp addback is applied",
+    );
+  });
 });

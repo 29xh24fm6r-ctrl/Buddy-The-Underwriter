@@ -87,7 +87,7 @@ test("[cfa-extract-4] aggregator uses sentinel UUID and sentinel date matching r
 
 // ── Guard 5: aggregator uses the correct provenance shape (v2 per SPEC-B4.1.2) ──
 
-test("[cfa-extract-5] aggregator provenance matches classicSpread:debtService:v1", () => {
+test("[cfa-extract-5] aggregator provenance matches computed:classic_spread:v2", () => {
   const body = readAggregator();
   assert.match(
     body,
