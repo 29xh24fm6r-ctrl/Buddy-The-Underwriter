@@ -377,7 +377,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     const stress = computeFinancialStress({
       snapshot,
       loanTerms: loanMeta.loanTerms,
-      stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
+      stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 300 },
     });
 
     // Persist dscr_stressed_300bps fact so the snapshot builder can read it
@@ -406,6 +406,26 @@ export async function POST(_req: Request, ctx: Ctx) {
       } catch (stressErr: any) {
         console.warn("[recompute] dscr_stressed_300bps persist failed (non-fatal)", stressErr?.message);
       }
+    }
+
+    // Inject dscr_stressed_300bps directly into snapshot so this response includes it
+    // (fact was just persisted but snapshot was already built — next recompute would
+    // find it in DB; this avoids a second buildDealFinancialSnapshotForBank call)
+    if (stressedDscr !== null && Number.isFinite(stressedDscr)) {
+      (snapshot as any).dscr_stressed_300bps = {
+        value_num: stressedDscr,
+        value_text: null,
+        as_of_date: new Date().toISOString().slice(0, 10),
+        confidence: 0.85,
+        source_type: "STRUCTURAL",
+        source_ref: "computed:stress:rate_up_300bps",
+        provenance: {
+          source_type: "STRUCTURAL",
+          source_ref: "computed:stress:rate_up_300bps",
+          extractor: "financialStressEngine:rateUp:v1",
+          calc: `base_dscr=${stress.base.dscr} rate_up_300bps`,
+        },
+      };
     }
 
     const sba = evaluateSbaEligibility({
@@ -495,19 +515,19 @@ export async function POST(_req: Request, ctx: Ctx) {
       "working_capital", "current_ratio", "debt_to_equity",
     ] as const;
     const populatedMetrics = METRIC_KEYS.filter(
-      (k) => (snapshot as any)[k]?.value != null,
+      (k) => (snapshot as any)[k]?.value_num != null,
     );
     // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter out CRE/TTM keys for CONVENTIONAL/SBA
     const dealType = (dealMeta as any)?.deal_type ?? null;
     const relevantKeys = filterRequiredKeysForDealType(METRIC_KEYS, dealType);
     const relevantPopulated = relevantKeys.filter(
-      (k) => (snapshot as any)[k]?.value != null,
+      (k) => (snapshot as any)[k]?.value_num != null,
     );
     const completeness = Math.round(
       (relevantPopulated.length / relevantKeys.length) * 100,
     );
     const missingKeys = relevantKeys.filter(
-      (k) => (snapshot as any)[k]?.value == null,
+      (k) => (snapshot as any)[k]?.value_num == null,
     );
 
     // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter snapshot's internal missing_required_keys
