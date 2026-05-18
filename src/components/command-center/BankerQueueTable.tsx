@@ -10,6 +10,7 @@
 import Link from "next/link";
 import type { BankerQueueItem } from "@/core/command-center/types";
 import BankerQueueRowActions from "./BankerQueueRowActions";
+import WorkQueueTimelineActivity from "./WorkQueueTimelineActivity";
 
 type Props = {
   items: BankerQueueItem[];
@@ -40,18 +41,6 @@ function formatAge(hours: number | null): string {
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
   return `${days}d`;
-}
-
-function formatRelativeTime(iso: string | null): string {
-  if (!iso) return "—";
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 function formatStage(stage: string): string {
@@ -187,7 +176,10 @@ export default function BankerQueueTable({
 
               {/* Activity */}
               <td className="px-4 py-3 text-xs text-white/40">
-                {formatRelativeTime(item.latestActivityAt)}
+                <WorkQueueTimelineActivity
+                  dealId={item.dealId}
+                  fallbackTimestamp={item.latestActivityAt}
+                />
               </td>
 
               {/* Actions */}
