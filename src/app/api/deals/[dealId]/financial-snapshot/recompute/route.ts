@@ -12,6 +12,7 @@ import { persistFinancialSnapshot, persistFinancialSnapshotDecision } from "@/li
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { getVisibleFacts, type FactsVisibility } from "@/lib/financialFacts/getVisibleFacts";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
+import { filterRequiredKeysForDealType } from "@/lib/financialIntelligence/snapshotRequiredKeys";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -444,8 +445,16 @@ export async function POST(_req: Request, ctx: Ctx) {
     const populatedMetrics = METRIC_KEYS.filter(
       (k) => (snapshot as any)[k]?.value != null,
     );
-    const completeness = Math.round((populatedMetrics.length / METRIC_KEYS.length) * 100);
-    const missingKeys = METRIC_KEYS.filter(
+    // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter out CRE/TTM keys for CONVENTIONAL/SBA
+    const dealType = (dealMeta as any)?.deal_type ?? null;
+    const relevantKeys = filterRequiredKeysForDealType(METRIC_KEYS, dealType);
+    const relevantPopulated = relevantKeys.filter(
+      (k) => (snapshot as any)[k]?.value != null,
+    );
+    const completeness = Math.round(
+      (relevantPopulated.length / relevantKeys.length) * 100,
+    );
+    const missingKeys = relevantKeys.filter(
       (k) => (snapshot as any)[k]?.value == null,
     );
 
@@ -465,6 +474,16 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
     });
 
+    // SPEC-NCADS-SUPERSEDED-FALLBACK-1: surface DSCR blocker when null
+    const dscrBlocker = (snapshot as any).dscr?.value == null
+      ? {
+          dscr_blocker: "no_ncads_candidates",
+          dscr_blocker_detail:
+            "No EBITDA, Ordinary Business Income, or Net Income facts found. " +
+            "Re-run extraction or manually enter income figures.",
+        }
+      : {};
+
     return NextResponse.json({
       ok: true,
       deal_id: dealId,
@@ -473,6 +492,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       facts_count: factsVis.total,
       completeness,
       missing_keys: missingKeys,
+      ...dscrBlocker,
       snapshot,
       stress,
       sba,

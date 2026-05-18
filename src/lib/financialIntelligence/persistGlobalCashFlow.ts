@@ -140,6 +140,57 @@ export async function persistGlobalCashFlow(args: {
       });
     }
 
+    // ── 3a. Fallback: ownership_entities when deal_entities is empty ──────
+    // SPEC-ENTITY-MODEL-RECONCILIATION-1: deal_entities is V1; ownership engine
+    // writes to ownership_entities. Bridge here until tables are unified.
+    if (entities.length === 0) {
+      const { data: ownershipRows } = await (sb as any)
+        .from("ownership_entities")
+        .select("id, display_name, entity_type, ownership_pct")
+        .eq("deal_id", args.dealId)
+        .eq("entity_type", "company");
+
+      for (const ent of ownershipRows ?? []) {
+        const entityId = ent.id as string;
+        const entityName = (ent.display_name ?? "Borrower Entity") as string;
+        const ownershipPct =
+          typeof ent.ownership_pct === "number" ? ent.ownership_pct / 100 : 1.0;
+
+        // For deal-scoped entities, read EBITDA/NET_INCOME from deal-scoped facts
+        const netIncome =
+          findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
+          findFact({ factType: "TAX_RETURN", factKey: "NET_INCOME" }) ??
+          findFact({ factType: "TAX_RETURN", factKey: "GROSS_RECEIPTS" });
+
+        const depreciation = findFact({
+          factType: "TAX_RETURN",
+          factKey: "DEPRECIATION",
+        });
+
+        const debtService = findFact({
+          factType: "FINANCIAL_ANALYSIS",
+          factKey: "ANNUAL_DEBT_SERVICE",
+        });
+
+        entities.push({
+          entityId,
+          entityName,
+          entityType: "OPERATING",
+          ownershipPct,
+          netIncome,
+          depreciation,
+          interestExpense: null,
+          debtService,
+        });
+      }
+
+      if (entities.length > 0) {
+        notes.push(
+          `deal_entities empty — fell back to ${entities.length} ownership_entities row(s) for GCF computation`,
+        );
+      }
+    }
+
     if (entities.length === 0) {
       notes.push("No operating entities found — entity cash flow will be null");
     }
@@ -159,6 +210,20 @@ export async function persistGlobalCashFlow(args: {
     for (const ent of entityRows ?? []) {
       if (ent.entity_kind === "PERSON") {
         personalEntityIds.add(ent.id as string);
+      }
+    }
+
+    // ── 4a. Fallback: ownership_entities individuals when no PERSONAL facts ──
+    // SPEC-ENTITY-MODEL-RECONCILIATION-1
+    if (personalEntityIds.size === 0) {
+      const { data: personRows } = await (sb as any)
+        .from("ownership_entities")
+        .select("id, display_name, ownership_pct")
+        .eq("deal_id", args.dealId)
+        .eq("entity_type", "individual");
+
+      for (const p of personRows ?? []) {
+        personalEntityIds.add(p.id as string);
       }
     }
 

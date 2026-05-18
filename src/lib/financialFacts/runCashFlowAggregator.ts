@@ -59,6 +59,7 @@ export type RunCashFlowAggregatorResult =
       dscr: number | null;
       factsWritten: number;
       factsAttempted: number;
+      ncadsWarnings: string[];
     }
   | {
       ok: false;
@@ -132,6 +133,25 @@ export async function runCashFlowAggregator(args: {
         (sum: number, r: any) => sum + Number(r.fact_value_num),
         0,
       );
+    } else {
+      // SPEC-ENTITY-MODEL-RECONCILIATION-1: Fallback to deal-scoped EBITDA
+      // (extraction writes owner_type='DEAL', not 'ENTITY')
+      const { data: dealScopedEbitda } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_value_num, fact_period_end")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("owner_type", "DEAL")
+        .eq("fact_key", "EBITDA")
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
+        .not("fact_value_num", "is", null)
+        .order("fact_period_end", { ascending: false })
+        .limit(1);
+
+      if (dealScopedEbitda && dealScopedEbitda.length > 0) {
+        entityEbitdaSum = Number(dealScopedEbitda[0].fact_value_num);
+      }
     }
   }
 
@@ -148,7 +168,39 @@ export async function runCashFlowAggregator(args: {
     .limit(10);
 
   if (!factRows || factRows.length === 0) {
-    return { ok: false, reason: "no_ncads_candidates" };
+    // SPEC-ENTITY-MODEL-RECONCILIATION-1: TAX_RETURN fallback as last resort
+    // when no EBITDA/OBI/NET_INCOME facts exist. GROSS_RECEIPTS is revenue,
+    // not net income — DSCR computed this way will be overstated. This is a
+    // last-resort bridge; proper fix is SPEC-BUSINESS-ANNUAL-SPREAD-1.
+    const { data: taxFallback } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, fact_period_end")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .eq("fact_type", "TAX_RETURN")
+      .in("fact_key", ["GROSS_RECEIPTS", "NET_INCOME", "ORDINARY_INCOME"])
+      .not("fact_value_num", "is", null)
+      .order("fact_period_end", { ascending: false })
+      .limit(10);
+
+    if (!taxFallback || taxFallback.length === 0) {
+      return { ok: false, reason: "no_ncads_candidates" };
+    }
+
+    // Prefer NET_INCOME > ORDINARY_INCOME > GROSS_RECEIPTS as NCADS proxy
+    const niRow = (taxFallback as any[]).find((r: any) => r.fact_key === "NET_INCOME");
+    const oiRow = (taxFallback as any[]).find((r: any) => r.fact_key === "ORDINARY_INCOME");
+    const grRow = (taxFallback as any[]).find((r: any) => r.fact_key === "GROSS_RECEIPTS");
+    const useRow = niRow ?? oiRow ?? grRow;
+    if (!useRow) return { ok: false, reason: "no_ncads_candidates" };
+
+    // Re-assign for downstream logic — map TAX_RETURN keys to NCADS keys
+    (factRows as any) = [{
+      fact_key: niRow ? "NET_INCOME" : oiRow ? "ORDINARY_BUSINESS_INCOME" : "NET_INCOME",
+      fact_value_num: useRow.fact_value_num,
+      fact_period_end: useRow.fact_period_end,
+    }];
   }
 
   // 3. Apply fallback logic — match route exactly
@@ -203,6 +255,23 @@ export async function runCashFlowAggregator(args: {
             ? "NET_INCOME"
             : null;
     }
+  }
+
+  // SPEC-NCADS-SUPERSEDED-FALLBACK-1: diagnostic warnings
+  const ncadsWarnings: string[] = [];
+
+  if (ncads === 0 && ncadsSource === "NET_INCOME") {
+    ncadsWarnings.push(
+      "NET_INCOME extracted as $0 — verify taxable income on the tax return. " +
+      "DSCR may be understated if this is an extraction error.",
+    );
+  }
+
+  if (ncads !== null && ncads < 0) {
+    ncadsWarnings.push(
+      `NCADS is negative ($${ncads.toLocaleString()}) — entity cash flow does not ` +
+      "cover operating expenses. Deal requires collateral or guarantor support.",
+    );
   }
 
   // 4. Compute DSCR
@@ -324,5 +393,6 @@ export async function runCashFlowAggregator(args: {
     dscr: dscrValue,
     factsWritten,
     factsAttempted: factsToWrite.length,
+    ncadsWarnings,
   };
 }
