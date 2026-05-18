@@ -313,6 +313,36 @@ export async function processConfirmedIntake(
 
   const confirmedDocs = docs as ConfirmedDoc[];
 
+  // SPEC-INTAKE-FLOW-FIX-1 Fix 2: Ensure document slots exist before matching.
+  // Slots must exist before runMatchForDocument() — attachDocumentToSlot fails
+  // silently when no slots are present. ensureCoreDocumentSlots is idempotent.
+  try {
+    const { ensureCoreDocumentSlots } = await import(
+      "@/lib/intake/slots/ensureCoreDocumentSlots"
+    );
+    const slotResult = await ensureCoreDocumentSlots({ dealId, bankId });
+    if (!slotResult.ok) {
+      errors.push(`slot_seed_failed: ${(slotResult as any).error ?? "unknown"}`);
+      void writeEvent({
+        dealId,
+        kind: "intake.slot_seed_failed",
+        scope: "intake",
+        meta: { run_id: runId ?? null, error: (slotResult as any).error },
+      });
+    } else if ((slotResult as any).slotsCreated > 0) {
+      void writeEvent({
+        dealId,
+        kind: "intake.slots_seeded",
+        scope: "intake",
+        meta: { run_id: runId ?? null, slots_created: (slotResult as any).slotsCreated },
+      });
+    }
+  } catch (slotErr: any) {
+    errors.push(`slot_seed_threw: ${slotErr?.message}`);
+  }
+
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "slots_ensured");
+
   // 2. Per-doc: matching + extraction (parallelized with bounded concurrency)
   //
   // IMPORTANT: ALL docs here are confirmed (AUTO_CONFIRMED, USER_CONFIRMED,

@@ -6,11 +6,10 @@
  * Schedule: every 5 minutes (vercel.json cron)
  * Auth: CRON_SECRET or WORKER_SECRET (via hasValidWorkerSecret)
  *
- * Claims undelivered intake.process outbox rows and executes
- * runIntakeProcessing() for each. No HTTP lifecycle dependency.
- *
- * Singleton across concurrent invocations via PostgreSQL advisory lock
- * (WORKER_LOCK_KEYS.INTAKE_OUTBOX).
+ * SPEC-INTAKE-FLOW-FIX-1: Advisory lock wraps ONLY the idle probe + claim
+ * step (milliseconds). Processing happens OUTSIDE the lock. This prevents
+ * pgBouncer connection recycling from orphaning the lock when Gemini OCR
+ * calls take 30-120s per document.
  */
 
 import "server-only";
@@ -18,13 +17,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { processIntakeOutbox } from "@/lib/workers/processIntakeOutbox";
-import {
-  WORKER_LOCK_KEYS,
-  withWorkerAdvisoryLock,
-  isWorkerLockSkip,
-} from "@/lib/workers/workerLock";
 import { resolveBatchSize } from "@/lib/workers/batchCaps";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,17 +25,12 @@ export const maxDuration = 300; // 5 minutes — durable processing window
 
 export async function GET(req: NextRequest) {
   const start = Date.now();
-  // Startup probe — proves Vercel Cron is reaching this handler.
-  // Search Vercel runtime logs for "cron_invocation_seen" to confirm scheduling.
   console.log("[intake-outbox] cron_invocation_seen", {
     ts: new Date().toISOString(),
     ua: req.headers.get("user-agent") ?? null,
   });
 
   if (!hasValidWorkerSecret(req)) {
-    // Explicit auth failure log — distinguishes CRON_SECRET/WORKER_SECRET misconfiguration
-    // from the cron never firing. If this appears in logs, the cron IS reaching the handler
-    // but the secret is wrong or missing in the Vercel environment.
     console.error("[intake-outbox] auth_failed — check CRON_SECRET / WORKER_SECRET env vars");
     return NextResponse.json(
       { ok: false, error: "unauthorized" },
@@ -56,26 +44,15 @@ export async function GET(req: NextRequest) {
     "outbox",
   );
 
-  const sb = supabaseAdmin();
-
-  const result = await withWorkerAdvisoryLock({
-    sb,
-    lockKey: WORKER_LOCK_KEYS.INTAKE_OUTBOX,
-    workerName: "intake-outbox",
-    run: async () => processIntakeOutbox(max),
-  });
+  // SPEC-INTAKE-FLOW-FIX-1: No advisory lock wrapper here.
+  // processIntakeOutbox uses claim_intake_outbox_batch RPC with
+  // FOR UPDATE SKIP LOCKED — the claim itself is the concurrency guard.
+  // The advisory lock was previously held across the entire processing
+  // loop (including Gemini OCR), causing zombie locks on pgBouncer
+  // connection recycling.
+  const result = await processIntakeOutbox(max);
 
   const durationMs = Date.now() - start;
-
-  if (isWorkerLockSkip(result)) {
-    return NextResponse.json({
-      ok: true,
-      worker: "intake_outbox",
-      skipped: true,
-      reason: "lock_not_acquired",
-      durationMs,
-    });
-  }
 
   if (result.idle) {
     return NextResponse.json({

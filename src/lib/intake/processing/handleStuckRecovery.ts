@@ -21,6 +21,7 @@ import { updateDealIfRunOwner } from "./updateDealIfRunOwner";
 import { computeDealPhasePatch } from "./computeDealPhasePatch";
 import { PROCESSING_OBSERVABILITY_VERSION } from "@/lib/intake/constants";
 import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { StuckVerdict } from "./detectStuckProcessing";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -109,8 +110,24 @@ async function reenqueueProcessing(
       },
     });
 
+    // SPEC-INTAKE-FLOW-FIX-1 Fix 3: Before enqueuing, attempt to clear any
+    // zombie advisory lock from a previous run. If the lock is held by a dead
+    // connection, terminate the holder so the new outbox event can be processed.
+    try {
+      const sb = supabaseAdmin();
+      const { data: terminated } = await sb.rpc(
+        "pg_terminate_backend_holding_advisory_lock",
+        { lock_id: 42001003 },
+      );
+      if (terminated) {
+        console.log("[handleStuckRecovery] terminated zombie lock holder for intake outbox");
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    } catch {
+      // Non-fatal — proceed with retry regardless
+    }
+
     // Insert outbox row — the durable consumer picks it up on next cron tick.
-    // No HTTP. No void fetch(). No Lambda lifecycle dependency.
     await insertOutboxEvent({
       kind: "intake.process",
       dealId,
