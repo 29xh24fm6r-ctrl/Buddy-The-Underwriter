@@ -138,15 +138,52 @@ export async function computeOwnershipFromDiscovery(dealId: string) {
     if (pct != null && pct >= 20) {
       const req = deriveOwnerRequirementsFromPct(pct);
       if (req.length) {
-        await sb.from("owner_requirements").upsert({
-          deal_id: dealId,
-          owner_entity_id: fromId,
-          required_items: req,
-          rule_version: "bank_v1",
-          derived_from_json: { ownership_pct: pct },
-          status: "open",
-          updated_at: nowIso(),
-        }, { onConflict: "deal_id,owner_entity_id" });
+        // owner_requirements.owner_entity_id FKs to deal_ownership_entities (NOT ownership_entities).
+        // threshold_basis CHECK constraint: 'sba_20pct' | 'bank_policy' | 'exception'
+        const entityRecord = entities.find((e: any) => tempToDb.get(String(e.temp_id)) === fromId);
+        const cleanName = entityRecord?.display_name
+          ? (sanitizeEntityName(entityRecord.display_name) ?? entityRecord.display_name)
+          : null;
+
+        if (cleanName) {
+          // Find or create the deal_ownership_entities row
+          let doeId: string | null = null;
+
+          const doeFound = await sb
+            .from("deal_ownership_entities")
+            .select("id")
+            .eq("deal_id", dealId)
+            .eq("display_name", cleanName)
+            .maybeSingle();
+
+          if (!doeFound.error && doeFound.data) {
+            doeId = doeFound.data.id;
+          } else if (!doeFound.error) {
+            const doeIns = await sb
+              .from("deal_ownership_entities")
+              .insert({
+                deal_id: dealId,
+                entity_type: "person",
+                display_name: cleanName,
+              })
+              .select("id")
+              .single();
+            if (!doeIns.error) doeId = doeIns.data.id;
+          }
+
+          if (doeId) {
+            const thresholdBasis: "sba_20pct" | "bank_policy" = pct >= 20 ? "sba_20pct" : "bank_policy";
+            await sb.from("owner_requirements").upsert({
+              deal_id: dealId,
+              owner_entity_id: doeId,
+              threshold_basis: thresholdBasis,
+              required_items: req,
+              status_json: { state: "open", derived_from: { ownership_pct: pct } },
+              updated_at: nowIso(),
+            }, { onConflict: "deal_id,owner_entity_id" });
+          }
+          // Non-fatal: if DOE row can't be created, skip requirements — ownership graph still written
+        }
       }
     }
   }
