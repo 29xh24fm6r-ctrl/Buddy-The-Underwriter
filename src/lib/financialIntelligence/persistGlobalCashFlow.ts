@@ -97,7 +97,16 @@ export async function persistGlobalCashFlow(args: {
     const entities: GcfEntityInput[] = [];
     const operatingKinds = new Set(["OPCO", "PROPCO", "HOLDCO"]);
 
-    for (const ent of entityRows ?? []) {
+    // Filter out unnamed placeholders (auto-seeded rows with no real data)
+    const usableEntityRows = (entityRows ?? []).filter(
+      (e: any) =>
+        e.name &&
+        e.name !== "Unassigned Business" &&
+        e.name !== "Unassigned Owner" &&
+        e.ownership_percent !== null,
+    );
+
+    for (const ent of usableEntityRows) {
       if (!operatingKinds.has(ent.entity_kind)) continue;
 
       const entityId = ent.id as string;
@@ -207,7 +216,7 @@ export async function persistGlobalCashFlow(args: {
     }
 
     // Also include PERSON entities from deal_entities
-    for (const ent of entityRows ?? []) {
+    for (const ent of usableEntityRows) {
       if (ent.entity_kind === "PERSON") {
         personalEntityIds.add(ent.id as string);
       }
@@ -229,7 +238,7 @@ export async function persistGlobalCashFlow(args: {
 
     for (const ownerId of personalEntityIds) {
       const ownerName =
-        (entityRows ?? []).find((e: any) => e.id === ownerId)?.name ??
+        usableEntityRows.find((e: any) => e.id === ownerId)?.name ??
         "Sponsor";
 
       const totalPersonalIncome = findFact({
