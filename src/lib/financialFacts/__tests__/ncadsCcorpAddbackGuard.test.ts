@@ -2,7 +2,7 @@
  * SPEC-NCADS-CCORP-FINAL-1 — Guard tests (2026-05-18)
  *
  * Proves:
- *   1. C-Corp addback query joins deal_documents for canonical_type filter
+ *   1. C-Corp addback uses two-step deal_documents lookup (not !inner join)
  *   2. Recompute route invalidates stale sentinel facts before aggregator
  *   3. Recompute route returns ncadsWarnings in response
  */
@@ -26,17 +26,31 @@ const ROUTE_SRC = readFileSync(
 );
 
 describe("SPEC-NCADS-CCORP-FINAL-1 guards", () => {
-  test("C-Corp addback query joins deal_documents table", () => {
+  test("C-Corp addback uses two-step deal_documents lookup", () => {
     assert.ok(
-      AGG_SRC.includes("deal_documents!inner"),
-      "C-Corp addback must join deal_documents with !inner to filter by canonical_type",
+      AGG_SRC.includes("bizTaxDocIds"),
+      "C-Corp addback must use bizTaxDocIds from two-step deal_documents query",
     );
   });
 
-  test("C-Corp addback filters deal_documents.canonical_type = BUSINESS_TAX_RETURN", () => {
+  test("C-Corp addback filters source_document_id IN bizTaxDocIds", () => {
+    assert.ok(
+      AGG_SRC.includes('.in("source_document_id", bizTaxDocIds)'),
+      "C-Corp addback must filter facts by source_document_id IN bizTaxDocIds",
+    );
+  });
+
+  test("C-Corp addback does NOT use deal_documents!inner syntax", () => {
+    assert.ok(
+      !AGG_SRC.includes("deal_documents!inner"),
+      "Must NOT use !inner join — it does not filter parent rows in supabase-js v2",
+    );
+  });
+
+  test("C-Corp addback filters BUSINESS_TAX_RETURN", () => {
     assert.ok(
       AGG_SRC.includes("BUSINESS_TAX_RETURN"),
-      "C-Corp addback must filter by canonical_type=BUSINESS_TAX_RETURN",
+      "Must filter by canonical_type=BUSINESS_TAX_RETURN",
     );
   });
 
