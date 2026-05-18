@@ -155,15 +155,16 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // 2. Read NCADS candidates
+  // 2. Read NCADS candidates — prefer active (tax return) over inferred (spread)
   const { data: factRows } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end")
+    .select("fact_key, fact_value_num, fact_period_end, resolution_status")
     .eq("deal_id", dealId)
     .eq("is_superseded", false)
     .neq("resolution_status", "rejected")
     .in("fact_key", ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"])
     .not("fact_value_num", "is", null)
+    .order("resolution_status", { ascending: true })  // 'active' sorts before 'inferred'
     .order("fact_period_end", { ascending: false })
     .limit(10);
 
@@ -257,13 +258,14 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // SPEC-OFFICER-COMP-ADDBACK-1: C-Corp addback when NET_INCOME=0 or null
-  // If TAXABLE_INCOME + OFFICER_COMPENSATION exist, compute real NCADS as
-  // taxable_income + officer_comp + depreciation (standard C-Corp NCADS formula)
-  if ((ncads === null || ncads === 0) && ncadsVariant === "standard") {
+  // SPEC-OFFICER-COMP-ADDBACK-1: C-Corp addback when NET_INCOME=0/null or
+  // when NCADS came from an inferred (spread-derived) NET_INCOME — check if
+  // there's a real tax-return TAXABLE_INCOME that gives a better NCADS
+  const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
+  if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
     const { data: ccorpFacts } = await (sb as any)
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_period_end")
+      .select("fact_key, fact_value_num, fact_period_end, resolution_status")
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
@@ -277,8 +279,13 @@ export async function runCashFlowAggregator(args: {
       const periodCcorp = (ccorpFacts as any[]).filter(
         (r: any) => r.fact_period_end === latestCcorp,
       );
-      const taxable = periodCcorp.find((r: any) => r.fact_key === "TAXABLE_INCOME");
-      const officerComp = periodCcorp.find((r: any) => r.fact_key === "OFFICER_COMPENSATION");
+      // Only apply when we have real tax return data (active), not spread inferences
+      const taxable = periodCcorp.find(
+        (r: any) => r.fact_key === "TAXABLE_INCOME" && r.resolution_status === "active",
+      );
+      const officerComp = periodCcorp.find(
+        (r: any) => r.fact_key === "OFFICER_COMPENSATION" && r.resolution_status === "active",
+      );
       const depr = periodCcorp.find((r: any) => r.fact_key === "DEPRECIATION");
 
       if (taxable && officerComp) {
@@ -294,9 +301,9 @@ export async function runCashFlowAggregator(args: {
   // SPEC-NCADS-SUPERSEDED-FALLBACK-1: diagnostic warnings
   const ncadsWarnings: string[] = [];
 
-  // C-Corp addback annotation
-  if (ncadsSource === "EBITDA" && ncads !== null && ncads > 0) {
-    // Check if this came from the C-Corp addback path (taxable + officer_comp)
+  // C-Corp addback annotation — only if the addback path actually fired
+  // (ncadsIsInferred was true before addback, and ncadsSource changed to EBITDA)
+  if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0) {
     const { data: ccorpCheck } = await (sb as any)
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num")
