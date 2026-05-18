@@ -30,15 +30,11 @@ type LatestActivity = {
   timestamp: string;
 };
 
-type ExternalTimelineEvent = {
-  category?: unknown;
-  severity?: unknown;
-  title?: unknown;
-  timestamp?: unknown;
-};
-
 export type WorkQueueLatestEvent = {
-  event: ExternalTimelineEvent | null;
+  /** Raw event payload from the batch endpoint. Validated via
+   *  normalizeEventShape before render; unknown/missing fields render
+   *  as the empty state. */
+  event: unknown | null;
 };
 
 type Props = {
