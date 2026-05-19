@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import type { BorrowerJourneyViewModel } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import type { BorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerReadinessViewModel";
 import type { BorrowerDealHealthViewModel } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
+import type { BorrowerGuidanceViewModel } from "@/lib/borrower/buildBorrowerGuidanceViewModel";
 import { BorrowerBlockersCard } from "./BorrowerBlockersCard";
 import { BorrowerJourneyActionCard } from "./BorrowerJourneyActionCard";
 import { BorrowerJourneyMilestones } from "./BorrowerJourneyMilestones";
@@ -15,6 +16,7 @@ import { BorrowerRecommendationsCard } from "./readiness/BorrowerRecommendations
 import { BorrowerActivityFeed } from "./readiness/BorrowerActivityFeed";
 import { BorrowerDocumentCompletionChart } from "./readiness/BorrowerDocumentCompletionChart";
 import { BorrowerDealHealthDashboard } from "./deal-health/BorrowerDealHealthDashboard";
+import { BorrowerGuidancePanel } from "./guidance/BorrowerGuidancePanel";
 
 function JourneyHeader({
   dealName,
@@ -122,11 +124,13 @@ export function BorrowerFundingJourney({
   viewModel,
   readinessViewModel,
   dealHealthViewModel,
+  guidanceViewModel,
   dealName,
 }: {
   viewModel: BorrowerJourneyViewModel;
   readinessViewModel?: BorrowerReadinessViewModel;
   dealHealthViewModel?: BorrowerDealHealthViewModel;
+  guidanceViewModel?: BorrowerGuidanceViewModel;
   dealName?: string | null;
 }) {
   return (
@@ -159,6 +163,11 @@ export function BorrowerFundingJourney({
             recommendations={readinessViewModel.recommendations}
           />
         </>
+      )}
+
+      {/* Guidance Engine (Spec 4) */}
+      {guidanceViewModel && (
+        <BorrowerGuidancePanel viewModel={guidanceViewModel} />
       )}
 
       {/* Deal Health Dashboard (Spec 3) */}
