@@ -42,4 +42,11 @@ describe("SPEC-READINESS-SYSTEM-UNIFICATION-1 guards", () => {
       "reconcileDealLifecycle must call advanceDealLifecycle for stage transitions",
     );
   });
+
+  test("recomputeDealReady calls reconcileChecklistForDeal before computeDealReadiness", () => {
+    const reconcileIdx = READINESS_SRC.indexOf("reconcileChecklistForDeal");
+    const computeIdx = READINESS_SRC.indexOf("computeDealReadiness(dealId)", reconcileIdx);
+    assert.ok(reconcileIdx > 0, "Must call reconcileChecklistForDeal");
+    assert.ok(computeIdx > reconcileIdx, "reconcile must come before computeDealReadiness");
+  });
 });

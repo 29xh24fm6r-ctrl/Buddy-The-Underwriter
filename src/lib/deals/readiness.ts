@@ -231,6 +231,18 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
     .single();
 
   const wasReady = !!currentDeal?.ready_at;
+
+  // SPEC-READINESS-SYSTEM-UNIFICATION-1: Reconcile checklist synchronously
+  // before evaluating readiness. Without this, checklist status is stale and
+  // computeDealReadiness sees missing items even when docs exist.
+  try {
+    const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
+    const sb2 = supabaseAdmin();
+    await reconcileChecklistForDeal({ sb: sb2, dealId });
+  } catch (reconcileErr: any) {
+    console.warn("[recomputeDealReady] checklist reconcile failed (non-fatal)", reconcileErr?.message);
+  }
+
   const result = await computeDealReadiness(dealId);
 
   if (result.ready) {
