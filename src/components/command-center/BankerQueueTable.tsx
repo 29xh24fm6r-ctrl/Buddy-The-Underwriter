@@ -7,9 +7,15 @@
  * Columns: Urgency, Deal/Borrower, Stage, Why, Blocking, Primary Action, Age, Activity, Actions
  */
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { BankerQueueItem } from "@/core/command-center/types";
 import BankerQueueRowActions from "./BankerQueueRowActions";
+import WorkQueueTimelineActivity from "./WorkQueueTimelineActivity";
+
+type BatchedLatestMap = Record<string, { event: unknown | null } | undefined>;
+
+const BATCH_PAGE_SIZE = 50;
 
 type Props = {
   items: BankerQueueItem[];
@@ -42,18 +48,6 @@ function formatAge(hours: number | null): string {
   return `${days}d`;
 }
 
-function formatRelativeTime(iso: string | null): string {
-  if (!iso) return "—";
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function formatStage(stage: string): string {
   return stage
     .replace(/_/g, " ")
@@ -67,6 +61,61 @@ export default function BankerQueueTable({
   onViewActivity,
   executingDealId,
 }: Props) {
+  const visibleDealIdsKey = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const it of items) {
+      if (!seen.has(it.dealId)) {
+        seen.add(it.dealId);
+        ordered.push(it.dealId);
+        if (ordered.length >= BATCH_PAGE_SIZE) break;
+      }
+    }
+    return ordered.join(",");
+  }, [items]);
+
+  const [latestByDealId, setLatestByDealId] = useState<BatchedLatestMap>({});
+  const [batchFailed, setBatchFailed] = useState(false);
+
+  useEffect(() => {
+    if (!visibleDealIdsKey) {
+      setLatestByDealId({});
+      setBatchFailed(false);
+      return;
+    }
+    let cancelled = false;
+    setBatchFailed(false);
+    fetch(`/api/brokerage/deals/timeline/latest?dealIds=${encodeURIComponent(visibleDealIdsKey)}`, {
+      credentials: "same-origin",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled) return;
+        const entries = Array.isArray(json?.entries) ? json.entries : null;
+        if (!entries) {
+          setBatchFailed(true);
+          setLatestByDealId({});
+          return;
+        }
+        const next: BatchedLatestMap = {};
+        for (const e of entries) {
+          if (e && typeof e === "object" && typeof (e as { dealId?: unknown }).dealId === "string") {
+            const row = e as { dealId: string; event: unknown | null };
+            next[row.dealId] = { event: row.event ?? null };
+          }
+        }
+        setLatestByDealId(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBatchFailed(true);
+        setLatestByDealId({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleDealIdsKey]);
+
   if (items.length === 0) {
     return (
       <div className="glass-card rounded-xl p-8 text-center text-white/40">
@@ -187,7 +236,11 @@ export default function BankerQueueTable({
 
               {/* Activity */}
               <td className="px-4 py-3 text-xs text-white/40">
-                {formatRelativeTime(item.latestActivityAt)}
+                <WorkQueueTimelineActivity
+                  dealId={item.dealId}
+                  fallbackTimestamp={item.latestActivityAt}
+                  prefetched={batchFailed ? undefined : latestByDealId[item.dealId] ?? undefined}
+                />
               </td>
 
               {/* Actions */}
