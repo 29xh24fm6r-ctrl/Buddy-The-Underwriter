@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useClerk } from "@clerk/nextjs";
 import { useProfile } from "@/hooks/useProfile";
 
 const NAV = [
@@ -25,6 +26,7 @@ export function HeroBar() {
   const pathname = usePathname();
   const safePathname = pathname ?? "";
   const { profile, currentBank, schemaMismatch } = useProfile();
+  const { signOut } = useClerk();
 
   const initials = profile?.display_name
     ? profile.display_name
@@ -81,6 +83,15 @@ export function HeroBar() {
           >
             Settings
           </Link>
+          <button
+            type="button"
+            onClick={() => signOut({ redirectUrl: "/sign-in" })}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-sm text-white/80 hover:text-white hover:border-white/30"
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>logout</span>
+          </button>
           <span className="hidden sm:inline text-[10px] text-white/30 font-mono">
             {process.env.NEXT_PUBLIC_GIT_SHA?.slice(0, 7) ?? "dev"}
           </span>
