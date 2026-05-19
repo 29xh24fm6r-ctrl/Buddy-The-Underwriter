@@ -85,3 +85,28 @@ test("DealPricingClient receives productType prop", () => {
   );
   assert.ok(clientSrc.includes("productType"));
 });
+
+test("DealPricingClient hides Term field when isLoc", () => {
+  const clientSrc = readFileSync(
+    resolve(process.cwd(), "src/app/(app)/deals/[dealId]/pricing/DealPricingClient.tsx"),
+    "utf8",
+  );
+  assert.ok(clientSrc.includes("{!isLoc && ("));
+});
+
+test('DealPricingClient shows "Line Limit" label when isLoc', () => {
+  const clientSrc = readFileSync(
+    resolve(process.cwd(), "src/app/(app)/deals/[dealId]/pricing/DealPricingClient.tsx"),
+    "utf8",
+  );
+  assert.ok(clientSrc.includes('"Line Limit"'));
+});
+
+test("DealPricingClient shows annual interest cost when isLoc", () => {
+  const clientSrc = readFileSync(
+    resolve(process.cwd(), "src/app/(app)/deals/[dealId]/pricing/DealPricingClient.tsx"),
+    "utf8",
+  );
+  assert.ok(clientSrc.includes("Annual Interest Cost"));
+  assert.ok(clientSrc.includes("annualInterestCost"));
+});

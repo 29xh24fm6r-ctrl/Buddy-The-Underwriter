@@ -583,7 +583,7 @@ export default function DealPricingClient({
                 </div>
               </Field>
 
-              <Field label="Loan Amount">
+              <Field label={isLoc ? "Line Limit" : "Loan Amount"}>
                 <input
                   className="w-full rounded border px-3 py-2 text-sm"
                   type="number"
@@ -599,50 +599,59 @@ export default function DealPricingClient({
                 />
               </Field>
 
-              <Field label="Term (months)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="1"
-                  value={form.term_months}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      term_months: parseNumber(e.target.value, 120),
-                    }))
-                  }
-                />
-              </Field>
+              {/* Term — hidden for LOC products */}
+              {!isLoc && (
+                <Field label="Term (months)">
+                  <input
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    type="number"
+                    step="1"
+                    value={form.term_months}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        term_months: parseNumber(e.target.value, 120),
+                      }))
+                    }
+                  />
+                </Field>
+              )}
 
-              <Field label="Amortization (months)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="1"
-                  value={form.amort_months}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      amort_months: parseNumber(e.target.value, 300),
-                    }))
-                  }
-                />
-              </Field>
+              {/* Amortization — hidden for LOC products */}
+              {!isLoc && (
+                <Field label="Amortization (months)">
+                  <input
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    type="number"
+                    step="1"
+                    value={form.amort_months}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        amort_months: parseNumber(e.target.value, 300),
+                      }))
+                    }
+                  />
+                </Field>
+              )}
 
-              <Field label="Interest-Only (months)">
-                <input
-                  className="w-full rounded border px-3 py-2 text-sm"
-                  type="number"
-                  step="1"
-                  value={form.interest_only_months}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      interest_only_months: parseNumber(e.target.value, 0),
-                    }))
-                  }
-                />
-              </Field>
+              {/* Interest-Only — hidden for LOC (it IS interest-only by definition) */}
+              {!isLoc && (
+                <Field label="Interest-Only (months)">
+                  <input
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    type="number"
+                    step="1"
+                    value={form.interest_only_months}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        interest_only_months: parseNumber(e.target.value, 0),
+                      }))
+                    }
+                  />
+                </Field>
+              )}
 
               <Field label="Spread (bps)">
                 <input
@@ -785,14 +794,18 @@ export default function DealPricingClient({
             </div>
           </Card>
 
-          <Card title="Payment Estimate">
+          <Card title={isLoc ? "Annual Interest Cost" : "Payment Estimate"}>
             <div className="text-3xl font-bold">
-              {paymentEstimate > 0 ? money(paymentEstimate) : "—"}
+              {isLoc
+                ? (annualInterestCost != null && annualInterestCost > 0 ? money(annualInterestCost) : "—")
+                : (paymentEstimate > 0 ? money(paymentEstimate) : "—")}
             </div>
             <div className="text-sm text-slate-600 mt-1">
-              P&I on {money(principal)} · {form.amort_months} mo amort
+              {isLoc
+                ? `Interest-only on ${money(principal)} at ${formatPct(allInRatePct)}%`
+                : `P&I on ${money(principal)} · ${form.amort_months} mo amort`}
             </div>
-            {ioPayment != null ? (
+            {!isLoc && ioPayment != null ? (
               <div className="text-sm text-slate-600 mt-1">
                 IO payment: {money(ioPayment)} for {form.interest_only_months} mo
               </div>
