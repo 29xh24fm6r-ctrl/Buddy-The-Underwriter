@@ -350,7 +350,21 @@ async function loadResearchGateSnapshot(
     .eq("mission_id", missionId)
     .maybeSingle();
 
-  if (!gate) return { gate_passed: false, trust_grade: null, quality_score: null };
+  if (!gate) {
+    // Fallback: check completion_gate_status on the mission itself.
+    // Many deals have a completed mission but no explicit quality gate row.
+    const { data: mission } = await (sb as any)
+      .from("buddy_research_missions")
+      .select("completion_gate_status, trust_grade")
+      .eq("id", missionId)
+      .maybeSingle();
+    const passed = (mission as any)?.completion_gate_status === "pass";
+    return {
+      gate_passed: passed,
+      trust_grade: ((mission as any)?.trust_grade as ResearchGateSnapshot["trust_grade"]) ?? null,
+      quality_score: null,
+    };
+  }
 
   return {
     gate_passed: (gate as any).gate_passed === true,
