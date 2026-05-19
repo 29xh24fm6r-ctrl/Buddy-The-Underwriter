@@ -7,9 +7,13 @@ import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
 import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
 import { BorrowerProgressRail } from "@/components/borrower/BorrowerProgressRail";
+import { BorrowerProgressTimeline } from "@/components/borrower/BorrowerProgressTimeline";
+import { BorrowerReviewActivity } from "@/components/borrower/BorrowerReviewActivity";
+import { BorrowerReviewStatusCard } from "@/components/borrower/BorrowerReviewStatusCard";
 import { BorrowerSafeError } from "@/components/borrower/BorrowerSafeError";
 import { BorrowerShell } from "@/components/borrower/BorrowerShell";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
+import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState";
 import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { Icon } from "@/components/ui/Icon";
@@ -68,6 +72,7 @@ type ChecklistStats = {
 
 type PortalStatus = {
   ok: boolean;
+  deal_id?: string;
   progress?: number;
   checklist?: {
     total: number;
@@ -85,6 +90,14 @@ type PortalStatus = {
   eta?: {
     banker_review_by: string | null;
   };
+};
+
+type BorrowerActivity = {
+  id: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+  kind: "upload" | "review" | "request" | "package";
 };
 
 const CHECKLIST_COPY: Record<
@@ -298,6 +311,142 @@ function uploadStateCopy(status: string) {
   return "Needs another file";
 }
 
+type SafeBorrowerStage =
+  | "getting_started"
+  | "documents_requested"
+  | "documents_received"
+  | "buddy_reviewing"
+  | "additional_items_needed"
+  | "ready_for_sba_review";
+
+function isInFlightDocStatus(status: string) {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "pending" || normalized === "processing" || normalized === "received";
+}
+
+function deriveSafeBorrowerStage(params: {
+  checklistStats: ChecklistStats | null;
+  docs: Doc[];
+  activeFields: Field[];
+  status: PortalStatus | null;
+}): SafeBorrowerStage {
+  const required = params.checklistStats?.required ?? 0;
+  const missing = params.checklistStats?.missing ?? 0;
+  const received = params.checklistStats?.received ?? 0;
+  const hasDocs = params.docs.length > 0;
+  const inFlightDocs = params.docs.some((doc) => isInFlightDocStatus(doc.status));
+
+  if (required === 0 && !hasDocs) return "getting_started";
+  if (missing > 0 && received === 0) return "documents_requested";
+  if (missing > 0) return "additional_items_needed";
+  if (hasDocs && inFlightDocs) return "documents_received";
+  if (params.activeFields.length > 0) return "buddy_reviewing";
+  if (params.status?.stage === "bank_review") return "ready_for_sba_review";
+  return "buddy_reviewing";
+}
+
+function safeStageLabel(stage: SafeBorrowerStage) {
+  if (stage === "getting_started") return "Getting started";
+  if (stage === "documents_requested") return "Documents requested";
+  if (stage === "documents_received") return "Documents received";
+  if (stage === "buddy_reviewing") return "Buddy reviewing your package";
+  if (stage === "additional_items_needed") return "Additional items needed";
+  return "Ready for SBA review";
+}
+
+function buildSafeProgressTimeline(currentStage: SafeBorrowerStage) {
+  const ordered: Array<{ key: SafeBorrowerStage; title: string; detail: string }> = [
+    {
+      key: "getting_started",
+      title: "Getting started",
+      detail: "Buddy is setting up your secure SBA package and organizing the first request list.",
+    },
+    {
+      key: "documents_requested",
+      title: "Documents requested",
+      detail: "Buddy has listed the first items needed to build the SBA package.",
+    },
+    {
+      key: "documents_received",
+      title: "Documents received",
+      detail: "Buddy received your upload and is checking that it belongs in the package.",
+    },
+    {
+      key: "buddy_reviewing",
+      title: "Buddy reviewing your package",
+      detail: "Buddy is reviewing the latest files and updating your package status.",
+    },
+    {
+      key: "additional_items_needed",
+      title: "Additional items needed",
+      detail: "Buddy needs one or more remaining items before the package can move ahead.",
+    },
+    {
+      key: "ready_for_sba_review",
+      title: "Ready for SBA review",
+      detail: "Your package has the requested documents and is ready for the next SBA review step.",
+    },
+  ];
+
+  const currentIndex = ordered.findIndex((item) => item.key === currentStage);
+
+  return ordered.map((item, index) => ({
+    ...item,
+    state:
+      index < currentIndex
+        ? ("done" as const)
+        : index === currentIndex
+          ? ("current" as const)
+          : ("upcoming" as const),
+  }));
+}
+
+function buildReviewStatusCopy(params: {
+  stage: SafeBorrowerStage;
+  checklistStats: ChecklistStats | null;
+}) {
+  if (params.stage === "getting_started") {
+    return {
+      title: "Buddy is setting up your package",
+      summary: "You are at the beginning of the borrower process. Buddy will post the first document requests here as soon as they are ready.",
+      nextStep: "Once the request list is ready, you will see the next item to upload.",
+    };
+  }
+  if (params.stage === "documents_requested") {
+    return {
+      title: "Action needed from you",
+      summary: "Buddy has posted the first requested documents for your SBA package.",
+      nextStep: "Upload the next requested item and Buddy will update your package automatically.",
+    };
+  }
+  if (params.stage === "additional_items_needed") {
+    return {
+      title: "Buddy needs a few more items",
+      summary: "Your package is moving, and Buddy is waiting on the remaining requested documents.",
+      nextStep: "Add the next missing document so the package can continue forward.",
+    };
+  }
+  if (params.stage === "documents_received") {
+    return {
+      title: "Buddy received your document",
+      summary: "Your latest upload is in the secure SBA portal and is being checked before it moves into the package.",
+      nextStep: "Buddy usually reviews new uploads within 1 business day.",
+    };
+  }
+  if (params.stage === "ready_for_sba_review") {
+    return {
+      title: "Your SBA package is moving forward",
+      summary: "Buddy has the requested documents and your package is ready for the next review step.",
+      nextStep: "If anything else is needed, Buddy will update the checklist here.",
+    };
+  }
+  return {
+    title: "Buddy is reviewing your package",
+    summary: "Buddy is checking the latest files and updating your package status in plain English.",
+    nextStep: "Buddy usually reviews new uploads within 1 business day.",
+  };
+}
+
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
@@ -306,6 +455,7 @@ export function PortalClient({ token }: { token: string }) {
   const [checklist, setChecklist] = React.useState<PortalChecklistItem[]>([]);
   const [checklistStats, setChecklistStats] = React.useState<ChecklistStats | null>(null);
   const [portalStatus, setPortalStatus] = React.useState<PortalStatus | null>(null);
+  const [activity, setActivity] = React.useState<BorrowerActivity[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -384,6 +534,16 @@ export function PortalClient({ token }: { token: string }) {
     setPortalStatus(json);
   }, [token]);
 
+  const refreshActivity = React.useCallback(async () => {
+    const response = await fetch(`/api/portal/${token}/activity`, {
+      method: "GET",
+      cache: "no-store",
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.ok) throw new Error(json?.error || `HTTP ${response.status}`);
+    setActivity((json.activities ?? []) as BorrowerActivity[]);
+  }, [token]);
+
   const loadPortal = React.useCallback(async () => {
     try {
       setLoading(true);
@@ -391,13 +551,13 @@ export function PortalClient({ token }: { token: string }) {
       const { data, error } = await supabase.rpc("portal_get_context", { p_token: token });
       if (error) throw new Error(error.message);
       setDeal((data as any).deal ?? null);
-      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus()]);
+      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity()]);
     } catch (error) {
       setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
       setLoading(false);
     }
-  }, [refreshChecklist, refreshDocs, refreshStatus, token]);
+  }, [refreshActivity, refreshChecklist, refreshDocs, refreshStatus, token]);
 
   React.useEffect(() => {
     loadPortal();
@@ -446,7 +606,7 @@ export function PortalClient({ token }: { token: string }) {
       });
       if (error) throw new Error(error.message);
       setActionMessage("Buddy received that document and added it to your package.");
-      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshFields(activeUploadId)]);
+      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity(), refreshFields(activeUploadId)]);
     } catch (error) {
       setActionMessage(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
@@ -456,7 +616,15 @@ export function PortalClient({ token }: { token: string }) {
 
   const stageCopy = formatStageCopy(portalStatus, deal);
   const progressValue = portalStatus?.progress ?? portalStatus?.checklist?.pct ?? 0;
-  const timeline = portalStatus?.timeline ?? [];
+  const safeStage = deriveSafeBorrowerStage({
+    checklistStats,
+    docs,
+    activeFields,
+    status: portalStatus,
+  });
+  const safeStageName = safeStageLabel(safeStage);
+  const progressTimeline = buildSafeProgressTimeline(safeStage);
+  const reviewStatus = buildReviewStatusCopy({ stage: safeStage, checklistStats });
   const primaryMissing = missingChecklist[0] ?? null;
   const primaryAction = primaryMissing
     ? {
@@ -481,6 +649,13 @@ export function PortalClient({ token }: { token: string }) {
           ctaLabel: activeDoc ? "Review selected document" : "Open your uploaded documents",
           hint: activeFields.length > 0 ? `${activeFields.length} highlighted value${activeFields.length === 1 ? "" : "s"} still need attention.` : "If nothing is highlighted, your document is ready to submit.",
         };
+  const showWaitingState =
+    !primaryMissing &&
+    activeFields.length === 0 &&
+    (safeStage === "documents_received" ||
+      safeStage === "buddy_reviewing" ||
+      safeStage === "ready_for_sba_review" ||
+      safeStage === "getting_started");
 
   if (loading) {
     return (
@@ -552,7 +727,7 @@ export function PortalClient({ token }: { token: string }) {
             },
             {
               label: "Current focus",
-              value: primaryMissing ? "Add requested documents" : "Package review",
+              value: primaryMissing ? "Add requested documents" : safeStageName,
             },
           ]}
         />
@@ -574,7 +749,12 @@ export function PortalClient({ token }: { token: string }) {
           progressLabel={stageCopy.progressLabel}
           progressValue={progressValue}
           checklistSummary={stageCopy.checklistSummary}
-          timeline={timeline}
+          timeline={progressTimeline.map((step) => ({
+            id: step.key,
+            title: step.title,
+            subtitle: step.detail,
+            state: step.state,
+          }))}
         />
       }
       footer={<BorrowerTrustFooter />}
@@ -608,6 +788,28 @@ export function PortalClient({ token }: { token: string }) {
           )
         ) : null}
 
+        <BorrowerReviewStatusCard
+          title={reviewStatus.title}
+          summary={reviewStatus.summary}
+          statusLabel={safeStageName}
+          timing="Buddy usually reviews new uploads within 1 business day. If we need anything else, the next request will appear here."
+          nextStep={reviewStatus.nextStep}
+        />
+
+        <BorrowerProgressTimeline
+          title={safeStageName}
+          summary="This timeline keeps the borrower experience clear without exposing internal underwriting or lender workflow details."
+          steps={progressTimeline}
+        />
+
+        {showWaitingState ? (
+          <BorrowerWaitingState
+            title="You're waiting on Buddy, not stuck"
+            summary="There is nothing you need to do right now. Buddy is keeping your package moving and will update this portal if another document is needed."
+            expectation="Expected next step: Buddy reviews the latest package update and posts a plain-English status here."
+          />
+        ) : null}
+
         <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -627,7 +829,7 @@ export function PortalClient({ token }: { token: string }) {
               type="button"
               onClick={() => {
                 setActionMessage(null);
-                void Promise.all([refreshChecklist(), refreshStatus()]).catch((error) => {
+                void Promise.all([refreshChecklist(), refreshStatus(), refreshActivity()]).catch((error) => {
                   setActionMessage(
                     sanitizeBorrowerError(error instanceof Error ? error.message : error),
                   );
@@ -703,6 +905,8 @@ export function PortalClient({ token }: { token: string }) {
             )}
           </div>
         </section>
+
+        <BorrowerReviewActivity items={activity} />
 
         <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

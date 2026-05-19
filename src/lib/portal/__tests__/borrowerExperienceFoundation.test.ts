@@ -7,10 +7,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
+import { BorrowerProgressTimeline } from "@/components/borrower/BorrowerProgressTimeline";
 import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
 import { BorrowerProgressRail } from "@/components/borrower/BorrowerProgressRail";
+import { BorrowerReviewActivity } from "@/components/borrower/BorrowerReviewActivity";
+import { BorrowerReviewStatusCard } from "@/components/borrower/BorrowerReviewStatusCard";
 import { BorrowerShell } from "@/components/borrower/BorrowerShell";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
+import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState";
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../..");
 
@@ -59,6 +63,52 @@ test("borrower shell primitives render the guided portal foundation", () => {
   assert.match(html, /Secure SBA document portal/);
   assert.match(html, /No documents uploaded yet/);
   assert.match(html, /xl:grid-cols-\[minmax\(0,1fr\)_320px\]/);
+});
+
+test("progress transparency primitives render borrower-safe review language", () => {
+  const children = [
+    React.createElement(BorrowerReviewStatusCard, {
+      key: "status",
+      title: "Buddy is reviewing your package",
+      summary: "Buddy is checking your latest files.",
+      statusLabel: "Buddy reviewing your package",
+      timing: "Buddy usually reviews new uploads within 1 business day.",
+      nextStep: "If anything else is needed, the next request will appear here.",
+    }),
+    React.createElement(BorrowerProgressTimeline, {
+      key: "timeline",
+      title: "Documents received",
+      summary: "Safe borrower progress only.",
+      steps: [
+        { key: "getting_started", title: "Getting started", detail: "Buddy is setting up your package.", state: "done" as const },
+        { key: "documents_received", title: "Documents received", detail: "Buddy received your upload.", state: "current" as const },
+      ],
+    }),
+    React.createElement(BorrowerReviewActivity, {
+      key: "activity",
+      items: [
+        {
+          id: "1",
+          title: "Buddy received your document",
+          detail: "Your file was added to the secure SBA package.",
+          createdAt: new Date().toISOString(),
+          kind: "upload" as const,
+        },
+      ],
+    }),
+    React.createElement(BorrowerWaitingState, {
+      key: "waiting",
+      title: "You're waiting on Buddy, not stuck",
+      summary: "There is nothing you need to do right now.",
+      expectation: "Expected next step: Buddy reviews the latest package update.",
+    }),
+  ];
+  const html = renderToStaticMarkup(React.createElement("div", null, ...children));
+
+  assert.match(html, /Buddy is reviewing your package/);
+  assert.match(html, /Documents received/);
+  assert.match(html, /Buddy received your document/);
+  assert.match(html, /waiting on Buddy, not stuck/);
 });
 
 test("guided checklist section prioritizes required items and separates completed ones", () => {
@@ -126,6 +176,10 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
 
   assert.match(source, /BorrowerShell/);
   assert.match(source, /BorrowerChecklistSection/);
+  assert.match(source, /BorrowerReviewStatusCard/);
+  assert.match(source, /BorrowerProgressTimeline/);
+  assert.match(source, /BorrowerReviewActivity/);
+  assert.match(source, /BorrowerWaitingState/);
   assert.match(source, /BorrowerPrimaryActionCard/);
   assert.match(source, /BorrowerTrustFooter/);
   assert.match(source, /Let's finish your SBA package/);
@@ -133,11 +187,21 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.match(source, /Business Tax Returns/);
   assert.match(source, /Voided Business Check/);
   assert.match(source, /title="Completed"/);
+  assert.match(source, /Getting started/);
+  assert.match(source, /Documents requested/);
+  assert.match(source, /Documents received/);
+  assert.match(source, /Buddy reviewing your package/);
+  assert.match(source, /Additional items needed/);
+  assert.match(source, /Ready for SBA review/);
   assert.ok(!source.includes("Portal error"));
   assert.ok(!source.includes("Review extracted data"));
   assert.ok(!source.includes("signed URL"));
   assert.ok(!source.includes("upload flow: use /upload/[token]"));
   assert.ok(!source.includes("{item.code}"));
+  assert.ok(!source.includes("Underwriting"));
+  assert.ok(!source.includes("approval"));
+  assert.ok(!source.includes("closing"));
+  assert.ok(!source.includes("underwriting scores"));
 });
 
 test("portal client sanitizes raw provider and token failures before rendering", () => {
@@ -179,4 +243,15 @@ test("upload page uses borrower-safe state copy and hides raw upload failures", 
   assert.match(source, /Files encrypted in transit/);
   assert.match(source, /safeUploadError/);
   assert.ok(!source.includes("setErr(e?.message"));
+});
+
+test("portal activity route filters to borrower-safe package updates", () => {
+  const source = read("src/app/api/portal/[token]/activity/route.ts");
+
+  assert.match(source, /Buddy received your document/);
+  assert.match(source, /Additional document requested/);
+  assert.match(source, /SBA package progressing/);
+  assert.ok(!source.includes("provider failures"));
+  assert.ok(!source.includes("retry queue"));
+  assert.ok(!source.includes("banker notes"));
 });
