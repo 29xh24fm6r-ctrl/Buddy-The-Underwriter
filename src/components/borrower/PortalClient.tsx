@@ -29,6 +29,8 @@ import { buildBorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerRea
 import type { ReadinessInput } from "@/lib/borrower/buildBorrowerReadinessViewModel";
 import { buildBorrowerDealHealthViewModel } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
 import type { DealHealthInput } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
+import { buildBorrowerGuidanceViewModel } from "@/lib/borrower/buildBorrowerGuidanceViewModel";
+import type { GuidanceInput } from "@/lib/borrower/buildBorrowerGuidanceViewModel";
 import { cn } from "@/lib/cn";
 
 const supabase = createClient(
@@ -810,6 +812,34 @@ export function PortalClient({ token }: { token: string }) {
   };
   const dealHealthViewModel = buildBorrowerDealHealthViewModel(dealHealthInput);
 
+  const guidanceInput: GuidanceInput = {
+    borrowerName: deal?.borrower_name ?? null,
+    checklistRequired: checklistStats?.required ?? 0,
+    checklistReceived: checklistStats?.received ?? 0,
+    checklistMissing: checklistStats?.missing ?? 0,
+    docsUploaded: docs.length,
+    docsVerified: verifiedDocs.length,
+    docsInFlight: docs.some((doc) => isInFlightDocStatus(doc.status)),
+    profileCompleteness: deal?.name ? 0.6 : 0.2,
+    ownershipVerified: false,
+    blockerCount: missingChecklist.filter((i) => i.required).length,
+    readinessScore: readinessViewModel.readiness.score,
+    missingItems: missingChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+      required: item.required,
+    })),
+    completedItems: completedChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+    })),
+    hasActivity: activity.length > 0,
+    recommendationCount: readinessViewModel.recommendations.length,
+    portalStage: safeStage,
+    token,
+  };
+  const guidanceViewModel = buildBorrowerGuidanceViewModel(guidanceInput);
+
   if (loading) {
     return (
       <BorrowerShell
@@ -945,6 +975,7 @@ export function PortalClient({ token }: { token: string }) {
           viewModel={journeyViewModel}
           readinessViewModel={readinessViewModel}
           dealHealthViewModel={dealHealthViewModel}
+          guidanceViewModel={guidanceViewModel}
           dealName={deal?.name}
         />
 
