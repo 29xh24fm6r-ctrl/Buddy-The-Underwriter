@@ -1,18 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { PortalShell } from "@/components/borrower/PortalShell";
-import { DocToolbar } from "@/components/borrower/DocToolbar";
-import { Icon } from "@/components/ui/Icon";
-import { BorrowerMagicStatus } from "@/components/borrower/BorrowerMagicStatus";
-import { BorrowerNextUploadCard } from "@/components/borrower/BorrowerNextUploadCard";
-import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { createClient } from "@supabase/supabase-js";
+import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
+import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
+import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
+import { BorrowerProgressRail } from "@/components/borrower/BorrowerProgressRail";
+import { BorrowerSafeError } from "@/components/borrower/BorrowerSafeError";
+import { BorrowerShell } from "@/components/borrower/BorrowerShell";
+import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
+import { DocToolbar } from "@/components/borrower/DocToolbar";
+import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
+import { Icon } from "@/components/ui/Icon";
+import { cn } from "@/lib/cn";
 
-// Borrower uses anon client + RPCs (SECURITY DEFINER pattern)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
 type Deal = {
@@ -55,87 +59,266 @@ type PortalChecklistItem = {
   completed_at: string | null;
 };
 
+type ChecklistStats = {
+  required: number;
+  missing: number;
+  received: number;
+};
+
+type PortalStatus = {
+  ok: boolean;
+  progress?: number;
+  checklist?: {
+    total: number;
+    received: number;
+    missing: number;
+    pct: number;
+  };
+  stage?: "waiting_for_checklist" | "uploading_docs" | "bank_review" | string;
+  timeline?: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    state: "done" | "current" | "upcoming";
+  }>;
+  eta?: {
+    banker_review_by: string | null;
+  };
+};
+
+function sanitizeBorrowerError(input: unknown) {
+  const text = typeof input === "string" ? input.toLowerCase() : "";
+  if (text.includes("invalid") || text.includes("expired") || text.includes("token")) {
+    return "This private link is no longer active. Ask Buddy for a fresh portal link and try again.";
+  }
+  if (
+    text.includes("storage") ||
+    text.includes("bucket") ||
+    text.includes("provider") ||
+    text.includes("signed") ||
+    text.includes("supabase")
+  ) {
+    return "We had trouble reaching your secure document portal. Please try again in a moment.";
+  }
+  return "We hit a temporary issue loading your SBA package. Please refresh and try again.";
+}
+
+function formatStageCopy(status: PortalStatus | null, deal: Deal | null) {
+  const borrowerName = deal?.borrower_name?.trim();
+  const displayName = borrowerName ? borrowerName.split(" ")[0] : "there";
+  const required = status?.checklist?.total ?? 0;
+  const received = status?.checklist?.received ?? 0;
+  const missing = status?.checklist?.missing ?? 0;
+  const eta = status?.eta?.banker_review_by
+    ? new Date(status.eta.banker_review_by).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+
+  if (status?.stage === "bank_review") {
+    return {
+      tone: "review" as const,
+      badge: "Buddy is reviewing your package",
+      title: `Thanks, ${displayName}. Your SBA package is moving forward.`,
+      summary: eta
+        ? `Buddy has what it needs for the next review pass. We are organizing your documents now and expect the next review update by ${eta}.`
+        : "Buddy has what it needs for the next review pass. We are organizing your documents now and will reach out if anything else is needed.",
+      progressLabel: "Package review underway",
+      checklistSummary:
+        required > 0
+          ? `${received} of ${required} requested items are already in your package.`
+          : "Your package has been received and is moving into review.",
+    };
+  }
+
+  if (required === 0 || status?.stage === "waiting_for_checklist") {
+    return {
+      tone: "progress" as const,
+      badge: "Preparing your request list",
+      title: `We're getting your SBA package ready, ${displayName}.`,
+      summary:
+        "Buddy is preparing the first document list for your package. You can still start the application and return as new requests appear.",
+      progressLabel: "Checklist coming together",
+      checklistSummary:
+        "Your secure request list will appear here as soon as Buddy finishes setting it up.",
+    };
+  }
+
+  return {
+    tone: "progress" as const,
+    badge: "Documents still needed",
+    title: `Let's finish your SBA package, ${displayName}.`,
+    summary:
+      missing > 0
+        ? `Buddy is waiting on ${missing} more requested document${missing === 1 ? "" : "s"}. Add the next item below and we'll keep your package moving.`
+        : "You're making strong progress. Add any remaining files and Buddy will keep organizing the package for review.",
+    progressLabel: "Package in progress",
+    checklistSummary:
+      `${received} of ${required} requested items are already in your package.`,
+  };
+}
+
+function formatDocumentStatus(status: string) {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "submitted" || normalized === "confirmed") return "Received";
+  if (normalized === "processing") return "Buddy is reviewing";
+  if (normalized === "pending") return "Waiting for review";
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatChecklistStatus(status: string) {
+  if (status === "verified") return "Reviewed";
+  if (status === "received") return "Received";
+  return "Needed";
+}
+
+function formatDateLabel(iso: string | null) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatChecklistGroup(group: string) {
+  if (!group) return "Requested documents";
+  return group
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
   const [activeUploadId, setActiveUploadId] = React.useState<string | null>(null);
   const [fields, setFields] = React.useState<Field[]>([]);
   const [checklist, setChecklist] = React.useState<PortalChecklistItem[]>([]);
-  const [checklistStats, setChecklistStats] = React.useState<{ required: number; missing: number; received: number } | null>(null);
+  const [checklistStats, setChecklistStats] = React.useState<ChecklistStats | null>(null);
+  const [portalStatus, setPortalStatus] = React.useState<PortalStatus | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
 
-  const activeDoc = React.useMemo(() => docs.find((d) => d.upload_id === activeUploadId) ?? null, [docs, activeUploadId]);
-  const active = activeDoc;
+  const activeDoc = React.useMemo(
+    () => docs.find((doc) => doc.upload_id === activeUploadId) ?? null,
+    [docs, activeUploadId],
+  );
 
-  const needsAttention = fields.filter((f) => f.needs_attention && !f.confirmed).length;
-  const confirmed = fields.filter((f) => f.confirmed).length;
+  const activeFields = React.useMemo(
+    () => fields.filter((field) => field.needs_attention && !field.confirmed),
+    [fields],
+  );
+  const confirmedCount = React.useMemo(
+    () => fields.filter((field) => field.confirmed).length,
+    [fields],
+  );
+  const missingChecklist = React.useMemo(
+    () => checklist.filter((item) => item.required && (item.status ?? "missing") === "missing"),
+    [checklist],
+  );
+  const groupedChecklist = React.useMemo(() => {
+    const groups = new Map<string, PortalChecklistItem[]>();
+    for (const item of checklist) {
+      const key = formatChecklistGroup(item.group);
+      const list = groups.get(key) ?? [];
+      list.push(item);
+      groups.set(key, list);
+    }
+    return Array.from(groups.entries());
+  }, [checklist]);
 
   const refreshDocs = React.useCallback(async () => {
-    const { data, error } = await supabase.rpc("portal_list_uploads", {
-      p_token: token,
-    });
+    const { data, error } = await supabase.rpc("portal_list_uploads", { p_token: token });
     if (error) throw new Error(error.message);
-    setDocs(data as Doc[]);
-    if (!activeUploadId && data && data[0]?.upload_id) {
-      setActiveUploadId(data[0].upload_id);
-    }
-  }, [token, activeUploadId]);
-
-  const refreshFields = React.useCallback(async (uploadId: string) => {
-    const { data, error } = await supabase.rpc("portal_get_doc_fields", {
-      p_token: token,
-      p_upload_id: uploadId,
+    const nextDocs = (data as Doc[]) ?? [];
+    setDocs(nextDocs);
+    setActiveUploadId((current) => {
+      if (current && nextDocs.some((doc) => doc.upload_id === current)) return current;
+      return nextDocs[0]?.upload_id ?? null;
     });
-    if (error) throw new Error(error.message);
-    setFields(data as Field[]);
   }, [token]);
+
+  const refreshFields = React.useCallback(
+    async (uploadId: string) => {
+      const { data, error } = await supabase.rpc("portal_get_doc_fields", {
+        p_token: token,
+        p_upload_id: uploadId,
+      });
+      if (error) throw new Error(error.message);
+      setFields((data as Field[]) ?? []);
+    },
+    [token],
+  );
 
   const refreshChecklist = React.useCallback(async () => {
-    const res = await fetch(`/api/portal/${token}/checklist`, { method: "GET" });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+    const response = await fetch(`/api/portal/${token}/checklist`, { method: "GET" });
+    const json = await response.json();
+    if (!response.ok || !json?.ok) throw new Error(json?.error || `HTTP ${response.status}`);
     setChecklist((json.checklist ?? []) as PortalChecklistItem[]);
-    setChecklistStats((json.stats ?? null) as any);
+    setChecklistStats((json.stats ?? null) as ChecklistStats | null);
   }, [token]);
 
-  React.useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setErr(null);
-        const { data, error } = await supabase.rpc("portal_get_context", {
-          p_token: token,
-        });
-        if (error) throw new Error(error.message);
-        setDeal((data as any).deal);
-        await Promise.all([refreshDocs(), refreshChecklist()]);
-      } catch (e: any) {
-        setErr(e?.message ?? "Failed to load portal");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [token, refreshDocs, refreshChecklist]);
+  const refreshStatus = React.useCallback(async () => {
+    const response = await fetch(`/api/portal/${token}/status`, {
+      method: "GET",
+      cache: "no-store",
+    });
+    const json = (await response.json()) as PortalStatus;
+    if (!response.ok || !json?.ok) throw new Error((json as any)?.error || `HTTP ${response.status}`);
+    setPortalStatus(json);
+  }, [token]);
+
+  const loadPortal = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      setErr(null);
+      const { data, error } = await supabase.rpc("portal_get_context", { p_token: token });
+      if (error) throw new Error(error.message);
+      setDeal((data as any).deal ?? null);
+      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus()]);
+    } catch (error) {
+      setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshChecklist, refreshDocs, refreshStatus, token]);
 
   React.useEffect(() => {
-    if (!activeUploadId) return;
-    refreshFields(activeUploadId).catch((e: any) => setErr(e?.message ?? "Failed to load fields"));
+    loadPortal();
+  }, [loadPortal]);
+
+  React.useEffect(() => {
+    if (!activeUploadId) {
+      setFields([]);
+      return;
+    }
+    refreshFields(activeUploadId).catch((error) => {
+      setActionMessage(sanitizeBorrowerError(error instanceof Error ? error.message : error));
+    });
   }, [activeUploadId, refreshFields]);
 
   async function confirmField(fieldId: string) {
     if (!activeUploadId) return;
     setBusy(true);
+    setActionMessage(null);
     try {
-      // Call legacy API for field confirm (can convert to RPC later if needed)
-      const res = await fetch(`/api/portal/${token}/docs/${activeUploadId}/field-confirm`, {
+      const response = await fetch(`/api/portal/${token}/docs/${activeUploadId}/field-confirm`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ field_id: fieldId }),
       });
-      if (!res.ok) throw new Error("Failed to confirm field");
+      if (!response.ok) {
+        const json = await response.json().catch(() => null);
+        throw new Error(json?.error || "confirm_failed");
+      }
       await refreshFields(activeUploadId);
+    } catch (error) {
+      setActionMessage(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
       setBusy(false);
     }
@@ -144,289 +327,496 @@ export function PortalClient({ token }: { token: string }) {
   async function submitDoc() {
     if (!activeUploadId) return;
     setBusy(true);
+    setActionMessage(null);
     try {
       const { error } = await supabase.rpc("portal_confirm_and_submit_document", {
         p_token: token,
         p_upload_id: activeUploadId,
       });
       if (error) throw new Error(error.message);
-      await refreshDocs();
-      await refreshFields(activeUploadId);
-    } catch (e: any) {
-      alert(e?.message ?? "Submit failed");
+      setActionMessage("Buddy received that document and added it to your package.");
+      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshFields(activeUploadId)]);
+    } catch (error) {
+      setActionMessage(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
       setBusy(false);
     }
   }
 
+  const stageCopy = formatStageCopy(portalStatus, deal);
+  const progressValue = portalStatus?.progress ?? portalStatus?.checklist?.pct ?? 0;
+  const timeline = portalStatus?.timeline ?? [];
+  const primaryMissing = missingChecklist[0] ?? null;
+  const primaryAction = primaryMissing
+    ? {
+        title: primaryMissing.title,
+        description: "Add the next document Buddy requested so your SBA package can keep moving without delays.",
+        detail: primaryMissing.description ?? "If you have more than one version, upload the clearest and most recent copy you have.",
+        ctaLabel: "Add requested document",
+        hint: "You can upload from your phone or desktop.",
+      }
+    : docs.length === 0
+      ? {
+          title: "Start with your first requested file",
+          description: "Once you add your first document, Buddy will organize it and update your package progress here.",
+          detail: "PDF, spreadsheet, and document uploads still use the same secure flow as before.",
+          ctaLabel: "Add your first document",
+          hint: "Your secure link keeps this upload private.",
+        }
+      : {
+          title: "Review the document Buddy is holding for you",
+          description: "Select a file below, confirm any highlighted values, and submit it when everything looks right.",
+          detail: "This keeps your package clean before it moves into review.",
+          ctaLabel: activeDoc ? "Review selected document" : "Open your uploaded documents",
+          hint: activeFields.length > 0 ? `${activeFields.length} highlighted value${activeFields.length === 1 ? "" : "s"} still need attention.` : "If nothing is highlighted, your document is ready to submit.",
+        };
+
   if (loading) {
     return (
-      <div className="min-h-dvh bg-neutral-950 text-neutral-100 flex items-center justify-center">
-        <div className="rounded-xl bg-white text-neutral-900 px-6 py-4 shadow-lg">Loading portal…</div>
-      </div>
+      <BorrowerShell
+        hero={
+          <div className="rounded-[1.75rem] border border-stone-200 bg-white p-6">
+            <div className="h-4 w-28 rounded-full bg-stone-100" />
+            <div className="mt-4 h-10 w-3/4 rounded-2xl bg-stone-100" />
+            <div className="mt-3 h-4 w-full rounded-full bg-stone-100" />
+            <div className="mt-2 h-4 w-2/3 rounded-full bg-stone-100" />
+          </div>
+        }
+        primary={
+          <div className="rounded-[1.5rem] border border-stone-200 bg-white p-6">
+            <div className="h-5 w-48 rounded-full bg-stone-100" />
+            <div className="mt-4 h-4 w-full rounded-full bg-stone-100" />
+            <div className="mt-2 h-4 w-4/5 rounded-full bg-stone-100" />
+            <div className="mt-5 h-12 w-56 rounded-2xl bg-stone-100" />
+          </div>
+        }
+        rail={
+          <div className="space-y-4">
+            <div className="h-40 rounded-[1.5rem] border border-stone-200 bg-white" />
+            <div className="h-72 rounded-[1.5rem] border border-stone-200 bg-white" />
+          </div>
+        }
+        footer={<BorrowerTrustFooter />}
+      >
+        <div className="grid gap-6">
+          <div className="h-64 rounded-[1.5rem] border border-stone-200 bg-white" />
+          <div className="h-64 rounded-[1.5rem] border border-stone-200 bg-white" />
+        </div>
+      </BorrowerShell>
     );
   }
 
   if (err) {
     return (
-      <div className="min-h-dvh bg-neutral-950 text-neutral-100 flex items-center justify-center">
-        <div className="max-w-lg rounded-2xl bg-white text-neutral-900 p-6 shadow-lg">
-          <div className="text-lg font-semibold">Portal error</div>
-          <div className="mt-2 text-sm text-neutral-700">{err}</div>
-        </div>
-      </div>
+      <BorrowerShell hero={<div />} footer={<BorrowerTrustFooter />}>
+        <BorrowerSafeError
+          title="We couldn't open this SBA portal"
+          message={err}
+          actionLabel="Try again"
+          onAction={() => {
+            void loadPortal();
+          }}
+        />
+      </BorrowerShell>
     );
   }
 
   return (
-    <PortalShell
-      title="Buddy Portal"
-      subtitle={deal?.name ? `Deal: ${deal.name}` : "Review extracted data and confirm your documents."}
-      left={
-        <div className="space-y-4">
-          {/* Phase 85A.2 — bridge from legacy portal to new intake form */}
-          <a
-            href={`/portal/${token}/apply`}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          >
-            <Icon name="arrow_forward_ios" className="h-4 w-4 text-white" />
-            Start Application
-          </a>
+    <BorrowerShell
+      hero={
+        <BorrowerHeroStatus
+          eyebrow="Buddy SBA concierge"
+          title={stageCopy.title}
+          summary={stageCopy.summary}
+          badge={stageCopy.badge}
+          tone={stageCopy.tone}
+          meta={[
+            {
+              label: "Business",
+              value: deal?.name || "Your SBA request",
+            },
+            {
+              label: "Documents received",
+              value: checklistStats ? `${checklistStats.received} of ${checklistStats.required}` : "Updating now",
+            },
+            {
+              label: "Current focus",
+              value: primaryMissing ? "Add requested documents" : "Package review",
+            },
+          ]}
+        />
+      }
+      primary={
+        <BorrowerPrimaryActionCard
+          title={primaryAction.title}
+          description={primaryAction.description}
+          detail={primaryAction.detail}
+          ctaLabel={primaryAction.ctaLabel}
+          hint={primaryAction.hint}
+          onClick={() => {
+            window.location.href = `/upload/${token}`;
+          }}
+        />
+      }
+      rail={
+        <BorrowerProgressRail
+          progressLabel={stageCopy.progressLabel}
+          progressValue={progressValue}
+          checklistSummary={stageCopy.checklistSummary}
+          timeline={timeline}
+        />
+      }
+      footer={<BorrowerTrustFooter />}
+    >
+      <div className="space-y-6">
+        {actionMessage ? (
+          actionMessage.includes("temporary issue") ||
+          actionMessage.includes("no longer active") ? (
+            <BorrowerSafeError
+              title="We need a quick retry"
+              message={actionMessage}
+            />
+          ) : (
+            <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-900">
+              {actionMessage}
+            </div>
+          )
+        ) : null}
 
-          {/* Borrower Magic Status */}
-          <BorrowerMagicStatus token={token} />
-
-          {/* Sprint 3: Trident preview package (business plan / projections / feasibility) */}
-          <TridentPreviewCard token={token} />
-
-          {/* Next Upload Card */}
-          <BorrowerNextUploadCard
-            token={token}
-            onUploadClick={() => alert("Upload flow: use /upload/[token] (wired separately)")}
-          />
-
-          <div className="rounded-xl border border-neutral-200 p-4">
+        <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                Guided checklist
+              </div>
+              <h2 className="mt-2 text-xl font-semibold text-stone-950">
+                Add the documents Buddy requested
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                Everything below is grouped so you can work through your SBA package one section at a time.
+              </p>
+            </div>
             <button
               type="button"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900"
-              onClick={() => alert("Upload flow: use /upload/[token] (wired separately)")}
+              onClick={() => {
+                setActionMessage(null);
+                void Promise.all([refreshChecklist(), refreshStatus()]).catch((error) => {
+                  setActionMessage(
+                    sanitizeBorrowerError(error instanceof Error ? error.message : error),
+                  );
+                });
+              }}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:ring-offset-2"
+            >
+              <Icon name="refresh" className="h-4 w-4 text-current" />
+              Refresh package status
+            </button>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {groupedChecklist.length === 0 ? (
+              <BorrowerEmptyState
+                title="Your request list is on the way"
+                message="Buddy is preparing the first document group for this SBA package. You can start the application now and return when the checklist is ready."
+              />
+            ) : (
+              groupedChecklist.map(([group, items]) => (
+                <div key={group} className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-500">
+                        {group}
+                      </h3>
+                      <p className="mt-1 text-sm text-stone-600">
+                        {items.filter((item) => item.required).length} requested item
+                        {items.filter((item) => item.required).length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    {items.map((item) => {
+                      const isMissing = (item.status ?? "missing") === "missing";
+                      return (
+                        <div
+                          key={item.id}
+                          className={cn(
+                            "rounded-[1rem] border px-4 py-4",
+                            isMissing
+                              ? "border-amber-200 bg-white"
+                              : "border-emerald-200 bg-emerald-50/55",
+                          )}
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="text-base font-semibold text-stone-950">
+                                {item.title}
+                              </div>
+                              {item.description ? (
+                                <p className="mt-1 text-sm leading-6 text-stone-600">
+                                  {item.description}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <span
+                                className={cn(
+                                  "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                                  isMissing
+                                    ? "bg-amber-100 text-amber-900"
+                                    : "bg-emerald-100 text-emerald-900",
+                                )}
+                              >
+                                {formatChecklistStatus(item.status)}
+                              </span>
+                              {item.completed_at ? (
+                                <span className="text-xs text-stone-500">
+                                  {formatDateLabel(item.completed_at)}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                Your uploaded documents
+              </div>
+              <h2 className="mt-2 text-xl font-semibold text-stone-950">
+                Review what Buddy already has
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                Choose a file to review, confirm anything Buddy flagged, and submit it into your package.
+              </p>
+            </div>
+            <a
+              href={`/upload/${token}`}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-stone-950 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:ring-offset-2"
             >
               <Icon name="cloud_upload" className="h-4 w-4 text-white" />
-              Upload New Document
-            </button>
-            <p className="mt-2 text-xs text-neutral-500">PDF, Excel, Word (Max 50MB)</p>
+              Add more documents
+            </a>
           </div>
 
-          <div className="rounded-xl border border-neutral-200 p-4">
-            <div className="flex items-center gap-2">
-              <Icon name="checklist" className="h-5 w-5" />
-              <div className="text-sm font-semibold">Requested Documents</div>
-              <div className="ml-auto text-xs text-neutral-500">
-                {checklistStats ? `${checklistStats.received}/${checklistStats.required} received` : ""}
-              </div>
+          {docs.length === 0 ? (
+            <div className="mt-5">
+              <BorrowerEmptyState
+                title="No documents uploaded yet"
+                message="Once you add documents, Buddy will organize them here and guide you through any values that need confirmation."
+                ctaLabel="Add documents"
+                onClick={() => {
+                  window.location.href = `/upload/${token}`;
+                }}
+              />
             </div>
-
-            {checklist.length === 0 ? (
-              <div className="mt-3 text-sm text-neutral-500">No checklist items yet.</div>
-            ) : (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Missing</div>
-                  <ul className="mt-2 space-y-2">
-                    {checklist.filter((c) => c.required && (c.status ?? "missing") === "missing").map((c) => (
-                      <li key={c.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2">
-                        <div className="text-sm font-medium text-amber-900">{c.title}</div>
-                        {c.description ? <div className="mt-1 text-xs text-amber-900/70">{c.description}</div> : null}
-                      </li>
-                    ))}
-                    {checklist.filter((c) => c.required && (c.status ?? "missing") === "missing").length === 0 ? (
-                      <li className="text-sm text-neutral-500">Nothing missing right now.</li>
-                    ) : null}
-                  </ul>
-                </div>
-
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Received</div>
-                  <ul className="mt-2 space-y-2">
-                    {checklist.filter((c) => c.required && (c.status ?? "missing") !== "missing").map((c) => (
-                      <li key={c.id} className="rounded-lg border border-emerald-200 bg-emerald-50 p-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0 truncate text-sm font-medium text-emerald-900">{c.title}</div>
-                          <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
-                            {c.status}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                    {checklist.filter((c) => c.required && (c.status ?? "missing") !== "missing").length === 0 ? (
-                      <li className="text-sm text-neutral-500">No documents received yet.</li>
-                    ) : null}
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => refreshChecklist().catch((e: any) => setErr(e?.message ?? "Failed to refresh checklist"))}
-                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
-                >
-                  Refresh Checklist
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Your Documents
-            </div>
-            <ul className="space-y-2">
-              {docs.map((d) => (
-                <li key={d.upload_id}>
+          ) : (
+            <div className="mt-5 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="space-y-3">
+                {docs.map((doc) => (
                   <button
+                    key={doc.upload_id}
                     type="button"
-                    onClick={() => setActiveUploadId(d.upload_id)}
-                    className={[
-                      "w-full rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-neutral-900",
-                      d.upload_id === activeUploadId ? "border-neutral-900 bg-neutral-50" : "border-neutral-200 hover:bg-neutral-50",
-                    ].join(" ")}
+                    onClick={() => {
+                      setActionMessage(null);
+                      setActiveUploadId(doc.upload_id);
+                    }}
+                    className={cn(
+                      "w-full rounded-[1.25rem] border px-4 py-4 text-left transition focus:outline-none focus:ring-2 focus:ring-stone-900 focus:ring-offset-2",
+                      doc.upload_id === activeUploadId
+                        ? "border-stone-900 bg-stone-950 text-white shadow-lg"
+                        : "border-stone-200 bg-stone-50/70 text-stone-900 hover:bg-stone-100",
+                    )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 truncate text-sm font-medium">{d.filename}</div>
-                      <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-700">
-                        {d.status}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-semibold">
+                          {doc.filename}
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-2 text-sm",
+                            doc.upload_id === activeUploadId
+                              ? "text-stone-300"
+                              : "text-stone-600",
+                          )}
+                        >
+                          {doc.doc_type ? `Buddy tagged this as ${doc.doc_type}.` : "Waiting for Buddy to organize this file."}
+                        </div>
+                      </div>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-3 py-1 text-xs font-semibold",
+                          doc.upload_id === activeUploadId
+                            ? "bg-white/15 text-white"
+                            : "bg-white text-stone-700",
+                        )}
+                      >
+                        {formatDocumentStatus(doc.status)}
                       </span>
                     </div>
-                    {d.checklist_key ? <div className="mt-1 text-xs text-neutral-500">Checklist: {d.checklist_key}</div> : null}
                   </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      }
-      center={
-        <div className="space-y-4">
-          <DocToolbar
-            filename={active?.filename ?? "No document selected"}
-            pageLabel={active?.doc_type ? `Type: ${active.doc_type}` : undefined}
-            onPrev={() => {}}
-            onNext={() => {}}
-            onRemove={() => alert("Remove: implement if desired")}
-            onUploadNewVersion={() => alert("Upload new version: implement signed upload + replace")}
-          />
-
-          <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-            <div className="h-[420px] rounded-lg bg-white shadow-inner">
-              <div className="flex h-full items-center justify-center text-sm text-neutral-500">
-                PDF Preview: wire your viewer to Storage signed URL
+                ))}
               </div>
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-neutral-200 p-4">
-            <div className="flex items-center gap-2">
-              <Icon name="auto_awesome" className="h-5 w-5" />
-              <div className="text-sm font-semibold">What We Read</div>
-              <div className="ml-auto text-xs text-neutral-500">Confirm highlighted values</div>
-            </div>
-
-            <div className="mt-4 divide-y divide-neutral-200">
-              {fields.map((f) => (
-                <div key={f.id} className="flex items-center gap-3 py-3">
-                  <div className="w-48 shrink-0 text-sm text-neutral-600">{f.field_label}</div>
-                  <div className="min-w-0 flex-1">
-                    <input
-                      className={[
-                        "w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900",
-                        f.needs_attention && !f.confirmed ? "border-amber-400 bg-amber-50" : "border-neutral-200 bg-white",
-                      ].join(" ")}
-                      value={f.field_value}
-                      readOnly
-                      aria-label={f.field_label}
-                    />
-                    {f.needs_attention && !f.confirmed ? (
-                      <div className="mt-1 text-xs text-amber-800">Please verify this value matches the document.</div>
-                    ) : null}
-                  </div>
-                  <div className="shrink-0">
-                    {f.confirmed ? (
-                      <span className="inline-flex items-center gap-1 text-sm text-emerald-700">
-                        <Icon name="check_circle" className="h-4 w-4" />
-                        Confirmed
-                      </span>
-                    ) : f.needs_attention ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => confirmField(f.id)}
-                        className="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 disabled:opacity-60"
-                      >
-                        Confirm
-                      </button>
-                    ) : (
-                      <span className="text-sm text-neutral-500">—</span>
-                    )}
+              <div className="space-y-5">
+                <div className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
+                  <DocToolbar
+                    filename={activeDoc?.filename ?? "Select a document"}
+                    pageLabel={activeDoc?.doc_type ? `Buddy labeled this as ${activeDoc.doc_type}` : "Secure document review"}
+                    onPrev={() => {}}
+                    onNext={() => {}}
+                    onRemove={() => {
+                      setActionMessage("Document removal is not available from this portal.");
+                    }}
+                    onUploadNewVersion={() => {
+                      window.location.href = `/upload/${token}`;
+                    }}
+                  />
+                  <div className="mt-4 rounded-[1rem] border border-dashed border-stone-300 bg-white p-8 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-100">
+                      <Icon name="description" className="h-5 w-5 text-stone-700" />
+                    </div>
+                    <div className="mt-4 text-base font-semibold text-stone-900">
+                      Document review stays inside this secure portal
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-stone-600">
+                      Buddy will keep your uploaded file tied to this package while you confirm any highlighted values below.
+                    </p>
                   </div>
                 </div>
-              ))}
-              {fields.length === 0 ? <div className="py-6 text-sm text-neutral-500">No extracted fields yet.</div> : null}
-            </div>
-          </div>
-        </div>
-      }
-      right={
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold">Review & Confirm</div>
-              <div className="mt-1 text-xs text-neutral-500">Confirm highlighted fields before submitting.</div>
-            </div>
-            <button type="button" className="rounded-lg border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900" onClick={() => alert("Save & Exit")}>
-              Save & Exit
-            </button>
-          </div>
 
-          <div className="rounded-xl border border-neutral-200 p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">Confirmation Progress</div>
-              <div className="text-sm text-neutral-700">{confirmed} of {fields.length} fields</div>
-            </div>
-            <div className="mt-3 h-2 w-full rounded-full bg-neutral-100">
-              <div className="h-2 rounded-full bg-neutral-900" style={{ width: `${fields.length ? Math.round((confirmed / fields.length) * 100) : 0}%` }} />
-            </div>
+                <div className="rounded-[1.25rem] border border-stone-200 bg-white p-5">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-stone-950">
+                        Buddy's highlighted details
+                      </h3>
+                      <p className="mt-1 text-sm text-stone-600">
+                        Confirm anything flagged before you submit this document.
+                      </p>
+                    </div>
+                    <div className="rounded-full bg-stone-100 px-3 py-1 text-sm font-semibold text-stone-700">
+                      {confirmedCount} of {fields.length} confirmed
+                    </div>
+                  </div>
 
-            {needsAttention > 0 ? (
-              <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                <div className="font-semibold">Fields needing attention</div>
-                <div className="mt-1 text-xs">{needsAttention} remaining</div>
+                  {fields.length === 0 ? (
+                    <div className="mt-5">
+                      <BorrowerEmptyState
+                        title="No highlighted values yet"
+                        message="Buddy has not flagged any values on this document. If it looks right, you can still submit it into your package."
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-5 space-y-3">
+                      {fields.map((field) => {
+                        const needsAttention = field.needs_attention && !field.confirmed;
+                        return (
+                          <div
+                            key={field.id}
+                            className={cn(
+                              "rounded-[1rem] border px-4 py-4",
+                              needsAttention
+                                ? "border-amber-200 bg-amber-50/80"
+                                : "border-stone-200 bg-stone-50/60",
+                            )}
+                          >
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-500">
+                                  {field.field_label}
+                                </div>
+                                <input
+                                  value={field.field_value}
+                                  readOnly
+                                  aria-label={field.field_label}
+                                  className={cn(
+                                    "mt-2 min-h-12 w-full rounded-2xl border px-4 py-3 text-sm text-stone-900 focus:outline-none",
+                                    needsAttention
+                                      ? "border-amber-300 bg-white"
+                                      : "border-stone-200 bg-white",
+                                  )}
+                                />
+                                {needsAttention ? (
+                                  <p className="mt-2 text-sm text-amber-900">
+                                    Please check that this value matches your document.
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div className="shrink-0">
+                                {field.confirmed ? (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-900">
+                                    <Icon name="check_circle" className="h-4 w-4 text-current" />
+                                    Confirmed
+                                  </span>
+                                ) : needsAttention ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      void confirmField(field.id);
+                                    }}
+                                    className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-stone-950 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:ring-offset-2 disabled:opacity-60"
+                                  >
+                                    Confirm this value
+                                  </button>
+                                ) : (
+                                  <span className="text-sm text-stone-500">
+                                    No action needed
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                    <button
+                      type="button"
+                      disabled={busy || !activeUploadId || activeFields.length > 0}
+                      onClick={() => {
+                        void submitDoc();
+                      }}
+                      className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-stone-950 px-4 py-3 text-sm font-semibold text-white hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-600"
+                    >
+                      <Icon name="check_circle" className="h-5 w-5 text-current" />
+                      Submit this document to Buddy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActionMessage(null);
+                        void refreshDocs().catch((error) => {
+                          setActionMessage(
+                            sanitizeBorrowerError(error instanceof Error ? error.message : error),
+                          );
+                        });
+                      }}
+                      className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-stone-300 px-4 py-3 text-sm font-semibold text-stone-700 hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-stone-900 focus:ring-offset-2"
+                    >
+                      Refresh documents
+                    </button>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
-                <div className="font-semibold">Ready to submit</div>
-                <div className="mt-1 text-xs">All highlighted fields confirmed.</div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
+        </section>
 
-          <button
-            type="button"
-            disabled={busy || !activeUploadId || needsAttention > 0}
-            onClick={submitDoc}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 disabled:opacity-60"
-          >
-            <Icon name="check_circle" className="h-5 w-5 text-white" />
-            Confirm & Submit Document
-          </button>
-
-          <button
-            type="button"
-            onClick={() => refreshDocs()}
-            className="w-full rounded-xl border border-neutral-300 px-4 py-3 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
-          >
-            Refresh
-          </button>
-        </div>
-      }
-    />
+        <TridentPreviewCard token={token} />
+      </div>
+    </BorrowerShell>
   );
 }

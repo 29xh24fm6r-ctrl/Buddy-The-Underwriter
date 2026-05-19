@@ -37,28 +37,28 @@ export function StartConciergeClient() {
           })}
         />
       </div>
-      <div className="mb-4 p-1 bg-slate-100 rounded-lg flex gap-1">
+      <div className="mb-4 flex gap-1 rounded-2xl border border-stone-200 bg-stone-50 p-1">
         <button
           onClick={() => setMode("chat")}
-          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`flex-1 rounded-[0.9rem] px-4 py-3 text-sm font-medium transition-colors ${
             mode === "chat"
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-600 hover:text-slate-900"
+              ? "bg-white text-stone-900 shadow-sm"
+              : "text-stone-600 hover:text-stone-900"
           }`}
           type="button"
         >
-          💬 Chat
+          Chat with Buddy
         </button>
         <button
           onClick={() => setMode("voice")}
-          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`flex-1 rounded-[0.9rem] px-4 py-3 text-sm font-medium transition-colors ${
             mode === "voice"
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-600 hover:text-slate-900"
+              ? "bg-white text-stone-900 shadow-sm"
+              : "text-stone-600 hover:text-stone-900"
           }`}
           type="button"
         >
-          🎤 Voice
+          Talk with Buddy
         </button>
       </div>
 
@@ -68,9 +68,9 @@ export function StartConciergeClient() {
         <BorrowerVoicePanel dealId={dealId} />
       ) : (
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
-          <p className="text-sm text-slate-600 mb-4">
-            Send Buddy a chat message first so we can set up your session.
-            Voice becomes available the moment your package starts.
+          <p className="mb-4 text-sm text-slate-600">
+            Start with one short message so Buddy can set up your package.
+            Voice becomes available as soon as your session is ready.
           </p>
           <button
             onClick={() => setMode("chat")}
@@ -98,7 +98,7 @@ function ChatPane({
     {
       role: "assistant",
       content:
-        "Hi, I'm Buddy. I help borrowers get SBA loans with full institutional packages and up to 3 competing lender claims. Tell me a little about what you're looking to finance — I'll take it from there.",
+        "I'm Buddy. I help you build an SBA-ready borrower package from the start. Tell me what you want to finance and I'll guide the next step.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -170,15 +170,15 @@ function ChatPane({
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-      <div className="px-6 py-3 bg-slate-50 border-b border-slate-200">
+    <div className="overflow-hidden rounded-[1.75rem] border border-stone-200 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.08)]">
+      <div className="border-b border-stone-200 bg-stone-50 px-6 py-4">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-700 font-medium">Your package</span>
-          <span className="text-slate-500">{progressPct}% ready</span>
+          <span className="font-medium text-stone-700">Your SBA package</span>
+          <span className="text-stone-500">{progressPct}% ready</span>
         </div>
-        <div className="mt-2 h-2 bg-slate-200 rounded-full overflow-hidden">
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-200">
           <div
-            className="h-full bg-blue-600 transition-all duration-500"
+            className="h-full bg-amber-600 transition-all duration-500"
             style={{ width: `${progressPct}%` }}
           />
         </div>
@@ -186,7 +186,7 @@ function ChatPane({
 
       <div
         ref={listRef}
-        className="h-[460px] overflow-y-auto px-6 py-5 space-y-4"
+        className="h-[460px] space-y-4 overflow-y-auto px-6 py-5"
       >
         {messages.map((m, i) => (
           <div
@@ -198,8 +198,8 @@ function ChatPane({
             <div
               className={
                 m.role === "user"
-                  ? "bg-blue-600 text-white rounded-2xl rounded-br-md px-4 py-2 max-w-[80%]"
-                  : "bg-slate-100 text-slate-900 rounded-2xl rounded-bl-md px-4 py-2 max-w-[80%]"
+                  ? "max-w-[80%] rounded-2xl rounded-br-md bg-stone-950 px-4 py-3 text-white"
+                  : "max-w-[80%] rounded-2xl rounded-bl-md bg-stone-100 px-4 py-3 text-stone-900"
               }
             >
               {m.content}
@@ -208,14 +208,14 @@ function ChatPane({
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="bg-slate-100 text-slate-500 rounded-2xl rounded-bl-md px-4 py-2">
-              Buddy is thinking…
+            <div className="rounded-2xl rounded-bl-md bg-stone-100 px-4 py-3 text-stone-500">
+              Buddy is preparing your next step…
             </div>
           </div>
         )}
       </div>
 
-      <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
+      <div className="border-t border-stone-200 bg-stone-50 px-6 py-4">
         <div className="flex gap-2">
           <input
             type="text"
@@ -227,21 +227,21 @@ function ChatPane({
                 send();
               }
             }}
-            placeholder="Tell me about your business and what you need…"
-            className="flex-1 px-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Tell Buddy about your business and what you want to finance…"
+            className="flex-1 rounded-2xl border border-stone-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-amber-500"
             disabled={sending || rateLimited}
           />
           <button
             onClick={send}
             disabled={sending || rateLimited || !input.trim()}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-2xl bg-stone-950 px-5 py-3 font-medium text-white hover:bg-stone-800 disabled:opacity-50"
           >
             Send
           </button>
         </div>
         {dealId && (
-          <p className="mt-2 text-xs text-slate-500">
-            Session saved. Close this tab and return anytime from this browser.
+          <p className="mt-2 text-xs text-stone-500">
+            Session saved in this browser. Return anytime and keep building your package.
           </p>
         )}
       </div>
