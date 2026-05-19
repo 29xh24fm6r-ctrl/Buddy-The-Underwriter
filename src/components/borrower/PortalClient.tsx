@@ -27,6 +27,8 @@ import { buildBorrowerJourneyViewModel } from "@/lib/borrower/buildBorrowerJourn
 import type { JourneyInput } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import { buildBorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerReadinessViewModel";
 import type { ReadinessInput } from "@/lib/borrower/buildBorrowerReadinessViewModel";
+import { buildBorrowerDealHealthViewModel } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
+import type { DealHealthInput } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
 import { cn } from "@/lib/cn";
 
 const supabase = createClient(
@@ -777,6 +779,37 @@ export function PortalClient({ token }: { token: string }) {
   };
   const readinessViewModel = buildBorrowerReadinessViewModel(readinessInput);
 
+  const dealHealthInput: DealHealthInput = {
+    borrowerName: deal?.borrower_name ?? null,
+    checklistRequired: checklistStats?.required ?? 0,
+    checklistReceived: checklistStats?.received ?? 0,
+    checklistMissing: checklistStats?.missing ?? 0,
+    docsUploaded: docs.length,
+    docsVerified: verifiedDocs.length,
+    docsInFlight: docs.some((doc) => isInFlightDocStatus(doc.status)),
+    profileCompleteness: deal?.name ? 0.6 : 0.2,
+    ownershipVerified: false,
+    sbaFormsReceived: 0,
+    sbaFormsRequired: 0,
+    blockerCount: missingChecklist.filter((i) => i.required).length,
+    missingItems: missingChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+      required: item.required,
+      group: item.group,
+    })),
+    completedItems: completedChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+    })),
+    financialDocTypes: [],
+    financialPeriods: [],
+    extractedFinancialFields: [],
+    portalStage: safeStage,
+    token,
+  };
+  const dealHealthViewModel = buildBorrowerDealHealthViewModel(dealHealthInput);
+
   if (loading) {
     return (
       <BorrowerShell
@@ -911,6 +944,7 @@ export function PortalClient({ token }: { token: string }) {
         <BorrowerFundingJourney
           viewModel={journeyViewModel}
           readinessViewModel={readinessViewModel}
+          dealHealthViewModel={dealHealthViewModel}
           dealName={deal?.name}
         />
 
