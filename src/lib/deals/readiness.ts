@@ -271,9 +271,13 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
     // unconditionally. Wrapped in try/catch because stage column
     // may not exist in all environments and this must not break readiness.
     try {
+      // SPEC-OUTSTANDING-FIXES-BATCH-1: collecting → underwriting is the valid
+      // transition. "ready" is not a valid toStage from "collecting" per
+      // ALLOWED_TRANSITIONS. The UI stage label is "Memo Inputs Required"
+      // which maps to the underwriting stage in the lifecycle model.
       await advanceDealLifecycle({
         dealId,
-        toStage: "ready",
+        toStage: "underwriting",
         reason: "deal_ready",
         source: "readiness",
         actor: { userId: null, type: "system", label: "readiness" },

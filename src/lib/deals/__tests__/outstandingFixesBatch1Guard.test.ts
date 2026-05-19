@@ -50,4 +50,15 @@ describe("SPEC-OUTSTANDING-FIXES-BATCH-1 guards", () => {
       "tolerance must be scoped to the current-prior tax year only",
     );
   });
+
+  test("recomputeDealReady advances lifecycle to underwriting not ready", () => {
+    assert.ok(
+      READINESS_SRC.includes('toStage: "underwriting"'),
+      "Must advance to underwriting — collecting→underwriting is the valid ALLOWED_TRANSITION",
+    );
+    assert.ok(
+      !READINESS_SRC.includes('toStage: "ready"'),
+      "Must NOT advance to ready — not a valid toStage from collecting",
+    );
+  });
 });
