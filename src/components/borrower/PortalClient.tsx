@@ -4,13 +4,18 @@ import * as React from "react";
 import { createClient } from "@supabase/supabase-js";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
+import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectationCard";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
+import { BorrowerHelpContactCard } from "@/components/borrower/BorrowerHelpContactCard";
 import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
+import { BorrowerProgressConfidence } from "@/components/borrower/BorrowerProgressConfidence";
 import { BorrowerProgressRail } from "@/components/borrower/BorrowerProgressRail";
 import { BorrowerProgressTimeline } from "@/components/borrower/BorrowerProgressTimeline";
 import { BorrowerReviewActivity } from "@/components/borrower/BorrowerReviewActivity";
 import { BorrowerReviewStatusCard } from "@/components/borrower/BorrowerReviewStatusCard";
+import { BorrowerReviewWindow } from "@/components/borrower/BorrowerReviewWindow";
 import { BorrowerSafeError } from "@/components/borrower/BorrowerSafeError";
+import { BorrowerSecurityNotice } from "@/components/borrower/BorrowerSecurityNotice";
 import { BorrowerShell } from "@/components/borrower/BorrowerShell";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
 import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState";
@@ -132,6 +137,18 @@ const CHECKLIST_COPY: Record<
     scans: "Yes. A phone photo is acceptable if the account and routing details are clear.",
   },
 };
+
+const BORROWER_EXPECTATION_COPY = {
+  reviewWindow: "Buddy usually reviews new uploads within 1 business day.",
+  preparationWindow:
+    "SBA loan preparation can take several days depending on the documents still needed.",
+  updatePromise:
+    "Buddy will update this portal if anything else is needed.",
+  noActionNeeded:
+    "You do not need to take action right now unless a new item appears in your checklist.",
+  helpCopy:
+    "Need help finding a document or understanding your checklist? Use the secure help path in this portal and Buddy will point you to the next safe step.",
+} as const;
 
 function sanitizeBorrowerError(input: unknown) {
   const text = typeof input === "string" ? input.toLowerCase() : "";
@@ -447,6 +464,48 @@ function buildReviewStatusCopy(params: {
   };
 }
 
+function buildConfidenceCopy(params: {
+  stage: SafeBorrowerStage;
+  checklistStats: ChecklistStats | null;
+  docs: Doc[];
+}) {
+  if (params.stage === "ready_for_sba_review") {
+    return {
+      tone: "complete" as const,
+      title: "Your package is moving forward.",
+      bullets: [
+        "Buddy has received the requested documents currently needed for this package.",
+        BORROWER_EXPECTATION_COPY.updatePromise,
+        BORROWER_EXPECTATION_COPY.preparationWindow,
+      ],
+    };
+  }
+  if (params.stage === "buddy_reviewing" || params.stage === "documents_received") {
+    return {
+      tone: "review" as const,
+      title: "Buddy has received your recent uploads.",
+      bullets: [
+        BORROWER_EXPECTATION_COPY.reviewWindow,
+        "Your latest files are in the secure SBA package and are being checked now.",
+        BORROWER_EXPECTATION_COPY.updatePromise,
+      ],
+    };
+  }
+  return {
+    tone: "progress" as const,
+    title: "Your checklist is moving forward.",
+    bullets: [
+      params.checklistStats
+        ? `${params.checklistStats.received} of ${params.checklistStats.required} requested items are already in your package.`
+        : "Buddy is setting up the next steps for your package.",
+      BORROWER_EXPECTATION_COPY.preparationWindow,
+      params.docs.length > 0
+        ? "Buddy has already received at least one upload for this package."
+        : "Your package will update here as soon as you start uploading documents.",
+    ],
+  };
+}
+
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
@@ -625,6 +684,7 @@ export function PortalClient({ token }: { token: string }) {
   const safeStageName = safeStageLabel(safeStage);
   const progressTimeline = buildSafeProgressTimeline(safeStage);
   const reviewStatus = buildReviewStatusCopy({ stage: safeStage, checklistStats });
+  const confidenceCopy = buildConfidenceCopy({ stage: safeStage, checklistStats, docs });
   const primaryMissing = missingChecklist[0] ?? null;
   const primaryAction = primaryMissing
     ? {
@@ -792,9 +852,25 @@ export function PortalClient({ token }: { token: string }) {
           title={reviewStatus.title}
           summary={reviewStatus.summary}
           statusLabel={safeStageName}
-          timing="Buddy usually reviews new uploads within 1 business day. If we need anything else, the next request will appear here."
+          timing={`${BORROWER_EXPECTATION_COPY.reviewWindow} ${BORROWER_EXPECTATION_COPY.updatePromise}`}
           nextStep={reviewStatus.nextStep}
         />
+
+        <div className="grid gap-6 xl:grid-cols-2">
+          <BorrowerReviewWindow
+            title="Review periods are normal in SBA preparation"
+            summary={BORROWER_EXPECTATION_COPY.preparationWindow}
+            windowLabel={BORROWER_EXPECTATION_COPY.reviewWindow}
+          />
+          <BorrowerExpectationCard
+            title="What happens while you wait"
+            points={[
+              BORROWER_EXPECTATION_COPY.updatePromise,
+              BORROWER_EXPECTATION_COPY.noActionNeeded,
+              "Longer waits can happen when the package still needs supporting documents.",
+            ]}
+          />
+        </div>
 
         <BorrowerProgressTimeline
           title={safeStageName}
@@ -802,13 +878,29 @@ export function PortalClient({ token }: { token: string }) {
           steps={progressTimeline}
         />
 
+        <BorrowerProgressConfidence
+          title={confidenceCopy.title}
+          tone={confidenceCopy.tone}
+          bullets={confidenceCopy.bullets}
+        />
+
         {showWaitingState ? (
           <BorrowerWaitingState
             title="You're waiting on Buddy, not stuck"
             summary="There is nothing you need to do right now. Buddy is keeping your package moving and will update this portal if another document is needed."
-            expectation="Expected next step: Buddy reviews the latest package update and posts a plain-English status here."
+            expectation={`Expected next step: Buddy reviews the latest package update and posts a plain-English status here. ${BORROWER_EXPECTATION_COPY.noActionNeeded}`}
           />
         ) : null}
+
+        <div className="grid gap-6 xl:grid-cols-2">
+          <BorrowerSecurityNotice />
+          <BorrowerHelpContactCard
+            title="Questions about your checklist?"
+            body={BORROWER_EXPECTATION_COPY.helpCopy}
+            actionLabel="Open secure help"
+            actionHref={`/start`}
+          />
+        </div>
 
         <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

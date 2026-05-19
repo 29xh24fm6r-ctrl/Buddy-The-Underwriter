@@ -6,12 +6,17 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
+import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectationCard";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
+import { BorrowerHelpContactCard } from "@/components/borrower/BorrowerHelpContactCard";
+import { BorrowerProgressConfidence } from "@/components/borrower/BorrowerProgressConfidence";
 import { BorrowerProgressTimeline } from "@/components/borrower/BorrowerProgressTimeline";
 import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
 import { BorrowerProgressRail } from "@/components/borrower/BorrowerProgressRail";
 import { BorrowerReviewActivity } from "@/components/borrower/BorrowerReviewActivity";
 import { BorrowerReviewStatusCard } from "@/components/borrower/BorrowerReviewStatusCard";
+import { BorrowerReviewWindow } from "@/components/borrower/BorrowerReviewWindow";
+import { BorrowerSecurityNotice } from "@/components/borrower/BorrowerSecurityNotice";
 import { BorrowerShell } from "@/components/borrower/BorrowerShell";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
 import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState";
@@ -111,6 +116,48 @@ test("progress transparency primitives render borrower-safe review language", ()
   assert.match(html, /waiting on Buddy, not stuck/);
 });
 
+test("trust and reassurance primitives render safe expectation language", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      "div",
+      null,
+      React.createElement(BorrowerReviewWindow, {
+        title: "Review periods are normal in SBA preparation",
+        summary: "SBA loan preparation can take several days depending on the documents still needed.",
+        windowLabel: "Buddy usually reviews new uploads within 1 business day.",
+      }),
+      React.createElement(BorrowerExpectationCard, {
+        title: "What happens while you wait",
+        points: [
+          "Buddy will update this portal if anything else is needed.",
+          "You do not need to take action right now unless a new item appears in your checklist.",
+        ],
+      }),
+      React.createElement(BorrowerSecurityNotice),
+      React.createElement(BorrowerHelpContactCard, {
+        title: "Questions about your checklist?",
+        body: "Need help finding a document or understanding your checklist?",
+        actionLabel: "Open secure help",
+        actionHref: "/start",
+      }),
+      React.createElement(BorrowerProgressConfidence, {
+        title: "Your package is moving forward.",
+        tone: "review",
+        bullets: [
+          "Buddy has received your recent uploads.",
+          "Buddy usually reviews new uploads within 1 business day.",
+        ],
+      }),
+    ),
+  );
+
+  assert.match(html, /Review periods are normal in SBA preparation/);
+  assert.match(html, /Buddy usually reviews new uploads within 1 business day/);
+  assert.match(html, /Secure SBA document portal/);
+  assert.match(html, /Open secure help/);
+  assert.match(html, /Your package is moving forward/);
+});
+
 test("guided checklist section prioritizes required items and separates completed ones", () => {
   const outstandingHtml = renderToStaticMarkup(
     React.createElement(BorrowerChecklistSection, {
@@ -177,6 +224,11 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.match(source, /BorrowerShell/);
   assert.match(source, /BorrowerChecklistSection/);
   assert.match(source, /BorrowerReviewStatusCard/);
+  assert.match(source, /BorrowerReviewWindow/);
+  assert.match(source, /BorrowerExpectationCard/);
+  assert.match(source, /BorrowerSecurityNotice/);
+  assert.match(source, /BorrowerHelpContactCard/);
+  assert.match(source, /BorrowerProgressConfidence/);
   assert.match(source, /BorrowerProgressTimeline/);
   assert.match(source, /BorrowerReviewActivity/);
   assert.match(source, /BorrowerWaitingState/);
@@ -193,6 +245,10 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.match(source, /Buddy reviewing your package/);
   assert.match(source, /Additional items needed/);
   assert.match(source, /Ready for SBA review/);
+  assert.match(source, /Buddy usually reviews new uploads within 1 business day/);
+  assert.match(source, /SBA loan preparation can take several days/);
+  assert.match(source, /You do not need to take action right now/);
+  assert.match(source, /Open secure help/);
   assert.ok(!source.includes("Portal error"));
   assert.ok(!source.includes("Review extracted data"));
   assert.ok(!source.includes("signed URL"));
@@ -202,6 +258,9 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.ok(!source.includes("approval"));
   assert.ok(!source.includes("closing"));
   assert.ok(!source.includes("underwriting scores"));
+  assert.ok(!/mailto:|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(source));
+  assert.ok(!source.includes("slack"));
+  assert.ok(!source.includes("guaranteed by"));
 });
 
 test("portal client sanitizes raw provider and token failures before rendering", () => {
@@ -254,4 +313,15 @@ test("portal activity route filters to borrower-safe package updates", () => {
   assert.ok(!source.includes("provider failures"));
   assert.ok(!source.includes("retry queue"));
   assert.ok(!source.includes("banker notes"));
+});
+
+test("trust layer avoids fake promises or underwriting predictions", () => {
+  const source = read("src/components/borrower/PortalClient.tsx");
+
+  assert.ok(!source.includes("guaranteed"));
+  assert.ok(!source.includes("approved"));
+  assert.ok(!source.includes("will fund"));
+  assert.ok(!source.includes("underwriting prediction"));
+  assert.ok(!source.includes("banker@"));
+  assert.ok(!source.includes("lender@"));
 });
