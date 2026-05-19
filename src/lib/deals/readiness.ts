@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { fireWebhook } from "@/lib/webhooks/fireWebhook";
+import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { LedgerEventType } from "@/buddy/lifecycle/events";
 import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
@@ -165,6 +166,24 @@ export async function computeDealReadiness(
     });
 
     missingRequired = nonTolerableMissing.length;
+
+    // SPEC-READINESS-SYSTEM-UNIFICATION-1: PFS_CURRENT tolerance.
+    // If PFS_CURRENT is missing but a finalized PFS doc exists, treat as
+    // non-blocking. Reconciliation (System B) will fix the status.
+    if (nonTolerableMissing.some((i: any) => i.checklist_key === "PFS_CURRENT")) {
+      const { count: pfsCount } = await sb
+        .from("deal_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .in("canonical_type", ["PFS", "PERSONAL_FINANCIAL_STATEMENT"])
+        .not("finalized_at", "is", null);
+
+      if ((pfsCount ?? 0) > 0) {
+        missingRequired = nonTolerableMissing.filter(
+          (i: any) => i.checklist_key !== "PFS_CURRENT",
+        ).length;
+      }
+    }
   }
 
   if (missingRequired > 0) {
@@ -294,6 +313,12 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
         ready_reason: result.reason,
       })
       .eq("id", dealId);
+
+    // SPEC-READINESS-SYSTEM-UNIFICATION-1: Always fire System B regardless of
+    // System A's gate result. System B (refreshDealReadiness) runs checklist
+    // reconciliation before evaluating readiness — it may find the deal IS
+    // ready after reconciliation even when System A sees stale checklist state.
+    scheduleReadinessRefresh({ dealId, trigger: "financial_facts_written" });
 
     // Write reverted event if deal was previously ready
     if (wasReady) {
