@@ -36,4 +36,15 @@ describe("SPEC-PFS-CANONICAL-TYPE-ALIAS-1 guards", () => {
   test("isPfsDoc helper exported from canonicalTypeAliases.ts", () => {
     assert.ok(ALIAS_SRC.includes("export function isPfsDoc"));
   });
+
+  test("buildCoreSlotDefinitions includes AR_AGING_CURRENT slot", () => {
+    assert.ok(SLOTS_SRC.includes('"AR_AGING_CURRENT"'));
+  });
+
+  test("AR_AGING_CURRENT slot has required: false", () => {
+    const arIdx = SLOTS_SRC.indexOf("AR_AGING_CURRENT");
+    const reqIdx = SLOTS_SRC.indexOf("required: false", arIdx);
+    assert.ok(arIdx > 0 && reqIdx > 0 && reqIdx - arIdx < 150,
+      "AR_AGING_CURRENT must be optional (required: false)");
+  });
 });

@@ -81,6 +81,16 @@ export function buildCoreSlotDefinitions(now?: Date): CoreSlotDefinition[] {
     sort_order: sortOrder++,
   });
 
+  // AR Aging — optional (not all deals have AR collateral)
+  slots.push({
+    slot_key: "AR_AGING_CURRENT",
+    slot_group: "AR_AGING",
+    required_doc_type: "AR_AGING",
+    required_tax_year: null,
+    required: false,
+    sort_order: sortOrder++,
+  });
+
   return slots;
 }
 
