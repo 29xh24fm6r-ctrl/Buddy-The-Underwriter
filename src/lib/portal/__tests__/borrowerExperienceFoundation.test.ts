@@ -29,39 +29,42 @@ function read(relPath: string) {
 
 test("borrower shell primitives render the guided portal foundation", () => {
   const html = renderToStaticMarkup(
-    React.createElement(BorrowerShell, {
-      hero: React.createElement(BorrowerHeroStatus, {
-        eyebrow: "Buddy SBA concierge",
-        title: "Let's finish your SBA package.",
-        summary: "Buddy is waiting on one more document.",
-        badge: "Documents still needed",
-        tone: "progress",
-        meta: [
-          { label: "Business", value: "Demo Deal" },
-          { label: "Documents received", value: "2 of 3" },
-          { label: "Current focus", value: "Add requested documents" },
-        ],
-      }),
-      primary: React.createElement(BorrowerPrimaryActionCard, {
-        title: "Add year-end business financials",
-        description: "Buddy needs one more file to keep the package moving.",
-        ctaLabel: "Add requested document",
-      }),
-      rail: React.createElement(BorrowerProgressRail, {
-        progressLabel: "Package in progress",
-        progressValue: 67,
-        checklistSummary: "2 of 3 requested items are already in your package.",
-        timeline: [
-          { id: "upload", title: "Add documents", subtitle: "Upload the files Buddy requested.", state: "current" },
-          { id: "review", title: "Buddy review", subtitle: "Buddy organizes your package.", state: "upcoming" },
-        ],
-      }),
-      footer: React.createElement(BorrowerTrustFooter),
-      children: React.createElement(BorrowerEmptyState, {
+    React.createElement(
+      BorrowerShell,
+      {
+        hero: React.createElement(BorrowerHeroStatus, {
+          eyebrow: "Buddy SBA concierge",
+          title: "Let's finish your SBA package.",
+          summary: "Buddy is waiting on one more document.",
+          badge: "Documents still needed",
+          tone: "progress",
+          meta: [
+            { label: "Business", value: "Demo Deal" },
+            { label: "Documents received", value: "2 of 3" },
+            { label: "Current focus", value: "Add requested documents" },
+          ],
+        }),
+        primary: React.createElement(BorrowerPrimaryActionCard, {
+          title: "Add year-end business financials",
+          description: "Buddy needs one more file to keep the package moving.",
+          ctaLabel: "Add requested document",
+        }),
+        rail: React.createElement(BorrowerProgressRail, {
+          progressLabel: "Package in progress",
+          progressValue: 67,
+          checklistSummary: "2 of 3 requested items are already in your package.",
+          timeline: [
+            { id: "upload", title: "Add documents", subtitle: "Upload the files Buddy requested.", state: "current" },
+            { id: "review", title: "Buddy review", subtitle: "Buddy organizes your package.", state: "upcoming" },
+          ],
+        }),
+        footer: React.createElement(BorrowerTrustFooter),
+      },
+      React.createElement(BorrowerEmptyState, {
         title: "No documents uploaded yet",
         message: "Once you add documents, Buddy will organize them here.",
       }),
-    }),
+    ),
   );
 
   assert.match(html, /What Buddy needs next/);
