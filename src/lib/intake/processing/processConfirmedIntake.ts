@@ -35,6 +35,7 @@ const EXTRACT_ELIGIBLE = new Set([
   "BALANCE_SHEET",
   "RENT_ROLL",
   "PERSONAL_FINANCIAL_STATEMENT",
+  "PFS",  // classifier outputs "PFS" not "PERSONAL_FINANCIAL_STATEMENT"
   "PERSONAL_INCOME",
   "SCHEDULE_K1",
   "AR_AGING",
@@ -252,6 +253,7 @@ export async function processConfirmedIntake(
     .in("canonical_type", [
       "PERSONAL_TAX_RETURN",
       "PERSONAL_FINANCIAL_STATEMENT",
+      "PFS",
       "BUSINESS_TAX_RETURN",
     ]);
 

@@ -55,7 +55,7 @@ export function buildCoreSlotDefinitions(now?: Date): CoreSlotDefinition[] {
   slots.push({
     slot_key: "PFS_CURRENT",
     slot_group: "PFS",
-    required_doc_type: "PERSONAL_FINANCIAL_STATEMENT",
+    required_doc_type: "PFS",  // classifier outputs "PFS" — matches actual canonical_type
     required_tax_year: null,
     required: true,
     sort_order: sortOrder++,
