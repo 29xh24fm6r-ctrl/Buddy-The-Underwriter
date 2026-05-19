@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createClient } from "@supabase/supabase-js";
+import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
 import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
@@ -84,6 +85,39 @@ type PortalStatus = {
   eta?: {
     banker_review_by: string | null;
   };
+};
+
+const CHECKLIST_COPY: Record<
+  string,
+  {
+    title: string;
+    why: string;
+    formats: string;
+    examples: string;
+    scans: string;
+  }
+> = {
+  PERSONAL_FINANCIAL_STATEMENT: {
+    title: "Personal Financial Statement",
+    why: "Buddy uses this to complete the guarantor financial profile required in the SBA package.",
+    formats: "PDF is best. A clean scan or completed bank form also works.",
+    examples: "Completed SBA personal financial statement, signed bank PFS form, or a statement of assets and liabilities.",
+    scans: "Yes. Clear scans and phone photos are acceptable if every number is readable.",
+  },
+  BUSINESS_TAX_RETURN: {
+    title: "Business Tax Returns",
+    why: "Buddy needs recent business tax returns to document revenue, cash flow, and operating history.",
+    formats: "PDF is best. Multi-page scans are fine when every page is included.",
+    examples: "Filed federal business tax return, complete 1120 or 1065 package, or accountant-prepared PDF copy.",
+    scans: "Yes. Scans and phone photos are acceptable if each page is legible.",
+  },
+  VOIDED_CHECK: {
+    title: "Voided Business Check",
+    why: "Buddy uses this to confirm the business operating account details for SBA paperwork and funding setup.",
+    formats: "PDF, PNG, or JPG all work.",
+    examples: "Voided business checking account check or a bank-issued check image for the operating account.",
+    scans: "Yes. A phone photo is acceptable if the account and routing details are clear.",
+  },
 };
 
 function sanitizeBorrowerError(input: unknown) {
@@ -191,6 +225,79 @@ function formatChecklistGroup(group: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function normalizeChecklistKey(value?: string | null) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
+function humanizeCode(code: string) {
+  return code
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => {
+      if (part === "irs") return "IRS";
+      if (part === "sba") return "SBA";
+      if (part === "pfs") return "PFS";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}
+
+function borrowerChecklistCopy(item: PortalChecklistItem) {
+  const normalizedCode = normalizeChecklistKey(item.code || item.title);
+  const mapped = CHECKLIST_COPY[normalizedCode];
+  const safeTitle =
+    mapped?.title ??
+    (item.title && !/[A-Z0-9_]{6,}/.test(item.title)
+      ? item.title
+      : humanizeCode(normalizedCode));
+
+  return {
+    title: safeTitle,
+    why:
+      mapped?.why ??
+      "Buddy needs this document to complete the SBA package and reduce follow-up questions during review.",
+    formats:
+      mapped?.formats ??
+      "PDF is best, and clear scans or common office document files also work.",
+    examples:
+      mapped?.examples ??
+      `Typical examples include ${safeTitle.toLowerCase()}, accountant-prepared copies, or a clean exported PDF.`,
+    scans:
+      mapped?.scans ??
+      "Yes. Clear scans and phone photos are acceptable if all text is easy to read.",
+  };
+}
+
+function checklistItemStatusCopy(status: string, required: boolean) {
+  if (status === "verified") {
+    return { label: "Looks good", tone: "complete" as const };
+  }
+  if (status === "received") {
+    return { label: "Buddy is reviewing this file", tone: "reviewing" as const };
+  }
+  return {
+    label: required ? "Needs another file" : "Add when ready",
+    tone: required ? ("required" as const) : ("optional" as const),
+  };
+}
+
+function uploadStateCopy(status: string) {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "processing" || normalized === "received") {
+    return "Buddy is reviewing this file";
+  }
+  if (normalized === "pending") return "Uploading...";
+  if (normalized === "submitted" || normalized === "confirmed" || normalized === "complete") {
+    return "Looks good";
+  }
+  return "Needs another file";
+}
+
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
@@ -231,6 +338,10 @@ export function PortalClient({ token }: { token: string }) {
     }
     return Array.from(groups.entries());
   }, [checklist]);
+  const completedChecklist = React.useMemo(
+    () => checklist.filter((item) => item.required && (item.status ?? "missing") !== "missing"),
+    [checklist],
+  );
 
   const refreshDocs = React.useCallback(async () => {
     const { data, error } = await supabase.rpc("portal_list_uploads", { p_token: token });
@@ -349,11 +460,11 @@ export function PortalClient({ token }: { token: string }) {
   const primaryMissing = missingChecklist[0] ?? null;
   const primaryAction = primaryMissing
     ? {
-        title: primaryMissing.title,
+        title: borrowerChecklistCopy(primaryMissing).title,
         description: "Add the next document Buddy requested so your SBA package can keep moving without delays.",
-        detail: primaryMissing.description ?? "If you have more than one version, upload the clearest and most recent copy you have.",
+        detail: borrowerChecklistCopy(primaryMissing).why,
         ctaLabel: "Add requested document",
-        hint: "You can upload from your phone or desktop.",
+        hint: "You can upload from your phone or desktop. Clear scans and photos are okay.",
       }
     : docs.length === 0
       ? {
@@ -467,8 +578,22 @@ export function PortalClient({ token }: { token: string }) {
         />
       }
       footer={<BorrowerTrustFooter />}
+      mobileFooter={
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = `/upload/${token}`;
+          }}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white"
+        >
+          <Icon name="cloud_upload" className="h-4 w-4 text-white" />
+          {primaryMissing
+            ? `Add ${borrowerChecklistCopy(primaryMissing).title}`
+            : "Add requested document"}
+        </button>
+      }
     >
-      <div className="space-y-6">
+      <div className="space-y-6 pb-24 sm:pb-0">
         {actionMessage ? (
           actionMessage.includes("temporary issue") ||
           actionMessage.includes("no longer active") ? (
@@ -493,7 +618,9 @@ export function PortalClient({ token }: { token: string }) {
                 Add the documents Buddy requested
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-                Everything below is grouped so you can work through your SBA package one section at a time.
+                {checklistStats
+                  ? `${checklistStats.received} completed, ${checklistStats.missing} still needed. Work through one requirement at a time and Buddy will keep the package organized for you.`
+                  : "Everything below is grouped so you can work through your SBA package one section at a time."}
               </p>
             </div>
             <button
@@ -520,67 +647,59 @@ export function PortalClient({ token }: { token: string }) {
                 message="Buddy is preparing the first document group for this SBA package. You can start the application now and return when the checklist is ready."
               />
             ) : (
-              groupedChecklist.map(([group, items]) => (
-                <div key={group} className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-500">
-                        {group}
-                      </h3>
-                      <p className="mt-1 text-sm text-stone-600">
-                        {items.filter((item) => item.required).length} requested item
-                        {items.filter((item) => item.required).length === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-3">
-                    {items.map((item) => {
-                      const isMissing = (item.status ?? "missing") === "missing";
-                      return (
-                        <div
-                          key={item.id}
-                          className={cn(
-                            "rounded-[1rem] border px-4 py-4",
-                            isMissing
-                              ? "border-amber-200 bg-white"
-                              : "border-emerald-200 bg-emerald-50/55",
-                          )}
-                        >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="text-base font-semibold text-stone-950">
-                                {item.title}
-                              </div>
-                              {item.description ? (
-                                <p className="mt-1 text-sm leading-6 text-stone-600">
-                                  {item.description}
-                                </p>
-                              ) : null}
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              <span
-                                className={cn(
-                                  "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
-                                  isMissing
-                                    ? "bg-amber-100 text-amber-900"
-                                    : "bg-emerald-100 text-emerald-900",
-                                )}
-                              >
-                                {formatChecklistStatus(item.status)}
-                              </span>
-                              {item.completed_at ? (
-                                <span className="text-xs text-stone-500">
-                                  {formatDateLabel(item.completed_at)}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
+              <>
+                {groupedChecklist.map(([group, items]) => {
+                  const outstanding = items.filter(
+                    (item) => item.required && (item.status ?? "missing") === "missing",
+                  );
+
+                  return (
+                    <BorrowerChecklistSection
+                      key={group}
+                      title={group}
+                      summary={`${outstanding.length} still needed in this section.`}
+                      emptyTitle="This section is complete"
+                      emptyMessage="Buddy already has every requested document in this section."
+                      items={outstanding.map((item) => {
+                        const helper = borrowerChecklistCopy(item);
+                        const status = checklistItemStatusCopy(item.status ?? "missing", item.required);
+                        return {
+                          id: item.id,
+                          title: helper.title,
+                          description: item.description,
+                          statusLabel: status.label,
+                          statusTone: status.tone,
+                          helper,
+                          required: item.required,
+                          completedLabel: null,
+                        };
+                      })}
+                    />
+                  );
+                })}
+                <BorrowerChecklistSection
+                  title="Completed"
+                  summary="These requested items are already in your package. Open this section if you want to review what Buddy has marked as complete."
+                  emptyTitle="Nothing completed yet"
+                  emptyMessage="Completed documents will move here automatically as Buddy receives and reviews them."
+                  collapsible
+                  items={completedChecklist.map((item) => {
+                    const helper = borrowerChecklistCopy(item);
+                    return {
+                      id: item.id,
+                      title: helper.title,
+                      description: item.description,
+                      statusLabel: "Looks good",
+                      statusTone: "complete" as const,
+                      helper,
+                      required: item.required,
+                      completedLabel: item.completed_at
+                        ? `Completed ${formatDateLabel(item.completed_at)}`
+                        : "Completed",
+                    };
+                  })}
+                />
+              </>
             )}
           </div>
         </section>
@@ -649,7 +768,9 @@ export function PortalClient({ token }: { token: string }) {
                               : "text-stone-600",
                           )}
                         >
-                          {doc.doc_type ? `Buddy tagged this as ${doc.doc_type}.` : "Waiting for Buddy to organize this file."}
+                          {doc.doc_type
+                            ? `Buddy filed this as ${humanizeCode(normalizeChecklistKey(doc.doc_type))}.`
+                            : "Buddy will organize this file as soon as it finishes reviewing it."}
                         </div>
                       </div>
                       <span
@@ -660,7 +781,7 @@ export function PortalClient({ token }: { token: string }) {
                             : "bg-white text-stone-700",
                         )}
                       >
-                        {formatDocumentStatus(doc.status)}
+                        {uploadStateCopy(doc.status)}
                       </span>
                     </div>
                   </button>
@@ -671,7 +792,11 @@ export function PortalClient({ token }: { token: string }) {
                 <div className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
                   <DocToolbar
                     filename={activeDoc?.filename ?? "Select a document"}
-                    pageLabel={activeDoc?.doc_type ? `Buddy labeled this as ${activeDoc.doc_type}` : "Secure document review"}
+                    pageLabel={
+                      activeDoc?.doc_type
+                        ? `Buddy labeled this as ${humanizeCode(normalizeChecklistKey(activeDoc.doc_type))}`
+                        : "Secure document review"
+                    }
                     onPrev={() => {}}
                     onNext={() => {}}
                     onRemove={() => {
@@ -809,6 +934,9 @@ export function PortalClient({ token }: { token: string }) {
                       Refresh documents
                     </button>
                   </div>
+                  <p className="mt-3 text-sm text-stone-600">
+                    If Buddy still needs a clearer copy, upload another file and we will review it again without changing your checklist flow.
+                  </p>
                 </div>
               </div>
             </div>

@@ -9,12 +9,14 @@ export function BorrowerShell({
   rail,
   children,
   footer,
+  mobileFooter,
 }: {
   hero: React.ReactNode;
   primary?: React.ReactNode;
   rail?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  mobileFooter?: React.ReactNode;
 }) {
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.14),_transparent_28%),linear-gradient(180deg,_#fffdf8_0%,_#fffaf0_45%,_#f8fafc_100%)] text-stone-900">
@@ -36,6 +38,11 @@ export function BorrowerShell({
         </div>
         {footer}
       </div>
+      {mobileFooter ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white/96 p-4 shadow-[0_-12px_30px_rgba(15,23,42,0.10)] backdrop-blur sm:hidden">
+          {mobileFooter}
+        </div>
+      ) : null}
     </main>
   );
 }
