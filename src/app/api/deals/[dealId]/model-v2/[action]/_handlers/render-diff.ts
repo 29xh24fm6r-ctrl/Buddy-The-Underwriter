@@ -149,12 +149,12 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const sb = supabaseAdmin();
 
-    // 1. Load V1 spread (STANDARD or legacy MOODYS, owner_type=DEAL)
+    // 1. Load the latest deal-level standard spread.
     const { data: spreadRow, error: spreadErr } = await sb
       .from("deal_spreads")
       .select("rendered_json")
       .eq("deal_id", dealId)
-      .in("spread_type", ["STANDARD", "MOODYS"])
+      .eq("spread_type", "STANDARD")
       .eq("owner_type", "DEAL")
       .order("created_at", { ascending: false })
       .limit(1)

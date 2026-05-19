@@ -86,7 +86,7 @@ describe("Insight API — contract", () => {
   it("reads from existing systems without creating new persistence", () => {
     const content = readFile("app/api/deals/[dealId]/insights/route.ts");
     assert.ok(content.includes("deal_intelligence_runs"), "must read intelligence runs");
-    assert.ok(content.includes("deal_truth_snapshots"), "must read snapshots");
+    assert.ok(content.includes("financial_snapshots"), "must read snapshots");
     assert.ok(content.includes("deal_risk_pricing_model"), "must read risk pricing");
     // Must NOT write to any new insight table
     assert.ok(!content.includes(".insert(") || content.includes("// insert"), "must not write new insight records");

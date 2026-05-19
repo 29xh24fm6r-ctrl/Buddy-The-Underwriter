@@ -25,9 +25,12 @@ describe("SPEC-NCADS-SUPERSEDED-FALLBACK-1 + OFFICER-COMP-ADDBACK-1 guards", () 
   test("C-Corp addback checks TAXABLE_INCOME + OFFICER_COMPENSATION", () => {
     assert.ok(AGG_SRC.includes("TAXABLE_INCOME") && AGG_SRC.includes("OFFICER_COMPENSATION"));
   });
-  test("C-Corp addback requires resolution_status active", () => {
-    assert.ok(AGG_SRC.includes('resolution_status === "active"'));
-  });
+test("C-Corp addback requires resolution_status active", () => {
+  assert.ok(
+    AGG_SRC.includes('.neq("resolution_status", "rejected")') &&
+      AGG_SRC.includes('.order("resolution_status", { ascending: true })'),
+  );
+});
   test("C-Corp addback excludes zero TAXABLE_INCOME", () => {
     assert.ok(AGG_SRC.includes("Number(r.fact_value_num) > 0"));
   });

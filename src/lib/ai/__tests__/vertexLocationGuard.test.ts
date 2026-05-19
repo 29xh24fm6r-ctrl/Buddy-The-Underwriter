@@ -26,12 +26,12 @@ test("[vertex-loc-1] helper file exists at src/lib/ai/vertexLocation.ts", () => 
   assert.ok(existsSync(HELPER_FILE), "src/lib/ai/vertexLocation.ts must exist");
 });
 
-test("[vertex-loc-2] helper default is 'us' (last in fallback chain)", () => {
+test("[vertex-loc-2] helper default is 'us-central1' (last in fallback chain)", () => {
   const src = readFileSync(HELPER_FILE, "utf8");
   assert.match(
     src,
-    /process\.env\.GOOGLE_CLOUD_LOCATION\s*\|\|\s*process\.env\.GOOGLE_CLOUD_REGION\s*\|\|\s*["']us["']/,
-    "vertexLocation.ts must default to 'us' (multi-region) as last fallback",
+    /process\.env\.GOOGLE_CLOUD_LOCATION\s*\|\|\s*process\.env\.GOOGLE_CLOUD_REGION\s*\|\|\s*["']us-central1["']/,
+    "vertexLocation.ts must default to 'us-central1' as last fallback",
   );
 });
 

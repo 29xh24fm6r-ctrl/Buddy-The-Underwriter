@@ -110,12 +110,12 @@ describe("Phase 13 — Deprecated version governance", () => {
 
 describe("Phase 13 — Drift endpoint structure", () => {
   it("drift route file exists", () => {
-    const routePath = "src/app/api/deals/[dealId]/model-v2/drift/route.ts";
+    const routePath = "src/app/api/deals/[dealId]/model-v2/[action]/_handlers/drift.ts";
     assert.ok(fs.existsSync(path.resolve(routePath)), `${routePath} must exist`);
   });
 
   it("drift route emits DRIFT_DETECTED event", () => {
-    const src = readSource("src/app/api/deals/[dealId]/model-v2/drift/route.ts");
+    const src = readSource("src/app/api/deals/[dealId]/model-v2/[action]/_handlers/drift.ts");
     assert.ok(
       src.includes("METRIC_REGISTRY_DRIFT_DETECTED"),
       "drift route must emit DRIFT_DETECTED event",
@@ -123,7 +123,7 @@ describe("Phase 13 — Drift endpoint structure", () => {
   });
 
   it("drift route uses bank-aware resolveRegistryBinding", () => {
-    const src = readSource("src/app/api/deals/[dealId]/model-v2/drift/route.ts");
+    const src = readSource("src/app/api/deals/[dealId]/model-v2/[action]/_handlers/drift.ts");
     assert.ok(
       src.includes("resolveRegistryBinding(sb, bankId)"),
       "drift route must pass bankId to resolveRegistryBinding",
@@ -179,7 +179,7 @@ describe("Phase 13 — Purity constraints", () => {
   });
 
   it("upgrade-preview route file exists", () => {
-    const routePath = "src/app/api/deals/[dealId]/model-v2/upgrade-preview/route.ts";
+    const routePath = "src/app/api/deals/[dealId]/model-v2/[action]/_handlers/upgrade-preview.ts";
     assert.ok(fs.existsSync(path.resolve(routePath)), `${routePath} must exist`);
   });
 

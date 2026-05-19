@@ -43,7 +43,7 @@ test("[fanout-secret-2] handleExtractAll uses WORKER_SECRET before CRON_SECRET",
 });
 
 test("[fanout-secret-3] auth-probe route exists and is auth-gated", () => {
-  const src = READ("src/app/api/workers/auth-probe/route.ts");
+  const src = READ("src/app/api/workers/[...path]/_handlers/auth-probe.ts");
   assert.match(src, /hasValidWorkerSecret/);
   assert.match(src, /env_presence/);
   // Negative check: auth-probe must never expose raw secret values —
