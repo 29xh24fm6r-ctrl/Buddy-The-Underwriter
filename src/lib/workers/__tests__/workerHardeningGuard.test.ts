@@ -43,24 +43,34 @@ test("processDocExtractionOutbox: idle probe gates claim RPC", () => {
   assert.ok(probeIdx > 0 && probeIdx < (rpcMatch.index ?? 0), "probe must precede claim RPC");
 });
 
-// ── Cron routes wire advisory lock + observability JSON ───────────────────
+// ── Worker route dispatch + handler contracts ─────────────────────────────
 
-test("pulse-outbox route: wraps in withWorkerAdvisoryLock", () => {
-  const src = READ("src/app/api/workers/pulse-outbox/route.ts");
+test("workers catch-all route dispatches hardened cron handlers", () => {
+  const src = READ("src/app/api/workers/[...path]/route.ts");
+  assert.match(src, /case "auth-probe"/);
+  assert.match(src, /case "doc-extraction"/);
+  assert.match(src, /case "intake-outbox"/);
+  assert.match(src, /case "intake-recovery"/);
+  assert.match(src, /case "pulse-outbox"/);
+});
+
+test("pulse-outbox handler: wraps in withWorkerAdvisoryLock", () => {
+  const src = READ("src/app/api/workers/[...path]/_handlers/pulse-outbox.ts");
   assert.match(src, /withWorkerAdvisoryLock/);
   assert.match(src, /WORKER_LOCK_KEYS\.PULSE_OUTBOX/);
 });
 
-test("doc-extraction route: wraps in withWorkerAdvisoryLock", () => {
-  const src = READ("src/app/api/workers/doc-extraction/route.ts");
+test("doc-extraction handler: wraps in withWorkerAdvisoryLock", () => {
+  const src = READ("src/app/api/workers/[...path]/_handlers/doc-extraction.ts");
   assert.match(src, /withWorkerAdvisoryLock/);
   assert.match(src, /WORKER_LOCK_KEYS\.DOC_EXTRACTION_OUTBOX/);
 });
 
-test("intake-outbox route: wraps in withWorkerAdvisoryLock", () => {
-  const src = READ("src/app/api/workers/intake-outbox/route.ts");
-  assert.match(src, /withWorkerAdvisoryLock/);
-  assert.match(src, /WORKER_LOCK_KEYS\.INTAKE_OUTBOX/);
+test("intake-outbox handler: processes without advisory lock and surfaces idle_no_work", () => {
+  const src = READ("src/app/api/workers/[...path]/_handlers/intake-outbox.ts");
+  assert.doesNotMatch(src, /withWorkerAdvisoryLock/);
+  assert.match(src, /processIntakeOutbox/);
+  assert.match(src, /idle_no_work/);
 });
 
 test("ledger-forwarder route: wraps in withWorkerAdvisoryLock", () => {
@@ -76,9 +86,9 @@ test("forwardLedgerCore: idle probe before claim path", () => {
 
 test("cron routes return observability JSON shape", () => {
   for (const path of [
-    "src/app/api/workers/pulse-outbox/route.ts",
-    "src/app/api/workers/doc-extraction/route.ts",
-    "src/app/api/workers/intake-outbox/route.ts",
+    "src/app/api/workers/[...path]/_handlers/pulse-outbox.ts",
+    "src/app/api/workers/[...path]/_handlers/doc-extraction.ts",
+    "src/app/api/workers/[...path]/_handlers/intake-outbox.ts",
     "src/app/api/pulse/cron-forward-ledger/route.ts",
   ]) {
     const src = READ(path);
@@ -90,9 +100,8 @@ test("cron routes return observability JSON shape", () => {
 
 test("cron routes emit lock_not_acquired skip", () => {
   for (const path of [
-    "src/app/api/workers/pulse-outbox/route.ts",
-    "src/app/api/workers/doc-extraction/route.ts",
-    "src/app/api/workers/intake-outbox/route.ts",
+    "src/app/api/workers/[...path]/_handlers/pulse-outbox.ts",
+    "src/app/api/workers/[...path]/_handlers/doc-extraction.ts",
     "src/app/api/pulse/cron-forward-ledger/route.ts",
   ]) {
     const src = READ(path);
@@ -102,9 +111,9 @@ test("cron routes emit lock_not_acquired skip", () => {
 
 test("cron routes emit idle_no_work skip", () => {
   for (const path of [
-    "src/app/api/workers/pulse-outbox/route.ts",
-    "src/app/api/workers/doc-extraction/route.ts",
-    "src/app/api/workers/intake-outbox/route.ts",
+    "src/app/api/workers/[...path]/_handlers/pulse-outbox.ts",
+    "src/app/api/workers/[...path]/_handlers/doc-extraction.ts",
+    "src/app/api/workers/[...path]/_handlers/intake-outbox.ts",
   ]) {
     const src = READ(path);
     assert.match(src, /idle_no_work/, `${path} must surface idle_no_work skip`);
