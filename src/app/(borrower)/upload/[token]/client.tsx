@@ -43,7 +43,7 @@ export function UploadPageClient({ token }: { token: string }) {
         }
       );
 
-      // 2. Upload to signed URL
+      // 2. Upload to the secure destination returned by the portal
       const uploadRes = await fetch(upload_url, {
         method: "PUT",
         body: file,
