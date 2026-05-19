@@ -126,7 +126,7 @@ export async function computeDealReadiness(
   // 3. Check checklist satisfaction
   const { data: checklist } = await sb
     .from("deal_checklist_items")
-    .select("required, status")
+    .select("required, status, checklist_key")
     .eq("deal_id", dealId);
 
   if (!checklist || checklist.length === 0) {
@@ -138,7 +138,34 @@ export async function computeDealReadiness(
   }
 
   const satisfiedRequired = getSatisfiedRequired(checklist);
-  const missingRequired = getMissingRequired(checklist).length;
+  const missingItems = getMissingRequired(checklist);
+  let missingRequired = missingItems.length;
+
+  // SPEC-OUTSTANDING-FIXES-BATCH-1 Fix 7: Tax year tolerance.
+  // If the ONLY missing required items are tax returns for the current-prior
+  // year (e.g. 2025 returns in May 2026 — filed but borrower hasn't provided),
+  // treat the requirement as substantially met for stage advancement.
+  // The checklist still shows the missing year so bankers know to collect it.
+  if (missingRequired > 0) {
+    const currentTaxYear = new Date().getMonth() >= 3
+      ? new Date().getFullYear() - 1
+      : new Date().getFullYear() - 2;
+    const currentYearSuffix = `_${currentTaxYear}`;
+
+    const nonTolerableMissing = missingItems.filter((item: any) => {
+      const key = (item.checklist_key ?? "") as string;
+      // Tolerate missing IRS_BUSINESS_<year> and IRS_PERSONAL_<year> for current tax year only
+      if (key.endsWith(currentYearSuffix)) {
+        const prefix = key.replace(currentYearSuffix, "");
+        if (prefix === "IRS_BUSINESS" || prefix === "IRS_PERSONAL") {
+          return false; // tolerable — don't count as blocking
+        }
+      }
+      return true; // non-tolerable — still blocks
+    });
+
+    missingRequired = nonTolerableMissing.length;
+  }
 
   if (missingRequired > 0) {
     return {
