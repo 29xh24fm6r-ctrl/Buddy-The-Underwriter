@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { cn } from "@/lib/cn";
 import type { BorrowerJourneyViewModel } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import type { BorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerReadinessViewModel";
+import type { BorrowerDealHealthViewModel } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
 import { BorrowerBlockersCard } from "./BorrowerBlockersCard";
 import { BorrowerJourneyActionCard } from "./BorrowerJourneyActionCard";
 import { BorrowerJourneyMilestones } from "./BorrowerJourneyMilestones";
@@ -13,6 +14,7 @@ import { BorrowerDealInsightsCard } from "./readiness/BorrowerDealInsightsCard";
 import { BorrowerRecommendationsCard } from "./readiness/BorrowerRecommendationsCard";
 import { BorrowerActivityFeed } from "./readiness/BorrowerActivityFeed";
 import { BorrowerDocumentCompletionChart } from "./readiness/BorrowerDocumentCompletionChart";
+import { BorrowerDealHealthDashboard } from "./deal-health/BorrowerDealHealthDashboard";
 
 function JourneyHeader({
   dealName,
@@ -119,10 +121,12 @@ function JourneyHeader({
 export function BorrowerFundingJourney({
   viewModel,
   readinessViewModel,
+  dealHealthViewModel,
   dealName,
 }: {
   viewModel: BorrowerJourneyViewModel;
   readinessViewModel?: BorrowerReadinessViewModel;
+  dealHealthViewModel?: BorrowerDealHealthViewModel;
   dealName?: string | null;
 }) {
   return (
@@ -155,6 +159,11 @@ export function BorrowerFundingJourney({
             recommendations={readinessViewModel.recommendations}
           />
         </>
+      )}
+
+      {/* Deal Health Dashboard (Spec 3) */}
+      {dealHealthViewModel && (
+        <BorrowerDealHealthDashboard viewModel={dealHealthViewModel} />
       )}
 
       <BorrowerJourneyMilestones milestones={viewModel.milestones} />
