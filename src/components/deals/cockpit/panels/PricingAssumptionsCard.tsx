@@ -68,9 +68,46 @@ function toFormState(data: PricingAssumptions | null | undefined): FormState {
   };
 }
 
+function isLocProductType(productType: string | null): boolean {
+  return (
+    productType === "LOC_SECURED" ||
+    productType === "LOC_UNSECURED" ||
+    productType === "LOC_RE_SECURED" ||
+    productType === "LINE_OF_CREDIT"
+  );
+}
+
 // ─── PMT math (mirrors server) ──────────────────────────────
-function computePreview(form: FormState) {
+function computePreview(form: FormState, isLoc: boolean) {
   const principal = parseFloat(form.loan_amount);
+
+  function resolveRate(): number | null {
+    if (form.rate_type === "fixed") {
+      return parseFloat(form.fixed_rate_pct) || null;
+    }
+    const idx = parseFloat(form.index_rate_pct) || 0;
+    const spreadPct = (parseFloat(form.spread_override_bps) || 0) / 100;
+    const floor = parseFloat(form.floor_rate_pct) || 0;
+    return Math.max(floor, idx + spreadPct);
+  }
+
+  // LOC products are interest-only by definition; amortization is irrelevant.
+  if (isLoc) {
+    if (!principal || principal <= 0) {
+      return { finalRate: null, monthlyPayment: null, annualDebtService: null };
+    }
+    const finalRate = resolveRate();
+    if (finalRate == null || finalRate <= 0) {
+      return { finalRate, monthlyPayment: null, annualDebtService: null };
+    }
+    const monthlyPayment = (principal * finalRate) / 100 / 12;
+    return {
+      finalRate,
+      monthlyPayment,
+      annualDebtService: monthlyPayment * 12,
+    };
+  }
+
   const amortMonths = parseInt(form.amort_months, 10);
   const ioMonths = parseInt(form.interest_only_months, 10) || 0;
 
@@ -78,15 +115,7 @@ function computePreview(form: FormState) {
     return { finalRate: null, monthlyPayment: null, annualDebtService: null };
   }
 
-  let finalRate: number | null = null;
-  if (form.rate_type === "fixed") {
-    finalRate = parseFloat(form.fixed_rate_pct) || null;
-  } else {
-    const idx = parseFloat(form.index_rate_pct) || 0;
-    const spreadPct = (parseFloat(form.spread_override_bps) || 0) / 100;
-    const floor = parseFloat(form.floor_rate_pct) || 0;
-    finalRate = Math.max(floor, idx + spreadPct);
-  }
+  const finalRate = resolveRate();
 
   if (finalRate == null || finalRate <= 0) {
     return { finalRate, monthlyPayment: null, annualDebtService: null };
@@ -133,21 +162,31 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
   const [form, setForm] = useState<FormState>(() => ({ ...DEFAULT_FORM }));
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+  const [productType, setProductType] = useState<string | null>(null);
+  const isLoc = isLocProductType(productType);
 
   // ── Self-load on mount ──
   const refresh = useCallback(async () => {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/pricing-assumptions`, {
-        cache: "no-store",
-      });
-      const json = await res.json();
+      const [assumptionsRes, lrRes] = await Promise.all([
+        fetch(`/api/deals/${dealId}/pricing-assumptions`, { cache: "no-store" }),
+        fetch(`/api/deals/${dealId}/loan-requests`, { cache: "no-store" }),
+      ]);
+      const json = await assumptionsRes.json();
       if (json.ok && json.pricingAssumptions) {
         setForm(toFormState(json.pricingAssumptions));
         setHasInputs(true);
       } else {
         setHasInputs(false);
+      }
+      if (lrRes.ok) {
+        const lrJson = await lrRes.json();
+        const requests = Array.isArray(lrJson?.requests) ? lrJson.requests : [];
+        const primary =
+          requests.find((r: any) => r?.request_number === 1) ?? requests[0] ?? null;
+        setProductType(primary?.product_type ?? null);
       }
     } catch {
       setStatus({ kind: "error", message: "Failed to load pricing inputs." });
@@ -160,7 +199,7 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
     refresh();
   }, [refresh]);
 
-  const preview = useMemo(() => computePreview(form), [form]);
+  const preview = useMemo(() => computePreview(form, isLoc), [form, isLoc]);
 
   const updateField = useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -404,23 +443,29 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
               </Field>
             )}
 
-            <Field label="Amortization (months)">
-              <input
-                type="number"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                value={form.amort_months}
-                onChange={(e) => updateField("amort_months", e.target.value)}
-              />
-            </Field>
+            {/* Amortization + Interest-Only — hidden for LOC products
+                (LOC is interest-only by definition; amort is irrelevant). */}
+            {!isLoc && (
+              <Field label="Amortization (months)">
+                <input
+                  type="number"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
+                  value={form.amort_months}
+                  onChange={(e) => updateField("amort_months", e.target.value)}
+                />
+              </Field>
+            )}
 
-            <Field label="Interest-Only (months)">
-              <input
-                type="number"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                value={form.interest_only_months}
-                onChange={(e) => updateField("interest_only_months", e.target.value)}
-              />
-            </Field>
+            {!isLoc && (
+              <Field label="Interest-Only (months)">
+                <input
+                  type="number"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
+                  value={form.interest_only_months}
+                  onChange={(e) => updateField("interest_only_months", e.target.value)}
+                />
+              </Field>
+            )}
           </div>
 
           {/* ── Row 4: Optional fees ── */}
@@ -486,13 +531,17 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                 <div className="text-lg font-bold text-white">
                   {formatCurrency(preview.monthlyPayment)}
                 </div>
-                <div className="text-[10px] text-white/40">Monthly P&I</div>
+                <div className="text-[10px] text-white/40">
+                  {isLoc ? "Monthly Interest" : "Monthly P&I"}
+                </div>
               </div>
               <div>
                 <div className="text-lg font-bold text-white">
                   {formatCurrency(preview.annualDebtService)}
                 </div>
-                <div className="text-[10px] text-white/40">Annual Debt Service</div>
+                <div className="text-[10px] text-white/40">
+                  {isLoc ? "Annual Interest Cost" : "Annual Debt Service"}
+                </div>
               </div>
             </div>
           </div>
