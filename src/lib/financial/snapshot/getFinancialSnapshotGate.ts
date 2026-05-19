@@ -51,13 +51,7 @@ export async function getFinancialSnapshotGate(dealId: string): Promise<Financia
       .eq("active", true)
       .maybeSingle();
 
-    // Also check legacy deal_truth_snapshots for backwards compat
-    const { count: legacyCount } = await sb
-      .from("deal_truth_snapshots")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId);
-
-    const snapshotExists = Boolean(v2Snapshot) || (legacyCount != null && legacyCount > 0);
+    const snapshotExists = Boolean(v2Snapshot);
 
     // Count open gap queue items (financial review items)
     const { data: openGaps } = await sb
