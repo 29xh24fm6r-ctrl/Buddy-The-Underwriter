@@ -51,7 +51,17 @@ export async function getFinancialSnapshotGate(dealId: string): Promise<Financia
       .eq("active", true)
       .maybeSingle();
 
-    const snapshotExists = Boolean(v2Snapshot);
+    // v2 is the target system but the recompute route still writes to v1
+    // (financial_snapshots). Fall back to v1 when no v2 row exists so the
+    // committee gate doesn't permanently block every deal.
+    let snapshotExists = Boolean(v2Snapshot);
+    if (!snapshotExists) {
+      const { count: v1Count } = await sb
+        .from("financial_snapshots")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId);
+      snapshotExists = (v1Count ?? 0) > 0;
+    }
 
     // Count open gap queue items (financial review items)
     const { data: openGaps } = await sb
