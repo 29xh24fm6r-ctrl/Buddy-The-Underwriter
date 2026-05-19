@@ -256,7 +256,9 @@ export default function DealPricingClient({
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
-        throw new Error(json?.error ?? "Failed to generate quote");
+        throw new Error(
+          json?.message ?? json?.detail ?? json?.error ?? "Failed to generate quote",
+        );
       }
       const nextQuote = json.quote as QuoteRow;
       setQuoteHistory((prev) => [nextQuote, ...prev]);
@@ -274,7 +276,12 @@ export default function DealPricingClient({
     const res = await fetch(`/api/deals/${deal.id}/pricing/quotes`, {
       cache: "no-store",
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      // Fall back to a hard reload so the banker never gets stuck with
+      // stale optimistic state after a lock attempt.
+      window.location.reload();
+      return;
+    }
     const json = await res.json();
     const next = json?.quotes ?? [];
     setQuoteHistory(next);

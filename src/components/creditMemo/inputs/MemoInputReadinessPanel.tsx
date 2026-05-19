@@ -71,7 +71,7 @@ export default function MemoInputReadinessPanel({ readiness }: Props) {
             {readiness.blockers.map((b) => (
               <li key={b.code} className="flex items-start gap-2 text-sm">
                 <span className="mt-0.5 inline-block h-2 w-2 rounded-full bg-rose-600" />
-                <span className="flex-1">
+                <span className="flex-1 text-gray-900">
                   {b.label}{" "}
                   <span className="text-xs text-gray-600">[owner: {b.owner}]</span>
                 </span>

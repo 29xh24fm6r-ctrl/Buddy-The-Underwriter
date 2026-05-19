@@ -46,8 +46,16 @@ export async function POST(
     if (!financialSnapshotExists) pending.push("financial snapshot");
     if (!spreadsComplete) pending.push("spread jobs");
     if (!researchComplete) pending.push("research missions");
+    const message = pending.includes("spread jobs")
+      ? "Financial spread analysis is still running — this usually completes within 1–2 minutes. Try again shortly."
+      : `Pricing requires: ${pending.join(", ")}. Complete these steps before generating a quote.`;
     return NextResponse.json(
-      { ok: false, error: "pricing_not_ready", detail: `Requires: ${pending.join(", ")}` },
+      {
+        ok: false,
+        error: "pricing_not_ready",
+        detail: `Requires: ${pending.join(", ")}`,
+        message,
+      },
       { status: 422 },
     );
   }

@@ -262,7 +262,10 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .in("status", ["queued", "processing", "failed"]),
       ctx
     ),
-    // Spread pipeline completeness — count jobs still QUEUED/RUNNING/FAILED
+    // Spread pipeline completeness — only count fresh QUEUED/RUNNING jobs.
+    // Jobs older than 30 min are stale (worker missed them) and must not
+    // permanently block pricing. FAILED is excluded entirely — surfaced as
+    // a warning elsewhere, never as a hard gate.
     safeSupabaseCount(
       "spreads",
       () =>
@@ -270,7 +273,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .from("deal_spread_jobs")
           .select("id", { count: "exact", head: true })
           .eq("deal_id", dealId)
-          .in("status", ["QUEUED", "RUNNING", "FAILED"]),
+          .in("status", ["QUEUED", "RUNNING"])
+          .gte(
+            "created_at",
+            new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+          ),
       ctx
     ),
     // Risk pricing finalization check
