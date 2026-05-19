@@ -131,7 +131,7 @@ function buildCollateralSuggestions(args: {
         reason: `Inferred from document type ${canonical}`,
       },
       description: {
-        value: String(doc.original_name ?? canonical),
+        value: String(doc.original_filename ?? canonical),
         source: "document",
         confidence: 0.8,
         source_id: docId,
@@ -252,7 +252,7 @@ async function loadCollateralDocs(
   try {
     const { data } = await (sb as any)
       .from("deal_documents")
-      .select("id, canonical_type, document_type, original_name")
+      .select("id, canonical_type, document_type, original_filename")
       .eq("deal_id", dealId);
     return (data ?? []) as any[];
   } catch {

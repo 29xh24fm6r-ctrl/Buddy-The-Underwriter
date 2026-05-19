@@ -497,7 +497,7 @@ test("wiring: readiness recomputed emits pipeline event", () => {
 });
 
 test("wiring: manual override emits pipeline event", () => {
-  const source = readSource("src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts");
+  const source = readSource("src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts");
   assert.ok(source.includes("emitPipelineEvent"), "Must call emitPipelineEvent");
   assert.ok(source.includes("manual_override"), "Must emit manual_override event");
 });
@@ -508,7 +508,7 @@ test("wiring: all pipeline emissions use void (fire-and-forget)", () => {
     "src/lib/artifacts/processArtifact.ts",
     "src/app/api/deals/[dealId]/checklist/reconcile/route.ts",
     "src/lib/deals/readiness.ts",
-    "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+    "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
   ];
   for (const f of files) {
     const source = readSource(f);

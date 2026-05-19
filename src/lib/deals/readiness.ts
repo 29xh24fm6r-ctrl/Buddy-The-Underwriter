@@ -297,6 +297,13 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       });
     }
 
+    // Phase 12B: fire comms lifecycle hook on ready transition
+    if (updated) {
+      void import("@/lib/brokerage/commsLifecycleHooks")
+        .then((m) => m.handleLifecycleHook({ dealId, event: "deal_ready_for_review" }, sb))
+        .catch(() => {});
+    }
+
     // Best-effort lifecycle advancement — advanceDealLifecycle has its own
     // internal stage guard (ALLOWED_TRANSITIONS), so this is safe to call
     // unconditionally. Wrapped in try/catch because stage column
@@ -341,6 +348,11 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
         actorUserId: null,
         input: { reason: result.reason },
       });
+
+      // Phase 12B: fire comms lifecycle hook on readiness regression
+      void import("@/lib/brokerage/commsLifecycleHooks")
+        .then((m) => m.handleLifecycleHook({ dealId, event: "readiness_regressed" }, sb))
+        .catch(() => {});
     }
   }
 }

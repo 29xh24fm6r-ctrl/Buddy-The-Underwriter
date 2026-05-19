@@ -149,10 +149,14 @@ describe("route consolidation invariants", () => {
     const workerRoutes = findFiles(
       "src/app/api/workers -name route.ts",
     );
-    assert.equal(
-      workerRoutes.length,
-      1,
-      `workers/ must have exactly 1 route.ts, found ${workerRoutes.length}: ${workerRoutes.join(", ")}`,
+    const expectedRoutes = [
+      "src/app/api/workers/[...path]/route.ts",
+      "src/app/api/workers/lock-janitor/route.ts",
+    ];
+    assert.deepEqual(
+      workerRoutes.sort(),
+      expectedRoutes.sort(),
+      `workers/ must only contain the consolidated catch-all plus lock-janitor: ${workerRoutes.join(", ")}`,
     );
   });
 

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { ensurePageMapForAttachment } from "@/lib/evidence/pageMap";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -9,29 +10,26 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
+  _req: Request,
+  ctx: { params: Promise<{ dealId: string; documentId: string }> },
 ) {
 
-  const { dealId, attachmentId } = await ctx.params;
+  const { dealId, documentId } = await ctx.params;
+  const attachmentId = documentId;
+  await ensurePageMapForAttachment({ dealId, attachmentId });
+
   const sb = supabaseAdmin();
   const { data, error } = await sb
-    .from("document_ocr_results")
-    .select("attachment_id, extracted_text, created_at, updated_at")
+    .from("document_ocr_page_map")
+    .select("page_number, page_text, global_char_start, global_char_end")
     .eq("deal_id", dealId)
     .eq("attachment_id", attachmentId)
-    .maybeSingle();
+    .order("page_number", { ascending: true });
 
   if (error)
     return NextResponse.json(
       { ok: false, error: error.message },
       { status: 500 },
     );
-  if (!data)
-    return NextResponse.json(
-      { ok: false, error: "OCR text not found" },
-      { status: 404 },
-    );
-
-  return NextResponse.json({ ok: true, doc: data });
+  return NextResponse.json({ ok: true, pages: data || [] });
 }

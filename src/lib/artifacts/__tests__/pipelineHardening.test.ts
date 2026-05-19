@@ -51,6 +51,7 @@ test("isExtractEligibleDocType canonical set — no synonyms", () => {
     "BALANCE_SHEET",
     "RENT_ROLL",
     "PERSONAL_FINANCIAL_STATEMENT",
+    "PFS",
   ];
 
   for (const t of requiredTypes) {
@@ -64,7 +65,6 @@ test("isExtractEligibleDocType canonical set — no synonyms", () => {
     "TRAILING_12",
     "OPERATING_STATEMENT",
     "FINANCIAL_STATEMENT",
-    "PFS",
     "K1",
     "IRS_1040",
     "IRS_1120",

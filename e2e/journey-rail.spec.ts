@@ -14,15 +14,17 @@ const TEST_DEAL_ID =
   process.env.JOURNEY_RAIL_DEAL_ID ?? "0279ed32-c25c-4919-b231-5790050331dd";
 
 test.describe("Journey Rail (SPEC-01)", () => {
-  test.skip(
-    ({}, testInfo) => testInfo.project.name === "smoke-public",
-    "Journey rail requires authentication — runs in smoke-authed only.",
-  );
+  test.beforeEach(async ({}, testInfo) => {
+    test.skip(
+      testInfo.project.name === "smoke-public",
+      "Journey rail requires authentication — runs in smoke-authed only.",
+    );
 
-  test.skip(
-    () => !process.env.SMOKE_AUTH_BOOTSTRAP_URL,
-    "SMOKE_AUTH_BOOTSTRAP_URL not set — skipping authed e2e run.",
-  );
+    test.skip(
+      !process.env.SMOKE_AUTH_BOOTSTRAP_URL,
+      "SMOKE_AUTH_BOOTSTRAP_URL not set — skipping authed e2e run.",
+    );
+  });
 
   test("renders JourneyRail on the deal cockpit page", async ({ page, baseURL }) => {
     await page.goto(`${baseURL}/deals/${TEST_DEAL_ID}/cockpit`);

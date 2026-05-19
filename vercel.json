@@ -37,6 +37,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/workers/lock-janitor",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/brokerage/cleanup-expired",
       "schedule": "0 4 * * *"
     },

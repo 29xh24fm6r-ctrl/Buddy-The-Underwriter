@@ -1108,8 +1108,8 @@ test("[guard-69] Observer auto-heals stuck generating spreads", () => {
     "Observer must reference auto-heal behavior",
   );
   assert.ok(
-    src.includes('status: "error"'),
-    "Observer must set stuck spreads to error status",
+    src.includes('status: "queued"'),
+    "Observer must reset stuck spreads to queued status",
   );
 });
 
@@ -1374,7 +1374,7 @@ test("[guard-85] Per-doc confirm emits classification.manual_override on type ch
 
 test("[guard-86] Shared extractFilenamePattern imported in both override surfaces", () => {
   const checklistKey = readSource(
-    "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+    "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
   );
   const intakeConfirm = readSource(
     "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",

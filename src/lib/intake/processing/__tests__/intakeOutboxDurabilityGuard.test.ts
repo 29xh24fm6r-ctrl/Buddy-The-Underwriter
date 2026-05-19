@@ -261,7 +261,7 @@ describe("Intake Outbox Durability CI Guards", () => {
 
   // ── Guard 13: Recovery route exists and uses correct imports ──────
   test("[guard-13] intake-recovery route uses insertOutboxEvent and hasValidWorkerSecret", () => {
-    const src = readSource("src/app/api/workers/intake-recovery/route.ts");
+    const src = readSource("src/app/api/workers/[...path]/_handlers/intake-recovery.ts");
     assert.ok(
       src.includes("hasValidWorkerSecret"),
       "recovery route must authenticate via hasValidWorkerSecret",
@@ -274,7 +274,7 @@ describe("Intake Outbox Durability CI Guards", () => {
 
   // ── Guard 14: Recovery route NEVER imports processing functions ────
   test("[guard-14] intake-recovery NEVER imports runIntakeProcessing or processConfirmedIntake", () => {
-    const routeSrc = readSource("src/app/api/workers/intake-recovery/route.ts");
+    const routeSrc = readSource("src/app/api/workers/[...path]/_handlers/intake-recovery.ts");
     const domainSrc = readSource("src/lib/workers/recoverStuckIntakeDeals.ts");
 
     for (const [label, src] of [["route", routeSrc], ["domain", domainSrc]] as const) {
@@ -438,7 +438,7 @@ describe("Intake Outbox Durability CI Guards", () => {
 
   // ── Guard 25: intake-outbox route must authenticate + log startup ──────
   test("[guard-25] intake-outbox route uses hasValidWorkerSecret and emits startup log", () => {
-    const src = readSource("src/app/api/workers/intake-outbox/route.ts");
+    const src = readSource("src/app/api/workers/[...path]/_handlers/intake-outbox.ts");
     assert.ok(
       src.includes("hasValidWorkerSecret"),
       "Guard 25a: intake-outbox route must authenticate via hasValidWorkerSecret",
@@ -452,7 +452,7 @@ describe("Intake Outbox Durability CI Guards", () => {
   // ── Guard 26: manual correction route must not accept checklist_key ──
   test("[guard-26] checklist-key route BodySchema must not accept checklist_key from client", () => {
     const src = readSource(
-      "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+      "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
     );
     // BodySchema must NOT have a checklist_key field — it is derived internally
     assert.ok(

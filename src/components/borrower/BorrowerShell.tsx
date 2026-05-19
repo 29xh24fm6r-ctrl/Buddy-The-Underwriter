@@ -14,7 +14,7 @@ export function BorrowerShell({
   hero: React.ReactNode;
   primary?: React.ReactNode;
   rail?: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   footer?: React.ReactNode;
   mobileFooter?: React.ReactNode;
 }) {

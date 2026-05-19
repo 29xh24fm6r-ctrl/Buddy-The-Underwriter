@@ -107,7 +107,7 @@ describe("Phase F — Atomic Canonical-Type Update", () => {
 
   test("Guard 36c: checklist-key route uses atomic_retype_document RPC", () => {
     const src = readSource(
-      "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+      "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
     );
 
     assert.ok(
@@ -180,7 +180,7 @@ describe("Phase G — Checklist Mutability Guard", () => {
   // Any new file that writes checklist_key MUST be added here with justification.
   const ALLOWLISTED_FILES = [
     // ── Phase F: Atomic RPC route ──
-    "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+    "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
     // ── Classification pipeline ──
     "src/lib/artifacts/processArtifact.ts",
     // ── Admin repair ──

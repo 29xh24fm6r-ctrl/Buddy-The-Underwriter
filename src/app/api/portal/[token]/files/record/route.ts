@@ -457,6 +457,14 @@ export async function POST(req: NextRequest, ctx: Context) {
     // 🧠 CONVERGENCE: Recompute deal readiness
     await recomputeDealReady(dealId);
 
+    // Phase 12B: fire comms lifecycle hook — documents_received
+    {
+      const adminSb = supabaseAdmin();
+      void import("@/lib/brokerage/commsLifecycleHooks")
+        .then((m) => m.handleLifecycleHook({ dealId, event: "documents_received" }, adminSb))
+        .catch(() => {});
+    }
+
     // Emit ledger event (legacy - no actorUserId for borrower uploads)
     await writeEvent({
       dealId,

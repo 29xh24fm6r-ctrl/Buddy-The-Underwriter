@@ -3,15 +3,18 @@
  *
  * Vercel Cron for async per-document extraction.
  *
- * Schedule: every 5 minutes (vercel.json cron)
+ * Schedule: every 2 minutes (vercel.json cron)
  * Auth: CRON_SECRET or WORKER_SECRET
  * maxDuration: 300s (Vercel max)
  *
- * Claims 'doc.extract' outbox events and runs extractByDocType() for each.
- * Decoupled from intake processing to avoid the 240s soft deadline.
+ * Claims 'doc.extract' outbox events via the transaction-scoped
+ * claim_doc_extraction_with_xact_lock RPC and runs extractByDocType() for
+ * each. The advisory lock is held only for the claim transaction —
+ * processing happens after the function returns, with no lock held.
  *
- * Singleton across concurrent invocations via PostgreSQL advisory lock
- * (WORKER_LOCK_KEYS.DOC_EXTRACTION_OUTBOX).
+ * Singleton-claim semantics via PostgreSQL transaction-scoped advisory lock
+ * (WORKER_LOCK_KEYS.DOC_EXTRACTION_OUTBOX = 42001002). See
+ * SPEC-ADVISORY-LOCK-XACT-MIGRATION-1.
  */
 
 import "server-only";
@@ -19,13 +22,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
 import { processDocExtractionOutbox } from "@/lib/workers/processDocExtractionOutbox";
-import {
-  WORKER_LOCK_KEYS,
-  withWorkerAdvisoryLock,
-  isWorkerLockSkip,
-} from "@/lib/workers/workerLock";
 import { resolveBatchSize } from "@/lib/workers/batchCaps";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,26 +47,13 @@ export async function GET(req: NextRequest) {
     "docExtraction",
   );
 
-  const sb = supabaseAdmin();
-
-  const result = await withWorkerAdvisoryLock({
-    sb,
-    lockKey: WORKER_LOCK_KEYS.DOC_EXTRACTION_OUTBOX,
-    workerName: "doc-extraction",
-    run: async () => processDocExtractionOutbox(max),
-  });
+  // claimWithXactLock is invoked inside processDocExtractionOutbox itself.
+  // Lock skip vs idle no-work are distinguished by the processor's return shape:
+  //   - lock skip → claimed=0, processed=0 (logged at RPC layer)
+  //   - idle no-work → idle=true
+  const result = await processDocExtractionOutbox(max);
 
   const durationMs = Date.now() - start;
-
-  if (isWorkerLockSkip(result)) {
-    return NextResponse.json({
-      ok: true,
-      worker: "doc_extraction",
-      skipped: true,
-      reason: "lock_not_acquired",
-      durationMs,
-    });
-  }
 
   if (result.idle) {
     return NextResponse.json({

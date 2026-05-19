@@ -31,9 +31,10 @@ describe("SPEC-BANKER-FLOW-FIX-BATCH-1 guards", () => {
   });
 
   // Fix 3
-  test("evaluateSbaEligibility returns not_applicable for CONVENTIONAL", () => {
+  test("evaluateSbaEligibility returns not_applicable for non-SBA loan products", () => {
     assert.ok(SBA_SRC.includes('"not_applicable"'));
-    assert.ok(SBA_SRC.includes("CONVENTIONAL"));
+    assert.ok(SBA_SRC.includes("loanProductType"));
+    assert.ok(SBA_SRC.includes('!loanProductType.startsWith("SBA")'));
   });
 
   test("SbaEligibilityStatus includes not_applicable", () => {

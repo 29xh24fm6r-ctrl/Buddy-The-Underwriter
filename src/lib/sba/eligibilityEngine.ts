@@ -31,9 +31,9 @@ function normalizeList(values: string[] | null | undefined): string[] {
 
 export function evaluateSbaEligibility(input: SbaEligibilityInput): SbaEligibilityResult {
   // SBA eligibility is only relevant for SBA loan products.
-  // CONVENTIONAL deals return not_applicable immediately.
-  const dealTypeNorm = (input.dealType ?? "").toUpperCase();
-  if (dealTypeNorm === "CONVENTIONAL" || dealTypeNorm === "CRE" || dealTypeNorm === "C_AND_I") {
+  // Conventional products return not_applicable immediately.
+  const loanProductType = normalizeEnum(input.loanProductType);
+  if (loanProductType && !loanProductType.startsWith("SBA")) {
     return { status: "not_applicable", reasons: [], missing: [] };
   }
 
@@ -43,8 +43,6 @@ export function evaluateSbaEligibility(input: SbaEligibilityInput): SbaEligibili
   const entityType = normalizeEnum(input.borrowerEntityType);
   const useOfProceeds = normalizeList(input.useOfProceeds);
   const dealType = normalizeEnum(input.dealType);
-  const loanProductType = normalizeEnum(input.loanProductType);
-
   if (!entityType) missing.push("borrower_entity_type");
   if (!useOfProceeds.length) missing.push("use_of_proceeds");
   if (!dealType) missing.push("deal_type");
