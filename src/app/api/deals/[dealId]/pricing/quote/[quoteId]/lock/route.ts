@@ -184,5 +184,31 @@ export async function POST(
     output: { quoteId, lockReason },
   }).catch(() => {});
 
+  // SPEC-PRICING-STAGE-GATE-FIX-1: Locking a quote finalizes risk pricing.
+  // Clears risk_pricing_not_finalized blocker in computeBlockers.
+  try {
+    await (sb as any).from("deal_risk_pricing_model").upsert(
+      {
+        deal_id: dealId,
+        bank_id: bankId,
+        finalized: true,
+        final_rate_pct: Number(updated.all_in_rate_pct),
+        final_monthly_payment: updated.monthly_payment_pi ?? updated.monthly_payment_io ?? null,
+        source: "quote_lock",
+        computed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "deal_id" },
+    );
+  } catch (err: any) {
+    console.warn("[pricing.lock] risk_pricing_model finalization failed (non-fatal)", err?.message);
+  }
+
+  // Trigger lifecycle advancement — stage should move to committee_ready
+  const { scheduleReadinessRefresh } = await import(
+    "@/lib/deals/readiness/refreshDealReadiness"
+  );
+  scheduleReadinessRefresh({ dealId, trigger: "manual" });
+
   return NextResponse.json({ ok: true, quote: updated });
 }

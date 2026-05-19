@@ -122,10 +122,13 @@ export function computeBlockers(
     });
   }
 
-  // Risk pricing finalization blocker — must be reviewed and finalized before committee
+  // Risk pricing finalization blocker — must be reviewed and finalized before committee.
+  // A locked quote satisfies this gate (pricingQuoteReady) even if
+  // deal_risk_pricing_model.finalized hasn't been written yet.
   if (
     stage === "underwrite_in_progress" &&
-    !derived.riskPricingFinalized
+    !derived.riskPricingFinalized &&
+    !derived.pricingQuoteReady
   ) {
     blockers.push({
       code: "risk_pricing_not_finalized",
