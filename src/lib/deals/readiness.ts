@@ -126,7 +126,7 @@ export async function computeDealReadiness(
   // 3. Check checklist satisfaction
   const { data: checklist } = await sb
     .from("deal_checklist_items")
-    .select("required, status, checklist_key")
+    .select("required, status, checklist_key, required_years, satisfied_years")
     .eq("deal_id", dealId);
 
   if (!checklist || checklist.length === 0) {

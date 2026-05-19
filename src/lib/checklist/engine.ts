@@ -560,6 +560,15 @@ export async function reconcileDealChecklist(dealId: string) {
         })()
       : (docsByKey.get(itemKey) ?? []);
 
+    // SPEC-CHECKLIST-STAGE-GATE-FIX-1: PFS docs may have canonical_type="PFS"
+    // but document_type is not normalized to a CanonicalDocTypeBucket. Fall back
+    // to direct canonical_type match for PFS_CURRENT.
+    if (docsForItem.length === 0 && itemKey === "PFS_CURRENT") {
+      docsForItem = matchedDocs.filter((d: any) =>
+        d.canonical_type === "PFS" || d.canonical_type === "PERSONAL_FINANCIAL_STATEMENT",
+      );
+    }
+
     // Conditional satisfaction: PTR only satisfies IRS_BUSINESS_* if it has Schedule C
     if (itemKey.toUpperCase().startsWith("IRS_BUSINESS") && docsForItem.length > 0) {
       const filtered: any[] = [];
