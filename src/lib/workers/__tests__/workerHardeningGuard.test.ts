@@ -47,7 +47,7 @@ test("processDocExtractionOutbox: idle probe gates claimWithXactLock", () => {
   assert.ok(probeIdx > 0 && probeIdx < (claimMatch.index ?? 0), "probe must precede claim path");
 });
 
-// ── Worker route dispatch + handler contracts ─────────────────────────────
+// ── Worker route dispatch + observability JSON ────────────────────────────
 
 test("workers catch-all route dispatches hardened cron handlers", () => {
   const src = READ("src/app/api/workers/[...path]/route.ts");
@@ -59,18 +59,22 @@ test("workers catch-all route dispatches hardened cron handlers", () => {
 });
 
 test("pulse-outbox handler: wraps in withWorkerAdvisoryLock", () => {
+  // Not yet migrated to xact-lock (no claim RPC for inline .from() pattern).
   const src = READ("src/app/api/workers/[...path]/_handlers/pulse-outbox.ts");
   assert.match(src, /withWorkerAdvisoryLock/);
   assert.match(src, /WORKER_LOCK_KEYS\.PULSE_OUTBOX/);
 });
 
 test("doc-extraction handler: delegates to processDocExtractionOutbox (xact-lock inside)", () => {
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1 — withWorkerAdvisoryLock removed
+  // from the handler; xact-lock acquisition is inside processDocExtractionOutbox.
   const src = READ("src/app/api/workers/[...path]/_handlers/doc-extraction.ts");
   assert.doesNotMatch(src, /withWorkerAdvisoryLock/);
   assert.match(src, /processDocExtractionOutbox/);
 });
 
 test("intake-outbox handler: delegates to processIntakeOutbox (xact-lock inside)", () => {
+  // SPEC-ADVISORY-LOCK-XACT-MIGRATION-1.
   const src = READ("src/app/api/workers/[...path]/_handlers/intake-outbox.ts");
   assert.doesNotMatch(src, /withWorkerAdvisoryLock/);
   assert.match(src, /processIntakeOutbox/);
@@ -108,7 +112,6 @@ test("cron routes still on withWorkerAdvisoryLock surface lock_not_acquired skip
   // now expected to be invisible (RPC-internal).
   for (const path of [
     "src/app/api/workers/[...path]/_handlers/pulse-outbox.ts",
-    "src/app/api/workers/[...path]/_handlers/doc-extraction.ts",
     "src/app/api/pulse/cron-forward-ledger/route.ts",
   ]) {
     const src = READ(path);

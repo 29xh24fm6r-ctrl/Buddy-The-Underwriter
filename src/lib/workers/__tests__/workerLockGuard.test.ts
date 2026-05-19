@@ -39,8 +39,8 @@ test("[worker-lock-2] WORKER_LOCK_KEYS values are preserved (same bigints)", () 
 
 test("[worker-lock-3] migrated worker routes do NOT use withWorkerAdvisoryLock", () => {
   const routes = [
-    "src/app/api/workers/doc-extraction/route.ts",
-    "src/app/api/workers/intake-outbox/route.ts",
+    "src/app/api/workers/[...path]/_handlers/doc-extraction.ts",
+    "src/app/api/workers/[...path]/_handlers/intake-outbox.ts",
   ];
   for (const path of routes) {
     const src = READ(path);
