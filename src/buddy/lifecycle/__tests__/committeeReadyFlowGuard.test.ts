@@ -88,7 +88,7 @@ test("Fix 1: generateDecisionSnapshot reads dscr.value_num from financial_snapsh
 
 // ── Fix 3: /credit/committee is a native page, not a Stitch iframe ───────────
 
-test("Fix 3: /credit/committee no longer renders StitchSurface; queries deals natively", () => {
+test("Fix 3: /credit/committee no longer renders StitchSurface; queries deals natively and renders CreditCommitteeClient", () => {
   const src = read("src/app/(app)/credit/committee/page.tsx");
   assert.doesNotMatch(
     src,
@@ -107,13 +107,13 @@ test("Fix 3: /credit/committee no longer renders StitchSurface; queries deals na
   );
   assert.match(
     src,
-    /\.in\(\s*"lifecycle_stage"/,
-    "must filter deals by lifecycle_stage",
+    /\.in\("stage", \["ready", "underwriting"\]\)/,
+    "must filter deals by stage IN ('ready','underwriting') per addendum",
   );
   assert.match(
     src,
-    /committee_ready/,
-    "must include committee_ready as a target stage",
+    /CreditCommitteeClient/,
+    "must render the existing CreditCommitteeClient (UI unchanged — only data source moved)",
   );
 });
 
