@@ -87,7 +87,7 @@ export default async function Page(
   // Fetch primary loan request amount (first by request_number)
   const { data: primaryLoanRequest } = await sb
     .from("deal_loan_requests")
-    .select("requested_amount")
+    .select("requested_amount, product_type")
     .eq("deal_id", dealId)
     .order("request_number", { ascending: true })
     .limit(1)
@@ -95,6 +95,8 @@ export default async function Page(
 
   const loanRequestAmount: number | null =
     (primaryLoanRequest as any)?.requested_amount ?? null;
+  const loanProductType: string | null =
+    (primaryLoanRequest as any)?.product_type ?? null;
 
   if (error || !deal) {
     return (
@@ -158,6 +160,7 @@ export default async function Page(
           inputs={null}
           quotes={[]}
           loanRequestAmount={loanRequestAmount}
+          productType={loanProductType}
           computed={null}
         />
       </div>
@@ -224,6 +227,7 @@ export default async function Page(
         inputs={inputs}
         quotes={quotes}
         loanRequestAmount={loanRequestAmount}
+        productType={loanProductType}
         computed={{
           baseRatePct,
           spreadBps,

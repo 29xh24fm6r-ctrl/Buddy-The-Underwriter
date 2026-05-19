@@ -1,4 +1,4 @@
-import type { ProductCategory } from "./types";
+import type { ProductCategory, ProductType } from "./types";
 
 export type FieldVisibility = "show" | "hide" | "optional";
 
@@ -118,4 +118,56 @@ export function getProductShape(
   const override = productCode ? PRODUCT_SHAPE_OVERRIDES[productCode] : undefined;
   if (!override) return base;
   return { ...base, ...override };
+}
+
+/**
+ * Map a ProductType code to its ProductCategory.
+ * Single source of truth for product classification.
+ */
+export function productTypeToCategory(
+  productType: ProductType | string | null | undefined,
+): ProductCategory {
+  if (!productType) return "SPECIALTY";
+  switch (productType) {
+    case "LOC_SECURED":
+    case "LOC_UNSECURED":
+    case "LOC_RE_SECURED":
+    case "LINE_OF_CREDIT":
+      return "LINES_OF_CREDIT";
+    case "CRE_PURCHASE":
+    case "CRE_REFI":
+    case "CRE_CASH_OUT":
+    case "CRE_TERM":
+    case "CONSTRUCTION":
+    case "LAND":
+    case "BRIDGE":
+      return "REAL_ESTATE";
+    case "SBA_7A":
+    case "SBA_7A_STANDARD":
+    case "SBA_7A_SMALL":
+    case "SBA_504":
+    case "SBA_EXPRESS":
+    case "SBA_CAPLines":
+      return "SBA";
+    case "TERM_SECURED":
+    case "TERM_UNSECURED":
+    case "C_AND_I_TERM":
+    case "EQUIPMENT":
+    case "VEHICLE":
+    case "WORKING_CAPITAL":
+    case "REFINANCE":
+      return "TERM_LOANS";
+    default:
+      return "SPECIALTY";
+  }
+}
+
+/**
+ * Get the product shape for a ProductType directly.
+ */
+export function getProductShapeForType(
+  productType: ProductType | string | null | undefined,
+): ProductShapeConfig {
+  const category = productTypeToCategory(productType);
+  return getProductShape(category, productType ?? undefined);
 }

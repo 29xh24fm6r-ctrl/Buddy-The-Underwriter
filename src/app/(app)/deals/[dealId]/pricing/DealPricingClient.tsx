@@ -114,6 +114,7 @@ export default function DealPricingClient({
   inputs,
   quotes,
   loanRequestAmount,
+  productType,
   computed,
 }: {
   deal: Deal;
@@ -123,6 +124,7 @@ export default function DealPricingClient({
   inputs: PricingInputs | null;
   quotes: QuoteRow[];
   loanRequestAmount?: number | null;
+  productType?: string | null;
   computed: ComputedPricing | null;
 }) {
   // Hooks must be called unconditionally (react-hooks/rules-of-hooks).
@@ -192,6 +194,11 @@ export default function DealPricingClient({
   const amortMonths = Math.max(1, form.amort_months || 0);
   const paymentEstimate = calculatePayment(principal, monthlyRate, amortMonths);
   const ioPayment = form.interest_only_months > 0 ? principal * monthlyRate : null;
+
+  // SPEC-PRICING-LOC-PRODUCT-SHAPE-1: LOC product shape
+  const isLoc = productType === "LOC_SECURED" || productType === "LOC_UNSECURED"
+    || productType === "LOC_RE_SECURED" || productType === "LINE_OF_CREDIT";
+  const annualInterestCost = isLoc && principal > 0 ? principal * allInRatePct / 100 : null;
 
   async function handleSave() {
     setSaving(true);

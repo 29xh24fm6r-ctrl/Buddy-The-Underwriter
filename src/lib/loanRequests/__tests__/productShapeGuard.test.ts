@@ -51,3 +51,37 @@ test("SBA shape hides spread (rate is formula-driven)", () => {
   const src = readFileSync(CONFIG_PATH, "utf8");
   assert.match(src, /SBA_SHAPE.*showSpread:\s*false/s);
 });
+
+// SPEC-PRICING-LOC-PRODUCT-SHAPE-1 guards
+test('productTypeToCategory("LOC_SECURED") returns "LINES_OF_CREDIT"', () => {
+  const src = readFileSync(CONFIG_PATH, "utf8");
+  assert.ok(src.includes("export function productTypeToCategory"));
+  assert.ok(src.includes('"LOC_SECURED"'));
+});
+
+test('productTypeToCategory maps SBA_7A to SBA', () => {
+  const src = readFileSync(CONFIG_PATH, "utf8");
+  assert.ok(src.includes('"SBA_7A"'));
+});
+
+test('getProductShapeForType is exported', () => {
+  const src = readFileSync(CONFIG_PATH, "utf8");
+  assert.ok(src.includes("export function getProductShapeForType"));
+});
+
+test("computeStructuralPricing uses IO math for LOC product types", () => {
+  const computeSrc = readFileSync(
+    resolve(process.cwd(), "src/lib/structuralPricing/computeStructuralPricing.ts"),
+    "utf8",
+  );
+  assert.ok(computeSrc.includes("LINES_OF_CREDIT"));
+  assert.ok(computeSrc.includes("isLoc"));
+});
+
+test("DealPricingClient receives productType prop", () => {
+  const clientSrc = readFileSync(
+    resolve(process.cwd(), "src/app/(app)/deals/[dealId]/pricing/DealPricingClient.tsx"),
+    "utf8",
+  );
+  assert.ok(clientSrc.includes("productType"));
+});
