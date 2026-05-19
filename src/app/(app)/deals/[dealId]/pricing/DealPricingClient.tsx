@@ -345,11 +345,28 @@ export default function DealPricingClient({
     }
   }, [activeQuoteId, tab]);
 
+  // Auto-refresh when the only blocker is spreads — spread jobs typically
+  // finish within 1–2 minutes, so the banker shouldn't have to manually reload.
+  useEffect(() => {
+    if (!readinessInfo) return;
+    const onlySpreadsBlocking =
+      !readinessInfo.spreadsComplete &&
+      readinessInfo.financialSnapshotExists &&
+      readinessInfo.researchComplete;
+    if (!onlySpreadsBlocking) return;
+    const timer = setInterval(() => window.location.reload(), 30_000);
+    return () => clearInterval(timer);
+  }, [readinessInfo]);
+
   // Gate: if pricing prerequisites are not met, show a "not ready" panel.
   // Placed AFTER all hook calls so hook ordering is stable across renders
   // (react-hooks/rules-of-hooks). Behavior identical to the previous
   // pre-hook gate — same panel, same conditions.
   if (!pricing || readinessInfo) {
+    const snapshotOk = !!readinessInfo?.financialSnapshotExists;
+    const spreadsOk = !!readinessInfo?.spreadsComplete;
+    const researchOk = !!readinessInfo?.researchComplete;
+    const onlySpreadsBlocking = !!readinessInfo && !spreadsOk && snapshotOk && researchOk;
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
         <h2 className="text-lg font-semibold text-amber-900">
@@ -361,25 +378,65 @@ export default function DealPricingClient({
           results. The following prerequisites must be met:
         </p>
         <ul className="mt-3 space-y-2 text-sm text-amber-800">
-          <li className="flex items-center gap-2">
-            <span className={readinessInfo?.financialSnapshotExists ? "text-green-600" : "text-amber-600"}>
-              {readinessInfo?.financialSnapshotExists ? "✓" : "○"}
+          <li className="flex items-start gap-2">
+            <span className={snapshotOk ? "text-green-600 mt-0.5" : "text-amber-600 mt-0.5"}>
+              {snapshotOk ? "✓" : "○"}
             </span>
-            Financial snapshot generated from spreads
+            <div>
+              <div className="font-medium">Financial snapshot</div>
+              {!snapshotOk && (
+                <div className="text-xs text-amber-700 mt-0.5">
+                  Go to{" "}
+                  <Link href={`/deals/${deal.id}/spreads`} className="underline">
+                    Spreads
+                  </Link>{" "}
+                  and run the financial analysis to generate a snapshot.
+                </div>
+              )}
+            </div>
           </li>
-          <li className="flex items-center gap-2">
-            <span className={readinessInfo?.spreadsComplete ? "text-green-600" : "text-amber-600"}>
-              {readinessInfo?.spreadsComplete ? "✓" : "○"}
+          <li className="flex items-start gap-2">
+            <span className={spreadsOk ? "text-green-600 mt-0.5" : "text-amber-600 mt-0.5"}>
+              {spreadsOk ? "✓" : "○"}
             </span>
-            All financial spread jobs complete
+            <div>
+              <div className="font-medium">Spread analysis</div>
+              {!spreadsOk && (
+                <div className="text-xs text-amber-700 mt-0.5">
+                  Financial spread jobs are running — this usually completes
+                  within 1–2 minutes. Refresh this page shortly. If this
+                  persists, go to{" "}
+                  <Link href={`/deals/${deal.id}/spreads`} className="underline">
+                    Spreads
+                  </Link>{" "}
+                  to check status.
+                </div>
+              )}
+            </div>
           </li>
-          <li className="flex items-center gap-2">
-            <span className={readinessInfo?.researchComplete ? "text-green-600" : "text-amber-600"}>
-              {readinessInfo?.researchComplete ? "✓" : "○"}
+          <li className="flex items-start gap-2">
+            <span className={researchOk ? "text-green-600 mt-0.5" : "text-amber-600 mt-0.5"}>
+              {researchOk ? "✓" : "○"}
             </span>
-            Institutional research and analysis complete
+            <div>
+              <div className="font-medium">Institutional research</div>
+              {!researchOk && (
+                <div className="text-xs text-amber-700 mt-0.5">
+                  Research is still running. Go to{" "}
+                  <Link href={`/deals/${deal.id}/underwrite`} className="underline">
+                    Underwriting
+                  </Link>{" "}
+                  to check research mission status.
+                </div>
+              )}
+            </div>
           </li>
         </ul>
+        {onlySpreadsBlocking && (
+          <p className="mt-3 text-xs text-amber-700">
+            Auto-refreshing in ~30 seconds…
+          </p>
+        )}
         <p className="mt-4 text-xs text-amber-700">
           Current stage: {readinessInfo?.stage ?? "unknown"}
         </p>
