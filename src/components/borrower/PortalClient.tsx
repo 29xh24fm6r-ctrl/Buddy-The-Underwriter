@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectationCard";
+import { BorrowerFundingJourney } from "@/components/borrower/BorrowerFundingJourney";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
 import { BorrowerHelpContactCard } from "@/components/borrower/BorrowerHelpContactCard";
 import { BorrowerPrimaryActionCard } from "@/components/borrower/BorrowerPrimaryActionCard";
@@ -22,6 +23,10 @@ import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState
 import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { Icon } from "@/components/ui/Icon";
+import { buildBorrowerJourneyViewModel } from "@/lib/borrower/buildBorrowerJourneyViewModel";
+import type { JourneyInput } from "@/lib/borrower/buildBorrowerJourneyViewModel";
+import { buildBorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerReadinessViewModel";
+import type { ReadinessInput } from "@/lib/borrower/buildBorrowerReadinessViewModel";
 import { cn } from "@/lib/cn";
 
 const supabase = createClient(
@@ -717,6 +722,61 @@ export function PortalClient({ token }: { token: string }) {
       safeStage === "ready_for_sba_review" ||
       safeStage === "getting_started");
 
+  const journeyInput: JourneyInput = {
+    dealName: deal?.name ?? null,
+    borrowerName: deal?.borrower_name ?? null,
+    checklistRequired: checklistStats?.required ?? 0,
+    checklistReceived: checklistStats?.received ?? 0,
+    checklistMissing: checklistStats?.missing ?? 0,
+    docsUploaded: docs.length,
+    docsInFlight: docs.some((doc) => isInFlightDocStatus(doc.status)),
+    missingItems: missingChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+      required: item.required,
+      group: item.group,
+    })),
+    completedItems: completedChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+    })),
+    portalStage: safeStage,
+    token,
+  };
+  const journeyViewModel = buildBorrowerJourneyViewModel(journeyInput);
+
+  const verifiedDocs = docs.filter(
+    (d) => d.status === "submitted" || d.status === "confirmed" || d.status === "complete",
+  );
+  const readinessInput: ReadinessInput = {
+    borrowerName: deal?.borrower_name ?? null,
+    checklistRequired: checklistStats?.required ?? 0,
+    checklistReceived: checklistStats?.received ?? 0,
+    checklistMissing: checklistStats?.missing ?? 0,
+    docsUploaded: docs.length,
+    docsInFlight: docs.some((doc) => isInFlightDocStatus(doc.status)),
+    docsVerified: verifiedDocs.length,
+    profileCompleteness: deal?.name ? 0.6 : 0.2,
+    ownershipVerified: false,
+    sbaFormsReceived: 0,
+    sbaFormsRequired: 0,
+    blockerCount: missingChecklist.filter((i) => i.required).length,
+    missingItems: missingChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+      required: item.required,
+      group: item.group,
+    })),
+    completedItems: completedChecklist.map((item) => ({
+      id: item.id,
+      title: borrowerChecklistCopy(item).title,
+    })),
+    activity: activity,
+    portalStage: safeStage,
+    token,
+  };
+  const readinessViewModel = buildBorrowerReadinessViewModel(readinessInput);
+
   if (loading) {
     return (
       <BorrowerShell
@@ -847,6 +907,12 @@ export function PortalClient({ token }: { token: string }) {
             </div>
           )
         ) : null}
+
+        <BorrowerFundingJourney
+          viewModel={journeyViewModel}
+          readinessViewModel={readinessViewModel}
+          dealName={deal?.name}
+        />
 
         <BorrowerReviewStatusCard
           title={reviewStatus.title}
