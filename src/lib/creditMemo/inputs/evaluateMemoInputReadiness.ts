@@ -178,13 +178,13 @@ export function evaluateMemoInputReadiness(
       code: "missing_research_quality_gate",
       label: "Research quality gate must pass",
       owner: "buddy",
-      fixPath: `/deals/${dealId}/research`,
+      fixPath: `/deals/${dealId}/underwrite`,
     });
   } else if (research.trust_grade === "preliminary") {
     warnings.push({
       code: "low_research_quality",
       label: "Research is preliminary — committee-grade research is recommended",
-      fixPath: `/deals/${dealId}/research`,
+      fixPath: `/deals/${dealId}/underwrite`,
     });
   }
   const researchComplete = !!research?.gate_passed;

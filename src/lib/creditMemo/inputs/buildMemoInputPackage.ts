@@ -391,7 +391,7 @@ async function loadUnfinalizedRequiredDocCount(
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .eq("required", true)
-      .neq("status", "complete");
+      .not("status", "in", '("received","waived")');
     return count ?? 0;
   } catch {
     return 0;
