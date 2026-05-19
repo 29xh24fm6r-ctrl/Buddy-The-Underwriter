@@ -85,7 +85,7 @@ describe("dual pipeline guard", () => {
 
   it("checklist-key endpoint triggers spread orchestration on manual reclassification", () => {
     const checklistKeySrc = fs.readFileSync(
-      "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+      "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
       "utf-8",
     );
     // E2 architecture: orchestrateSpreads replaces direct enqueueSpreadRecompute

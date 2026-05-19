@@ -18,10 +18,11 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   _req: Request,
-  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
+  ctx: { params: Promise<{ dealId: string; documentId: string }> },
 ) {
 
-  const { dealId, attachmentId } = await ctx.params;
+  const { dealId, documentId } = await ctx.params;
+  const attachmentId = documentId;
   const sb = supabaseAdmin();
 
   const { data: attachment, error: attachError } = await sb

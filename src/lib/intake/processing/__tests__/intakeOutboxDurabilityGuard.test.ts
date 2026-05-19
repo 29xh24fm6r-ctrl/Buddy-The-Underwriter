@@ -452,7 +452,7 @@ describe("Intake Outbox Durability CI Guards", () => {
   // ── Guard 26: manual correction route must not accept checklist_key ──
   test("[guard-26] checklist-key route BodySchema must not accept checklist_key from client", () => {
     const src = readSource(
-      "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+      "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
     );
     // BodySchema must NOT have a checklist_key field — it is derived internally
     assert.ok(

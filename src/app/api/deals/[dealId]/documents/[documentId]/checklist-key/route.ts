@@ -24,7 +24,7 @@ const BodySchema = z.object({
 });
 
 /**
- * PATCH /api/deals/[dealId]/documents/[attachmentId]/checklist-key
+ * PATCH /api/deals/[dealId]/documents/[documentId]/checklist-key
  *
  * Manual override to stamp deal_documents.checklist_key and trigger checklist reconcile.
  * Sets match_source = "manual" so AI will NEVER overwrite this classification.
@@ -32,7 +32,7 @@ const BodySchema = z.object({
  */
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: Promise<{ dealId: string; attachmentId: string }> },
+  ctx: { params: Promise<{ dealId: string; documentId: string }> },
 ) {
   const { userId } = await clerkAuth();
   if (!userId) {
@@ -42,7 +42,8 @@ export async function PATCH(
     );
   }
 
-  const { dealId, attachmentId } = await ctx.params;
+  const { dealId, documentId } = await ctx.params;
+  const attachmentId = documentId;
 
   const ensured = await ensureDealBankAccess(dealId);
   if (!ensured.ok) {
