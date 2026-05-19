@@ -39,4 +39,11 @@ describe("SPEC-CHECKLIST-STAGE-GATE-FIX-1 guards", () => {
       "PFS fallback must match canonical_type PFS",
     );
   });
+
+  test("checklist engine minMostRecentYear uses currentYear-2 after filing deadline", () => {
+    assert.ok(
+      ENGINE_SRC.includes("currentYear - 2;"),
+      "After filing deadline, minMostRecentYear must be currentYear-2 (not currentYear-1)",
+    );
+  });
 });

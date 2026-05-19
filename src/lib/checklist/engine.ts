@@ -664,7 +664,9 @@ export async function reconcileDealChecklist(dealId: string) {
       const utcMonth = now.getUTCMonth();
       const utcDay = now.getUTCDate();
       const beforeDeadline = utcMonth < 3 || (utcMonth === 3 && utcDay < 16);
-      const minMostRecentYear = beforeDeadline ? currentYear - 2 : currentYear - 1;
+      // Accept returns one year older than the most recent filed year.
+      // e.g. in May 2026: minMostRecentYear = 2026 - 2 = 2024, so [2022,2023,2024] passes.
+      const minMostRecentYear = beforeDeadline ? currentYear - 3 : currentYear - 2;
 
       const evalResult = evaluateConsecutiveYears(
         Array.from(satisfiedYearsSet),
