@@ -1,5 +1,5 @@
 /**
- * SPEC-PRICING-STAGE-GATE-FIX-1 — Guard tests
+ * SPEC-PRICING-STAGE-GATE-FIX-1 + SPEC-PRICING-STAGE-ADVANCE-FIX-1 — Guard tests
  */
 
 import test, { describe } from "node:test";
@@ -22,8 +22,20 @@ describe("SPEC-PRICING-STAGE-GATE-FIX-1 guards", () => {
     assert.ok(LOCK_SRC.includes("finalized: true"));
   });
 
-  test("lock route calls scheduleReadinessRefresh after successful lock", () => {
-    assert.ok(LOCK_SRC.includes("scheduleReadinessRefresh"));
+  test("lock route imports recomputeDealReady for stage advancement", () => {
+    assert.ok(
+      LOCK_SRC.includes('import("@/lib/deals/readiness")'),
+      "Lock route must import recomputeDealReady from readiness module",
+    );
+    assert.ok(
+      LOCK_SRC.includes("recomputeDealReady(dealId)"),
+      "Lock route must call recomputeDealReady(dealId)",
+    );
+    // Must NOT import scheduleReadinessRefresh as a function call
+    assert.ok(
+      !LOCK_SRC.includes('import(\n    "@/lib/deals/readiness/refreshDealReadiness"'),
+      "Lock route must not import scheduleReadinessRefresh for stage advancement",
+    );
   });
 
   test("computeBlockers does not emit risk_pricing_not_finalized when pricingQuoteReady", () => {

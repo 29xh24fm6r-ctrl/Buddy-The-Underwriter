@@ -204,11 +204,13 @@ export async function POST(
     console.warn("[pricing.lock] risk_pricing_model finalization failed (non-fatal)", err?.message);
   }
 
-  // Trigger lifecycle advancement — stage should move to committee_ready
-  const { scheduleReadinessRefresh } = await import(
-    "@/lib/deals/readiness/refreshDealReadiness"
+  // recomputeDealReady is the ONLY path that writes deals.stage.
+  // scheduleReadinessRefresh fires System B which writes deal_status only.
+  // The cockpit reads deals.stage via mapToUnifiedStage, so System A must run.
+  const { recomputeDealReady } = await import("@/lib/deals/readiness");
+  void recomputeDealReady(dealId).catch((err: any) =>
+    console.warn("[pricing.lock] recomputeDealReady failed (non-fatal)", err?.message),
   );
-  scheduleReadinessRefresh({ dealId, trigger: "manual" });
 
   return NextResponse.json({ ok: true, quote: updated });
 }
