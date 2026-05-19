@@ -150,26 +150,8 @@ const FULL_YEAR_FACT_TYPES = new Set([
  *   - Specific non-Dec-31 dates → "Mon YYYY" (clearly dated)
  */
 function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
-  const periodEnds = new Set<string>();
-  for (const f of facts) {
-    if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
-      periodEnds.add(f.fact_period_end);
-    }
-  }
-
-  const sorted = [...periodEnds].sort();
-  if (sorted.length <= 1) {
-    // Single period or no periods — use one "Current" column
-    return [{
-      key: "CURRENT",
-      label: "Current",
-      kind: "other",
-      start_date: null,
-      end_date: sorted[0] ?? null,
-    }];
-  }
-
-  // Build fact-type set per period for label classification
+  // Build fact-type set per period (used for labels AND for tax-return
+  // spine selection below).
   const factTypesByPeriod = new Map<string, Set<string>>();
   for (const f of facts) {
     if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
@@ -180,7 +162,33 @@ function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
     }
   }
 
-  // Multi-period: create a column per distinct period_end
+  const allPeriodEnds = [...factTypesByPeriod.keys()];
+  if (allPeriodEnds.length <= 1) {
+    return [{
+      key: "CURRENT",
+      label: "Current",
+      kind: "other",
+      start_date: null,
+      end_date: allPeriodEnds[0] ?? null,
+    }];
+  }
+
+  // SPEC-COMMITTEE-READY-FLOW-1 — Fix 4 Part B.
+  // Tax-return periods form the column spine. Non-tax periods (income
+  // statements, balance sheets, PFS) are appended only if they don't
+  // share a calendar year with a tax-return period — otherwise they'd
+  // create a duplicate "YTD YYYY" column adjacent to "FY YYYY" that
+  // shows the same year twice.
+  const taxReturnPeriods = allPeriodEnds.filter((pe) => {
+    const types = factTypesByPeriod.get(pe);
+    return !!types && [...types].some((t) => FULL_YEAR_FACT_TYPES.has(t));
+  });
+  const taxReturnYears = new Set(taxReturnPeriods.map((pe) => pe.slice(0, 4)));
+  const otherPeriods = allPeriodEnds.filter(
+    (pe) => !taxReturnPeriods.includes(pe) && !taxReturnYears.has(pe.slice(0, 4)),
+  );
+
+  const sorted = [...taxReturnPeriods, ...otherPeriods].sort();
   return sorted.map((pe) => ({
     key: pe,
     label: formatPeriodLabel(pe, factTypesByPeriod.get(pe)),

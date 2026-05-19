@@ -131,10 +131,23 @@ export async function writeFactsBatch(args: {
   items: ExtractedLineItem[];
   ownerType?: string;
   ownerEntityId?: string | null;
+  /**
+   * SPEC-COMMITTEE-READY-FLOW-1 — Fix 4 Part A.
+   *
+   * Document-stated period end (ISO yyyy-mm-dd). When provided, any
+   * extracted line item whose `periodEnd` exceeds this date is capped
+   * to it. Prevents AI extractors from emitting "FY YYYY" facts
+   * (e.g. 2026-12-31) for documents that only cover a partial period
+   * (e.g. YTD through Mar 2026), which otherwise pollutes spread
+   * columns with extrapolated future periods.
+   */
+  documentPeriodEnd?: string | null;
 }): Promise<ExtractionResult> {
   let factsWritten = 0;
 
-  const writes = args.items.map((item) =>
+  const cappedItems = capItemsToDocumentPeriod(args.items, args.documentPeriodEnd);
+
+  const writes = cappedItems.map((item) =>
     upsertDealFinancialFact({
       dealId: args.dealId,
       bankId: args.bankId,
@@ -157,6 +170,27 @@ export async function writeFactsBatch(args: {
   }
 
   return { ok: true, factsWritten };
+}
+
+/**
+ * Cap each item's `periodEnd` to `documentPeriodEnd` (ISO yyyy-mm-dd) when
+ * the item's period extends beyond what the document actually covers.
+ *
+ * Exported for direct use by extractors that want to validate before
+ * persistence and exported for guard tests.
+ */
+export function capItemsToDocumentPeriod(
+  items: ExtractedLineItem[],
+  documentPeriodEnd: string | null | undefined,
+): ExtractedLineItem[] {
+  if (!documentPeriodEnd || !/^\d{4}-\d{2}-\d{2}$/.test(documentPeriodEnd)) {
+    return items;
+  }
+  return items.map((item) => {
+    if (!item.periodEnd || !/^\d{4}-\d{2}-\d{2}$/.test(item.periodEnd)) return item;
+    if (item.periodEnd <= documentPeriodEnd) return item;
+    return { ...item, periodEnd: documentPeriodEnd };
+  });
 }
 
 // ---------------------------------------------------------------------------

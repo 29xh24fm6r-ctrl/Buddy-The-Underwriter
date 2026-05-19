@@ -149,11 +149,16 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
       };
 
     case "committee_ready":
+      // The credit memo is already visible from the cockpit. At
+      // committee_ready, the actionable next step is to record the decision —
+      // not re-navigate to the memo. The decision page itself surfaces the
+      // memo for review and auto-generates a proposed snapshot on first visit.
       return {
-        label: "Review Credit Memo",
-        href: `/credit-memo/${dealId}/canonical`,
-        intent: "navigate",
-        description: "Review auto-populated credit memo, then record decision",
+        label: "Record Decision",
+        href: `/deals/${dealId}/decision`,
+        intent: "advance",
+        shouldAdvance: true,
+        description: "Review credit memo and record the committee decision",
       };
 
     case "committee_decisioned":
