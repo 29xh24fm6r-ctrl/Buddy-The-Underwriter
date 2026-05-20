@@ -169,6 +169,36 @@ export async function writeFactsBatch(args: {
     if (r.ok) factsWritten += 1;
   }
 
+  // SPEC-EXTRACTION-PERIOD-INTEGRITY-1 Fix 3:
+  // Auto-enqueue spread recompute when facts that feed spreads are written.
+  // Without this, bankers see stale spread data until they manually click
+  // Regenerate. Non-fatal — if enqueue fails, the facts are still persisted.
+  if (factsWritten > 0) {
+    const SPREAD_AFFECTING_TYPES = new Set([
+      "INCOME_STATEMENT",
+      "BALANCE_SHEET",
+      "TAX_RETURN",
+      "BUSINESS_TAX_RETURN",
+      "PERSONAL_TAX_RETURN",
+    ]);
+    const affectsSpread = SPREAD_AFFECTING_TYPES.has(args.factType);
+    if (affectsSpread) {
+      try {
+        const { enqueueSpreadRecompute } = await import(
+          "@/lib/financialSpreads/enqueueSpreadRecompute"
+        );
+        await enqueueSpreadRecompute({
+          dealId: args.dealId,
+          bankId: args.bankId,
+          sourceDocumentId: args.sourceDocumentId,
+          spreadTypes: ["T12", "BALANCE_SHEET", "GLOBAL_CASH_FLOW"],
+        });
+      } catch (err: any) {
+        console.warn("[writeFactsBatch] spread recompute enqueue failed (non-fatal)", err?.message);
+      }
+    }
+  }
+
   return { ok: true, factsWritten };
 }
 
