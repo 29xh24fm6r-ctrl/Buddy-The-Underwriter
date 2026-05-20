@@ -13,6 +13,7 @@ import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanoni
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow, RatioAnalysisRow } from "@/lib/creditMemo/canonical/types";
 import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
@@ -20,7 +21,7 @@ import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQual
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -1004,6 +1005,30 @@ async function handlePdfRequest(dealId: string) {
     const res = await buildCanonicalCreditMemo({ dealId, bankId: bankPick.bankId });
     if (!res.ok) {
       return NextResponse.json({ ok: false, error: res.error }, { status: 400 });
+    }
+
+    // SPEC-PDF-NARRATIVE-OVERLAY-1: overlay cached narratives (same logic as canonical/page.tsx)
+    {
+      const sb = supabaseAdmin();
+      const { data: cachedNarrative } = await (sb as any)
+        .from("canonical_memo_narratives")
+        .select("narratives")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankPick.bankId)
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cachedNarrative?.narratives) {
+        const n = cachedNarrative.narratives as any;
+        if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
+        if (n.income_analysis) res.memo.financial_analysis.income_analysis = n.income_analysis;
+        if (n.property_description) res.memo.collateral.property_description = n.property_description;
+        if (n.borrower_background) res.memo.borrower_sponsor.background = n.borrower_background;
+        if (n.borrower_experience) res.memo.borrower_sponsor.experience = n.borrower_experience;
+        if (n.guarantor_strength) res.memo.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+        if (n.repayment_analysis) res.memo.financial_analysis.projection_feasibility = n.repayment_analysis;
+      }
     }
 
     const pdfBuffer = await buildCreditMemoPdf(res.memo);
