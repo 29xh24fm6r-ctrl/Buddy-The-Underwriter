@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
-
+/**
+ * SPEC-CREDIT-MEMO-PDF-EXPORT-VIA-PRINT-1
+ *
+ * Opens the full CanonicalMemoTemplate print page in a new window and
+ * triggers window.print(). The print page renders all 20 sections at
+ * full fidelity with Letter page CSS, narrative overlay, and SpreadsAppendix.
+ */
 export default function ExportCanonicalMemoPdfButton({
   dealId,
   className,
@@ -11,49 +16,30 @@ export default function ExportCanonicalMemoPdfButton({
   className?: string;
   label?: string;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function onClick() {
+  function handleExport() {
     if (!dealId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/deals/${dealId}/credit-memo/canonical/pdf`, {
-        method: "POST",
-      });
+    const printUrl = `/credit-memo/${dealId}/canonical/print`;
+    const printWindow = window.open(printUrl, "_blank");
+    if (!printWindow) return;
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `pdf_export_failed:${res.status}`);
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
+    // Wait for page load then trigger print dialog
+    printWindow.addEventListener("load", () => {
+      setTimeout(() => {
+        printWindow.print();
+      }, 1000); // 1s for fonts/styles to settle
+    });
   }
 
   return (
-    <div className="inline-flex flex-col items-end gap-1">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        className={
-          className ??
-          "inline-flex items-center rounded-md bg-black px-3 py-2 text-xs font-semibold text-white hover:bg-gray-900 disabled:opacity-60"
-        }
-      >
-        {busy ? "Generating…" : label}
-      </button>
-      {error ? <div className="text-[10px] text-rose-200 max-w-[320px] truncate">{error}</div> : null}
-    </div>
+    <button
+      type="button"
+      onClick={handleExport}
+      className={
+        className ??
+        "inline-flex items-center rounded-md bg-black px-3 py-2 text-xs font-semibold text-white hover:bg-gray-900"
+      }
+    >
+      {label}
+    </button>
   );
 }
