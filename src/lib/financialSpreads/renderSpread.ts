@@ -75,7 +75,8 @@ export async function renderSpread(args: {
     .from("deal_financial_facts")
     .select("*")
     .eq("deal_id", args.dealId)
-    .eq("bank_id", args.bankId);
+    .eq("bank_id", args.bankId)
+    .eq("is_superseded", false); // SPEC-SPREAD-SUPERSEDED-FILTER-1: never render from superseded facts
 
   if (factsRes.error) {
     throw new Error(`deal_financial_facts_select_failed:${factsRes.error.message}`);

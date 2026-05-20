@@ -153,14 +153,29 @@ function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
   // Build fact-type set per period (used for labels AND for tax-return
   // spine selection below).
   const factTypesByPeriod = new Map<string, Set<string>>();
+  // SPEC-SPREAD-SUPERSEDED-FILTER-1: also track source_canonical_type per
+  // period so tax-return spine detection works even when fact_type is
+  // "SOURCE_DOCUMENT" or another non-tax-return value.
+  const sourceTypesByPeriod = new Map<string, Set<string>>();
   for (const f of facts) {
     if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
       if (!factTypesByPeriod.has(f.fact_period_end)) {
         factTypesByPeriod.set(f.fact_period_end, new Set());
       }
       factTypesByPeriod.get(f.fact_period_end)!.add(f.fact_type);
+      if (f.source_canonical_type) {
+        if (!sourceTypesByPeriod.has(f.fact_period_end)) {
+          sourceTypesByPeriod.set(f.fact_period_end, new Set());
+        }
+        sourceTypesByPeriod.get(f.fact_period_end)!.add(f.source_canonical_type);
+      }
     }
   }
+
+  const FULL_YEAR_SOURCE_TYPES = new Set([
+    "BUSINESS_TAX_RETURN",
+    "PERSONAL_TAX_RETURN",
+  ]);
 
   const allPeriodEnds = [...factTypesByPeriod.keys()];
   if (allPeriodEnds.length <= 1) {
@@ -180,8 +195,12 @@ function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
   // create a duplicate "YTD YYYY" column adjacent to "FY YYYY" that
   // shows the same year twice.
   const taxReturnPeriods = allPeriodEnds.filter((pe) => {
-    const types = factTypesByPeriod.get(pe);
-    return !!types && [...types].some((t) => FULL_YEAR_FACT_TYPES.has(t));
+    const factTypes = factTypesByPeriod.get(pe);
+    const sourceTypes = sourceTypesByPeriod.get(pe);
+    return (
+      (!!factTypes && [...factTypes].some((t) => FULL_YEAR_FACT_TYPES.has(t))) ||
+      (!!sourceTypes && [...sourceTypes].some((t) => FULL_YEAR_SOURCE_TYPES.has(t)))
+    );
   });
   const taxReturnYears = new Set(taxReturnPeriods.map((pe) => pe.slice(0, 4)));
   const otherPeriods = allPeriodEnds.filter(

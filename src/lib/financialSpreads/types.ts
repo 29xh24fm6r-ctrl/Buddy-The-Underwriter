@@ -94,6 +94,8 @@ export type FinancialFact = {
   created_at: string;
   owner_type?: string;
   owner_entity_id?: string | null;
+  source_canonical_type?: string | null;
+  is_superseded?: boolean;
 };
 
 export type RentRollOccupancyStatus = "OCCUPIED" | "VACANT";
