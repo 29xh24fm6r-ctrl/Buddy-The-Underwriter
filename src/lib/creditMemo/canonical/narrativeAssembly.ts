@@ -18,7 +18,7 @@ const NARRATIVE_MAX_TOKENS = 8192;
 // Route-level maxDuration is 60s; keep 5s of margin. The default 20s
 // AI_TIMEOUT_MS is far too aggressive for this call and was silently
 // failing the generation to the FALLBACK_NARRATIVES path.
-const NARRATIVE_TIMEOUT_MS = 55_000;
+const NARRATIVE_TIMEOUT_MS = 280_000;
 
 export type MemoNarratives = {
   executive_summary: string;
