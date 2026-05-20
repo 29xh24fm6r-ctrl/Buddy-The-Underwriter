@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectationCard";
+import { BorrowerDocumentExperience } from "@/components/borrower/documents/BorrowerDocumentExperience";
 import { BorrowerFundingJourney } from "@/components/borrower/BorrowerFundingJourney";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
 import { BorrowerHelpContactCard } from "@/components/borrower/BorrowerHelpContactCard";
@@ -31,6 +32,11 @@ import { buildBorrowerDealHealthViewModel } from "@/lib/borrower/buildBorrowerDe
 import type { DealHealthInput } from "@/lib/borrower/buildBorrowerDealHealthViewModel";
 import { buildBorrowerGuidanceViewModel } from "@/lib/borrower/buildBorrowerGuidanceViewModel";
 import type { GuidanceInput } from "@/lib/borrower/buildBorrowerGuidanceViewModel";
+import { buildBorrowerDocumentExperienceViewModel } from "@/lib/borrower/buildBorrowerDocumentExperienceViewModel";
+import type {
+  BorrowerDocumentItemInput,
+  BorrowerDocumentStatus,
+} from "@/lib/borrower/buildBorrowerDocumentExperienceViewModel";
 import { cn } from "@/lib/cn";
 
 const supabase = createClient(
@@ -348,6 +354,31 @@ type SafeBorrowerStage =
 function isInFlightDocStatus(status: string) {
   const normalized = status.trim().toLowerCase();
   return normalized === "pending" || normalized === "processing" || normalized === "received";
+}
+
+function deriveBorrowerDocStatus(params: {
+  checklistStatus: string | null | undefined;
+  docs: Doc[];
+  required: boolean;
+}): BorrowerDocumentStatus {
+  const checklist = (params.checklistStatus ?? "missing").toLowerCase();
+
+  if (checklist === "verified") return "accepted";
+
+  const hasInFlight = params.docs.some((doc) => isInFlightDocStatus(doc.status));
+  const hasSubmitted = params.docs.some((doc) => {
+    const s = doc.status.trim().toLowerCase();
+    return s === "submitted" || s === "confirmed" || s === "complete";
+  });
+
+  if (checklist === "received") {
+    return hasInFlight ? "reviewing" : "received";
+  }
+
+  if (hasInFlight) return "uploaded";
+  if (hasSubmitted) return "received";
+
+  return params.required ? "missing" : "optional";
 }
 
 function deriveSafeBorrowerStage(params: {
@@ -840,6 +871,45 @@ export function PortalClient({ token }: { token: string }) {
   };
   const guidanceViewModel = buildBorrowerGuidanceViewModel(guidanceInput);
 
+  const docsByChecklistKey = React.useMemo(() => {
+    const map = new Map<string, Doc[]>();
+    for (const doc of docs) {
+      const key = normalizeChecklistKey(doc.checklist_key);
+      if (!key) continue;
+      const list = map.get(key) ?? [];
+      list.push(doc);
+      map.set(key, list);
+    }
+    return map;
+  }, [docs]);
+
+  const documentExperienceItems: BorrowerDocumentItemInput[] = React.useMemo(() => {
+    return checklist.map((item) => {
+      const checklistKey = normalizeChecklistKey(item.code || item.title);
+      const relatedDocs = docsByChecklistKey.get(checklistKey) ?? [];
+      const status = deriveBorrowerDocStatus({
+        checklistStatus: item.status,
+        docs: relatedDocs,
+        required: item.required,
+      });
+      const title = borrowerChecklistCopy(item).title;
+      return {
+        id: item.id,
+        title,
+        required: item.required,
+        group: item.group,
+        status,
+        uploadCount: relatedDocs.length || undefined,
+        latestUploadedAt: undefined,
+      };
+    });
+  }, [checklist, docsByChecklistKey]);
+
+  const documentExperienceViewModel = buildBorrowerDocumentExperienceViewModel({
+    token,
+    items: documentExperienceItems,
+  });
+
   if (loading) {
     return (
       <BorrowerShell
@@ -978,6 +1048,8 @@ export function PortalClient({ token }: { token: string }) {
           guidanceViewModel={guidanceViewModel}
           dealName={deal?.name}
         />
+
+        <BorrowerDocumentExperience viewModel={documentExperienceViewModel} />
 
         <BorrowerReviewStatusCard
           title={reviewStatus.title}
