@@ -1,5 +1,5 @@
 import React from "react";
-import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, RatioAnalysisRow, RatioCategory } from "@/lib/creditMemo/canonical/types";
+import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow, RatioAnalysisRow, RatioCategory } from "@/lib/creditMemo/canonical/types";
 import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
@@ -616,6 +616,76 @@ function QualitativeAssessmentSection({ qa }: { qa: QualitativeAssessment | null
 }
 
 // ── Income Statement Table (transposed: metrics as rows, periods as columns) ──
+
+function BalanceSheetTable({ rows }: { rows: BalanceSheetRow[] }) {
+  if (!rows.length) {
+    return <div className="text-xs text-gray-400 italic mt-1">Pending — balance sheet data required.</div>;
+  }
+
+  const metrics: Array<{ label: string; key: keyof BalanceSheetRow; isBold?: boolean; isSection?: boolean }> = [
+    { label: "ASSETS", key: "period_end", isSection: true },
+    { label: "Cash & Equivalents", key: "cash_and_equivalents" },
+    { label: "Accounts Receivable", key: "accounts_receivable" },
+    { label: "Inventory", key: "inventory" },
+    { label: "Other Current Assets", key: "other_current_assets" },
+    { label: "Total Current Assets", key: "total_current_assets", isBold: true },
+    { label: "PP&E (Gross)", key: "ppe_gross" },
+    { label: "Accum. Depreciation", key: "accumulated_depreciation" },
+    { label: "PP&E (Net)", key: "ppe_net" },
+    { label: "Other Assets", key: "other_assets" },
+    { label: "Total Assets", key: "total_assets", isBold: true },
+    { label: "LIABILITIES", key: "period_end", isSection: true },
+    { label: "Accounts Payable", key: "accounts_payable" },
+    { label: "Other Current Liabilities", key: "other_current_liabilities" },
+    { label: "Total Current Liabilities", key: "total_current_liabilities", isBold: true },
+    { label: "Mortgages / Notes / Bonds", key: "mortgages_notes_bonds" },
+    { label: "Other Long-Term Liabilities", key: "other_long_term_liabilities" },
+    { label: "Total Liabilities", key: "total_liabilities", isBold: true },
+    { label: "EQUITY", key: "period_end", isSection: true },
+    { label: "Retained Earnings", key: "retained_earnings" },
+    { label: "Total Equity", key: "total_equity", isBold: true },
+    { label: "Liabilities + Equity", key: "liabilities_plus_equity", isBold: true },
+  ];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-xs mt-1">
+        <thead>
+          <tr>
+            <Th>Item</Th>
+            {rows.map((r) => (
+              <Th key={r.period_end} right>{r.period_end}</Th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {metrics.map((m, mi) => {
+            if (m.isSection) {
+              return (
+                <tr key={`section-${m.label}`} className="bg-gray-100">
+                  <td colSpan={rows.length + 1} className="text-xs border border-gray-200 px-2 py-1 font-semibold">{m.label}</td>
+                </tr>
+              );
+            }
+            return (
+              <tr key={m.key} className={mi % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <Td bold={m.isBold}>{m.label}</Td>
+                {rows.map((r) => {
+                  const val = r[m.key] as number | null;
+                  return (
+                    <Td key={r.period_end} right bold={m.isBold}>
+                      {fmt$(val)}
+                    </Td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
   if (!rows.length) {
@@ -1300,6 +1370,10 @@ export default function CanonicalMemoTemplate({
       {/* Income Statement Table */}
       <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Exhibit B — Income Statement (Multi-Period)</div>
       <IncomeStatementTable rows={memo.financial_analysis.income_statement_table} />
+
+      {/* Balance Sheet Table */}
+      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Exhibit C — Balance Sheet (Multi-Period)</div>
+      <BalanceSheetTable rows={memo.financial_analysis.balance_sheet_table} />
 
       {/* Phase 88: Institutional Ratio Suite — categorized with interpretation */}
       <RatioSuiteSection rows={memo.financial_analysis.ratio_analysis} />

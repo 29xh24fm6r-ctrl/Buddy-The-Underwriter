@@ -13,7 +13,10 @@ import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanoni
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow } from "@/lib/creditMemo/canonical/types";
+import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow, RatioAnalysisRow } from "@/lib/creditMemo/canonical/types";
+import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
+import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
+import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -463,6 +466,269 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       doc.moveDown(0.3);
     }
 
+    // ── RATIO ANALYSIS ───────────────────────────────────────────────────────
+
+    const ratios = memo.financial_analysis.ratio_analysis;
+    if (ratios.length) {
+      checkPageBreak(60);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Ratio Analysis", L, doc.y);
+      doc.moveDown(0.3);
+
+      let lastCat = "";
+      ratios.forEach((r: RatioAnalysisRow) => {
+        const cat = r.category ?? "";
+        if (cat && cat !== lastCat) {
+          checkPageBreak(20);
+          lastCat = cat;
+          doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.accent)
+            .text(cat.toUpperCase(), L, doc.y);
+          doc.moveDown(0.1);
+        }
+        checkPageBreak(13);
+        doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+          .text(r.metric, L + 8, doc.y, { width: 140, continued: true });
+        const val = r.value !== null ? (r.value as number).toFixed(2) : "—";
+        doc.font("Helvetica-Bold").text(`  ${val}`, { continued: true, width: 60 });
+        if (r.interpretation) {
+          doc.font("Helvetica-Oblique").fillColor(COLORS.gray)
+            .text(`  ${r.interpretation}`, { width: pageWidth - 220 });
+        } else {
+          doc.text("");
+        }
+      });
+      doc.moveDown(0.3);
+    }
+
+    // ── REPAYMENT ABILITY ────────────────────────────────────────────────────
+
+    if (memo.financial_analysis.repayment_notes.length) {
+      checkPageBreak(40);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Repayment Ability", L, doc.y);
+      doc.moveDown(0.2);
+      memo.financial_analysis.repayment_notes.forEach((n) => {
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${n}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 1 });
+      });
+      doc.moveDown(0.3);
+    }
+
+    // ── PROJECTION FEASIBILITY ───────────────────────────────────────────────
+
+    if (memo.financial_analysis.projection_feasibility && memo.financial_analysis.projection_feasibility !== "Pending") {
+      checkPageBreak(30);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Projection Feasibility", L, doc.y);
+      doc.moveDown(0.2);
+      doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+        .text(memo.financial_analysis.projection_feasibility, L, doc.y, { width: pageWidth, lineGap: 2 });
+      doc.moveDown(0.3);
+    }
+
+    // ── BREAKEVEN ANALYSIS ───────────────────────────────────────────────────
+
+    const bev = memo.financial_analysis.breakeven;
+    if (bev.required_revenue !== null) {
+      checkPageBreak(40);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Breakeven Analysis", L, doc.y);
+      doc.moveDown(0.2);
+      const bevItems: [string, string][] = [
+        ["Required Revenue",   fmt$(bev.required_revenue)],
+        ["Fixed Expenses",     fmt$(bev.fixed_expenses)],
+        ["Revenue Cushion",    bev.revenue_cushion_pct !== null ? fmtPct(bev.revenue_cushion_pct) : "—"],
+      ];
+      bevItems.forEach(([lbl, val]) => { labelValue(lbl, val); });
+      if (bev.narrative) {
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(bev.narrative, L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── STRESS TESTING (Phase 90A) ───────────────────────────────────────────
+
+    const st = memo.stress_testing;
+    if (st && st.scenarios.length) {
+      sectionHeader("Stress Testing");
+      checkPageBreak(60);
+
+      labelValue("Baseline DSCR", fmtRatio(st.baseline_dscr));
+      labelValue("Worst-Case DSCR", fmtRatio(st.worst_case_dscr));
+      labelValue("Breakeven EBITDA (1.0×)", fmt$(st.breakeven_ebitda_1x));
+      labelValue("Revenue Cushion", st.revenue_cushion_pct !== null ? fmtPct(st.revenue_cushion_pct) : "—");
+      doc.moveDown(0.3);
+
+      // Scenario table
+      const stCols: Array<{ label: string; fn: (r: StressScenarioRow) => string; w: number }> = [
+        { label: "Scenario",    fn: r => r.label,                              w: 100 },
+        { label: "Rev Cut",     fn: r => r.revenue_haircut_pct ? fmtPct(r.revenue_haircut_pct * 100) : "—", w: 55 },
+        { label: "EBITDA Cut",  fn: r => r.ebitda_haircut_pct ? fmtPct(r.ebitda_haircut_pct * 100) : "—",   w: 55 },
+        { label: "Rate +bps",   fn: r => r.rate_shock_bps ? `+${r.rate_shock_bps}` : "—",  w: 48 },
+        { label: "Str. DSCR",   fn: r => fmtRatio(r.stressed_dscr),            w: 55 },
+        { label: "Assessment",  fn: r => r.assessment,                          w: 80 },
+      ];
+
+      const stHY = doc.y;
+      doc.rect(L, stHY, pageWidth, 13).fill(COLORS.sectionBg);
+      let stx = L;
+      stCols.forEach((c) => {
+        doc.fontSize(6.5).font("Helvetica-Bold").fillColor(COLORS.gray)
+          .text(c.label, stx + 2, stHY + 3, { width: c.w - 4 });
+        stx += c.w;
+      });
+      doc.y = stHY + 15;
+
+      st.scenarios.forEach((row, ri) => {
+        checkPageBreak(14);
+        const rowY = doc.y;
+        if (ri % 2 === 0) doc.rect(L, rowY, pageWidth, 13).fill("#FAFAFA");
+        stx = L;
+        stCols.forEach((c) => {
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(c.fn(row), stx + 2, rowY + 3, { width: c.w - 4 });
+          stx += c.w;
+        });
+        doc.y = rowY + 14;
+      });
+
+      if (st.narrative) {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(st.narrative.slice(0, 500), L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── COVENANT PACKAGE (Phase 90B) ─────────────────────────────────────────
+
+    const cpkg = memo.covenant_package;
+    if (cpkg && (cpkg.financial.length || cpkg.reporting.length || cpkg.affirmativeNegative.length)) {
+      sectionHeader("Covenant Package");
+
+      if (cpkg.financial.length) {
+        checkPageBreak(30);
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(COLORS.accent)
+          .text("Financial Covenants", L, doc.y);
+        doc.moveDown(0.2);
+        cpkg.financial.forEach((c) => {
+          checkPageBreak(16);
+          doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.black)
+            .text(c.name, L + 4, doc.y, { continued: true, width: 140 });
+          doc.font("Helvetica").fillColor(COLORS.gray)
+            .text(`  ${c.threshold}${c.unit === "ratio" ? "×" : c.unit === "percentage" ? "%" : ""} (${c.testingFrequency})`, { width: pageWidth - 150 });
+        });
+        doc.moveDown(0.2);
+      }
+
+      if (cpkg.reporting.length) {
+        checkPageBreak(30);
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(COLORS.accent)
+          .text("Reporting Requirements", L, doc.y);
+        doc.moveDown(0.2);
+        cpkg.reporting.forEach((c) => {
+          checkPageBreak(13);
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`• ${c.name} — ${c.requirement} (${c.frequency})`, L + 4, doc.y, { width: pageWidth - 4, lineGap: 1 });
+        });
+        doc.moveDown(0.2);
+      }
+
+      if (cpkg.affirmativeNegative.length) {
+        checkPageBreak(30);
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(COLORS.accent)
+          .text("Affirmative / Negative Covenants", L, doc.y);
+        doc.moveDown(0.2);
+        cpkg.affirmativeNegative.forEach((c) => {
+          checkPageBreak(13);
+          const prefix = c.covenantType === "affirmative" ? "✓" : "✗";
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`${prefix} ${c.name}: ${c.draftLanguage.slice(0, 200)}`, L + 4, doc.y, { width: pageWidth - 4, lineGap: 1 });
+        });
+        doc.moveDown(0.2);
+      }
+
+      if (cpkg.rationale) {
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(cpkg.rationale.slice(0, 300), L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── QUALITATIVE ASSESSMENT (Phase 90C) ───────────────────────────────────
+
+    const qa = memo.qualitative_assessment;
+    if (qa) {
+      sectionHeader("Qualitative Assessment");
+      checkPageBreak(60);
+
+      // Composite badge
+      const compColor = qa.composite_label === "Strong" ? COLORS.green
+        : qa.composite_label === "Adequate" ? COLORS.accent
+        : qa.composite_label === "Marginal" ? COLORS.amber
+        : COLORS.red;
+      doc.rect(L, doc.y, 90, 18).fill(compColor);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor("#FFFFFF")
+        .text(`${qa.composite_label.toUpperCase()} (${qa.composite_score.toFixed(1)})`, L + 4, doc.y - 14, { width: 82 });
+      doc.y += 6;
+      doc.moveDown(0.3);
+
+      // Five dimensions
+      const dims: Array<{ label: string; dim: typeof qa.character }> = [
+        { label: "Character",      dim: qa.character },
+        { label: "Capital",        dim: qa.capital },
+        { label: "Conditions",     dim: qa.conditions },
+        { label: "Management",     dim: qa.management },
+        { label: "Business Model", dim: qa.business_model },
+      ];
+      dims.forEach(({ label, dim }) => {
+        checkPageBreak(16);
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.black)
+          .text(`${label}: ${dim.label} (${dim.score}/5)`, L, doc.y, { continued: true, width: 160 });
+        doc.font("Helvetica").fillColor(COLORS.gray)
+          .text(`  ${dim.basis.slice(0, 200)}`, { width: pageWidth - 170 });
+      });
+
+      if (qa.key_strengths.length) {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.green).text("Key Strengths", L, doc.y);
+        qa.key_strengths.forEach((s) => {
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`+ ${s}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 1 });
+        });
+      }
+      if (qa.key_concerns.length) {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.amber).text("Key Concerns", L, doc.y);
+        qa.key_concerns.forEach((c) => {
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`⊒ ${c}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 1 });
+        });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── PROPOSED TERMS ───────────────────────────────────────────────────────
+
+    const pt = memo.proposed_terms;
+    if (pt.product && pt.product !== "Pending") {
+      sectionHeader("Proposed Terms");
+      const ptItems: [string, string][] = [
+        ["Product",     pt.product],
+        ["All-In Rate", pt.rate.all_in_rate !== null ? fmtPct(pt.rate.all_in_rate as number) : "Pending"],
+        ["Index",       pt.rate.index || "Pending"],
+        ["Margin",      pt.rate.margin_bps !== null ? `${pt.rate.margin_bps} bps` : "Pending"],
+      ];
+      ptItems.forEach(([lbl, val]) => { labelValue(lbl, val); });
+      if (pt.rationale && pt.rationale !== "Pending") {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(pt.rationale.slice(0, 400), L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
     // ── PERSONAL FINANCIAL STATEMENTS ─────────────────────────────────────────
 
     const pfsList = memo.personal_financial_statements.filter(
@@ -612,6 +878,28 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
         .text("Conditions Precedent to Closing", L, doc.y);
       memo.conditions.precedent.slice(0, 10).forEach((c) => {
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${c}`, L + 8, doc.y, { width: pageWidth - 8 });
+      });
+      doc.moveDown(0.3);
+    }
+
+    if (memo.conditions.ongoing.length) {
+      checkPageBreak(40);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Ongoing Conditions", L, doc.y);
+      memo.conditions.ongoing.slice(0, 10).forEach((c) => {
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${c}`, L + 8, doc.y, { width: pageWidth - 8 });
+      });
+      doc.moveDown(0.3);
+    }
+
+    if (memo.conditions.insurance.length) {
+      checkPageBreak(30);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Insurance Requirements", L, doc.y);
+      memo.conditions.insurance.slice(0, 10).forEach((c) => {
         doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
           .text(`• ${c}`, L + 8, doc.y, { width: pageWidth - 8 });
       });
