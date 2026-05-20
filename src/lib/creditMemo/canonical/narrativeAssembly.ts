@@ -78,7 +78,16 @@ function groupRatiosByCategory(
   return grouped;
 }
 
-function buildNarrativeInput(memo: CanonicalCreditMemoV1): Record<string, any> {
+type TranscriptExcerpt = {
+  source: string;
+  raw_excerpt: string | null;
+  key_facts: any[];
+};
+
+function buildNarrativeInput(
+  memo: CanonicalCreditMemoV1,
+  transcripts?: TranscriptExcerpt[],
+): Record<string, any> {
   const ratiosByCategory = groupRatiosByCategory(memo.financial_analysis.ratio_analysis);
 
   // Phase 92: stress_testing and qualitative_assessment live at the TOP level
@@ -208,6 +217,11 @@ function buildNarrativeInput(memo: CanonicalCreditMemoV1): Record<string, any> {
           competitive: memo.business_industry_analysis.competitive_positioning.slice(0, 500),
         }
       : null,
+
+    // ── SPEC-NARRATIVE-TRANSCRIPT-WIRE-1: transcript excerpts ──────────
+    // Borrower's own words from meeting transcripts. Includes raw text
+    // (first 3000 chars for voice/tone) and structured extracted facts.
+    transcript_excerpts: transcripts?.length ? transcripts : null,
   };
 }
 
@@ -228,7 +242,30 @@ export async function assembleNarratives(args: {
 }): Promise<AssembleNarrativesResult> {
   const { memo } = args;
   const sb = supabaseAdmin();
-  const input = buildNarrativeInput(memo);
+
+  // SPEC-NARRATIVE-TRANSCRIPT-WIRE-1: load transcript excerpts for this deal.
+  // Non-fatal — if the query fails we proceed without transcripts.
+  let transcriptExcerpts: TranscriptExcerpt[] | undefined;
+  try {
+    const { data: transcripts } = await (sb as any)
+      .from("deal_transcript_uploads")
+      .select("source_label, raw_text, extracted_candidates")
+      .eq("deal_id", memo.deal_id)
+      .eq("extraction_status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(3);
+    if (transcripts?.length) {
+      transcriptExcerpts = transcripts.map((t: any) => ({
+        source: t.source_label ?? "Meeting transcript",
+        raw_excerpt: t.raw_text?.slice(0, 3000) ?? null,
+        key_facts: (t.extracted_candidates ?? []).slice(0, 20),
+      }));
+    }
+  } catch {
+    // Non-fatal — proceed without transcripts
+  }
+
+  const input = buildNarrativeInput(memo, transcriptExcerpts);
   const inputHash = computeInputHash(input);
 
   // Check cache — wrapped defensively in case table schema differs.
@@ -307,6 +344,16 @@ export async function assembleNarratives(args: {
     "",
     "GUARANTOR_STRENGTH:",
     "Net worth vs loan amount ratio. Liquid assets as secondary repayment source. State clearly whether guarantor liquidity alone could service 12 months of debt service in a distress scenario.",
+    "",
+    "TRANSCRIPT USAGE:",
+    "When transcript_excerpts are provided, use the borrower's own words and specific",
+    "details from those conversations to write the borrower_background, borrower_experience,",
+    "and guarantor_strength sections. Quote specific claims the borrower made (e.g.",
+    "\"#1 ranked vendor for Home Depot two consecutive years\") as stated facts.",
+    "The credit committee values specificity — generic language fails.",
+    "Transcript key_facts contain structured extractions (management experience, customer",
+    "relationships, competitive advantages, certifications). Weave these into the narrative",
+    "alongside the financial data. The raw_excerpt provides the borrower's tone and voice.",
   ].join("\n");
 
   const user =
