@@ -3,30 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const NAV_GROUPS = [
-  {
-    label: "Acquire",
-    items: [
-      { href: "/deals", label: "Deals" },
-      { href: "/documents", label: "Documents" },
-    ],
-  },
-  {
-    label: "Decide",
-    items: [
-      { href: "/underwrite", label: "Underwrite" },
-      { href: "/pricing", label: "Pricing" },
-      { href: "/credit-memo", label: "Credit Memo" },
-    ],
-  },
-  {
-    label: "Operate",
-    items: [
-      { href: "/servicing", label: "Servicing" },
-      { href: "/admin", label: "Admin" },
-    ],
-  },
-];
+/** Extract dealId from pathname like /deals/[uuid]/... */
+function extractDealId(pathname: string): string | null {
+  const match = pathname.match(/^\/deals\/([0-9a-f-]{36})\b/i);
+  return match?.[1] ?? null;
+}
 
 function cls(active: boolean) {
   return [
@@ -38,6 +19,37 @@ function cls(active: boolean) {
 export function HeroBarGrouped() {
   const pathname = usePathname();
   const safePathname = pathname ?? "";
+  const activeDealId = extractDealId(safePathname);
+
+  // Deal-scoped items use active dealId when available
+  function dealHref(globalHref: string, dealSuffix: string): string {
+    return activeDealId ? `/deals/${activeDealId}/${dealSuffix}` : globalHref;
+  }
+
+  const NAV_GROUPS = [
+    {
+      label: "Acquire",
+      items: [
+        { href: "/deals", label: "Deals" },
+        { href: "/documents", label: "Documents" },
+      ],
+    },
+    {
+      label: "Decide",
+      items: [
+        { href: dealHref("/underwrite", "underwrite"), label: "Underwrite" },
+        { href: dealHref("/pricing", "pricing"), label: "Pricing" },
+        { href: dealHref("/credit-memo", "credit-memo"), label: "Credit Memo" },
+      ],
+    },
+    {
+      label: "Operate",
+      items: [
+        { href: "/servicing", label: "Servicing" },
+        { href: "/admin", label: "Admin" },
+      ],
+    },
+  ];
 
   return (
     <div className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur">

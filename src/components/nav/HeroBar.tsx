@@ -5,15 +5,27 @@ import { usePathname } from "next/navigation";
 import { useClerk } from "@clerk/nextjs";
 import { useProfile } from "@/hooks/useProfile";
 
-const NAV = [
+// Static nav items (always global)
+const STATIC_NAV = [
   { href: "/deals", label: "Deals" },
   { href: "/documents", label: "Documents" },
-  { href: "/underwrite", label: "Underwrite" },
-  { href: "/pricing", label: "Pricing" },
-  { href: "/credit-memo", label: "Credit Memo" },
   { href: "/servicing", label: "Servicing" },
   { href: "/admin", label: "Admin" },
 ];
+
+// Deal-scoped nav items — these require an active dealId from the pathname.
+// When no deal is active, they link to the global pipeline pages.
+const DEAL_SCOPED_NAV = [
+  { globalHref: "/underwrite", dealSuffix: "underwrite", label: "Underwrite" },
+  { globalHref: "/pricing", dealSuffix: "pricing", label: "Pricing" },
+  { globalHref: "/credit-memo", dealSuffix: "credit-memo", label: "Credit Memo" },
+];
+
+/** Extract dealId from pathname like /deals/[uuid]/... */
+function extractDealId(pathname: string): string | null {
+  const match = pathname.match(/^\/deals\/([0-9a-f-]{36})\b/i);
+  return match?.[1] ?? null;
+}
 
 function cls(active: boolean) {
   return [
@@ -25,6 +37,17 @@ function cls(active: boolean) {
 export function HeroBar() {
   const pathname = usePathname();
   const safePathname = pathname ?? "";
+  const activeDealId = extractDealId(safePathname);
+
+  // Build full nav with deal-scoped links when inside a deal
+  const NAV = [
+    ...STATIC_NAV.slice(0, 2), // Deals, Documents
+    ...DEAL_SCOPED_NAV.map((n) => ({
+      href: activeDealId ? `/deals/${activeDealId}/${n.dealSuffix}` : n.globalHref,
+      label: n.label,
+    })),
+    ...STATIC_NAV.slice(2), // Servicing, Admin
+  ];
   const { profile, currentBank, schemaMismatch } = useProfile();
   const { signOut } = useClerk();
 

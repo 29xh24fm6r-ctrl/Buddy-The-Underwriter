@@ -79,6 +79,9 @@ export function HeroBarAdapted() {
               <Link href={`/deals/${dealId}/borrower-inbox`} className={cls(safePathname.includes('/borrower-inbox'))}>
                 Inbox
               </Link>
+              <Link href={`/deals/${dealId}/credit-memo`} className={cls(safePathname.includes('/credit-memo'))}>
+                Credit Memo
+              </Link>
             </div>
           )}
 
