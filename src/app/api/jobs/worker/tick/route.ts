@@ -110,7 +110,14 @@ export async function POST(req: NextRequest) {
           reason: "lock_not_acquired",
         });
       }
-      return NextResponse.json(locked);
+
+      // Orphan janitor must run on every SPREADS tick — not just type=ALL.
+      // The SPREADS cron is the only cron that fires for spreads, so this is
+      // the only path where queued `deal_spreads` rows with no backing job
+      // get reconciled.
+      const janitorResult = await cleanupOrphanSpreads();
+
+      return NextResponse.json({ ...locked, janitor: janitorResult });
     }
 
     for (let i = 0; i < batchSize; i++) {

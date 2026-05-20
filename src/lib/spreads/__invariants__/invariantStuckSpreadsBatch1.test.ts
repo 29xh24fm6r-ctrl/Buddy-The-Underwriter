@@ -105,6 +105,28 @@ describe("STUCK-SPREADS Batch 1 — invariants", () => {
     );
   });
 
+  test("worker tick: cleanupOrphanSpreads also wired into SPREADS branch", () => {
+    // The cron only fires type=SPREADS — the janitor must run on that branch,
+    // not only on the unused type=ALL branch.
+    const src = readSource("src/app/api/jobs/worker/tick/route.ts");
+    const spreadsBranchIdx = src.indexOf('if (type === "SPREADS")');
+    assert.ok(spreadsBranchIdx > 0, "SPREADS branch must exist");
+
+    // Find the next branch (for type === "ALL" or the return at end of try);
+    // use the for-loop that processes OCR/CLASSIFY/EXTRACT as the upper bound.
+    const nextBranchIdx = src.indexOf("for (let i = 0; i < batchSize; i++)");
+    assert.ok(
+      nextBranchIdx > spreadsBranchIdx,
+      "must find batch loop after SPREADS branch",
+    );
+
+    const spreadsBranchSrc = src.slice(spreadsBranchIdx, nextBranchIdx);
+    assert.ok(
+      spreadsBranchSrc.includes("cleanupOrphanSpreads"),
+      "SPREADS branch must invoke cleanupOrphanSpreads (cron only runs type=SPREADS, ALL branch is unused)",
+    );
+  });
+
   test("migration file: find_orphan_spreads SQL function committed to supabase/migrations", () => {
     const path = "supabase/migrations/20260423_find_orphan_spreads_function.sql";
     assert.ok(existsSync(resolve(ROOT, path)), `${path} must exist`);
