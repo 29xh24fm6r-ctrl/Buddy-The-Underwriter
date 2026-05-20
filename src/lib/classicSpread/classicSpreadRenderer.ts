@@ -20,11 +20,20 @@ const FONT_SIZE_BODY = 8;
 const FONT_SIZE_HEADER = 9;
 const FONT_SIZE_TITLE = 11;
 const FONT_SIZE_META = 7;
-// Tuned to fit 4 periods + % columns within letter portrait (540pt usable).
-// 165 + 4 × (60 + 30) = 525pt — fits with margin to spare.
-const COL_WIDTH_LABEL = 165;
-const COL_WIDTH_VALUE = 60;
-const COL_WIDTH_PCT = 30;
+// SPEC-CLASSIC-SPREAD-5COL-LAYOUT-1:
+// Dynamic column widths based on period count.
+// Letter portrait usable = 612 - 2×36 = 540pt.
+//   4 cols: 165 + 4 × (60 + 30) = 525pt ✓
+//   5 cols: 140 + 5 × (52 + 26) = 530pt ✓
+function computeLayout(periodCount: number) {
+  if (periodCount >= 5) {
+    return { label: 140, value: 52, pct: 26 };
+  }
+  return { label: 165, value: 60, pct: 30 };
+}
+
+// Default layout for 4 or fewer periods (used as fallback).
+const DEFAULT_LAYOUT: LayoutConfig = { label: 165, value: 60, pct: 30 };
 const ROW_HEIGHT = 12;
 const PAGE_MARGIN = 36;
 const HEADER_HEIGHT = 56;
@@ -89,6 +98,8 @@ function fmtRatioValue(val: number | string | null, format: string, decimals: nu
 // PDF Document helpers
 // ---------------------------------------------------------------------------
 
+type LayoutConfig = { label: number; value: number; pct: number };
+
 type DocState = {
   doc: PDFKit.PDFDocument;
   y: number;
@@ -97,6 +108,7 @@ type DocState = {
   pageTitle: string;
   periods: StatementPeriod[];
   showPctColumns: boolean;
+  layout: LayoutConfig;
 };
 
 function drawPageHeader(s: DocState) {
@@ -185,15 +197,15 @@ function drawMetadataGrid(s: DocState) {
     const rowY = s.y;
 
     // Label cell (gray bg)
-    doc.rect(PAGE_MARGIN, rowY, COL_WIDTH_LABEL, ROW_HEIGHT).fill("#f0f0f0");
+    doc.rect(PAGE_MARGIN, rowY, s.layout.label, ROW_HEIGHT).fill("#f0f0f0");
     doc.fillColor("#000000").font(FONT_BOLD).fontSize(FONT_SIZE_META);
-    doc.text(metaRows[r]!, PAGE_MARGIN + 4, rowY + 2, { width: COL_WIDTH_LABEL - 8 });
+    doc.text(metaRows[r]!, PAGE_MARGIN + 4, rowY + 2, { width: s.layout.label - 8 });
 
     // Value cells
     doc.font(FONT_NORMAL);
-    let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+    let x = PAGE_MARGIN + s.layout.label;
     for (let c = 0; c < periods.length; c++) {
-      const colW = s.showPctColumns ? COL_WIDTH_VALUE + COL_WIDTH_PCT : COL_WIDTH_VALUE;
+      const colW = s.showPctColumns ? s.layout.value + s.layout.pct : s.layout.value;
       const val = metaFns[r]!(periods[c]!);
       doc.text(val, x + 2, rowY + 2, { width: colW - 4, align: "center" });
       x += colW;
@@ -219,15 +231,15 @@ function drawColumnHeaders(s: DocState) {
   const rowY = s.y;
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-  doc.text("LINE ITEM", PAGE_MARGIN + 4, rowY + 2, { width: COL_WIDTH_LABEL - 8 });
+  doc.text("LINE ITEM", PAGE_MARGIN + 4, rowY + 2, { width: s.layout.label - 8 });
 
-  let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+  let x = PAGE_MARGIN + s.layout.label;
   for (const p of periods) {
-    doc.text(p.label, x, rowY + 2, { width: COL_WIDTH_VALUE, align: "right" });
-    x += COL_WIDTH_VALUE;
+    doc.text(p.label, x, rowY + 2, { width: s.layout.value, align: "right" });
+    x += s.layout.value;
     if (s.showPctColumns) {
-      doc.text("%", x, rowY + 2, { width: COL_WIDTH_PCT, align: "right" });
-      x += COL_WIDTH_PCT;
+      doc.text("%", x, rowY + 2, { width: s.layout.pct, align: "right" });
+      x += s.layout.pct;
     }
   }
 
@@ -252,8 +264,8 @@ function drawFinancialRow(s: DocState, row: FinancialRow) {
   checkPageBreak(s);
   const { doc, periods } = s;
   const rowY = s.y;
-  const rightEdge = PAGE_MARGIN + COL_WIDTH_LABEL +
-    periods.length * (COL_WIDTH_VALUE + (s.showPctColumns && row.showPct ? COL_WIDTH_PCT : 0));
+  const rightEdge = PAGE_MARGIN + s.layout.label +
+    periods.length * (s.layout.value + (s.showPctColumns && row.showPct ? s.layout.pct : 0));
 
   // Double rule before certain totals
   if (DOUBLE_RULE_LABELS.has(row.label)) {
@@ -271,23 +283,23 @@ function drawFinancialRow(s: DocState, row: FinancialRow) {
   // Label
   const indent = row.indent * 12;
   doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: COL_WIDTH_LABEL - 8 - indent });
+  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: s.layout.label - 8 - indent });
 
   // Values
-  let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+  let x = PAGE_MARGIN + s.layout.label;
   for (let i = 0; i < periods.length; i++) {
     const val = row.values[i] ?? null;
     const display = fmtNumber(val, row.isNegative);
     doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-    doc.text(display, x, s.y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-    x += COL_WIDTH_VALUE;
+    doc.text(display, x, s.y + 2, { width: s.layout.value - 4, align: "right" });
+    x += s.layout.value;
 
     if (s.showPctColumns && row.showPct) {
       const base = row.pctBase?.[i] ?? null;
       const pctDisplay = fmtPct(val, base);
       doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META);
-      doc.text(pctDisplay, x, s.y + 2, { width: COL_WIDTH_PCT - 4, align: "right" });
-      x += COL_WIDTH_PCT;
+      doc.text(pctDisplay, x, s.y + 2, { width: s.layout.pct - 4, align: "right" });
+      x += s.layout.pct;
     }
   }
 
@@ -311,7 +323,7 @@ function drawCashFlowRow(s: DocState, row: CashFlowRow) {
 
   checkPageBreak(s);
   const { doc, periods } = s;
-  const rightEdge = PAGE_MARGIN + COL_WIDTH_LABEL + periods.length * COL_WIDTH_VALUE;
+  const rightEdge = PAGE_MARGIN + s.layout.label + periods.length * s.layout.value;
 
   // Double rule before key totals
   if (DOUBLE_RULE_LABELS.has(row.label)) {
@@ -329,16 +341,16 @@ function drawCashFlowRow(s: DocState, row: CashFlowRow) {
   // Label
   const indent = row.indent * 12;
   doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: COL_WIDTH_LABEL - 8 - indent });
+  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: s.layout.label - 8 - indent });
 
   // Values (no % columns for cash flow)
-  let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+  let x = PAGE_MARGIN + s.layout.label;
   for (let i = 0; i < periods.length; i++) {
     const val = row.values[i] ?? null;
     const display = fmtNumber(val, row.isNegative);
     doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-    doc.text(display, x, s.y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-    x += COL_WIDTH_VALUE;
+    doc.text(display, x, s.y + 2, { width: s.layout.value - 4, align: "right" });
+    x += s.layout.value;
   }
 
   // Light horizontal rule
@@ -396,25 +408,25 @@ function drawRatioSections(s: DocState, sections: RatioSection[]) {
     checkPageBreak(s, 2);
 
     // Section title: gray band
-    const rightEdge = PAGE_MARGIN + COL_WIDTH_LABEL + periods.length * COL_WIDTH_VALUE;
+    const rightEdge = PAGE_MARGIN + s.layout.label + periods.length * s.layout.value;
     doc.rect(PAGE_MARGIN, s.y, rightEdge - PAGE_MARGIN, ROW_HEIGHT).fill("#f0f0f0");
     doc.fillColor("#000000");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-    doc.text(section.title, PAGE_MARGIN + 4, s.y + 2, { width: COL_WIDTH_LABEL - 8 });
+    doc.text(section.title, PAGE_MARGIN + 4, s.y + 2, { width: s.layout.label - 8 });
     s.y += ROW_HEIGHT;
 
     for (const row of section.rows) {
       checkPageBreak(s);
 
       doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-      doc.text(row.label, PAGE_MARGIN + 16, s.y + 2, { width: COL_WIDTH_LABEL - 20 });
+      doc.text(row.label, PAGE_MARGIN + 16, s.y + 2, { width: s.layout.label - 20 });
 
-      let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+      let x = PAGE_MARGIN + s.layout.label;
       for (let i = 0; i < periods.length; i++) {
         const val = row.values[i] ?? null;
         const display = fmtRatioValue(val, row.format, row.decimals);
-        doc.text(display, x, s.y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-        x += COL_WIDTH_VALUE;
+        doc.text(display, x, s.y + 2, { width: s.layout.value - 4, align: "right" });
+        x += s.layout.value;
       }
 
       doc.moveTo(PAGE_MARGIN, s.y + ROW_HEIGHT)
@@ -716,14 +728,17 @@ function renderPersonalIncomePage(
   input: ClassicSpreadInput,
   pi: PersonalIncomeSection,
   pageNum: number,
+  layout: LayoutConfig = DEFAULT_LAYOUT,
 ): number {
+  // Alias for all s.layout.* references in this standalone function
+  const s = { layout };
   const rightEdge = doc.page.width - PAGE_MARGIN;
   const contentWidth = rightEdge - PAGE_MARGIN;
 
   // Use up to 4 most recent years, newest right
   const displayYears = pi.years.slice(-4);
   const numCols = displayYears.length;
-  const totalRowWidth = PAGE_MARGIN + COL_WIDTH_LABEL + numCols * COL_WIDTH_VALUE;
+  const totalRowWidth = PAGE_MARGIN + s.layout.label + numCols * s.layout.value;
 
   let y = PAGE_MARGIN;
 
@@ -745,11 +760,11 @@ function renderPersonalIncomePage(
 
   // ── Year column headers ─────────────────────────────────────────────────
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-  doc.text("LINE ITEM", PAGE_MARGIN + 4, y + 2, { width: COL_WIDTH_LABEL - 8 });
-  let hx = PAGE_MARGIN + COL_WIDTH_LABEL;
+  doc.text("LINE ITEM", PAGE_MARGIN + 4, y + 2, { width: s.layout.label - 8 });
+  let hx = PAGE_MARGIN + s.layout.label;
   for (const yr of displayYears) {
-    doc.text(String(yr.year), hx, y + 2, { width: COL_WIDTH_VALUE, align: "right" });
-    hx += COL_WIDTH_VALUE;
+    doc.text(String(yr.year), hx, y + 2, { width: s.layout.value, align: "right" });
+    hx += s.layout.value;
   }
   doc.moveTo(PAGE_MARGIN, y + ROW_HEIGHT).lineTo(totalRowWidth, y + ROW_HEIGHT).lineWidth(0.5).stroke("#333333");
   y = y + ROW_HEIGHT + 2;
@@ -788,7 +803,7 @@ function renderPersonalIncomePage(
       y += 4; // gap before section
       doc.rect(PAGE_MARGIN, y, totalRowWidth - PAGE_MARGIN, ROW_HEIGHT).fill("#f0f0f0");
       doc.fillColor("#000000").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-      doc.text(row.label, PAGE_MARGIN + 4, y + 2, { width: COL_WIDTH_LABEL - 8 });
+      doc.text(row.label, PAGE_MARGIN + 4, y + 2, { width: s.layout.label - 8 });
       y += ROW_HEIGHT;
       continue;
     }
@@ -801,17 +816,17 @@ function renderPersonalIncomePage(
     // Label
     doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
     doc.text(row.label, PAGE_MARGIN + (row.isBold ? 4 : 16), y + 2, {
-      width: COL_WIDTH_LABEL - (row.isBold ? 8 : 20),
+      width: s.layout.label - (row.isBold ? 8 : 20),
     });
 
     // Values
-    let vx = PAGE_MARGIN + COL_WIDTH_LABEL;
+    let vx = PAGE_MARGIN + s.layout.label;
     for (const yr of displayYears) {
       const val = row.getter(yr);
       const display = fmtNumber(val, row.isNegative);
       doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-      doc.text(display, vx, y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-      vx += COL_WIDTH_VALUE;
+      doc.text(display, vx, y + 2, { width: s.layout.value - 4, align: "right" });
+      vx += s.layout.value;
     }
 
     // Light horizontal rule
@@ -868,6 +883,7 @@ export function renderClassicSpread(
     }
 
     // ===== Page 1: Balance Sheet =====
+    const layout = computeLayout(periods.length);
     const s: DocState = {
       doc,
       y: 0,
@@ -876,6 +892,7 @@ export function renderClassicSpread(
       pageTitle: "Detailed Balance Sheet - Actual and % Amounts",
       periods,
       showPctColumns: true,
+      layout,
     };
 
     drawPageHeader(s);
@@ -927,11 +944,11 @@ export function renderClassicSpread(
       // Column headers (no % columns)
       const cfColY = s.y;
       doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-      doc.text("LINE ITEM", PAGE_MARGIN + 4, cfColY + 2, { width: COL_WIDTH_LABEL - 8 });
-      let cfx = PAGE_MARGIN + COL_WIDTH_LABEL;
+      doc.text("LINE ITEM", PAGE_MARGIN + 4, cfColY + 2, { width: s.layout.label - 8 });
+      let cfx = PAGE_MARGIN + s.layout.label;
       for (const p of periods) {
-        doc.text(p.label, cfx, cfColY + 2, { width: COL_WIDTH_VALUE, align: "right" });
-        cfx += COL_WIDTH_VALUE;
+        doc.text(p.label, cfx, cfColY + 2, { width: s.layout.value, align: "right" });
+        cfx += s.layout.value;
       }
       doc.moveTo(PAGE_MARGIN, cfColY + ROW_HEIGHT).lineTo(cfx, cfColY + ROW_HEIGHT).lineWidth(0.5).stroke("#333333");
       s.y = cfColY + ROW_HEIGHT + 2;
@@ -953,11 +970,11 @@ export function renderClassicSpread(
     // Ratio column headers (no % columns)
     const ratioY = s.y;
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-    doc.text("RATIO", PAGE_MARGIN + 4, ratioY + 2, { width: COL_WIDTH_LABEL - 8 });
-    let rx = PAGE_MARGIN + COL_WIDTH_LABEL;
+    doc.text("RATIO", PAGE_MARGIN + 4, ratioY + 2, { width: s.layout.label - 8 });
+    let rx = PAGE_MARGIN + s.layout.label;
     for (const p of periods) {
-      doc.text(p.label, rx, ratioY + 2, { width: COL_WIDTH_VALUE, align: "right" });
-      rx += COL_WIDTH_VALUE;
+      doc.text(p.label, rx, ratioY + 2, { width: s.layout.value, align: "right" });
+      rx += s.layout.value;
     }
     doc.moveTo(PAGE_MARGIN, ratioY + ROW_HEIGHT).lineTo(rx, ratioY + ROW_HEIGHT).lineWidth(0.5).stroke("#333333");
     s.y = ratioY + ROW_HEIGHT + 2;
@@ -977,7 +994,7 @@ export function renderClassicSpread(
     if (input.personalIncome != null && input.personalIncome.years.length > 0) {
       doc.addPage();
       s.pageNum++;
-      s.pageNum = renderPersonalIncomePage(doc, input, input.personalIncome, s.pageNum);
+      s.pageNum = renderPersonalIncomePage(doc, input, input.personalIncome, s.pageNum, layout);
     }
 
     // ===== Executive Summary =====
