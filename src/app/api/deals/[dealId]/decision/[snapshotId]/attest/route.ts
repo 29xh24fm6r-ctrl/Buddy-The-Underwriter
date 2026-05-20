@@ -12,6 +12,9 @@ export async function POST(
 ) {
   const { dealId, snapshotId } = await ctx.params;
   const bankId = await getCurrentBankId();
+  if (!bankId) {
+    return NextResponse.json({ error: "No bank selected" }, { status: 401 });
+  }
   const sb = supabaseAdmin();
 
   // Parse request body
@@ -58,15 +61,13 @@ export async function POST(
   const payload = JSON.stringify(snapshot, Object.keys(snapshot).sort());
   const hash = crypto.createHash("sha256").update(payload).digest("hex");
 
-  // Create attestation
+  // Create attestation — bank_id column does not exist on decision_attestations
   const { data: attestation, error: insertErr } = await sb
     .from("decision_attestations")
     .insert({
       decision_snapshot_id: snapshotId,
       deal_id: dealId,
-      bank_id: bankId,
       attested_by_user_id: userId,
-      attested_by_name: null, // Can be populated from Clerk user metadata
       attested_role: role,
       statement,
       snapshot_hash: hash,
@@ -78,22 +79,26 @@ export async function POST(
     return NextResponse.json({ error: insertErr.message }, { status: 400 });
   }
 
-  // Write to deal events (audit trail)
-  await writeDealEvent({
-    dealId,
-    bankId,
-    kind: "decision.attested",
-    actorUserId: userId,
-    actorRole: role,
-    title: `Decision attested by ${role}`,
-    payload: {
-      snapshotId,
-      attestationId: attestation.id,
-      role,
-      hash,
-      statement: statement.substring(0, 100), // Truncate for events log
-    },
-  });
+  // Write to deal events (audit trail) — non-fatal; attestation is already persisted
+  try {
+    await writeDealEvent({
+      dealId,
+      bankId,
+      kind: "decision.attested",
+      actorUserId: userId,
+      actorRole: role,
+      title: `Decision attested by ${role}`,
+      payload: {
+        snapshotId,
+        attestationId: attestation.id,
+        role,
+        hash,
+        statement: statement.substring(0, 100),
+      },
+    });
+  } catch (eventErr: any) {
+    console.warn("[attest] writeDealEvent failed (non-fatal)", eventErr?.message);
+  }
 
   return NextResponse.json({ attestation }, { status: 201 });
 }
@@ -105,6 +110,9 @@ export async function GET(
 ) {
   const { dealId, snapshotId } = await ctx.params;
   const bankId = await getCurrentBankId();
+  if (!bankId) {
+    return NextResponse.json({ error: "No bank selected" }, { status: 401 });
+  }
   const sb = supabaseAdmin();
 
   // Verify deal belongs to bank

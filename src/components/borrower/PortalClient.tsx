@@ -55,6 +55,8 @@ import type {
 } from "@/lib/borrower/buildBorrowerCommunicationViewModel";
 import { buildBorrowerMobileCommandViewModel } from "@/lib/borrower/buildBorrowerMobileCommandViewModel";
 import { buildBorrowerSubmissionReadinessViewModel } from "@/lib/borrower/buildBorrowerSubmissionReadinessViewModel";
+import { buildBorrowerTrustReviewViewModel } from "@/lib/borrower/buildBorrowerTrustReviewViewModel";
+import { BorrowerTrustReviewCenter } from "@/components/borrower/trust-review/BorrowerTrustReviewCenter";
 import { cn } from "@/lib/cn";
 
 const supabase = createClient(
@@ -1021,6 +1023,27 @@ export function PortalClient({ token }: { token: string }) {
     documents: documentExperienceViewModel,
   });
 
+  const trustReviewViewModel = buildBorrowerTrustReviewViewModel({
+    token,
+    borrowerName: deal?.borrower_name ?? null,
+    journey: journeyViewModel,
+    readiness: readinessViewModel,
+    guidance: guidanceViewModel,
+    communication: communicationViewModel,
+    documents: documentExperienceViewModel,
+    mobileCommand: mobileCommandViewModel,
+    submission: submissionReadinessViewModel,
+    profile: {
+      businessLegalName: deal?.name ?? null,
+      businessAddress:
+        deal?.city && deal?.state
+          ? `${deal.city}, ${deal.state}`
+          : deal?.city ?? deal?.state ?? null,
+      primaryContactName: deal?.borrower_name ?? null,
+      primaryContactEmail: deal?.borrower_email ?? null,
+    },
+  });
+
   if (loading) {
     return (
       <BorrowerShell
@@ -1175,6 +1198,8 @@ export function PortalClient({ token }: { token: string }) {
         <BorrowerSubmissionAttentionItems items={submissionReadinessViewModel.attentionItems} />
 
         <BorrowerSubmissionEducationCard steps={submissionReadinessViewModel.nextSteps} />
+
+        <BorrowerTrustReviewCenter viewModel={trustReviewViewModel} />
 
         <BorrowerReviewStatusCard
           title={reviewStatus.title}

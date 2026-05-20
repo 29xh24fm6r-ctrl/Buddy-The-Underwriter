@@ -4,6 +4,7 @@
  */
 "use client";
 
+import { useState } from "react";
 import { DecisionBadge } from "./DecisionBadge";
 import { JsonPanel } from "./JsonPanel";
 import { EvidenceCard } from "./ui/EvidenceCard";
@@ -41,6 +42,30 @@ export function DecisionOnePager({
   };
   examinerMode?: boolean;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  const handleConfirm = async () => {
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      const res = await fetch(
+        `/api/deals/${dealId}/decision/${snapshot.id}/finalize`,
+        { method: "POST", headers: { "content-type": "application/json" } }
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        setConfirmError(json?.error ?? "Failed to confirm decision");
+        return;
+      }
+      window.location.reload();
+    } catch (err: any) {
+      setConfirmError(err?.message ?? "Network error");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const evidence = Array.isArray(snapshot.evidence_snapshot_json) ? snapshot.evidence_snapshot_json : [];
   const policy = Array.isArray(snapshot.policy_snapshot_json) ? snapshot.policy_snapshot_json : [];
   return (
@@ -84,6 +109,20 @@ export function DecisionOnePager({
               >
                 Regulator ZIP
               </a>
+              {snapshot.status === "proposed" && (
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    onClick={handleConfirm}
+                    disabled={confirming}
+                    className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                  >
+                    {confirming ? "Confirming\u2026" : "Confirm Decision"}
+                  </button>
+                  {confirmError && (
+                    <div className="text-xs text-rose-600">{confirmError}</div>
+                  )}
+                </div>
+              )}
               {snapshot.status === "final" && (
                 <a
                   className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-muted bg-blue-50 border-blue-200 text-blue-700"
