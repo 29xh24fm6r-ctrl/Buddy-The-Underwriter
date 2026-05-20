@@ -137,6 +137,7 @@ export function PrimaryActionBar({
           actionLabel={cockpitAction.label}
           optimisticMessage={optimisticMessage}
           showRefreshedAt
+          prominent
         />
         {state.status === "error" && state.activeId === ACTION_ID ? (
           <button

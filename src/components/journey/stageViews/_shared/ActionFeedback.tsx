@@ -27,7 +27,36 @@ export type ActionFeedbackProps = {
   optimisticMessage?: string | null;
   /** Show the global "last refreshed" timestamp regardless of action state. */
   showRefreshedAt?: boolean;
+  /**
+   * When true, the error state renders as a prominent block banner instead
+   * of an inline chip. Pending/success still render as chips. Use for the
+   * primary CTA so a failure can't be missed.
+   */
+  prominent?: boolean;
 };
+
+/**
+ * Map a raw errorMessage from CockpitActionResult to copy a banker can act on.
+ * The recompute route returns { error: "unauthorized" } at 403; runCockpitAction
+ * falls back to "HTTP 401"/"HTTP 403" when the body isn't JSON.
+ */
+export function humanizeActionError(raw: string | null | undefined): string {
+  if (!raw) return "Something went wrong. Try again.";
+  const s = raw.toLowerCase();
+  if (
+    s === "unauthorized" ||
+    s === "forbidden" ||
+    s === "tenant_mismatch" ||
+    s.includes("http 401") ||
+    s.includes("http 403")
+  ) {
+    return "Session expired — sign out and sign back in.";
+  }
+  if (s.includes("http 5") || s === "unexpected_error" || s.includes("fetch_failed")) {
+    return "Server hit an unexpected error. Try again in a moment.";
+  }
+  return raw;
+}
 
 const SUCCESS_VISIBLE_MS = 4_000;
 
@@ -37,6 +66,7 @@ export function ActionFeedback({
   actionLabel,
   optimisticMessage,
   showRefreshedAt = false,
+  prominent = false,
 }: ActionFeedbackProps) {
   const { lastRefreshedAt } = useStageDataContext();
 
@@ -61,6 +91,32 @@ export function ActionFeedback({
 
   if (visibleStatus === "idle" && !showRefreshedAt) return null;
   if (visibleStatus === "idle" && lastRefreshedAt === 0) return null;
+
+  // Prominent error: full-width banner. Bigger type, action verb prefix,
+  // humanized copy. Pending/success still render as chips below.
+  if (prominent && visibleStatus === "error") {
+    return (
+      <div
+        data-testid="action-feedback"
+        data-status="error"
+        data-action-id={actionId}
+        data-prominent="true"
+        className="mt-2 flex items-start gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100"
+        role="alert"
+        aria-live="assertive"
+      >
+        <span className="material-symbols-outlined text-[18px] text-rose-300 mt-[1px]">
+          error
+        </span>
+        <div className="min-w-0">
+          <div className="font-semibold text-rose-100">
+            {actionLabel ? `${actionLabel} failed` : "Action failed"}
+          </div>
+          <div className="text-rose-200/90">{humanizeActionError(errorMessage)}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
