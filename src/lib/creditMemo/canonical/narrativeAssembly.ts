@@ -271,6 +271,11 @@ export async function assembleNarratives(args: {
   // Check cache — wrapped defensively in case table schema differs.
   // Phase 92: the input hash now incorporates stress/qualitative/trend
   // fields, so pre-92 cache rows miss automatically and regenerate.
+  // SPEC-CREDIT-MEMO-AUDIT-1 Bug 4: cache lookup by deal+bank (most recent),
+  // NOT by input_hash. The hash changes on every memo recompute because it
+  // includes timestamps — so hash-based lookup almost never hits. Manual-seeded
+  // rows also have a fixed hash that never matches the computed one.
+  // Use input_hash only for deduplication on insert, not as lookup key.
   if (!args.forceRegenerate) {
     try {
       const { data: cached, error: cacheErr } = await (sb as any)
@@ -278,7 +283,7 @@ export async function assembleNarratives(args: {
         .select("narratives")
         .eq("deal_id", memo.deal_id)
         .eq("bank_id", memo.bank_id)
-        .eq("input_hash", inputHash)
+        .order("generated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -286,7 +291,7 @@ export async function assembleNarratives(args: {
         return { narratives: cached.narratives as MemoNarratives };
       }
     } catch {
-      // table may not have input_hash column — fall through to generation
+      // table may not exist or have different schema — fall through to generation
     }
   }
 
@@ -411,6 +416,7 @@ export async function assembleNarratives(args: {
             bank_id: memo.bank_id,
             input_hash: inputHash,
             narratives,
+            model: NARRATIVE_MODEL,
             generated_at: new Date().toISOString(),
           },
           { onConflict: "deal_id,bank_id,input_hash" },

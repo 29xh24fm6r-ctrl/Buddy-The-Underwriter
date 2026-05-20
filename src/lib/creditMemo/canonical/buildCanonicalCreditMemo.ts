@@ -236,8 +236,8 @@ export async function buildCanonicalCreditMemo(args: {
       .map((r: any) => r.checklist_key)
       .filter(Boolean) as string[];
 
-    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts, overrides
-    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult] = await Promise.all([
+    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts, overrides, qualitative facts
+    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult, qualFactsResult] = await Promise.all([
       deal.borrower_id
         ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
         : Promise.resolve({ data: null }),
@@ -265,9 +265,25 @@ export async function buildCanonicalCreditMemo(args: {
         .eq("deal_id", args.dealId)
         .eq("bank_id", bankId)
         .maybeSingle(),
+      // SPEC-CREDIT-MEMO-AUDIT-1 Bug 8-9: load qualitative facts from transcripts
+      (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_key, fact_value_text, fact_value_num, owner_entity_id")
+        .eq("deal_id", args.dealId)
+        .eq("is_superseded", false)
+        .in("fact_type", ["MANAGEMENT", "BUSINESS_CONTEXT", "COMPETITIVE", "RISK_FACTOR"])
+        .limit(50),
     ]);
 
     const overrides = (overridesResult?.data?.overrides ?? {}) as Record<string, any>;
+
+    // SPEC-CREDIT-MEMO-AUDIT-1 Bug 8-9: index qualitative facts by key
+    const qualFacts = ((qualFactsResult?.data ?? []) as any[]);
+    const qualByKey = new Map<string, string>();
+    for (const f of qualFacts) {
+      const val = f.fact_value_text ?? (f.fact_value_num != null ? String(f.fact_value_num) : null);
+      if (val && !qualByKey.has(f.fact_key)) qualByKey.set(f.fact_key, val);
+    }
     const borrower = borrowerResult.data as any | null;
     const ownerEntities = (ownersResult.data ?? []) as any[];
     const aiRisk = aiRiskResult.data as any | null;
@@ -332,6 +348,7 @@ export async function buildCanonicalCreditMemo(args: {
       excessCashFlow: mergeMetric(snapshotFinancial.excessCashFlow, spreadFinancial?.excessCashFlow),
       dscrGlobal: mergeMetric(snapshotFinancial.dscrGlobal, spreadFinancial?.dscrGlobal),
       dscrStressed300bps: mergeMetric(snapshotFinancial.dscrStressed300bps, spreadFinancial?.dscrStressed300bps),
+      // Placeholder — recomputed after rate/LOC variables are known (Bug 10 fix below)
       annualDebtServiceStressed300bps: (() => {
         const ads = mergeMetric(snapshotFinancial.annualDebtService, spreadFinancial?.annualDebtService);
         if (ads.value === null) return { value: null, source: "Pending", updated_at: null };
@@ -641,7 +658,9 @@ export async function buildCanonicalCreditMemo(args: {
     // ===== Phase 1C: Loan request derived fields =====
     const loanReqPurpose = loanReq?.purpose ?? loanReq?.use_of_proceeds ?? "Pending";
     const loanReqProduct = loanReq?.product_type ?? "—";
-    const loanReqTermMonths = loanReq?.requested_term_months ?? null;
+    // SPEC-CREDIT-MEMO-AUDIT-1 Bug 6: LOC products have no term/amort — use sensible defaults
+    const isLOC = loanReqProduct === "LOC_SECURED" || loanReqProduct === "LINE_OF_CREDIT" || loanReqProduct === "LOC";
+    const loanReqTermMonths = loanReq?.requested_term_months ?? (isLOC ? 12 : null);
     const rateSummary = scenarioStructure
       ? `${scenarioStructure.index_code ?? ""} + ${scenarioStructure.spread_bps ?? "—"}bps = ${Number(scenarioStructure.all_in_rate_pct ?? 0).toFixed(2)}% [${pricingDecision?.decision ?? ""}]`
       : pricingQuote
@@ -658,7 +677,7 @@ export async function buildCanonicalCreditMemo(args: {
       loanReq?.requested_rate_type === "FIXED" ? "Fixed" :
       loanReq?.requested_rate_type === "VARIABLE" ? "Variable" :
       null;
-    const amortMonths = pricingRow?.amort_months ?? loanReq?.requested_amort_months ?? null;
+    const amortMonths = pricingRow?.amort_months ?? loanReq?.requested_amort_months ?? (isLOC ? 0 : null);
     const monthlyPayment = pricingRow?.monthly_payment_est
       ? Number(pricingRow.monthly_payment_est)
       : (financial.annualDebtService.value !== null ? Math.round(financial.annualDebtService.value / 12) : null);
@@ -666,6 +685,27 @@ export async function buildCanonicalCreditMemo(args: {
       ? (loanAmount.value !== null && loanAmount.value <= 150_000 ? 85 : 75)
       : null;
     const sbaSop = condIsSba ? "SBA SOP 50 10 7" : null;
+
+    // SPEC-CREDIT-MEMO-AUDIT-1 Bug 10: recompute stressed ADS for LOC/IO products
+    // now that isLOC, rateInitialPct, and amortMonths are available.
+    if (financial.annualDebtService.value !== null && (isLOC || amortMonths === 0)) {
+      const currentRate = rateInitialPct ?? null;
+      if (currentRate != null && currentRate > 0) {
+        const stressedAds = financial.annualDebtService.value * ((currentRate + 3) / currentRate);
+        financial.annualDebtServiceStressed300bps = {
+          value: stressedAds,
+          source: "Computed:ADS×(rate+300bps)/rate (IO stress)",
+          updated_at: financial.annualDebtService.updated_at,
+        };
+        if (financial.cashFlowAvailable.value !== null && stressedAds > 0) {
+          financial.dscrStressed300bps = {
+            value: Math.round((financial.cashFlowAvailable.value / stressedAds) * 100) / 100,
+            source: "Computed:CFA/ADS_STRESSED_IO",
+            updated_at: null,
+          };
+        }
+      }
+    }
 
     // ===== Phase 2: Recommendation & Verdict =====
     const adsVal = financial.annualDebtService.value;
@@ -983,6 +1023,13 @@ export async function buildCanonicalCreditMemo(args: {
     };
 
     // ===== Phase 33: Build management qualifications =====
+    // SPEC-CREDIT-MEMO-AUDIT-1 Bug 9: use qualitative facts for management bio
+    const mgmtBackground = qualByKey.get("MANAGEMENT_BACKGROUND") ?? null;
+    const mgmtExpYears = qualByKey.get("MANAGEMENT_EXPERIENCE_YEARS") ?? null;
+    const mgmtFallbackBio = mgmtBackground
+      ? `${mgmtBackground}${mgmtExpYears ? ` (${mgmtExpYears} years experience)` : ""}`
+      : null;
+
     const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
       principals: ownerEntities.map((o: any) => {
         const bioKey = `principal_bio_${o.id}`;
@@ -990,9 +1037,9 @@ export async function buildCanonicalCreditMemo(args: {
           id: String(o.id),
           name: o.display_name ?? "Unknown",
           ownership_pct: o.ownership_pct ?? null,
-          title: o.title ?? null,
-          bio: overrides[bioKey] || "Pending — complete borrower interview to populate management qualifications.",
-          years_experience: null,
+          title: o.title ?? qualByKey.get("PRINCIPAL_TITLE") ?? null,
+          bio: overrides[bioKey] || mgmtFallbackBio || "Pending — complete borrower interview to populate management qualifications.",
+          years_experience: mgmtExpYears ? Number(mgmtExpYears) : null,
           prior_roles: [],
           other_income_sources: null,
         };
@@ -1147,14 +1194,21 @@ export async function buildCanonicalCreditMemo(args: {
       },
 
       business_summary: {
-        business_description: renderValue(overrides.business_description, "Pending — complete borrower intake to populate business description.", mode),
+        // SPEC-CREDIT-MEMO-AUDIT-1 Bug 8: prefer overrides, then qualitative transcript facts, then pending
+        business_description: renderValue(
+          overrides.business_description ?? qualByKey.get("BUSINESS_DESCRIPTION") ?? null,
+          "Pending — complete borrower intake to populate business description.", mode),
         date_established: null,
-        years_in_operation: null,
+        years_in_operation: qualByKey.has("YEARS_IN_BUSINESS") ? Number(qualByKey.get("YEARS_IN_BUSINESS")) : null,
         revenue_mix: renderValue(overrides.revenue_mix, "Pending", mode),
         seasonality: renderValue(overrides.seasonality, "Pending", mode),
-        geography: borrower?.city && borrower?.state ? `${borrower.city}, ${borrower.state}` : renderValue(null, "Pending — geography required", mode),
+        geography: borrower?.city && borrower?.state
+          ? `${borrower.city}, ${borrower.state}`
+          : qualByKey.get("GEOGRAPHIC_FOOTPRINT") ?? renderValue(null, "Pending — geography required", mode),
         marketing_channels: [],
-        competitive_advantages: renderValue(overrides.competitive_advantages, "Pending", mode),
+        competitive_advantages: renderValue(
+          overrides.competitive_advantages ?? qualByKey.get("COMPETITIVE_ADVANTAGE") ?? null,
+          "Pending", mode),
         vision: renderValue(overrides.vision, "Pending", mode),
       },
 

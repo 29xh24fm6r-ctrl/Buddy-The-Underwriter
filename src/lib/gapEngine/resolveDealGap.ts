@@ -124,6 +124,10 @@ export async function resolveDealGap(
       const valueNum = typeof resolution.value === "number" ? resolution.value : null;
       const valueText = typeof resolution.value === "string" ? resolution.value : null;
 
+      // SPEC-CREDIT-MEMO-AUDIT-1 Bug 5: use today's date as period end for
+      // manually provided / transcript-confirmed facts. Without a valid period
+      // end, the sentinel date guard rejects the fact silently.
+      const today = new Date().toISOString().slice(0, 10);
       await upsertDealFinancialFact({
         dealId: resolution.dealId,
         bankId: resolution.bankId,
@@ -133,10 +137,12 @@ export async function resolveDealGap(
         factValueNum: valueNum,
         factValueText: valueText,
         confidence: 1.0,
+        factPeriodEnd: today,
+        factPeriodStart: today,
         provenance: {
           source_type: "MANUAL",
           source_ref: `banker:${resolution.userId}`,
-          as_of_date: new Date().toISOString().slice(0, 10),
+          as_of_date: today,
           extractor: "gap_resolution:banker_provided",
           confidence: 1.0,
           citations: [],
@@ -144,17 +150,22 @@ export async function resolveDealGap(
         },
       });
 
-      // Resolve the gap
-      await sb
-        .from("deal_gap_queue")
-        .update({
-          status: "resolved",
-          resolved_by: resolution.userId,
-          resolved_at: new Date().toISOString(),
-          resolution_meta: { action: "provided", value: resolution.value },
-        })
-        .eq("id", resolution.gapId)
-        .eq("status", "open");
+      // Resolve the gap — non-fatal for synthetic IDs (e.g. "transcript-0"
+      // from TranscriptUploadPanel which don't exist in deal_gap_queue).
+      try {
+        await sb
+          .from("deal_gap_queue")
+          .update({
+            status: "resolved",
+            resolved_by: resolution.userId,
+            resolved_at: new Date().toISOString(),
+            resolution_meta: { action: "provided", value: resolution.value },
+          })
+          .eq("id", resolution.gapId)
+          .eq("status", "open");
+      } catch {
+        // Non-fatal — synthetic gap IDs from transcript confirm don't exist in the table
+      }
 
       await writeEvent({
         dealId: resolution.dealId,

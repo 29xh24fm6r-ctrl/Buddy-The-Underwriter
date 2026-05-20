@@ -159,7 +159,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       ["Product",        pending(km.product)],
       ["Rate",           pending(km.rate_summary)],
       ["Term",           km.term_months ? `${km.term_months} months` : "Pending"],
-      ["Amortization",  km.amort_months ? `${km.amort_months} months` : "Pending"],
+      ["Amortization",  km.amort_months === 0 ? "Interest Only" : km.amort_months ? `${km.amort_months} months` : "Pending"],
       ["Monthly Pmt",   pendingNum(km.monthly_payment, fmt$)],
     ];
     const col2 = [
