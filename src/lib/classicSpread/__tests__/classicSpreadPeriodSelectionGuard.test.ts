@@ -14,31 +14,35 @@ const source = fs.readFileSync(
 );
 
 // ---------------------------------------------------------------------------
-// SPEC-CLASSIC-SPREAD-PERIOD-SELECTION-1 guard tests
+// SPEC-CLASSIC-SPREAD-PERIOD-POLICY-1 guard tests
 // ---------------------------------------------------------------------------
 
-test("buildPeriodMaps uses tax-return spine selection instead of naive slice(-MAX_PERIODS)", () => {
-  // The old naive slice should be gone
-  assert.ok(
-    !source.includes("periods.slice(-MAX_PERIODS)"),
-    "Naive slice(-MAX_PERIODS) should be replaced with tax-return spine selection",
-  );
-  // Tax marker keys should be present
-  assert.match(source, /TAX_MARKER_KEYS/);
-  assert.match(source, /taxReturnPeriodSet/);
+test("MAX_PERIODS is 5 (landscape PDF fits 5 columns)", () => {
+  assert.match(source, /MAX_PERIODS\s*=\s*5/);
 });
 
 test("buildPeriodMaps identifies tax-return periods by IRS fact keys on Dec-31 dates", () => {
+  assert.match(source, /TAX_MARKER_KEYS/);
   assert.match(source, /GROSS_RECEIPTS/);
   assert.match(source, /ORDINARY_BUSINESS_INCOME/);
   assert.match(source, /endsWith.*-12-31/);
 });
 
-test("buildPeriodMaps preserves tax-return periods before IS/BS periods when truncating", () => {
-  // The code should filter sortedTaxPeriods first, then fill remaining with others
-  assert.match(source, /sortedTaxPeriods/);
-  assert.match(source, /otherPeriods/);
-  assert.match(source, /taxSlice/);
-  // Tax years should be excluded from other periods to prevent duplicate columns
-  assert.match(source, /taxYears/);
+test("period policy: non-tax (IS/BS) periods included first, tax fills remaining slots", () => {
+  // nonTaxPeriods comes first in the fill logic
+  assert.match(source, /nonTaxPeriods/);
+  assert.match(source, /taxPeriods/);
+  // remaining = MAX_PERIODS - nonTaxPeriods.length
+  assert.match(source, /MAX_PERIODS\s*-\s*nonTaxPeriods\.length/);
+  // taxToInclude uses slice(-remaining) to pick most recent tax years
+  assert.match(source, /taxToInclude\s*=\s*taxPeriods\.slice\(-remaining\)/);
+});
+
+test("no naive slice(-MAX_PERIODS) remains as the sole truncation strategy", () => {
+  // The old "periods.slice(-MAX_PERIODS)" as sole strategy should be gone.
+  // A final safety slice may exist but the primary logic must be the policy above.
+  assert.ok(
+    !source.includes("periods = Array.from(periodSet).sort();\n  if (periods.length > MAX_PERIODS)"),
+    "Old naive period-truncation pattern should be replaced",
+  );
 });

@@ -57,14 +57,13 @@ function buildPeriodMaps(facts: RawFact[]): {
     }
   }
 
-  // Cap at 4 periods to prevent layout overflow (each period ~116pt, 4 × 116 = 464pt ≤ 540pt usable)
-  const MAX_PERIODS = 4;
+  // SPEC-CLASSIC-SPREAD-PERIOD-POLICY-1:
+  // Hard cap at 5 — landscape PDF can fit 5 columns with tight labels.
+  // Policy: always include ALL financial-statement (IS/BS) periods first
+  // (most current data), then fill remaining slots with most-recent tax years.
+  const MAX_PERIODS = 5;
 
-  // SPEC-CLASSIC-SPREAD-PERIOD-SELECTION-1:
-  // Tax-return periods form the column spine — never drop a tax-return year
-  // in favor of an interim IS/BS period. Identify tax-return periods by
-  // checking for IRS-specific fact keys (GROSS_RECEIPTS, ORDINARY_BUSINESS_INCOME,
-  // OFFICER_COMPENSATION) on Dec-31 dates. Same heuristic as deriveAuditMethod.
+  // Identify tax-return periods by IRS-specific fact keys on Dec-31 dates.
   const TAX_MARKER_KEYS = new Set([
     "GROSS_RECEIPTS",
     "ORDINARY_BUSINESS_INCOME",
@@ -82,20 +81,15 @@ function buildPeriodMaps(facts: RawFact[]): {
   }
 
   const allSorted = Array.from(periodSet).sort();
-  let periods: string[];
+  const nonTaxPeriods = allSorted.filter((p) => !taxReturnPeriodSet.has(p));
+  const taxPeriods = allSorted.filter((p) => taxReturnPeriodSet.has(p));
 
-  if (allSorted.length <= MAX_PERIODS) {
-    periods = allSorted;
-  } else {
-    // Prefer tax-return periods, then fill with non-overlapping IS/BS periods
-    const sortedTaxPeriods = allSorted.filter((p) => taxReturnPeriodSet.has(p));
-    const taxYears = new Set(sortedTaxPeriods.map((p) => p.slice(0, 4)));
-    const otherPeriods = allSorted.filter(
-      (p) => !taxReturnPeriodSet.has(p) && !taxYears.has(p.slice(0, 4)),
-    );
-    const taxSlice = sortedTaxPeriods.slice(-MAX_PERIODS);
-    const remaining = MAX_PERIODS - taxSlice.length;
-    periods = [...taxSlice, ...otherPeriods.slice(-Math.max(0, remaining))].sort();
+  // All non-tax (IS/BS) periods included first, then most-recent tax years
+  const remaining = Math.max(0, MAX_PERIODS - nonTaxPeriods.length);
+  const taxToInclude = taxPeriods.slice(-remaining);
+  let periods = [...taxToInclude, ...nonTaxPeriods].sort();
+  if (periods.length > MAX_PERIODS) {
+    periods = periods.slice(-MAX_PERIODS);
   }
   const byPeriod = new Map<string, Map<string, number | null>>();
   for (const pe of periods) {
