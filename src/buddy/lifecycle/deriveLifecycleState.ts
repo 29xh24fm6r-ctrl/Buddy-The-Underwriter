@@ -50,7 +50,7 @@ const lifecycleCache = new Map<string, { expiresAt: number; value: LifecycleStat
 const LIFECYCLE_CACHE_TTL_MS = 30_000; // 30 seconds
 
 // Type for the internal lifecycle stage from deals table
-type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
+type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready" | "decision_made" | "closing" | "closed";
 
 // Type for the borrower-facing stage from deal_status table
 type DealStatusStage =
@@ -763,6 +763,15 @@ function mapToUnifiedStage(
         return "committee_decisioned";
       }
       return "committee_ready";
+
+    case "decision_made":
+      return "committee_decisioned";
+
+    case "closing":
+      return "closing_in_progress";
+
+    case "closed":
+      return "closed";
 
     default:
       return "intake_created";

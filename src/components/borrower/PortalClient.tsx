@@ -5,7 +5,16 @@ import { createClient } from "@supabase/supabase-js";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectationCard";
+import { BorrowerCommunicationCenter } from "@/components/borrower/communication/BorrowerCommunicationCenter";
 import { BorrowerDocumentExperience } from "@/components/borrower/documents/BorrowerDocumentExperience";
+import { BorrowerMobileCommandCenter } from "@/components/borrower/mobile/BorrowerMobileCommandCenter";
+import { BorrowerSubmissionReadinessHero } from "@/components/borrower/submission/BorrowerSubmissionReadinessHero";
+import { BorrowerSubmissionChecklist } from "@/components/borrower/submission/BorrowerSubmissionChecklist";
+import { BorrowerSubmissionPackageSummary } from "@/components/borrower/submission/BorrowerSubmissionPackageSummary";
+import { BorrowerSubmissionAttentionItems } from "@/components/borrower/submission/BorrowerSubmissionAttentionItems";
+import { BorrowerSubmissionEducationCard } from "@/components/borrower/submission/BorrowerSubmissionEducationCard";
+import { BorrowerMobileNextActionBar } from "@/components/borrower/mobile/BorrowerMobileNextActionBar";
+import { BorrowerMobileDocumentPriorityStack } from "@/components/borrower/mobile/BorrowerMobileDocumentPriorityStack";
 import { BorrowerFundingJourney } from "@/components/borrower/BorrowerFundingJourney";
 import { BorrowerHeroStatus } from "@/components/borrower/BorrowerHeroStatus";
 import { BorrowerHelpContactCard } from "@/components/borrower/BorrowerHelpContactCard";
@@ -37,6 +46,15 @@ import type {
   BorrowerDocumentItemInput,
   BorrowerDocumentStatus,
 } from "@/lib/borrower/buildBorrowerDocumentExperienceViewModel";
+import { buildBorrowerCommunicationViewModel } from "@/lib/borrower/buildBorrowerCommunicationViewModel";
+import type {
+  CommunicationActivityEvent,
+  CommunicationBlocker,
+  CommunicationDocItem,
+  CommunicationRecommendation,
+} from "@/lib/borrower/buildBorrowerCommunicationViewModel";
+import { buildBorrowerMobileCommandViewModel } from "@/lib/borrower/buildBorrowerMobileCommandViewModel";
+import { buildBorrowerSubmissionReadinessViewModel } from "@/lib/borrower/buildBorrowerSubmissionReadinessViewModel";
 import { cn } from "@/lib/cn";
 
 const supabase = createClient(
@@ -910,6 +928,99 @@ export function PortalClient({ token }: { token: string }) {
     items: documentExperienceItems,
   });
 
+  const communicationActivity: CommunicationActivityEvent[] = React.useMemo(
+    () =>
+      activity.map((event) => {
+        const category =
+          event.kind === "package"
+            ? ("milestone" as const)
+            : (event.kind as CommunicationActivityEvent["category"]);
+        return {
+          id: event.id,
+          label: event.title,
+          timestamp: event.createdAt,
+          category,
+        };
+      }),
+    [activity],
+  );
+
+  const communicationBlockers: CommunicationBlocker[] = React.useMemo(
+    () =>
+      missingChecklist
+        .filter((item) => item.required)
+        .slice(0, 8)
+        .map((item) => ({
+          id: item.id,
+          label: borrowerChecklistCopy(item).title,
+          reason: borrowerChecklistCopy(item).why,
+          href: `/upload/${token}`,
+        })),
+    [missingChecklist, token],
+  );
+
+  const communicationDocuments: CommunicationDocItem[] = React.useMemo(
+    () =>
+      documentExperienceItems.map((item) => ({
+        id: item.id,
+        label: item.title,
+        status: item.status,
+        required: item.required,
+        href: `/upload/${token}`,
+      })),
+    [documentExperienceItems, token],
+  );
+
+  const communicationRecommendations: CommunicationRecommendation[] =
+    React.useMemo(
+      () =>
+        readinessViewModel.recommendations.map((rec) => ({
+          id: rec.id,
+          label: rec.label,
+          explanation: rec.explanation,
+          priority: rec.priority,
+          href: rec.href,
+        })),
+      [readinessViewModel.recommendations],
+    );
+
+  const communicationViewModel = buildBorrowerCommunicationViewModel({
+    borrowerName: deal?.borrower_name ?? null,
+    token,
+    portalStage: safeStage,
+    activity: communicationActivity,
+    blockers: communicationBlockers,
+    documents: communicationDocuments,
+    recommendations: communicationRecommendations,
+    guidanceNextStep: guidanceViewModel.nextStep
+      ? {
+          headline: guidanceViewModel.nextStep.headline,
+          description: guidanceViewModel.nextStep.description,
+          ctaLabel: guidanceViewModel.nextStep.ctaLabel,
+          href: guidanceViewModel.nextStep.href,
+        }
+      : null,
+  });
+
+  const mobileCommandViewModel = buildBorrowerMobileCommandViewModel({
+    borrowerName: deal?.borrower_name ?? null,
+    token,
+    journey: journeyViewModel,
+    readiness: readinessViewModel,
+    guidance: guidanceViewModel,
+    communication: communicationViewModel,
+    documents: documentExperienceViewModel,
+  });
+
+  const submissionReadinessViewModel = buildBorrowerSubmissionReadinessViewModel({
+    token,
+    journey: journeyViewModel,
+    readiness: readinessViewModel,
+    guidance: guidanceViewModel,
+    communication: communicationViewModel,
+    documents: documentExperienceViewModel,
+  });
+
   if (loading) {
     return (
       <BorrowerShell
@@ -1012,18 +1123,7 @@ export function PortalClient({ token }: { token: string }) {
       }
       footer={<BorrowerTrustFooter />}
       mobileFooter={
-        <button
-          type="button"
-          onClick={() => {
-            window.location.href = `/upload/${token}`;
-          }}
-          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white"
-        >
-          <Icon name="cloud_upload" className="h-4 w-4 text-white" />
-          {primaryMissing
-            ? `Add ${borrowerChecklistCopy(primaryMissing).title}`
-            : "Add requested document"}
-        </button>
+        <BorrowerMobileNextActionBar viewModel={mobileCommandViewModel} />
       }
     >
       <div className="space-y-6 pb-24 sm:pb-0">
@@ -1041,6 +1141,8 @@ export function PortalClient({ token }: { token: string }) {
           )
         ) : null}
 
+        <BorrowerMobileCommandCenter viewModel={mobileCommandViewModel} />
+
         <BorrowerFundingJourney
           viewModel={journeyViewModel}
           readinessViewModel={readinessViewModel}
@@ -1049,7 +1151,30 @@ export function PortalClient({ token }: { token: string }) {
           dealName={deal?.name}
         />
 
-        <BorrowerDocumentExperience viewModel={documentExperienceViewModel} />
+        <BorrowerCommunicationCenter viewModel={communicationViewModel} />
+
+        <div className="sm:hidden">
+          <BorrowerMobileDocumentPriorityStack
+            items={mobileCommandViewModel.documentPriorityItems}
+            hasMore={mobileCommandViewModel.hasMoreDocumentItems}
+            moreHref="#documents"
+          />
+        </div>
+
+        <div id="documents">
+          <BorrowerDocumentExperience viewModel={documentExperienceViewModel} />
+        </div>
+
+        <BorrowerSubmissionReadinessHero viewModel={submissionReadinessViewModel} />
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <BorrowerSubmissionChecklist items={submissionReadinessViewModel.checklist} />
+          <BorrowerSubmissionPackageSummary items={submissionReadinessViewModel.packageItems} />
+        </div>
+
+        <BorrowerSubmissionAttentionItems items={submissionReadinessViewModel.attentionItems} />
+
+        <BorrowerSubmissionEducationCard steps={submissionReadinessViewModel.nextSteps} />
 
         <BorrowerReviewStatusCard
           title={reviewStatus.title}
