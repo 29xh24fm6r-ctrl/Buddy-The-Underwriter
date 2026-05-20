@@ -5,15 +5,32 @@ import "server-only";
  *
  * Generates a PDF of the canonical credit memo using PDFKit (pure Node.js).
  * Replaces the previous Playwright/Chromium approach which fails on Vercel serverless.
+ *
+ * SPEC — Florida Armory Snapshot Is The Only Committee Source Of Truth:
+ * - This route MUST NOT call buildCanonicalCreditMemo directly.
+ * - The PDF is rendered from the latest certified Florida Armory snapshot in
+ *   credit_memo_snapshots (status='banker_submitted'), via
+ *   loadLatestCertifiedFloridaArmorySnapshot + assertCommitteeMemoSafe.
+ * - buildCanonicalCreditMemo remains valid for diagnostic / draft / pre-submission
+ *   surfaces, but cannot generate final committee PDFs.
+ * - TODO: long-term, replace this route with
+ *   /api/deals/[dealId]/credit-memo/snapshots/latest/pdf
+ *   and render the PDF from snapshot.sections directly. This is the interim
+ *   safe bridge that still uses snapshot.canonical_memo for the body but
+ *   only after the committee-artifact guard passes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
-import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadLatestCertifiedFloridaArmorySnapshot } from "@/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot";
+import {
+  assertCommitteeMemoSafe,
+} from "@/lib/creditMemo/snapshot/assertCommitteeMemoSafe";
+import { FloridaArmoryBuildError } from "@/lib/creditMemo/snapshot/types";
 import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow, RatioAnalysisRow } from "@/lib/creditMemo/canonical/types";
 import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
@@ -992,7 +1009,7 @@ async function handlePdfRequest(dealId: string) {
       return NextResponse.json({ ok: false, error: "no_bank_selected" }, { status: 401 });
     }
 
-    // Phase 81: Trust enforcement — PDF export requires committee-grade research
+    // Phase 81: Trust enforcement — PDF export requires committee-grade research.
     const { loadAndEnforceResearchTrust } = await import("@/lib/research/trustEnforcement");
     const trustCheck = await loadAndEnforceResearchTrust(dealId, "committee_packet");
     if (!trustCheck.allowed) {
@@ -1002,12 +1019,71 @@ async function handlePdfRequest(dealId: string) {
       );
     }
 
-    const res = await buildCanonicalCreditMemo({ dealId, bankId: bankPick.bankId });
-    if (!res.ok) {
-      return NextResponse.json({ ok: false, error: res.error }, { status: 400 });
+    // ── SPEC: ONLY render from the latest certified Florida Armory snapshot.
+    // We do NOT call buildCanonicalCreditMemo here — that path is reserved for
+    // diagnostic / draft / pre-submission surfaces. Committee artifacts MUST
+    // pass through the snapshot + hard-gate pipeline.
+    const snapshotRes = await loadLatestCertifiedFloridaArmorySnapshot({
+      dealId,
+      bankId: bankPick.bankId,
+    });
+    if (!snapshotRes.ok) {
+      if (snapshotRes.reason === "not_found") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "certified_snapshot_required",
+            message:
+              "Submit the credit memo to underwriting before generating a committee PDF.",
+          },
+          { status: 409 },
+        );
+      }
+      // load_failed → internal failure surface (don't leak details)
+      console.error("[canonical/pdf] snapshot load_failed:", snapshotRes.error);
+      return NextResponse.json(
+        { ok: false, error: "snapshot_load_failed" },
+        { status: 500 },
+      );
     }
 
-    // SPEC-PDF-NARRATIVE-OVERLAY-1: overlay cached narratives (same logic as canonical/page.tsx)
+    // Final artifact guard: refuse to render unsafe committee memos.
+    try {
+      assertCommitteeMemoSafe(snapshotRes.snapshot);
+    } catch (guardErr: unknown) {
+      if (guardErr instanceof FloridaArmoryBuildError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "committee_artifact_unsafe",
+            details: guardErr.missingFields,
+          },
+          { status: 409 },
+        );
+      }
+      throw guardErr;
+    }
+
+    const snapshot = snapshotRes.snapshot;
+    // Interim safe bridge: render the committee PDF from the certified
+    // snapshot's canonical_memo body. The snapshot is now guaranteed
+    // committee-safe by assertCommitteeMemoSafe above. The longer-term path
+    // (separate route + render from snapshot.sections) is captured by the
+    // TODO in the file header.
+    const memoFromSnapshot: CanonicalCreditMemoV1 = snapshot.canonical_memo;
+
+    // SPEC-PDF-NARRATIVE-OVERLAY-1: overlay cached narratives (same logic as canonical/page.tsx).
+    // Narrative overlay does not change underlying data — only enriches
+    // narrative-only fields the canonical builder may have left thin. The
+    // committee-safe guard above ran on the immutable snapshot body, so the
+    // overlay cannot reintroduce placeholders that were already rejected.
+    const memoForRender: CanonicalCreditMemoV1 = {
+      ...memoFromSnapshot,
+      executive_summary: { ...memoFromSnapshot.executive_summary },
+      financial_analysis: { ...memoFromSnapshot.financial_analysis },
+      collateral: { ...memoFromSnapshot.collateral },
+      borrower_sponsor: { ...memoFromSnapshot.borrower_sponsor },
+    };
     {
       const sb = supabaseAdmin();
       const { data: cachedNarrative } = await (sb as any)
@@ -1021,19 +1097,19 @@ async function handlePdfRequest(dealId: string) {
 
       if (cachedNarrative?.narratives) {
         const n = cachedNarrative.narratives as any;
-        if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
-        if (n.income_analysis) res.memo.financial_analysis.income_analysis = n.income_analysis;
-        if (n.property_description) res.memo.collateral.property_description = n.property_description;
-        if (n.borrower_background) res.memo.borrower_sponsor.background = n.borrower_background;
-        if (n.borrower_experience) res.memo.borrower_sponsor.experience = n.borrower_experience;
-        if (n.guarantor_strength) res.memo.borrower_sponsor.guarantor_strength = n.guarantor_strength;
-        if (n.repayment_analysis) res.memo.financial_analysis.projection_feasibility = n.repayment_analysis;
+        if (n.executive_summary) memoForRender.executive_summary.narrative = n.executive_summary;
+        if (n.income_analysis) memoForRender.financial_analysis.income_analysis = n.income_analysis;
+        if (n.property_description) memoForRender.collateral.property_description = n.property_description;
+        if (n.borrower_background) memoForRender.borrower_sponsor.background = n.borrower_background;
+        if (n.borrower_experience) memoForRender.borrower_sponsor.experience = n.borrower_experience;
+        if (n.guarantor_strength) memoForRender.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+        if (n.repayment_analysis) memoForRender.financial_analysis.projection_feasibility = n.repayment_analysis;
       }
     }
 
-    const pdfBuffer = await buildCreditMemoPdf(res.memo);
+    const pdfBuffer = await buildCreditMemoPdf(memoForRender);
 
-    const borrowerSlug = (res.memo.header.borrower_name ?? dealId)
+    const borrowerSlug = (memoForRender.header.borrower_name ?? dealId)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 40);

@@ -61,6 +61,11 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // for an existing submitted snapshot before deciding whether to redirect.
   "src/app/(app)/deals/[dealId]/credit-memo/page.tsx",
   "src/app/(app)/deals/[dealId]/credit-memo/__tests__/creditMemoRedirectGuard.test.ts",
+  // Committee artifact pipeline — READS banker_submitted to load the
+  // certified snapshot for committee PDF/export rendering. Read-only.
+  // Guarded structurally by committeeArtifactGuard.test.ts.
+  "src/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot.ts",
+  "src/app/api/deals/[dealId]/credit-memo/canonical/pdf/route.ts",
 ]);
 
 const SKIP_DIRS = new Set([
