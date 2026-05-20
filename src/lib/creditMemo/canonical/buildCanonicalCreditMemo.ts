@@ -817,7 +817,24 @@ export async function buildCanonicalCreditMemo(args: {
       const ni = facts["NET_INCOME"] ?? null;
       const dep = facts["DEPRECIATION"] ?? null;
       const interest = facts["INTEREST_EXPENSE"] ?? null;
-      const cfa = ni !== null ? (dep !== null ? ni + dep : ni) : null;
+      const gp = facts["GROSS_PROFIT"] ?? null;
+      const ebitda = facts["EBITDA"] ?? null;
+      // SPEC-CREDIT-MEMO-DATA-PIPELINE-1 Fix 3: CFA fallback chain.
+      // Primary: NI + Depreciation. When NI = 0 (common for tax-return years
+      // where M-2 shows pass-through income as zero), fall back to EBITDA or
+      // Gross Profit as better CFA proxies.
+      let cfa: number | null;
+      if (ni !== null && ni !== 0) {
+        cfa = dep !== null ? ni + dep : ni;
+      } else if (ebitda !== null) {
+        cfa = ebitda;
+      } else if (ni !== null && dep !== null) {
+        cfa = ni + dep; // NI=0 + dep is still valid
+      } else if (gp !== null) {
+        cfa = gp;
+      } else {
+        cfa = null;
+      }
       const dscrVal = (cfa !== null && structuralAds !== null && structuralAds > 0) ? Math.round((cfa / structuralAds) * 100) / 100 : null;
 
       debtCoverageTable.push({

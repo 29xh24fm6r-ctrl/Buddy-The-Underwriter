@@ -44,6 +44,7 @@ const SL_ALIAS: Partial<Record<string, keyof BalanceSheetRow>> = {
   SL_LONG_TERM_DEBT:          "mortgages_notes_bonds",
   SL_OTHER_CURRENT_ASSETS:    "other_current_assets",
   SL_OTHER_CURRENT_LIABILITIES:"other_current_liabilities",
+  SL_AR_GROSS:                "accounts_receivable",
 };
 
 function emptyRow(periodEnd: string): BalanceSheetRow {
@@ -125,15 +126,20 @@ export async function buildBalanceSheetTable(args: {
       NET_FIXED_ASSETS:          "ppe_net",
     };
 
-    // Group by period_end — first-write-wins (SL_ facts come first in mergedData,
-    // so SL_ keys are authoritative; non-SL fallbacks only fill gaps).
+    // SPEC-CREDIT-MEMO-DATA-PIPELINE-1 Fix 1: max-value-wins dedup.
+    // When duplicate SL_ rows exist for the same (period, field), pick the
+    // larger value. Balance sheet values should be positive; the larger value
+    // eliminates garbage extraction artifacts (e.g. SL_CASH=2 vs SL_CASH=401558).
+    // SL_ facts come first in mergedData so they take priority over non-SL fallbacks.
     const byPeriod: Record<string, Record<string, number>> = {};
     for (const f of (mergedData as Array<{ fact_key: string; fact_value_num: string | number; fact_period_end: string }>)) {
       const period = f.fact_period_end;
       if (!byPeriod[period]) byPeriod[period] = {};
       const field = SL_ALIAS[f.fact_key] ?? NON_SL_ALIAS[f.fact_key];
-      if (field && !(field in byPeriod[period])) {
-        byPeriod[period][field] = Number(f.fact_value_num);
+      if (!field) continue;
+      const val = Number(f.fact_value_num);
+      if (!(field in byPeriod[period]) || val > byPeriod[period][field]) {
+        byPeriod[period][field] = val;
       }
     }
 
