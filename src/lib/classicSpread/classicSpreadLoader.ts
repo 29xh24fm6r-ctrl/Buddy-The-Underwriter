@@ -59,9 +59,43 @@ function buildPeriodMaps(facts: RawFact[]): {
 
   // Cap at 4 periods to prevent layout overflow (each period ~116pt, 4 × 116 = 464pt ≤ 540pt usable)
   const MAX_PERIODS = 4;
-  let periods = Array.from(periodSet).sort();
-  if (periods.length > MAX_PERIODS) {
-    periods = periods.slice(-MAX_PERIODS); // keep most recent
+
+  // SPEC-CLASSIC-SPREAD-PERIOD-SELECTION-1:
+  // Tax-return periods form the column spine — never drop a tax-return year
+  // in favor of an interim IS/BS period. Identify tax-return periods by
+  // checking for IRS-specific fact keys (GROSS_RECEIPTS, ORDINARY_BUSINESS_INCOME,
+  // OFFICER_COMPENSATION) on Dec-31 dates. Same heuristic as deriveAuditMethod.
+  const TAX_MARKER_KEYS = new Set([
+    "GROSS_RECEIPTS",
+    "ORDINARY_BUSINESS_INCOME",
+    "OFFICER_COMPENSATION",
+    "BUSINESS_TAX_RETURN",
+    "PERSONAL_TAX_RETURN",
+  ]);
+  const taxReturnPeriodSet = new Set<string>();
+  for (const f of facts) {
+    const pe = f.fact_period_end?.slice(0, 10);
+    if (!pe || f.fact_value_num == null) continue;
+    if (TAX_MARKER_KEYS.has(f.fact_key) && pe.endsWith("-12-31")) {
+      taxReturnPeriodSet.add(pe);
+    }
+  }
+
+  const allSorted = Array.from(periodSet).sort();
+  let periods: string[];
+
+  if (allSorted.length <= MAX_PERIODS) {
+    periods = allSorted;
+  } else {
+    // Prefer tax-return periods, then fill with non-overlapping IS/BS periods
+    const sortedTaxPeriods = allSorted.filter((p) => taxReturnPeriodSet.has(p));
+    const taxYears = new Set(sortedTaxPeriods.map((p) => p.slice(0, 4)));
+    const otherPeriods = allSorted.filter(
+      (p) => !taxReturnPeriodSet.has(p) && !taxYears.has(p.slice(0, 4)),
+    );
+    const taxSlice = sortedTaxPeriods.slice(-MAX_PERIODS);
+    const remaining = MAX_PERIODS - taxSlice.length;
+    periods = [...taxSlice, ...otherPeriods.slice(-Math.max(0, remaining))].sort();
   }
   const byPeriod = new Map<string, Map<string, number | null>>();
   for (const pe of periods) {
