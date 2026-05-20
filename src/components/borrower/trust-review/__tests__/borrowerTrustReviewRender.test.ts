@@ -278,8 +278,9 @@ test("BorrowerTrustCaveatCard renders caveat message and explanation", () => {
   );
   assert.ok(html.includes("How Buddy uses what you"));
   assert.ok(html.includes("lender package"));
-  // Includes the borrower update encouragement / not a lending decision caveat
-  assert.ok(html.toLowerCase().includes("not a lending decision"));
+  // Includes the borrower update encouragement / not-a-lending-decision caveat
+  // (copy uses the contraction "isn't a lending decision").
+  assert.ok(html.toLowerCase().includes("a lending decision"));
 });
 
 // ---------------------------------------------------------------------------
