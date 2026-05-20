@@ -493,11 +493,15 @@ export async function buildCanonicalCreditMemo(args: {
 
     const pendingMetric = () => ({ value: null, source: "Pending", updated_at: null });
 
+    // SPEC-CREDIT-MEMO-PDF-LAYOUT-1 Fix 8: prefer loan request amount over deals.loan_amount
+    const loanReqAmount = loanReq?.requested_amount != null ? Number(loanReq.requested_amount) : null;
     const loanAmount = sourcesUses.bankLoanTotal.value !== null
       ? sourcesUses.bankLoanTotal
-      : dealAmount === null
-        ? pendingMetric()
-        : { value: dealAmount, source: "Deal:loan_amount", updated_at: null };
+      : loanReqAmount !== null && Number.isFinite(loanReqAmount)
+        ? { value: loanReqAmount, source: "LoanRequest:requested_amount", updated_at: null }
+        : dealAmount !== null
+          ? { value: dealAmount, source: "Deal:loan_amount", updated_at: null }
+          : pendingMetric();
 
     // ===== Phase 1A: debt_yield and cap_rate =====
     const noiForRatios = metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" });

@@ -246,14 +246,15 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       ["Credit Elsewhere", elig.credit_available_elsewhere],
     ];
     eligRows.forEach(([lbl, val]) => { labelValue(lbl, val); divider(); });
+    doc.moveDown(0.4);
 
     // ── BUSINESS SUMMARY ──────────────────────────────────────────────────────
 
     sectionHeader("Business & Industry Analysis");
     const bs = memo.business_summary;
     doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
-      .text(pending(bs.business_description), L, doc.y, { width: pageWidth, lineGap: 2 });
-    doc.moveDown(0.3);
+      .text(pending(bs.business_description), L, doc.y, { width: pageWidth, lineGap: 2.5 });
+    doc.moveDown(0.4);
 
     if (memo.business_industry_analysis) {
       const bia = memo.business_industry_analysis;
@@ -261,10 +262,10 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       if (narrative && narrative !== "Pending") {
         doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.accent)
           .text("Credit Thesis / Industry Overview", L, doc.y);
-        doc.fontSize(8).font("Helvetica").fillColor(COLORS.black)
-          .text(narrative.slice(0, 1200) + (narrative.length > 1200 ? "…" : ""),
-            L, doc.y, { width: pageWidth, lineGap: 2 });
-        doc.moveDown(0.3);
+        doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
+          .text(narrative.slice(0, 1500) + (narrative.length > 1500 ? "…" : ""),
+            L, doc.y, { width: pageWidth, lineGap: 2.5 });
+        doc.moveDown(0.4);
       }
 
       if (bia.risk_indicators?.length) {
@@ -300,6 +301,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
     // ── FINANCIAL ANALYSIS ────────────────────────────────────────────────────
 
+    doc.addPage(); // Force new page before Financial Analysis
     sectionHeader("Financial Analysis");
 
     // Debt Coverage Table
@@ -470,34 +472,64 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
     const ratios = memo.financial_analysis.ratio_analysis;
     if (ratios.length) {
-      checkPageBreak(60);
+      doc.addPage(); // Force new page before Ratio Analysis
       doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
         .text("Ratio Analysis", L, doc.y);
       doc.moveDown(0.3);
+
+      // Table layout: Metric | Value | Assessment | Interpretation
+      const rColMetric = 140;
+      const rColValue = 50;
+      const rColAssess = 65;
+      const rColInterp = pageWidth - rColMetric - rColValue - rColAssess;
+      const rRowH = 14;
 
       let lastCat = "";
       ratios.forEach((r: RatioAnalysisRow) => {
         const cat = r.category ?? "";
         if (cat && cat !== lastCat) {
-          checkPageBreak(20);
+          checkPageBreak(rRowH + 14);
           lastCat = cat;
-          doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.accent)
-            .text(cat.toUpperCase(), L, doc.y);
-          doc.moveDown(0.1);
+          // Category sub-header (dark bar)
+          const catY = doc.y;
+          doc.rect(L, catY, pageWidth, rRowH).fill(COLORS.headerBg);
+          doc.fontSize(7).font("Helvetica-Bold").fillColor("#FFFFFF")
+            .text(cat.toUpperCase(), L + 4, catY + 3, { width: pageWidth - 8 });
+          doc.y = catY + rRowH + 1;
         }
-        checkPageBreak(13);
-        doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
-          .text(r.metric, L + 8, doc.y, { width: 140, continued: true });
+        checkPageBreak(rRowH);
+        const rowY = doc.y;
+
+        // Metric name
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(r.metric, L + 2, rowY + 3, { width: rColMetric - 4 });
+        // Value
         const val = r.value !== null ? (r.value as number).toFixed(2) : "—";
-        doc.font("Helvetica-Bold").text(`  ${val}`, { continued: true, width: 60 });
+        doc.font("Helvetica-Bold").text(val, L + rColMetric + 2, rowY + 3,
+          { width: rColValue - 4, align: "right" });
+        // Assessment (colored)
+        const assess = r.assessment ?? "";
+        const assessColor = assess === "Strong" ? COLORS.green
+          : assess === "Adequate" ? COLORS.gray
+          : assess === "Weak" ? COLORS.red
+          : assess === "N/A" ? COLORS.lightGray
+          : COLORS.gray;
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(assessColor)
+          .text(assess, L + rColMetric + rColValue + 2, rowY + 3,
+            { width: rColAssess - 4, align: "center" });
+        // Interpretation
         if (r.interpretation) {
-          doc.font("Helvetica-Oblique").fillColor(COLORS.gray)
-            .text(`  ${r.interpretation}`, { width: pageWidth - 220 });
-        } else {
-          doc.text("");
+          doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+            .text(r.interpretation, L + rColMetric + rColValue + rColAssess + 2, rowY + 3,
+              { width: rColInterp - 4 });
         }
+
+        // Light rule
+        doc.moveTo(L, rowY + rRowH).lineTo(L + pageWidth, rowY + rRowH)
+          .strokeColor(COLORS.lineGray).lineWidth(0.15).stroke();
+        doc.y = rowY + rRowH;
       });
-      doc.moveDown(0.3);
+      doc.moveDown(0.4);
     }
 
     // ── REPAYMENT ABILITY ────────────────────────────────────────────────────
@@ -508,10 +540,10 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
         .text("Repayment Ability", L, doc.y);
       doc.moveDown(0.2);
       memo.financial_analysis.repayment_notes.forEach((n) => {
-        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
-          .text(`• ${n}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 1 });
+        doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${n}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 2 });
       });
-      doc.moveDown(0.3);
+      doc.moveDown(0.4);
     }
 
     // ── PROJECTION FEASIBILITY ───────────────────────────────────────────────
@@ -521,9 +553,9 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
         .text("Projection Feasibility", L, doc.y);
       doc.moveDown(0.2);
-      doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
-        .text(memo.financial_analysis.projection_feasibility, L, doc.y, { width: pageWidth, lineGap: 2 });
-      doc.moveDown(0.3);
+      doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
+        .text(memo.financial_analysis.projection_feasibility, L, doc.y, { width: pageWidth, lineGap: 2.5 });
+      doc.moveDown(0.4);
     }
 
     // ── BREAKEVEN ANALYSIS ───────────────────────────────────────────────────
@@ -551,6 +583,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
     const st = memo.stress_testing;
     if (st && st.scenarios.length) {
+      doc.addPage(); // Force new page before Stress Testing
       sectionHeader("Stress Testing");
       checkPageBreak(60);
 
@@ -560,14 +593,12 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       labelValue("Revenue Cushion", st.revenue_cushion_pct !== null ? fmtPct(st.revenue_cushion_pct) : "—");
       doc.moveDown(0.3);
 
-      // Scenario table
+      // Scenario table — wider scenario col to avoid wrapping
       const stCols: Array<{ label: string; fn: (r: StressScenarioRow) => string; w: number }> = [
-        { label: "Scenario",    fn: r => r.label,                              w: 100 },
-        { label: "Rev Cut",     fn: r => r.revenue_haircut_pct ? fmtPct(r.revenue_haircut_pct * 100) : "—", w: 55 },
-        { label: "EBITDA Cut",  fn: r => r.ebitda_haircut_pct ? fmtPct(r.ebitda_haircut_pct * 100) : "—",   w: 55 },
-        { label: "Rate +bps",   fn: r => r.rate_shock_bps ? `+${r.rate_shock_bps}` : "—",  w: 48 },
-        { label: "Str. DSCR",   fn: r => fmtRatio(r.stressed_dscr),            w: 55 },
-        { label: "Assessment",  fn: r => r.assessment,                          w: 80 },
+        { label: "Scenario",         fn: r => r.label,                              w: 200 },
+        { label: "Revenue Impact",   fn: r => r.revenue_haircut_pct ? fmtPct(r.revenue_haircut_pct * 100) : "—", w: 80 },
+        { label: "DSCR",             fn: r => fmtRatio(r.stressed_dscr),            w: 50 },
+        { label: "Assessment",       fn: r => r.assessment,                          w: 80 },
       ];
 
       const stHY = doc.y;
@@ -819,6 +850,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
     // ── RECOMMENDATION ────────────────────────────────────────────────────────
 
+    doc.addPage(); // Force new page before Recommendation
     sectionHeader("Recommendation / Approvals");
     const rec = memo.recommendation;
 
