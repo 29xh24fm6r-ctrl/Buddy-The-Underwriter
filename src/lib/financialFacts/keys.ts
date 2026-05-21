@@ -88,8 +88,17 @@ export type CanonicalFact = {
     // Balance sheet computed metrics
     | "WORKING_CAPITAL"
     | "CURRENT_RATIO"
-    | "DEBT_TO_EQUITY";
-  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
+    | "DEBT_TO_EQUITY"
+    // Stressed debt service
+    | "ANNUAL_DEBT_SERVICE_STRESSED_300BPS"
+    // AR / Borrowing base
+    | "AR_TOTAL"
+    | "AR_ELIGIBLE"
+    | "AR_INELIGIBLE"
+    | "AR_ADVANCE_RATE"
+    | "AR_BORROWING_BASE_VALUE"
+    | "AR_BORROWING_BASE_AVAILABILITY";
+  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT" | "AR_BORROWING_BASE";
   fact_key: string;
 };
 
@@ -298,6 +307,17 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
   WORKING_CAPITAL: { canonical_key: "WORKING_CAPITAL", fact_type: "BALANCE_SHEET", fact_key: "WORKING_CAPITAL" },
   CURRENT_RATIO: { canonical_key: "CURRENT_RATIO", fact_type: "BALANCE_SHEET", fact_key: "CURRENT_RATIO" },
   DEBT_TO_EQUITY: { canonical_key: "DEBT_TO_EQUITY", fact_type: "BALANCE_SHEET", fact_key: "DEBT_TO_EQUITY" },
+
+  // Stressed debt service (synthesis-computed)
+  ANNUAL_DEBT_SERVICE_STRESSED_300BPS: { canonical_key: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS", fact_type: "FINANCIAL_ANALYSIS", fact_key: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS" },
+
+  // AR / Borrowing base facts
+  AR_TOTAL: { canonical_key: "AR_TOTAL", fact_type: "AR_BORROWING_BASE", fact_key: "AR_TOTAL" },
+  AR_ELIGIBLE: { canonical_key: "AR_ELIGIBLE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_ELIGIBLE" },
+  AR_INELIGIBLE: { canonical_key: "AR_INELIGIBLE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_INELIGIBLE" },
+  AR_ADVANCE_RATE: { canonical_key: "AR_ADVANCE_RATE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_ADVANCE_RATE" },
+  AR_BORROWING_BASE_VALUE: { canonical_key: "AR_BORROWING_BASE_VALUE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_BORROWING_BASE_VALUE" },
+  AR_BORROWING_BASE_AVAILABILITY: { canonical_key: "AR_BORROWING_BASE_AVAILABILITY", fact_type: "AR_BORROWING_BASE", fact_key: "AR_BORROWING_BASE_AVAILABILITY" },
 };
 
 // ---------------------------------------------------------------------------

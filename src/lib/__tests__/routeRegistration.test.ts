@@ -45,3 +45,32 @@ test("builder verify and meta routes are registered", () => {
   assert.ok(fs.existsSync(underwriteDealPage));
   assert.ok(fs.existsSync(committeePage));
 });
+
+test("institutional underwriting routes are registered", () => {
+  const synthRunRoute = routePath("src/app/api/deals/[dealId]/underwriting-synthesis/run/route.ts");
+  const creditMemoGenRoute = routePath("src/app/api/deals/[dealId]/credit-memo/generate/route.ts");
+  const readinessRoute = routePath("src/app/api/deals/[dealId]/readiness/route.ts");
+  const documentsRoute = routePath("src/app/api/deals/[dealId]/documents/route.ts");
+  const loanRequestRoute = routePath("src/app/api/deals/[dealId]/loan-request/route.ts");
+
+  assert.ok(
+    fs.existsSync(synthRunRoute),
+    "underwriting-synthesis/run route must exist — this is the canonical synthesis entry point",
+  );
+  assert.ok(
+    fs.existsSync(creditMemoGenRoute),
+    "credit-memo/generate route must exist",
+  );
+  assert.ok(
+    fs.existsSync(readinessRoute),
+    "readiness route must exist",
+  );
+  assert.ok(
+    fs.existsSync(documentsRoute),
+    "documents route must exist",
+  );
+  assert.ok(
+    fs.existsSync(loanRequestRoute),
+    "loan-request route must exist",
+  );
+});

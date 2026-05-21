@@ -86,6 +86,26 @@ export type BalanceSheetRow = {
   liabilities_plus_equity: CanonicalMemoNumber;
 };
 
+// ── AR Borrowing Base (embedded in collateral section) ───────────────────
+
+export type ArAgingBucketRow = {
+  bucket: string;           // "Current", "1-30", "31-60", "61-90", "91+"
+  amount: CanonicalMemoNumber;
+  pct_of_total: CanonicalMemoNumber;
+};
+
+export type ArBorrowingBaseSection = {
+  as_of_date: string | null;
+  total_ar: CanonicalMemoNumber;
+  eligible_ar: CanonicalMemoNumber;
+  ineligible_ar: CanonicalMemoNumber;
+  advance_rate: CanonicalMemoNumber;
+  borrowing_base_value: CanonicalMemoNumber;
+  borrowing_base_availability: CanonicalMemoNumber;
+  aging_buckets: ArAgingBucketRow[];
+  collateral_coverage_narrative: string;
+};
+
 // ── Ratio Analysis Row ────────────────────────────────────────────────────
 export type RatioCategory =
   | "Liquidity"
@@ -300,6 +320,9 @@ export type CanonicalCreditMemoV1 = {
     life_insurance_required: boolean;
     life_insurance_amount: CanonicalMemoNumber;
     life_insurance_insured: string | null;
+
+    // AR / Borrowing Base (populated when collateral type is AR/LOC)
+    ar_borrowing_base: ArBorrowingBaseSection | null;
   };
 
   // ── BUSINESS & INDUSTRY ANALYSIS ─────────────────────────────────────────

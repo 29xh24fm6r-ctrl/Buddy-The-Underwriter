@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
-import type { DebtCoverageRow, IncomeStatementRow, GuarantorBudget } from "@/lib/creditMemo/canonical/types";
+import type { DebtCoverageRow, IncomeStatementRow, GuarantorBudget, ArBorrowingBaseSection, ArAgingBucketRow } from "@/lib/creditMemo/canonical/types";
 import {
   computeCollateralValues,
   computeDiscountedCoverageRatio,
@@ -196,8 +196,8 @@ export async function buildCanonicalCreditMemo(args: {
       buildCreditMemoBindings({ dealId: args.dealId, bankId }),
     ]);
 
-    // Phase 1C/1G/3: Load loan request, pricing quote, document checklist, research, pricing decision in parallel
-    const [loanReqResult, pricingQuoteResult, checklistResult, researchData, pricingDecisionResult] = await Promise.all([
+    // Phase 1C/1G/3: Load loan request, pricing quote, document checklist, research, pricing decision, AR aging in parallel
+    const [loanReqResult, pricingQuoteResult, checklistResult, researchData, pricingDecisionResult, arAgingResult, arBorrowingBaseResult] = await Promise.all([
       (sb as any)
         .from("deal_loan_requests")
         .select("*")
@@ -224,6 +224,24 @@ export async function buildCanonicalCreditMemo(args: {
         .select("*, pricing_scenarios(*), pricing_terms(*)")
         .eq("deal_id", args.dealId)
         .eq("bank_id", bankId)
+        .maybeSingle(),
+      // AR aging report — latest for this deal
+      (sb as any)
+        .from("ar_aging_reports")
+        .select("id, as_of_date, total_ar, current_amount, days_30, days_60, days_90, days_120, extraction_status")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      // Borrowing base calculation — latest
+      (sb as any)
+        .from("borrowing_base_calculations")
+        .select("gross_ar, eligible_ar, ineligible_ar, advance_rate, net_availability")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle(),
     ]);
 
@@ -1208,6 +1226,8 @@ export async function buildCanonicalCreditMemo(args: {
         life_insurance_required: lifeInsuranceRequired,
         life_insurance_amount: lifeInsuranceAmount,
         life_insurance_insured: ownerEntities[0]?.display_name ?? null,
+
+        ar_borrowing_base: buildArBorrowingBaseFromResults(arAgingResult, arBorrowingBaseResult),
       },
 
       business_summary: {
@@ -1430,4 +1450,70 @@ export async function buildCanonicalCreditMemo(args: {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
   }
+}
+
+// ── AR Borrowing Base builder ─────────────────────────────────────────
+
+function buildArBorrowingBaseFromResults(
+  arAgingResult: { data: any; error?: any },
+  arBorrowingBaseResult: { data: any; error?: any },
+): ArBorrowingBaseSection | null {
+  const ar = arAgingResult?.data;
+  const bb = arBorrowingBaseResult?.data;
+  if (!ar && !bb) return null;
+
+  const totalAr = bb?.gross_ar != null ? Number(bb.gross_ar) : (ar?.total_ar != null ? Number(ar.total_ar) : null);
+  const eligibleAr = bb?.eligible_ar != null ? Number(bb.eligible_ar) : null;
+  const ineligibleAr = bb?.ineligible_ar != null ? Number(bb.ineligible_ar) : null;
+  const advanceRate = bb?.advance_rate != null ? Number(bb.advance_rate) : null;
+  const netAvailability = bb?.net_availability != null ? Number(bb.net_availability) : null;
+
+  // Compute borrowing base value from eligible * advance_rate
+  const bbValue = eligibleAr != null && advanceRate != null && advanceRate > 0
+    ? eligibleAr * advanceRate
+    : null;
+
+  // Build aging buckets from the ar_aging_reports row
+  const agingBuckets: ArAgingBucketRow[] = [];
+  if (ar) {
+    const buckets: Array<{ bucket: string; field: string }> = [
+      { bucket: "Current", field: "current_amount" },
+      { bucket: "1-30", field: "days_30" },
+      { bucket: "31-60", field: "days_60" },
+      { bucket: "61-90", field: "days_90" },
+      { bucket: "91+", field: "days_120" },
+    ];
+    for (const { bucket, field } of buckets) {
+      const amount = ar[field] != null ? Number(ar[field]) : null;
+      agingBuckets.push({
+        bucket,
+        amount,
+        pct_of_total: amount != null && totalAr != null && totalAr > 0
+          ? Math.round((amount / totalAr) * 10000) / 100
+          : null,
+      });
+    }
+  }
+
+  // Build narrative
+  const parts: string[] = [];
+  if (totalAr != null) parts.push(`Total AR: $${totalAr.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
+  if (eligibleAr != null) parts.push(`Eligible AR: $${eligibleAr.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
+  if (advanceRate != null) parts.push(`Advance rate: ${(advanceRate * 100).toFixed(0)}%`);
+  if (bbValue != null) parts.push(`Borrowing base value: $${bbValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
+  if (netAvailability != null) parts.push(`Net availability: $${netAvailability.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
+
+  return {
+    as_of_date: ar?.as_of_date ?? null,
+    total_ar: totalAr,
+    eligible_ar: eligibleAr,
+    ineligible_ar: ineligibleAr,
+    advance_rate: advanceRate,
+    borrowing_base_value: bbValue,
+    borrowing_base_availability: netAvailability,
+    aging_buckets: agingBuckets,
+    collateral_coverage_narrative: parts.length > 0
+      ? parts.join(". ") + "."
+      : "AR borrowing base data not available.",
+  };
 }

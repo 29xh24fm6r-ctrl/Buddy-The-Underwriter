@@ -243,7 +243,7 @@ export default async function CanonicalCreditMemoPage(props: {
             and pre-submission checklist. */}
         <BankerReviewPanel dealId={dealId} memo={res.memo} />
 
-        <CanonicalMemoTemplate memo={res.memo} />
+        <CanonicalMemoTemplate memo={res.memo} renderingSource={{ type: "live" }} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
 

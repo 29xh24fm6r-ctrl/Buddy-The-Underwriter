@@ -745,15 +745,30 @@ function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
 export default function CanonicalMemoTemplate({
   memo,
   trace,
+  renderingSource,
 }: {
   memo: CanonicalCreditMemoV1;
   /** Phase 82: research_trace_json (optionally merged with section inference stats) */
   trace?: ResearchTrace | null;
+  /** Rendering source badge — "live" or snapshot info */
+  renderingSource?: { type: "live" } | { type: "frozen"; memoVersion: number } | null;
 }) {
   const km = memo.key_metrics;
 
   return (
     <div className="text-gray-900 font-sans max-w-[900px] mx-auto bg-white">
+
+      {/* ── RENDERING SOURCE BADGE ── */}
+      {renderingSource && (
+        <div className="mb-2 flex items-center gap-2 text-[10px] text-gray-400 font-mono print:hidden">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: renderingSource.type === "live" ? "#6366f1" : "#059669" }} />
+          {renderingSource.type === "live"
+            ? "Rendering source: live canonical builder"
+            : `Rendering source: frozen submitted snapshot v${renderingSource.memoVersion}`}
+          <span className="text-gray-300">|</span>
+          <span>Schema: florida_armory_v1</span>
+        </div>
+      )}
 
       {/* ── Phase 81: COMMITTEE CERTIFICATION BANNER ── */}
       {memo.certification && (
@@ -996,6 +1011,56 @@ export default function CanonicalMemoTemplate({
           <span className="font-semibold">Life Insurance Required:</span>{" "}
           {memo.collateral.life_insurance_amount !== null ? fmt$(memo.collateral.life_insurance_amount) : "Required"} on{" "}
           {memo.collateral.life_insurance_insured ?? "principal guarantor"}
+        </div>
+      )}
+
+      {/* ── AR / BORROWING BASE ── */}
+      {memo.collateral.ar_borrowing_base && (
+        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-800 mb-2">
+            AR Borrowing Base Analysis
+            {memo.collateral.ar_borrowing_base.as_of_date && (
+              <span className="ml-2 font-normal text-blue-600">
+                as of {memo.collateral.ar_borrowing_base.as_of_date}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+            <div><span className="text-gray-500">Total AR:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.total_ar)}</span></div>
+            <div><span className="text-gray-500">Eligible AR:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.eligible_ar)}</span></div>
+            <div><span className="text-gray-500">Ineligible AR:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.ineligible_ar)}</span></div>
+            <div><span className="text-gray-500">Advance Rate:</span> <span className="font-medium">{memo.collateral.ar_borrowing_base.advance_rate !== null ? `${(memo.collateral.ar_borrowing_base.advance_rate * 100).toFixed(0)}%` : "—"}</span></div>
+            <div><span className="text-gray-500">Borrowing Base Value:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.borrowing_base_value)}</span></div>
+            <div><span className="text-gray-500">Net Availability:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.borrowing_base_availability)}</span></div>
+          </div>
+
+          {memo.collateral.ar_borrowing_base.aging_buckets.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr className="bg-blue-100">
+                    <th className="border border-blue-200 px-2 py-1 text-left font-semibold">Aging Bucket</th>
+                    <th className="border border-blue-200 px-2 py-1 text-right font-semibold">Amount</th>
+                    <th className="border border-blue-200 px-2 py-1 text-right font-semibold">% of Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {memo.collateral.ar_borrowing_base.aging_buckets.map((b, i) => (
+                    <tr key={`ar-${i}`} className={i % 2 === 0 ? "bg-white" : "bg-blue-50/50"}>
+                      <td className="border border-blue-200 px-2 py-1">{b.bucket}</td>
+                      <td className="border border-blue-200 px-2 py-1 text-right">{fmt$(b.amount)}</td>
+                      <td className="border border-blue-200 px-2 py-1 text-right">{b.pct_of_total !== null ? `${b.pct_of_total.toFixed(1)}%` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-2 text-xs text-gray-700">
+            {memo.collateral.ar_borrowing_base.collateral_coverage_narrative}
+          </div>
         </div>
       )}
 

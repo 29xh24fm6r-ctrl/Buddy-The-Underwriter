@@ -15,7 +15,8 @@ export type MemoInputBlockerCode =
   | "missing_dscr"
   | "missing_global_cash_flow"
   | "missing_policy_exception_review"
-  | "missing_debt_service_facts";
+  | "missing_debt_service_facts"
+  | "missing_ar_borrowing_base";
 
 export type MemoInputWarningCode =
   | "low_research_quality"
@@ -171,6 +172,10 @@ export type EvaluateMemoInputReadinessArgs = {
   unfinalizedDocCount?: number;
   policyExceptionsReviewed?: boolean;
   now?: Date;
+  /** When true, AR borrowing base facts are required for readiness. */
+  isArLocDeal?: boolean;
+  /** Whether AR borrowing base facts exist. */
+  hasArBorrowingBase?: boolean;
 };
 
 // ── Memo Input Package — assembled before snapshot freeze ────────────────────

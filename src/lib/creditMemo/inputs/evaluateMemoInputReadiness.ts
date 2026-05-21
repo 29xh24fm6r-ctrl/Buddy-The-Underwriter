@@ -43,6 +43,7 @@ const BLOCKER_WEIGHTS: Record<MemoInputBlockerCode, number> = {
   open_fact_conflicts: 6,
   unfinalized_required_documents: 4,
   missing_policy_exception_review: 2,
+  missing_ar_borrowing_base: 8,
 };
 
 export function evaluateMemoInputReadiness(
@@ -139,6 +140,16 @@ export function evaluateMemoInputReadiness(
       code: "collateral_requires_review",
       label: "Some collateral items require banker review (low extraction confidence)",
       fixPath: `/deals/${dealId}/memo-inputs#collateral`,
+    });
+  }
+
+  // ── 3b. AR Borrowing Base (conditional on collateral type) ─────────
+  if (args.isArLocDeal && !args.hasArBorrowingBase) {
+    blockers.push({
+      code: "missing_ar_borrowing_base",
+      label: "AR borrowing base analysis is required for AR/LOC collateral type",
+      owner: "buddy",
+      fixPath: `/deals/${dealId}/underwriting-synthesis`,
     });
   }
 

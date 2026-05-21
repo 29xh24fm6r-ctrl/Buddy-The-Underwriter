@@ -20,6 +20,7 @@ import ExportCanonicalMemoPdfButton from "@/components/creditMemo/ExportCanonica
 import GenerateNarrativesButton from "@/components/creditMemo/GenerateNarrativesButton";
 import RunResearchButton from "@/components/creditMemo/RunResearchButton";
 import RegenerateMemoButton from "@/components/creditMemo/RegenerateMemoButton";
+import RunSynthesisButton from "@/components/creditMemo/RunSynthesisButton";
 import BankerReviewPanel from "@/components/creditMemo/BankerReviewPanel";
 import BlockedMemoRecoveryPanel from "@/components/creditMemo/BlockedMemoRecoveryPanel";
 import CommitteeAnticipationPanel from "@/components/creditMemo/CommitteeAnticipationPanel";
@@ -189,6 +190,7 @@ export default async function DealCreditMemoPage(props: {
             <p className="text-sm font-medium text-rose-800">Unable to build memo</p>
             <p className="mt-1 text-sm text-rose-700">{res.error}</p>
             <div className="mt-3 flex items-center gap-2">
+              <RunSynthesisButton dealId={dealId} />
               <RunResearchButton dealId={dealId} />
               <GenerateNarrativesButton dealId={dealId} />
             </div>
@@ -213,6 +215,7 @@ export default async function DealCreditMemoPage(props: {
             >
               Print View
             </Link>
+            <RunSynthesisButton dealId={dealId} />
             <RunResearchButton dealId={dealId} />
             <GenerateNarrativesButton dealId={dealId} />
             {/* Regenerates full memo data (picks up new spreads/facts) */}
@@ -251,7 +254,7 @@ export default async function DealCreditMemoPage(props: {
 
         <BankerReviewPanel dealId={dealId} memo={res.memo} />
 
-        <CanonicalMemoTemplate memo={res.memo} />
+        <CanonicalMemoTemplate memo={res.memo} renderingSource={{ type: "live" }} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
 
