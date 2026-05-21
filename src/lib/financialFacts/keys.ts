@@ -91,6 +91,11 @@ export type CanonicalFact = {
     | "DEBT_TO_EQUITY"
     // Stressed debt service
     | "ANNUAL_DEBT_SERVICE_STRESSED_300BPS"
+    // Canonical-named collateral keys (written alongside legacy aliases)
+    | "COLLATERAL_COVERAGE_RATIO"
+    // Canonical-named sources/uses keys (written alongside legacy aliases)
+    | "EQUITY_INJECTION"
+    | "EQUITY_INJECTION_PCT"
     // AR / Borrowing base
     | "AR_TOTAL"
     | "AR_ELIGIBLE"
@@ -310,6 +315,12 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
 
   // Stressed debt service (synthesis-computed)
   ANNUAL_DEBT_SERVICE_STRESSED_300BPS: { canonical_key: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS", fact_type: "FINANCIAL_ANALYSIS", fact_key: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS" },
+
+  // Canonical-named collateral/sources keys — written alongside legacy aliases
+  // so both GROSS_VALUE and COLLATERAL_GROSS_VALUE exist in DB.
+  COLLATERAL_COVERAGE_RATIO: { canonical_key: "COLLATERAL_COVERAGE_RATIO", fact_type: "COLLATERAL", fact_key: "COLLATERAL_COVERAGE_RATIO" },
+  EQUITY_INJECTION: { canonical_key: "EQUITY_INJECTION", fact_type: "SOURCES_USES", fact_key: "EQUITY_INJECTION" },
+  EQUITY_INJECTION_PCT: { canonical_key: "EQUITY_INJECTION_PCT", fact_type: "SOURCES_USES", fact_key: "EQUITY_INJECTION_PCT" },
 
   // AR / Borrowing base facts
   AR_TOTAL: { canonical_key: "AR_TOTAL", fact_type: "AR_BORROWING_BASE", fact_key: "AR_TOTAL" },

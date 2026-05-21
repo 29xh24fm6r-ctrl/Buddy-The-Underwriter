@@ -71,6 +71,23 @@ const AR_FACT_MAP: Record<string, { factType: string; factKey: string }> = {
   AR_BORROWING_BASE_AVAILABILITY: { factType: CANONICAL_FACTS.AR_BORROWING_BASE_AVAILABILITY.fact_type, factKey: CANONICAL_FACTS.AR_BORROWING_BASE_AVAILABILITY.fact_key },
 };
 
+// ── Canonical-named alias writes ─────────────────────────────────────
+// After writing legacy keys (GROSS_VALUE, BORROWER_EQUITY, etc.), also
+// write canonical-named keys so both exist in deal_financial_facts.
+// Maps: computePure canonical key → { factType, factKey } for the
+// canonical-named version that must also exist in DB.
+const CANONICAL_ALIAS_WRITES: Record<string, { factType: string; factKey: string }> = {
+  // Collateral: computePure emits COLLATERAL_GROSS_VALUE → written as GROSS_VALUE;
+  // also write as COLLATERAL_GROSS_VALUE
+  COLLATERAL_GROSS_VALUE: { factType: "COLLATERAL", factKey: "COLLATERAL_GROSS_VALUE" },
+  COLLATERAL_NET_VALUE: { factType: "COLLATERAL", factKey: "COLLATERAL_NET_VALUE" },
+  COLLATERAL_DISCOUNTED_VALUE: { factType: "COLLATERAL", factKey: "COLLATERAL_DISCOUNTED_VALUE" },
+  COLLATERAL_DISCOUNTED_COVERAGE: { factType: "COLLATERAL", factKey: "COLLATERAL_COVERAGE_RATIO" },
+  // Sources/Uses: BORROWER_EQUITY → also EQUITY_INJECTION
+  BORROWER_EQUITY: { factType: "SOURCES_USES", factKey: "EQUITY_INJECTION" },
+  BORROWER_EQUITY_PCT: { factType: "SOURCES_USES", factKey: "EQUITY_INJECTION_PCT" },
+};
+
 // Financial analysis facts have fact_key === canonical_key, all FINANCIAL_ANALYSIS type
 const FA_FACT_TYPE = "FINANCIAL_ANALYSIS";
 
@@ -395,6 +412,40 @@ export async function runCanonicalUnderwritingSynthesis(
         ownerEntityId: SENTINEL_UUID,
       });
       if (res.ok) writtenFacts.push(canonicalKey);
+    }
+
+    // ── 4b. Write canonical-named aliases for collateral + sources/uses ─
+    // Both legacy keys (GROSS_VALUE, BORROWER_EQUITY) and canonical keys
+    // (COLLATERAL_GROSS_VALUE, EQUITY_INJECTION) must exist as DB rows.
+    const allComputedFacts: Record<string, number> = {
+      ...suResult.facts,
+      ...colResult.facts,
+    };
+    for (const [computedKey, value] of Object.entries(allComputedFacts)) {
+      const alias = CANONICAL_ALIAS_WRITES[computedKey];
+      if (!alias) continue;
+      if (isRejected(alias.factType, alias.factKey)) continue;
+      await supersedePriorFacts(sb, dealId, bankId, alias.factType, alias.factKey);
+      const res = await upsertDealFinancialFact({
+        dealId,
+        bankId,
+        sourceDocumentId: SENTINEL_UUID,
+        factType: alias.factType,
+        factKey: alias.factKey,
+        factValueNum: value,
+        confidence: 0.95,
+        factPeriodEnd: asOfDate,
+        provenance: {
+          source_type: "STRUCTURAL",
+          source_ref: `synthesis:canonical_alias:${dealId}`,
+          as_of_date: asOfDate,
+          extractor: "underwritingSynthesis:v2",
+          calc: `canonical alias of ${computedKey} = ${value}`,
+        },
+        ownerType: "DEAL",
+        ownerEntityId: SENTINEL_UUID,
+      });
+      if (res.ok) writtenFacts.push(alias.factKey);
     }
 
     // ── 5. Materialize AR / borrowing base facts ────────────────────

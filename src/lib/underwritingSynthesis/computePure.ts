@@ -245,3 +245,29 @@ export function computeFinancialAnalysisFacts(input: {
 
   return { facts, missing };
 }
+
+// ── Canonical key search order (pure — no server-only) ─────────────────
+
+/**
+ * Maps canonical-named keys to their legacy alias DB fact_keys.
+ * Canonical key is always first in the returned array.
+ */
+const CANONICAL_TO_LEGACY: Record<string, string> = {
+  COLLATERAL_GROSS_VALUE: "GROSS_VALUE",
+  COLLATERAL_NET_VALUE: "NET_VALUE",
+  COLLATERAL_DISCOUNTED_VALUE: "DISCOUNTED_VALUE",
+  COLLATERAL_COVERAGE_RATIO: "DISCOUNTED_COVERAGE",
+  EQUITY_INJECTION: "BORROWER_EQUITY",
+  EQUITY_INJECTION_PCT: "BORROWER_EQUITY_PCT",
+};
+
+/**
+ * Returns DB fact_keys to search — canonical first, then legacy alias.
+ * Use in memo builders for canonical-first fallback lookup.
+ */
+export function factKeySearchOrder(canonicalKey: string): string[] {
+  const keys: string[] = [canonicalKey];
+  const legacy = CANONICAL_TO_LEGACY[canonicalKey];
+  if (legacy && legacy !== canonicalKey) keys.push(legacy);
+  return keys;
+}
