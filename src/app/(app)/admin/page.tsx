@@ -138,6 +138,15 @@ export default async function AdminHome() {
           actionLabel="View Intake Metrics"
         />
 
+        <GlassActionCard
+          icon="dashboard"
+          iconColor="text-rose-400"
+          title="Owner Command Center"
+          description="Brokerage operational surface — pipeline, bottlenecks, team workload."
+          href="/admin/brokerage-owner"
+          actionLabel="Open Command Center"
+        />
+
       </div>
     </GlassShell>
   );
