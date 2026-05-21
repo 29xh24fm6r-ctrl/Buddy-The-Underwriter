@@ -825,4 +825,61 @@ describe("CANONICAL KEY NORMALIZATION — dual-key writes", () => {
     assert.equal(required.length, 6);
     assert.equal(triggerKeys.length, 6);
   });
+
+  it("canonical key wins over legacy alias when both present", () => {
+    // Simulates the factMetricWithFallback pattern used in
+    // getCanonicalMemoStatusForDeals: try canonical first, then legacy.
+    // When both keys have values, canonical must win.
+    type FakeFactStore = Map<string, number>;
+
+    function factMetricWithFallback(store: FakeFactStore, ...keys: string[]): number | null {
+      for (const fk of keys) {
+        const v = store.get(fk);
+        if (v !== undefined) return v;
+      }
+      return null;
+    }
+
+    const store: FakeFactStore = new Map([
+      ["COLLATERAL_GROSS_VALUE", 3007506.78],  // canonical
+      ["GROSS_VALUE", 1250000],                  // stale legacy
+    ]);
+
+    const result = factMetricWithFallback(store, "COLLATERAL_GROSS_VALUE", "GROSS_VALUE");
+    assert.equal(result, 3007506.78, "Canonical key must win over legacy alias");
+
+    // When only legacy exists, it still resolves
+    const legacyOnly: FakeFactStore = new Map([
+      ["GROSS_VALUE", 1250000],
+    ]);
+    const legacyResult = factMetricWithFallback(legacyOnly, "COLLATERAL_GROSS_VALUE", "GROSS_VALUE");
+    assert.equal(legacyResult, 1250000, "Legacy alias must serve as fallback");
+
+    // When neither exists, returns null
+    const empty: FakeFactStore = new Map();
+    const emptyResult = factMetricWithFallback(empty, "COLLATERAL_GROSS_VALUE", "GROSS_VALUE");
+    assert.equal(emptyResult, null, "Missing both keys returns null");
+  });
+
+  it("equity canonical key wins over legacy BORROWER_EQUITY", () => {
+    type FakeFactStore = Map<string, number>;
+    function factMetricWithFallback(store: FakeFactStore, ...keys: string[]): number | null {
+      for (const fk of keys) {
+        const v = store.get(fk);
+        if (v !== undefined) return v;
+      }
+      return null;
+    }
+
+    const store: FakeFactStore = new Map([
+      ["EQUITY_INJECTION", 500000],
+      ["BORROWER_EQUITY", 0],  // stale
+    ]);
+
+    assert.equal(
+      factMetricWithFallback(store, "EQUITY_INJECTION", "BORROWER_EQUITY"),
+      500000,
+      "EQUITY_INJECTION must win over BORROWER_EQUITY",
+    );
+  });
 });
