@@ -12,6 +12,7 @@ import {
   hasAnyCanonicalField,
   hasAnyUIStateField,
 } from "@/lib/creditMemo/inputs/routePartition";
+import { buildRequiredItems } from "@/lib/creditMemo/review/bankerReviewReadiness";
 
 type Props = {
   dealId: string;
@@ -288,24 +289,8 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
     );
   };
 
-  // ── Checklist tab ─────────────────────────────────────────────────────
-  const dscrOk = memo.financial_analysis.dscr.value !== null;
-  const loanOk = memo.key_metrics.loan_amount.value !== null && memo.key_metrics.loan_amount.value > 0;
-  const collatOk = memo.collateral.gross_value.value !== null && memo.collateral.gross_value.value > 0;
-  const bizDescOk = typeof overrides.business_description === "string"
-    && (overrides.business_description as string).trim().length >= 20;
-  const principalIds = memo.management_qualifications.principals.map((p) => p.id);
-  const anyMgmtBioOk = principalIds.some((pid) => {
-    const v = overrides[`principal_bio_${pid}`];
-    return typeof v === "string" && (v as string).trim().length >= 20;
-  });
-  const requiredItems = [
-    { id: "dscr",     ok: dscrOk,        label: "DSCR computed" },
-    { id: "loan",     ok: loanOk,        label: "Loan amount entered" },
-    { id: "collat",   ok: collatOk,      label: "Collateral value entered" },
-    { id: "bizdesc",  ok: bizDescOk,     label: "Business description filled (≥ 20 chars)" },
-    { id: "mgmtbio",  ok: anyMgmtBioOk,  label: "At least one management bio filled" },
-  ];
+  // ── Checklist tab — canonical-first required checks ─────────────────
+  const requiredItems = buildRequiredItems(memo, overrides as Record<string, unknown>);
   const requiredDoneCount = requiredItems.filter((r) => r.ok).length;
   const requiredTotal = requiredItems.length;
   const allRequiredDone = requiredDoneCount === requiredTotal;
@@ -446,6 +431,12 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
           {/* ── Tab 1: Business Profile ───────────────────────────── */}
           {loaded && activeTab === "profile" && (
             <div>
+              {/* Canonical data banner */}
+              {allRequiredDone && (
+                <div className="mb-3 text-[11px] text-sky-700 bg-sky-50 border border-sky-200 rounded px-2 py-1.5">
+                  Canonical memo data is already populated from borrower story, management profiles, and collateral records. Override fields below are optional edits.
+                </div>
+              )}
               <div className="text-[11px] text-gray-500 mb-3">
                 Auto-saves 800ms after you stop typing.{" "}
                 {savingTab === "profile" && <span className="text-sky-600">Saving…</span>}
