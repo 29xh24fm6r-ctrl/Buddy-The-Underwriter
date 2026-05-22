@@ -250,14 +250,17 @@ function scoreConditions(args: {
 
 function scoreManagement(args: {
   ownerEntities: any[];
+  managementProfiles?: any[];
   research: CanonicalCreditMemoV1["business_industry_analysis"];
   overrides: Record<string, any>;
 }): QualitativeDimension {
-  const { ownerEntities, research, overrides } = args;
+  const { ownerEntities, managementProfiles, research, overrides } = args;
   const flags: string[] = [];
 
-  const principalCount = ownerEntities.length;
-  const yearsRaw = ownerEntities
+  // Prefer deal_management_profiles (real person data) over ownership_entities
+  const profileSource = managementProfiles && managementProfiles.length > 0 ? managementProfiles : ownerEntities;
+  const principalCount = profileSource.length;
+  const yearsRaw = profileSource
     .map((o) => Number(o?.years_experience ?? o?.experience_years ?? 0))
     .filter((n) => Number.isFinite(n) && n > 0);
   const totalYears = yearsRaw.reduce((sum, y) => sum + y, 0);
@@ -283,7 +286,7 @@ function scoreManagement(args: {
         : "Banker-documented strong management track record.";
   } else if (avgYears >= 5 || principalCount >= 2) {
     score = 4;
-    basis = `Owner-operator(s) with relevant experience (${principalCount} entity${principalCount !== 1 ? "ies" : ""}, avg ${avgYears.toFixed(0)} years).`;
+    basis = `Owner-operator(s) with relevant experience (${principalCount} principal${principalCount !== 1 ? "s" : ""}, avg ${avgYears.toFixed(0)} years).`;
   } else if (bankerFlaggedWeak || avgYears > 0) {
     score = 3;
     basis = "Single owner-operator with limited documented experience.";
@@ -362,6 +365,7 @@ function scoreBusinessModel(args: {
 export function buildQualitativeAssessment(args: {
   snapshot: DealFinancialSnapshotV1;
   ownerEntities: any[];
+  managementProfiles?: any[];
   research: CanonicalCreditMemoV1["business_industry_analysis"];
   overrides: Record<string, any>;
   loanAmount: number | null;
@@ -372,6 +376,7 @@ export function buildQualitativeAssessment(args: {
   const conditions = scoreConditions({ research: args.research });
   const management = scoreManagement({
     ownerEntities: args.ownerEntities,
+    managementProfiles: args.managementProfiles,
     research: args.research,
     overrides: args.overrides,
   });

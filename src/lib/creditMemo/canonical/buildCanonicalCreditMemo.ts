@@ -604,15 +604,32 @@ export async function buildCanonicalCreditMemo(args: {
       const res = rule.predicate({ missingKeys: missingDocKeys, product: condProduct, isSba: condIsSba, hasRealEstateCollateral: condIsCre });
       if (res.open) conditionsPrecedent.push(rule.title);
     }
-    const conditionsOngoing = [
-      "Annual audited/reviewed financial statements within 120 days of fiscal year-end",
-      "Annual personal financial statement from all guarantors",
-      "Maintain adequate property and liability insurance with Lender as additional insured/mortgagee",
-      "Annual property tax and insurance escrow compliance",
-      "Annual rent roll (if applicable to collateral type)",
-      "No change of ownership or management without prior written consent",
-      "Compliance with all environmental laws and regulations",
-    ];
+    // ACTIVATION Fix #9: AR LOC-specific conditions vs CRE boilerplate
+    const rawProduct = loanReq?.product_type ?? "";
+    const isArLoc = condProduct === "LOC" || rawProduct === "LOC_SECURED" || rawProduct === "LINE_OF_CREDIT" || rawProduct === "LOC";
+    const conditionsOngoing = isArLoc
+      ? [
+          "Monthly borrowing base certificate within 15 days of month-end",
+          "Monthly accounts receivable aging report",
+          "No advances against receivables aged 90+ days",
+          "Customer concentration monitoring (no single debtor > 25% of eligible AR without approval)",
+          "First-priority blanket UCC lien on all accounts receivable",
+          "Quarterly financial statements within 45 days of quarter-end",
+          "Annual audited/reviewed financial statements within 120 days of fiscal year-end",
+          "Annual personal financial statement from all guarantors",
+          "Annual tax returns within 30 days of filing",
+          "No change of ownership or management without prior written consent",
+          "Maintain adequate property and liability insurance with Lender as additional insured",
+        ]
+      : [
+          "Annual audited/reviewed financial statements within 120 days of fiscal year-end",
+          "Annual personal financial statement from all guarantors",
+          "Maintain adequate property and liability insurance with Lender as additional insured/mortgagee",
+          "Annual property tax and insurance escrow compliance",
+          "Annual rent roll (if applicable to collateral type)",
+          "No change of ownership or management without prior written consent",
+          "Compliance with all environmental laws and regulations",
+        ];
 
     // Insurance conditions
     const insuranceConditions = [
@@ -1002,6 +1019,27 @@ export async function buildCanonicalCreditMemo(args: {
       console.warn("[buildCanonicalCreditMemo] buildStressTestTable failed:", err);
     }
 
+    // ACTIVATION Fix #8: Enrich risk factors from stress table results
+    if (stressTable) {
+      // Remove any stale "Stress results missing" entry
+      const staleIdx = riskFactors.findIndex((r) => /stress.*missing/i.test(r.risk));
+      if (staleIdx >= 0) riskFactors.splice(staleIdx, 1);
+
+      // Add stress-test-based risk factor if any scenario breaches
+      if (stressTable.scenarios && Array.isArray(stressTable.scenarios)) {
+        const worstDscrStress = Math.min(
+          ...(stressTable.scenarios as any[]).filter((s: any) => s.dscr !== null && Number.isFinite(s.dscr)).map((s: any) => s.dscr),
+        );
+        if (Number.isFinite(worstDscrStress) && worstDscrStress < 1.0) {
+          riskFactors.push({
+            risk: `Stress scenario breach — worst-case DSCR ${worstDscrStress.toFixed(2)}x under combined adverse conditions`,
+            severity: "high",
+            mitigants: ["Require additional collateral, reserves, or rate cap"],
+          });
+        }
+      }
+    }
+
     // ===== Phase 91 Part A: Build DealContext for deal-specific ratio interpretations.
     // Every field is optional — buildRatioAnalysisSuite falls back to generic
     // phrasing for any null value, so partial context still produces sensible output.
@@ -1051,6 +1089,7 @@ export async function buildCanonicalCreditMemo(args: {
       qualitativeAssessment = buildQualitativeAssessment({
         snapshot,
         ownerEntities,
+        managementProfiles: mgmtProfiles,
         research: researchData,
         overrides,
         loanAmount: loanAmount.value,
@@ -1096,6 +1135,54 @@ export async function buildCanonicalCreditMemo(args: {
       }
     }
 
+    // ===== ACTIVATION Fix #7: Generate strengths/weaknesses from financial signals =====
+    // Thin gross margin
+    const grossMarginForSW = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "GP" }).value;
+    if (grossMarginForSW !== null && revenueForStress !== null && revenueForStress > 0) {
+      const gm = grossMarginForSW / revenueForStress;
+      if (gm < 0.20) {
+        weaknesses.push({ point: `Thin gross margin (${(gm * 100).toFixed(1)}%) — limited pricing power`, mitigant: "Monitor direct cost trends quarterly" });
+      }
+    }
+    // AR collateral monitoring
+    if (arAgingResult?.data && isLOC) {
+      weaknesses.push({ point: "AR borrowing base requires ongoing monitoring (monthly aging, concentration limits)", mitigant: "Monthly borrowing base certificate and aging report covenanted" });
+    }
+    // Strong DSCR as strength (beyond 1.25)
+    if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0) {
+      strengths.push({ point: `Strong debt service coverage (${financial.dscrGlobal.value.toFixed(2)}x) provides deep repayment cushion`, detail: null });
+    }
+    // Management experience as strength
+    if (mgmtProfiles.length > 0) {
+      const maxExp = Math.max(...mgmtProfiles.map((p: any) => Number(p.years_experience ?? 0)));
+      if (maxExp >= 10) {
+        strengths.push({ point: `Experienced management (${maxExp} years in industry)`, detail: mgmtProfiles[0]?.person_name ?? null });
+      }
+    }
+    // Stress test results as strength/weakness
+    if (stressTable) {
+      const worstScenarioDscr = stressTable.scenarios
+        ? Math.min(...(stressTable.scenarios as any[]).filter((s: any) => s.dscr !== null).map((s: any) => s.dscr))
+        : null;
+      if (worstScenarioDscr !== null && Number.isFinite(worstScenarioDscr)) {
+        if (worstScenarioDscr >= 1.25) {
+          strengths.push({ point: `Stress testing passed — worst-case DSCR ${worstScenarioDscr.toFixed(2)}x exceeds policy floor`, detail: null });
+        } else if (worstScenarioDscr < 1.0) {
+          weaknesses.push({ point: `Stress scenario breaches coverage (worst-case DSCR ${worstScenarioDscr.toFixed(2)}x)`, mitigant: "Consider rate cap or additional reserves" });
+        }
+      }
+    }
+    // Banker context strengths (if available)
+    if (borrowerStory?.banker_notes) {
+      const notes = String(borrowerStory.banker_notes).toLowerCase();
+      if (/no debt|debt.?free|zero.*debt/.test(notes)) {
+        strengths.push({ point: "Borrower has no existing debt obligations", detail: "Per banker notes" });
+      }
+      if (/long.*relat|relationship.*\d+\s*year/.test(notes)) {
+        strengths.push({ point: "Established banking relationship", detail: "Per banker notes" });
+      }
+    }
+
     // ===== Phase 33: Build eligibility =====
     // P0a: prefer deals.product_type via shared helper. Loan request product_type
     // is also honored as a secondary signal (legacy callers pass it on the loan
@@ -1122,47 +1209,90 @@ export async function buildCanonicalCreditMemo(args: {
     };
 
     // ===== ACTIVATION: Build management qualifications =====
-    // Source priority: deal_management_profiles > principal_bio_* overrides > qualitative facts > ownership_entities > Pending
+    // Strategy: Build principals from deal_management_profiles FIRST (real person data),
+    // then add person-like ownership_entities not already covered.
+    // Entity-level rows (company names like "OmniCare 365", "Borrower") are excluded
+    // unless they have a matching management profile.
     const mgmtBackground = qualByKey.get("MANAGEMENT_BACKGROUND") ?? null;
     const mgmtExpYears = qualByKey.get("MANAGEMENT_EXPERIENCE_YEARS") ?? null;
     const mgmtFallbackBio = mgmtBackground
       ? `${mgmtBackground}${mgmtExpYears ? ` (${mgmtExpYears} years experience)` : ""}`
       : null;
 
-    const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
-      principals: ownerEntities.map((o: any) => {
+    // Helper: detect entity-level (non-person) ownership rows
+    const ENTITY_INDICATORS = /^(borrower|llc|inc|corp|ltd|company|group|holdings|enterprises|associates|partners)\s*$/i;
+    function isLikelyEntity(name: string): boolean {
+      if (!name) return true;
+      // If name matches the deal's borrower_name or contains common entity suffixes, it's not a person
+      const lower = name.toLowerCase().trim();
+      const borrowerLower = (deal.borrower_name ?? deal.display_name ?? "").toLowerCase().trim();
+      if (borrowerLower && lower === borrowerLower) return true;
+      if (ENTITY_INDICATORS.test(lower)) return true;
+      if (/\b(llc|inc|corp|ltd|lp|llp|pllc)\b/i.test(name)) return true;
+      return false;
+    }
+
+    function buildBio(profile: any, bioKey: string): string {
+      if (profile?.resume_summary || profile?.industry_experience || profile?.credit_relevance) {
+        const parts: string[] = [];
+        if (profile.resume_summary) parts.push(profile.resume_summary);
+        if (profile.industry_experience) parts.push(profile.industry_experience);
+        if (profile.prior_business_experience) parts.push(`Prior: ${profile.prior_business_experience}`);
+        if (profile.credit_relevance) parts.push(`Credit: ${profile.credit_relevance}`);
+        return parts.join(". ");
+      }
+      if (overrides[bioKey]) return overrides[bioKey];
+      if (mgmtFallbackBio) return mgmtFallbackBio;
+      return "Pending — complete borrower interview to populate management qualifications.";
+    }
+
+    // Step 1: Build from deal_management_profiles (authoritative person data)
+    const coveredNames = new Set<string>();
+    const principalsFromProfiles = mgmtProfiles.map((p: any) => {
+      const name = String(p.person_name ?? "Unknown");
+      coveredNames.add(name.toLowerCase().trim());
+      // Try to find matching ownership entity for id/ownership_pct
+      const matchedEntity = ownerEntities.find(
+        (o: any) => (o.display_name ?? "").toLowerCase().trim() === name.toLowerCase().trim(),
+      );
+      const entityId = matchedEntity?.id ?? p.person_name;
+      const bioKey = `principal_bio_${entityId}`;
+      return {
+        id: String(entityId),
+        name,
+        ownership_pct: p.ownership_pct ?? matchedEntity?.ownership_pct ?? null,
+        title: p.title ?? matchedEntity?.title ?? qualByKey.get("PRINCIPAL_TITLE") ?? null,
+        bio: buildBio(p, bioKey),
+        years_experience: p.years_experience ?? (mgmtExpYears ? Number(mgmtExpYears) : null),
+        prior_roles: p.prior_business_experience ? [p.prior_business_experience] : [],
+        other_income_sources: null,
+      };
+    });
+
+    // Step 2: Add person-like ownership entities not already covered by profiles
+    const principalsFromEntities = ownerEntities
+      .filter((o: any) => {
+        const name = (o.display_name ?? "") as string;
+        if (coveredNames.has(name.toLowerCase().trim())) return false;
+        if (isLikelyEntity(name)) return false;
+        return true;
+      })
+      .map((o: any) => {
         const bioKey = `principal_bio_${o.id}`;
-        const displayName = (o.display_name ?? "Unknown") as string;
-        // ACTIVATION: Try to match a deal_management_profiles row by name
-        const profile = mgmtProfileByName.get(displayName.toLowerCase().trim()) ?? null;
-
-        // Build bio from richest available source
-        let bio: string;
-        if (profile?.resume_summary || profile?.industry_experience || profile?.credit_relevance) {
-          const parts: string[] = [];
-          if (profile.resume_summary) parts.push(profile.resume_summary);
-          if (profile.industry_experience) parts.push(profile.industry_experience);
-          if (profile.credit_relevance) parts.push(`Credit: ${profile.credit_relevance}`);
-          bio = parts.join(". ");
-        } else if (overrides[bioKey]) {
-          bio = overrides[bioKey];
-        } else if (mgmtFallbackBio) {
-          bio = mgmtFallbackBio;
-        } else {
-          bio = "Pending — complete borrower interview to populate management qualifications.";
-        }
-
         return {
           id: String(o.id),
-          name: displayName,
-          ownership_pct: profile?.ownership_pct ?? o.ownership_pct ?? null,
-          title: profile?.title ?? o.title ?? qualByKey.get("PRINCIPAL_TITLE") ?? null,
-          bio,
-          years_experience: profile?.years_experience ?? (mgmtExpYears ? Number(mgmtExpYears) : null),
-          prior_roles: profile?.prior_business_experience ? [profile.prior_business_experience] : [],
+          name: o.display_name ?? "Unknown",
+          ownership_pct: o.ownership_pct ?? null,
+          title: o.title ?? qualByKey.get("PRINCIPAL_TITLE") ?? null,
+          bio: overrides[bioKey] || mgmtFallbackBio || "Pending — complete borrower interview to populate management qualifications.",
+          years_experience: mgmtExpYears ? Number(mgmtExpYears) : null,
+          prior_roles: [],
           other_income_sources: null,
         };
-      }),
+      });
+
+    const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
+      principals: [...principalsFromProfiles, ...principalsFromEntities],
     };
 
     // ===== Phase 33: Build personal financial statements =====
@@ -1307,7 +1437,18 @@ export async function buildCanonicalCreditMemo(args: {
       eligibility,
 
       collateral: {
-        property_description: overrides.collateral_description || "Pending",
+        // ACTIVATION: For AR LOC deals, build description from borrowing base data instead of stale overrides
+        property_description: arBbSection
+          ? `The facility is secured by eligible accounts receivable under a borrowing base.${
+              arBbSection.as_of_date ? ` As of ${arBbSection.as_of_date},` : ""
+            } total AR was ${arBbSection.total_ar !== null ? formatCurrencySimple(arBbSection.total_ar) : "pending"}${
+              arBbSection.eligible_ar !== null ? `, eligible AR was ${formatCurrencySimple(arBbSection.eligible_ar)}` : ""
+            }${arBbSection.advance_rate !== null ? `, and the ${Math.round(arBbSection.advance_rate * 100)}% advance rate supports a borrowing base of ${arBbSection.borrowing_base_value !== null ? formatCurrencySimple(arBbSection.borrowing_base_value) : "pending"}` : ""}${
+              arBbSection.borrowing_base_availability !== null && loanAmount.value !== null
+                ? `, providing ${formatCurrencySimple(arBbSection.borrowing_base_availability)} availability above the proposed ${formatCurrencySimple(loanAmount.value)} LOC`
+                : ""
+            }.`
+          : (overrides.collateral_description || "Pending"),
         property_address: formatLoanRequestPropertyAddress(loanReq?.property_address_json),
         line_items: collateralLineItems,
         total_gross: collateralFromSnapshot.grossValue.value,

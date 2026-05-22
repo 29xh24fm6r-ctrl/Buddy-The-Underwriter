@@ -990,6 +990,17 @@ export async function buildRatioAnalysisSuite(
       }
     }
 
+    // ACTIVATION Fix #6: If assessment is "Weak" but no benchmark exists for this
+    // metric, relabel as "N/A" and note unbenchmarked status to avoid unsupported
+    // negative labels (e.g. "Gross Margin Weak" without peer context).
+    let finalAssessment = interp.assessment;
+    let finalBenchmarkNote = interp.benchmarkNote;
+    const benchmarkable = RATIO_TO_BENCHMARK[spec.metricId] !== undefined;
+    if (interp.assessment === "Weak" && benchmarkable && industryAvg === null) {
+      finalAssessment = "N/A";
+      finalBenchmarkNote = "Unbenchmarked — peer comparison unavailable for this NAICS/revenue tier. Assessment deferred.";
+    }
+
     rows.push({
       metric: spec.label,
       category: spec.category,
@@ -998,9 +1009,9 @@ export async function buildRatioAnalysisSuite(
       industry_source: industrySource,
       unit: spec.unit,
       period_label: periodLabel,
-      assessment: interp.assessment,
+      assessment: finalAssessment,
       interpretation: interp.interpretation,
-      benchmark_note: interp.benchmarkNote,
+      benchmark_note: finalBenchmarkNote,
     });
   }
 
