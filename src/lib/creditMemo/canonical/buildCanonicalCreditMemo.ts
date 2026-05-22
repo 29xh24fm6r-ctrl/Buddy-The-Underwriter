@@ -1028,7 +1028,7 @@ export async function buildCanonicalCreditMemo(args: {
       // Add stress-test-based risk factor if any scenario breaches
       if (stressTable.scenarios && Array.isArray(stressTable.scenarios)) {
         const worstDscrStress = Math.min(
-          ...(stressTable.scenarios as any[]).filter((s: any) => s.dscr !== null && Number.isFinite(s.dscr)).map((s: any) => s.dscr),
+          ...(stressTable.scenarios as any[]).filter((s: any) => s.stressed_dscr !== null && Number.isFinite(s.stressed_dscr)).map((s: any) => s.stressed_dscr),
         );
         if (Number.isFinite(worstDscrStress) && worstDscrStress < 1.0) {
           riskFactors.push({
@@ -1162,7 +1162,7 @@ export async function buildCanonicalCreditMemo(args: {
     // Stress test results as strength/weakness
     if (stressTable) {
       const worstScenarioDscr = stressTable.scenarios
-        ? Math.min(...(stressTable.scenarios as any[]).filter((s: any) => s.dscr !== null).map((s: any) => s.dscr))
+        ? Math.min(...(stressTable.scenarios as any[]).filter((s: any) => s.stressed_dscr !== null).map((s: any) => s.stressed_dscr))
         : null;
       if (worstScenarioDscr !== null && Number.isFinite(worstScenarioDscr)) {
         if (worstScenarioDscr >= 1.25) {
