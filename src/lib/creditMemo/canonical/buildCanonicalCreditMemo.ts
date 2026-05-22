@@ -898,13 +898,34 @@ export async function buildCanonicalCreditMemo(args: {
 
       const verdict = computeUnderwritingVerdict(uwResults);
 
+      const finalGrade = aiRisk?.grade ?? scoreResult.grade;
+      const rationale = [...verdict.rationale];
+
+      // Fix 6: When grade is D but DSCR is strong, add concise explanation
+      if (finalGrade === "D" && financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0) {
+        const reasons: string[] = [];
+        if (cfadsTrend === "down" || revenueTrend === "down") reasons.push("declining revenue/CFADS trend");
+        const gmVal = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "GP" }).value;
+        const revVal = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
+        if (gmVal !== null && revVal !== null && revVal > 0 && (gmVal / revVal) < 0.20) {
+          reasons.push("thin gross margin");
+        }
+        if (bindings.global.globalCashFlow === null) reasons.push("incomplete formal GCF exhibit");
+        if (isLOC && arAgingResult?.data) reasons.push("AR monitoring risk");
+        if (reasons.length > 0) {
+          rationale.push(
+            `Risk grade reflects ${reasons.join(", ")}, despite strong DSCR (${financial.dscrGlobal.value.toFixed(2)}x) and collateral coverage.`,
+          );
+        }
+      }
+
       recommendation = {
         verdict: verdict.level,
         headline: verdict.headline,
-        risk_grade: aiRisk?.grade ?? scoreResult.grade,
+        risk_grade: finalGrade,
         risk_score: scoreResult.score,
         confidence: scoreResult.confidence,
-        rationale: verdict.rationale,
+        rationale,
         key_drivers: verdict.key_drivers,
         mitigants: verdict.mitigants,
         exceptions: policyExceptions.map(e => e.exception),
@@ -1606,9 +1627,11 @@ export async function buildCanonicalCreditMemo(args: {
         readiness,
         data_completeness: bindings.completeness,
         // Phase 6+9: Filter artifact/placeholder spreads from committee-facing list
+        // GCF is excluded when bindings show no meaningful global cash flow data
         spreads: spreads
           .filter((s: any) => {
             if (ARTIFACT_SPREAD_TYPES.has(String(s.spread_type))) return false;
+            if (String(s.spread_type) === "GLOBAL_CASH_FLOW" && bindings.global.globalCashFlow === null) return false;
             return true;
           })
           .map((s: any) => ({

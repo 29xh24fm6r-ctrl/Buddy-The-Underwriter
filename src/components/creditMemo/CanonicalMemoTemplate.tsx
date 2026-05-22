@@ -274,7 +274,7 @@ function RatioSuiteSection({ rows }: { rows: RatioAnalysisRow[] }) {
                             Peer median: {formatRatioValue(r.industry_avg, r.unit)} — {r.industry_source}
                           </div>
                         )}
-                        {r.benchmark_note && (
+                        {r.benchmark_note && !(r.industry_avg !== null && r.benchmark_note.startsWith("Peer median")) && (
                           <div className="text-[10px] text-gray-500 mt-0.5">{r.benchmark_note}</div>
                         )}
                       </Td>
@@ -1037,8 +1037,8 @@ export default function CanonicalMemoTemplate({
           <div className="text-xs font-semibold uppercase tracking-wide text-blue-800 mb-2">
             AR Borrowing Base Analysis
             {memo.collateral.ar_borrowing_base.as_of_date && (
-              <span className="ml-2 font-normal text-blue-600">
-                as of {memo.collateral.ar_borrowing_base.as_of_date}
+              <span className="ml-1 font-normal text-blue-600">
+                {" — "}as of {memo.collateral.ar_borrowing_base.as_of_date}
               </span>
             )}
           </div>
@@ -1395,8 +1395,17 @@ export default function CanonicalMemoTemplate({
         </table>
       </div>
 
-      {/* Global CF Table */}
-      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Global Cash Flow Summary</div>
+      {/* Global CF Table — suppress when all values are hollow */}
+      {(memo.global_cash_flow.global_cf_table.length > 0 ||
+        memo.global_cash_flow.global_dscr.value !== null ||
+        memo.global_cash_flow.cash_available.value !== null ||
+        memo.global_cash_flow.total_obligations.value !== null) && (
+      <>
+      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">
+        {memo.global_cash_flow.global_cf_table.length > 0
+          ? "Global Cash Flow Summary"
+          : "Cash Flow Proxy (from financial facts — formal GCF exhibit pending)"}
+      </div>
       {memo.global_cash_flow.global_cf_table.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs">
@@ -1447,6 +1456,8 @@ export default function CanonicalMemoTemplate({
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
 
       {/* Income Statement Table */}
