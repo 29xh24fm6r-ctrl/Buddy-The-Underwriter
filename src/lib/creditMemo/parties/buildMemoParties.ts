@@ -38,15 +38,16 @@ export type OwnerEntityInput = {
   entity_type?: string | null;
 };
 
-const ENTITY_SUFFIX_RE = /\b(llc|inc|corp|ltd|lp|llp|pllc|co|company)\b/i;
-
-function isEntityName(name: string, borrowerName: string | null): boolean {
+/**
+ * Returns true if this name is the borrower itself or a generic placeholder.
+ * Does NOT filter non-borrower entity names (they may be legitimate entity guarantors).
+ */
+function isBorrowerOrPlaceholder(name: string, borrowerName: string | null): boolean {
   if (!name) return true;
   const lower = name.toLowerCase().trim();
   if (lower === "borrower" || lower === "unknown") return true;
   const borrowerLower = (borrowerName ?? "").toLowerCase().trim();
   if (borrowerLower && lower === borrowerLower) return true;
-  if (ENTITY_SUFFIX_RE.test(name)) return true;
   return false;
 }
 
@@ -73,7 +74,7 @@ export function buildMemoParties(args: {
   // Step 1: Build from management profiles (authoritative person data)
   for (const p of managementProfiles) {
     const name = p.person_name;
-    if (!name || isEntityName(name, borrowerName)) continue;
+    if (!name || isBorrowerOrPlaceholder(name, borrowerName)) continue;
     coveredNames.add(name.toLowerCase().trim());
     const tokens = name.toLowerCase().trim().split(/\s+/);
     if (tokens.length > 0) coveredNames.add(tokens[tokens.length - 1]);
@@ -91,7 +92,7 @@ export function buildMemoParties(args: {
   // Step 2: Add individual owners not already covered
   for (const o of ownerEntities) {
     const name = o.display_name ?? "";
-    if (!name || isEntityName(name, borrowerName)) continue;
+    if (!name || isBorrowerOrPlaceholder(name, borrowerName)) continue;
     const lower = name.toLowerCase().trim();
     if (coveredNames.has(lower)) continue;
     // Single-token surname dedupe
