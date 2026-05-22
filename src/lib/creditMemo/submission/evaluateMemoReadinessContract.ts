@@ -14,12 +14,10 @@ import type {
   ReadinessBlocker,
   ReadinessWarning,
 } from "./types";
+import { buildRequiredItems } from "@/lib/creditMemo/review/bankerReviewReadiness";
 
 // Re-export so callers may import directly from this module.
 export type { MemoReadinessContract } from "./types";
-
-const BUSINESS_DESCRIPTION_MIN = 20;
-const MANAGEMENT_BIO_MIN = 20;
 
 export function evaluateMemoReadinessContract(args: {
   memo: CanonicalCreditMemoV1;
@@ -29,36 +27,17 @@ export function evaluateMemoReadinessContract(args: {
   const { memo, overrides } = args;
   const now = args.now ?? new Date();
 
-  // ── Required items (mirrors BankerReviewPanel.tsx) ─────────────────────
-  const dscrOk = memo.financial_analysis.dscr.value !== null;
-
-  const loanOk =
-    memo.key_metrics.loan_amount.value !== null &&
-    memo.key_metrics.loan_amount.value > 0;
-
-  const collateralOk =
-    memo.collateral.gross_value.value !== null &&
-    memo.collateral.gross_value.value > 0;
-
-  const businessDescription = overrides["business_description"];
-  const businessDescriptionOk =
-    typeof businessDescription === "string" &&
-    businessDescription.trim().length >= BUSINESS_DESCRIPTION_MIN;
-
-  const principalIds = memo.management_qualifications.principals.map((p) => p.id);
-  const managementBioOk = principalIds.some((pid) => {
-    const value = overrides[`principal_bio_${pid}`];
-    return (
-      typeof value === "string" && value.trim().length >= MANAGEMENT_BIO_MIN
-    );
-  });
+  // ── Required items — canonical-first, mirrors BankerReviewPanel.tsx ────
+  // Uses the shared helper so client UI and server gate stay in lockstep.
+  const items = buildRequiredItems(memo, overrides);
+  const itemById = new Map(items.map((i) => [i.id, i]));
 
   const required = {
-    dscr_computed: dscrOk,
-    loan_amount: loanOk,
-    collateral_value: collateralOk,
-    business_description: businessDescriptionOk,
-    management_bio: managementBioOk,
+    dscr_computed: itemById.get("dscr")?.ok ?? false,
+    loan_amount: itemById.get("loan")?.ok ?? false,
+    collateral_value: itemById.get("collat")?.ok ?? false,
+    business_description: itemById.get("bizdesc")?.ok ?? false,
+    management_bio: itemById.get("mgmtbio")?.ok ?? false,
   };
 
   // ── Warnings (do not block submission, but recorded with the snapshot) ─
@@ -106,7 +85,7 @@ export function evaluateMemoReadinessContract(args: {
   if (!required.collateral_value) {
     blockers.push({
       code: "collateral_value",
-      label: "Collateral value has not been entered",
+      label: "Collateral is not available",
       owner: "banker",
       fixHref: `/deals/${memo.deal_id}/collateral`,
     });
@@ -114,7 +93,7 @@ export function evaluateMemoReadinessContract(args: {
   if (!required.business_description) {
     blockers.push({
       code: "business_description",
-      label: `Business description must be at least ${BUSINESS_DESCRIPTION_MIN} characters`,
+      label: "Business profile is not available",
       owner: "banker",
       fixHref: `/credit-memo/${memo.deal_id}/canonical`,
     });
@@ -122,7 +101,7 @@ export function evaluateMemoReadinessContract(args: {
   if (!required.management_bio) {
     blockers.push({
       code: "management_bio",
-      label: `At least one management bio must be at least ${MANAGEMENT_BIO_MIN} characters`,
+      label: "Management profile is not available",
       owner: "banker",
       fixHref: `/credit-memo/${memo.deal_id}/canonical`,
     });
