@@ -535,3 +535,49 @@ describe("GENERALIZATION §12 — Official industry intelligence", () => {
     }
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 13. Management bio double-period cleanup
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("GENERALIZATION §13 — Management bio final cleanup", () => {
+  it("profile parts with terminal punctuation do not produce double periods", () => {
+    const result = buildMemoParties({
+      borrowerName: "TestCo",
+      dealDisplayName: "TestCo",
+      managementProfiles: [],
+      ownerEntities: [],
+      bankerNotes: null,
+    });
+    // Test via buildManagementPrincipals directly
+    const { buildManagementPrincipals: bmp } = require("@/lib/creditMemo/management/buildManagementPrincipals");
+    const mgmt = bmp({
+      managementProfiles: [{
+        person_name: "Test Person",
+        title: "CEO",
+        ownership_pct: 100,
+        years_experience: 25,
+        industry_experience: "25+ years in healthcare staffing and BPO services.",
+        prior_business_experience: "VP of Operations at MedStaff Inc.",
+        resume_summary: "Founded company in 2018.",
+        credit_relevance: "Strong personal credit.",
+      }],
+      ownerEntities: [],
+      overrides: {},
+      qualMgmtBackground: null,
+      qualMgmtExpYears: null,
+      borrowerName: "TestCo",
+      dealDisplayName: "TestCo",
+    });
+    const bio = mgmt.principals[0].bio;
+    assert.ok(!bio.includes(".."), `Bio must not contain "..", got: ${bio}`);
+    assert.ok(bio.includes("Founded company in 2018"), "Must include resume content");
+    assert.ok(bio.includes("Prior:"), "Must include prior experience");
+  });
+
+  it("decimal and money text remain intact", () => {
+    assert.equal(cleanMemoNarrative("Revenue of $1.5M."), "Revenue of $1.5M.");
+    assert.equal(cleanMemoNarrative("DSCR is 1.25x."), "DSCR is 1.25x.");
+    assert.ok(!cleanMemoNarrative("Value is $2.5M.. More text.").includes(".."));
+  });
+});

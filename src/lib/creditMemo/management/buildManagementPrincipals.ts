@@ -70,7 +70,7 @@ function isLikelyEntity(name: string, borrowerName: string | null, dealName: str
 
 // ─── Bio builder ───────────────────────────────────────────────────────────
 
-import { joinSentences } from "@/lib/creditMemo/text/cleanMemoNarrative";
+import { joinSentences, cleanMemoNarrative } from "@/lib/creditMemo/text/cleanMemoNarrative";
 
 function buildBioFromProfile(profile: ManagementProfile): string | null {
   const parts: string[] = [];
@@ -127,7 +127,7 @@ export function buildManagementPrincipals(args: BuildPrincipalsArgs): {
       name,
       ownership_pct: p.ownership_pct ?? matchedEntity?.ownership_pct ?? null,
       title: p.title ?? matchedEntity?.title ?? null,
-      bio: profileBio ?? overrideBio ?? mgmtFallbackBio ?? "Pending — complete borrower interview to populate management qualifications.",
+      bio: cleanMemoNarrative(profileBio ?? overrideBio ?? mgmtFallbackBio ?? "Pending — complete borrower interview to populate management qualifications."),
       years_experience: p.years_experience ?? (qualMgmtExpYears ? Number(qualMgmtExpYears) : null),
       prior_roles: p.prior_business_experience ? [p.prior_business_experience] : [],
       other_income_sources: null,
@@ -166,7 +166,7 @@ export function buildManagementPrincipals(args: BuildPrincipalsArgs): {
         name: o.display_name ?? "Unknown",
         ownership_pct: o.ownership_pct ?? null,
         title: o.title ?? null,
-        bio: overrideBio ?? mgmtFallbackBio ?? "Pending — complete borrower interview to populate management qualifications.",
+        bio: cleanMemoNarrative(overrideBio ?? mgmtFallbackBio ?? "Pending — complete borrower interview to populate management qualifications."),
         years_experience: qualMgmtExpYears ? Number(qualMgmtExpYears) : null,
         prior_roles: [],
         other_income_sources: null,

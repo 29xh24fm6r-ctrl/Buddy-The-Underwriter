@@ -1527,7 +1527,7 @@ export default function CanonicalMemoTemplate({
                       <span className="text-gray-500">{iv.label}:</span>{" "}
                       <span className="font-medium">{fmt$(iv.value)}</span>
                       {memo.global_cash_flow.guarantor_support!.income_reconciliation!.warning_level === "warning" && idx === 0 && (
-                        <span className="text-amber-600 text-[10px] ml-1">(material difference — reconcile)</span>
+                        <span className="text-amber-600 text-[10px] ml-1">{" "}(material difference — reconcile)</span>
                       )}
                     </div>
                   ))
