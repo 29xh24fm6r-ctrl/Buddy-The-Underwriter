@@ -41,17 +41,31 @@ export default async function CanonicalCreditMemoPrintPage(props: {
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
 
   if (res.ok && bankId) {
+    // Phase 5: input_hash gated narrative overlay — same gate as canonical/page.tsx
     const sb = supabaseAdmin();
     const { data: cachedNarrative } = await sb
       .from("canonical_memo_narratives")
-      .select("narratives")
+      .select("narratives, input_hash")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .order("generated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (cachedNarrative?.narratives) {
+    let currentInputHash: string | null = null;
+    try {
+      const { computeInputHash } = await import("@/lib/creditMemo/submission/computeInputHash");
+      currentInputHash = computeInputHash({ memo: res.memo, overrides: {}, bankerId: bankId });
+    } catch {
+      // Non-fatal
+    }
+
+    const narrativeIsFresh =
+      cachedNarrative?.input_hash &&
+      currentInputHash &&
+      cachedNarrative.input_hash === currentInputHash;
+
+    if (cachedNarrative?.narratives && narrativeIsFresh) {
       const n = cachedNarrative.narratives as any;
       if (n.executive_summary) res.memo.executive_summary.narrative = n.executive_summary;
       if (n.income_analysis) res.memo.financial_analysis.income_analysis = n.income_analysis;
@@ -59,6 +73,8 @@ export default async function CanonicalCreditMemoPrintPage(props: {
       if (n.borrower_background) res.memo.borrower_sponsor.background = n.borrower_background;
       if (n.borrower_experience) res.memo.borrower_sponsor.experience = n.borrower_experience;
       if (n.guarantor_strength) res.memo.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+    } else if (cachedNarrative?.narratives && !narrativeIsFresh) {
+      console.warn(`[canonical/print] Skipped stale narrative overlay for deal=${dealId}`);
     }
   }
 

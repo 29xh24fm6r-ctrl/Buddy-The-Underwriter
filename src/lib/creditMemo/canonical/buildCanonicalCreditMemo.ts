@@ -30,6 +30,10 @@ import { buildQualitativeAssessment } from "@/lib/creditMemo/canonical/buildQual
 import { buildCovenantPackage } from "@/lib/covenants/covenantPackageBuilder";
 import type { CovenantPackage, DealType } from "@/lib/covenants/covenantTypes";
 import { computeEvidenceCoverage } from "@/lib/research/evidenceCoverage";
+import { getLegacyMemoOverrideFallback, ARTIFACT_SPREAD_TYPES } from "@/lib/creditMemo/canonical/sourcePriority";
+import { buildManagementPrincipals } from "@/lib/creditMemo/management/buildManagementPrincipals";
+import { resolveCollateralDescription } from "@/lib/creditMemo/collateral/buildCollateralNarrative";
+import { isMeaningfulSpread } from "@/lib/creditMemo/spreads/isMeaningfulSpread";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1217,110 +1221,19 @@ export async function buildCanonicalCreditMemo(args: {
         (isSbaDeal ? "Loan proceeds will provide capital needed for business growth." : ""),
     };
 
-    // ===== ACTIVATION: Build management qualifications =====
-    // Strategy: Build principals from deal_management_profiles FIRST (real person data),
-    // then add person-like ownership_entities not already covered.
-    // Entity-level rows (company names like "OmniCare 365", "Borrower") are excluded
-    // unless they have a matching management profile.
-    const mgmtBackground = qualByKey.get("MANAGEMENT_BACKGROUND") ?? null;
-    const mgmtExpYears = qualByKey.get("MANAGEMENT_EXPERIENCE_YEARS") ?? null;
-    const mgmtFallbackBio = mgmtBackground
-      ? `${mgmtBackground}${mgmtExpYears ? ` (${mgmtExpYears} years experience)` : ""}`
-      : null;
-
-    // Helper: detect entity-level (non-person) ownership rows
-    const ENTITY_INDICATORS = /^(borrower|llc|inc|corp|ltd|company|group|holdings|enterprises|associates|partners)\s*$/i;
-    function isLikelyEntity(name: string): boolean {
-      if (!name) return true;
-      // If name matches the deal's borrower_name or contains common entity suffixes, it's not a person
-      const lower = name.toLowerCase().trim();
-      const borrowerLower = (deal.borrower_name ?? deal.display_name ?? "").toLowerCase().trim();
-      if (borrowerLower && lower === borrowerLower) return true;
-      if (ENTITY_INDICATORS.test(lower)) return true;
-      if (/\b(llc|inc|corp|ltd|lp|llp|pllc)\b/i.test(name)) return true;
-      return false;
-    }
-
-    function buildBio(profile: any, bioKey: string): string {
-      if (profile?.resume_summary || profile?.industry_experience || profile?.credit_relevance) {
-        const parts: string[] = [];
-        if (profile.resume_summary) parts.push(profile.resume_summary);
-        if (profile.industry_experience) parts.push(profile.industry_experience);
-        if (profile.prior_business_experience) parts.push(`Prior: ${profile.prior_business_experience}`);
-        if (profile.credit_relevance) parts.push(`Credit: ${profile.credit_relevance}`);
-        return parts.join(". ");
-      }
-      if (overrides[bioKey]) return overrides[bioKey];
-      if (mgmtFallbackBio) return mgmtFallbackBio;
-      return "Pending — complete borrower interview to populate management qualifications.";
-    }
-
-    // Step 1: Build from deal_management_profiles (authoritative person data)
-    const coveredNames = new Set<string>();
-    // Also track last tokens (surnames) for fuzzy dedupe against ownership entities
-    const coveredLastTokens = new Map<string, { fullName: string; ownershipPct: number | null }>();
-    const principalsFromProfiles = mgmtProfiles.map((p: any) => {
-      const name = String(p.person_name ?? "Unknown");
-      const lower = name.toLowerCase().trim();
-      coveredNames.add(lower);
-      const tokens = lower.split(/\s+/);
-      if (tokens.length > 0) {
-        coveredLastTokens.set(tokens[tokens.length - 1], { fullName: lower, ownershipPct: p.ownership_pct ?? null });
-      }
-      // Try to find matching ownership entity for id/ownership_pct
-      const matchedEntity = ownerEntities.find(
-        (o: any) => (o.display_name ?? "").toLowerCase().trim() === name.toLowerCase().trim(),
-      );
-      const entityId = matchedEntity?.id ?? p.person_name;
-      const bioKey = `principal_bio_${entityId}`;
-      return {
-        id: String(entityId),
-        name,
-        ownership_pct: p.ownership_pct ?? matchedEntity?.ownership_pct ?? null,
-        title: p.title ?? matchedEntity?.title ?? qualByKey.get("PRINCIPAL_TITLE") ?? null,
-        bio: buildBio(p, bioKey),
-        years_experience: p.years_experience ?? (mgmtExpYears ? Number(mgmtExpYears) : null),
-        prior_roles: p.prior_business_experience ? [p.prior_business_experience] : [],
-        other_income_sources: null,
-      };
+    // ===== Phase 7: Build management qualifications via extracted helper =====
+    const mgmtResult = buildManagementPrincipals({
+      managementProfiles: mgmtProfiles,
+      ownerEntities,
+      overrides,
+      qualMgmtBackground: qualByKey.get("MANAGEMENT_BACKGROUND") ?? null,
+      qualMgmtExpYears: qualByKey.get("MANAGEMENT_EXPERIENCE_YEARS") ?? null,
+      borrowerName: deal.borrower_name ?? null,
+      dealDisplayName: deal.display_name ?? deal.name ?? null,
     });
 
-    // Step 2: Add person-like ownership entities not already covered by profiles
-    const principalsFromEntities = ownerEntities
-      .filter((o: any) => {
-        const name = (o.display_name ?? "") as string;
-        const lower = name.toLowerCase().trim();
-        // Exact match
-        if (coveredNames.has(lower)) return false;
-        if (isLikelyEntity(name)) return false;
-        // Last-token / surname match: "Hunt" matches "Matt Hunt" when ownership_pct aligns
-        const lastTokenMatch = coveredLastTokens.get(lower);
-        if (lastTokenMatch) {
-          // Same last name — skip if ownership_pct matches or profile has 100%
-          if (lastTokenMatch.ownershipPct === (o.ownership_pct ?? null)) return false;
-          if (lastTokenMatch.ownershipPct === 100) return false;
-          if (o.ownership_pct === 100 || o.ownership_pct === lastTokenMatch.ownershipPct) return false;
-        }
-        // Also check if entity name is a single token matching any profile surname
-        if (!lower.includes(" ") && coveredLastTokens.has(lower)) return false;
-        return true;
-      })
-      .map((o: any) => {
-        const bioKey = `principal_bio_${o.id}`;
-        return {
-          id: String(o.id),
-          name: o.display_name ?? "Unknown",
-          ownership_pct: o.ownership_pct ?? null,
-          title: o.title ?? qualByKey.get("PRINCIPAL_TITLE") ?? null,
-          bio: overrides[bioKey] || mgmtFallbackBio || "Pending — complete borrower interview to populate management qualifications.",
-          years_experience: mgmtExpYears ? Number(mgmtExpYears) : null,
-          prior_roles: [],
-          other_income_sources: null,
-        };
-      });
-
     const managementQualifications: CanonicalCreditMemoV1["management_qualifications"] = {
-      principals: [...principalsFromProfiles, ...principalsFromEntities],
+      principals: mgmtResult.principals,
     };
 
     // ===== Phase 33: Build personal financial statements =====
@@ -1465,18 +1378,13 @@ export async function buildCanonicalCreditMemo(args: {
       eligibility,
 
       collateral: {
-        // ACTIVATION: For AR LOC deals, build description from borrowing base data instead of stale overrides
-        property_description: arBbSection
-          ? `The facility is secured by eligible accounts receivable under a borrowing base.${
-              arBbSection.as_of_date ? ` As of ${arBbSection.as_of_date},` : ""
-            } total AR was ${arBbSection.total_ar !== null ? formatCurrencySimple(arBbSection.total_ar) : "pending"}${
-              arBbSection.eligible_ar !== null ? `, eligible AR was ${formatCurrencySimple(arBbSection.eligible_ar)}` : ""
-            }${arBbSection.advance_rate !== null ? `, and the ${Math.round(arBbSection.advance_rate * 100)}% advance rate supports a borrowing base of ${arBbSection.borrowing_base_value !== null ? formatCurrencySimple(arBbSection.borrowing_base_value) : "pending"}` : ""}${
-              arBbSection.borrowing_base_availability !== null && loanAmount.value !== null
-                ? `, providing ${formatCurrencySimple(arBbSection.borrowing_base_availability)} availability above the proposed ${formatCurrencySimple(loanAmount.value)} LOC`
-                : ""
-            }.`
-          : (overrides.collateral_description || "Pending"),
+        // Phase 8: Collateral narrative via extracted helper — AR LOC ignores legacy overrides
+        property_description: resolveCollateralDescription({
+          arBorrowingBase: arBbSection,
+          loanAmount: loanAmount.value,
+          legacyOverrideDescription: typeof overrides.collateral_description === "string" ? overrides.collateral_description : null,
+          isArLocDeal: isLOC || isArLoc,
+        }).description,
         property_address: formatLoanRequestPropertyAddress(loanReq?.property_address_json),
         line_items: collateralLineItems,
         total_gross: collateralFromSnapshot.grossValue.value,
@@ -1692,15 +1600,15 @@ export async function buildCanonicalCreditMemo(args: {
       qualitative_assessment: qualitativeAssessment,
 
       meta: {
-        notes: [],
+        notes: mgmtResult.aliasesDeduped.length > 0
+          ? [`Management aliases deduped: ${mgmtResult.aliasesDeduped.join(", ")}`]
+          : [],
         readiness,
         data_completeness: bindings.completeness,
-        // Issue 9: Filter artifact/non-data spreads from committee-facing list
+        // Phase 6+9: Filter artifact/placeholder spreads from committee-facing list
         spreads: spreads
           .filter((s: any) => {
-            const st = String(s.spread_type);
-            // Exclude render artifacts that are not substantive financial data
-            if (st === "CLASSIC_PDF" || st === "STANDARD") return false;
+            if (ARTIFACT_SPREAD_TYPES.has(String(s.spread_type))) return false;
             return true;
           })
           .map((s: any) => ({

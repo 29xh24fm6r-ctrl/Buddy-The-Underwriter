@@ -3,6 +3,7 @@ import "server-only";
 import React from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import DebtServiceCoverageSection from "./DebtServiceCoverageSection";
+import { isMeaningfulSpread, getOwnerSuffix, ZERO_UUID } from "@/lib/creditMemo/spreads/isMeaningfulSpread";
 
 type SpreadRow = {
   key: string;
@@ -100,20 +101,9 @@ export default async function SpreadsAppendix({
     .order("updated_at", { ascending: false })
     .limit(20);
 
-  // Filter out T12 and artifact/placeholder spreads
-  const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
-
-  function isPlaceholderSpread(s: RenderedSpread): boolean {
-    const rows = s.rendered_json?.rows ?? [];
-    if (rows.length !== 1) return false;
-    const row = rows[0];
-    const key = String(row.key ?? "").toLowerCase();
-    const label = String(row.label ?? "").toLowerCase();
-    return key === "status" && (label.includes("generating") || label.includes("queued"));
-  }
-
+  // Phase 6: Use centralized isMeaningfulSpread helper + exclude T12
   const spreads = ((spreadRows ?? []) as RenderedSpread[]).filter(
-    (s) => s.spread_type !== "T12" && !isPlaceholderSpread(s),
+    (s) => s.spread_type !== "T12" && isMeaningfulSpread(s),
   );
 
   if (spreads.length === 0) {
@@ -150,18 +140,11 @@ export default async function SpreadsAppendix({
           if (!json?.rows?.length) return null;
 
           const label = SPREAD_LABELS[spread.spread_type] ?? spread.spread_type;
-          const ownerId = spread.owner_entity_id ? String(spread.owner_entity_id) : null;
-          const isZeroUuid = ownerId === ZERO_UUID;
-          let ownerSuffix = "";
-          if (ownerId && !isZeroUuid) {
-            const ownerName = ownerNames.get(ownerId);
-            ownerSuffix = ownerName ? ` — ${ownerName}` : "";
-          } else if (isZeroUuid) {
-            // Personal spreads with zero UUID → label as Guarantor
-            if (spread.spread_type === "PERSONAL_INCOME" || spread.spread_type === "PERSONAL_FINANCIAL_STATEMENT") {
-              ownerSuffix = " — Guarantor";
-            }
-          }
+          const ownerSuffix = getOwnerSuffix(
+            spread.owner_entity_id ? String(spread.owner_entity_id) : null,
+            spread.spread_type,
+            ownerNames,
+          );
 
           const hasColumns = json.columnsV2 && json.columnsV2.length > 0;
           const columns = json.columnsV2 ?? [];
