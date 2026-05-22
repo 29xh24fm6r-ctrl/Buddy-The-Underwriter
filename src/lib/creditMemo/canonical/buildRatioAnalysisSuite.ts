@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { evaluateMetric } from "@/lib/metrics/evaluateMetric";
+import { lookupBenchmark, type BenchmarkMetricId } from "@/lib/benchmarks/industryBenchmarks";
 import type {
   RatioAnalysisRow,
   RatioCategory,
@@ -201,6 +202,28 @@ function hasCogs(facts: Record<string, number | null>): boolean {
   const cogs = facts.COST_OF_GOODS_SOLD;
   return typeof cogs === "number" && cogs > 0;
 }
+
+// ---------------------------------------------------------------------------
+// ACTIVATION: Map ratio spec metricId → BenchmarkMetricId for benchmark lookups
+// ---------------------------------------------------------------------------
+
+const RATIO_TO_BENCHMARK: Record<string, BenchmarkMetricId> = {
+  CURRENT_RATIO: "CURRENT_RATIO",
+  QUICK_RATIO: "QUICK_RATIO",
+  DEBT_TO_EQUITY: "DEBT_TO_EQUITY",
+  DEBT_TO_EBITDA: "DEBT_TO_EBITDA",
+  DSCR: "DSCR",
+  INTEREST_COVERAGE: "INTEREST_COVERAGE",
+  GROSS_MARGIN: "GROSS_MARGIN",
+  EBITDA_MARGIN: "EBITDA_MARGIN",
+  NET_MARGIN: "NET_MARGIN",
+  ROA: "ROA",
+  ROE: "ROE",
+  AR_DAYS: "DSO",
+  INVENTORY_TURNOVER: "INVENTORY_TURNOVER",
+  DIO: "DIO",
+  DPO: "DPO",
+};
 
 // ---------------------------------------------------------------------------
 // Canonical ratio spec list — deal-specific interpretations
@@ -856,6 +879,10 @@ type BuildArgs = {
   dealId: string;
   bankId: string;
   dealContext?: DealContext;
+  /** NAICS code for benchmark lookup (pure, no DB required) */
+  naicsCode?: string | null;
+  /** Annual revenue for tier-adjusted benchmarks */
+  annualRevenue?: number | null;
 };
 
 /**
@@ -873,6 +900,8 @@ export async function buildRatioAnalysisSuite(
 ): Promise<RatioAnalysisRow[]> {
   const sb = supabaseAdmin();
   const deal: DealContext = args.dealContext ?? EMPTY_DEAL_CONTEXT;
+  const naicsCode = args.naicsCode ?? null;
+  const annualRevenue = args.annualRevenue ?? deal.revenueDollars ?? null;
 
   const { data: factRows, error } = await (sb as any)
     .from("deal_financial_facts")
@@ -947,12 +976,26 @@ export async function buildRatioAnalysisSuite(
       };
     }
 
+    // ACTIVATION: populate industry_avg from pure benchmark lookup
+    let industryAvg: number | null = null;
+    let industrySource: string | null = null;
+    if (naicsCode && annualRevenue !== null && annualRevenue > 0) {
+      const benchmarkId = RATIO_TO_BENCHMARK[spec.metricId];
+      if (benchmarkId) {
+        const bm = lookupBenchmark(naicsCode, benchmarkId, annualRevenue);
+        if (bm) {
+          industryAvg = bm.percentiles.p50;
+          industrySource = `NAICS ${naicsCode} (${bm.naicsDescription}), ${bm.revenueTier} tier`;
+        }
+      }
+    }
+
     rows.push({
       metric: spec.label,
       category: spec.category,
       value,
-      industry_avg: null,
-      industry_source: null,
+      industry_avg: industryAvg,
+      industry_source: industrySource,
       unit: spec.unit,
       period_label: periodLabel,
       assessment: interp.assessment,

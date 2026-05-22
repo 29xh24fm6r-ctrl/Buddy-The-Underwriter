@@ -325,6 +325,11 @@ export type CanonicalCreditMemoV1 = {
     ar_borrowing_base: ArBorrowingBaseSection | null;
   };
 
+  // ── BANKER CONTEXT (live render of banker notes) ─────────────────────────
+  banker_context?: {
+    banker_notes: string | null;
+  };
+
   // ── BUSINESS & INDUSTRY ANALYSIS ─────────────────────────────────────────
   business_summary: {
     business_description: string;
@@ -336,6 +341,11 @@ export type CanonicalCreditMemoV1 = {
     marketing_channels: string[];
     competitive_advantages: string;
     vision: string;
+    // ACTIVATION: enriched fields from deal_borrower_story
+    products_services?: string | null;
+    customers?: string | null;
+    customer_concentration?: string | null;
+    key_risks?: string | null;
   };
 
   business_industry_analysis: {

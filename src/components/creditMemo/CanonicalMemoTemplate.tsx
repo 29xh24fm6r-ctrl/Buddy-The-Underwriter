@@ -884,7 +884,7 @@ export default function CanonicalMemoTemplate({
           {[
             { label: "DSCR (UW)", val: fmtRatio(km.dscr_uw.value), src: km.dscr_uw.source },
             { label: "DSCR (Stressed)", val: fmtRatio(km.dscr_stressed.value), src: km.dscr_stressed.source },
-            { label: "LTV Gross", val: km.ltv_gross.value !== null ? fmtPct01(km.ltv_gross.value) : "—", src: km.ltv_gross.source },
+            { label: "LTV Gross", val: km.ltv_gross.value !== null ? fmtPct(km.ltv_gross.value) : "—", src: km.ltv_gross.source },
             { label: "Discounted Cov.", val: fmtRatio(km.discounted_coverage.value), src: km.discounted_coverage.source },
           ].map((kpi) => (
             <div key={kpi.label} className="border border-gray-200 bg-white rounded p-2 text-center">
@@ -895,6 +895,18 @@ export default function CanonicalMemoTemplate({
           ))}
         </div>
       </div>
+
+      {/* ── BANKER CONTEXT (ACTIVATION) ── */}
+      {memo.banker_context?.banker_notes && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 mb-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">
+            Banker Context
+          </div>
+          <div className="text-sm text-gray-800 whitespace-pre-wrap">
+            {memo.banker_context.banker_notes}
+          </div>
+        </div>
+      )}
 
       {/* ── DEAL SUMMARY / PURPOSE ── */}
       <SectionHeader>Deal Summary / Purpose</SectionHeader>
@@ -941,7 +953,7 @@ export default function CanonicalMemoTemplate({
         </table>
         <div className="text-xs text-gray-500 mt-1">
           Equity Source: {memo.sources_uses.equity_source_description} &nbsp;|&nbsp;
-          Borrower Equity: {memo.sources_uses.borrower_equity_pct.value !== null ? fmtPct01(memo.sources_uses.borrower_equity_pct.value) : "—"}
+          Borrower Equity: {memo.sources_uses.borrower_equity_pct.value !== null ? fmtPct(memo.sources_uses.borrower_equity_pct.value) : "—"}
         </div>
       </div>
 
@@ -1000,8 +1012,8 @@ export default function CanonicalMemoTemplate({
       <div className="mt-2 grid grid-cols-3 gap-4 text-xs">
         <div><span className="text-gray-500">Loan Amount:</span> <span className="font-medium">{fmt$(memo.collateral.loan_amount)}</span></div>
         <div><span className="text-gray-500">Discounted Coverage:</span> <span className="font-medium">{fmtRatio(memo.collateral.discounted_coverage.value)}</span></div>
-        <div><span className="text-gray-500">LTV Gross:</span> <span className="font-medium">{memo.collateral.ltv_gross.value !== null ? fmtPct01(memo.collateral.ltv_gross.value) : "—"}</span></div>
-        <div><span className="text-gray-500">LTV Net:</span> <span className="font-medium">{memo.collateral.ltv_net.value !== null ? fmtPct01(memo.collateral.ltv_net.value) : "—"}</span></div>
+        <div><span className="text-gray-500">LTV Gross:</span> <span className="font-medium">{memo.collateral.ltv_gross.value !== null ? fmtPct(memo.collateral.ltv_gross.value) : "—"}</span></div>
+        <div><span className="text-gray-500">LTV Net:</span> <span className="font-medium">{memo.collateral.ltv_net.value !== null ? fmtPct(memo.collateral.ltv_net.value) : "—"}</span></div>
         <div><span className="text-gray-500">As-Is Value:</span> <span className="font-medium">{fmt$(memo.collateral.valuation.as_is.value)}</span></div>
         <div><span className="text-gray-500">Stabilized Value:</span> <span className="font-medium">{fmt$(memo.collateral.valuation.stabilized.value)}</span></div>
       </div>

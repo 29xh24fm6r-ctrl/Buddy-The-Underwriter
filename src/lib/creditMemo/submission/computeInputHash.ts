@@ -15,6 +15,8 @@ export type InputHashSources = {
 };
 
 export function computeInputHash(sources: InputHashSources): string {
+  // ACTIVATION: expanded hash inputs — AR, pricing, facts, management, borrower story
+  const arBb = sources.memo.collateral.ar_borrowing_base;
   const canonical = canonicalize({
     memo_deal_id: sources.memo.deal_id,
     memo_bank_id: sources.memo.bank_id,
@@ -28,6 +30,20 @@ export function computeInputHash(sources: InputHashSources): string {
       id: p.id,
       bio_len: typeof p.bio === "string" ? p.bio.length : 0,
     })),
+    // AR borrowing base fields — stale narrative detection
+    ar_total: arBb?.total_ar ?? null,
+    ar_eligible: arBb?.eligible_ar ?? null,
+    ar_advance_rate: arBb?.advance_rate ?? null,
+    ar_as_of_date: arBb?.as_of_date ?? null,
+    // Pricing decision fields
+    pricing_product: sources.memo.proposed_terms.product,
+    pricing_rate: sources.memo.proposed_terms.rate.all_in_rate,
+    pricing_rationale_len: sources.memo.proposed_terms.rationale.length,
+    // Financial fact coverage — any fact change shifts count or updated_at
+    debt_coverage_row_count: sources.memo.financial_analysis.debt_coverage_table.length,
+    verdict: sources.memo.recommendation.verdict,
+    // Banker context
+    banker_notes_len: sources.memo.banker_context?.banker_notes?.length ?? 0,
     overrides: sources.overrides,
     banker_id: sources.bankerId,
   });

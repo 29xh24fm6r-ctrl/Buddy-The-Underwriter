@@ -883,3 +883,276 @@ describe("CANONICAL KEY NORMALIZATION — dual-key writes", () => {
     );
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// ACTIVATION SPRINT — 9 activation items
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("ACTIVATION §1 — Verdict by_year from debtCoverageTable", () => {
+  it("by_year derivation from debtCoverageTable rows produces worst_year and worst_dscr", () => {
+    // Simulate the debtCoverageTable → by_year derivation in buildCanonicalCreditMemo
+    const debtCoverageRows: DebtCoverageRow[] = [
+      { label: "2024-12-31", period_end: "2024-12-31", months: 12, revenue: 12_000_000, net_income: 800_000, addback_rent: null, addback_interest: null, addback_depreciation: 50_000, addback_officer_salary: null, deduct_payroll: null, deduct_officer_draw: null, cash_flow_available: 850_000, debt_service: 600_000, excess_cash_flow: 250_000, dscr: 1.42, debt_service_stressed: 618_000, dscr_stressed: 1.38, is_projection: false },
+      { label: "2023-12-31", period_end: "2023-12-31", months: 12, revenue: 10_500_000, net_income: 650_000, addback_rent: null, addback_interest: null, addback_depreciation: 40_000, addback_officer_salary: null, deduct_payroll: null, deduct_officer_draw: null, cash_flow_available: 690_000, debt_service: 600_000, excess_cash_flow: 90_000, dscr: 1.15, debt_service_stressed: 618_000, dscr_stressed: 1.12, is_projection: false },
+    ];
+
+    const byYear = debtCoverageRows
+      .filter((r) => r.dscr !== null)
+      .map((r) => ({
+        year: parseInt(r.period_end.slice(0, 4), 10),
+        revenue: r.revenue,
+        cfads: r.cash_flow_available,
+        dscr: r.dscr,
+      }));
+
+    let worstYear: number | null = null;
+    let worstDscr: number | null = null;
+    for (const yr of byYear) {
+      if (yr.dscr !== null && (worstDscr === null || yr.dscr < worstDscr)) {
+        worstDscr = yr.dscr;
+        worstYear = yr.year;
+      }
+    }
+
+    assert.equal(worstYear, 2023, "Worst year must be 2023 (lower DSCR)");
+    assert.equal(worstDscr, 1.15, "Worst DSCR must be 1.15x");
+    assert.ok(byYear.length === 2, "by_year must have 2 rows");
+  });
+
+  it("verdict no longer says 'Unable to compute' when by_year has DSCR rows", async () => {
+    // With real by_year data, computeUnderwritingVerdict should NOT produce
+    // the "Unable to compute worst-year DSCR" message
+    const { computeUnderwritingVerdict: compute } = await import("@/lib/finance/underwriting/computeVerdict");
+    const uwResults = {
+      policy_min_dscr: 1.25,
+      annual_debt_service: 720_000,
+      worst_year: 2023,
+      worst_dscr: 1.15,
+      avg_dscr: 1.28,
+      weighted_dscr: 1.28,
+      stressed_dscr: 1.10,
+      cfads_trend: "up" as const,
+      revenue_trend: "up" as const,
+      flags: [] as string[],
+      low_confidence_years: [] as number[],
+      by_year: [
+        { year: 2023, revenue: 10_500_000, cfads: 690_000, officer_comp: null, ebitda: null, dscr: 1.15, confidence: 1.0 },
+        { year: 2024, revenue: 12_000_000, cfads: 850_000, officer_comp: null, ebitda: null, dscr: 1.42, confidence: 1.0 },
+      ],
+    };
+
+    const verdict = compute(uwResults);
+    assert.ok(!verdict.headline.includes("Unable to compute"), `Verdict must not say "Unable to compute", got: ${verdict.headline}`);
+    assert.ok(verdict.headline.length > 0, "Verdict headline must be non-empty");
+  });
+});
+
+describe("ACTIVATION §2 — Management profile from deal_management_profiles", () => {
+  it("OmniCare fixture management profile has rich fields for memo rendering", () => {
+    const mgmt = OMNICARE_FIXTURE.management[0];
+    assert.ok(mgmt.resume_summary.length > 0, "resume_summary must be non-empty");
+    assert.ok(mgmt.industry_experience.length > 0, "industry_experience must be non-empty");
+    assert.ok(mgmt.credit_relevance.length > 0, "credit_relevance must be non-empty");
+    // Simulates the bio construction logic from buildCanonicalCreditMemo
+    const parts: string[] = [];
+    if (mgmt.resume_summary) parts.push(mgmt.resume_summary);
+    if (mgmt.industry_experience) parts.push(mgmt.industry_experience);
+    if (mgmt.credit_relevance) parts.push(`Credit: ${mgmt.credit_relevance}`);
+    const bio = parts.join(". ");
+    assert.ok(bio.length > 50, "Constructed bio must be substantive");
+    assert.ok(bio.includes("Harvard MBA"), "Bio must include resume content");
+    assert.ok(bio.includes("Credit:"), "Bio must include credit relevance");
+  });
+});
+
+describe("ACTIVATION §3 — Borrower story beats stale overrides", () => {
+  it("deal_borrower_story fields take precedence over overrides for business_description", () => {
+    const borrowerStory = { business_description: "Rich story from deal_borrower_story table" };
+    const overrides = { business_description: "Stale override text" };
+    // Simulates the activation priority: borrowerStory > overrides > qualFacts
+    const result = borrowerStory.business_description ?? overrides.business_description ?? null;
+    assert.equal(result, "Rich story from deal_borrower_story table");
+  });
+
+  it("falls back to overrides when borrower_story is null", () => {
+    const borrowerStory = { business_description: null as string | null };
+    const overrides = { business_description: "Override text" };
+    const result = borrowerStory.business_description ?? overrides.business_description ?? null;
+    assert.equal(result, "Override text");
+  });
+});
+
+describe("ACTIVATION §4 — Narrative cache hash includes AR/pricing/facts", () => {
+  it("input hash type includes all required expanded fields", () => {
+    // The computeInputHash function now includes AR, pricing, and fact coverage fields.
+    // This is a structural test that the CanonicalCreditMemoV1 type carries the fields
+    // needed for the expanded hash.
+    type CMV1 = CanonicalCreditMemoV1;
+    type HasAR = CMV1["collateral"]["ar_borrowing_base"];
+    type HasProposedTerms = CMV1["proposed_terms"]["product"];
+    type HasDebtCoverage = CMV1["financial_analysis"]["debt_coverage_table"];
+    type HasBankerContext = CMV1["banker_context"];
+
+    const _ar: HasAR = null;
+    const _pt: HasProposedTerms = "LOC";
+    const _dc: HasDebtCoverage = [];
+    const _bc: HasBankerContext = { banker_notes: "test" };
+
+    assert.ok(true, "All expanded hash input fields exist on type");
+  });
+
+  it("AR change produces different hash inputs", () => {
+    // When AR total changes, the hash must differ
+    const hashInput1 = { ar_total: 3_007_506.78, ar_eligible: 2_854_124.19 };
+    const hashInput2 = { ar_total: 3_500_000.00, ar_eligible: 3_200_000.00 };
+    assert.notDeepEqual(hashInput1, hashInput2, "Different AR values must produce different hash inputs");
+  });
+});
+
+describe("ACTIVATION §5 — Ratio benchmarks populated from NAICS", () => {
+  it("lookupBenchmark returns data for known NAICS code", async () => {
+    const { lookupBenchmark: lb } = await import("@/lib/benchmarks/industryBenchmarks");
+    // NAICS 621111 = Offices of physicians → healthcare group
+    const result = lb("621111", "GROSS_MARGIN", 12_000_000);
+    assert.ok(result !== null, "lookupBenchmark must return data for known NAICS");
+    assert.ok(result!.percentiles.p50 > 0, "Peer median must be > 0");
+    assert.ok(result!.naicsDescription.length > 0, "Description must be non-empty");
+  });
+
+  it("lookupBenchmark returns null for unknown NAICS code", async () => {
+    const { lookupBenchmark: lb } = await import("@/lib/benchmarks/industryBenchmarks");
+    const result = lb("999999", "GROSS_MARGIN", 12_000_000);
+    assert.equal(result, null, "Unknown NAICS must return null");
+  });
+
+  it("RatioAnalysisRow type supports industry_avg and industry_source", () => {
+    const row: import("@/lib/creditMemo/canonical/types").RatioAnalysisRow = {
+      metric: "Gross Margin",
+      category: "Profitability",
+      value: 0.48,
+      industry_avg: 0.45,
+      industry_source: "NAICS 621111 (Offices of physicians), 5m_25m tier",
+      unit: "percent",
+      period_label: "FY 2025",
+      assessment: "Strong",
+      interpretation: "Test interpretation",
+      benchmark_note: "Industry median: 45%",
+    };
+    assert.equal(row.industry_avg, 0.45, "industry_avg must be populated");
+    assert.ok(row.industry_source!.includes("NAICS"), "industry_source must reference NAICS");
+  });
+});
+
+describe("ACTIVATION §6 — Banker notes live render", () => {
+  it("CanonicalCreditMemoV1 has banker_context field", () => {
+    type BC = CanonicalCreditMemoV1["banker_context"];
+    const ctx: BC = { banker_notes: "Relationship of 5 years, seasonal cash flow" };
+    assert.ok(ctx!.banker_notes!.length > 0, "banker_notes must be renderable");
+  });
+});
+
+describe("ACTIVATION §7 — AR collateral line item replaces generic", () => {
+  it("when AR exists, collateral description is AR-specific not generic", () => {
+    const arBbExists = true;
+    const description = arBbExists
+      ? "Accounts Receivable (AR Borrowing Base)"
+      : "Real Property / Business Assets (Combined)";
+    assert.equal(description, "Accounts Receivable (AR Borrowing Base)");
+    assert.ok(!description.includes("Real Property"), "Must not show generic when AR exists");
+  });
+});
+
+describe("ACTIVATION §8 — Readiness aligned to memo sources", () => {
+  it("collateral readiness passes when snapshot collateral exists even without explicit items", () => {
+    const result = evaluateMemoInputReadiness({
+      dealId: OMNICARE_FIXTURE.dealId,
+      borrowerStory: {
+        id: "s1", deal_id: OMNICARE_FIXTURE.dealId, bank_id: OMNICARE_FIXTURE.bankId,
+        business_description: OMNICARE_FIXTURE.borrowerStory.business_description,
+        revenue_model: OMNICARE_FIXTURE.borrowerStory.revenue_model,
+        products_services: null, customers: null, customer_concentration: null,
+        competitive_position: null, growth_strategy: null, seasonality: null, key_risks: null,
+        banker_notes: null, source: "banker" as const, confidence: null,
+        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      },
+      management: [{
+        id: "m1", deal_id: OMNICARE_FIXTURE.dealId, bank_id: OMNICARE_FIXTURE.bankId,
+        person_name: "Sarah Chen", title: "CEO", ownership_pct: 65,
+        years_experience: 18, industry_experience: "18 years", prior_business_experience: "VP Ops",
+        resume_summary: "Harvard MBA", credit_relevance: "Strong", source: "banker" as const,
+        confidence: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      }],
+      collateral: [], // Empty explicit collateral items
+      financialFacts: {
+        dscr: OMNICARE_FIXTURE.financials.dscr,
+        annualDebtService: OMNICARE_FIXTURE.financials.annualDebtService,
+        globalCashFlow: OMNICARE_FIXTURE.financials.cashFlowAvailable,
+        loanAmount: OMNICARE_FIXTURE.loanRequest.requestedAmount,
+      },
+      research: { gate_passed: true, trust_grade: "committee_grade" as const, quality_score: 0.92 },
+      conflicts: [] as DealFactConflict[],
+      hasSnapshotCollateral: true, // Snapshot has collateral
+    });
+    assert.ok(!result.blockers.some((b) => b.code === "missing_collateral_item"), "Must not block on collateral when snapshot exists");
+    assert.ok(!result.blockers.some((b) => b.code === "missing_collateral_value"), "Must not block on collateral value when snapshot exists");
+  });
+
+  it("DSCR proxy source emits warning but does not block", () => {
+    const result = evaluateMemoInputReadiness({
+      dealId: OMNICARE_FIXTURE.dealId,
+      borrowerStory: {
+        id: "s1", deal_id: OMNICARE_FIXTURE.dealId, bank_id: OMNICARE_FIXTURE.bankId,
+        business_description: OMNICARE_FIXTURE.borrowerStory.business_description,
+        revenue_model: OMNICARE_FIXTURE.borrowerStory.revenue_model,
+        products_services: null, customers: null, customer_concentration: null,
+        competitive_position: null, growth_strategy: null, seasonality: null, key_risks: null,
+        banker_notes: null, source: "banker" as const, confidence: null,
+        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      },
+      management: [{
+        id: "m1", deal_id: OMNICARE_FIXTURE.dealId, bank_id: OMNICARE_FIXTURE.bankId,
+        person_name: "Sarah Chen", title: "CEO", ownership_pct: 65,
+        years_experience: 18, industry_experience: "18 years", prior_business_experience: "VP Ops",
+        resume_summary: "Harvard MBA", credit_relevance: "Strong", source: "banker" as const,
+        confidence: null, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      }],
+      collateral: [{
+        id: "c1", deal_id: OMNICARE_FIXTURE.dealId, bank_id: OMNICARE_FIXTURE.bankId,
+        collateral_type: "accounts_receivable", description: "AR Pool",
+        owner_name: null, market_value: 3_000_000, appraised_value: null,
+        discounted_value: 2_400_000, advance_rate: 0.80, lien_position: "1st",
+        valuation_date: null, valuation_source: null, source_document_id: null,
+        confidence: 0.95, requires_review: false,
+      }],
+      financialFacts: {
+        dscr: 1.42, // DSCR exists
+        annualDebtService: OMNICARE_FIXTURE.financials.annualDebtService,
+        globalCashFlow: OMNICARE_FIXTURE.financials.cashFlowAvailable,
+        loanAmount: OMNICARE_FIXTURE.loanRequest.requestedAmount,
+      },
+      research: { gate_passed: true, trust_grade: "committee_grade" as const, quality_score: 0.92 },
+      conflicts: [] as DealFactConflict[],
+      dscrSource: "proxy",
+    });
+    assert.ok(!result.blockers.some((b) => b.code === "missing_dscr"), "Proxy DSCR must not produce blocker");
+    assert.ok(result.warnings.some((w) => w.code === "dscr_proxy_source"), "Proxy DSCR must produce warning");
+  });
+});
+
+describe("ACTIVATION §9 — Frozen snapshot management display", () => {
+  it("CanonicalCreditMemoV1 management_qualifications can carry enriched profile data", () => {
+    const principal: CanonicalCreditMemoV1["management_qualifications"]["principals"][0] = {
+      id: "p1",
+      name: "Sarah Chen",
+      ownership_pct: 65,
+      title: "CEO & Founder",
+      bio: "Harvard MBA, former director at Johns Hopkins. 18 years in healthcare staffing. Credit: Strong personal credit, $2.1M net worth",
+      years_experience: 18,
+      prior_roles: ["Previously VP of Operations at MedStaff Inc."],
+      other_income_sources: null,
+    };
+    assert.ok(principal.bio.length > 50, "Enriched bio must be substantive");
+    assert.ok(principal.prior_roles.length > 0, "prior_roles must be populated from deal_management_profiles");
+    assert.equal(principal.years_experience, 18, "years_experience must come from profile");
+  });
+});

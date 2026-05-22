@@ -116,7 +116,9 @@ export function evaluateMemoInputReadiness(
   const managementComplete = management.length > 0;
 
   // ── 3. Collateral ─────────────────────────────────────────────────────
-  if (collateral.length === 0) {
+  // ACTIVATION: Accept snapshot collateral or AR borrowing base as alternatives
+  const hasSnapshotOrAr = args.hasSnapshotCollateral === true || args.hasArBorrowingBase === true;
+  if (collateral.length === 0 && !hasSnapshotOrAr) {
     blockers.push({
       code: "missing_collateral_item",
       label: "Collateral analysis is required",
@@ -125,7 +127,7 @@ export function evaluateMemoInputReadiness(
     });
   }
   const anyCollateralValued = collateral.some((c) => valuationOf(c) !== null);
-  if (collateral.length > 0 && !anyCollateralValued) {
+  if (collateral.length > 0 && !anyCollateralValued && !hasSnapshotOrAr) {
     blockers.push({
       code: "missing_collateral_value",
       label: "At least one collateral item must have a market or appraised value",
@@ -133,7 +135,7 @@ export function evaluateMemoInputReadiness(
       fixPath: `/deals/${dealId}/memo-inputs#collateral`,
     });
   }
-  const collateralComplete = collateral.length > 0 && anyCollateralValued;
+  const collateralComplete = (collateral.length > 0 && anyCollateralValued) || hasSnapshotOrAr;
 
   if (collateral.some((c) => c.requires_review)) {
     warnings.push({
@@ -159,6 +161,13 @@ export function evaluateMemoInputReadiness(
       code: "missing_dscr",
       label: "DSCR has not been computed",
       owner: "buddy",
+      fixPath: `/deals/${dealId}/spreads`,
+    });
+  } else if (args.dscrSource === "proxy") {
+    // ACTIVATION: DSCR exists but from proxy/fallback — warn, don't block
+    warnings.push({
+      code: "dscr_proxy_source",
+      label: "DSCR is computed from proxy (T12/structural) — authoritative spread-based DSCR recommended",
       fixPath: `/deals/${dealId}/spreads`,
     });
   }

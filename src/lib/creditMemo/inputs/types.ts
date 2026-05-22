@@ -22,7 +22,8 @@ export type MemoInputWarningCode =
   | "low_research_quality"
   | "collateral_requires_review"
   | "borrower_story_incomplete"
-  | "management_profile_thin";
+  | "management_profile_thin"
+  | "dscr_proxy_source";
 
 export type BlockerOwner = "banker" | "borrower" | "buddy";
 
@@ -176,6 +177,10 @@ export type EvaluateMemoInputReadinessArgs = {
   isArLocDeal?: boolean;
   /** Whether AR borrowing base facts exist. */
   hasArBorrowingBase?: boolean;
+  /** ACTIVATION: When true, snapshot collateral value exists (memo can render collateral even without explicit items). */
+  hasSnapshotCollateral?: boolean;
+  /** ACTIVATION: DSCR source — "authoritative" (snapshot/spread), "proxy" (T12/structural), or null. */
+  dscrSource?: "authoritative" | "proxy" | null;
 };
 
 // ── Memo Input Package — assembled before snapshot freeze ────────────────────
