@@ -5,7 +5,12 @@
  * Reads from static generated JSON files (no DB required).
  * Supplements the existing IndustryProfile system with source-cited data.
  *
- * Pure module — no server-only, no DB. Safe for CI and client import.
+ * ⚠ SERVER-SIDE ONLY — Do not import this module from client components
+ * ("use client" files, CanonicalMemoTemplate.tsx, etc). The underlying
+ * JSON data files are ~1MB combined and must not be bundled into client JS.
+ * Use server-built memo fields (industry_risk_positioning, etc.) instead.
+ *
+ * CI test imports are safe (node:test runs server-side).
  *
  * Sources:
  *   - Census NAICS Reference (2022)
