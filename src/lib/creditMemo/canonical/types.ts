@@ -456,6 +456,20 @@ export type CanonicalCreditMemoV1 = {
     global_cf_table: GlobalCFRow[];
     /** Elite: narrative explaining GCF proxy status when formal exhibit is incomplete */
     gcf_proxy_narrative?: string | null;
+    /** Elite: structured GCF status for institutional rendering */
+    gcf_status?: "formal_complete" | "proxy_with_pfs" | "pending_pfs";
+    /** Elite: guarantor support summary for institutional rendering */
+    guarantor_support?: {
+      guarantor_name: string | null;
+      annual_personal_income: CanonicalMemoNumber;
+      total_assets: CanonicalMemoNumber;
+      total_liabilities: CanonicalMemoNumber;
+      net_worth: CanonicalMemoNumber;
+      liquidity: CanonicalMemoNumber;
+      known_limitations: string[];
+      credit_view: string;
+      required_follow_up: string[];
+    } | null;
   };
 
   // ── PERSONAL FINANCIAL STATEMENTS ───────────────────────────────────────

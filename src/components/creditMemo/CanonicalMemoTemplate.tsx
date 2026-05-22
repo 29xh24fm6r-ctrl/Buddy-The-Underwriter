@@ -1435,24 +1435,10 @@ export default function CanonicalMemoTemplate({
         </table>
       </div>
 
-      {/* Global CF Table — suppress when all values are hollow */}
-      {(memo.global_cash_flow.global_cf_table.length > 0 ||
-        memo.global_cash_flow.global_dscr.value !== null ||
-        memo.global_cash_flow.cash_available.value !== null ||
-        memo.global_cash_flow.total_obligations.value !== null) && (
-      <>
-      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">
-        {memo.global_cash_flow.global_cf_table.length > 0
-          ? "Global Cash Flow Summary"
-          : "Cash Flow Proxy & GCF Status"}
-      </div>
-      {/* Elite: GCF proxy narrative when formal exhibit is incomplete */}
-      {memo.global_cash_flow.gcf_proxy_narrative && (
-        <div className="text-xs text-gray-700 whitespace-pre-wrap mb-3 bg-amber-50 border border-amber-200 rounded p-3">
-          {memo.global_cash_flow.gcf_proxy_narrative}
-        </div>
-      )}
+      {/* ── GLOBAL CASH FLOW & GUARANTOR SUPPORT ── */}
       {memo.global_cash_flow.global_cf_table.length > 0 ? (
+        <>
+        <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Global Cash Flow Summary</div>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -1488,22 +1474,94 @@ export default function CanonicalMemoTemplate({
             </tbody>
           </table>
         </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          {[
-            { label: "Global Cash Flow", val: fmtRatio(memo.global_cash_flow.global_dscr.value), sub: "DSCR" },
-            { label: "Cash Available", val: fmt$(memo.global_cash_flow.cash_available.value), sub: memo.global_cash_flow.cash_available.source },
-            { label: "Total Obligations", val: fmt$(memo.global_cash_flow.total_obligations.value), sub: memo.global_cash_flow.total_obligations.source },
-          ].map((kpi) => (
-            <div key={kpi.label} className="border border-gray-200 rounded p-2 text-center">
-              <div className="text-[10px] text-gray-500 uppercase">{kpi.label}</div>
-              <div className="text-sm font-semibold mt-0.5">{kpi.val}</div>
-              <div className="text-[9px] text-gray-400 truncate">{kpi.sub}</div>
-            </div>
-          ))}
+        </>
+      ) : memo.global_cash_flow.gcf_status === "pending_pfs" ? (
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-gray-700 mb-1">Global Cash Flow & Guarantor Support — Pending</div>
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+            Guarantor PFS / personal income information required to complete global cash flow analysis.
+          </div>
         </div>
-      )}
-      </>
+      ) : (
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-gray-700 mb-2">Global Cash Flow & Guarantor Support</div>
+
+          {/* Explanatory intro */}
+          <div className="text-sm text-gray-700 mb-3">
+            Formal global cash flow exhibit is incomplete because recurring personal obligations, living expenses, and contingent liabilities are not fully populated. Buddy evaluates repayment using verified borrower cash flow together with available guarantor PFS support.
+          </div>
+
+          {/* Business Repayment Capacity */}
+          <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Business Repayment Capacity</div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-sm mb-3 ml-2">
+            {memo.financial_analysis.cash_flow_available.value !== null && (
+              <div><span className="text-gray-500">Borrower CFADS:</span> <span className="font-medium">{fmt$(memo.financial_analysis.cash_flow_available.value)}</span></div>
+            )}
+            {memo.financial_analysis.debt_service.value !== null && (
+              <div><span className="text-gray-500">Proposed ADS:</span> <span className="font-medium">{fmt$(memo.financial_analysis.debt_service.value)}</span></div>
+            )}
+            {memo.financial_analysis.dscr.value !== null && (
+              <div><span className="text-gray-500">UW DSCR:</span> <span className="font-medium">{memo.financial_analysis.dscr.value.toFixed(2)}x</span></div>
+            )}
+            {memo.financial_analysis.dscr_stressed.value !== null && (
+              <div><span className="text-gray-500">Stressed DSCR:</span> <span className="font-medium">{memo.financial_analysis.dscr_stressed.value.toFixed(2)}x</span></div>
+            )}
+          </div>
+
+          {/* Guarantor Support */}
+          {memo.global_cash_flow.guarantor_support && (
+            <>
+            <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Guarantor Support</div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-sm mb-3 ml-2">
+              {memo.global_cash_flow.guarantor_support.guarantor_name && (
+                <div><span className="text-gray-500">Guarantor:</span> <span className="font-medium">{memo.global_cash_flow.guarantor_support.guarantor_name}</span></div>
+              )}
+              {memo.global_cash_flow.guarantor_support.annual_personal_income !== null && (
+                <div><span className="text-gray-500">Annual personal income:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.annual_personal_income)}</span></div>
+              )}
+              {memo.global_cash_flow.guarantor_support.total_assets !== null && (
+                <div><span className="text-gray-500">Total assets:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.total_assets)}</span></div>
+              )}
+              {memo.global_cash_flow.guarantor_support.total_liabilities !== null && (
+                <div><span className="text-gray-500">Total liabilities:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.total_liabilities)}</span></div>
+              )}
+              {memo.global_cash_flow.guarantor_support.net_worth !== null && (
+                <div><span className="text-gray-500">Net worth:</span> <span className="font-semibold">{fmt$(memo.global_cash_flow.guarantor_support.net_worth)}</span></div>
+              )}
+            </div>
+
+            {/* Known Limitations */}
+            {memo.global_cash_flow.guarantor_support.known_limitations.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Known Limitations</div>
+                <ul className="text-sm text-gray-700 list-disc ml-6 space-y-0.5">
+                  {memo.global_cash_flow.guarantor_support.known_limitations.map((lim, i) => (
+                    <li key={`lim-${i}`}>{lim}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Credit View */}
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Credit View</div>
+              <div className="text-sm text-gray-700">{memo.global_cash_flow.guarantor_support.credit_view}</div>
+            </div>
+
+            {/* Required Follow-up */}
+            {memo.global_cash_flow.guarantor_support.required_follow_up.length > 0 && (
+              <div className="bg-gray-50 border border-gray-200 rounded p-2">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Required Follow-up / Condition</div>
+                <ul className="text-sm text-gray-700 list-disc ml-6 space-y-0.5">
+                  {memo.global_cash_flow.guarantor_support.required_follow_up.map((fu, i) => (
+                    <li key={`fu-${i}`}>{fu}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            </>
+          )}
+        </div>
       )}
 
       {/* Income Statement Table */}

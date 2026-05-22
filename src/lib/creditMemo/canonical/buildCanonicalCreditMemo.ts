@@ -1565,25 +1565,73 @@ export async function buildCanonicalCreditMemo(args: {
         projection_feasibility: "Pending",
       },
 
-      global_cash_flow: {
-        global_cash_flow: bindingToMetric(bindings.global.globalCashFlow, "Facts:FINANCIAL_ANALYSIS.GCF_GLOBAL_CASH_FLOW"),
-        global_dscr: bindingToMetric(bindings.global.globalDscr, "Facts:FINANCIAL_ANALYSIS.GCF_DSCR"),
-        cash_available: bindingToMetric(bindings.global.cashAvailable, "Computed:PERSONAL_INCOME + PROPERTY_CASH_FLOW"),
-        personal_debt_service: bindingToMetric(bindings.global.personalDebtService, "Computed:SUM(PFS_ANNUAL_DEBT_SERVICE)"),
-        living_expenses: bindingToMetric(bindings.global.livingExpenses, "Computed:SUM(PFS_LIVING_EXPENSES)"),
-        total_obligations: bindingToMetric(bindings.global.totalObligations, "Computed:PERSONAL_DS + LIVING_EXPENSES"),
-        global_cf_table: [],
-        // Elite: GCF proxy narrative when formal exhibit is incomplete
-        gcf_proxy_narrative: bindings.global.globalCashFlow === null ? buildGcfProxyNarrative({
-          cfads: financial.cashFlowAvailable.value,
-          ads: financial.annualDebtService.value,
-          dscr: financial.dscrGlobal.value,
-          stressedDscr: financial.dscrStressed300bps.value,
-          guarantorNetWorth: bindings.sponsors[0]?.netWorth ?? null,
-          annualPersonalIncome: bindings.sponsors[0]?.totalPersonalIncome ?? null,
-          hasArBorrowingBase: arBbSection !== null,
-        }) : null,
-      },
+      global_cash_flow: (() => {
+        const gcfComplete = bindings.global.globalCashFlow !== null;
+        const hasPfs = personalFinancialStatements.length > 0 && personalFinancialStatements.some(
+          (p) => p.total_assets !== null || p.net_worth !== null || p.annual_income !== null,
+        );
+        const sponsor = bindings.sponsors[0] ?? null;
+        const guarantorName = mgmtResult.principals[0]?.name ?? sponsor?.name ?? null;
+
+        const gcfStatus: "formal_complete" | "proxy_with_pfs" | "pending_pfs" =
+          gcfComplete ? "formal_complete" : hasPfs ? "proxy_with_pfs" : "pending_pfs";
+
+        // Build known limitations
+        const limitations: string[] = [];
+        if (bindings.global.personalDebtService === null) limitations.push("Complete recurring personal debt service not fully populated");
+        if (bindings.global.livingExpenses === null) limitations.push("Living expenses not fully populated");
+        if (bindings.global.totalObligations === null) limitations.push("Total personal obligations not fully populated");
+        if (!gcfComplete) limitations.push("Formal global cash flow worksheet remains incomplete");
+
+        // Build credit view
+        let creditView: string;
+        if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0 && sponsor?.netWorth != null && sponsor.netWorth > 0) {
+          creditView = `Primary repayment is borrower operating cash flow. Available borrower CFADS and stress testing support repayment capacity (DSCR ${financial.dscrGlobal.value.toFixed(2)}x). Guarantor PFS provides substantial secondary support through net worth (${formatCurrencySimple(sponsor.netWorth)}). Incomplete formal GCF is a documentation/diligence gap, not a primary repayment failure, but must be acknowledged or completed per bank policy.`;
+        } else if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 1.25) {
+          creditView = "Primary repayment is borrower operating cash flow. Borrower coverage meets policy minimum. Guarantor support analysis is limited by incomplete GCF data — recommend completion before final approval.";
+        } else {
+          creditView = "Borrower repayment capacity requires further analysis. Formal global cash flow should be completed to assess total guarantor support.";
+        }
+
+        // Build required follow-up
+        const followUp: string[] = [
+          "Complete guarantor global cash flow worksheet or debt schedule",
+          "Confirm recurring personal obligations and living expenses",
+        ];
+        if (sponsor?.netWorth == null) followUp.push("Obtain current personal financial statement");
+        followUp.push("Reconcile PFS liquidity, debt obligations, and contingent liabilities before final approval");
+
+        return {
+          global_cash_flow: bindingToMetric(bindings.global.globalCashFlow, "Facts:FINANCIAL_ANALYSIS.GCF_GLOBAL_CASH_FLOW"),
+          global_dscr: bindingToMetric(bindings.global.globalDscr, "Facts:FINANCIAL_ANALYSIS.GCF_DSCR"),
+          cash_available: bindingToMetric(bindings.global.cashAvailable, "Computed:PERSONAL_INCOME + PROPERTY_CASH_FLOW"),
+          personal_debt_service: bindingToMetric(bindings.global.personalDebtService, "Computed:SUM(PFS_ANNUAL_DEBT_SERVICE)"),
+          living_expenses: bindingToMetric(bindings.global.livingExpenses, "Computed:SUM(PFS_LIVING_EXPENSES)"),
+          total_obligations: bindingToMetric(bindings.global.totalObligations, "Computed:PERSONAL_DS + LIVING_EXPENSES"),
+          global_cf_table: [],
+          gcf_proxy_narrative: !gcfComplete ? buildGcfProxyNarrative({
+            cfads: financial.cashFlowAvailable.value,
+            ads: financial.annualDebtService.value,
+            dscr: financial.dscrGlobal.value,
+            stressedDscr: financial.dscrStressed300bps.value,
+            guarantorNetWorth: sponsor?.netWorth ?? null,
+            annualPersonalIncome: sponsor?.totalPersonalIncome ?? null,
+            hasArBorrowingBase: arBbSection !== null,
+          }) : null,
+          gcf_status: gcfStatus,
+          guarantor_support: (gcfStatus !== "formal_complete") ? {
+            guarantor_name: guarantorName,
+            annual_personal_income: sponsor?.totalPersonalIncome ?? null,
+            total_assets: sponsor?.totalAssets ?? null,
+            total_liabilities: sponsor?.totalLiabilities ?? null,
+            net_worth: sponsor?.netWorth ?? null,
+            liquidity: null, // not separately tracked yet
+            known_limitations: limitations,
+            credit_view: creditView,
+            required_follow_up: followUp,
+          } : null,
+        };
+      })(),
 
       personal_financial_statements: personalFinancialStatements,
 
