@@ -14,6 +14,7 @@ import { buildMemoParties } from "@/lib/creditMemo/parties/buildMemoParties";
 import { joinSentences, cleanMemoNarrative } from "@/lib/creditMemo/text/cleanMemoNarrative";
 import { buildMarketDynamicsNarrative, resolveIndustryGroup } from "@/lib/creditMemo/industry/buildMarketDynamics";
 import { reconcileGuarantorIncome } from "@/lib/creditMemo/globalCashFlow/reconcileGuarantorIncome";
+import { getNaicsProfile, getSbaSizeStandard, getIndustryFootprint, buildIndustryContextNarrative } from "@/lib/industryIntelligence/officialData";
 
 // ══════════════════════════════════════════════════════════════════════════
 // 1. buildMemoParties — generic manufacturing deal
@@ -384,25 +385,23 @@ describe("GENERALIZATION §9 — Narrative text cleaner", () => {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("GENERALIZATION §10 — Dynamic exhibit labels", () => {
+  type GcfStatus = "formal_complete" | "proxy_with_pfs" | "pending_pfs";
+  function exhibitLabel(status: GcfStatus): string {
+    if (status === "formal_complete") return "Global Cash Flow";
+    if (status === "pending_pfs") return "Global Cash Flow & Guarantor Support — Pending PFS";
+    return "Global Cash Flow & Guarantor Support";
+  }
+
   it("formal_complete → Global Cash Flow", () => {
-    const label = "formal_complete" === "formal_complete" ? "Global Cash Flow" : "Global Cash Flow & Guarantor Support";
-    assert.equal(label, "Global Cash Flow");
+    assert.equal(exhibitLabel("formal_complete"), "Global Cash Flow");
   });
 
   it("proxy_with_pfs → Global Cash Flow & Guarantor Support", () => {
-    const status = "proxy_with_pfs";
-    const label = status === "formal_complete" ? "Global Cash Flow"
-      : status === "pending_pfs" ? "Global Cash Flow & Guarantor Support — Pending PFS"
-      : "Global Cash Flow & Guarantor Support";
-    assert.equal(label, "Global Cash Flow & Guarantor Support");
+    assert.equal(exhibitLabel("proxy_with_pfs"), "Global Cash Flow & Guarantor Support");
   });
 
   it("pending_pfs → Global Cash Flow & Guarantor Support — Pending PFS", () => {
-    const status = "pending_pfs";
-    const label = status === "formal_complete" ? "Global Cash Flow"
-      : status === "pending_pfs" ? "Global Cash Flow & Guarantor Support — Pending PFS"
-      : "Global Cash Flow & Guarantor Support";
-    assert.equal(label, "Global Cash Flow & Guarantor Support — Pending PFS");
+    assert.equal(exhibitLabel("pending_pfs"), "Global Cash Flow & Guarantor Support — Pending PFS");
   });
 });
 
@@ -467,5 +466,72 @@ describe("GENERALIZATION §11 — Income reconciliation", () => {
     });
     assert.equal(result.warning_level, "blocker");
     assert.equal(result.selected_income_for_gcf, null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 12. Official industry intelligence data
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("GENERALIZATION §12 — Official industry intelligence", () => {
+  it("NAICS 561422 resolves correct title", () => {
+    const profile = getNaicsProfile("561422");
+    assert.ok(profile !== null, "561422 must resolve");
+    assert.ok(profile!.title.includes("Telemarketing") || profile!.title.includes("Contact Centers"));
+    assert.ok(!profile!.title.includes("Janitorial"), "Must not show Janitorial for 561422");
+  });
+
+  it("restaurant NAICS resolves restaurant title and sector", () => {
+    const profile = getNaicsProfile("722511");
+    assert.ok(profile !== null);
+    assert.ok(profile!.title.includes("Full-Service Restaurants"));
+    assert.ok(profile!.sector.includes("Accommodation") || profile!.sector.includes("Food"));
+  });
+
+  it("manufacturing NAICS resolves manufacturing sector", () => {
+    const profile = getNaicsProfile("332710");
+    assert.ok(profile !== null);
+    assert.ok(profile!.title.includes("Machine Shops"));
+    assert.equal(profile!.sector, "Manufacturing");
+  });
+
+  it("SBA size standard lookup works", () => {
+    const sba = getSbaSizeStandard("332710");
+    assert.ok(sba !== null, "332710 must have SBA size standard");
+    assert.ok(sba!.size_standard_display.includes("500") || sba!.size_standard_display.includes("employee"));
+  });
+
+  it("CBP footprint returns establishments/employment", () => {
+    const fp = getIndustryFootprint("561422");
+    assert.ok(fp !== null, "561422 must have CBP data");
+    assert.ok(fp!.establishments !== null && fp!.establishments > 0);
+    assert.ok(fp!.employment !== null && fp!.employment > 0);
+  });
+
+  it("missing NAICS falls back gracefully", () => {
+    const profile = getNaicsProfile("999999");
+    assert.equal(profile, null, "Unknown NAICS must return null");
+    const sba = getSbaSizeStandard("999999");
+    assert.equal(sba, null);
+    const fp = getIndustryFootprint("999999");
+    assert.equal(fp, null);
+  });
+
+  it("context narrative includes source labels", () => {
+    const narrative = buildIndustryContextNarrative("561422");
+    assert.ok(narrative !== null);
+    assert.ok(narrative!.includes("Census"), "Must cite Census source");
+    assert.ok(narrative!.includes("561422"), "Must include NAICS code");
+    assert.ok(narrative!.includes("establishments") || narrative!.includes("employees"));
+  });
+
+  it("no OmniCare-specific strings in generic builders", () => {
+    const narrative = buildIndustryContextNarrative("722511");
+    if (narrative) {
+      assert.ok(!narrative.includes("OmniCare"));
+      assert.ok(!narrative.includes("Matt Hunt"));
+      assert.ok(!narrative.includes("Aetna"));
+      assert.ok(!narrative.includes("Home Depot"));
+    }
   });
 });

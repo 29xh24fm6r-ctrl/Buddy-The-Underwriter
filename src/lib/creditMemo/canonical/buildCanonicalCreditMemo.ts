@@ -38,6 +38,7 @@ import { buildMemoParties } from "@/lib/creditMemo/parties/buildMemoParties";
 import { joinSentences, cleanMemoNarrative } from "@/lib/creditMemo/text/cleanMemoNarrative";
 import { buildMarketDynamicsNarrative } from "@/lib/creditMemo/industry/buildMarketDynamics";
 import { reconcileGuarantorIncome } from "@/lib/creditMemo/globalCashFlow/reconcileGuarantorIncome";
+import { buildIndustryContextNarrative } from "@/lib/industryIntelligence/officialData";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1954,8 +1955,13 @@ function buildIndustryRiskPositioning(args: {
 
   const sections: string[] = [];
 
-  // Industry definition
-  sections.push(`Industry: ${industry} (NAICS ${args.naicsCode ?? "N/A"}).`);
+  // Industry definition — enhanced with official Census/SBA data
+  const officialContext = args.naicsCode ? buildIndustryContextNarrative(args.naicsCode) : null;
+  if (officialContext) {
+    sections.push(officialContext);
+  } else {
+    sections.push(`Industry: ${industry} (NAICS ${args.naicsCode ?? "N/A"}).`);
+  }
 
   // Demand drivers — research-sourced or NAICS-group fallback (never "Pending")
   const marketDyn = buildMarketDynamicsNarrative({
