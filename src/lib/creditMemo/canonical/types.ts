@@ -469,6 +469,13 @@ export type CanonicalCreditMemoV1 = {
       known_limitations: string[];
       credit_view: string;
       required_follow_up: string[];
+      income_reconciliation?: {
+        selected_income_for_gcf: number | null;
+        selected_income_source: string;
+        alternate_income_values: Array<{ value: number; source: string; label: string }>;
+        reconciliation_note: string | null;
+        warning_level: string;
+      };
     } | null;
   };
 

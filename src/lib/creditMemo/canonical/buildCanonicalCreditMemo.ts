@@ -35,6 +35,9 @@ import { buildManagementPrincipals } from "@/lib/creditMemo/management/buildMana
 import { resolveCollateralDescription } from "@/lib/creditMemo/collateral/buildCollateralNarrative";
 import { isMeaningfulSpread } from "@/lib/creditMemo/spreads/isMeaningfulSpread";
 import { buildMemoParties } from "@/lib/creditMemo/parties/buildMemoParties";
+import { joinSentences, cleanMemoNarrative } from "@/lib/creditMemo/text/cleanMemoNarrative";
+import { buildMarketDynamicsNarrative } from "@/lib/creditMemo/industry/buildMarketDynamics";
+import { reconcileGuarantorIncome } from "@/lib/creditMemo/globalCashFlow/reconcileGuarantorIncome";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -259,8 +262,8 @@ export async function buildCanonicalCreditMemo(args: {
       .map((r: any) => r.checklist_key)
       .filter(Boolean) as string[];
 
-    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts, overrides, qualitative facts, management profiles, borrower story
-    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult, qualFactsResult, mgmtProfilesResult, borrowerStoryResult] = await Promise.all([
+    // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts, overrides, qualitative facts, management profiles, borrower story, personal income facts
+    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult, qualFactsResult, mgmtProfilesResult, borrowerStoryResult, personalIncomeFactResult] = await Promise.all([
       deal.borrower_id
         ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
         : Promise.resolve({ data: null }),
@@ -309,6 +312,16 @@ export async function buildCanonicalCreditMemo(args: {
         .select("business_description, revenue_model, products_services, customers, customer_concentration, competitive_position, growth_strategy, seasonality, key_risks, banker_notes, updated_at")
         .eq("deal_id", args.dealId)
         .maybeSingle(),
+      // Elite: personal income / AGI fact for income reconciliation
+      (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_key, fact_value_num")
+        .eq("deal_id", args.dealId)
+        .eq("is_superseded", false)
+        .in("fact_key", ["TOTAL_PERSONAL_INCOME", "ADJUSTED_GROSS_INCOME"])
+        .not("fact_value_num", "is", null)
+        .order("fact_period_end", { ascending: false })
+        .limit(5),
     ]);
 
     const overrides = (overridesResult?.data?.overrides ?? {}) as Record<string, any>;
@@ -324,6 +337,11 @@ export async function buildCanonicalCreditMemo(args: {
     const ownerEntities = (ownersResult.data ?? []) as any[];
     const aiRisk = aiRiskResult.data as any | null;
     const pricingRow = structuralPricingResult.data as any | null;
+    // Elite: extract personal income / AGI facts for income reconciliation
+    const personalIncomeFacts = ((personalIncomeFactResult?.data ?? []) as any[]);
+    const taxReturnAgi = personalIncomeFacts.find((f: any) => f.fact_key === "ADJUSTED_GROSS_INCOME")?.fact_value_num ?? null;
+    const spreadPersonalIncome = personalIncomeFacts.find((f: any) => f.fact_key === "TOTAL_PERSONAL_INCOME")?.fact_value_num ?? null;
+
     // ACTIVATION: management profiles indexed by person_name (lowercase) for fuzzy join
     const mgmtProfiles = ((mgmtProfilesResult?.data ?? []) as any[]);
     const mgmtProfileByName = new Map<string, any>();
@@ -1619,17 +1637,42 @@ export async function buildCanonicalCreditMemo(args: {
             hasArBorrowingBase: arBbSection !== null,
           }) : null,
           gcf_status: gcfStatus,
-          guarantor_support: (gcfStatus !== "formal_complete") ? {
-            guarantor_name: guarantorName,
-            annual_personal_income: sponsor?.totalPersonalIncome ?? null,
-            total_assets: sponsor?.totalAssets ?? null,
-            total_liabilities: sponsor?.totalLiabilities ?? null,
-            net_worth: sponsor?.netWorth ?? null,
-            liquidity: null, // not separately tracked yet
-            known_limitations: limitations,
-            credit_view: creditView,
-            required_follow_up: followUp,
-          } : null,
+          guarantor_support: (gcfStatus !== "formal_complete") ? (() => {
+            // Elite: income reconciliation — detect PFS vs tax AGI mismatch
+            const incomeRecon = reconcileGuarantorIncome({
+              pfsAnnualIncome: sponsor?.totalPersonalIncome ?? null,
+              taxReturnAgi: taxReturnAgi,
+              personalIncomeSpreadTotal: spreadPersonalIncome,
+              guarantorName,
+            });
+
+            // Enrich limitations with income mismatch
+            const enrichedLimitations = [...limitations];
+            if (incomeRecon.reconciliation_note) {
+              enrichedLimitations.unshift("PFS-stated income differs materially from tax-return/AGI income");
+            }
+
+            // Enrich credit view with income note
+            let enrichedCreditView = creditView;
+            if (incomeRecon.warning_level === "warning") {
+              enrichedCreditView += " Personal income support should be reconciled before final approval because PFS-stated annual income differs materially from tax-return/AGI income.";
+            }
+
+            return {
+              guarantor_name: guarantorName,
+              annual_personal_income: sponsor?.totalPersonalIncome ?? null,
+              total_assets: sponsor?.totalAssets ?? null,
+              total_liabilities: sponsor?.totalLiabilities ?? null,
+              net_worth: sponsor?.netWorth ?? null,
+              liquidity: null,
+              known_limitations: enrichedLimitations,
+              credit_view: enrichedCreditView,
+              required_follow_up: incomeRecon.warning_level === "warning"
+                ? ["Reconcile PFS-stated income vs tax-return AGI before formal GCF completion", ...followUp]
+                : followUp,
+              income_reconciliation: incomeRecon.alternate_income_values.length > 1 ? incomeRecon : undefined,
+            };
+          })() : null,
         };
       })(),
 
@@ -1914,9 +1957,13 @@ function buildIndustryRiskPositioning(args: {
   // Industry definition
   sections.push(`Industry: ${industry} (NAICS ${args.naicsCode ?? "N/A"}).`);
 
-  // Demand drivers from research
-  if (args.researchData?.market_dynamics) {
-    sections.push(`Market dynamics: ${args.researchData.market_dynamics}`);
+  // Demand drivers — research-sourced or NAICS-group fallback (never "Pending")
+  const marketDyn = buildMarketDynamicsNarrative({
+    naicsCode: args.naicsCode,
+    researchMarketDynamics: args.researchData?.market_dynamics ?? null,
+  });
+  if (marketDyn) {
+    sections.push(`Market dynamics: ${marketDyn}`);
   }
 
   // Industry risks

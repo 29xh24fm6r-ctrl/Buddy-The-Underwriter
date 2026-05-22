@@ -792,7 +792,7 @@ export default function CanonicalMemoTemplate({
               memo.certification.isCommitteeEligible ? "text-emerald-800" : memo.certification.trustGrade === "research_failed" ? "text-red-800" : "text-amber-800"
             }`}>
               {memo.certification.isCommitteeEligible
-                ? "Committee Certified"
+                ? (renderingSource?.type === "live" ? "Committee-Grade Draft — Ready for Banker Certification" : "Committee Certified")
                 : memo.certification.trustGrade === "research_failed"
                 ? "Blocked — Action Required"
                 : "Preliminary — Not Committee Eligible"}
@@ -1393,7 +1393,11 @@ export default function CanonicalMemoTemplate({
         <div><span className="font-semibold">Exhibit A</span> — Debt Coverage Analysis (DSCR)</div>
         <div><span className="font-semibold">Exhibit B</span> — Income Statement Summary</div>
         <div><span className="font-semibold">Exhibit C</span> — Balance Sheet</div>
-        <div><span className="font-semibold">Exhibit D</span> — Global Cash Flow</div>
+        <div><span className="font-semibold">Exhibit D</span> — {
+          memo.global_cash_flow.gcf_status === "formal_complete" ? "Global Cash Flow"
+          : memo.global_cash_flow.gcf_status === "pending_pfs" ? "Global Cash Flow & Guarantor Support — Pending PFS"
+          : "Global Cash Flow & Guarantor Support"
+        }</div>
         {(memo.personal_financial_statements?.length ?? 0) > 0 && (
           <div><span className="font-semibold">Exhibit E</span> — Personal Financial Statements</div>
         )}
@@ -1516,9 +1520,21 @@ export default function CanonicalMemoTemplate({
               {memo.global_cash_flow.guarantor_support.guarantor_name && (
                 <div><span className="text-gray-500">Guarantor:</span> <span className="font-medium">{memo.global_cash_flow.guarantor_support.guarantor_name}</span></div>
               )}
-              {memo.global_cash_flow.guarantor_support.annual_personal_income !== null && (
-                <div><span className="text-gray-500">Annual personal income:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.annual_personal_income)}</span></div>
-              )}
+              {/* Income — show reconciliation when multiple sources exist */}
+              {memo.global_cash_flow.guarantor_support.income_reconciliation?.alternate_income_values?.length
+                ? memo.global_cash_flow.guarantor_support.income_reconciliation.alternate_income_values.map((iv, idx) => (
+                    <div key={`inc-${idx}`}>
+                      <span className="text-gray-500">{iv.label}:</span>{" "}
+                      <span className="font-medium">{fmt$(iv.value)}</span>
+                      {memo.global_cash_flow.guarantor_support!.income_reconciliation!.warning_level === "warning" && idx === 0 && (
+                        <span className="text-amber-600 text-[10px] ml-1">(material difference — reconcile)</span>
+                      )}
+                    </div>
+                  ))
+                : memo.global_cash_flow.guarantor_support.annual_personal_income !== null && (
+                    <div><span className="text-gray-500">Annual personal income:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.annual_personal_income)}</span></div>
+                  )
+              }
               {memo.global_cash_flow.guarantor_support.total_assets !== null && (
                 <div><span className="text-gray-500">Total assets:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.total_assets)}</span></div>
               )}

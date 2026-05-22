@@ -70,13 +70,15 @@ function isLikelyEntity(name: string, borrowerName: string | null, dealName: str
 
 // ─── Bio builder ───────────────────────────────────────────────────────────
 
+import { joinSentences } from "@/lib/creditMemo/text/cleanMemoNarrative";
+
 function buildBioFromProfile(profile: ManagementProfile): string | null {
   const parts: string[] = [];
   if (profile.resume_summary) parts.push(profile.resume_summary);
   if (profile.industry_experience) parts.push(profile.industry_experience);
   if (profile.prior_business_experience) parts.push(`Prior: ${profile.prior_business_experience}`);
   if (profile.credit_relevance) parts.push(`Credit: ${profile.credit_relevance}`);
-  return parts.length > 0 ? parts.join(". ") : null;
+  return parts.length > 0 ? joinSentences(parts) : null;
 }
 
 // ─── Main builder ──────────────────────────────────────────────────────────

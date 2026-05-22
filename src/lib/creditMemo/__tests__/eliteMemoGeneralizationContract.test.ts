@@ -11,6 +11,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildMemoParties } from "@/lib/creditMemo/parties/buildMemoParties";
+import { joinSentences, cleanMemoNarrative } from "@/lib/creditMemo/text/cleanMemoNarrative";
+import { buildMarketDynamicsNarrative, resolveIndustryGroup } from "@/lib/creditMemo/industry/buildMarketDynamics";
+import { reconcileGuarantorIncome } from "@/lib/creditMemo/globalCashFlow/reconcileGuarantorIncome";
 
 // ══════════════════════════════════════════════════════════════════════════
 // 1. buildMemoParties — generic manufacturing deal
@@ -312,5 +315,157 @@ describe("GENERALIZATION §7 — Character adverse findings override", () => {
     });
     assert.equal(result.score, 1, "Banker-flagged adverse must be score 1");
     assert.ok(result.basis.includes("escalation"), "Must require escalation");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 8. Market dynamics fallback — NAICS-group narratives
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("GENERALIZATION §8 — Market dynamics fallback", () => {
+  it("restaurant NAICS gets restaurant language", () => {
+    const result = buildMarketDynamicsNarrative({ naicsCode: "722511", researchMarketDynamics: null });
+    assert.ok(result !== null);
+    assert.ok(result!.includes("consumer traffic") || result!.includes("food cost") || result!.includes("dining"));
+    assert.ok(!result!.includes("call center") && !result!.includes("BPO") && !result!.includes("Aetna"));
+  });
+
+  it("manufacturing NAICS gets manufacturing language", () => {
+    const result = buildMarketDynamicsNarrative({ naicsCode: "332710", researchMarketDynamics: null });
+    assert.ok(result !== null);
+    assert.ok(result!.includes("order backlog") || result!.includes("capacity") || result!.includes("material"));
+  });
+
+  it("contact center NAICS gets other-services language", () => {
+    const result = buildMarketDynamicsNarrative({ naicsCode: "561422", researchMarketDynamics: null });
+    assert.ok(result !== null);
+    assert.ok(result!.includes("outsourcing") || result!.includes("labor") || result!.includes("enterprise"));
+  });
+
+  it("never returns Pending", () => {
+    const groups = ["11", "23", "31", "42", "44", "48", "52", "53", "54", "56", "62", "72", "81"];
+    for (const prefix of groups) {
+      const result = buildMarketDynamicsNarrative({ naicsCode: `${prefix}0000`, researchMarketDynamics: null });
+      if (result) assert.ok(!result.includes("Pending"), `NAICS ${prefix}xxxx must not return Pending`);
+    }
+  });
+
+  it("prefers research-sourced dynamics over fallback", () => {
+    const result = buildMarketDynamicsNarrative({
+      naicsCode: "722511",
+      researchMarketDynamics: "Downtown restaurant district experiencing gentrification-driven growth.",
+    });
+    assert.ok(result!.includes("gentrification"), "Must use research text, not fallback");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 9. Narrative text cleaner
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("GENERALIZATION §9 — Narrative text cleaner", () => {
+  it("removes double periods", () => {
+    assert.equal(cleanMemoNarrative("Founded in 2018.. Prior: VP of Ops."), "Founded in 2018. Prior: VP of Ops.");
+  });
+
+  it("preserves decimal/money formatting", () => {
+    assert.equal(cleanMemoNarrative("Revenue of $1.5M and margin of 0.25x."), "Revenue of $1.5M and margin of 0.25x.");
+  });
+
+  it("joinSentences trims terminal punctuation and joins cleanly", () => {
+    assert.equal(joinSentences(["Founded company.", "25 years experience."]), "Founded company. 25 years experience.");
+    assert.equal(joinSentences(["Founded company", "Prior: VP"]), "Founded company. Prior: VP.");
+    assert.equal(joinSentences([null, "", "Only this"]), "Only this.");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 10. Dynamic exhibit labels for GCF status
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("GENERALIZATION §10 — Dynamic exhibit labels", () => {
+  it("formal_complete → Global Cash Flow", () => {
+    const label = "formal_complete" === "formal_complete" ? "Global Cash Flow" : "Global Cash Flow & Guarantor Support";
+    assert.equal(label, "Global Cash Flow");
+  });
+
+  it("proxy_with_pfs → Global Cash Flow & Guarantor Support", () => {
+    const status = "proxy_with_pfs";
+    const label = status === "formal_complete" ? "Global Cash Flow"
+      : status === "pending_pfs" ? "Global Cash Flow & Guarantor Support — Pending PFS"
+      : "Global Cash Flow & Guarantor Support";
+    assert.equal(label, "Global Cash Flow & Guarantor Support");
+  });
+
+  it("pending_pfs → Global Cash Flow & Guarantor Support — Pending PFS", () => {
+    const status = "pending_pfs";
+    const label = status === "formal_complete" ? "Global Cash Flow"
+      : status === "pending_pfs" ? "Global Cash Flow & Guarantor Support — Pending PFS"
+      : "Global Cash Flow & Guarantor Support";
+    assert.equal(label, "Global Cash Flow & Guarantor Support — Pending PFS");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 11. Income reconciliation
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("GENERALIZATION §11 — Income reconciliation", () => {
+  it("PFS $282K vs AGI $16K creates warning and shows both", () => {
+    const result = reconcileGuarantorIncome({
+      pfsAnnualIncome: 282_742,
+      taxReturnAgi: 16_251,
+      personalIncomeSpreadTotal: null,
+      guarantorName: "Jane Smith",
+    });
+    assert.equal(result.warning_level, "warning");
+    assert.ok(result.reconciliation_note !== null);
+    assert.ok(result.reconciliation_note!.includes("differs materially"));
+    assert.equal(result.alternate_income_values.length, 2);
+    assert.ok(result.alternate_income_values.some((v) => v.source === "PFS_STATED"));
+    assert.ok(result.alternate_income_values.some((v) => v.source === "TAX_RETURN_AGI"));
+  });
+
+  it("close values create no warning", () => {
+    const result = reconcileGuarantorIncome({
+      pfsAnnualIncome: 100_000,
+      taxReturnAgi: 105_000,
+      personalIncomeSpreadTotal: null,
+      guarantorName: "John Doe",
+    });
+    assert.equal(result.warning_level, "none");
+    assert.equal(result.reconciliation_note, null);
+  });
+
+  it("PFS-only is labeled PFS-stated", () => {
+    const result = reconcileGuarantorIncome({
+      pfsAnnualIncome: 150_000,
+      taxReturnAgi: null,
+      personalIncomeSpreadTotal: null,
+      guarantorName: "Solo Owner",
+    });
+    assert.equal(result.selected_income_source, "PFS_STATED");
+    assert.equal(result.warning_level, "none");
+  });
+
+  it("tax-only is labeled tax-return/verified", () => {
+    const result = reconcileGuarantorIncome({
+      pfsAnnualIncome: null,
+      taxReturnAgi: 85_000,
+      personalIncomeSpreadTotal: null,
+      guarantorName: "Tax Owner",
+    });
+    assert.equal(result.selected_income_source, "TAX_RETURN_AGI");
+  });
+
+  it("no income at all is blocker", () => {
+    const result = reconcileGuarantorIncome({
+      pfsAnnualIncome: null,
+      taxReturnAgi: null,
+      personalIncomeSpreadTotal: null,
+      guarantorName: "Nobody",
+    });
+    assert.equal(result.warning_level, "blocker");
+    assert.equal(result.selected_income_for_gcf, null);
   });
 });
