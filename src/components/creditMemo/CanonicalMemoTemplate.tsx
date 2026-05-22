@@ -269,6 +269,11 @@ function RatioSuiteSection({ rows }: { rows: RatioAnalysisRow[] }) {
                       </Td>
                       <Td>
                         <div className="text-gray-700">{r.interpretation ?? ""}</div>
+                        {r.industry_avg !== null && r.industry_source && (
+                          <div className="text-[10px] text-blue-600 mt-0.5">
+                            Peer median: {formatRatioValue(r.industry_avg, r.unit)} — {r.industry_source}
+                          </div>
+                        )}
                         {r.benchmark_note && (
                           <div className="text-[10px] text-gray-500 mt-0.5">{r.benchmark_note}</div>
                         )}

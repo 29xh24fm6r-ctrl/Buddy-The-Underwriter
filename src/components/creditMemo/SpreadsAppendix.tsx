@@ -100,9 +100,20 @@ export default async function SpreadsAppendix({
     .order("updated_at", { ascending: false })
     .limit(20);
 
-  // Filter out T12 — no longer rendered in the credit memo appendix
+  // Filter out T12 and artifact/placeholder spreads
+  const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
+  function isPlaceholderSpread(s: RenderedSpread): boolean {
+    const rows = s.rendered_json?.rows ?? [];
+    if (rows.length !== 1) return false;
+    const row = rows[0];
+    const key = String(row.key ?? "").toLowerCase();
+    const label = String(row.label ?? "").toLowerCase();
+    return key === "status" && (label.includes("generating") || label.includes("queued"));
+  }
+
   const spreads = ((spreadRows ?? []) as RenderedSpread[]).filter(
-    (s) => s.spread_type !== "T12",
+    (s) => s.spread_type !== "T12" && !isPlaceholderSpread(s),
   );
 
   if (spreads.length === 0) {
@@ -139,9 +150,18 @@ export default async function SpreadsAppendix({
           if (!json?.rows?.length) return null;
 
           const label = SPREAD_LABELS[spread.spread_type] ?? spread.spread_type;
-          const ownerSuffix = spread.owner_entity_id
-            ? ` — ${ownerNames.get(String(spread.owner_entity_id)) ?? "Unknown"}`
-            : "";
+          const ownerId = spread.owner_entity_id ? String(spread.owner_entity_id) : null;
+          const isZeroUuid = ownerId === ZERO_UUID;
+          let ownerSuffix = "";
+          if (ownerId && !isZeroUuid) {
+            const ownerName = ownerNames.get(ownerId);
+            ownerSuffix = ownerName ? ` — ${ownerName}` : "";
+          } else if (isZeroUuid) {
+            // Personal spreads with zero UUID → label as Guarantor
+            if (spread.spread_type === "PERSONAL_INCOME" || spread.spread_type === "PERSONAL_FINANCIAL_STATEMENT") {
+              ownerSuffix = " — Guarantor";
+            }
+          }
 
           const hasColumns = json.columnsV2 && json.columnsV2.length > 0;
           const columns = json.columnsV2 ?? [];
@@ -207,11 +227,20 @@ export default async function SpreadsAppendix({
                           </td>
                           {hasColumns ? (
                             columns.map((col, ci) => {
-                              const cell = row.values?.[ci];
+                              // Resolve value: try displayByCol/valueByCol first (columned shape),
+                              // then fall back to indexed values[ci] (legacy shape)
+                              const first = row.values?.[0] as any;
                               let text = "\u2014";
-                              if (cell) {
-                                if (cell.notes) text = cell.notes;
-                                else text = formatVal(cell.value, row.key);
+                              if (first?.displayByCol && first.displayByCol[col.key] !== undefined && first.displayByCol[col.key] !== null) {
+                                text = String(first.displayByCol[col.key]);
+                              } else if (first?.valueByCol && first.valueByCol[col.key] !== undefined && first.valueByCol[col.key] !== null) {
+                                text = formatVal(first.valueByCol[col.key], row.key);
+                              } else {
+                                const cell = row.values?.[ci];
+                                if (cell) {
+                                  if (cell.notes) text = cell.notes;
+                                  else text = formatVal(cell.value, row.key);
+                                }
                               }
                               return (
                                 <td key={col.key} className="px-2 py-1 text-right tabular-nums border-b border-gray-50">

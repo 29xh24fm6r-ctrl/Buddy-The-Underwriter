@@ -1183,6 +1183,15 @@ export async function buildCanonicalCreditMemo(args: {
       }
     }
 
+    // Issue 7: Align risk factors with weaknesses — never show "None identified" when weaknesses exist
+    if (riskFactors.length === 0 && weaknesses.length > 0) {
+      riskFactors.push({
+        risk: "No additional risk factors beyond weaknesses noted above.",
+        severity: "low",
+        mitigants: [],
+      });
+    }
+
     // ===== Phase 33: Build eligibility =====
     // P0a: prefer deals.product_type via shared helper. Loan request product_type
     // is also honored as a secondary signal (legacy callers pass it on the loan
@@ -1248,9 +1257,16 @@ export async function buildCanonicalCreditMemo(args: {
 
     // Step 1: Build from deal_management_profiles (authoritative person data)
     const coveredNames = new Set<string>();
+    // Also track last tokens (surnames) for fuzzy dedupe against ownership entities
+    const coveredLastTokens = new Map<string, { fullName: string; ownershipPct: number | null }>();
     const principalsFromProfiles = mgmtProfiles.map((p: any) => {
       const name = String(p.person_name ?? "Unknown");
-      coveredNames.add(name.toLowerCase().trim());
+      const lower = name.toLowerCase().trim();
+      coveredNames.add(lower);
+      const tokens = lower.split(/\s+/);
+      if (tokens.length > 0) {
+        coveredLastTokens.set(tokens[tokens.length - 1], { fullName: lower, ownershipPct: p.ownership_pct ?? null });
+      }
       // Try to find matching ownership entity for id/ownership_pct
       const matchedEntity = ownerEntities.find(
         (o: any) => (o.display_name ?? "").toLowerCase().trim() === name.toLowerCase().trim(),
@@ -1273,8 +1289,20 @@ export async function buildCanonicalCreditMemo(args: {
     const principalsFromEntities = ownerEntities
       .filter((o: any) => {
         const name = (o.display_name ?? "") as string;
-        if (coveredNames.has(name.toLowerCase().trim())) return false;
+        const lower = name.toLowerCase().trim();
+        // Exact match
+        if (coveredNames.has(lower)) return false;
         if (isLikelyEntity(name)) return false;
+        // Last-token / surname match: "Hunt" matches "Matt Hunt" when ownership_pct aligns
+        const lastTokenMatch = coveredLastTokens.get(lower);
+        if (lastTokenMatch) {
+          // Same last name — skip if ownership_pct matches or profile has 100%
+          if (lastTokenMatch.ownershipPct === (o.ownership_pct ?? null)) return false;
+          if (lastTokenMatch.ownershipPct === 100) return false;
+          if (o.ownership_pct === 100 || o.ownership_pct === lastTokenMatch.ownershipPct) return false;
+        }
+        // Also check if entity name is a single token matching any profile surname
+        if (!lower.includes(" ") && coveredLastTokens.has(lower)) return false;
         return true;
       })
       .map((o: any) => {
@@ -1667,11 +1695,19 @@ export async function buildCanonicalCreditMemo(args: {
         notes: [],
         readiness,
         data_completeness: bindings.completeness,
-        spreads: spreads.map((s: any) => ({
-          spread_type: String(s.spread_type),
-          status: String(s.status ?? "unknown"),
-          updated_at: s.updated_at ?? null,
-        })),
+        // Issue 9: Filter artifact/non-data spreads from committee-facing list
+        spreads: spreads
+          .filter((s: any) => {
+            const st = String(s.spread_type);
+            // Exclude render artifacts that are not substantive financial data
+            if (st === "CLASSIC_PDF" || st === "STANDARD") return false;
+            return true;
+          })
+          .map((s: any) => ({
+            spread_type: String(s.spread_type),
+            status: String(s.status ?? "unknown"),
+            updated_at: s.updated_at ?? null,
+          })),
       },
     };
 

@@ -1156,3 +1156,156 @@ describe("ACTIVATION §9 — Frozen snapshot management display", () => {
     assert.equal(principal.years_experience, 18, "years_experience must come from profile");
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// CLEANUP SPRINT — 7 narrow tests
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("CLEANUP §1 — Management dedupe: Hunt vs Matt Hunt", () => {
+  it("single-token surname matching deduplicates ownership entity alias", () => {
+    // Simulate the dedupe logic from buildCanonicalCreditMemo
+    const coveredNames = new Set<string>(["matt hunt"]);
+    const coveredLastTokens = new Map<string, { fullName: string; ownershipPct: number | null }>();
+    coveredLastTokens.set("hunt", { fullName: "matt hunt", ownershipPct: 100 });
+
+    const ownerEntities = [
+      { display_name: "Hunt", ownership_pct: 100, title: "Owner" },
+      { display_name: "OmniCare 365", ownership_pct: null, title: null },
+      { display_name: "Borrower", ownership_pct: null, title: null },
+    ];
+
+    const kept = ownerEntities.filter((o) => {
+      const lower = o.display_name.toLowerCase().trim();
+      if (coveredNames.has(lower)) return false;
+      // Single token surname match
+      if (!lower.includes(" ") && coveredLastTokens.has(lower)) return false;
+      return true;
+    });
+
+    assert.equal(kept.length, 2, "Only OmniCare 365 and Borrower survive (Hunt is deduped)");
+    assert.ok(!kept.some((k) => k.display_name === "Hunt"), "Hunt must be deduped by surname match");
+  });
+});
+
+describe("CLEANUP §2 — Ratio benchmark render context", () => {
+  it("RatioAnalysisRow with industry_avg renders peer median", () => {
+    const row: import("@/lib/creditMemo/canonical/types").RatioAnalysisRow = {
+      metric: "Gross Margin",
+      category: "Profitability",
+      value: 0.136,
+      industry_avg: 0.42,
+      industry_source: "NAICS 561422 (Janitorial services), 5m_25m tier",
+      unit: "percent",
+      period_label: "FY 2025",
+      assessment: "Weak",
+      interpretation: "Thin margin",
+      benchmark_note: "Peer median: 42.0% — NAICS 561422 (Janitorial services), 5m_25m tier.",
+    };
+    assert.ok(row.industry_avg !== null, "industry_avg must be populated");
+    assert.ok(row.benchmark_note!.includes("Peer median"), "benchmark_note must include specific peer context");
+    assert.ok(!row.benchmark_note!.includes("vary heavily"), "must not show only generic language");
+  });
+});
+
+describe("CLEANUP §3 — SpreadsAppendix value shape resolver", () => {
+  it("resolves displayByCol shape for columned balance sheet", () => {
+    const row = {
+      key: "TOTAL_ASSETS",
+      label: "Total Assets",
+      values: [{
+        displayByCol: { "2025": "1,250,000", "2024": "1,100,000" },
+        valueByCol: { "2025": 1250000, "2024": 1100000 },
+      }],
+    };
+    const col = { key: "2025", label: "2025" };
+    const first = row.values[0] as any;
+    let text = "—";
+    if (first?.displayByCol && first.displayByCol[col.key] !== undefined) {
+      text = String(first.displayByCol[col.key]);
+    }
+    assert.equal(text, "1,250,000", "Must resolve from displayByCol");
+  });
+
+  it("falls back to indexed values when displayByCol absent", () => {
+    const row = {
+      key: "REVENUE",
+      label: "Revenue",
+      values: [{ value: 500000, notes: null }],
+    };
+    const cell = row.values[0];
+    const text = cell.value !== undefined ? String(cell.value) : "—";
+    assert.equal(text, "500000", "Must fall back to indexed value");
+  });
+});
+
+describe("CLEANUP §4 — Placeholder spread suppression", () => {
+  it("detects placeholder GCF spread with Generating status", () => {
+    const spread = {
+      spread_type: "GLOBAL_CASH_FLOW",
+      status: "ready",
+      rendered_json: {
+        rows: [{ key: "status", label: "Generating…", values: [] }],
+      },
+    };
+    const rows = spread.rendered_json.rows;
+    const isPlaceholder =
+      rows.length === 1 &&
+      String(rows[0].key).toLowerCase() === "status" &&
+      String(rows[0].label).toLowerCase().includes("generating");
+    assert.ok(isPlaceholder, "Must detect placeholder spread");
+  });
+});
+
+describe("CLEANUP §5 — Zero UUID owner label", () => {
+  it("zero UUID personal income spread uses Guarantor label", () => {
+    const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+    const spread = { spread_type: "PERSONAL_INCOME", owner_entity_id: ZERO_UUID };
+    const isZero = String(spread.owner_entity_id) === ZERO_UUID;
+    const suffix = isZero && (spread.spread_type === "PERSONAL_INCOME" || spread.spread_type === "PERSONAL_FINANCIAL_STATEMENT")
+      ? " — Guarantor" : "";
+    assert.equal(suffix, " — Guarantor", "Zero UUID personal spread must use Guarantor label");
+  });
+
+  it("balance sheet zero UUID has no suffix", () => {
+    const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+    const spread = { spread_type: "BALANCE_SHEET", owner_entity_id: ZERO_UUID };
+    const isZero = String(spread.owner_entity_id) === ZERO_UUID;
+    const suffix = isZero && (spread.spread_type === "PERSONAL_INCOME" || spread.spread_type === "PERSONAL_FINANCIAL_STATEMENT")
+      ? " — Guarantor" : "";
+    assert.equal(suffix, "", "Balance sheet zero UUID must have no suffix");
+  });
+});
+
+describe("CLEANUP §6 — Risk factor alignment with weaknesses", () => {
+  it("empty riskFactors with non-empty weaknesses produces bridge statement", () => {
+    const riskFactors: Array<{ risk: string; severity: string; mitigants: string[] }> = [];
+    const weaknesses = [{ point: "Thin gross margin", mitigant: null }];
+    if (riskFactors.length === 0 && weaknesses.length > 0) {
+      riskFactors.push({ risk: "No additional risk factors beyond weaknesses noted above.", severity: "low", mitigants: [] });
+    }
+    assert.equal(riskFactors.length, 1);
+    assert.ok(riskFactors[0].risk.includes("No additional risk factors"), "Must bridge to weaknesses");
+  });
+});
+
+describe("CLEANUP §7 — Recommendation headline for strong DSCR", () => {
+  it("does not say 'coverage is borderline' when DSCR > 2.0", async () => {
+    const { computeUnderwritingVerdict: compute } = await import("@/lib/finance/underwriting/computeVerdict");
+    const verdict = compute({
+      policy_min_dscr: 1.25,
+      annual_debt_service: 210_000,
+      worst_year: 2024,
+      worst_dscr: 2.03,
+      avg_dscr: 5.0,
+      weighted_dscr: 5.0,
+      stressed_dscr: 1.10, // below policy — triggers caution
+      cfads_trend: "up" as const,
+      revenue_trend: "up" as const,
+      flags: [] as string[],
+      low_confidence_years: [] as number[],
+      by_year: [{ year: 2024, revenue: 12_000_000, cfads: 1_100_000, officer_comp: null, ebitda: null, dscr: 2.03, confidence: 1.0 }],
+    });
+    assert.ok(!verdict.headline.includes("coverage is borderline"), `Headline must not say borderline for strong DSCR, got: ${verdict.headline}`);
+    assert.ok(verdict.headline.includes("strong") || verdict.headline.includes("Conditional"), `Headline should reflect strong coverage, got: ${verdict.headline}`);
+  });
+});

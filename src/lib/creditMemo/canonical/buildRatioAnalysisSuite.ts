@@ -990,13 +990,20 @@ export async function buildRatioAnalysisSuite(
       }
     }
 
-    // ACTIVATION Fix #6: If assessment is "Weak" but no benchmark exists for this
-    // metric, relabel as "N/A" and note unbenchmarked status to avoid unsupported
-    // negative labels (e.g. "Gross Margin Weak" without peer context).
+    // ACTIVATION: Benchmark-aware assessment and note
     let finalAssessment = interp.assessment;
     let finalBenchmarkNote = interp.benchmarkNote;
     const benchmarkable = RATIO_TO_BENCHMARK[spec.metricId] !== undefined;
-    if (interp.assessment === "Weak" && benchmarkable && industryAvg === null) {
+
+    if (industryAvg !== null && industrySource !== null) {
+      // Override generic benchmark_note with specific peer context
+      const fmtAvg = spec.unit === "percent" ? `${(industryAvg * 100).toFixed(1)}%`
+        : spec.unit === "days" ? `${Math.round(industryAvg)} days`
+        : spec.unit === "currency" ? `$${Math.round(industryAvg).toLocaleString()}`
+        : `${industryAvg.toFixed(2)}x`;
+      finalBenchmarkNote = `Peer median: ${fmtAvg} — ${industrySource}.`;
+    } else if (interp.assessment === "Weak" && benchmarkable) {
+      // No benchmark exists — relabel to avoid unsupported negative labels
       finalAssessment = "N/A";
       finalBenchmarkNote = "Unbenchmarked — peer comparison unavailable for this NAICS/revenue tier. Assessment deferred.";
     }
