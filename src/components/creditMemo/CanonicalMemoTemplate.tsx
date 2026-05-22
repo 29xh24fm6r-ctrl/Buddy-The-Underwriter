@@ -854,11 +854,27 @@ export default function CanonicalMemoTemplate({
           <div>
             <div className="text-xs text-gray-500 uppercase tracking-wide">Borrower / Applicant</div>
             <div className="font-semibold">{memo.header.borrower_name}</div>
-            {memo.header.guarantors.length > 0 && (
+            {/* Elite: structured guarantor display */}
+            {memo.header.guarantor_details && memo.header.guarantor_details.length > 0 ? (
+              <div className="mt-1">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Guarantor(s)</div>
+                {memo.header.guarantor_details.map((g, i) => (
+                  <div key={i} className="text-xs text-gray-700">
+                    {g.name} — {g.role}{g.ownership_pct !== null ? `, ${g.ownership_pct}% Owner` : ""}
+                    {g.verification_status === "pending_verification" && (
+                      <span className="text-amber-600 text-[10px] ml-1">(verification pending)</span>
+                    )}
+                  </div>
+                ))}
+                {memo.header.pending_guarantor_items?.map((item, i) => (
+                  <div key={`pg-${i}`} className="text-[10px] text-amber-600 mt-0.5">{item}</div>
+                ))}
+              </div>
+            ) : memo.header.guarantors.length > 0 ? (
               <div className="text-xs text-gray-600 mt-0.5">
                 Guarantors: {memo.header.guarantors.join(", ")}
               </div>
-            )}
+            ) : null}
           </div>
           <div>
             <div className="text-xs text-gray-500 uppercase tracking-wide">Request</div>
@@ -866,6 +882,18 @@ export default function CanonicalMemoTemplate({
           </div>
         </div>
       </div>
+
+      {/* ── CREDIT OFFICER EXECUTIVE TAKEAWAY ── */}
+      {memo.executive_takeaway && memo.executive_takeaway.length > 0 && (
+        <div className="border-l-4 border-sky-600 bg-sky-50 p-4 mb-6">
+          <div className="text-xs font-bold uppercase tracking-wide text-sky-800 mb-2">Credit Officer Executive Takeaway</div>
+          <ul className="text-sm text-gray-800 space-y-1 list-disc ml-4">
+            {memo.executive_takeaway.map((bullet, i) => (
+              <li key={`et-${i}`}>{bullet}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* ── FINANCING REQUEST BOX ── */}
       <div className="border border-gray-300 p-4 mb-6 bg-gray-50">
@@ -1307,6 +1335,18 @@ export default function CanonicalMemoTemplate({
               <> — compiled {memo.business_industry_analysis.research_coverage.compiled_at.slice(0, 10)}</>
             )}
           </div>
+
+          {/* Elite: Industry Risk & Borrower Positioning */}
+          {memo.business_industry_analysis.industry_risk_positioning && (
+            <div className="mt-4 border-l-4 border-indigo-400 pl-3 py-1">
+              <div className="text-xs font-semibold text-indigo-700 mb-1 uppercase tracking-wide">
+                Industry Risk & Borrower Positioning
+              </div>
+              <div className="text-sm text-gray-800 leading-5 whitespace-pre-wrap">
+                {memo.business_industry_analysis.industry_risk_positioning}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-xs text-gray-400 italic mt-2">Industry analysis pending — click Run Research to populate.</div>
@@ -1404,8 +1444,14 @@ export default function CanonicalMemoTemplate({
       <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">
         {memo.global_cash_flow.global_cf_table.length > 0
           ? "Global Cash Flow Summary"
-          : "Cash Flow Proxy (from financial facts — formal GCF exhibit pending)"}
+          : "Cash Flow Proxy & GCF Status"}
       </div>
+      {/* Elite: GCF proxy narrative when formal exhibit is incomplete */}
+      {memo.global_cash_flow.gcf_proxy_narrative && (
+        <div className="text-xs text-gray-700 whitespace-pre-wrap mb-3 bg-amber-50 border border-amber-200 rounded p-3">
+          {memo.global_cash_flow.gcf_proxy_narrative}
+        </div>
+      )}
       {memo.global_cash_flow.global_cf_table.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs">

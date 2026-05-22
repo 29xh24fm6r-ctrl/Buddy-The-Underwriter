@@ -221,11 +221,23 @@ export type CanonicalCreditMemoV1 = {
   // Phase 81: Committee certification
   certification?: CommitteeCertification;
 
+  // ── CREDIT OFFICER EXECUTIVE TAKEAWAY ─────────────────────────────────
+  executive_takeaway?: string[];
+
   // ── HEADER ──────────────────────────────────────────────────────────────
   header: {
     deal_name: string;
     borrower_name: string;
+    /** Legacy: simple name list. Prefer guarantor_details when available. */
     guarantors: string[];
+    guarantor_details?: Array<{
+      name: string;
+      type: "individual" | "entity";
+      role: string;
+      ownership_pct: number | null;
+      verification_status: "verified" | "pending_verification";
+    }>;
+    pending_guarantor_items?: string[];
     lender_name: string;
     prepared_by: string;
     underwriting_assistance: string | null;
@@ -377,6 +389,8 @@ export type CanonicalCreditMemoV1 = {
     three_five_year_outlook?: string;
     research_quality_score?: "Strong" | "Moderate" | "Limited";
     sources_count_bie?: number;
+    /** Elite: industry risk and borrower positioning narrative for credit judgment */
+    industry_risk_positioning?: string | null;
   } | null;
 
   // ── MANAGEMENT QUALIFICATIONS ─────────────────────────────────────────────
@@ -440,6 +454,8 @@ export type CanonicalCreditMemoV1 = {
     living_expenses: CanonicalMetricValue;
     total_obligations: CanonicalMetricValue;
     global_cf_table: GlobalCFRow[];
+    /** Elite: narrative explaining GCF proxy status when formal exhibit is incomplete */
+    gcf_proxy_narrative?: string | null;
   };
 
   // ── PERSONAL FINANCIAL STATEMENTS ───────────────────────────────────────

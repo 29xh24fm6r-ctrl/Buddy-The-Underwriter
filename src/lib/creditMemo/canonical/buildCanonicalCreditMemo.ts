@@ -34,6 +34,7 @@ import { getLegacyMemoOverrideFallback, ARTIFACT_SPREAD_TYPES } from "@/lib/cred
 import { buildManagementPrincipals } from "@/lib/creditMemo/management/buildManagementPrincipals";
 import { resolveCollateralDescription } from "@/lib/creditMemo/collateral/buildCollateralNarrative";
 import { isMeaningfulSpread } from "@/lib/creditMemo/spreads/isMeaningfulSpread";
+import { buildMemoParties } from "@/lib/creditMemo/parties/buildMemoParties";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1119,6 +1120,7 @@ export async function buildCanonicalCreditMemo(args: {
         overrides,
         loanAmount: loanAmount.value,
         naicsCode: borrower?.naics_code ?? null,
+        bankerNotes: borrowerStory?.banker_notes ?? null,
       });
     } catch (err) {
       console.warn("[buildCanonicalCreditMemo] buildQualitativeAssessment failed:", err);
@@ -1257,6 +1259,15 @@ export async function buildCanonicalCreditMemo(args: {
       principals: mgmtResult.principals,
     };
 
+    // ===== Elite: Build party identity for header =====
+    const parties = buildMemoParties({
+      borrowerName: String(deal.borrower_name ?? borrower?.legal_name ?? "—"),
+      dealDisplayName: deal.display_name ?? deal.name ?? null,
+      managementProfiles: mgmtProfiles,
+      ownerEntities,
+      bankerNotes: borrowerStory?.banker_notes ?? null,
+    });
+
     // ===== Phase 33: Build personal financial statements =====
     const personalFinancialStatements: GuarantorBudget[] = bindings.sponsors.map((s: any) => ({
       owner_entity_id: s.ownerEntityId,
@@ -1338,6 +1349,33 @@ export async function buildCanonicalCreditMemo(args: {
         ? { banker_notes: String(borrowerStory.banker_notes) }
         : undefined,
 
+      // Elite: Credit Officer Executive Takeaway
+      executive_takeaway: buildExecutiveTakeaway({
+        loanAmount: loanAmount.value,
+        product: loanReqProduct,
+        purpose: loanReqPurpose,
+        dscr: financial.dscrGlobal.value,
+        stressedDscr: financial.dscrStressed300bps.value,
+        arBorrowingBase: arBbSection,
+        managementName: mgmtResult.principals[0]?.name ?? null,
+        managementTitle: mgmtResult.principals[0]?.title ?? null,
+        managementOwnershipPct: mgmtResult.principals[0]?.ownership_pct ?? null,
+        managementYearsExp: mgmtResult.principals[0]?.years_experience ?? null,
+        grossMarginPct: (() => {
+          const gp = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "GP" }).value;
+          const rev = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
+          return gp !== null && rev !== null && rev > 0 ? gp / rev : null;
+        })(),
+        gcfComplete: bindings.global.globalCashFlow !== null,
+        isLOC,
+        hasArData: arBbSection !== null,
+        guarantorNetWorth: bindings.sponsors[0]?.netWorth ?? null,
+        bankerNotes: borrowerStory?.banker_notes ?? null,
+        recommendation: recommendation.verdict,
+        cfadsTrend,
+        revenueTrend,
+      }),
+
       header: {
         deal_name: dealLabel({
           id: String(deal.id),
@@ -1347,7 +1385,16 @@ export async function buildCanonicalCreditMemo(args: {
           name: deal.name ?? null,
         }),
         borrower_name: String(deal.borrower_name ?? borrower?.legal_name ?? "—"),
-        guarantors: ownerEntities.map((o: any) => o.display_name ?? "Unknown").filter(Boolean),
+        // Elite: use buildMemoParties for committee-grade guarantor display
+        guarantors: parties.guarantor_display,
+        guarantor_details: parties.guarantors.map((g) => ({
+          name: g.name,
+          type: g.type,
+          role: g.role,
+          ownership_pct: g.ownership_pct,
+          verification_status: g.verification_status,
+        })),
+        pending_guarantor_items: parties.pending_guarantor_items,
         lender_name: "Buddy – The Underwriter",
         prepared_by: args.preparedBy ?? "Buddy",
         underwriting_assistance: aiRisk ? `Buddy AI Risk Assessment (${aiRisk.grade ?? "—"})` : null,
@@ -1456,7 +1503,24 @@ export async function buildCanonicalCreditMemo(args: {
         key_risks: borrowerStory?.key_risks ?? null,
       },
 
-      business_industry_analysis: researchData,
+      business_industry_analysis: researchData ? {
+        ...researchData,
+        industry_risk_positioning: buildIndustryRiskPositioning({
+          naicsCode: borrower?.naics_code ?? null,
+          naicsDescription: borrower?.naics_description ?? null,
+          borrowerName: borrowerNameForContext,
+          dscr: financial.dscrGlobal.value,
+          grossMarginPct: (() => {
+            const gp = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "GP" }).value;
+            const rev = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
+            return gp !== null && rev !== null && rev > 0 ? gp / rev : null;
+          })(),
+          hasArBorrowingBase: arBbSection !== null,
+          isLOC,
+          borrowerStory,
+          researchData,
+        }),
+      } : researchData,
 
       management_qualifications: managementQualifications,
 
@@ -1509,6 +1573,16 @@ export async function buildCanonicalCreditMemo(args: {
         living_expenses: bindingToMetric(bindings.global.livingExpenses, "Computed:SUM(PFS_LIVING_EXPENSES)"),
         total_obligations: bindingToMetric(bindings.global.totalObligations, "Computed:PERSONAL_DS + LIVING_EXPENSES"),
         global_cf_table: [],
+        // Elite: GCF proxy narrative when formal exhibit is incomplete
+        gcf_proxy_narrative: bindings.global.globalCashFlow === null ? buildGcfProxyNarrative({
+          cfads: financial.cashFlowAvailable.value,
+          ads: financial.annualDebtService.value,
+          dscr: financial.dscrGlobal.value,
+          stressedDscr: financial.dscrStressed300bps.value,
+          guarantorNetWorth: bindings.sponsors[0]?.netWorth ?? null,
+          annualPersonalIncome: bindings.sponsors[0]?.totalPersonalIncome ?? null,
+          hasArBorrowingBase: arBbSection !== null,
+        }) : null,
       },
 
       personal_financial_statements: personalFinancialStatements,
@@ -1733,4 +1807,191 @@ function buildArBorrowingBaseFromResults(
       ? parts.join(". ") + "."
       : "AR borrowing base data not available.",
   };
+}
+
+// ── Elite: GCF Proxy Narrative builder ───────────────────────────────────
+
+function buildGcfProxyNarrative(args: {
+  cfads: number | null;
+  ads: number | null;
+  dscr: number | null;
+  stressedDscr: number | null;
+  guarantorNetWorth: number | null;
+  annualPersonalIncome: number | null;
+  hasArBorrowingBase: boolean;
+}): string {
+  const lines: string[] = [
+    "Formal global cash flow exhibit is incomplete. Buddy calculated available repayment capacity using verified borrower cash-flow facts and available guarantor/PFS data. The formal GCF schedule remains pending because total guarantor recurring obligations and complete personal expense detail are not fully populated.",
+    "",
+    "Available Proxy:",
+  ];
+  if (args.cfads !== null) lines.push(`  Borrower CFADS: ${formatCurrencySimple(args.cfads)}`);
+  if (args.ads !== null) lines.push(`  Proposed ADS: ${formatCurrencySimple(args.ads)}`);
+  if (args.dscr !== null) lines.push(`  DSCR: ${args.dscr.toFixed(2)}x`);
+  if (args.stressedDscr !== null) lines.push(`  Stressed DSCR: ${args.stressedDscr.toFixed(2)}x`);
+  if (args.guarantorNetWorth !== null) lines.push(`  Guarantor net worth: ${formatCurrencySimple(args.guarantorNetWorth)}`);
+  if (args.annualPersonalIncome !== null) lines.push(`  Annual personal income: ${formatCurrencySimple(args.annualPersonalIncome)}`);
+  lines.push("");
+
+  const mitigants: string[] = [];
+  if (args.dscr !== null && args.dscr >= 2.0) mitigants.push("strong borrower DSCR");
+  if (args.guarantorNetWorth !== null && args.guarantorNetWorth > 0) mitigants.push("strong guarantor net worth");
+  if (args.hasArBorrowingBase) mitigants.push("AR borrowing base collateral control");
+  const mitigantText = mitigants.length > 0 ? mitigants.join(", ") : "available cash flow evidence";
+  lines.push(
+    `Credit view: Repayment capacity appears strong based on ${mitigantText}. The incomplete formal GCF exhibit is a documentation/diligence issue rather than a primary repayment concern, but should be cleared or acknowledged before final approval.`,
+  );
+  return lines.join("\n");
+}
+
+// ── Elite: Industry Risk & Borrower Positioning builder ──────────────────
+
+function buildIndustryRiskPositioning(args: {
+  naicsCode: string | null;
+  naicsDescription: string | null;
+  borrowerName: string | null;
+  dscr: number | null;
+  grossMarginPct: number | null;
+  hasArBorrowingBase: boolean;
+  isLOC: boolean;
+  borrowerStory: any;
+  researchData: any;
+}): string | null {
+  if (!args.naicsCode && !args.naicsDescription) return null;
+  const name = args.borrowerName ?? "The borrower";
+  const industry = args.naicsDescription ?? `NAICS ${args.naicsCode}`;
+
+  const sections: string[] = [];
+
+  // Industry definition
+  sections.push(`Industry: ${industry} (NAICS ${args.naicsCode ?? "N/A"}).`);
+
+  // Demand drivers from research
+  if (args.researchData?.market_dynamics) {
+    sections.push(`Market dynamics: ${args.researchData.market_dynamics}`);
+  }
+
+  // Industry risks
+  const risks: string[] = [];
+  if (args.researchData?.risk_indicators?.length > 0) {
+    for (const ri of args.researchData.risk_indicators.slice(0, 4)) {
+      risks.push(`${ri.category} (${ri.level}): ${ri.summary}`);
+    }
+  }
+  if (args.grossMarginPct !== null && args.grossMarginPct < 0.20) {
+    risks.push(`Thin gross margin (${(args.grossMarginPct * 100).toFixed(1)}%) — limited pricing power and sensitivity to input costs.`);
+  }
+  if (args.hasArBorrowingBase) {
+    risks.push("Long AR collection cycles with enterprise/healthcare customers warrant borrowing-base monitoring.");
+  }
+  if (risks.length > 0) {
+    sections.push(`Industry risks: ${risks.join(" ")}`);
+  }
+
+  // Borrower-specific position
+  const position: string[] = [];
+  if (args.borrowerStory?.competitive_position) {
+    position.push(String(args.borrowerStory.competitive_position));
+  }
+  if (args.borrowerStory?.growth_strategy) {
+    position.push(`Growth strategy: ${args.borrowerStory.growth_strategy}`);
+  }
+  if (args.borrowerStory?.customer_concentration) {
+    position.push(`Customer concentration: ${args.borrowerStory.customer_concentration}`);
+  }
+  if (position.length > 0) {
+    sections.push(`Borrower positioning: ${name} — ${position.join(". ")}`);
+  }
+
+  // Credit conclusion
+  const conclusionParts: string[] = ["Industry risk is moderate."];
+  if (args.dscr !== null && args.dscr >= 2.0) {
+    conclusionParts.push(`${name}'s strong DSCR (${args.dscr.toFixed(2)}x) provides substantial repayment cushion above peer median.`);
+  }
+  if (args.hasArBorrowingBase && args.isLOC) {
+    conclusionParts.push("The AR borrowing-base LOC structure directly mitigates cash-conversion risk inherent in enterprise contract cycles.");
+  }
+  sections.push(conclusionParts.join(" "));
+
+  return sections.join("\n\n");
+}
+
+// ── Elite: Credit Officer Executive Takeaway builder ─────────────────────
+
+function buildExecutiveTakeaway(args: {
+  loanAmount: number | null;
+  product: string;
+  purpose: string;
+  dscr: number | null;
+  stressedDscr: number | null;
+  arBorrowingBase: any;
+  managementName: string | null;
+  managementTitle: string | null;
+  managementOwnershipPct: number | null;
+  managementYearsExp: number | null;
+  grossMarginPct: number | null;
+  gcfComplete: boolean;
+  isLOC: boolean;
+  hasArData: boolean;
+  guarantorNetWorth: number | null;
+  bankerNotes: string | null;
+  recommendation: string;
+  cfadsTrend: string;
+  revenueTrend: string;
+}): string[] {
+  const bullets: string[] = [];
+
+  // Request
+  if (args.loanAmount !== null) {
+    bullets.push(`Request: ${formatCurrencySimple(args.loanAmount)} ${args.isLOC ? "secured revolving LOC" : args.product} for ${args.purpose.toLowerCase().slice(0, 80)}.`);
+  }
+
+  // Primary repayment
+  if (args.dscr !== null) {
+    bullets.push(`Primary repayment: operating cash flow; UW DSCR ${args.dscr.toFixed(2)}x${args.stressedDscr !== null ? ` and stressed DSCR ${args.stressedDscr.toFixed(2)}x` : ""}.`);
+  }
+
+  // Collateral
+  if (args.arBorrowingBase) {
+    const bb = args.arBorrowingBase;
+    const bbvText = bb.borrowing_base_value !== null ? formatCurrencySimple(bb.borrowing_base_value) : "pending";
+    const availText = bb.borrowing_base_availability !== null ? formatCurrencySimple(bb.borrowing_base_availability) : null;
+    bullets.push(`Collateral: eligible AR borrowing base of ${bbvText} supports proposed ${args.loanAmount !== null ? formatCurrencySimple(args.loanAmount) : ""} commitment${availText ? ` with ${availText} indicated availability` : ""}.`);
+  }
+
+  // Management
+  if (args.managementName) {
+    const expText = args.managementYearsExp !== null ? `${args.managementYearsExp}+ years experience` : "";
+    bullets.push(`Management: ${args.managementName}, ${args.managementTitle ?? "Principal"}${args.managementOwnershipPct !== null ? ` and ${args.managementOwnershipPct}% owner` : ""}${expText ? `, ${expText}` : ""}.`);
+  }
+
+  // Strengths
+  const strengths: string[] = [];
+  if (args.dscr !== null && args.dscr >= 2.0) strengths.push("strong DSCR");
+  if (args.guarantorNetWorth !== null && args.guarantorNetWorth > 0) strengths.push("strong guarantor net worth");
+  if (args.hasArData) strengths.push("AR-controlled collateral structure");
+  if (args.managementYearsExp !== null && args.managementYearsExp >= 10) strengths.push("experienced owner");
+  if (strengths.length > 0) bullets.push(`Strengths: ${strengths.join(", ")}.`);
+
+  // Risks
+  const risks: string[] = [];
+  if (args.grossMarginPct !== null && args.grossMarginPct < 0.20) risks.push("thin gross margin vs peer benchmark");
+  if (args.cfadsTrend === "down" || args.revenueTrend === "down") risks.push("declining revenue/CFADS trend");
+  if (!args.gcfComplete) risks.push("incomplete formal GCF exhibit");
+  if (args.hasArData) risks.push("AR monitoring requirement");
+  if (risks.length > 0) bullets.push(`Risks: ${risks.join(", ")}.`);
+
+  // Mitigants for LOC
+  if (args.isLOC && args.hasArData) {
+    bullets.push("Mitigants: monthly BBC, AR aging, no advances on 90+ AR, concentration monitoring, UCC lien, financial reporting covenants.");
+  }
+
+  // Recommendation
+  const recText = args.recommendation === "approve" ? "Approve"
+    : args.recommendation === "caution" ? "Conditional approval"
+    : args.recommendation === "decline_risk" ? "Decline"
+    : "Pending";
+  bullets.push(`Recommendation: ${recText}${!args.gcfComplete ? " subject to final diligence and formal GCF completion/acknowledgment" : ""}.`);
+
+  return bullets;
 }

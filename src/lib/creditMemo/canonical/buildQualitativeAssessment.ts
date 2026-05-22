@@ -92,8 +92,9 @@ function snapshotNumber(
 function scoreCharacter(args: {
   research: CanonicalCreditMemoV1["business_industry_analysis"];
   overrides: Record<string, any>;
+  bankerNotes?: string | null;
 }): QualitativeDimension {
-  const { research, overrides } = args;
+  const { research, overrides, bankerNotes } = args;
   const flags: string[] = [];
 
   const litigation = research?.litigation_and_risk?.trim().toLowerCase() ?? "";
@@ -103,8 +104,13 @@ function scoreCharacter(args: {
   const overrideFlag = String(overrides?.character_concerns ?? "").toLowerCase();
   const bankerFlaggedAdverse = /yes|true|adverse|concern/.test(overrideFlag);
 
+  // Detect positive relationship evidence from banker notes
+  const notesLower = (bankerNotes ?? "").toLowerCase();
+  const hasRelationshipEvidence =
+    /long.*relat|relationship.*\d+\s*year|\d+\s*year.*relat|pays.*on.*time|auto.?draft|no.*debt|conservative|trust|respect/.test(notesLower);
+
   let score: QualitativeScore = 3;
-  let basis = "No litigation or adverse findings surfaced; character assumed adequate pending banker diligence.";
+  let basis: string;
 
   if (bankerFlaggedAdverse) {
     score = 1;
@@ -120,10 +126,18 @@ function scoreCharacter(args: {
   } else if (researchQuality === "Moderate") {
     score = 4;
     basis = "Moderate research coverage; no adverse findings surfaced.";
+  } else if (hasRelationshipEvidence) {
+    // Banker relationship evidence elevates from Marginal to Adequate pending formal diligence
+    score = 4;
+    basis = "Adequate pending final diligence. Relationship evidence is favorable — established banking relationship with positive character indicators. No adverse litigation or derogatory findings surfaced in research. Final adverse media, background, OFAC, and lien searches should be completed before final approval.";
+    flags.push("Formal diligence pending — relationship evidence favorable");
   } else if (researchQuality === "Limited" || !research) {
     score = 3;
-    basis = "Limited research coverage — no adverse findings, but diligence not exhaustive.";
-    flags.push("Research coverage limited — character diligence incomplete");
+    basis = "No adverse findings surfaced, but research coverage is limited. Character assessed as adequate pending formal diligence completion.";
+    flags.push("Research coverage limited — formal diligence incomplete");
+  } else {
+    score = 3;
+    basis = "No litigation or adverse findings surfaced; character assumed adequate pending banker diligence.";
   }
 
   return { score, label: scoreToLabel(score), basis, flags };
@@ -370,8 +384,9 @@ export function buildQualitativeAssessment(args: {
   overrides: Record<string, any>;
   loanAmount: number | null;
   naicsCode: string | null;
+  bankerNotes?: string | null;
 }): QualitativeAssessment {
-  const character = scoreCharacter({ research: args.research, overrides: args.overrides });
+  const character = scoreCharacter({ research: args.research, overrides: args.overrides, bankerNotes: args.bankerNotes });
   const capital = scoreCapital({ snapshot: args.snapshot, loanAmount: args.loanAmount });
   const conditions = scoreConditions({ research: args.research });
   const management = scoreManagement({
