@@ -7,6 +7,7 @@
 import React from "react";
 import UnderwriterDecisionForm from "./UnderwriterDecisionForm";
 import CreditMemoIntelligencePanels from "./CreditMemoIntelligencePanels";
+import CanonicalMemoTemplate from "./CanonicalMemoTemplate";
 import type { FloridaArmoryMemoSnapshot, FloridaArmorySection } from "@/lib/creditMemo/snapshot/types";
 
 type Props = {
@@ -107,45 +108,7 @@ export default function SubmittedMemoView({
           )}
         </div>
 
-        {/* ── ACTIVATION: Banker context from canonical memo ─────── */}
-        {snapshot.canonical_memo?.banker_context?.banker_notes && (
-          <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">
-              Banker Context
-            </div>
-            <div className="text-xs text-gray-800 whitespace-pre-wrap">
-              {snapshot.canonical_memo.banker_context.banker_notes}
-            </div>
-          </div>
-        )}
-
-        {/* ── ACTIVATION: Enriched management profiles from canonical memo ── */}
-        {snapshot.canonical_memo?.management_qualifications?.principals?.length > 0 && (
-          <div className="mb-6 rounded-md border border-gray-200 bg-white p-4">
-            <div className="text-[11px] font-semibold text-gray-600 uppercase mb-2">
-              Management Profiles (Frozen)
-            </div>
-            <div className="space-y-3">
-              {snapshot.canonical_memo.management_qualifications.principals.map((p) => (
-                <div key={p.id} className="text-xs">
-                  <div className="font-semibold text-gray-900">
-                    {p.name}
-                    {p.title && <span className="font-normal text-gray-500"> — {p.title}</span>}
-                    {p.ownership_pct !== null && <span className="font-normal text-gray-400"> ({p.ownership_pct}%)</span>}
-                  </div>
-                  {p.bio && !p.bio.startsWith("Pending") && (
-                    <div className="text-gray-700 mt-0.5">{p.bio}</div>
-                  )}
-                  {p.years_experience !== null && (
-                    <div className="text-gray-500 mt-0.5">{p.years_experience} years experience</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Intelligence panels (above sections) ───────────────── */}
+        {/* ── Intelligence panels ───────────────────────────────── */}
         <div className="mb-6">
           <div className="text-[11px] font-semibold text-gray-600 uppercase mb-2">
             Credit Memo Intelligence
@@ -153,12 +116,20 @@ export default function SubmittedMemoView({
           <CreditMemoIntelligencePanels dealId={dealId} />
         </div>
 
-        {/* ── Sections ──────────────────────────────────────────── */}
-        <div className="space-y-6">
-          {Object.entries(snapshot.sections).map(([key, section]) => (
-            <SectionBlock key={key} section={section} />
-          ))}
-        </div>
+        {/* ── Full canonical memo from frozen snapshot ────────────── */}
+        {snapshot.canonical_memo ? (
+          <CanonicalMemoTemplate
+            memo={snapshot.canonical_memo}
+            renderingSource={{ type: "frozen", memoVersion }}
+          />
+        ) : (
+          /* Fallback: render generic Florida Armory sections if canonical_memo is missing (legacy snapshots) */
+          <div className="space-y-6">
+            {Object.entries(snapshot.sections).map(([key, section]) => (
+              <SectionBlock key={key} section={section} />
+            ))}
+          </div>
+        )}
 
         {/* ── Underwriter feedback (if any) ──────────────────────── */}
         {underwriterFeedback && Object.keys(underwriterFeedback).length > 0 && (
