@@ -39,7 +39,7 @@ export async function processExtractJob(jobId: string, leaseOwner: string) {
     // Get document info
     const { data: doc, error: docErr } = await (supabase as any)
       .from("deal_documents")
-      .select("id, deal_id, bank_id, document_type, original_filename")
+      .select("id, deal_id, bank_id, document_type, canonical_type, original_filename")
       .eq("id", job.attachment_id)
       .single();
 
