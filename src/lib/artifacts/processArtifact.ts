@@ -1154,7 +1154,7 @@ export async function processArtifact(
     }
 
     // 2.5. Resolve canonical typing with form-number guardrails
-    const typingResult = resolveDocTyping({
+    let typingResult = resolveDocTyping({
       aiDocType: classification.docType,
       aiFormNumbers: classification.formNumbers,
       aiConfidence: classification.confidence,
@@ -1169,6 +1169,37 @@ export async function processArtifact(
         overriddenTo: typingResult.effective_doc_type,
         reason: typingResult.guardrail_reason,
       });
+    }
+
+    // AR Aging heuristic safety net — catch obvious AR aging that slipped through Tier 1-3
+    if (
+      (typingResult.canonical_type === "OTHER" || classification.confidence < 0.60) &&
+      typingResult.canonical_type !== "AR_AGING"
+    ) {
+      const { detectArAgingHeuristic } = await import("@/lib/classification/arAgingHeuristic");
+      const arHeuristic = detectArAgingHeuristic({
+        filename: filename ?? null,
+        text: text?.slice(0, 6000) ?? "",
+      });
+      if (arHeuristic.matched) {
+        console.warn("[processArtifact] AR aging heuristic override", {
+          source_id,
+          originalType: typingResult.canonical_type,
+          confidence: arHeuristic.confidence,
+          reason: arHeuristic.reason,
+        });
+        // Re-resolve typing with AR_AGING as the docType
+        typingResult = resolveDocTyping({
+          aiDocType: "AR_AGING",
+          aiFormNumbers: classification.formNumbers,
+          aiConfidence: arHeuristic.confidence,
+          aiTaxYear: classification.taxYear,
+          aiEntityType: "business",
+        });
+        classification.docType = "AR_AGING";
+        classification.confidence = arHeuristic.confidence;
+        classification.reason = arHeuristic.reason;
+      }
     }
 
     // 3. Update artifact with classification

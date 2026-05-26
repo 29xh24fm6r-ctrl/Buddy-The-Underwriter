@@ -315,3 +315,69 @@ test("Tier 2: all v2.1 pattern confidences are 0.75–0.89", () => {
     );
   }
 });
+
+// ─── AR Aging: OmniCare exact failed OCR layout ─────────────────────────────
+
+test("Tier 2: OmniCare A/R Aging OCR layout (1-30/31-60/61-90/91 AND OVER) → AR_AGING", () => {
+  const text = [
+    "[Page 1]",
+    "A/R Aging Summary Report",
+    "OmniCare365",
+    "As of Apr 28, 2026",
+    "CURRENT",
+    "1-30",
+    "31-60",
+    "61-90",
+    "91 AND",
+    "OVER",
+    "Total",
+    "Affinity Cellular",
+    "9,032.18",
+    "-8,066.89",
+    "965.29",
+    "Generator Power Systems",
+    "67.63",
+    "67.63",
+    "Humana",
+    "715,515.60",
+    "17,278.80 125,763.00",
+    "10,154.75",
+    "98,765.56",
+    "967,477.71",
+    "TOTAL",
+    "2,566,587.99",
+    "79,863.01 207,673.19",
+    "1,380.07 152,002.52",
+    "$3,007,506.78",
+  ].join("\n");
+
+  const result = runTier2Structural(makeDoc(text));
+  assert.equal(result.matched, true, "Must match AR aging with range-format buckets");
+  assert.equal(result.docType, "AR_AGING");
+});
+
+test("Tier 2: AP aging does not classify as AR_AGING", () => {
+  const text = [
+    "Accounts Payable Aging",
+    "As of March 2026",
+    "Vendor",
+    "Current",
+    "1-30",
+    "31-60",
+    "61-90",
+    "91 AND OVER",
+    "Total",
+    "Acme Supplies",
+    "5,000.00",
+    "2,500.00",
+    "7,500.00",
+    "TOTAL",
+    "$15,000.00",
+  ].join("\n");
+
+  const result = runTier2Structural(makeDoc(text));
+  // AP aging must not be classified as AR_AGING
+  if (result.matched) {
+    assert.notEqual(result.docType, "AR_AGING", "AP aging must not classify as AR_AGING");
+  }
+});

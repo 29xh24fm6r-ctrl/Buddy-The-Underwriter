@@ -210,6 +210,31 @@ const FORM_ANCHORS: AnchorRule[] = [
 /** Structural anchors — require multiple signals */
 const STRUCTURAL_ANCHORS: AnchorRule[] = [
 
+  // ── AR AGING ───────────────────────────────────────────────────────────
+  // MUST come before BALANCE_SHEET (balance sheets have "Accounts Receivable"
+  // as a line item — must not false-positive as AR aging).
+  {
+    anchorId: "AR_AGING_TITLE",
+    pattern: /(?:A\/R|AR|accounts\s+receivable|receivables)\s+aging(?:\s+summary|\s+report|\s+detail)?/i,
+    docType: "AR_AGING",
+    confidence: 0.94,
+    entityType: "business",
+    formNumber: null,
+    secondaryPatterns: [
+      /\bcurrent\b/i,
+      /\b\d{1,2}\s*-\s*\d{2}\b/, // 1-30, 31-60, 61-90
+      /\b(?:91|90)\s*(?:and|&)?\s*over\b/i,
+      /\b(?:90|91|120)\+\b/,
+      /\btotal\b/i,
+    ],
+    secondaryMinMatch: 2,
+    excludePatterns: [
+      /\baccounts\s+payable\s+aging\b/i,
+      /\b(?:vendor|supplier)\s+aging\b/i,
+      /\bA\/P\s+aging\b/i,
+    ],
+  },
+
   // ── PERSONAL FINANCIAL STATEMENT ────────────────────────────────────────
   // MUST come before BALANCE_SHEET_STRUCTURAL.
   // The OGB PFS form contains "Section 3 – Balance Sheet" as a section header,

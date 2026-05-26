@@ -270,21 +270,26 @@ function detectARAging(doc: NormalizedDocument): string[] | null {
   const hasTitle =
     /accounts\s+receivable\s+aging/i.test(text) ||
     /A\/R\s+aging/i.test(text) ||
+    /\bAR\s+aging/i.test(text) ||
     /receivables\s+aging/i.test(text) ||
     /\bcustomer\s+aging\b/i.test(text) ||
+    /\baging\s+summary\s+report\b/i.test(text) ||
     /\baging\s+report\b/i.test(text);
 
-  // Aging bucket columns (current / 30 / 60 / 90 / 120 days).
+  // Aging bucket columns — matches both "30 days" format and "1-30" range format.
   const buckets = [
     /\bcurrent\b/i,
-    /\b(?:1\s*-\s*)?30\s*(?:days?|d)\b/i,
-    /\b(?:31\s*-\s*)?60\s*(?:days?|d)\b/i,
-    /\b(?:61\s*-\s*)?90\s*(?:days?|d)\b/i,
-    /\b(?:91\s*-\s*)?120\s*(?:days?|d)\b/i,
-    /\bover\s*90\b/i,
-    /\bover\s*120\b/i,
-    /\b90\+\b/i,
-    /\b120\+\b/i,
+    /\b0?\s*-\s*30\b/,                              // 0-30, 1-30
+    /\b1\s*-\s*30\b/,                                // 1-30, 1 - 30
+    /\b(?:1\s*-\s*)?30\s*(?:days?|d)\b/i,           // 30 days, 30d
+    /\b31\s*-\s*60\b/,                               // 31-60, 31 - 60
+    /\b(?:31\s*-\s*)?60\s*(?:days?|d)\b/i,           // 60 days, 60d
+    /\b61\s*-\s*90\b/,                               // 61-90, 61 - 90
+    /\b(?:61\s*-\s*)?90\s*(?:days?|d)\b/i,           // 90 days, 90d
+    /\b91\s*(?:and|&)?\s*over\b/i,                   // 91 AND OVER, 91 & over
+    /\b(?:91\s*-\s*)?120\s*(?:days?|d)\b/i,          // 120 days
+    /\bover\s*(?:90|120)\b/i,                        // over 90, over 120
+    /\b(?:90|91|120)\+\b/,                           // 90+, 91+, 120+
   ];
 
   let bucketHits = 0;
