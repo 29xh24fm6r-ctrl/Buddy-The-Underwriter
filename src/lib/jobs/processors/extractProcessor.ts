@@ -98,8 +98,10 @@ export async function processExtractJob(jobId: string, leaseOwner: string) {
 
     // AR collateral side-effect (gated by ENABLE_AR_COLLATERAL).
     // Fire-and-forget: failures here must not fail the extract job.
+    // Check both document_type and canonical_type for AR_AGING.
+    const isArDoc = doc.document_type === "AR_AGING" || doc.canonical_type === "AR_AGING";
     if (
-      doc.document_type === "AR_AGING" &&
+      isArDoc &&
       result.result.tables &&
       process.env.ENABLE_AR_COLLATERAL === "true"
     ) {

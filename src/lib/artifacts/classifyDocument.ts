@@ -451,6 +451,11 @@ export function mapDocTypeToChecklistKeys(
     case "DRIVERS_LICENSE":
       keys.push("ID", "DRIVERS_LICENSE");
       break;
+    // AR_AGING is a canonical_type (not in DOC_TYPES), but handled here
+    // for checklist bridge — maps to the AR_AGING expected doc key
+    case "AR_AGING" as any:
+      keys.push("AR_AGING");
+      break;
   }
 
   return keys;

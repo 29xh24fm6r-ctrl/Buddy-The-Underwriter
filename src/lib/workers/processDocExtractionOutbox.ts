@@ -162,8 +162,13 @@ export async function processClaimedExtractionRows(
       // stay empty. The legacy document_jobs path already has this hook;
       // production traffic flows through the outbox path so this is the one
       // that matters in practice.
+      // AR collateral hook — check both extraction type and canonical_type
+      // (some docs have document_type=OTHER but canonical_type=AR_AGING)
+      const isArAging =
+        extractResult.doc.type === "AR_AGING" ||
+        (extractResult.doc as any).canonical_type === "AR_AGING";
       if (
-        extractResult.doc.type === "AR_AGING" &&
+        isArAging &&
         extractResult.result.tables &&
         process.env.ENABLE_AR_COLLATERAL === "true"
       ) {
@@ -211,6 +216,15 @@ export async function processClaimedExtractionRows(
             },
           });
         }
+      } else if (isArAging && extractResult.result.tables && process.env.ENABLE_AR_COLLATERAL !== "true") {
+        // Diagnostic: AR aging detected but feature flag disabled
+        console.warn("[doc-extraction] AR aging detected but ENABLE_AR_COLLATERAL is not enabled", { dealId, docId });
+        void writeEvent({
+          dealId,
+          kind: "intake.ar_collateral_skipped",
+          scope: "intake",
+          meta: { doc_id: docId, reason: "ENABLE_AR_COLLATERAL not enabled" },
+        });
       }
 
       // Post-extraction: trigger deal-level recomputation (idempotent, best-effort)
