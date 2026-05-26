@@ -18,7 +18,7 @@ import {
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
 import type { DealFinancialSnapshotV1, SnapshotMetricName, SnapshotMetricValue } from "@/lib/deals/financialSnapshotCore";
 import { buildCreditMemoBindings } from "@/lib/creditMemo/buildBindings";
-import { computeDealScore } from "@/lib/scoring/dealScoringEngine";
+// computeDealScore intentionally NOT imported — memo-facing grade uses buildConventionalRiskRating only
 import { CONDITION_RULES, EXPECTED_DOCS, type LoanProductType as ConditionsProductType } from "@/lib/conditions/rules";
 import { computeUnderwritingVerdict } from "@/lib/finance/underwriting/computeVerdict";
 import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
