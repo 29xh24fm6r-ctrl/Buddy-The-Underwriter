@@ -356,6 +356,82 @@ test("Tier 2: OmniCare A/R Aging OCR layout (1-30/31-60/61-90/91 AND OVER) → A
   assert.equal(result.docType, "AR_AGING");
 });
 
+// ─── Balance Sheet: Statement of Assets, Liabilities and Equity ─────────────
+
+test("Tier 2: OmniCare Statement of Assets, Liabilities and Equity → BALANCE_SHEET", () => {
+  const text = [
+    "OmniCare365, Inc",
+    "Statement of Assets, Liabilities and Equity",
+    "As of March 31, 2026",
+    "ASSETS",
+    "Current Assets",
+    "Bank Accounts",
+    "Checking 158,432.00",
+    "Total Bank Accounts 158,432.00",
+    "Other Current Assets",
+    "Accounts Receivable (A/R) 3,007,506.78",
+    "Total Other Current Assets 3,007,506.78",
+    "Total Current Assets 3,165,938.78",
+    "Fixed Assets",
+    "FFE and Computers 125,000.00",
+    "Less Accumulated Depreciation -45,000.00",
+    "Total Fixed Assets 80,000.00",
+    "TOTAL ASSETS 3,245,938.78",
+    "LIABILITIES AND EQUITY",
+    "Liabilities",
+    "Current Liabilities",
+    "Accounts Payable 85,000.00",
+    "Payroll Liabilities 42,000.00",
+    "Total Current Liabilities 127,000.00",
+    "Equity",
+    "Retained Earnings 2,850,000.00",
+    "Net Income 268,938.78",
+    "Total Equity 3,118,938.78",
+    "TOTAL LIABILITIES AND EQUITY 3,245,938.78",
+  ].join("\n");
+
+  const result = runTier2Structural(makeDoc(text));
+  assert.equal(result.matched, true, "Must match business balance sheet");
+  assert.equal(result.docType, "BALANCE_SHEET");
+});
+
+test("Tier 2: PFS does not classify as business BALANCE_SHEET", () => {
+  const text = [
+    "Personal Financial Statement",
+    "SBA Form 413",
+    "Guarantor: Matt Hunt",
+    "Spouse: Jane Hunt",
+    "Assets",
+    "Cash 50,000",
+    "Personal Residence 500,000",
+    "Retirement 200,000",
+    "Total Assets 750,000",
+    "Liabilities",
+    "Mortgage 300,000",
+    "Total Liabilities 300,000",
+    "Net Worth 450,000",
+  ].join("\n");
+
+  const result = runTier2Structural(makeDoc(text));
+  if (result.matched) {
+    assert.notEqual(result.docType, "BALANCE_SHEET", "PFS must not classify as business BALANCE_SHEET");
+  }
+});
+
+test("Tier 2: AR Aging does not classify as BALANCE_SHEET", () => {
+  const text = [
+    "A/R Aging Summary Report",
+    "CURRENT 1-30 31-60 61-90 91 AND OVER Total",
+    "Accounts Receivable 3,007,506.78",
+    "TOTAL $3,007,506.78",
+  ].join("\n");
+
+  const result = runTier2Structural(makeDoc(text));
+  if (result.matched) {
+    assert.notEqual(result.docType, "BALANCE_SHEET", "AR aging must not classify as BALANCE_SHEET");
+  }
+});
+
 test("Tier 2: AP aging does not classify as AR_AGING", () => {
   const text = [
     "Accounts Payable Aging",

@@ -333,6 +333,85 @@ function detectARAging(doc: NormalizedDocument): string[] | null {
 }
 
 // ---------------------------------------------------------------------------
+// Pattern: Business Balance Sheet
+// ---------------------------------------------------------------------------
+
+function detectBusinessBalanceSheet(doc: NormalizedDocument): string[] | null {
+  const text = doc.firstTwoPagesText;
+  const signals: string[] = [];
+
+  // PFS negative guard — if PFS signals dominate, reject
+  const pfsSigs = [
+    /personal\s+financial\s+statement/i,
+    /SBA\s+Form\s+413/i,
+    /\bguarantor\b/i,
+    /\bspouse\b/i,
+    /\bdate\s+of\s+birth\b/i,
+    /\bsocial\s+security\b/i,
+    /personal\s+residence/i,
+    /life\s+insurance\s+cash\s+value/i,
+  ];
+  let pfsHits = 0;
+  for (const p of pfsSigs) { if (p.test(text)) pfsHits++; }
+  if (pfsHits >= 2) return null;
+
+  // Strong title signals
+  const hasStrongTitle =
+    /statement\s+of\s+assets[\s,]+liabilities\s+(?:and|&)\s+equity/i.test(text) ||
+    /statement\s+of\s+assets\s+(?:and|&)\s+liabilities/i.test(text) ||
+    /statement\s+of\s+financial\s+(?:position|condition)/i.test(text) ||
+    /\bbalance\s+sheet\b/i.test(text);
+
+  // Asset/liability/equity structural signals
+  const structuralSigs = [
+    /\bassets\b/i,
+    /\bcurrent\s+assets\b/i,
+    /\btotal\s+assets\b/i,
+    /\bliabilities\b/i,
+    /\bliabilities\s+(?:and|&)\s+equity\b/i,
+    /\btotal\s+liabilities(?:\s+(?:and|&)\s+equity)?\b/i,
+    /\bequity\b/i,
+    /\bretained\s+earnings\b/i,
+    /\baccounts\s+receivable\b/i,
+    /\baccounts\s+payable\b/i,
+    /\bfixed\s+assets\b/i,
+    /\bdepreciation\b/i,
+  ];
+  let structHits = 0;
+  for (const p of structuralSigs) {
+    if (p.test(text)) {
+      structHits++;
+      signals.push(`Balance sheet signal: ${p.source}`);
+    }
+  }
+
+  // Business entity signals — distinguish from PFS
+  const hasBusinessEntity =
+    /\b(?:Inc|LLC|Corp|Ltd|LP|LLP)\b/.test(text) ||
+    /\baccounts\s+(?:receivable|payable)\b/i.test(text) ||
+    /\bretained\s+earnings\b/i.test(text) ||
+    /\bpayroll\s+liabilities\b/i.test(text) ||
+    /\bfixed\s+assets\b/i.test(text) ||
+    /\b(?:accumulated\s+)?depreciation\b/i.test(text);
+
+  // Path 1: strong title + at least 2 asset/liability/equity signals
+  if (hasStrongTitle && structHits >= 2) {
+    signals.unshift("Balance sheet title + structural signals");
+    return signals;
+  }
+
+  // Path 2: total assets + liabilities/equity + business entity signal
+  const hasTotalAssets = /\btotal\s+assets\b/i.test(text);
+  const hasLiabEquity = /\bliabilities\s+(?:and|&)\s+equity\b/i.test(text) || /\btotal\s+liabilities\b/i.test(text);
+  if (hasTotalAssets && hasLiabEquity && hasBusinessEntity) {
+    signals.unshift("Total assets + liabilities/equity + business entity");
+    return signals;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Pattern: Voided Check
 // ---------------------------------------------------------------------------
 
@@ -374,6 +453,12 @@ const STRUCTURAL_PATTERNS: StructuralPattern[] = [
     docType: "PFS",
     confidence: 0.85,
     detect: detectPFS,
+  },
+  {
+    patternId: "BUSINESS_BALANCE_SHEET_FORMAT",
+    docType: "BALANCE_SHEET",
+    confidence: 0.84,
+    detect: detectBusinessBalanceSheet,
   },
   {
     patternId: "MULTI_YEAR_PL",

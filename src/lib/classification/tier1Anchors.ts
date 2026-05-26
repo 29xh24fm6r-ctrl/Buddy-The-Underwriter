@@ -294,13 +294,17 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
   },
 
   // ── BALANCE SHEET ───────────────────────────────────────────────────────
+  // Matches:
+  //   - Balance Sheet
+  //   - Statement of Financial Position
+  //   - Statement of Assets, Liabilities and Equity (QuickBooks/accounting software)
+  //   - Statement of Assets and Liabilities
+  //   - Statement of Financial Condition
   // excludePatterns: suppressed when personal financial statement language
   // is present — prevents PFS from being locked as BALANCE_SHEET.
-  // (Belt-and-suspenders: PERSONAL_FINANCIAL_STMT_STRUCTURAL fires first,
-  // but this exclusion catches edge cases where OCR garbles the PFS header.)
   {
     anchorId: "BALANCE_SHEET_STRUCTURAL",
-    pattern: /balance\s+sheet|statement\s+of\s+financial\s+position/i,
+    pattern: /balance\s+sheet|statement\s+of\s+financial\s+(?:position|condition)|statement\s+of\s+assets[\s,]+liabilities\s+(?:and|&)\s+equity|statement\s+of\s+assets\s+(?:and|&)\s+liabilities/i,
     docType: "BALANCE_SHEET",
     confidence: 0.93,
     entityType: null,
@@ -309,8 +313,17 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
       /personal\s+financial\s+statement/i,
       /statement\s+of\s+personal/i,
       /net\s+worth.*personal/i,
+      /\bspouse\b/i,
+      /\bguarantor\b/i,
+      /SBA\s+Form\s+413/i,
     ],
-    secondaryPatterns: [/total\s+assets/i, /total\s+liabilities/i],
+    secondaryPatterns: [
+      /total\s+assets/i,
+      /total\s+liabilities/i,
+      /liabilities\s+(?:and|&)\s+equity/i,
+      /retained\s+earnings/i,
+    ],
+    secondaryMinMatch: 2,
   },
 
   // ── INCOME STATEMENT ────────────────────────────────────────────────────
