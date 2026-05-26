@@ -39,6 +39,9 @@ import { joinSentences, cleanMemoNarrative } from "@/lib/creditMemo/text/cleanMe
 import { buildMarketDynamicsNarrative } from "@/lib/creditMemo/industry/buildMarketDynamics";
 import { reconcileGuarantorIncome } from "@/lib/creditMemo/globalCashFlow/reconcileGuarantorIncome";
 import { buildIndustryContextNarrative } from "@/lib/industryIntelligence/officialData";
+import { buildConventionalRiskRating } from "@/lib/creditMemo/riskRating/buildConventionalRiskRating";
+import { buildExhibitRegistry } from "@/lib/creditMemo/canonical/buildExhibitRegistry";
+import { buildDscrReconciliation } from "@/lib/creditMemo/financials/buildDscrReconciliation";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -592,13 +595,10 @@ export async function buildCanonicalCreditMemo(args: {
       ? { value: noiForRatios.value / collateralFromSnapshot.grossValue.value, source: "Computed:NOI_TTM/GrossCollateralValue", updated_at: null }
       : pendingMetric();
 
-    // ===== Phase 1D: Risk factors from scoring engine =====
-    const scoreResult = computeDealScore({ snapshot, decision: null, metadata: {} });
+    // ===== Phase 1D: Risk factors — conventional risk rating replaces legacy score model =====
+    // The old computeDealScore (DSCR-only, max 44, always D) is no longer used for risk grade.
+    // Risk factors are now derived from the conventional multi-factor model built later.
     const riskFactors: Array<{ risk: string; severity: "low" | "medium" | "high"; mitigants: string[] }> = [];
-    for (const neg of scoreResult.drivers.negative) {
-      const sev: "low" | "medium" | "high" = scoreResult.grade === "D" ? "high" : scoreResult.grade === "C" ? "medium" : "low";
-      riskFactors.push({ risk: neg, severity: sev, mitigants: [] });
-    }
     if (financial.dscrGlobal.value !== null && financial.dscrGlobal.value < 1.25 && !riskFactors.some(r => r.risk.includes("DSCR"))) {
       riskFactors.push({ risk: `Below-policy DSCR (${financial.dscrGlobal.value.toFixed(2)}x vs 1.25x minimum)`, severity: "high", mitigants: ["Consider additional collateral or guarantor support"] });
     }
@@ -918,33 +918,53 @@ export async function buildCanonicalCreditMemo(args: {
 
       const verdict = computeUnderwritingVerdict(uwResults);
 
-      const finalGrade = aiRisk?.grade ?? scoreResult.grade;
-      const rationale = [...verdict.rationale];
+      // Conventional multi-factor risk rating (replaces legacy D/44 DSCR-only score)
+      const gmForRating = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "GP" }).value;
+      const revForRating = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
+      const conventionalRating = buildConventionalRiskRating({
+        dscr: financial.dscrGlobal.value,
+        stressedDscr: financial.dscrStressed300bps.value,
+        worstYearDscr: worstDscr,
+        cfadsTrend,
+        revenueTrend,
+        ltvPct: ltvGross.value,
+        collateralCoverageRatio: discountedCoverage.value,
+        arBorrowingBaseAvailable: arAgingResult?.data != null,
+        guarantorNetWorth: bindings.sponsors[0]?.netWorth ?? null,
+        currentRatio: metricValueFromSnapshot({ snapshot, metric: "current_ratio", label: "CR" }).value,
+        debtToEquity: metricValueFromSnapshot({ snapshot, metric: "debt_to_equity", label: "D/E" }).value,
+        grossMarginPct: gmForRating !== null && revForRating !== null && revForRating > 0 ? gmForRating / revForRating : null,
+        managementYearsExperience: mgmtProfiles[0]?.years_experience ?? null,
+        characterScore: 3, // conservative default; qualitative assessment not yet built at this point
+        gcfComplete: bindings.global.globalCashFlow !== null,
+        formalDiligenceComplete: false, // assume incomplete until confirmed
+        customerConcentrationRisk: borrowerStory?.customer_concentration != null && borrowerStory.customer_concentration.trim().length > 0,
+        hasAdverseFindings: false, // will be refined by qualitative assessment post-build
+        financialStatementQuality: "tax_returns",
+      });
 
-      // Fix 6: When grade is D but DSCR is strong, add concise explanation
-      if (finalGrade === "D" && financial.dscrGlobal.value !== null && financial.dscrGlobal.value >= 2.0) {
-        const reasons: string[] = [];
-        if (cfadsTrend === "down" || revenueTrend === "down") reasons.push("declining revenue/CFADS trend");
-        const gmVal = metricValueFromSnapshot({ snapshot, metric: "gross_profit", label: "GP" }).value;
-        const revVal = metricValueFromSnapshot({ snapshot, metric: "revenue", label: "Rev" }).value;
-        if (gmVal !== null && revVal !== null && revVal > 0 && (gmVal / revVal) < 0.20) {
-          reasons.push("thin gross margin");
+      // Merge conventional rating drivers into risk factors
+      for (const d of conventionalRating.primary_drivers) {
+        if (d.impact === "negative" && !riskFactors.some((r) => r.risk === d.detail)) {
+          riskFactors.push({ risk: d.detail, severity: d.impact === "negative" ? "medium" : "low", mitigants: [] });
         }
-        if (bindings.global.globalCashFlow === null) reasons.push("incomplete formal GCF exhibit");
-        if (isLOC && arAgingResult?.data) reasons.push("AR monitoring risk");
-        if (reasons.length > 0) {
-          rationale.push(
-            `Risk grade reflects ${reasons.join(", ")}, despite strong DSCR (${financial.dscrGlobal.value.toFixed(2)}x) and collateral coverage.`,
-          );
-        }
+      }
+
+      const rationale = [...verdict.rationale];
+      // Add risk rating bridge summary
+      rationale.push(
+        `Conventional risk rating: ${conventionalRating.risk_grade_label} (Grade ${conventionalRating.risk_grade} on ${conventionalRating.risk_grade_scale} scale, score ${conventionalRating.score}/100).`,
+      );
+      if (conventionalRating.policy_notes.length > 0) {
+        rationale.push(conventionalRating.policy_notes.join(". ") + ".");
       }
 
       recommendation = {
         verdict: verdict.level,
         headline: verdict.headline,
-        risk_grade: finalGrade,
-        risk_score: scoreResult.score,
-        confidence: scoreResult.confidence,
+        risk_grade: `${conventionalRating.risk_grade} — ${conventionalRating.risk_grade_label}`,
+        risk_score: conventionalRating.score,
+        confidence: conventionalRating.quantitative_score / 60, // 0-1 normalized from quant component
         rationale,
         key_drivers: verdict.key_drivers,
         mitigants: verdict.mitigants,
@@ -2001,7 +2021,7 @@ function buildIndustryRiskPositioning(args: {
     position.push(`Customer concentration: ${args.borrowerStory.customer_concentration}`);
   }
   if (position.length > 0) {
-    sections.push(`Borrower positioning: ${name} — ${position.join(". ")}`);
+    sections.push(cleanMemoNarrative(`Borrower positioning: ${name} — ${joinSentences(position)}`));
   }
 
   // Credit conclusion
@@ -2014,7 +2034,7 @@ function buildIndustryRiskPositioning(args: {
   }
   sections.push(conclusionParts.join(" "));
 
-  return sections.join("\n\n");
+  return cleanMemoNarrative(sections.join("\n\n"));
 }
 
 // ── Elite: Credit Officer Executive Takeaway builder ─────────────────────
