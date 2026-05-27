@@ -30,7 +30,7 @@ function fmtCurrency(n: number | null | undefined): string {
 }
 
 const STATUS_COLORS: Record<LoanRequestStatus, string> = {
-  draft: "bg-slate-100 text-slate-700",
+  draft: "bg-white/10 text-white/70",
   submitted: "bg-blue-100 text-blue-700",
   under_review: "bg-yellow-100 text-yellow-800",
   pricing_requested: "bg-purple-100 text-purple-700",
@@ -38,7 +38,7 @@ const STATUS_COLORS: Record<LoanRequestStatus, string> = {
   terms_accepted: "bg-green-100 text-green-700",
   approved: "bg-green-200 text-green-800",
   declined: "bg-red-100 text-red-700",
-  withdrawn: "bg-slate-200 text-slate-600",
+  withdrawn: "bg-white/10 text-white/50",
   funded: "bg-emerald-200 text-emerald-800",
 };
 
@@ -104,25 +104,25 @@ function LoanRequestCard({
     : null;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-slate-900">{label}</span>
+            <span className="text-sm font-semibold text-white">{label}</span>
             {category && (
-              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-white/40">
                 {category}
               </span>
             )}
             <span
-              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[lr.status] ?? "bg-slate-100 text-slate-600"}`}
+              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[lr.status] ?? "bg-white/10 text-white/60"}`}
             >
               {statusLabel(lr.status)}
             </span>
           </div>
 
-          <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+          <div className="mt-1 flex items-center gap-3 text-xs text-white/50">
             {lr.requested_amount != null && (
               <span>{fmtCurrency(lr.requested_amount)}</span>
             )}
@@ -141,7 +141,7 @@ function LoanRequestCard({
           </div>
 
           {(lr.loan_purpose || lr.purpose) && (
-            <div className="mt-1 text-xs text-slate-600 line-clamp-2">
+            <div className="mt-1 text-xs text-white/60 line-clamp-2">
               {lr.loan_purpose || lr.purpose}
             </div>
           )}
@@ -158,7 +158,7 @@ function LoanRequestCard({
           )}
           <button
             onClick={onEdit}
-            className="rounded-md border px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="rounded-md border px-2 py-1 text-xs font-medium text-white/60 hover:bg-white/10"
           >
             Edit
           </button>
@@ -170,7 +170,7 @@ function LoanRequestCard({
           </button>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="rounded-md border px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-50"
+            className="rounded-md border px-2 py-1 text-xs font-medium text-white/40 hover:bg-white/10"
           >
             {expanded ? "Less" : "More"}
           </button>
@@ -179,7 +179,7 @@ function LoanRequestCard({
 
       {/* Expanded details */}
       {expanded && (
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+        <div className="mt-3 space-y-2 border-t border-white/10 pt-3 text-xs text-white/60">
           {lr.requested_amort_months != null && (
             <div>Amortization: {lr.requested_amort_months} months</div>
           )}
@@ -306,6 +306,15 @@ function LoanRequestForm({
     (shape.showEvergreen && evergreenEnabled) ||
     shape.showTerm === "optional";
 
+  // Product-aware placeholders for AR LOC vs generic
+  const isArLoc = form.product_type === "ACCOUNTS_RECEIVABLE" || form.product_type === "LOC_SECURED";
+  const purposePlaceholder = isArLoc
+    ? "e.g. Working capital / AR financing — fund payroll and operations against eligible receivables"
+    : "e.g. Purchase building";
+  const collateralPlaceholder = isArLoc
+    ? "e.g. AR borrowing base — eligible receivables per aging report, blanket UCC lien on business assets"
+    : "e.g. First lien on property";
+
   // Group products by category
   const byCategory = productTypes.reduce(
     (acc, pt) => {
@@ -382,6 +391,13 @@ function LoanRequestForm({
       down_payment: newShape.showRealEstate ? prev.down_payment : null,
       property_noi: newShape.showRealEstate ? prev.property_noi : null,
       property_address_json: newShape.showRealEstate ? prev.property_address_json : null,
+      // AR LOC defaults: pre-fill draw period and review frequency
+      draw_period_months: newCode === "ACCOUNTS_RECEIVABLE" || newCode === "LOC_SECURED"
+        ? (prev.draw_period_months ?? 12)
+        : prev.draw_period_months,
+      review_frequency_months: newCode === "ACCOUNTS_RECEIVABLE" || newCode === "LOC_SECURED"
+        ? (prev.review_frequency_months ?? 12)
+        : prev.review_frequency_months,
       // Clear SBA if switching away
       sba_program: newShape.showSba ? prev.sba_program : null,
       injection_amount: newShape.showSba ? prev.injection_amount : null,
@@ -448,20 +464,20 @@ function LoanRequestForm({
   }
 
   const inputCls =
-    "mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
+    "mt-1 h-9 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white placeholder:text-white/30 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-blue-200 bg-blue-50/30 p-4 space-y-4"
+      className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-4"
     >
-      <div className="text-sm font-semibold text-slate-800">
+      <div className="text-sm font-semibold text-white/90">
         {existingRequest ? "Edit Loan Request" : "New Loan Request"}
       </div>
 
       {/* Product type */}
       <div>
-        <label className="text-xs font-medium text-slate-600">
+        <label className="text-xs font-medium text-white/60">
           Product Type *
         </label>
         <select
@@ -487,7 +503,7 @@ function LoanRequestForm({
       {/* Amount & Purpose */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="text-xs font-medium text-slate-600">
+          <label className="text-xs font-medium text-white/60">
             Requested Amount
           </label>
           <input
@@ -501,11 +517,11 @@ function LoanRequestForm({
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-slate-600">Purpose</label>
+          <label className="text-xs font-medium text-white/60">Purpose</label>
           <textarea
             className={inputCls + " h-auto py-2 resize-none"}
             rows={2}
-            placeholder="e.g. Purchase building"
+            placeholder={purposePlaceholder}
             value={form.loan_purpose ?? ""}
             onChange={(e) => setStr("loan_purpose", e.target.value)}
             disabled={saving}
@@ -517,10 +533,10 @@ function LoanRequestForm({
       {showTermAmort && !shape.showLineDetails && (
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Term (months)
               {shape.showTerm === "optional" && (
-                <span className="ml-1 text-slate-400">(optional)</span>
+                <span className="ml-1 text-white/40">(optional)</span>
               )}
             </label>
             <input
@@ -533,10 +549,10 @@ function LoanRequestForm({
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Amort (months)
               {shape.showAmort === "optional" && (
-                <span className="ml-1 text-slate-400">(optional)</span>
+                <span className="ml-1 text-white/40">(optional)</span>
               )}
             </label>
             <input
@@ -551,7 +567,7 @@ function LoanRequestForm({
           {/* Rate preference in same row */}
           {shape.showRatePreference && (
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Rate Preference
               </label>
               <select
@@ -572,7 +588,7 @@ function LoanRequestForm({
       {/* Rate preference standalone for LOC / line products */}
       {shape.showRatePreference && (shape.showLineDetails || (!showTermAmort && !shape.showLineDetails)) && (
         <div className="max-w-xs">
-          <label className="text-xs font-medium text-slate-600">
+          <label className="text-xs font-medium text-white/60">
             Rate Preference
           </label>
           <select
@@ -591,7 +607,7 @@ function LoanRequestForm({
       {/* Interest-Only period */}
       {shape.showInterestOnly && (
         <div className="max-w-xs">
-          <label className="text-xs font-medium text-slate-600">
+          <label className="text-xs font-medium text-white/60">
             Interest-Only Period (months)
           </label>
           <input
@@ -609,10 +625,10 @@ function LoanRequestForm({
       {shape.showRateIndex && (
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Rate Index
               {ratesLoading && (
-                <span className="ml-2 text-[10px] text-slate-400">fetching rates…</span>
+                <span className="ml-2 text-[10px] text-white/40">fetching rates…</span>
               )}
             </label>
             <div className="mt-1 flex flex-wrap gap-2">
@@ -632,24 +648,24 @@ function LoanRequestForm({
                     className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                       selected
                         ? "border-blue-500 bg-blue-50 text-blue-700"
-                        : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                        : "border-white/15 bg-white/5 text-white/60 hover:bg-white/10"
                     }`}
                     disabled={saving}
                   >
                     <span className="font-semibold">{RATE_INDEX_LABELS[code]}</span>
                     {rate ? (
-                      <span className="ml-1.5 text-[10px] text-slate-400">
+                      <span className="ml-1.5 text-[10px] text-white/40">
                         {rate.ratePct.toFixed(2)}%
                       </span>
                     ) : (
-                      <span className="ml-1.5 text-[10px] text-slate-300">&mdash;</span>
+                      <span className="ml-1.5 text-[10px] text-white/30">&mdash;</span>
                     )}
                   </button>
                 );
               })}
             </div>
             {liveRates && form.requested_rate_index && liveRates[form.requested_rate_index] && (
-              <p className="mt-1 text-[10px] text-slate-400">
+              <p className="mt-1 text-[10px] text-white/40">
                 as of {liveRates[form.requested_rate_index]!.asOf}
               </p>
             )}
@@ -659,7 +675,7 @@ function LoanRequestForm({
           {shape.showSpread && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-xs font-medium text-slate-600">
+                <label className="text-xs font-medium text-white/60">
                   Spread (bps)
                 </label>
                 <input
@@ -682,10 +698,10 @@ function LoanRequestForm({
                 const allIn = base + form.requested_spread_bps / 100;
                 return (
                   <div className="flex flex-col justify-end">
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Est. All-In Rate</div>
-                      <div className="text-lg font-bold text-slate-900">{allIn.toFixed(2)}%</div>
-                      <div className="text-[10px] text-slate-400">
+                    <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                      <div className="text-[10px] text-white/40 uppercase tracking-wide">Est. All-In Rate</div>
+                      <div className="text-lg font-bold text-white">{allIn.toFixed(2)}%</div>
+                      <div className="text-[10px] text-white/40">
                         {base.toFixed(2)}% + {form.requested_spread_bps}bps
                       </div>
                     </div>
@@ -699,17 +715,17 @@ function LoanRequestForm({
 
       {/* LOC-specific section */}
       {shape.showLineDetails && (
-        <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-          <div className="text-xs font-semibold text-slate-700">Line of Credit Details</div>
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          <div className="text-xs font-semibold text-white/70">Line of Credit Details</div>
 
           {shape.showEvergreen && (
-            <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+            <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
               <input
                 type="checkbox"
                 checked={evergreenEnabled}
                 onChange={(e) => setEvergreenEnabled(e.target.checked)}
                 disabled={saving}
-                className="rounded border-slate-300"
+                className="rounded border-white/20"
               />
               This line has a term-out / evergreen feature
             </label>
@@ -718,7 +734,7 @@ function LoanRequestForm({
           {evergreenEnabled && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-xs font-medium text-slate-600">
+                <label className="text-xs font-medium text-white/60">
                   Term-Out Period (months)
                 </label>
                 <input
@@ -731,7 +747,7 @@ function LoanRequestForm({
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-slate-600">
+                <label className="text-xs font-medium text-white/60">
                   Amortization (months)
                 </label>
                 <input
@@ -748,7 +764,7 @@ function LoanRequestForm({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Draw Period (months)
               </label>
               <input
@@ -761,7 +777,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Annual Review Frequency
               </label>
               <select
@@ -787,11 +803,11 @@ function LoanRequestForm({
 
       {/* Equipment details */}
       {shape.showEquipmentDetails && (
-        <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-          <div className="text-xs font-semibold text-slate-700">Equipment Details</div>
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          <div className="text-xs font-semibold text-white/70">Equipment Details</div>
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="text-xs font-medium text-slate-600">Make</label>
+              <label className="text-xs font-medium text-white/60">Make</label>
               <input
                 className={inputCls}
                 placeholder="e.g. Caterpillar"
@@ -801,7 +817,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">Model</label>
+              <label className="text-xs font-medium text-white/60">Model</label>
               <input
                 className={inputCls}
                 placeholder="e.g. 320 Excavator"
@@ -811,7 +827,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">Year</label>
+              <label className="text-xs font-medium text-white/60">Year</label>
               <input
                 className={inputCls}
                 type="number"
@@ -827,8 +843,8 @@ function LoanRequestForm({
 
       {/* Real Estate fields */}
       {shape.showRealEstate && (
-        <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-          <div className="text-xs font-semibold text-slate-700">
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          <div className="text-xs font-semibold text-white/70">
             Real Estate Details
           </div>
 
@@ -844,7 +860,7 @@ function LoanRequestForm({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Property Type
               </label>
               <input
@@ -856,7 +872,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Occupancy
               </label>
               <select
@@ -872,7 +888,7 @@ function LoanRequestForm({
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Property Value
               </label>
               <input
@@ -885,7 +901,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Purchase Price
               </label>
               <input
@@ -898,7 +914,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Down Payment
               </label>
               <input
@@ -911,7 +927,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Property NOI
               </label>
               <input
@@ -926,7 +942,7 @@ function LoanRequestForm({
           </div>
 
           {/* Property Address */}
-          <div className="text-xs font-medium text-slate-600 mt-2">
+          <div className="text-xs font-medium text-white/60 mt-2">
             Property Address
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -979,13 +995,13 @@ function LoanRequestForm({
 
       {/* SBA fields */}
       {shape.showSba && (
-        <div className="rounded-md border border-slate-200 bg-white p-3">
-          <div className="text-xs font-semibold text-slate-700 mb-2">
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div className="text-xs font-semibold text-white/70 mb-2">
             SBA Details
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 SBA Program
               </label>
               <select
@@ -1002,7 +1018,7 @@ function LoanRequestForm({
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Injection Amount
               </label>
               <input
@@ -1015,7 +1031,7 @@ function LoanRequestForm({
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Injection Source
               </label>
               <input
@@ -1031,26 +1047,26 @@ function LoanRequestForm({
       )}
 
       {/* Collateral & Guarantors */}
-      <div className="rounded-md border border-slate-200 bg-white p-3">
-        <div className="text-xs font-semibold text-slate-700 mb-2">
+      <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+        <div className="text-xs font-semibold text-white/70 mb-2">
           Collateral & Guarantors
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Collateral Summary
             </label>
             <textarea
               className={inputCls + " h-auto py-2 resize-none"}
               rows={2}
-              placeholder="e.g. Commercial building at 123 Main St, valued at $1.2M"
+              placeholder={collateralPlaceholder}
               value={form.collateral_summary ?? ""}
               onChange={(e) => setStr("collateral_summary", e.target.value)}
               disabled={saving}
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Guarantors Summary
             </label>
             <textarea
@@ -1067,7 +1083,7 @@ function LoanRequestForm({
 
       {/* Notes */}
       <div>
-        <label className="text-xs font-medium text-slate-600">Notes</label>
+        <label className="text-xs font-medium text-white/60">Notes</label>
         <textarea
           className={inputCls + " h-auto py-2 resize-none"}
           rows={2}
@@ -1095,7 +1111,7 @@ function LoanRequestForm({
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="rounded-md border px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-md border px-4 py-2 text-sm font-medium text-white/60 hover:bg-white/10 disabled:opacity-50"
         >
           Cancel
         </button>
@@ -1259,7 +1275,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
 
   if (requestsLoading) {
     return (
-      <div className="rounded-xl border bg-white p-4 text-sm text-slate-500">
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/50">
         Loading loan requests...
       </div>
     );
@@ -1272,10 +1288,10 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
     <div className="rounded-xl border bg-white p-4">
       <div className="flex items-baseline justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-slate-900">
+          <div className="text-sm font-semibold text-white">
             Loan Requests
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-white/50">
             What the borrower is asking for
           </div>
         </div>
@@ -1293,7 +1309,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
                   ? "Loan products unavailable — refresh to retry"
                   : undefined
             }
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-md border px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/10 disabled:opacity-50"
           >
             + Add Request
           </button>
@@ -1319,11 +1335,11 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       )}
 
       {requests.length === 0 && !showForm && !editingRequest && (
-        <div className="mt-4 rounded-lg border-2 border-dashed border-slate-200 p-6 text-center">
-          <div className="text-sm font-medium text-slate-600">
+        <div className="mt-4 rounded-lg border-2 border-dashed border-white/15 p-6 text-center">
+          <div className="text-sm font-medium text-white/60">
             No loan requests yet
           </div>
-          <div className="mt-1 text-xs text-slate-400">
+          <div className="mt-1 text-xs text-white/40">
             Add at least one loan request to capture what the borrower needs.
           </div>
           <button
