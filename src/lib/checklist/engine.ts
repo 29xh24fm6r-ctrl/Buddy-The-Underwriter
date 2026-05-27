@@ -28,7 +28,10 @@ function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDo
   if (key.startsWith("IRS_PERSONAL")) return ["personal_tax_return"];
 
   if (key === "FIN_STMT_PL_YTD") return ["income_statement", "financial_statement"];
+  if (key === "FIN_STMT_PL_ANNUAL") return ["income_statement", "financial_statement"];
   if (key === "FIN_STMT_BS_YTD") return ["balance_sheet", "financial_statement"];
+  if (key === "FIN_STMT_BS_CURRENT") return ["balance_sheet", "financial_statement"];
+  if (key === "FIN_STMT_BS_HISTORICAL") return ["balance_sheet", "financial_statement"];
   // Back-compat legacy key (older deals): treat as requiring either statement.
   if (key === "FIN_STMT_YTD") return ["income_statement", "balance_sheet", "financial_statement"];
 

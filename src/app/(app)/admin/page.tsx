@@ -49,6 +49,15 @@ export default async function AdminHome() {
         />
 
         <GlassActionCard
+          icon="calendar_month"
+          iconColor="text-orange-400"
+          title="Period Review"
+          description="Resolve ambiguous financial statement periods (BS current/historical, IS YTD/annual)."
+          href="/admin/financial-period-reviews"
+          actionLabel="Review Queue"
+        />
+
+        <GlassActionCard
           icon="history"
           iconColor="text-amber-400"
           title="Audit"
