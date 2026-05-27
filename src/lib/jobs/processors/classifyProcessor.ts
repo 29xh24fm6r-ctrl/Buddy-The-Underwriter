@@ -1,6 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { classifyDocument } from "@/lib/intelligence/classifyDocument";
+import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
 import { reconcileConditionsFromOcrResult } from "@/lib/conditions/reconcileConditions";
 import { createClient } from "@supabase/supabase-js";
 import { inferDocumentMetadata } from "@/lib/documents/inferDocumentMetadata";
@@ -184,26 +184,43 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       return { ok: false, error: "Failed to lease job" };
     }
 
-    // Fetch OCR result
-    const { data: ocrResult, error: e2 } = await (supabase as any)
-      .from("document_ocr_results")
-      .select("extracted_text, raw_json")
-      .eq("attachment_id", job.attachment_id)
-      .single();
+    // Fetch OCR result + filename for spine classifier
+    const [ocrRes, docRes2] = await Promise.all([
+      (supabase as any)
+        .from("document_ocr_results")
+        .select("extracted_text, raw_json")
+        .eq("attachment_id", job.attachment_id)
+        .single(),
+      (supabase as any)
+        .from("deal_documents")
+        .select("original_filename, mime_type")
+        .eq("id", job.attachment_id)
+        .maybeSingle(),
+    ]);
 
-    if (e2 || !ocrResult) {
+    if (ocrRes.error || !ocrRes.data) {
       throw new Error("OCR result not found");
     }
+    const ocrResult = ocrRes.data;
+    const ocrText = String(ocrResult.extracted_text ?? "");
+    const filename = String(docRes2.data?.original_filename ?? "unknown.pdf");
+    const mimeType = String(docRes2.data?.mime_type ?? "application/pdf");
 
-    // Run classifier (using existing classifyDocument function)
-    const classifyResult = await classifyDocument({
-      ocrText: String(ocrResult.extracted_text ?? ""),
-    });
+    // Run spine classifier (institutional, deterministic-first, with balance-sheet fix)
+    const spineResult = await classifyDocumentSpine(ocrText, filename, mimeType);
 
-    // classifyDocument returns ClassificationResult (no .ok field)
-    if (!classifyResult.doc_type) {
-      throw new Error("Classification failed - no doc_type returned");
+    if (!spineResult.docType) {
+      throw new Error("Classification failed - no docType returned");
     }
+
+    // Adapt spine result → legacy ClassificationResult shape for downstream compat
+    const classifyResult = {
+      doc_type: spineResult.docType,
+      confidence: Math.round(spineResult.confidence * 100), // spine uses 0-1, legacy uses 0-100
+      reasons: [spineResult.reason],
+      tags: [] as string[],
+      tax_year: spineResult.taxYear != null ? String(spineResult.taxYear) : null,
+    };
 
     // Store classification result
     await (supabase as any)
