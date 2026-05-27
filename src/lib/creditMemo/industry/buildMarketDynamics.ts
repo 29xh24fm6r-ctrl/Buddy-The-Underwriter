@@ -39,6 +39,11 @@ const MARKET_DYNAMICS: Record<IndustryGroup, string> = {
     "Demand follows economic activity, regulatory requirements, and risk-transfer needs. Key pressures include interest rate environment, credit quality cycles, regulatory capital requirements, technology/fintech disruption, and claims/loss experience.",
 };
 
+const NAICS_SPECIFIC_DYNAMICS: Record<string, string> = {
+  "561422":
+    "Contact-center and business process outsourcing demand is driven by enterprise customer support volumes, payer/member service requirements, contract renewals, service-level performance, and clients' desire to convert fixed internal staffing costs into outsourced capacity. The credit risks are labor and training intensity, wage pressure, customer concentration, ramp-up cash burn before billings are collected, enterprise payment terms, offshore/nearshore execution risk, and margin compression from competitive rebids. For an accounts receivable-backed working-capital line, the key underwriting focus is not only revenue growth, but whether new seat ramps convert into collectible eligible receivables fast enough to fund payroll, training, broker fees, and operating overhead without over-advancing against slow-pay or concentrated debtors.",
+};
+
 // NAICS 2-digit prefix → industry group
 const NAICS_PREFIX_MAP: Record<string, IndustryGroup> = {
   "11": "agriculture",
@@ -68,21 +73,34 @@ export function resolveIndustryGroup(naicsCode: string | null): IndustryGroup | 
   return NAICS_PREFIX_MAP[prefix] ?? null;
 }
 
-/**
- * Returns market dynamics narrative. Uses research data if available,
- * otherwise falls back to NAICS-group conservative narrative.
- * Never returns "Pending."
- */
+function isThinOrGenericResearch(text: string): boolean {
+  const normalized = text.trim();
+  // Only reject very short text as thin; substantive short research (50+ chars)
+  // should still be preserved. Pattern checks below catch specific boilerplate.
+  if (normalized.length < 50) return true;
+  if (/^Industry Overview\s+The industry employs/i.test(normalized)) return true;
+  if (/LOW competitive intensity/i.test(normalized) && /public competitors identified/i.test(normalized)) return true;
+  if (/Research coverage:\s*\d+ data points/i.test(normalized)) return true;
+  return false;
+}
+
 export function buildMarketDynamicsNarrative(args: {
   naicsCode: string | null;
   researchMarketDynamics: string | null;
 }): string | null {
-  // Prefer research-sourced dynamics
-  if (args.researchMarketDynamics && args.researchMarketDynamics.trim().length > 10 && !args.researchMarketDynamics.startsWith("Pending")) {
-    return args.researchMarketDynamics;
+  const specific = args.naicsCode ? NAICS_SPECIFIC_DYNAMICS[args.naicsCode] : null;
+
+  if (
+    args.researchMarketDynamics &&
+    args.researchMarketDynamics.trim().length > 10 &&
+    !args.researchMarketDynamics.startsWith("Pending") &&
+    !isThinOrGenericResearch(args.researchMarketDynamics)
+  ) {
+    return specific ? `${args.researchMarketDynamics.trim()} ${specific}` : args.researchMarketDynamics;
   }
 
-  // NAICS-group fallback
+  if (specific) return specific;
+
   const group = resolveIndustryGroup(args.naicsCode);
   if (!group) return null;
   return MARKET_DYNAMICS[group];
