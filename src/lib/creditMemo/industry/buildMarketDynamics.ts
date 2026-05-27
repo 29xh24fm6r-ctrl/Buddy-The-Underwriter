@@ -75,7 +75,9 @@ export function resolveIndustryGroup(naicsCode: string | null): IndustryGroup | 
 
 function isThinOrGenericResearch(text: string): boolean {
   const normalized = text.trim();
-  if (normalized.length < 160) return true;
+  // Only reject very short text as thin; substantive short research (50+ chars)
+  // should still be preserved. Pattern checks below catch specific boilerplate.
+  if (normalized.length < 50) return true;
   if (/^Industry Overview\s+The industry employs/i.test(normalized)) return true;
   if (/LOW competitive intensity/i.test(normalized) && /public competitors identified/i.test(normalized)) return true;
   if (/Research coverage:\s*\d+ data points/i.test(normalized)) return true;

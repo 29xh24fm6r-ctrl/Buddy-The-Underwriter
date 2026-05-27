@@ -42,6 +42,7 @@ import { buildIndustryContextNarrative } from "@/lib/industryIntelligence/offici
 import { buildConventionalRiskRating } from "@/lib/creditMemo/riskRating/buildConventionalRiskRating";
 import { buildExhibitRegistry } from "@/lib/creditMemo/canonical/buildExhibitRegistry";
 import { buildDscrReconciliation } from "@/lib/creditMemo/financials/buildDscrReconciliation";
+import { sanitizeMemoBorrowerStory } from "@/lib/creditMemo/trust/sanitizeMemoBorrowerStory";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1846,6 +1847,39 @@ export async function buildCanonicalCreditMemo(args: {
       }
     } catch {
       // Contract validation must never block memo generation
+    }
+
+    // Narrative trust: sanitize borrower story fields at render time.
+    // Even if bad narrative was persisted before the trust upgrade, the
+    // memo should not surface known nickname / first-name confusion.
+    {
+      const trustResult = sanitizeMemoBorrowerStory({
+        fields: {
+          business_description: memo.business_summary.business_description,
+          revenue_mix: memo.business_summary.revenue_mix,
+          seasonality: memo.business_summary.seasonality,
+          competitive_advantages: memo.business_summary.competitive_advantages,
+          vision: memo.business_summary.vision,
+          products_services: memo.business_summary.products_services,
+          customers: memo.business_summary.customers,
+          customer_concentration: memo.business_summary.customer_concentration,
+          key_risks: memo.business_summary.key_risks,
+        },
+        ownerEntities: ownerEntities as Array<{ display_name?: string | null; name?: string | null; ownership_pct?: number | null }>,
+        managementProfiles: mgmtProfiles as Array<{ person_name?: string | null; ownership_pct?: number | null }>,
+      });
+      memo.business_summary.business_description = trustResult.fields.business_description ?? memo.business_summary.business_description;
+      memo.business_summary.revenue_mix = trustResult.fields.revenue_mix ?? memo.business_summary.revenue_mix;
+      memo.business_summary.seasonality = trustResult.fields.seasonality ?? memo.business_summary.seasonality;
+      memo.business_summary.competitive_advantages = trustResult.fields.competitive_advantages ?? memo.business_summary.competitive_advantages;
+      memo.business_summary.vision = trustResult.fields.vision ?? memo.business_summary.vision;
+      memo.business_summary.products_services = trustResult.fields.products_services ?? null;
+      memo.business_summary.customers = trustResult.fields.customers ?? null;
+      memo.business_summary.customer_concentration = trustResult.fields.customer_concentration ?? null;
+      memo.business_summary.key_risks = trustResult.fields.key_risks ?? null;
+      if (trustResult.warnings.length > 0) {
+        console.info("[buildCanonicalCreditMemo] narrative trust warnings:", trustResult.warnings.length, trustResult.warnings.map((w) => w.code));
+      }
     }
 
     return { ok: true, memo };
