@@ -146,8 +146,8 @@ export function isWorkerLockSkip<T>(
 export type XactLockWorkerName = "doc-extraction" | "intake-outbox";
 
 const XACT_LOCK_RPC_BY_WORKER: Record<XactLockWorkerName, string> = {
-  "doc-extraction": "claim_doc_extraction_outbox_batch",
-  "intake-outbox": "claim_intake_outbox_batch",
+  "doc-extraction": "claim_doc_extraction_with_xact_lock",
+  "intake-outbox": "claim_intake_outbox_with_xact_lock",
 };
 
 export type ClaimedRow = {
@@ -159,8 +159,17 @@ export type ClaimedRow = {
   lock_acquired: boolean;
 };
 
+export type ClaimRpcFailure = {
+  skipped: true;
+  reason: "claim_rpc_failed";
+  rpcName: string;
+  errorMessage: string;
+  rows: [];
+};
+
 export type ClaimResult =
   | { skipped: true; reason: "lock_not_acquired"; rows: [] }
+  | ClaimRpcFailure
   | { skipped: false; rows: ClaimedRow[] };
 
 /**
@@ -172,9 +181,16 @@ export type ClaimResult =
  * Caller processes the returned rows AFTER the function returns. The
  * advisory lock is only held for the few milliseconds the claim takes.
  *
- * Returns `{ skipped: true, reason: "lock_not_acquired" }` when another
- * concurrent invocation holds the lock. RPC errors are also reported as
- * skipped to keep the cron quiet — the next tick retries.
+ * Result variants:
+ *   - `{ skipped: false, rows }` — claim succeeded; rows may be empty
+ *     (no work) or non-empty (work claimed).
+ *   - `{ skipped: true, reason: "lock_not_acquired" }` — another
+ *     invocation holds the xact-lock; next tick retries.
+ *   - `{ skipped: true, reason: "claim_rpc_failed", rpcName, errorMessage }`
+ *     — the RPC itself errored (schema drift, missing function,
+ *     PostgREST cache, etc). Callers MUST surface this distinctly from
+ *     lock_not_acquired so silent schema drift cannot masquerade as
+ *     harmless lock contention.
  */
 export async function claimWithXactLock(opts: {
   sb: SupabaseClient<any> | WorkerLockClient;
@@ -193,22 +209,64 @@ export async function claimWithXactLock(opts: {
   });
 
   if (error) {
+    const errorMessage =
+      (error as { message?: string }).message ?? String(error);
     console.error(
       `[${workerName}] xact_claim_rpc_failed`,
-      (error as { message?: string }).message ?? String(error),
+      JSON.stringify({ rpcName, errorMessage }),
     );
+    return {
+      skipped: true,
+      reason: "claim_rpc_failed",
+      rpcName,
+      errorMessage,
+      rows: [],
+    };
+  }
+
+  const allRows = (data as ClaimedRow[] | null) ?? [];
+
+  // The wrapper RPC returns a single sentinel row with lock_acquired=false
+  // when pg_try_advisory_xact_lock could not acquire the lock.
+  if (
+    allRows.length === 1 &&
+    allRows[0].lock_acquired === false &&
+    allRows[0].id == null
+  ) {
     return { skipped: true, reason: "lock_not_acquired", rows: [] };
   }
 
-  const rows = (data as ClaimedRow[] | null) ?? [];
-
-  // The claim RPCs use FOR UPDATE SKIP LOCKED — they return 0 rows when
-  // another worker holds the lock or no work exists. No sentinel row needed.
-  return { skipped: false, rows };
+  // Otherwise, every row carries lock_acquired=true. Strip the sentinel
+  // flag from downstream consumers' view by passing rows through as-is —
+  // the field is harmless and ClaimedRow already declares it.
+  return { skipped: false, rows: allRows };
 }
 
 export function isClaimSkip(
   result: ClaimResult,
-): result is { skipped: true; reason: "lock_not_acquired"; rows: [] } {
+): result is
+  | { skipped: true; reason: "lock_not_acquired"; rows: [] }
+  | ClaimRpcFailure {
   return result.skipped === true;
+}
+
+export function isClaimRpcFailure(
+  result: ClaimResult,
+): result is ClaimRpcFailure {
+  return result.skipped === true && result.reason === "claim_rpc_failed";
+}
+
+/**
+ * Distinguishes "claim succeeded, no work to do" from "claim skipped".
+ *
+ * Three outcomes a caller must handle separately:
+ *   - lock_not_acquired  → another invocation holds the xact-lock; retry next tick.
+ *   - claim_rpc_failed   → schema drift or missing function; loud diagnostic.
+ *   - zero_work          → claim succeeded but the outbox has no eligible rows.
+ *
+ * Returns true for the third case so callers can branch into a quiet
+ * idle path instead of conflating it with the two skip variants.
+ */
+export function isZeroWork(result: ClaimResult): boolean {
+  return result.skipped === false && result.rows.length === 0;
 }

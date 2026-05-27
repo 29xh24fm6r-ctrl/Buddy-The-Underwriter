@@ -67,7 +67,8 @@ async function s3(c: Ctx): Promise<StepResult> {
 }
 
 async function s4(c: Ctx): Promise<StepResult> {
-  const { error } = await c.sb.from("deal_documents").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, file_name: "golden_btr.pdf", canonical_type: "BUSINESS_TAX_RETURN", finalized_at: now() }, { deal_id: c.dealId, bank_id: c.brokerageBankId, file_name: "golden_pfs.pdf", canonical_type: "PERSONAL_FINANCIAL_STATEMENT", finalized_at: now() }]);
+  // deal_documents column is `original_filename`, not `file_name`.
+  const { error } = await c.sb.from("deal_documents").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, original_filename: "golden_btr.pdf", canonical_type: "BUSINESS_TAX_RETURN", finalized_at: now() }, { deal_id: c.dealId, bank_id: c.brokerageBankId, original_filename: "golden_pfs.pdf", canonical_type: "PERSONAL_FINANCIAL_STATEMENT", finalized_at: now() }]);
   if (error) return { ok: false, error: `docs: ${error.message}` };
   return { ok: true };
 }

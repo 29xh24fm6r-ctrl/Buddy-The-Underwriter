@@ -92,12 +92,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     );
   }
 
-  // Write audit event
+  // Write audit event. deal_events schema is (deal_id, kind, payload) —
+  // there is no bank_id column; bank_id moves into payload.
   await sb.from("deal_events").insert({
     deal_id: dealId,
-    bank_id: bankId,
     kind: "committee.dissent",
     payload: {
+      bank_id: bankId,
       snapshot_id: snapshotId,
       dissenter_user_id: userId,
       reason_length: dissent_reason.trim().length

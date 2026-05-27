@@ -106,15 +106,15 @@ async function fetchChecklistSummary(dealId: string): Promise<ChecklistSummary |
   }
 }
 
-async function fetchUploadsStatus(dealId: string): Promise<number> {
-  try {
-    const res = await fetch(`/api/deals/${dealId}/uploads/status`, { cache: "no-store" });
-    if (!res.ok) return 0;
-    const json = await res.json();
-    return json.processing || 0;
-  } catch {
-    return 0;
-  }
+async function fetchUploadsStatus(_dealId: string): Promise<number> {
+  // SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1 #4:
+  // `/api/deals/<id>/uploads/status` was removed in the route-cap cleanup
+  // (commits 824c90f7 / f4132ceb). The processing-count signal it provided
+  // is now derived from the lifecycle-state path. Returning 0 here keeps
+  // the "isBusy" indicator best-effort instead of polling a 404 forever.
+  // If we need a fast processing count again, source it from the artifacts
+  // pipeline (`/api/deals/<id>/artifacts`) and surface it explicitly.
+  return 0;
 }
 
 async function fetchArtifactSummary(dealId: string): Promise<ArtifactsSummary | null> {

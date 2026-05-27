@@ -1322,15 +1322,53 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
         </div>
       )}
 
+      {/*
+        SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1 #2: product catalog
+        unavailable must never silently disable Add Request. Surface
+        the reason inline with an explicit Retry button + admin link
+        instead of relying on a tooltip below the disabled button.
+      */}
       {productTypesError && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          {productTypesError}
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700"
+          role="alert"
+          data-testid="loan-products-error"
+        >
+          <span>{productTypesError}</span>
+          <button
+            type="button"
+            onClick={() => loadProductTypes()}
+            className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+          >
+            Retry
+          </button>
         </div>
       )}
 
       {productTypesEmpty && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          No loan products configured for this bank. Contact an administrator to set up available loan products.
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700"
+          role="alert"
+          data-testid="loan-products-empty"
+        >
+          <span>
+            No loan products configured for this bank. An administrator must enable at least one product before loan requests can be added.
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => loadProductTypes()}
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            >
+              Retry
+            </button>
+            <a
+              href="/admin/loan-products"
+              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            >
+              Configure Loan Products
+            </a>
+          </span>
         </div>
       )}
 

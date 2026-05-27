@@ -24,6 +24,14 @@ import { insertOutboxEvent } from "@/lib/outbox/insertOutboxEvent";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { StuckVerdict } from "./detectStuckProcessing";
 
+// SPEC-INTAKE-OUTBOX-WORKER-CLAIM-PATH-1 Item 10:
+// When the latest live intake.process row stays at attempts=0 + claimed_at=null
+// for longer than this window, the worker is not claiming — the cron is down,
+// the wrapper RPC is missing, or PostgREST cache is stale. Reenqueuing a fresh
+// row only piles on; surface the broken claim path instead so the schema-drift
+// signal is visible rather than masked behind unbounded reenqueues.
+const WORKER_NOT_CLAIMING_THRESHOLD_MS = 5 * 60 * 1000;
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 export type RecoveryOutcome = {
@@ -70,6 +78,62 @@ async function reenqueueProcessing(
   verdict: StuckVerdict & { stuck: true },
   staleRunId: string | undefined,
 ): Promise<RecoveryOutcome> {
+  // ── Pre-flight: detect a broken claim path before piling on rows ──────
+  // If the latest live intake.process row has been sitting at attempts=0
+  // claimed_at=null past WORKER_NOT_CLAIMING_THRESHOLD_MS, the worker is
+  // not running. Reenqueuing produces another row that will sit unclaimed
+  // and the cycle repeats. Emit a distinct signal and SKIP the reenqueue.
+  try {
+    const sb0 = supabaseAdmin();
+    const { data: latestLive } = await sb0
+      .from("buddy_outbox_events")
+      .select("id, attempts, claimed_at, created_at")
+      .eq("deal_id", dealId)
+      .eq("kind", "intake.process")
+      .is("delivered_at", null)
+      .is("dead_lettered_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestLive) {
+      const live = latestLive as {
+        id: string;
+        attempts: number;
+        claimed_at: string | null;
+        created_at: string;
+      };
+      const ageMs = Date.now() - new Date(live.created_at).getTime();
+      if (
+        live.attempts === 0 &&
+        live.claimed_at === null &&
+        ageMs > WORKER_NOT_CLAIMING_THRESHOLD_MS
+      ) {
+        void writeEvent({
+          dealId,
+          kind: "intake.processing_worker_not_claiming",
+          scope: "intake",
+          meta: {
+            reason: "claim_path_broken_or_cron_not_running",
+            outbox_id: live.id,
+            outbox_age_seconds: Math.round(ageMs / 1000),
+            stuck_reason: verdict.reason,
+            observability_version: PROCESSING_OBSERVABILITY_VERSION,
+          },
+        });
+
+        return {
+          phase: "CONFIRMED_READY_FOR_PROCESSING",
+          error: "worker_not_claiming",
+          recovered: false,
+          reenqueued: false,
+        };
+      }
+    }
+  } catch {
+    // Non-fatal — fall through to the normal reenqueue path.
+  }
+
   const newRunId = crypto.randomUUID();
   const now = new Date().toISOString();
 

@@ -9,6 +9,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { XMLBuilder } from "fast-xml-parser";
 import { calculateSBAGuarantee, detectSBAProgram } from "@/lib/sba/sbaGuarantee";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 export interface ETranData {
   // SBA Lender Info
@@ -331,56 +332,54 @@ export async function submitETranXML(params: {
   sba_application_number?: string;
   error?: string;
 }> {
-  const sb = supabaseAdmin();
-  
   // Log submission attempt
-  await sb.from("deal_events").insert({
-    deal_id: params.dealId,
-    bank_id: params.bankId,
-    event_type: "etran_submission_attempt",
-    event_data: {
+  await writeEvent({
+    dealId: params.dealId,
+    kind: "etran_submission_attempt",
+    meta: {
+      bank_id: params.bankId,
       xml_length: params.xml.length,
       approved_by: params.approvedBy,
       timestamp: new Date().toISOString(),
     },
   });
-  
+
   try {
     // In production, this would call SBA E-Tran API
     // For now, return success simulation
-    
+
     const sbaApplicationNumber = `SBA-${Date.now()}`; // Mock number
-    
+
     // Log successful submission
-    await sb.from("deal_events").insert({
-      deal_id: params.dealId,
-      bank_id: params.bankId,
-      event_type: "etran_submitted",
-      event_data: {
+    await writeEvent({
+      dealId: params.dealId,
+      kind: "etran_submitted",
+      meta: {
+        bank_id: params.bankId,
         sba_application_number: sbaApplicationNumber,
         approved_by: params.approvedBy,
         submitted_at: new Date().toISOString(),
       },
     });
-    
+
     return {
       submitted: true,
       sba_application_number: sbaApplicationNumber,
     };
   } catch (err: any) {
     console.error("[E-Tran] Submission failed:", err);
-    
+
     // Log failed submission
-    await sb.from("deal_events").insert({
-      deal_id: params.dealId,
-      bank_id: params.bankId,
-      event_type: "etran_submission_failed",
-      event_data: {
+    await writeEvent({
+      dealId: params.dealId,
+      kind: "etran_submission_failed",
+      meta: {
+        bank_id: params.bankId,
         error: err.message,
         timestamp: new Date().toISOString(),
       },
     });
-    
+
     return {
       submitted: false,
       error: err.message,

@@ -634,6 +634,21 @@ export async function processConfirmedIntake(
     }
   }
 
+  // 3f. Final blank-name repair — SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1
+  // #7. If runNamingDerivation could not produce a usable name (no anchor
+  // doc, classification disagreed, OCR null, etc.), fall back to
+  // borrower_name → primary owner → synthetic "Deal YYYY-MM-DD <short>".
+  // Never blocks phase transition; the repair helper swallows its own
+  // errors and writes a ledger event for visibility.
+  try {
+    const { repairBlankDealName } = await import(
+      "@/lib/naming/repairBlankDealName"
+    );
+    await repairBlankDealName({ dealId, bankId });
+  } catch (err: any) {
+    errors.push(`name_repair:${err?.message ?? "unknown"}`);
+  }
+
   // ── POST-PROCESSING OUTPUT INVARIANT ─────────────────────────────
   // SYSTEM GUARANTEE: After processing, at least ONE usable output must exist:
   //   - document_artifacts.status = 'classified'

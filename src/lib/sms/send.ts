@@ -81,12 +81,13 @@ export async function sendSmsWithConsent(args: {
     console.error("outbound_messages insert error:", outboundErr);
   }
 
-  // 4. Log to deal_events (if deal_id provided)
+  // 4. Log to deal_events (if deal_id provided).
+  //    Schema is (deal_id, kind, payload) — there is NO metadata column.
   if (dealId) {
     const { error: eventErr } = await sb.from("deal_events").insert({
       deal_id: dealId,
       kind: "sms_outbound",
-      metadata: {
+      payload: {
         to,
         body,
         label,

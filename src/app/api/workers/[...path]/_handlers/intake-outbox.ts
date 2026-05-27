@@ -6,7 +6,6 @@
  * Schedule: every 5 minutes (vercel.json cron)
  * Auth: CRON_SECRET or WORKER_SECRET (via hasValidWorkerSecret)
  *
-<<<<<<< HEAD:src/app/api/workers/[...path]/_handlers/intake-outbox.ts
  * Claims undelivered intake.process outbox rows via the transaction-scoped
  * claim_intake_outbox_with_xact_lock RPC and executes runIntakeProcessing()
  * for each. The advisory lock is held only for the claim transaction —
@@ -62,6 +61,21 @@ export async function GET(req: NextRequest) {
       reason: "idle_no_work",
       durationMs,
     });
+  }
+
+  if (result.claim_rpc_failed) {
+    return NextResponse.json(
+      {
+        ok: false,
+        worker: "intake_outbox",
+        skipped: true,
+        reason: "claim_rpc_failed",
+        rpcName: result.claim_rpc_failed.rpcName,
+        errorMessage: result.claim_rpc_failed.errorMessage,
+        durationMs,
+      },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({

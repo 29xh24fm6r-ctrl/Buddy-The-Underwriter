@@ -25,20 +25,38 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin();
 
-  const { error } = await sb.from("deal_events").insert({
-    deal_id: null, // TODO: backfill by matching sid to outbound_messages
-    kind: "sms_status",
-    metadata: {
-      messageSid,
-      messageStatus,
-      to,
-      errorCode,
-      errorMessage,
-    },
-  });
+  // Look up the deal_id from the outbound_messages row created by the
+  // outbound send so we can attach the status to a real deal — deal_events
+  // requires deal_id NOT NULL. Schema columns are (deal_id, kind, payload).
+  const { data: outbound } = await sb
+    .from("outbound_messages")
+    .select("deal_id")
+    .eq("provider_message_id", messageSid)
+    .maybeSingle();
 
-  if (error) {
-    console.error("deal_events insert sms_status failed:", error);
+  const dealId = (outbound as { deal_id: string | null } | null)?.deal_id ?? null;
+
+  if (dealId) {
+    const { error } = await sb.from("deal_events").insert({
+      deal_id: dealId,
+      kind: "sms_status",
+      payload: {
+        messageSid,
+        messageStatus,
+        to,
+        errorCode,
+        errorMessage,
+      },
+    });
+
+    if (error) {
+      console.error("deal_events insert sms_status failed:", error);
+    }
+  } else {
+    console.warn(
+      "[twilio/status] no deal_id resolved for messageSid — skipping deal_events insert",
+      { messageSid, messageStatus },
+    );
   }
 
   return NextResponse.json({ ok: true });
