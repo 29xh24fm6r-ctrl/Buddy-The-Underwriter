@@ -85,8 +85,10 @@ function computePreview(form: FormState, isLoc: boolean) {
     if (form.rate_type === "fixed") {
       return parseFloat(form.fixed_rate_pct) || null;
     }
-    const idx = parseFloat(form.index_rate_pct) || 0;
-    const spreadPct = (parseFloat(form.spread_override_bps) || 0) / 100;
+    const idx = parseFloat(form.index_rate_pct);
+    if (!idx && idx !== 0) return null; // index rate not set — cannot compute
+    const spreadBps = form.spread_override_bps ? parseFloat(form.spread_override_bps) : null;
+    const spreadPct = spreadBps != null ? spreadBps / 100 : 0;
     const floor = parseFloat(form.floor_rate_pct) || 0;
     return Math.max(floor, idx + spreadPct);
   }
@@ -154,6 +156,10 @@ function formatPct(n: number | null, decimals = 2): string {
   return `${n.toFixed(decimals)}%`;
 }
 
+// ─── Live Rate Types ────────────────────────────────────────
+type LiveRateEntry = { ratePct: number; asOf: string };
+type LiveRates = Partial<Record<IndexCode, LiveRateEntry>>;
+
 // ─── Component ──────────────────────────────────────────────
 export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
   const [loading, setLoading] = useState(true);
@@ -163,20 +169,47 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const [productType, setProductType] = useState<string | null>(null);
+  const [liveRates, setLiveRates] = useState<LiveRates>({});
+  const [ratesLoading, setRatesLoading] = useState(false);
   const isLoc = isLocProductType(productType);
+
+  // ── Fetch live rates ──
+  const fetchLiveRates = useCallback(async () => {
+    setRatesLoading(true);
+    try {
+      const res = await fetch("/api/rates/latest", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        const rates: LiveRates = {};
+        if (json.SOFR) rates.SOFR = { ratePct: Number(json.SOFR.rate), asOf: json.SOFR.date };
+        if (json.UST_5Y) rates.UST_5Y = { ratePct: Number(json.UST_5Y.rate), asOf: json.UST_5Y.date };
+        if (json.PRIME) rates.PRIME = { ratePct: Number(json.PRIME.rate), asOf: json.PRIME.date };
+        setLiveRates(rates);
+        return rates;
+      }
+    } catch { /* non-fatal */ }
+    setRatesLoading(false);
+    return null;
+  }, []);
 
   // ── Self-load on mount ──
   const refresh = useCallback(async () => {
     setLoading(true);
     setStatus(null);
     try {
-      const [assumptionsRes, lrRes] = await Promise.all([
+      const [assumptionsRes, lrRes, rates] = await Promise.all([
         fetch(`/api/deals/${dealId}/pricing-assumptions`, { cache: "no-store" }),
         fetch(`/api/deals/${dealId}/loan-requests`, { cache: "no-store" }),
+        fetchLiveRates(),
       ]);
       const json = await assumptionsRes.json();
       if (json.ok && json.pricingAssumptions) {
-        setForm(toFormState(json.pricingAssumptions));
+        const loaded = toFormState(json.pricingAssumptions);
+        // Auto-populate index rate from live rates if blank
+        if (!loaded.index_rate_pct && rates?.[loaded.index_code]) {
+          loaded.index_rate_pct = String(rates[loaded.index_code]!.ratePct);
+        }
+        setForm(loaded);
         setHasInputs(true);
       } else {
         setHasInputs(false);
@@ -192,8 +225,9 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
       setStatus({ kind: "error", message: "Failed to load pricing inputs." });
     } finally {
       setLoading(false);
+      setRatesLoading(false);
     }
-  }, [dealId]);
+  }, [dealId, fetchLiveRates]);
 
   useEffect(() => {
     refresh();
@@ -203,10 +237,17 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
 
   const updateField = useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
-      setForm((prev) => ({ ...prev, [key]: value }));
+      setForm((prev) => {
+        const next = { ...prev, [key]: value };
+        // Auto-populate index rate when index changes and rate is blank or stale
+        if (key === "index_code" && liveRates[value as IndexCode]) {
+          next.index_rate_pct = String(liveRates[value as IndexCode]!.ratePct);
+        }
+        return next;
+      });
       setStatus(null);
     },
-    [],
+    [liveRates],
   );
 
   // ── Create Defaults ──
@@ -395,7 +436,7 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <Field label="Index">
                 <select
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-[#1a1d23] px-3 py-2 text-sm text-white focus:border-primary focus:outline-none [color-scheme:dark]"
                   value={form.index_code}
                   onChange={(e) => updateField("index_code", e.target.value as IndexCode)}
                 >
@@ -405,18 +446,23 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                 </select>
               </Field>
 
-              <Field label="Index Rate (%)">
+              <Field label={`Index Rate (%)${liveRates[form.index_code] ? ` — live` : ""}`}>
                 <input
                   type="number"
                   step="0.01"
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                  placeholder="e.g. 4.50"
+                  placeholder={liveRates[form.index_code] ? `${liveRates[form.index_code]!.ratePct.toFixed(2)}` : "e.g. 4.50"}
                   value={form.index_rate_pct}
                   onChange={(e) => updateField("index_rate_pct", e.target.value)}
                 />
+                {liveRates[form.index_code] && (
+                  <div className="mt-1 text-[10px] text-white/40">
+                    Live: {liveRates[form.index_code]!.ratePct.toFixed(2)}% as of {liveRates[form.index_code]!.asOf}
+                  </div>
+                )}
               </Field>
 
-              <Field label="Spread (bps)" required>
+              <Field label="Spread (bps)">
                 <input
                   type="number"
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
@@ -424,6 +470,9 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                   value={form.spread_override_bps}
                   onChange={(e) => updateField("spread_override_bps", e.target.value)}
                 />
+                {!form.spread_override_bps && (
+                  <div className="mt-1 text-[10px] text-amber-300/70">No spread set — will be determined by risk pricing</div>
+                )}
               </Field>
             </div>
           )}
