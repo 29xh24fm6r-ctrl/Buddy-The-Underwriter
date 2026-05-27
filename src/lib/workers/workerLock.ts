@@ -146,8 +146,8 @@ export function isWorkerLockSkip<T>(
 export type XactLockWorkerName = "doc-extraction" | "intake-outbox";
 
 const XACT_LOCK_RPC_BY_WORKER: Record<XactLockWorkerName, string> = {
-  "doc-extraction": "claim_doc_extraction_with_xact_lock",
-  "intake-outbox": "claim_intake_outbox_with_xact_lock",
+  "doc-extraction": "claim_doc_extraction_outbox_batch",
+  "intake-outbox": "claim_intake_outbox_batch",
 };
 
 export type ClaimedRow = {
@@ -202,17 +202,8 @@ export async function claimWithXactLock(opts: {
 
   const rows = (data as ClaimedRow[] | null) ?? [];
 
-  // Sentinel: RPC returns exactly one row with id=null and lock_acquired=false
-  // when the lock could not be acquired. Distinguish from "lock acquired,
-  // zero work" (rows.length === 0).
-  if (
-    rows.length === 1 &&
-    rows[0]?.lock_acquired === false &&
-    rows[0]?.id == null
-  ) {
-    return { skipped: true, reason: "lock_not_acquired", rows: [] };
-  }
-
+  // The claim RPCs use FOR UPDATE SKIP LOCKED — they return 0 rows when
+  // another worker holds the lock or no work exists. No sentinel row needed.
   return { skipped: false, rows };
 }
 
