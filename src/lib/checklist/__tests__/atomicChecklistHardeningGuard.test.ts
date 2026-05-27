@@ -324,12 +324,12 @@ describe("Phase H — Finalization Must Reconcile", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("Phase I — Runtime Invariant Check", () => {
-  test("Guard 36h: reconcileChecklistForDeal contains invariant check", () => {
+  test("Guard 36h: reconcileChecklistForDeal contains self-healing invariant check", () => {
     const src = readSource("src/lib/checklist/engine.ts");
 
     assert.ok(
-      src.includes("Invariant violation"),
-      "reconcileChecklistForDeal must contain 'Invariant violation' throw",
+      src.includes("Phase I self-heal"),
+      "reconcileChecklistForDeal must self-heal null checklist_key (not throw)",
     );
     assert.ok(
       src.includes("resolveChecklistKey"),

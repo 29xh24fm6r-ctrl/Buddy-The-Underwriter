@@ -944,17 +944,22 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
         (doc as any).statement_period ?? null,
       );
       if (derivedKey && !(doc as any).checklist_key) {
-        throw new Error(
-          `Invariant violation: finalized doc ${(doc as any).id} has canonical_type=${(doc as any).canonical_type} which resolves to checklist_key=${derivedKey}, but checklist_key is null`,
+        // Self-heal: stamp the derived checklist_key rather than crashing reconcile.
+        // This covers docs finalized before the stamp canonicality fix landed.
+        console.warn(
+          `[reconcile] Phase I self-heal: doc ${(doc as any).id} canonical_type=${(doc as any).canonical_type} → checklist_key=${derivedKey}`,
         );
+        await sbCheck
+          .from("deal_documents")
+          .update({ checklist_key: derivedKey })
+          .eq("id", (doc as any).id);
       }
     }
   } catch (e: any) {
-    if (e?.message?.startsWith("Invariant violation:")) {
-      throw e; // Re-throw invariant violations — fail closed
-    }
-    // Swallow other errors (query failures, schema drift) — non-fatal
-    console.warn("[reconcile] Phase I invariant check query failed (non-fatal)", e);
+    // All errors in the invariant check / self-heal are non-fatal.
+    // The reconcile must not crash — the downstream conflict resolution and
+    // readiness computation depend on it completing.
+    console.warn("[reconcile] Phase I invariant check failed (non-fatal)", e?.message ?? e);
   }
 
   // ── Phase 8: Deterministic conflict resolution ──────────────────────
