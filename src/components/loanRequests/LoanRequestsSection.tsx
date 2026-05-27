@@ -466,6 +466,12 @@ function LoanRequestForm({
   const inputCls =
     "mt-1 h-9 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white placeholder:text-white/30 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
 
+  // Native <select> dropdowns need explicit dark background + light text on
+  // both the trigger and the OS-rendered option list. color-scheme:dark tells
+  // the browser to use dark chrome for the dropdown popup.
+  const selectCls =
+    "mt-1 h-9 w-full rounded-md border border-white/15 bg-[#1a1d23] px-3 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 [color-scheme:dark]";
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -481,7 +487,7 @@ function LoanRequestForm({
           Product Type *
         </label>
         <select
-          className={inputCls}
+          className={selectCls}
           value={form.product_type ?? ""}
           onChange={(e) => handleProductTypeChange(e.target.value)}
           required
@@ -571,7 +577,7 @@ function LoanRequestForm({
                 Rate Preference
               </label>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={form.rate_type_preference ?? ""}
                 onChange={(e) => setForm((prev) => ({ ...prev, rate_type_preference: (e.target.value || null) as any }))}
                 disabled={saving}
@@ -592,7 +598,7 @@ function LoanRequestForm({
             Rate Preference
           </label>
           <select
-            className={inputCls}
+            className={selectCls}
             value={form.rate_type_preference ?? ""}
             onChange={(e) => setForm((prev) => ({ ...prev, rate_type_preference: (e.target.value || null) as any }))}
             disabled={saving}
@@ -781,7 +787,7 @@ function LoanRequestForm({
                 Annual Review Frequency
               </label>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={form.review_frequency_months ?? ""}
                 onChange={(e) =>
                   setForm((prev) => ({
@@ -876,7 +882,7 @@ function LoanRequestForm({
                 Occupancy
               </label>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={form.occupancy_type ?? ""}
                 onChange={(e) => setForm((prev) => ({ ...prev, occupancy_type: (e.target.value || null) as any }))}
                 disabled={saving}
@@ -1005,7 +1011,7 @@ function LoanRequestForm({
                 SBA Program
               </label>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={form.sba_program ?? ""}
                 onChange={(e) => setForm((prev) => ({ ...prev, sba_program: (e.target.value || null) as any }))}
                 disabled={saving}
