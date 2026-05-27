@@ -31,15 +31,15 @@ function fmtCurrency(n: number | null | undefined): string {
 
 const STATUS_COLORS: Record<LoanRequestStatus, string> = {
   draft: "bg-white/10 text-white/70",
-  submitted: "bg-blue-100 text-blue-700",
-  under_review: "bg-yellow-100 text-yellow-800",
-  pricing_requested: "bg-purple-100 text-purple-700",
-  terms_proposed: "bg-indigo-100 text-indigo-700",
-  terms_accepted: "bg-green-100 text-green-700",
-  approved: "bg-green-200 text-green-800",
-  declined: "bg-red-100 text-red-700",
+  submitted: "bg-blue-500/15 text-blue-300",
+  under_review: "bg-yellow-500/15 text-yellow-300",
+  pricing_requested: "bg-purple-500/15 text-purple-300",
+  terms_proposed: "bg-indigo-500/15 text-indigo-300",
+  terms_accepted: "bg-green-500/15 text-green-300",
+  approved: "bg-green-500/20 text-green-200",
+  declined: "bg-red-500/15 text-red-300",
   withdrawn: "bg-white/10 text-white/50",
-  funded: "bg-emerald-200 text-emerald-800",
+  funded: "bg-emerald-500/20 text-emerald-200",
 };
 
 function statusLabel(s: LoanRequestStatus): string {
@@ -164,7 +164,7 @@ function LoanRequestCard({
           </button>
           <button
             onClick={onDelete}
-            className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+            className="rounded-md border border-red-500/30 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10"
           >
             Delete
           </button>
@@ -647,7 +647,7 @@ function LoanRequestForm({
                     }
                     className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                       selected
-                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        ? "border-blue-500 bg-blue-500/15 text-blue-300"
                         : "border-white/15 bg-white/5 text-white/60 hover:bg-white/10"
                     }`}
                     disabled={saving}
@@ -850,9 +850,9 @@ function LoanRequestForm({
 
           {/* LTV computed display */}
           {shape.showLtv && parseNumberOrNull(amountRaw) && form.property_value && (
-            <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs">
-              <span className="font-medium text-blue-700">Est. LTV: </span>
-              <span className="text-blue-900 font-bold">
+            <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs">
+              <span className="font-medium text-blue-300">Est. LTV: </span>
+              <span className="text-blue-200 font-bold">
                 {((parseNumberOrNull(amountRaw)! / (form.property_value as number)) * 100).toFixed(1)}%
               </span>
             </div>
@@ -1285,7 +1285,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
   const productTypesEmpty = !productTypesLoading && productTypes.length === 0 && !productTypesError;
 
   return (
-    <div className="rounded-xl border bg-white p-4">
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-white">
@@ -1317,7 +1317,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       </div>
 
       {error && (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
           {error}
         </div>
       )}
@@ -1330,7 +1330,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       */}
       {productTypesError && (
         <div
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-300"
           role="alert"
           data-testid="loan-products-error"
         >
@@ -1338,7 +1338,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
           <button
             type="button"
             onClick={() => loadProductTypes()}
-            className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
           >
             Retry
           </button>
@@ -1347,7 +1347,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
 
       {productTypesEmpty && (
         <div
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-300"
           role="alert"
           data-testid="loan-products-empty"
         >
@@ -1358,13 +1358,13 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
             <button
               type="button"
               onClick={() => loadProductTypes()}
-              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
             >
               Retry
             </button>
             <a
               href="/admin/loan-products"
-              className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
             >
               Configure Loan Products
             </a>
