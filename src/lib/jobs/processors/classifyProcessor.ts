@@ -10,6 +10,8 @@ import { buildGeminiScanResultFromExtractedText } from "@/lib/ai-docs/mapToCheck
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { enqueueExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { resolveDocTypeRouting } from "@/lib/documents/docTypeRouting";
+import { normalizeToCanonical } from "@/lib/documents/normalizeType";
+import { resolveChecklistKey, PERIOD_REQUIRED_TYPES } from "@/lib/docTyping/resolveChecklistKey";
 
 /**
  * Classification Job Processor
@@ -44,6 +46,8 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     classifierDocType?: string | null;
     classifierConfidence01?: number | null;
     classifierReasons?: any;
+    classifierTaxYear?: number | null;
+    classifierPeriodEnd?: string | null;
   }) {
     try {
       const docRes = await (supabase as any)
@@ -95,11 +99,18 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         });
       }
 
-      // Resolve canonical_type + routing_class from the best available type.
-      const resolvedType = (docRes.data as any)?.document_type ?? nextType;
+      // Resolve canonical_type + routing_class from spine classifier docType.
+      // Spine docType is authoritative — do NOT preserve stale DB document_type.
+      const spineDocType = String(args.classifierDocType || "");
       let { canonical_type, routing_class } = resolveDocTypeRouting(
-        String(args.classifierDocType || resolvedType || ""),
+        spineDocType || nextType || "",
       );
+
+      // document_type: use the spine docType via normalizeToCanonical (not stale DB value).
+      // This ensures AR_AGING gets document_type=AR_AGING, not OTHER.
+      const documentType = spineDocType
+        ? normalizeToCanonical(spineDocType)
+        : ((docRes.data as any)?.document_type ?? nextType);
 
       // If gatekeeper already classified AND doc is not manually classified or finalized,
       // use gatekeeper hints for canonical_type/routing_class when our own resolve is weak.
@@ -128,10 +139,33 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
         }
       }
 
+      // Derive statement period for period-required types (BALANCE_SHEET, INCOME_STATEMENT).
+      // Uses periodEnd from spine classifier when available, else from inferred year.
+      let statementPeriod: string | null = null;
+      if (PERIOD_REQUIRED_TYPES.has(canonical_type) && args.classifierPeriodEnd) {
+        const periodEnd = args.classifierPeriodEnd;
+        const currentYear = new Date().getFullYear();
+        const periodMonth = parseInt(periodEnd.slice(5, 7), 10);
+        const periodYear = parseInt(periodEnd.slice(0, 4), 10);
+        const isYearEnd = periodMonth === 12;
+
+        if (canonical_type === "BALANCE_SHEET") {
+          // CURRENT = most recent period, HISTORICAL = prior year-end
+          statementPeriod = periodYear >= currentYear ? "CURRENT" : "HISTORICAL";
+        } else if (canonical_type === "INCOME_STATEMENT") {
+          // ANNUAL = full year (Dec 31), YTD = interim period
+          statementPeriod = isYearEnd ? "ANNUAL" : "YTD";
+        }
+      }
+
+      // Resolve checklist_key via the single source of truth.
+      const taxYear = args.classifierTaxYear ?? inferred.doc_year ?? null;
+      const checklist_key = resolveChecklistKey(canonical_type, taxYear, statementPeriod);
+
       const attempt1 = await (supabase as any)
         .from("deal_documents")
         .update({
-          document_type: resolvedType,
+          document_type: documentType,
           doc_year: (docRes.data as any)?.doc_year ?? inferred.doc_year,
           doc_years: (docRes.data as any)?.doc_years ?? inferred.doc_years,
           match_confidence: inferred.confidence,
@@ -139,6 +173,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
           match_source: "ocr",
           canonical_type,
           routing_class,
+          ...(checklist_key ? { checklist_key } : {}),
         })
         .eq("id", args.attachmentId);
 
@@ -254,6 +289,8 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       classifierConfidence01:
         typeof (classifyResult as any).confidence === "number" ? (classifyResult as any).confidence : null,
       classifierReasons: (classifyResult as any).reasons ?? null,
+      classifierTaxYear: spineResult.taxYear ?? null,
+      classifierPeriodEnd: spineResult.periodEnd ?? null,
     });
 
     // B2: Spread enqueue removed — artifact pipeline is the single path for spread triggers.

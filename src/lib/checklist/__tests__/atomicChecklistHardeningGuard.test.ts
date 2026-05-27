@@ -183,6 +183,8 @@ describe("Phase G — Checklist Mutability Guard", () => {
     "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
     // ── Classification pipeline ──
     "src/lib/artifacts/processArtifact.ts",
+    // ── Job pipeline classification (stamps via resolveChecklistKey) ──
+    "src/lib/jobs/processors/classifyProcessor.ts",
     // ── Admin repair ──
     "src/app/api/admin/deals/[dealId]/repair/route.ts",
     // ── Best-effort matching (non-fatal, only if null) ──

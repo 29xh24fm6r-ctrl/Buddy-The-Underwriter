@@ -77,5 +77,16 @@ export function normalizeToCanonical(
   if (upper === "COMMERCIAL_LEASE") return "COMMERCIAL_LEASE";
   if (upper === "CREDIT_MEMO") return "CREDIT_MEMO";
 
+  if (
+    [
+      "AR_AGING",
+      "ACCOUNTS_RECEIVABLE_AGING",
+      "AR_AGING_REPORT",
+      "RECEIVABLES_AGING",
+      "CUSTOMER_AGING",
+    ].includes(upper)
+  )
+    return "AR_AGING";
+
   return "OTHER";
 }

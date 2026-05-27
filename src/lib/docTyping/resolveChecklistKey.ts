@@ -62,6 +62,9 @@ export function resolveChecklistKey(
     case "COMMERCIAL_LEASE":
       return "LEASES_TOP";
 
+    case "AR_AGING":
+      return "AR_AGING";
+
     // All other canonical types have no standard checklist slot mapping.
     // They participate in intake without occupying a named checklist slot.
     default:
