@@ -33,11 +33,16 @@ describe("BUGFIX-PRICING-BASE-RATE-SOURCE-CONSISTENCY-1 guards", () => {
     );
   });
 
-  test("Guard 2: shows 'Using saved rate' when canonical rate exists", () => {
+  test("Guard 2: shows rate source annotation (live vs locked/manual)", () => {
     assert.match(
       PRICING_CARD,
-      /Using saved rate/,
-      "Must show source text 'Using saved rate: X%' when canonical rate is present",
+      /Using live rate/,
+      "Must show 'Using live rate' when rate matches live index",
+    );
+    assert.match(
+      PRICING_CARD,
+      /Locked\/manual rate/,
+      "Must show 'Locked/manual rate' when rate differs from live (banker override)",
     );
   });
 
