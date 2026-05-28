@@ -148,8 +148,13 @@ export async function resolveCanonicalPricingContext(
 
   // ── Term / amort / IO ─────────────────────────────────────────────
   const term_months = toFinite(s.term_months) ?? toFinite(d.term_months) ?? toFinite(l.requested_term_months) ?? 120;
-  const amort_months = toFinite(s.amort_months) ?? toFinite(d.amort_months) ?? toFinite(l.requested_amort_months) ?? 300;
-  const interest_only_months = toFinite(s.interest_only_months) ?? toFinite(d.interest_only_months) ?? toFinite(l.requested_interest_only_months) ?? 0;
+  // DB CHECK: amort_months > 0. For LOC (interest-only), structural pricing
+  // may have amort_months=0; clamp to 1 so DB constraint is satisfied.
+  const rawAmort = toFinite(s.amort_months) ?? toFinite(d.amort_months) ?? toFinite(l.requested_amort_months) ?? 300;
+  const amort_months = Math.max(rawAmort, 1);
+  // DB CHECK: interest_only_months <= amort_months. Clamp if needed.
+  const rawIo = toFinite(s.interest_only_months) ?? toFinite(d.interest_only_months) ?? toFinite(l.requested_interest_only_months) ?? 0;
+  const interest_only_months = Math.min(rawIo, amort_months);
 
   // ── All-in rate ───────────────────────────────────────────────────
   let all_in_rate_pct: number | null = null;
@@ -194,11 +199,23 @@ export async function resolveCanonicalPricingContext(
     };
 
     try {
-      await sb
+      const { error: upsertErr } = await sb
         .from("deal_pricing_inputs")
         .upsert(canonicalRow, { onConflict: "deal_id" });
+
+      if (upsertErr) {
+        console.error("[resolveCanonicalPricingContext] canonical upsert FAILED", {
+          dealId,
+          error: upsertErr.message,
+          code: upsertErr.code,
+          canonicalRow,
+        });
+      }
     } catch (err: any) {
-      console.warn("[resolveCanonicalPricingContext] upsert failed (non-fatal):", err?.message);
+      console.error("[resolveCanonicalPricingContext] canonical upsert threw", {
+        dealId,
+        error: err?.message,
+      });
     }
   }
 
