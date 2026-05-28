@@ -81,9 +81,12 @@ export async function generateAndPersistFlags(
         continue;
       }
 
-      // 4. Upsert borrower question if present
+      // 4. Upsert borrower question if present; delete stale question if suppressed
       if (flag.borrower_question) {
         await upsertBorrowerQuestion(sb, dealId, flag, flag.borrower_question);
+      } else {
+        // Evidence gate suppressed the question — remove any stale persisted question
+        await deleteStaleBorrowerQuestion(sb, dealId, flag);
       }
     }
 
@@ -127,6 +130,40 @@ export async function generateAndPersistFlags(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+async function deleteStaleBorrowerQuestion(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+  flag: SpreadFlag,
+): Promise<void> {
+  try {
+    const yearObserved = flag.year_observed ?? 0;
+    const { data: dbFlag } = await (sb as any)
+      .from("deal_flags")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("trigger_type", flag.trigger_type)
+      .eq("year_observed", yearObserved)
+      .maybeSingle();
+
+    if (!dbFlag?.id) return;
+
+    const { error } = await (sb as any)
+      .from("deal_borrower_questions")
+      .delete()
+      .eq("flag_id", dbFlag.id);
+
+    if (error) {
+      console.warn("[persistFlagReport] stale question delete failed", {
+        dealId, flagId: dbFlag.id, error: error.message,
+      });
+    }
+  } catch (err: any) {
+    console.warn("[persistFlagReport] stale question cleanup threw", {
+      dealId, error: err?.message,
+    });
+  }
+}
 
 async function upsertBorrowerQuestion(
   sb: ReturnType<typeof supabaseAdmin>,
