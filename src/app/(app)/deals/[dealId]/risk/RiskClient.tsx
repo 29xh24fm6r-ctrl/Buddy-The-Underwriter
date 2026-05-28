@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useSpreadOutput } from "@/hooks/useSpreadOutput";
+import { useState, useEffect, useCallback } from "react";
 import { useAIRisk } from "@/hooks/useAIRisk";
 import type { AuditCertRow } from "./page";
 
@@ -15,9 +14,14 @@ type Flag = {
   status: string;
   banker_summary: string;
   banker_detail: string;
+  banker_implication?: string | null;
   domain?: string | null;
+  category?: string | null;
   field?: string | null;
+  trigger_type?: string | null;
   recommendation?: string | null;
+  waived_reason?: string | null;
+  resolution_note?: string | null;
 };
 
 // ─── Risk domain taxonomy ────────────────────────────────────────────────────
@@ -129,13 +133,19 @@ function FlagCard({
   flag,
   expanded,
   onToggle,
+  onAction,
+  busy,
 }: {
   flag: Flag;
   expanded: boolean;
   onToggle: () => void;
+  onAction: (flagId: string, action: string, extra?: Record<string, string>) => void;
+  busy: boolean;
 }) {
   const s = SEV[flag.severity] ?? SEV.info;
   const resolved = flag.status === "resolved" || flag.status === "waived";
+  const [waiveReason, setWaiveReason] = useState("");
+  const [showWaive, setShowWaive] = useState(false);
 
   return (
     <div
@@ -154,11 +164,9 @@ function FlagCard({
             >
               {flag.severity}
             </span>
-            {resolved && (
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/40">
-                {flag.status}
-              </span>
-            )}
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/40">
+              {flag.status}
+            </span>
             <span className="text-sm text-white/90 truncate">
               {flag.banker_summary}
             </span>
@@ -174,14 +182,88 @@ function FlagCard({
           <p className="text-sm text-white/70 leading-relaxed">
             {flag.banker_detail}
           </p>
+          {flag.banker_implication && (
+            <p className="text-xs text-white/50">{flag.banker_implication}</p>
+          )}
           {flag.recommendation && (
             <div className="text-xs text-white/50 italic">
               Recommendation: {flag.recommendation}
             </div>
           )}
-          {flag.field && (
+          {flag.waived_reason && (
+            <div className="text-xs text-white/40">Waived: {flag.waived_reason}</div>
+          )}
+          {flag.resolution_note && (
+            <div className="text-xs text-white/40">Resolution: {flag.resolution_note}</div>
+          )}
+          {flag.trigger_type && (
             <div className="text-[10px] text-white/30 font-mono">
-              field: {flag.field}
+              trigger: {flag.trigger_type}
+            </div>
+          )}
+
+          {/* ── Actions ── */}
+          {!resolved && (
+            <div className="flex items-center gap-2 pt-2">
+              {flag.status === "open" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onAction(flag.id, "review")}
+                  className="rounded border border-white/10 px-3 py-1 text-[11px] text-white/60 hover:bg-white/10 disabled:opacity-50"
+                >
+                  Mark Reviewed
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(flag.id, "resolve")}
+                className="rounded border border-emerald-500/30 px-3 py-1 text-[11px] text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+              >
+                Resolve
+              </button>
+              {flag.status === "banker_reviewed" && !showWaive && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setShowWaive(true)}
+                  className="rounded border border-amber-500/30 px-3 py-1 text-[11px] text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                >
+                  Waive
+                </button>
+              )}
+              {showWaive && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Waive reason (required)"
+                    value={waiveReason}
+                    onChange={(e) => setWaiveReason(e.target.value)}
+                    className="rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white placeholder-white/30 w-48"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !waiveReason.trim()}
+                    onClick={() => { onAction(flag.id, "waive", { waived_reason: waiveReason }); setShowWaive(false); }}
+                    className="rounded bg-amber-500/20 px-2 py-1 text-[11px] text-amber-300 disabled:opacity-50"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {resolved && (
+            <div className="pt-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(flag.id, "reopen")}
+                className="rounded border border-white/10 px-3 py-1 text-[11px] text-white/40 hover:bg-white/10 disabled:opacity-50"
+              >
+                Reopen
+              </button>
             </div>
           )}
         </div>
@@ -192,6 +274,13 @@ function FlagCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// Normalize deal_flags severity "informational" → "info" for display
+function normSeverity(s: string): FlagSeverity {
+  if (s === "informational") return "info";
+  if (s === "critical" || s === "elevated" || s === "watch" || s === "info") return s;
+  return "info";
+}
+
 export default function RiskClient({
   dealId,
   auditCerts,
@@ -199,13 +288,57 @@ export default function RiskClient({
   dealId: string;
   auditCerts: AuditCertRow[];
 }) {
-  const { data: spread, loading } = useSpreadOutput(dealId);
   const { run: aiRun, loading: aiLoading, running: aiRunning, error: aiError, runAssessment } = useAIRisk(dealId);
   const [expandedFlags, setExpandedFlags] = useState<Set<string>>(new Set());
   const [showResolved, setShowResolved] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FlagSeverity | "all">("all");
+  const [allFlags, setAllFlags] = useState<Flag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const allFlags: Flag[] = (spread?.flag_report?.flags ?? []) as Flag[];
+  // ── Fetch lifecycle-blocking deal_flags as primary source ──
+  const loadFlags = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags`, { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.flags)) {
+        setAllFlags(
+          json.flags.map((f: any) => ({
+            ...f,
+            severity: normSeverity(f.severity),
+          })),
+        );
+      }
+    } catch { /* non-fatal */ }
+    setLoading(false);
+  }, [dealId]);
+
+  useEffect(() => { loadFlags(); }, [loadFlags]);
+
+  // ── Flag actions ──
+  async function handleFlagAction(flagId: string, action: string, extra?: Record<string, string>) {
+    setActionBusy(flagId);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ flag_id: flagId, action, ...extra }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setActionError(json.error ?? "Action failed");
+      } else {
+        await loadFlags(); // refresh
+      }
+    } catch {
+      setActionError("Network error");
+    } finally {
+      setActionBusy(null);
+    }
+  }
 
   const openFlags = allFlags.filter(
     (f) => f.status !== "resolved" && f.status !== "waived",
@@ -369,7 +502,8 @@ export default function RiskClient({
         )}
       </div>
 
-      {/* ── Section 1: Risk Summary Bar ───────────────────────────────────── */}
+      {/* ── Section 1: Lifecycle Risk Flags (from deal_flags) ──────────────── */}
+      <SectionHeader>Lifecycle Risk Flags</SectionHeader>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(["critical", "elevated", "watch", "info"] as FlagSeverity[]).map(
           (sev) => {
@@ -458,6 +592,11 @@ export default function RiskClient({
         </div>
       ) : (
         <div className="space-y-6">
+          {actionError && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-4 py-2 text-xs text-rose-400">
+              {actionError}
+            </div>
+          )}
           {Object.entries(byDomain).map(([domain, flags]) => (
             <div key={domain}>
               <SectionHeader>
@@ -471,6 +610,8 @@ export default function RiskClient({
                     flag={flag}
                     expanded={expandedFlags.has(flag.id)}
                     onToggle={() => toggleFlag(flag.id)}
+                    onAction={handleFlagAction}
+                    busy={actionBusy === flag.id}
                   />
                 ))}
               </div>
