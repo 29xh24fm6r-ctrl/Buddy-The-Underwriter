@@ -104,22 +104,17 @@ describe("SPEC-PRICING-SPREADS-SNAPSHOT-SOURCE-OF-TRUTH-1 guards", () => {
     );
   });
 
-  // ── Guard 5: pricing-assumptions GET repairs stale invalid inputs ──────────
-  test("Guard 5: pricing-assumptions GET detects and repairs stale invalid pricing inputs", () => {
+  // ── Guard 5: pricing-assumptions GET uses canonical resolver for repairs ────
+  test("Guard 5: pricing-assumptions GET uses resolveCanonicalPricingContext for repair", () => {
     assert.match(
       PRICING_ASSUMPTIONS,
-      /isFixedWithNoRate/,
-      "GET must detect rate_type=fixed with null fixed_rate_pct as invalid",
+      /resolveCanonicalPricingContext/,
+      "GET must use canonical resolver (which persists repairs) instead of inline repair logic",
     );
     assert.match(
       PRICING_ASSUMPTIONS,
       /repaired/,
       "GET must flag repaired inputs in response",
-    );
-    assert.match(
-      PRICING_ASSUMPTIONS,
-      /deal_structural_pricing/,
-      "GET repair path must read deal_structural_pricing as authoritative source",
     );
   });
 

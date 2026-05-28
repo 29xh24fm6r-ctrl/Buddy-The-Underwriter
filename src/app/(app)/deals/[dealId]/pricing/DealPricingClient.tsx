@@ -613,7 +613,7 @@ export default function DealPricingClient({
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 mb-4">
           <div>
             <h3 className="text-sm font-semibold text-white">Risk-Based Pricing</h3>
             <p className="text-xs text-white/60 mt-1">
@@ -623,7 +623,9 @@ export default function DealPricingClient({
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-4">
+        {/* Deal Builder form removed — PricingAssumptionsCard is the canonical input.
+            SPEC-PRICING-CANONICAL-SOURCE-OF-TRUTH-1: single editable pricing surface. */}
+        <section className="grid grid-cols-1 gap-4 hidden">
           <Card title="Deal Builder">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Field label="Index">
