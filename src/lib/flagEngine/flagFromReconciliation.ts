@@ -168,7 +168,14 @@ function makeReconFlag(
   });
 
   if (rule?.generates_question) {
-    flag.borrower_question = generateQuestion(flag, facts);
+    const question = generateQuestion(flag, facts);
+    if (question) {
+      flag.borrower_question = question;
+    } else {
+      // Evidence gate suppressed the question — annotate for banker review
+      flag.borrower_question = null;
+      flag.banker_detail += "\n\n⚠ Borrower question suppressed: evidence does not meet quality gate (period alignment or source verification failed). Internal review required before sending to borrower.";
+    }
   }
 
   return flag;
