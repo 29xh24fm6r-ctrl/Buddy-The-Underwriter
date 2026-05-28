@@ -143,6 +143,27 @@ export default async function Page(
   const pricingReady = spreadsComplete && financialSnapshotExists && researchComplete;
 
   if (!pricingReady) {
+    // Query spread job status so DealPricingClient can show conditional messaging
+    // instead of always saying "Go to Spreads" when the spread already succeeded.
+    let spreadJobStatus: "none" | "running" | "succeeded" | "failed" = "none";
+    try {
+      const { data: latestJob } = await sb
+        .from("deal_spread_jobs")
+        .select("status")
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestJob) {
+        const s = (latestJob as any).status as string;
+        if (s === "SUCCEEDED") spreadJobStatus = "succeeded";
+        else if (s === "RUNNING" || s === "QUEUED") spreadJobStatus = "running";
+        else if (s === "FAILED") spreadJobStatus = "failed";
+      }
+    } catch {
+      // Non-fatal — default to "none"
+    }
+
     return (
       <div data-testid="deal-pricing" className="space-y-6">
         <PricingAssumptionsCard dealId={dealId} />
@@ -155,6 +176,7 @@ export default async function Page(
             financialSnapshotExists,
             researchComplete,
             stage: lifecycle.stage,
+            spreadJobStatus,
           }}
           latestRates={null}
           inputs={null}
