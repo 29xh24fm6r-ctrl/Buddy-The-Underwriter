@@ -1378,6 +1378,67 @@ export async function buildCanonicalCreditMemo(args: {
       ? Math.min(loanAmount.value, 500_000)
       : null;
 
+    // ── OD normalization narrative for income analysis ──────────────────
+    let odNormalizationNarrative: string | null = null;
+    try {
+      const { data: odFacts } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_key, fact_value_num, fact_period_end, resolution_status")
+        .eq("deal_id", deal.id)
+        .eq("is_superseded", false)
+        .like("fact_key", "OD_DETAIL_%");
+
+      if (odFacts && odFacts.length > 0) {
+        // Find the most recent year with OD detail
+        const years = [...new Set(
+          (odFacts as any[])
+            .filter((f: any) => f.fact_period_end)
+            .map((f: any) => new Date(f.fact_period_end).getFullYear()),
+        )].sort((a, b) => b - a);
+
+        const latestYear = years[0] ?? null;
+        const yearFacts = latestYear
+          ? (odFacts as any[]).filter((f: any) =>
+              f.fact_period_end && new Date(f.fact_period_end).getFullYear() === latestYear,
+            )
+          : odFacts;
+
+        // Get aggregate OTHER_DEDUCTIONS and GROSS_RECEIPTS for same year
+        const { data: aggRow } = await (sb as any)
+          .from("deal_financial_facts")
+          .select("fact_value_num")
+          .eq("deal_id", deal.id)
+          .eq("fact_key", "OTHER_DEDUCTIONS")
+          .eq("is_superseded", false)
+          .gte("fact_period_end", `${latestYear}-01-01`)
+          .lte("fact_period_end", `${latestYear}-12-31`)
+          .maybeSingle();
+
+        const { data: grRow } = await (sb as any)
+          .from("deal_financial_facts")
+          .select("fact_value_num")
+          .eq("deal_id", deal.id)
+          .eq("fact_key", "GROSS_RECEIPTS")
+          .eq("is_superseded", false)
+          .gte("fact_period_end", `${latestYear}-01-01`)
+          .lte("fact_period_end", `${latestYear}-12-31`)
+          .maybeSingle();
+
+        const { buildOdNormalizationNarrative } = await import("./buildOdNormalizationNarrative");
+        const result = buildOdNormalizationNarrative(
+          yearFacts as any[],
+          aggRow?.fact_value_num ?? null,
+          grRow?.fact_value_num ?? null,
+          latestYear,
+        );
+        if (result.narrative) {
+          odNormalizationNarrative = result.narrative;
+        }
+      }
+    } catch (odErr: any) {
+      console.warn("[buildCanonicalCreditMemo] OD narrative failed (non-fatal)", odErr?.message);
+    }
+
     const memo: CanonicalCreditMemoV1 = {
       version: "canonical_v1",
       deal_id: String(deal.id),
@@ -1565,7 +1626,7 @@ export async function buildCanonicalCreditMemo(args: {
       management_qualifications: managementQualifications,
 
       financial_analysis: {
-        income_analysis: renderValue(null, "Pending — financial spreads required", mode),
+        income_analysis: renderValue(null, odNormalizationNarrative ?? "Pending — financial spreads required", mode),
         noi: metricValueFromSnapshot({ snapshot, metric: "noi_ttm", label: "NOI TTM" }),
         debt_service: financial.annualDebtService,
         cash_flow_available: financial.cashFlowAvailable,
