@@ -4,7 +4,6 @@ export const maxDuration = 30;
 import DealPricingClient from "./DealPricingClientLoader";
 import PricingScenariosPanel from "./PricingScenariosPanelLoader";
 import PricingAssumptionsCard from "@/components/deals/cockpit/panels/PricingAssumptionsCard";
-import { runDealRiskPricing } from "@/lib/pricing/runDealRiskPricing";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -12,39 +11,6 @@ import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { DealPageErrorState } from "@/components/deals/DealPageErrorState";
 import { safeLoader } from "@/lib/server/safe-loader";
 
-// PricingInputs / LatestRates types removed — page uses canonical resolver.
-// DealPricingClient receives canonical computed values, not raw deal_pricing_inputs.
-
-type QuoteRow = {
-  id: string;
-  created_at: string;
-  index_code: string;
-  base_rate_pct: number;
-  spread_bps: number;
-  all_in_rate_pct: number;
-  loan_amount: number;
-  term_months: number;
-  amort_months: number;
-  interest_only_months: number;
-  monthly_payment_pi: number | null;
-  monthly_payment_io: number | null;
-  status?: string | null;
-  locked_at?: string | null;
-  locked_by?: string | null;
-  lock_reason?: string | null;
-  underwriting_snapshot_id?: string | null;
-  pricing_policy_id: string | null;
-  pricing_policy_version: string | null;
-  pricing_model_hash: string | null;
-  pricing_explain: any;
-  rate_index_snapshots?: {
-    id: string;
-    as_of_date: string;
-    source: string;
-    index_rate_pct: number;
-    index_label: string;
-  } | null;
-};
 export default async function Page(
   props: { params: Promise<{ dealId: string }> }
 ) {
@@ -169,75 +135,21 @@ export default async function Page(
     );
   }
 
-  const pricingResult = await safeLoader({
-    name: "runDealRiskPricing",
-    dealId,
-    surface: "pricing",
-    run: () => runDealRiskPricing(deal),
-    fallback: null as Awaited<ReturnType<typeof runDealRiskPricing>> | null,
-  });
-
-  if (!pricingResult.ok || !pricingResult.data) {
-    return (
-      <div data-testid="deal-pricing" className="space-y-6">
-        <PricingAssumptionsCard dealId={dealId} />
-        <PricingScenariosPanel dealId={dealId} />
-        <DealPageErrorState
-          title="Risk pricing computation failed"
-          message="Could not compute risk pricing for this deal. Assumptions and scenarios are still accessible."
-          backHref={`/deals/${dealId}/cockpit`}
-          backLabel="Back to Cockpit"
-          dealId={dealId}
-          surface="pricing"
-          technicalDetail={pricingResult.error ?? undefined}
-        />
-      </div>
-    );
-  }
-
-  const pricing = pricingResult.data;
-
-  // Use canonical resolver so all pricing surfaces see the same data.
-  // This also persists any repairs to stale deal_pricing_inputs.
+  // Use canonical resolver to ensure deal_pricing_inputs exists and is correct.
+  // This upserts from structural pricing / loan request if missing or stale.
   const { resolveCanonicalPricingContext } = await import(
     "@/lib/pricing/resolveCanonicalPricingContext"
   );
-  const canonical = await resolveCanonicalPricingContext(dealId, bankId);
+  await resolveCanonicalPricingContext(dealId, bankId);
 
-  let quotes: QuoteRow[] = [];
-  try {
-    const { data: quotesRes } = await sb
-      .from("deal_pricing_quotes")
-      .select("*, rate_index_snapshots(*)")
-      .eq("deal_id", dealId)
-      .order("created_at", { ascending: false })
-      .limit(20);
-    quotes = (quotesRes as QuoteRow[]) ?? [];
-  } catch {
-    // non-fatal
-  }
-
+  // SPEC-PRICING-CANONICAL-SOURCE-OF-TRUTH-1: /pricing renders only two
+  // canonical surfaces when ready — PricingAssumptionsCard (editable) and
+  // PricingScenariosPanel (scenario output + decision). DealPricingClient
+  // ("Risk-Based Pricing") removed to eliminate duplicate conflicting form.
   return (
     <div data-testid="deal-pricing" className="space-y-6">
       <PricingAssumptionsCard dealId={dealId} />
       <PricingScenariosPanel dealId={dealId} />
-      <DealPricingClient
-        deal={deal}
-        pricing={pricing}
-        readinessInfo={null}
-        latestRates={null}
-        inputs={null}
-        quotes={quotes}
-        loanRequestAmount={canonical.loan_amount ?? loanRequestAmount}
-        productType={canonical.product_type ?? loanProductType}
-        computed={{
-          baseRatePct: canonical.index_rate_pct ?? pricing.quote.baseRate ?? 0,
-          spreadBps: canonical.spread_bps ?? pricing.quote.spreadBps ?? 0,
-          allInRatePct: canonical.all_in_rate_pct ?? (pricing.quote.baseRate + pricing.quote.spreadBps / 100),
-          rateAsOf: null,
-          rateSource: null,
-        }}
-      />
     </div>
   );
 }

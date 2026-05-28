@@ -162,19 +162,23 @@ export async function resolveCanonicalPricingContext(
   // ── ADS ───────────────────────────────────────────────────────────
   const annual_debt_service_est = toFinite(s.annual_debt_service_est);
 
-  // ── Repair detection ──────────────────────────────────────────────
+  // ── Repair / create detection ──────────────────────────────────────
   const needsRepair = dpiExists && (dpiIsInvalid || indexConflict);
+  const needsCreate = !dpiExists && (sp != null || lr != null);
   let repair_reason: string | null = null;
 
   if (needsRepair) {
     if (isFixedNoRate) repair_reason = "rate_type=fixed with null fixed_rate_pct";
     else if (isFloatingNoIdx) repair_reason = "rate_type=floating with null index_rate_pct";
     else if (indexConflict) repair_reason = `index_code ${dpiIndex} conflicts with structural pricing ${spIndex}`;
+  } else if (needsCreate) {
+    repair_reason = "deal_pricing_inputs missing; created from structural pricing / loan request";
   }
 
-  // ── Persist repair to deal_pricing_inputs ─────────────────────────
-  if (needsRepair) {
-    const repairPatch: Record<string, any> = {
+  // ── Persist: upsert deal_pricing_inputs (create if missing, repair if stale) ──
+  if (needsRepair || needsCreate) {
+    const canonicalRow: Record<string, any> = {
+      deal_id: dealId,
       rate_type,
       index_code,
       index_rate_pct,
@@ -184,15 +188,17 @@ export async function resolveCanonicalPricingContext(
       amort_months,
       interest_only_months,
       fixed_rate_pct: rate_type === "fixed" ? fixed_rate_pct : null,
+      include_existing_debt: dpiExists ? (d.include_existing_debt ?? true) : true,
+      include_proposed_debt: dpiExists ? (d.include_proposed_debt ?? true) : true,
+      notes: dpiExists ? (d.notes ?? null) : null,
     };
 
     try {
       await sb
         .from("deal_pricing_inputs")
-        .update(repairPatch)
-        .eq("deal_id", dealId);
+        .upsert(canonicalRow, { onConflict: "deal_id" });
     } catch (err: any) {
-      console.warn("[resolveCanonicalPricingContext] repair persist failed (non-fatal):", err?.message);
+      console.warn("[resolveCanonicalPricingContext] upsert failed (non-fatal):", err?.message);
     }
   }
 
@@ -210,7 +216,7 @@ export async function resolveCanonicalPricingContext(
     interest_only_months,
     annual_debt_service_est,
     source_priority,
-    repair_applied: needsRepair,
+    repair_applied: needsRepair || needsCreate,
     repair_reason,
   };
 }

@@ -40,12 +40,17 @@ describe("SPEC-PRICING-CANONICAL-SOURCE-OF-TRUTH-1 guards", () => {
     assert.match(RESOLVER, /source_priority/, "Must return source_priority diagnostics");
   });
 
-  // ── Guard 2: resolver persists repairs ────────────────────────────────────
-  test("Guard 2: resolver persists repairs to deal_pricing_inputs in DB", () => {
+  // ── Guard 2: resolver persists repairs via upsert ───────────────────────
+  test("Guard 2: resolver upserts deal_pricing_inputs (create or repair)", () => {
     assert.match(
       RESOLVER,
-      /\.update\(repairPatch\)/,
-      "Resolver must UPDATE deal_pricing_inputs when repair is needed",
+      /\.upsert\(canonicalRow/,
+      "Resolver must UPSERT deal_pricing_inputs to create missing or repair stale rows",
+    );
+    assert.match(
+      RESOLVER,
+      /needsCreate/,
+      "Resolver must detect when deal_pricing_inputs is missing and needs creation",
     );
     assert.match(
       RESOLVER,
@@ -70,14 +75,11 @@ describe("SPEC-PRICING-CANONICAL-SOURCE-OF-TRUTH-1 guards", () => {
       /resolveCanonicalPricingContext/,
       "page.tsx must use canonical resolver",
     );
-    // Must not directly query deal_pricing_inputs for DealPricingClient
-    const pricingReadyBlock = PRICING_PAGE.slice(
-      PRICING_PAGE.indexOf("const pricing = pricingResult.data"),
-    );
+    // Must not directly query deal_pricing_inputs anywhere
     assert.doesNotMatch(
-      pricingReadyBlock,
+      PRICING_PAGE,
       /from\("deal_pricing_inputs"\)/,
-      "page.tsx must not directly query deal_pricing_inputs after readiness clears — use resolver",
+      "page.tsx must not directly query deal_pricing_inputs — use resolver",
     );
   });
 
@@ -105,13 +107,16 @@ describe("SPEC-PRICING-CANONICAL-SOURCE-OF-TRUTH-1 guards", () => {
     );
   });
 
-  // ── Guard 6: Deal Builder form is hidden ──────────────────────────────────
-  test("Guard 6: DealPricingClient Deal Builder form is hidden, not a visible duplicate", () => {
-    // The Deal Builder section must have class="hidden" or be removed entirely
-    assert.match(
-      PRICING_CLIENT,
-      /class(?:Name)?="[^"]*hidden[^"]*"[^>]*>\s*\n?\s*<Card title="Deal Builder"/,
-      "Deal Builder section must be hidden via CSS — PricingAssumptionsCard is canonical",
+  // ── Guard 6: DealPricingClient not rendered in ready branch ─────────────
+  test("Guard 6: page.tsx does not render DealPricingClient when pricing is ready", () => {
+    // The ready branch (after resolveCanonicalPricingContext) must not include DealPricingClient
+    const readyBranch = PRICING_PAGE.slice(
+      PRICING_PAGE.indexOf("resolveCanonicalPricingContext(dealId, bankId)"),
+    );
+    assert.doesNotMatch(
+      readyBranch,
+      /<DealPricingClient/,
+      "Ready branch must not render DealPricingClient — only PricingAssumptionsCard + PricingScenariosPanel",
     );
   });
 
