@@ -180,13 +180,23 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
       const res = await fetch("/api/rates/latest", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
+        if (!json.ok || !json.rates) {
+          setStatus({ kind: "info", message: "Live rates unavailable — pricing assumptions can still be saved manually." });
+          setRatesLoading(false);
+          return null;
+        }
+        const ratesMap = json.rates as Record<string, { ratePct?: unknown; asOf?: unknown }>;
         const rates: LiveRates = {};
-        if (json.SOFR) rates.SOFR = { ratePct: Number(json.SOFR.rate), asOf: json.SOFR.date };
-        if (json.UST_5Y) rates.UST_5Y = { ratePct: Number(json.UST_5Y.rate), asOf: json.UST_5Y.date };
-        if (json.PRIME) rates.PRIME = { ratePct: Number(json.PRIME.rate), asOf: json.PRIME.date };
+        for (const code of ["SOFR", "UST_5Y", "PRIME"] as IndexCode[]) {
+          const entry = ratesMap[code];
+          if (entry && Number.isFinite(Number(entry.ratePct))) {
+            rates[code] = { ratePct: Number(entry.ratePct), asOf: String(entry.asOf ?? "") };
+          }
+        }
         setLiveRates(rates);
         return rates;
       }
+      setStatus({ kind: "info", message: "Live rates unavailable — pricing assumptions can still be saved manually." });
     } catch { /* non-fatal */ }
     setRatesLoading(false);
     return null;
