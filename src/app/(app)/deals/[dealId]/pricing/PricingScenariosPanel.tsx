@@ -52,9 +52,9 @@ const SCENARIO_LABELS: Record<string, string> = {
 };
 
 const DECISION_COLORS: Record<string, string> = {
-  APPROVED: "bg-emerald-100 text-emerald-800 border-emerald-300",
-  REJECTED: "bg-red-100 text-red-800 border-red-300",
-  RESTRUCTURE: "bg-amber-100 text-amber-800 border-amber-300",
+  APPROVED: "bg-emerald-500/20 text-emerald-200 border-emerald-500/30",
+  REJECTED: "bg-red-500/20 text-red-200 border-red-500/30",
+  RESTRUCTURE: "bg-amber-500/20 text-amber-200 border-amber-500/30",
 };
 
 export default function PricingScenariosPanel({ dealId }: Props) {
@@ -101,12 +101,14 @@ export default function PricingScenariosPanel({ dealId }: Props) {
       const data = await res.json();
       if (!data.ok) {
         setError(data.error === "no_financial_snapshot"
-          ? "Financial snapshot required — generate spreads and snapshot first."
+          ? "Financial snapshot missing. Use the Rebuild Financial Snapshot button above, then retry."
           : data.error === "spreads_still_generating"
             ? "Spreads are still generating. Please wait and try again."
             : data.error === "no_loan_request"
               ? "A loan request is required before generating pricing scenarios."
-              : `Generation failed: ${data.error}`);
+              : data.error === "rate_feed_unavailable"
+                ? "Live rate feed is temporarily unavailable. Try again shortly."
+                : `Generation failed: ${data.error}`);
         return;
       }
       setSuccess(`Generated ${data.scenarios?.length ?? 0} pricing scenarios.`);
@@ -151,7 +153,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
   return (
     <div className="mt-8 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">Pricing Decision System</h2>
+        <h2 className="text-sm font-semibold text-white">Pricing Decision System</h2>
         <div className="flex gap-2">
           {decision && (
             <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${DECISION_COLORS[decision.decision] ?? "bg-gray-100"}`}>
@@ -161,7 +163,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {generating ? "Generating..." : scenarios.length ? "Regenerate Scenarios" : "Generate Pricing Scenarios"}
           </button>
@@ -169,26 +171,26 @@ export default function PricingScenariosPanel({ dealId }: Props) {
       </div>
 
       {error && (
-        <div className="p-3 text-sm bg-red-50 border border-red-200 text-red-800 rounded-lg">
+        <div className="p-3 text-sm border border-red-500/30 bg-red-500/10 text-red-200 rounded-lg">
           {error}
         </div>
       )}
       {success && (
-        <div className="p-3 text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg">
+        <div className="p-3 text-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 rounded-lg">
           {success}
         </div>
       )}
 
       {/* Pipeline status */}
       {!decision && scenarios.length > 0 && (
-        <div className="p-3 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-lg flex items-center gap-2">
+        <div className="p-3 text-sm border border-amber-500/30 bg-amber-500/10 text-amber-200 rounded-lg flex items-center gap-2">
           <span className="font-semibold">PRICING_REQUIRED</span>
           <span>— Select a scenario and approve to clear the pipeline gate.</span>
         </div>
       )}
 
       {decision && (
-        <div className="p-3 text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg">
+        <div className="p-3 text-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 rounded-lg">
           <span className="font-semibold">Pipeline cleared</span> — Pricing decision: {decision.decision} on {decision.decided_at.split("T")[0]}.
           Rationale: {decision.rationale}
         </div>
@@ -196,15 +198,15 @@ export default function PricingScenariosPanel({ dealId }: Props) {
 
       {/* Scenario Comparison Table */}
       {scenarios.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-white/10 bg-white/[0.02]">
+          <table className="min-w-full text-sm text-white">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-3 text-left font-semibold text-slate-600 w-48">Metric</th>
+              <tr className="bg-white/[0.03] border-b border-white/10">
+                <th className="px-4 py-3 text-left font-semibold text-white/60 w-48">Metric</th>
                 {scenarios.map((s) => (
-                  <th key={s.id} className={`px-4 py-3 text-center font-semibold ${decision?.pricing_scenario_id === s.id ? "bg-indigo-50 text-indigo-800" : "text-slate-700"}`}>
+                  <th key={s.id} className={`px-4 py-3 text-center font-semibold ${decision?.pricing_scenario_id === s.id ? "bg-primary/10 text-primary" : "text-white/70"}`}>
                     <div>{SCENARIO_LABELS[s.scenario_key] ?? s.scenario_key}</div>
-                    <div className="text-xs font-normal text-slate-500">{s.product_type}</div>
+                    <div className="text-xs font-normal text-white/50">{s.product_type}</div>
                     {decision?.pricing_scenario_id === s.id && (
                       <span className="mt-1 inline-block px-2 py-0.5 text-xs font-semibold bg-indigo-600 text-white rounded-full">Selected</span>
                     )}
@@ -212,7 +214,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-white/5">
               <MetricRow label="All-In Rate" scenarios={scenarios} getValue={(s) => fmtPct(s.structure?.all_in_rate_pct)} decision={decision} />
               <MetricRow label="Index + Spread" scenarios={scenarios} getValue={(s) => `${s.structure?.index_code ?? ""} + ${s.structure?.spread_bps ?? "—"}bps`} decision={decision} />
               <MetricRow label="Loan Amount" scenarios={scenarios} getValue={(s) => fmt$(s.structure?.loan_amount)} decision={decision} />
@@ -227,14 +229,14 @@ export default function PricingScenariosPanel({ dealId }: Props) {
               <MetricRow label="Guaranty" scenarios={scenarios} getValue={(s) => s.structure?.guaranty ?? "—"} decision={decision} />
               <MetricRow label="Origination Fee" scenarios={scenarios} getValue={(s) => `${s.structure?.fees?.origination_pct ?? "—"}%`} decision={decision} />
               {/* Policy overlays */}
-              <tr className="bg-slate-50">
-                <td className="px-4 py-2 font-semibold text-slate-600">Policy Overlays</td>
+              <tr className="bg-white/[0.03]">
+                <td className="px-4 py-2 font-semibold text-white/60">Policy Overlays</td>
                 {scenarios.map((s) => (
-                  <td key={s.id} className={`px-4 py-2 text-xs text-left ${decision?.pricing_scenario_id === s.id ? "bg-indigo-50" : ""}`}>
+                  <td key={s.id} className={`px-4 py-2 text-xs text-left ${decision?.pricing_scenario_id === s.id ? "bg-primary/10" : ""}`}>
                     {(s.policy_overlays ?? []).length > 0 ? (
                       <ul className="space-y-1">
                         {(s.policy_overlays ?? []).map((o: any, i: number) => (
-                          <li key={i} className="text-slate-600">
+                          <li key={i} className="text-white/60">
                             <span className="font-medium">{o.source}</span>: {o.rule}
                           </li>
                         ))}
@@ -248,7 +250,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
               {/* Select row */}
               {!decision && (
                 <tr>
-                  <td className="px-4 py-3 font-semibold text-slate-600">Action</td>
+                  <td className="px-4 py-3 font-semibold text-white/60">Action</td>
                   {scenarios.map((s) => (
                     <td key={s.id} className="px-4 py-3 text-center">
                       <button
@@ -256,7 +258,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
                           setSelectedScenarioId(s.id);
                           setShowDecisionForm(true);
                         }}
-                        className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                        className="px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 border border-primary/30 rounded-lg hover:bg-primary/20 transition-colors"
                       >
                         Select & Approve
                       </button>
@@ -271,16 +273,16 @@ export default function PricingScenariosPanel({ dealId }: Props) {
 
       {/* Decision Form */}
       {showDecisionForm && selectedScenarioId && (
-        <div className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm space-y-4">
-          <h3 className="text-base font-semibold text-slate-900">Record Pricing Decision</h3>
-          <p className="text-sm text-slate-600">
-            Scenario: <span className="font-semibold">
+        <div className="p-6 rounded-xl border border-white/10 bg-white/[0.02] space-y-4">
+          <h3 className="text-sm font-semibold text-white">Record Pricing Decision</h3>
+          <p className="text-sm text-white/60">
+            Scenario: <span className="font-semibold text-white">
               {SCENARIO_LABELS[scenarios.find((s) => s.id === selectedScenarioId)?.scenario_key ?? ""] ?? "Selected"}
             </span>
           </p>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Decision</label>
+            <label className="block text-[11px] font-medium text-white/50 mb-1">Decision</label>
             <div className="flex gap-2">
               {(["APPROVED", "REJECTED", "RESTRUCTURE"] as const).map((d) => (
                 <button
@@ -289,7 +291,7 @@ export default function PricingScenariosPanel({ dealId }: Props) {
                   className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
                     decisionType === d
                       ? DECISION_COLORS[d]
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
                   }`}
                 >
                   {d}
@@ -299,14 +301,14 @@ export default function PricingScenariosPanel({ dealId }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Rationale <span className="text-slate-400">(required, min 10 characters)</span>
+            <label className="block text-[11px] font-medium text-white/50 mb-1">
+              Rationale <span className="text-white/30">(required, min 10 characters)</span>
             </label>
             <textarea
               value={rationale}
               onChange={(e) => setRationale(e.target.value)}
               rows={4}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 text-sm text-white border border-white/10 bg-white/5 rounded-lg placeholder-white/30 focus:border-primary focus:outline-none"
               placeholder="Explain the pricing decision rationale for credit committee review..."
             />
           </div>
@@ -315,13 +317,13 @@ export default function PricingScenariosPanel({ dealId }: Props) {
             <button
               onClick={handleDecide}
               disabled={deciding || rationale.trim().length < 10}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {deciding ? "Recording..." : "Confirm Decision"}
             </button>
             <button
               onClick={() => setShowDecisionForm(false)}
-              className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/60 hover:bg-white/10 transition-colors"
             >
               Cancel
             </button>
@@ -330,13 +332,13 @@ export default function PricingScenariosPanel({ dealId }: Props) {
       )}
 
       {loading && scenarios.length === 0 && (
-        <div className="py-8 text-center text-sm text-slate-500">
+        <div className="py-8 text-center text-sm text-white/50">
           Loading pricing scenarios...
         </div>
       )}
 
       {!loading && scenarios.length === 0 && (
-        <div className="py-8 text-center text-sm text-slate-500">
+        <div className="py-8 text-center text-sm text-white/50">
           No pricing scenarios generated yet. Click &ldquo;Generate Pricing Scenarios&rdquo; to begin.
         </div>
       )}
@@ -359,11 +361,11 @@ function MetricRow({
 }) {
   return (
     <tr>
-      <td className="px-4 py-2 text-slate-600 font-medium">{label}</td>
+      <td className="px-4 py-2 text-white/60 font-medium">{label}</td>
       {scenarios.map((s) => (
         <td
           key={s.id}
-          className={`px-4 py-2 text-center tabular-nums ${highlight?.(s) ?? ""} ${decision?.pricing_scenario_id === s.id ? "bg-indigo-50" : ""}`}
+          className={`px-4 py-2 text-center tabular-nums ${highlight?.(s) ?? ""} ${decision?.pricing_scenario_id === s.id ? "bg-primary/10" : ""}`}
         >
           {getValue(s)}
         </td>
