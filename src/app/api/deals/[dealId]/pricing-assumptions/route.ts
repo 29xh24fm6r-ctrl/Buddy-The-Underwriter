@@ -24,6 +24,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
+    // Use canonical resolver — it detects stale/invalid pricing inputs,
+    // repairs them, persists the repair, and returns consistent data.
+    const { resolveCanonicalPricingContext } = await import(
+      "@/lib/pricing/resolveCanonicalPricingContext"
+    );
+    const canonical = await resolveCanonicalPricingContext(dealId, auth.bankId);
+
+    // After resolution (which may have persisted repairs), read the current row
     const sb = supabaseAdmin();
     const { data, error } = await sb
       .from("deal_pricing_inputs")
@@ -35,69 +43,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    // Detect stale/invalid pricing inputs and repair from authoritative sources.
-    // Invalid examples: rate_type=fixed with null fixed_rate_pct, or index_code
-    // that conflicts with submitted loan request without explicit user override.
-    if (data) {
-      const d = data as Record<string, any>;
-      const isFixedWithNoRate = d.rate_type === "fixed" && d.fixed_rate_pct == null;
-      const isFloatingWithNoIndex = d.rate_type === "floating" && d.index_rate_pct == null && d.index_code;
-
-      if (isFixedWithNoRate || isFloatingWithNoIndex) {
-        // Load authoritative sources to repair
-        const [{ data: sp }, { data: lr }] = await Promise.all([
-          sb.from("deal_structural_pricing")
-            .select("rate_type, rate_index, index_rate_pct, loan_amount")
-            .eq("deal_id", dealId)
-            .order("computed_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          sb.from("deal_loan_requests")
-            .select("requested_rate_type, requested_rate_index, requested_amount")
-            .eq("deal_id", dealId)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        ]);
-
-        let repaired = false;
-
-        // If fixed with no rate, but structural/LR says variable → repair to floating
-        if (isFixedWithNoRate) {
-          const spIsVariable = sp?.rate_type === "variable";
-          const lrIsVariable = lr?.requested_rate_type === "VARIABLE";
-          if (spIsVariable || lrIsVariable) {
-            d.rate_type = "floating";
-            const VALID_INDEX_CODES = new Set(["SOFR", "UST_5Y", "PRIME"]);
-            d.index_code = (sp?.rate_index && VALID_INDEX_CODES.has(sp.rate_index)) ? sp.rate_index
-              : (lr?.requested_rate_index && VALID_INDEX_CODES.has(lr.requested_rate_index)) ? lr.requested_rate_index
-              : d.index_code;
-            if (sp?.index_rate_pct != null) d.index_rate_pct = Number(sp.index_rate_pct);
-            repaired = true;
-          }
-        }
-
-        // If floating with no index rate, try to fill from structural pricing
-        if (isFloatingWithNoIndex && sp?.index_rate_pct != null) {
-          d.index_rate_pct = Number(sp.index_rate_pct);
-          if (sp.rate_index) d.index_code = sp.rate_index;
-          repaired = true;
-        }
-
-        if (repaired) {
-          return NextResponse.json({
-            ok: true,
-            pricingAssumptions: d,
-            repaired: true,
-            repairReason: isFixedWithNoRate
-              ? "rate_type was fixed with null fixed_rate_pct; repaired from structural pricing / loan request"
-              : "floating rate had null index_rate_pct; repaired from structural pricing",
-          });
-        }
-      }
-    }
-
-    return NextResponse.json({ ok: true, pricingAssumptions: data ?? null });
+    return NextResponse.json({
+      ok: true,
+      pricingAssumptions: data ?? null,
+      ...(canonical.repair_applied ? {
+        repaired: true,
+        repairReason: canonical.repair_reason,
+      } : {}),
+    });
   } catch (e: any) {
     rethrowNextErrors(e);
     console.error("[pricing-assumptions GET]", e);

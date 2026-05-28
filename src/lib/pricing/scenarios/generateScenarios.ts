@@ -137,6 +137,13 @@ export async function generatePricingScenarios(args: {
     return { ok: false, error: "rate_feed_unavailable", status: 502 };
   }
 
+  // 4b. Load canonical pricing context — ensures BASE scenario matches
+  // banker-visible assumptions from PricingAssumptionsCard.
+  const { resolveCanonicalPricingContext } = await import(
+    "@/lib/pricing/resolveCanonicalPricingContext"
+  );
+  const canonical = await resolveCanonicalPricingContext(args.dealId, args.bankId);
+
   // 5. Load bank overlays
   const { data: overlayRow } = await sb
     .from("bank_overlays")
@@ -155,7 +162,7 @@ export async function generatePricingScenarios(args: {
     borrowerEntityType: null,
     useOfProceeds: loanReq.use_of_proceeds as string[] | null,
     dealType: null,
-    loanProductType: loanReq.product_type,
+    loanProductType: canonical.product_type ?? loanReq.product_type,
   });
 
   // 7. Extract snapshot metrics
@@ -164,19 +171,21 @@ export async function generatePricingScenarios(args: {
   const collateralValue = toNum(snapshot.collateral_gross_value);
   const gcf = toNum((snapshot as any).gcf_global_cash_flow);
 
-  // 8. Derive base loan parameters
-  const loanAmount = Number(loanReq.requested_amount ?? loanReq.approved_amount ?? 0);
-  const termMonths = Number(loanReq.requested_term_months ?? 120);
-  const amortMonths = Number(loanReq.requested_amort_months ?? 300);
-  const ioMonths = Number(loanReq.requested_interest_only_months ?? 0);
-  const productType = String(loanReq.product_type ?? "CONVENTIONAL");
-  const indexCode: IndexCode = (loanReq.requested_rate_index as IndexCode) ?? "SOFR";
-  const baseRatePct = rates[indexCode]?.ratePct ?? rates.SOFR?.ratePct ?? 5.0;
+  // 8. Derive base loan parameters from canonical context (which reflects
+  //    banker-visible assumptions), falling back to loan request raw values.
+  const loanAmount = canonical.loan_amount ?? Number(loanReq.requested_amount ?? loanReq.approved_amount ?? 0);
+  const termMonths = canonical.term_months ?? Number(loanReq.requested_term_months ?? 120);
+  const amortMonths = canonical.amort_months ?? Number(loanReq.requested_amort_months ?? 300);
+  const ioMonths = canonical.interest_only_months ?? Number(loanReq.requested_interest_only_months ?? 0);
+  const productType = canonical.product_type ?? String(loanReq.product_type ?? "CONVENTIONAL");
+  const indexCode: IndexCode = canonical.index_code ?? (loanReq.requested_rate_index as IndexCode) ?? "SOFR";
+  const baseRatePct = canonical.index_rate_pct ?? rates[indexCode]?.ratePct ?? rates.SOFR?.ratePct ?? 5.0;
 
   // 9. Policy constraints
   const minDscr = Number(bankOverlay.min_dscr ?? 1.25);
   const maxLtv = Number(bankOverlay.max_ltv ?? 0.80);
-  const baseSpreadBps = Number(bankOverlay.base_spread_bps ?? 250);
+  // BASE spread: use canonical (banker-visible) spread, fall back to bank overlay
+  const baseSpreadBps = canonical.spread_bps ?? Number(bankOverlay.base_spread_bps ?? 250);
   const conservativeSpreadBps = baseSpreadBps + 50;
   const stretchSpreadBps = Math.max(baseSpreadBps - 50, 100);
 

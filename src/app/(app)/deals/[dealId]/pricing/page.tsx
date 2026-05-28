@@ -12,28 +12,8 @@ import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { DealPageErrorState } from "@/components/deals/DealPageErrorState";
 import { safeLoader } from "@/lib/server/safe-loader";
 
-type PricingInputs = {
-  index_code: "SOFR" | "UST_5Y" | "PRIME";
-  index_tenor: string | null;
-  base_rate_override_pct: number | null;
-  spread_override_bps: number | null;
-  loan_amount: number | null;
-  term_months: number;
-  amort_months: number;
-  interest_only_months: number;
-  notes: string | null;
-};
-
-type LatestRates = Record<
-  "SOFR" | "UST_5Y" | "PRIME",
-  {
-    code: "SOFR" | "UST_5Y" | "PRIME";
-    label: string;
-    ratePct: number;
-    asOf: string;
-    source: "treasury" | "nyfed" | "fed_h15" | "fred";
-  }
->;
+// PricingInputs / LatestRates types removed — page uses canonical resolver.
+// DealPricingClient receives canonical computed values, not raw deal_pricing_inputs.
 
 type QuoteRow = {
   id: string;
@@ -100,15 +80,15 @@ export default async function Page(
 
   if (error || !deal) {
     return (
-      <main className="p-8">
-        <h1 className="text-xl font-semibold">Deal Pricing</h1>
-        <p className="mt-3 text-sm text-slate-600">
+      <div className="p-8">
+        <h1 className="text-xl font-semibold text-white">Deal Pricing</h1>
+        <p className="mt-3 text-sm text-white/60">
           Could not load deal context for pricing.
         </p>
-        <pre className="mt-4 text-xs bg-slate-100 p-3 rounded overflow-auto">
+        <pre className="mt-4 text-xs bg-white/5 text-white/70 p-3 rounded overflow-auto">
           {JSON.stringify({ dealId, error }, null, 2)}
         </pre>
-      </main>
+      </div>
     );
   }
 
@@ -123,8 +103,8 @@ export default async function Page(
 
   if (!lifecycleResult.ok || !lifecycleResult.data) {
     return (
-      <main className="p-8">
-        <h1 className="text-xl font-semibold">Deal Pricing</h1>
+      <div className="p-8">
+        <h1 className="text-xl font-semibold text-white">Deal Pricing</h1>
         <DealPageErrorState
           title="Pricing data unavailable"
           message="Could not load lifecycle data for pricing. Try refreshing."
@@ -134,7 +114,7 @@ export default async function Page(
           surface="pricing"
           technicalDetail={lifecycleResult.error ?? undefined}
         />
-      </main>
+      </div>
     );
   }
 
@@ -217,25 +197,25 @@ export default async function Page(
 
   const pricing = pricingResult.data;
 
-  let inputs: PricingInputs | null = null;
-  let latestRates: LatestRates | null = null; // always null from SSR — loaded client-side
-  let quotes: QuoteRow[] = [];
+  // Use canonical resolver so all pricing surfaces see the same data.
+  // This also persists any repairs to stale deal_pricing_inputs.
+  const { resolveCanonicalPricingContext } = await import(
+    "@/lib/pricing/resolveCanonicalPricingContext"
+  );
+  const canonical = await resolveCanonicalPricingContext(dealId, bankId);
 
+  let quotes: QuoteRow[] = [];
   try {
-    const [inputsRes, quotesRes] = await Promise.all([
-      sb.from("deal_pricing_inputs").select("*").eq("deal_id", dealId).maybeSingle(),
-      sb.from("deal_pricing_quotes").select("*, rate_index_snapshots(*)").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(20),
-    ]);
-    inputs = (inputsRes.data as PricingInputs | null) ?? null;
-    quotes = (quotesRes.data as QuoteRow[]) ?? [];
-  } catch (err) {
-    console.warn("[pricing] db query failed — rendering with defaults", { dealId });
+    const { data: quotesRes } = await sb
+      .from("deal_pricing_quotes")
+      .select("*, rate_index_snapshots(*)")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    quotes = (quotesRes as QuoteRow[]) ?? [];
+  } catch {
+    // non-fatal
   }
-  // Rates loaded client-side; SSR computes from inputs/pricing only
-  const baseRatePct =
-    inputs?.base_rate_override_pct ?? pricing.quote.baseRate ?? 0;
-  const spreadBps = inputs?.spread_override_bps ?? pricing.quote.spreadBps ?? 0;
-  const allInRatePct = baseRatePct + spreadBps / 100;
 
   return (
     <div data-testid="deal-pricing" className="space-y-6">
@@ -245,16 +225,16 @@ export default async function Page(
         deal={deal}
         pricing={pricing}
         readinessInfo={null}
-        latestRates={latestRates}
-        inputs={inputs}
+        latestRates={null}
+        inputs={null}
         quotes={quotes}
-        loanRequestAmount={loanRequestAmount}
-        productType={loanProductType}
+        loanRequestAmount={canonical.loan_amount ?? loanRequestAmount}
+        productType={canonical.product_type ?? loanProductType}
         computed={{
-          baseRatePct,
-          spreadBps,
-          allInRatePct,
-          rateAsOf: null, // populated client-side after rates fetch
+          baseRatePct: canonical.index_rate_pct ?? pricing.quote.baseRate ?? 0,
+          spreadBps: canonical.spread_bps ?? pricing.quote.spreadBps ?? 0,
+          allInRatePct: canonical.all_in_rate_pct ?? (pricing.quote.baseRate + pricing.quote.spreadBps / 100),
+          rateAsOf: null,
           rateSource: null,
         }}
       />
