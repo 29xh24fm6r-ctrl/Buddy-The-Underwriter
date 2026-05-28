@@ -15,10 +15,10 @@
 
 import {
   OD_HIGH_RISK_CATEGORIES,
-  OD_POTENTIAL_ADDBACK_CATEGORIES,
   OD_SUMMARY_KEYS,
   type OdCategory,
 } from "@/lib/financialSpreads/extractors/otherDeductionsDetailKeys";
+import { buildOdNormalizedEarningsAdjustments } from "@/lib/financialFacts/buildOdNormalizedEarningsAdjustments";
 
 export type OdFactRow = {
   fact_key: string;
@@ -115,27 +115,26 @@ export function buildOdNormalizationNarrative(
   }
   lines.push("");
 
+  // Compute adjustment totals via shared builder (same logic as cash flow aggregator)
+  const adjustmentResult = buildOdNormalizedEarningsAdjustments(odFacts as any[], year ?? 0);
+  const addbackTotal = adjustmentResult.addbackTotal;
+  const nonRecurringTotal = adjustmentResult.nonRecurringTotal;
+
   // Material categories (sorted by amount)
   const sorted = Array.from(categories.entries())
     .sort(([, a], [, b]) => b.amount - a.amount);
 
   const materialLines: string[] = [];
-  let addbackTotal = 0;
-  let nonRecurringTotal = 0;
 
   for (const [cat, { amount, status }] of sorted) {
     const label = cat.replace(/_/g, " ").toLowerCase();
     const isHighRisk = OD_HIGH_RISK_CATEGORIES.has(cat as OdCategory);
-    const isAddback = status === "banker_addback";
-    const isNonRecurring = status === "banker_non_recurring";
 
     let annotation = "";
-    if (isAddback) {
+    if (status === "banker_addback") {
       annotation = " — **marked for addback**";
-      addbackTotal += amount;
-    } else if (isNonRecurring) {
+    } else if (status === "banker_non_recurring") {
       annotation = " — **non-recurring, excluded from normalized earnings**";
-      nonRecurringTotal += amount;
     } else if (isHighRisk && status !== "banker_reviewed") {
       annotation = " *(requires review)*";
     } else if (status === "banker_reviewed") {

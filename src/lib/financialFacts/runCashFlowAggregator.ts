@@ -332,6 +332,46 @@ export async function runCashFlowAggregator(args: {
     );
   }
 
+  // 3b. Apply banker-approved OD addbacks/non-recurring adjustments
+  // SPEC-TAX-RETURN-OTHER-DEDUCTIONS-STATEMENT-SPREADING-5
+  // Only items explicitly marked by banker as addback or non-recurring are included.
+  if (ncads !== null) {
+    try {
+      const { buildOdNormalizedEarningsAdjustments } = await import(
+        "@/lib/financialFacts/buildOdNormalizedEarningsAdjustments"
+      );
+      const { data: odFacts } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("id, fact_key, fact_value_num, fact_period_end, resolution_status")
+        .eq("deal_id", dealId)
+        .eq("is_superseded", false)
+        .like("fact_key", "OD_DETAIL_%")
+        .in("resolution_status", ["banker_addback", "banker_non_recurring"]);
+
+      if (odFacts && odFacts.length > 0) {
+        // Use latest year with available facts
+        const years = [...new Set(
+          (odFacts as any[]).filter((f: any) => f.fact_period_end)
+            .map((f: any) => new Date(f.fact_period_end).getFullYear()),
+        )].sort((a, b) => b - a);
+        const latestYear = years[0];
+        if (latestYear) {
+          const result = buildOdNormalizedEarningsAdjustments(odFacts as any[], latestYear);
+          if (result.totalAdjustment > 0) {
+            ncads += result.totalAdjustment;
+            ncadsWarnings.push(
+              `OD addback: $${result.totalAdjustment.toLocaleString()} in banker-approved ` +
+              `adjustments (${result.adjustments.length} items) added to NCADS.`,
+            );
+          }
+        }
+      }
+    } catch (odErr: any) {
+      // Non-fatal — OD adjustments are supplemental
+      console.warn("[runCashFlowAggregator] OD adjustment failed (non-fatal)", odErr?.message);
+    }
+  }
+
   // 4. Compute DSCR
   const dscrValue =
     ncads !== null && isFinite(Number(ncads))
