@@ -789,7 +789,22 @@ function OdDetailPanel({ dealId, year }: { dealId: string; year?: number | null 
   if (loading) return <div className="text-[10px] text-white/30 py-2">Loading detail...</div>;
   if (error) return <div className="text-[10px] text-rose-400 py-1">{error}</div>;
   if (!data || Object.keys(data).length === 0) {
-    return <div className="text-[10px] text-white/30 py-1">No line-level detail extracted yet.</div>;
+    return (
+      <div className="mt-2">
+        <div className="text-[10px] text-white/30 py-1">No line-level detail extracted yet.</div>
+        <BackfillOdDetailButton dealId={dealId} onComplete={() => {
+          // Re-fetch OD detail after backfill
+          setLoading(true);
+          const url = year
+            ? `/api/deals/${dealId}/flags/od-detail?year=${year}`
+            : `/api/deals/${dealId}/flags/od-detail`;
+          fetch(url, { cache: "no-store" })
+            .then((r) => r.json())
+            .then((json) => { if (json.ok) setData(json.years); })
+            .finally(() => setLoading(false));
+        }} />
+      </div>
+    );
   }
 
   return (
@@ -923,6 +938,63 @@ function RegenerateFlagsButton({
       </button>
       {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
       {result && <p className="mt-1 text-xs text-emerald-400">{result}</p>}
+    </div>
+  );
+}
+
+// ── Backfill OD detail button ───────────────────────────────────────────────
+
+function BackfillOdDetailButton({
+  dealId,
+  onComplete,
+}: {
+  dealId: string;
+  onComplete: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handleBackfill() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags/od-detail/backfill`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? json.message ?? "Backfill failed");
+      } else {
+        const detail = (json.details ?? []) as Array<{ year: number | null; linesFound: number; reason: string | null }>;
+        const found = detail.filter((d) => d.linesFound > 0);
+        const notFound = detail.filter((d) => d.linesFound === 0);
+        const parts: string[] = [];
+        if (found.length > 0) parts.push(`${found.map((d) => `${d.year}: ${d.linesFound} lines`).join(", ")}`);
+        if (notFound.length > 0) parts.push(`${notFound.length} doc(s) had no statement detail`);
+        setResult(parts.join(". ") || "Backfill complete.");
+        onComplete();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={handleBackfill}
+        disabled={busy}
+        className="rounded border border-white/10 px-3 py-1.5 text-[11px] text-white/60 hover:bg-white/10 disabled:opacity-50"
+      >
+        {busy ? "Extracting detail..." : "Extract OD Detail from Tax Returns"}
+      </button>
+      {error && <p className="mt-1 text-[10px] text-rose-400">{error}</p>}
+      {result && <p className="mt-1 text-[10px] text-emerald-400">{result}</p>}
     </div>
   );
 }
