@@ -90,6 +90,33 @@ export async function generateAndPersistFlags(
       }
     }
 
+    // 4b. Resolve stale auto-generated flags no longer in engine output.
+    // When source facts are superseded/removed, the flag engine stops producing
+    // the corresponding flag, but the old deal_flags row persists. Mark it resolved.
+    try {
+      const newFlagKeys = new Set(
+        output.flags.map((f) => `${f.trigger_type}:${f.year_observed ?? 0}`),
+      );
+      const { data: existingFlags } = await (sb as any)
+        .from("deal_flags")
+        .select("id, trigger_type, year_observed, status")
+        .eq("deal_id", dealId)
+        .eq("auto_generated", true)
+        .in("status", ["open", "banker_reviewed"]);
+
+      for (const existing of (existingFlags ?? []) as Array<{ id: string; trigger_type: string; year_observed: number; status: string }>) {
+        const key = `${existing.trigger_type}:${existing.year_observed ?? 0}`;
+        if (!newFlagKeys.has(key)) {
+          await (sb as any)
+            .from("deal_flags")
+            .update({ status: "resolved", resolution_note: "Auto-resolved: source facts no longer support this flag" })
+            .eq("id", existing.id);
+        }
+      }
+    } catch (staleErr: any) {
+      console.warn("[persistFlagReport] stale flag cleanup failed (non-fatal)", staleErr?.message);
+    }
+
     // 5. Write audit entry
     await (sb as any).from("deal_flag_audit").insert({
       deal_id: dealId,
