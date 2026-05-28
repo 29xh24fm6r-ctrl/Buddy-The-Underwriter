@@ -79,6 +79,20 @@ function computeDscr(cashFlow: number | null, ads: number | null): number | null
   return cashFlow / ads;
 }
 
+const LOC_PRODUCT_TYPES = new Set([
+  "LOC_SECURED", "LOC_UNSECURED", "LOC_RE_SECURED", "LINE_OF_CREDIT",
+  "ACCOUNTS_RECEIVABLE", "REVOLVING_LINE_OF_CREDIT",
+]);
+
+function isLocProduct(productType: string): boolean {
+  return LOC_PRODUCT_TYPES.has(productType);
+}
+
+/** Interest-only annual debt service for LOC/revolving products */
+function annualInterestCost(principal: number, annualRatePct: number): number {
+  return principal * annualRatePct / 100;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function generatePricingScenarios(args: {
@@ -165,9 +179,11 @@ export async function generatePricingScenarios(args: {
     loanProductType: canonical.product_type ?? loanReq.product_type,
   });
 
-  // 7. Extract snapshot metrics
+  // 7. Extract snapshot metrics — with EBITDA fallback for cash flow proxy
   const noi = toNum(snapshot.noi_ttm);
-  const cashFlowAvailable = toNum(snapshot.cash_flow_available) ?? noi;
+  const ebitda = toNum((snapshot as any).ebitda);
+  const netIncome = toNum((snapshot as any).net_income);
+  const cashFlowAvailable = toNum(snapshot.cash_flow_available) ?? noi ?? ebitda ?? netIncome;
   const collateralValue = toNum(snapshot.collateral_gross_value);
   const gcf = toNum((snapshot as any).gcf_global_cash_flow);
 
@@ -203,13 +219,26 @@ export async function generatePricingScenarios(args: {
     const guaranty = adjustments.guaranty ?? "Full personal guaranty required";
 
     const allInRatePct = baseRatePct + spreadBps / 100;
-    const ads = annualDebtService(adjLoanAmount, allInRatePct, adjAmort);
-    const pi = monthlyPI(adjLoanAmount, allInRatePct, adjAmort);
+    const locProduct = isLocProduct(product);
     const io = adjLoanAmount * (allInRatePct / 100 / 12);
+
+    // LOC/revolving products: interest-only debt service (no amortizing P&I)
+    // Amortizing products: standard P&I from amortization schedule
+    let ads: number | null;
+    let pi: number | null;
+    if (locProduct) {
+      ads = annualInterestCost(adjLoanAmount, allInRatePct);
+      pi = null; // LOC has no amortizing P&I
+    } else {
+      ads = annualDebtService(adjLoanAmount, allInRatePct, adjAmort);
+      pi = monthlyPI(adjLoanAmount, allInRatePct, adjAmort);
+    }
 
     const dscr = computeDscr(cashFlowAvailable, ads);
     const stressedRate = allInRatePct + 3.0;
-    const stressedAds = annualDebtService(adjLoanAmount, stressedRate, adjAmort);
+    const stressedAds = locProduct
+      ? annualInterestCost(adjLoanAmount, stressedRate)
+      : annualDebtService(adjLoanAmount, stressedRate, adjAmort);
     const dscrStressed = computeDscr(cashFlowAvailable, stressedAds);
 
     const ltvPct = collateralValue && collateralValue > 0 ? adjLoanAmount / collateralValue : null;
@@ -287,7 +316,8 @@ export async function generatePricingScenarios(args: {
       debt_yield_pct: debtYieldPct,
       annual_debt_service: ads,
       monthly_pi: pi,
-      monthly_io: adjIo > 0 ? io : null,
+      // LOC products always show monthly IO as the primary payment
+      monthly_io: locProduct ? io : (adjIo > 0 ? io : null),
       global_cf_impact: gcf,
     };
 
