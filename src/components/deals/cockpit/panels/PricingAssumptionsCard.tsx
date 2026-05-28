@@ -222,8 +222,9 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
       const json = await assumptionsRes.json();
       if (json.ok && json.pricingAssumptions) {
         const loaded = toFormState(json.pricingAssumptions);
-        // Auto-populate index rate from live rates if blank
-        if (!loaded.index_rate_pct && rates?.[loaded.index_code]) {
+        // Only auto-populate from live rates when canonical rate is truly blank
+        // (empty string from DB null). Do NOT overwrite a saved canonical rate.
+        if (loaded.index_rate_pct === "" && rates?.[loaded.index_code]) {
           loaded.index_rate_pct = String(rates[loaded.index_code]!.ratePct);
         }
         setForm(loaded);
@@ -463,7 +464,7 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                 </select>
               </Field>
 
-              <Field label={`Index Rate (%)${liveRates[form.index_code] ? ` — live` : ""}`}>
+              <Field label="Index Rate (%)">
                 <input
                   type="number"
                   step="0.01"
@@ -472,9 +473,23 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                   value={form.index_rate_pct}
                   onChange={(e) => updateField("index_rate_pct", e.target.value)}
                 />
-                {liveRates[form.index_code] && (
+                {form.index_rate_pct && (
                   <div className="mt-1 text-[10px] text-white/40">
-                    Live: {liveRates[form.index_code]!.ratePct.toFixed(2)}% as of {liveRates[form.index_code]!.asOf}
+                    Using saved rate: {Number(form.index_rate_pct).toFixed(2)}%
+                  </div>
+                )}
+                {liveRates[form.index_code] && (
+                  <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40">
+                    <span>Live: {liveRates[form.index_code]!.ratePct.toFixed(2)}% as of {liveRates[form.index_code]!.asOf}</span>
+                    {form.index_rate_pct && Number(form.index_rate_pct) !== liveRates[form.index_code]!.ratePct && (
+                      <button
+                        type="button"
+                        onClick={() => updateField("index_rate_pct", String(liveRates[form.index_code]!.ratePct))}
+                        className="underline text-primary/70 hover:text-primary"
+                      >
+                        Use live rate
+                      </button>
+                    )}
                   </div>
                 )}
               </Field>
