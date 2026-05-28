@@ -201,10 +201,18 @@ function validateBody(body: Record<string, unknown>): ValidationError[] {
   }
 
   if (rateType === "floating") {
-    if (body.spread_override_bps == null) {
+    // Spread can be 0 (Prime flat), negative (Prime - 25bps), or positive.
+    // Reject only null/undefined/blank/non-finite — not zero.
+    const spreadBps = Number(body.spread_override_bps);
+    if (body.spread_override_bps == null || !Number.isFinite(spreadBps)) {
       errors.push({
         field: "spread_override_bps",
         message: "Spread (bps) is required for floating-rate loans",
+      });
+    } else if (spreadBps < -500 || spreadBps > 2000) {
+      errors.push({
+        field: "spread_override_bps",
+        message: "Spread must be between -500 and 2000 bps",
       });
     }
   }

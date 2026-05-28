@@ -156,6 +156,13 @@ function formatPct(n: number | null, decimals = 2): string {
   return `${n.toFixed(decimals)}%`;
 }
 
+/** Parse a string to number, preserving 0 and negatives. Returns null only for blank/non-finite. */
+function parseOptionalNumber(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 // ─── Live Rate Types ────────────────────────────────────────
 type LiveRateEntry = { ratePct: number; asOf: string };
 type LiveRates = Partial<Record<IndexCode, LiveRateEntry>>;
@@ -293,15 +300,15 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
         rate_type: form.rate_type,
         fixed_rate_pct: form.rate_type === "fixed" ? parseFloat(form.fixed_rate_pct) || null : null,
         index_code: form.index_code,
-        index_rate_pct: parseFloat(form.index_rate_pct) || null,
+        index_rate_pct: parseOptionalNumber(form.index_rate_pct),
         spread_override_bps:
-          form.rate_type === "floating" ? parseFloat(form.spread_override_bps) || null : null,
-        floor_rate_pct: parseFloat(form.floor_rate_pct) || null,
+          form.rate_type === "floating" ? parseOptionalNumber(form.spread_override_bps) : null,
+        floor_rate_pct: parseOptionalNumber(form.floor_rate_pct),
         amort_months: parseInt(form.amort_months, 10) || 300,
         interest_only_months: parseInt(form.interest_only_months, 10) || 0,
         term_months: parseInt(form.amort_months, 10) || 120,
-        origination_fee_pct: parseFloat(form.origination_fee_pct) || null,
-        closing_costs: parseFloat(form.closing_costs) || null,
+        origination_fee_pct: parseOptionalNumber(form.origination_fee_pct),
+        closing_costs: parseOptionalNumber(form.closing_costs),
         include_existing_debt: form.include_existing_debt,
         include_proposed_debt: true,
         notes: form.notes || null,
@@ -472,15 +479,15 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                 )}
               </Field>
 
-              <Field label="Spread (bps)">
+              <Field label="Spread / Margin (bps)">
                 <input
                   type="number"
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                  placeholder="e.g. 250"
+                  placeholder="e.g. 250 or 0 or -25"
                   value={form.spread_override_bps}
                   onChange={(e) => updateField("spread_override_bps", e.target.value)}
                 />
-                {!form.spread_override_bps && (
+                {!form.spread_override_bps && form.spread_override_bps !== "0" && (
                   <div className="mt-1 text-[10px] text-amber-300/70">No spread set — will be determined by risk pricing</div>
                 )}
               </Field>
