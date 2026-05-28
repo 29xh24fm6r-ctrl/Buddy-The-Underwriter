@@ -19,6 +19,7 @@ type Flag = {
   category?: string | null;
   field?: string | null;
   trigger_type?: string | null;
+  year_observed?: number | null;
   recommendation?: string | null;
   waived_reason?: string | null;
   resolution_note?: string | null;
@@ -130,12 +131,14 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 function FlagCard({
+  dealId,
   flag,
   expanded,
   onToggle,
   onAction,
   busy,
 }: {
+  dealId: string;
   flag: Flag;
   expanded: boolean;
   onToggle: () => void;
@@ -200,6 +203,11 @@ function FlagCard({
             <div className="text-[10px] text-white/30 font-mono">
               trigger: {flag.trigger_type}
             </div>
+          )}
+
+          {/* ── OD Detail Expansion ── */}
+          {(flag.trigger_type === "large_other_expense_5pct" || flag.trigger_type === "other_deductions_detail_sum_mismatch") && (
+            <OdDetailPanel dealId={dealId} year={flag.year_observed} />
           )}
 
           {/* ── Actions ── */}
@@ -607,6 +615,7 @@ export default function RiskClient({
                 {flags.map((flag) => (
                   <FlagCard
                     key={flag.id}
+                    dealId={dealId}
                     flag={flag}
                     expanded={expandedFlags.has(flag.id)}
                     onToggle={() => toggleFlag(flag.id)}
@@ -714,6 +723,150 @@ export default function RiskClient({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── OD Detail Panel: shows extracted Other Deductions line items ──────────
+
+type OdLine = {
+  id: string;
+  factKey: string;
+  category: string;
+  amount: number | null;
+  confidence: number | null;
+  isHighRisk: boolean;
+  isPotentialAddback: boolean;
+};
+
+type OdYearData = {
+  aggregate: number | null;
+  detailTotal: number | null;
+  reconciled: boolean | null;
+  variance: number | null;
+  lines: OdLine[];
+};
+
+function OdDetailPanel({ dealId, year }: { dealId: string; year?: number | null }) {
+  const [data, setData] = useState<Record<number, OdYearData> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const url = year
+      ? `/api/deals/${dealId}/flags/od-detail?year=${year}`
+      : `/api/deals/${dealId}/flags/od-detail`;
+    fetch(url, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!cancelled && json.ok) setData(json.years);
+      })
+      .catch(() => { if (!cancelled) setError("Failed to load detail"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [dealId, year]);
+
+  async function handleAction(factId: string, action: string) {
+    setActionBusy(factId);
+    try {
+      await fetch(`/api/deals/${dealId}/flags/od-detail`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fact_id: factId, action }),
+      });
+    } catch { /* non-fatal */ }
+    setActionBusy(null);
+  }
+
+  if (loading) return <div className="text-[10px] text-white/30 py-2">Loading detail...</div>;
+  if (error) return <div className="text-[10px] text-rose-400 py-1">{error}</div>;
+  if (!data || Object.keys(data).length === 0) {
+    return <div className="text-[10px] text-white/30 py-1">No line-level detail extracted yet.</div>;
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {Object.entries(data).map(([yr, entry]) => (
+        <div key={yr} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-wide text-white/40">
+              {yr} Other Deductions Detail
+            </div>
+            {entry.reconciled != null && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                entry.reconciled
+                  ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
+                  : "border-amber-500/30 text-amber-400 bg-amber-500/10"
+              }`}>
+                {entry.reconciled ? "Reconciled" : `Variance: $${entry.variance?.toLocaleString() ?? "?"}`}
+              </span>
+            )}
+          </div>
+
+          {/* Reconciliation summary */}
+          <div className="flex gap-4 text-[10px] text-white/50 mb-2">
+            <span>Aggregate: {entry.aggregate != null ? `$${entry.aggregate.toLocaleString()}` : "—"}</span>
+            <span>Detail total: {entry.detailTotal != null ? `$${entry.detailTotal.toLocaleString()}` : "—"}</span>
+          </div>
+
+          {/* Line items table */}
+          {entry.lines.length > 0 && (
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-white/[0.06] text-white/40">
+                  <th className="text-left py-1 pr-2">Category</th>
+                  <th className="text-right py-1 px-2">Amount</th>
+                  <th className="text-center py-1 px-2">Risk</th>
+                  <th className="text-right py-1 pl-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entry.lines
+                  .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
+                  .map((line) => (
+                    <tr key={line.id} className="border-b border-white/[0.03]">
+                      <td className="py-1.5 pr-2 text-white/70">
+                        {line.category.replace(/_/g, " ").toLowerCase()}
+                      </td>
+                      <td className="py-1.5 px-2 text-right tabular-nums text-white/80">
+                        {line.amount != null ? `$${line.amount.toLocaleString()}` : "—"}
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        {line.isHighRisk && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                            High Risk
+                          </span>
+                        )}
+                        {!line.isHighRisk && line.isPotentialAddback && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            Addback?
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pl-2 text-right">
+                        <button
+                          type="button"
+                          disabled={actionBusy === line.id}
+                          onClick={() => handleAction(line.id, "mark_reviewed")}
+                          className="text-[9px] text-white/40 hover:text-white/70 disabled:opacity-50"
+                        >
+                          Mark reviewed
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          )}
+
+          {entry.lines.length === 0 && (
+            <div className="text-[10px] text-white/30">No individual category lines extracted.</div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
