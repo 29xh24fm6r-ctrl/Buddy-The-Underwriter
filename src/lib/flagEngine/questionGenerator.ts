@@ -325,12 +325,45 @@ const TEMPLATES: Record<string, TemplateFn> = {
   large_other_expense_5pct: (flag, facts) => {
     const amount = toNum(flag.observed_value);
     const yr = flag.year_observed ?? "";
-    // Use same-year denominator — prefer tax gross receipts for tax-derived deductions
     const rev = toNum(facts[`GROSS_RECEIPTS_${yr}`]) ?? toNum(facts[`TOTAL_REVENUE_${yr}`]);
     const pct = amount !== null && rev !== null && rev > 0 ? fmtPct(amount / rev) : "more than 5%";
+
+    // SPEC-TAX-RETURN-OTHER-DEDUCTIONS-STATEMENT-SPREADING-1:
+    // If detail has been extracted, ask targeted questions on high-risk items.
+    // If detail is missing, ask for the breakdown.
+    const hasDetail = facts[`OD_DETAIL_TOTAL_${yr}`] != null;
+    const relatedParty = toNum(facts[`OD_DETAIL_RELATED_PARTY_TOTAL_${yr}`]);
+    const mgmtFees = toNum(facts[`OD_DETAIL_MANAGEMENT_FEES_${yr}`]);
+    const consulting = toNum(facts[`OD_DETAIL_CONSULTING_${yr}`]);
+    const uncategorized = toNum(facts[`OD_DETAIL_UNCATEGORIZED_TOTAL_${yr}`]);
+
+    if (hasDetail) {
+      // Targeted question on high-risk categories
+      const items: string[] = [];
+      if (relatedParty && relatedParty > 0) items.push(`${fmtDollars(relatedParty)} in related-party payments`);
+      if (mgmtFees && mgmtFees > 0) items.push(`${fmtDollars(mgmtFees)} in management fees`);
+      if (consulting && consulting > 0) items.push(`${fmtDollars(consulting)} in consulting fees`);
+      if (uncategorized && uncategorized > 0) items.push(`${fmtDollars(uncategorized)} in uncategorized items`);
+
+      if (items.length > 0) {
+        return {
+          questionText: `Your ${yr} tax return other deductions of ${amount !== null ? fmtDollars(amount) : "the reported amount"} include ${items.join(", ")}. Could you confirm whether any of these were paid to owners, related parties, or for non-recurring services?`,
+          questionContext: `${yr} other deductions detail extracted — targeted review on high-risk categories.`,
+        };
+      }
+      // Detail exists but no high-risk items — no borrower question needed
+      return {
+        questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other deductions (${pct} of revenue). The line-item detail has been reviewed. No further action is required unless you have additional context to share.`,
+        questionContext: `${yr} other deductions detail extracted and reviewed — no high-risk items identified.`,
+      };
+    }
+
+    // No detail extracted — ask for breakdown
     return {
-      questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other deductions, representing ${pct} of ${yr} revenue${rev !== null ? ` (${fmtDollars(rev)})` : ""}. Could you provide a breakdown of the major components of this category?`,
+      questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other deductions, representing ${pct} of ${yr} revenue${rev !== null ? ` (${fmtDollars(rev)})` : ""}. Could you provide the attached statement or a breakdown of the major components?`,
       questionContext: `${yr} large other expenses require itemization to ensure proper classification.`,
+      documentRequested: `${yr} Other Deductions statement or line-item breakdown`,
+      documentFormat: "PDF or Excel",
     };
   },
 

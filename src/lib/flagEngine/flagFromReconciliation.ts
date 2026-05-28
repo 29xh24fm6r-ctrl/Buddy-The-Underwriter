@@ -135,6 +135,25 @@ export function flagFromReconciliation(input: FlagEngineInput): SpreadFlag[] {
     }
   }
 
+  // 7. Other deductions detail-sum reconciliation
+  // If detail was extracted (OD_DETAIL_TOTAL exists), verify it reconciles to aggregate
+  for (const year of years_available) {
+    const aggregate = toNum(facts[`OTHER_DEDUCTIONS_${year}`]);
+    const detailTotal = toNum(facts[`OD_DETAIL_TOTAL_${year}`]);
+    if (aggregate !== null && detailTotal !== null) {
+      const mismatch = Math.abs(aggregate - detailTotal);
+      if (mismatch > 1) { // $1 tolerance for rounding
+        flags.push(makeReconFlag(
+          deal_id, "other_deductions_detail_sum_mismatch", mismatch, year,
+          `${year} other deductions detail sum does not reconcile to aggregate (${fmtDollars(mismatch)} difference).`,
+          `${year} other deductions aggregate of ${fmtDollars(aggregate)} does not match sum of extracted detail lines (${fmtDollars(detailTotal)}). Difference: ${fmtDollars(mismatch)}.`,
+          `Detail-sum mismatch may indicate missing line items in the extraction or rounding differences. Internal review required before relying on detail breakdown.`,
+          facts,
+        ));
+      }
+    }
+  }
+
   return flags;
 }
 
