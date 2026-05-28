@@ -35,6 +35,68 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
+    // Detect stale/invalid pricing inputs and repair from authoritative sources.
+    // Invalid examples: rate_type=fixed with null fixed_rate_pct, or index_code
+    // that conflicts with submitted loan request without explicit user override.
+    if (data) {
+      const d = data as Record<string, any>;
+      const isFixedWithNoRate = d.rate_type === "fixed" && d.fixed_rate_pct == null;
+      const isFloatingWithNoIndex = d.rate_type === "floating" && d.index_rate_pct == null && d.index_code;
+
+      if (isFixedWithNoRate || isFloatingWithNoIndex) {
+        // Load authoritative sources to repair
+        const [{ data: sp }, { data: lr }] = await Promise.all([
+          sb.from("deal_structural_pricing")
+            .select("rate_type, rate_index, index_rate_pct, loan_amount")
+            .eq("deal_id", dealId)
+            .order("computed_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          sb.from("deal_loan_requests")
+            .select("requested_rate_type, requested_rate_index, requested_amount")
+            .eq("deal_id", dealId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+
+        let repaired = false;
+
+        // If fixed with no rate, but structural/LR says variable → repair to floating
+        if (isFixedWithNoRate) {
+          const spIsVariable = sp?.rate_type === "variable";
+          const lrIsVariable = lr?.requested_rate_type === "VARIABLE";
+          if (spIsVariable || lrIsVariable) {
+            d.rate_type = "floating";
+            const VALID_INDEX_CODES = new Set(["SOFR", "UST_5Y", "PRIME"]);
+            d.index_code = (sp?.rate_index && VALID_INDEX_CODES.has(sp.rate_index)) ? sp.rate_index
+              : (lr?.requested_rate_index && VALID_INDEX_CODES.has(lr.requested_rate_index)) ? lr.requested_rate_index
+              : d.index_code;
+            if (sp?.index_rate_pct != null) d.index_rate_pct = Number(sp.index_rate_pct);
+            repaired = true;
+          }
+        }
+
+        // If floating with no index rate, try to fill from structural pricing
+        if (isFloatingWithNoIndex && sp?.index_rate_pct != null) {
+          d.index_rate_pct = Number(sp.index_rate_pct);
+          if (sp.rate_index) d.index_code = sp.rate_index;
+          repaired = true;
+        }
+
+        if (repaired) {
+          return NextResponse.json({
+            ok: true,
+            pricingAssumptions: d,
+            repaired: true,
+            repairReason: isFixedWithNoRate
+              ? "rate_type was fixed with null fixed_rate_pct; repaired from structural pricing / loan request"
+              : "floating rate had null index_rate_pct; repaired from structural pricing",
+          });
+        }
+      }
+    }
+
     return NextResponse.json({ ok: true, pricingAssumptions: data ?? null });
   } catch (e: any) {
     rethrowNextErrors(e);
@@ -68,29 +130,50 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: true, pricingAssumptions: existing });
     }
 
-    // Pull sane defaults from most recent loan request
-    const { data: lr } = await sb
-      .from("deal_loan_requests")
-      .select(
-        "requested_amount, requested_term_months, requested_amort_months, requested_rate_type, requested_spread_bps, requested_interest_only_months",
-      )
-      .eq("deal_id", dealId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Pull sane defaults: structural pricing > loan request > hardcoded defaults.
+    // Precedence ensures the banker sees values consistent with what /spreads already uses.
+    const [{ data: sp }, { data: lr }] = await Promise.all([
+      sb
+        .from("deal_structural_pricing")
+        .select("loan_amount, rate_type, rate_index, index_rate_pct, requested_spread_bps, annual_debt_service_est")
+        .eq("deal_id", dealId)
+        .order("computed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      sb
+        .from("deal_loan_requests")
+        .select(
+          "requested_amount, requested_term_months, requested_amort_months, requested_rate_type, requested_rate_index, requested_spread_bps, requested_interest_only_months",
+        )
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    const rateType =
-      lr?.requested_rate_type === "VARIABLE" ? "floating" : "fixed";
+    // Rate type: structural pricing > loan request > default
+    const spRateType = sp?.rate_type === "variable" ? "floating" : sp?.rate_type === "fixed" ? "fixed" : null;
+    const lrRateType = lr?.requested_rate_type === "VARIABLE" ? "floating" : lr?.requested_rate_type === "FIXED" ? "fixed" : null;
+    const rateType = spRateType ?? lrRateType ?? "floating";
+
+    // Index code: structural pricing > loan request > default
+    const VALID_INDEX_CODES = new Set(["SOFR", "UST_5Y", "PRIME"]);
+    const spIndex = sp?.rate_index && VALID_INDEX_CODES.has(sp.rate_index) ? sp.rate_index : null;
+    const lrIndex = lr?.requested_rate_index && VALID_INDEX_CODES.has(lr.requested_rate_index) ? lr.requested_rate_index : null;
+    const indexCode = spIndex ?? lrIndex ?? "SOFR";
+
+    // Index rate: structural pricing > null (populated by live rates on client)
+    const indexRatePct = sp?.index_rate_pct != null ? Number(sp.index_rate_pct) : null;
 
     const defaults = {
       deal_id: dealId,
       rate_type: rateType,
-      index_code: "SOFR" as const,
-      index_rate_pct: null,
+      index_code: indexCode,
+      index_rate_pct: Number.isFinite(indexRatePct) ? indexRatePct : null,
       fixed_rate_pct: null,
       floor_rate_pct: null,
-      spread_override_bps: lr?.requested_spread_bps ?? null,
-      loan_amount: lr?.requested_amount ?? null,
+      spread_override_bps: sp?.requested_spread_bps ?? lr?.requested_spread_bps ?? null,
+      loan_amount: sp?.loan_amount ?? lr?.requested_amount ?? null,
       term_months: lr?.requested_term_months ?? 120,
       amort_months: lr?.requested_amort_months ?? 300,
       interest_only_months: lr?.requested_interest_only_months ?? 0,

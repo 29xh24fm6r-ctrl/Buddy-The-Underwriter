@@ -180,10 +180,45 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const report = composeSpreadOutput(input);
 
+    // ── Ensure canonical financial_snapshots row exists ──────────
+    // Without this, /pricing blocks on financialSnapshotExists even though
+    // /spreads renders a complete report. fire-and-forget: response is not
+    // delayed, but snapshot persistence failure is surfaced as a warning.
+    let snapshotWarning: string | null = null;
+    try {
+      const { buildDealFinancialSnapshotForBank, persistCashFlowAvailableFromSnapshot } =
+        await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } =
+        await import("@/lib/deals/financialSnapshotPersistence");
+
+      const snapshot = await buildDealFinancialSnapshotForBank({
+        dealId,
+        bankId: access.bankId,
+      });
+      await persistCashFlowAvailableFromSnapshot({
+        dealId,
+        bankId: access.bankId,
+        snapshot,
+      });
+      await persistFinancialSnapshot({
+        dealId,
+        bankId: access.bankId,
+        snapshot,
+      });
+    } catch (snapErr: unknown) {
+      const msg = snapErr instanceof Error ? snapErr.message : String(snapErr);
+      // Hash-duplicate inserts (same snapshot already persisted) are expected — not a real error
+      if (!msg.includes("duplicate") && !msg.includes("snapshot_hash")) {
+        console.warn("[spread-output] snapshot persistence failed (non-fatal):", msg);
+        snapshotWarning = `Spread report generated but financial snapshot could not be persisted: ${msg}`;
+      }
+    }
+
     // Pass through canonical_facts, ratios, years, flags, and
     // map story_panel → narrative_report so IntelligenceClient can read them.
     return NextResponse.json({
       ok: true,
+      ...(snapshotWarning ? { snapshotWarning } : {}),
       report: {
         ...report,
         canonical_facts: input.canonical_facts,
