@@ -1104,7 +1104,47 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
-    // Recompute deal readiness after facts are materialized (non-fatal)
+    // ── Persist canonical financial snapshot ─────────────────────────────
+    // The pricing/lifecycle gate trusts financial_snapshots (count > 0).
+    // Without this, the banker is trapped in a Pricing ↔ Spreads loop:
+    // spreads render fine but pricing blocks on financialSnapshotExists.
+    // SPEC-FINANCIAL-SNAPSHOT-HANDOFF-FIX-2: primary writer is here;
+    // /spread-output is the self-healing fallback only.
+    try {
+      const { buildDealFinancialSnapshotForBank, persistCashFlowAvailableFromSnapshot } =
+        await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } =
+        await import("@/lib/deals/financialSnapshotPersistence");
+
+      const snapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+      await persistCashFlowAvailableFromSnapshot({ dealId, bankId, snapshot });
+      await persistFinancialSnapshot({ dealId, bankId, snapshot });
+
+      await logLedgerEvent({
+        dealId, bankId,
+        eventKey: "financial_snapshot.persisted",
+        uiState: "done",
+        uiMessage: "Financial snapshot persisted from spread job",
+        meta: { jobId, completeness_pct: snapshot.completeness_pct },
+      });
+    } catch (snapErr: any) {
+      const msg = snapErr?.message ?? String(snapErr);
+      // Hash-duplicate inserts (same snapshot already persisted) are expected
+      if (!msg.includes("duplicate") && !msg.includes("snapshot_hash")) {
+        console.error("[spreadsProcessor] financial snapshot persistence FAILED", {
+          dealId, bankId, jobId, error: msg,
+        });
+        await logLedgerEvent({
+          dealId, bankId,
+          eventKey: "financial_snapshot.persist_failed",
+          uiState: "error",
+          uiMessage: `Financial snapshot persistence failed: ${msg.slice(0, 200)}`,
+          meta: { jobId, error: msg },
+        }).catch(() => {});
+      }
+    }
+
+    // Recompute deal readiness after facts + snapshot are materialized (non-fatal)
     try {
       const { recomputeDealReady } = await import("@/lib/deals/readiness");
       await recomputeDealReady(dealId);

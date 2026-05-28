@@ -104,6 +104,7 @@ type ReadinessInfo = {
   financialSnapshotExists: boolean;
   researchComplete: boolean;
   stage: string;
+  spreadJobStatus?: "none" | "running" | "succeeded" | "failed";
 };
 
 export default function DealPricingClient({
@@ -366,7 +367,16 @@ export default function DealPricingClient({
     const snapshotOk = !!readinessInfo?.financialSnapshotExists;
     const spreadsOk = !!readinessInfo?.spreadsComplete;
     const researchOk = !!readinessInfo?.researchComplete;
+    const spreadJobStatus = readinessInfo?.spreadJobStatus ?? "none";
     const onlySpreadsBlocking = !!readinessInfo && !spreadsOk && snapshotOk && researchOk;
+
+    // SPEC-FINANCIAL-SNAPSHOT-HANDOFF-FIX-2: conditional snapshot messaging
+    // A. No spread job: "Run financial spreads…"
+    // B. Spread job running: "Financial spread is still running."
+    // C. Spread succeeded but snapshot missing: "…snapshot was not saved. Rebuild."
+    // D. Snapshot exists: no blocker (✓)
+    const spreadSucceededButNoSnapshot = spreadJobStatus === "succeeded" && !snapshotOk;
+
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
         <h2 className="text-lg font-semibold text-amber-900">
@@ -385,13 +395,10 @@ export default function DealPricingClient({
             <div>
               <div className="font-medium">Financial snapshot</div>
               {!snapshotOk && (
-                <div className="text-xs text-amber-700 mt-0.5">
-                  Go to{" "}
-                  <Link href={`/deals/${deal.id}/spreads`} className="underline">
-                    Spreads
-                  </Link>{" "}
-                  and run the financial analysis to generate a snapshot.
-                </div>
+                <SnapshotMessage
+                  dealId={deal.id}
+                  spreadJobStatus={spreadJobStatus}
+                />
               )}
             </div>
           </li>
@@ -403,13 +410,18 @@ export default function DealPricingClient({
               <div className="font-medium">Spread analysis</div>
               {!spreadsOk && (
                 <div className="text-xs text-amber-700 mt-0.5">
-                  Financial spread jobs are running — this usually completes
-                  within 1–2 minutes. Refresh this page shortly. If this
-                  persists, go to{" "}
-                  <Link href={`/deals/${deal.id}/spreads`} className="underline">
-                    Spreads
-                  </Link>{" "}
-                  to check status.
+                  {spreadJobStatus === "running"
+                    ? "Financial spread is still running. This usually completes within 1\u20132 minutes."
+                    : <>
+                        Financial spread jobs are running — this usually completes
+                        within 1–2 minutes. Refresh this page shortly. If this
+                        persists, go to{" "}
+                        <Link href={`/deals/${deal.id}/spreads`} className="underline">
+                          Spreads
+                        </Link>{" "}
+                        to check status.
+                      </>
+                  }
                 </div>
               )}
             </div>
@@ -435,6 +447,11 @@ export default function DealPricingClient({
         {onlySpreadsBlocking && (
           <p className="mt-3 text-xs text-amber-700">
             Auto-refreshing in ~30 seconds…
+          </p>
+        )}
+        {spreadSucceededButNoSnapshot && (
+          <p className="mt-3 text-xs text-amber-700">
+            Auto-refreshing after rebuild…
           </p>
         )}
         <p className="mt-4 text-xs text-amber-700">
@@ -1373,4 +1390,97 @@ function formatDateTime(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+// ── SPEC-FINANCIAL-SNAPSHOT-HANDOFF-FIX-2: Conditional snapshot message ──────
+function SnapshotMessage({
+  dealId,
+  spreadJobStatus,
+}: {
+  dealId: string;
+  spreadJobStatus: "none" | "running" | "succeeded" | "failed";
+}) {
+  const [rebuilding, setRebuilding] = React.useState(false);
+  const [rebuildError, setRebuildError] = React.useState<string | null>(null);
+  const [rebuildDone, setRebuildDone] = React.useState(false);
+
+  async function handleRebuild() {
+    setRebuilding(true);
+    setRebuildError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/financial-snapshot/rebuild`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setRebuildError(json.message ?? json.error ?? "Rebuild failed");
+      } else {
+        setRebuildDone(true);
+        // Reload after short delay so lifecycle picks up the new snapshot
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (err: any) {
+      setRebuildError(err?.message ?? "Network error");
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
+  if (rebuildDone) {
+    return (
+      <div className="text-xs text-green-700 mt-0.5">
+        Financial snapshot rebuilt successfully. Reloading…
+      </div>
+    );
+  }
+
+  if (spreadJobStatus === "running") {
+    return (
+      <div className="text-xs text-amber-700 mt-0.5">
+        Financial spread is still running.
+      </div>
+    );
+  }
+
+  if (spreadJobStatus === "succeeded") {
+    return (
+      <div className="text-xs text-amber-700 mt-0.5">
+        Financial spread completed, but the snapshot was not saved.{" "}
+        <button
+          type="button"
+          onClick={handleRebuild}
+          disabled={rebuilding}
+          className="underline font-semibold hover:text-amber-900 disabled:opacity-50"
+        >
+          {rebuilding ? "Rebuilding…" : "Rebuild Financial Snapshot"}
+        </button>
+        {rebuildError && (
+          <span className="block text-red-700 mt-0.5">{rebuildError}</span>
+        )}
+      </div>
+    );
+  }
+
+  if (spreadJobStatus === "failed") {
+    return (
+      <div className="text-xs text-amber-700 mt-0.5">
+        Financial spread failed. Go to{" "}
+        <Link href={`/deals/${dealId}/spreads`} className="underline">
+          Spreads
+        </Link>{" "}
+        to retry.
+      </div>
+    );
+  }
+
+  // Default: no spread job
+  return (
+    <div className="text-xs text-amber-700 mt-0.5">
+      Run financial spreads to create the snapshot. Go to{" "}
+      <Link href={`/deals/${dealId}/spreads`} className="underline">
+        Spreads
+      </Link>{" "}
+      and run the financial analysis.
+    </div>
+  );
 }
