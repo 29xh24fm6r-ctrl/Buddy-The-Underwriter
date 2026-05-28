@@ -139,4 +139,99 @@ Vehicle expense                   8,000
     assert.ok(keys.includes("OD_DETAIL_NON_RECURRING_OR_UNUSUAL"), "settlement → NON_RECURRING_OR_UNUSUAL");
     assert.ok(keys.includes("OD_DETAIL_TRAVEL_AUTO"), "vehicle → TRAVEL_AUTO");
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // BUGFIX-OD-BACKFILL-OCR-SECTION-BOUNDARY-1 — Boundary + plausibility
+  // ══════════════════════════════════════════════════════════════════════
+
+  it("BOUNDARY: returns ok:false when no 'Other Deductions' header found in OCR", () => {
+    // This OCR has numbers but no Other Deductions statement header
+    const ocr = `
+Form 1120 U.S. Corporation Income Tax Return
+Gross receipts                    29,013,467
+Cost of goods sold                15,000,000
+Total deductions                  12,000,000
+Taxable income                     2,013,467
+Tax liability                        422,828
+    `;
+    const result = extractOtherDeductionsDetail(makeArgs(ocr));
+    assert.equal(result.ok, false, "Must NOT extract from OCR without OD statement header");
+  });
+
+  it("BOUNDARY: stops extraction at next schedule/form boundary", () => {
+    const ocr = `
+Other Deductions
+
+Consulting fees                   300,000
+Insurance                         200,000
+
+Schedule K-1 Partner's Share
+Ordinary income                   500,000
+Interest income                   100,000
+    `;
+    const result = extractOtherDeductionsDetail(makeArgs(ocr));
+    assert.ok(result.ok);
+    const total = result.items.find((i) => i.key === "OD_DETAIL_TOTAL");
+    assert.ok(total);
+    assert.equal(total.value, 500_000, "Should only capture 300K + 200K, not K-1 items");
+  });
+
+  it("PLAUSIBILITY: rejects extraction with >$100M total as noise", () => {
+    const ocr = `
+Other Deductions
+
+Some garbage line                 999,999,999
+Another garbage                   500,000,000
+    `;
+    const result = extractOtherDeductionsDetail(makeArgs(ocr));
+    // Individual amounts >$100M are filtered by line-level check,
+    // and total >$100M is rejected by plausibility gate
+    assert.equal(result.ok, false, "Must reject implausibly large totals");
+  });
+
+  it("PLAUSIBILITY: rejects single uncategorized line without credible detail", () => {
+    const ocr = `
+Other Deductions
+
+Miscellaneous                     50,000
+    `;
+    const result = extractOtherDeductionsDetail(makeArgs(ocr));
+    assert.equal(result.ok, false, "Must require at least 2 credible detail lines");
+  });
+
+  it("REGRESSION: dc52c626-style OCR with numbers everywhere does not produce $9.7B total", () => {
+    // Simulates OCR that has lots of numbers on non-OD pages
+    const ocr = `
+Form 1120 U.S. Corporation Income Tax Return 2024
+EIN: 12-3456789
+Gross receipts           29,013,467
+Returns and allowances        0
+Cost of goods sold       15,000,000
+Gross profit             14,013,467
+Total income             14,013,467
+Compensation of officers    500,000
+Salaries and wages        5,000,000
+Repairs and maintenance     200,000
+Bad debts                    50,000
+Rents                       300,000
+Taxes and licenses          400,000
+Interest                    100,000
+Depreciation               1,200,000
+Other deductions          2,340,232
+Total deductions         10,090,232
+Taxable income            3,923,235
+Tax liability               823,879
+
+Schedule L Balance Sheet
+Total assets beginning   25,000,000
+Total assets ending      28,000,000
+Total liabilities        15,000,000
+Retained earnings        13,000,000
+    `;
+    const result = extractOtherDeductionsDetail(makeArgs(ocr));
+    // No "Other Deductions" statement header with detail lines → ok:false
+    // The line "Other deductions 2,340,232" is a summary line, not a statement
+    assert.equal(result.ok, false,
+      "Must NOT extract from main form lines — need a dedicated statement section");
+  });
 });

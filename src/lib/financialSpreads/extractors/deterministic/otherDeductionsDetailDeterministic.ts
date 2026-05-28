@@ -49,18 +49,28 @@ function normalizeCategory(rawLabel: string): OdCategory {
  * Parse lines that look like "Description ... $1,234,567" or "Description 1234567"
  * from the "Other Deductions" statement section of a tax return.
  */
+// Strong header patterns that mark the START of an Other Deductions statement
+const OD_SECTION_START = /(?:other\s+deductions\s*(?:statement|detail|schedule)?|statement\s+\d+[:\s—-]*\s*other\s+deductions|line\s+(?:19|20|26)[:\s—-]*\s*(?:other\s+deductions|detail))/i;
+
+// Patterns that mark the END of the Other Deductions section
+const OD_SECTION_STOP = /(?:^(?:schedule\s+[a-z]|form\s+\d|balance\s+sheet|income\s+statement|statement\s+of|page\s+\d|cost\s+of\s+goods|compensation\s+of\s+officers|depreciation|schedule\s+k|schedule\s+l|schedule\s+m|total\s+deductions|taxable\s+income))/im;
+
 function extractLinesFromOcr(ocrText: string): Array<{ label: string; amount: number }> {
   const lines: Array<{ label: string; amount: number }> = [];
 
-  // Find the "other deductions" statement section
-  const sectionMatch = ocrText.match(
-    /(?:other\s+deductions|statement\s+\d+[:\s]*other|line\s+(?:19|20|26)\s+(?:detail|other))[^\n]*\n([\s\S]*?)(?:\n\s*(?:total|form\s+\d|page\s+\d|schedule)|\z)/i,
-  );
+  // Find the start of the Other Deductions statement section
+  const startMatch = OD_SECTION_START.exec(ocrText);
+  if (!startMatch) {
+    // No Other Deductions statement found — do NOT scan entire OCR text
+    return [];
+  }
 
-  const sectionText = sectionMatch ? sectionMatch[1] : ocrText;
+  // Extract text from header to next section boundary
+  const afterHeader = ocrText.slice(startMatch.index + startMatch[0].length);
+  const stopMatch = OD_SECTION_STOP.exec(afterHeader);
+  const sectionText = stopMatch ? afterHeader.slice(0, stopMatch.index) : afterHeader.slice(0, 3000); // cap at 3000 chars
 
   // Match lines with description + dollar amount
-  // Patterns: "Some description ... $1,234" or "Some description 1,234.56"
   const linePattern = /^[ \t]*(.{5,60}?)\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s*$/gm;
   let match: RegExpExecArray | null;
 
@@ -69,8 +79,16 @@ function extractLinesFromOcr(ocrText: string): Array<{ label: string; amount: nu
     const amountStr = match[2].replace(/,/g, "");
     const amount = parseFloat(amountStr);
 
-    // Filter noise: must be a reasonable dollar amount and label must have letters
-    if (Number.isFinite(amount) && amount > 0 && /[a-zA-Z]/.test(label)) {
+    // Filter: must be reasonable dollar amount (< $100M), label must have letters,
+    // and not look like a page number, date, or form reference
+    if (
+      Number.isFinite(amount) &&
+      amount > 0 &&
+      amount < 100_000_000 &&
+      /[a-zA-Z]/.test(label) &&
+      !/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(label.trim()) &&
+      !/^(?:page|form|ein|ssn|fein|total)\b/i.test(label.trim())
+    ) {
       lines.push({ label, amount });
     }
   }
@@ -136,8 +154,29 @@ export function extractOtherDeductionsDetail(
     categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + line.amount);
   }
 
+  // ── Plausibility gate ────────────────────────────────────────────────
+  // If detail total is wildly implausible (>$100M or all in one uncategorized
+  // bucket with no credible detail), reject the extraction.
+  const rawTotal = Array.from(categoryTotals.values()).reduce((a, b) => a + b, 0);
+
+  if (rawTotal > 100_000_000) {
+    // $100M+ detail total is almost certainly OCR noise, not real deductions
+    return { ok: false, items: [], extractionPath, factsAttempted: rawLines.length };
+  }
+
+  // If everything went into OTHER_UNCATEGORIZED and there's only 1 "category",
+  // the extractor didn't find recognizable line items — reject
+  if (categoryTotals.size === 1 && categoryTotals.has("OTHER_UNCATEGORIZED") && rawLines.length <= 1) {
+    return { ok: false, items: [], extractionPath, factsAttempted: rawLines.length };
+  }
+
+  // Require at least 2 credible detail lines
+  if (rawLines.length < 2) {
+    return { ok: false, items: [], extractionPath, factsAttempted: rawLines.length };
+  }
+
   // Emit per-category facts
-  const period = args.ocrText.match(/FY\d{4}/) ? args.ocrText.match(/FY(\d{4})/)![0] : null;
+  const period = args.ocrText ? (args.ocrText.match(/FY\d{4}/) ? args.ocrText.match(/FY(\d{4})/)![0] : null) : null;
 
   for (const [category, total] of categoryTotals.entries()) {
     items.push({

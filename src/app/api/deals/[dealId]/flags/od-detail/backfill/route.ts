@@ -112,6 +112,39 @@ export async function POST(_req: Request, ctx: Ctx) {
         continue;
       }
 
+      // 2b. Plausibility check: detail total vs aggregate
+      const extractedTotal = extractResult.items.find((i) => i.key === "OD_DETAIL_TOTAL");
+      const extractedTotalValue = typeof extractedTotal?.value === "number" ? extractedTotal.value : 0;
+
+      // Load aggregate for comparison
+      let preCheckAggregate: number | null = null;
+      if (doc.doc_year) {
+        const { data: aggCheck } = await (sb as any)
+          .from("deal_financial_facts")
+          .select("fact_value_num")
+          .eq("deal_id", dealId)
+          .eq("fact_key", "OTHER_DEDUCTIONS")
+          .eq("is_superseded", false)
+          .gte("fact_period_end", `${doc.doc_year}-01-01`)
+          .lte("fact_period_end", `${doc.doc_year}-12-31`)
+          .maybeSingle();
+        preCheckAggregate = aggCheck?.fact_value_num ?? null;
+      }
+
+      // If aggregate exists and detail total exceeds 5x aggregate, reject as noise
+      if (preCheckAggregate != null && extractedTotalValue > preCheckAggregate * 5) {
+        results.push({
+          documentId: doc.id,
+          year: doc.doc_year,
+          linesFound: 0,
+          detailTotal: extractedTotalValue,
+          aggregate: preCheckAggregate,
+          reconciled: null,
+          reason: `Extraction invalid: detail total ($${extractedTotalValue.toLocaleString()}) exceeds 5x aggregate ($${preCheckAggregate.toLocaleString()})`,
+        });
+        continue;
+      }
+
       // 3. Write facts
       const taxYear = doc.doc_year;
       const period = taxYear ? `FY${taxYear}` : null;
