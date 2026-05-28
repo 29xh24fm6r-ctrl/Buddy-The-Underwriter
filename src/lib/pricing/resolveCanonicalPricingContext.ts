@@ -19,12 +19,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type IndexCode = "SOFR" | "UST_5Y" | "PRIME";
 
+export type IndexRateSource = "live" | "manual_override" | "structural_placeholder" | "none";
+
 export type CanonicalPricingContext = {
   product_type: string | null;
   loan_amount: number | null;
   rate_type: "floating" | "fixed";
   index_code: IndexCode;
   index_rate_pct: number | null;
+  index_rate_source: IndexRateSource;
   spread_bps: number | null;
   all_in_rate_pct: number | null;
   fixed_rate_pct: number | null;
@@ -125,11 +128,32 @@ export async function resolveCanonicalPricingContext(
   }
 
   // ── Index rate ────────────────────────────────────────────────────
+  // For floating loans, the index rate is the current market rate by definition.
+  // structural_pricing.index_rate_pct is a point-in-time computation input, NOT
+  // the current index — do not treat it as canonical unless the banker explicitly
+  // locked it via base_rate_override_pct.
+  //
+  // Resolution:
+  //   1. base_rate_override_pct set → explicit banker lock ("manual_override")
+  //   2. floating with no lock → null, meaning "use live rate" ("live")
+  //   3. fixed → use deal_pricing_inputs or structural rate
   let index_rate_pct: number | null;
-  if (source_priority === "deal_pricing_inputs" && toFinite(d.index_rate_pct) != null) {
-    index_rate_pct = toFinite(d.index_rate_pct);
+  let index_rate_source: IndexRateSource;
+
+  const hasManualOverride = toFinite(d.base_rate_override_pct) != null;
+
+  if (rate_type === "fixed") {
+    // Fixed loans don't use index rates for pricing
+    index_rate_pct = toFinite(d.index_rate_pct) ?? toFinite(s.index_rate_pct);
+    index_rate_source = index_rate_pct != null ? "structural_placeholder" : "none";
+  } else if (hasManualOverride) {
+    // Banker explicitly locked a rate override
+    index_rate_pct = toFinite(d.base_rate_override_pct);
+    index_rate_source = "manual_override";
   } else {
-    index_rate_pct = toFinite(s.index_rate_pct);
+    // Floating with no lock → leave null so card/scenarios use live rates
+    index_rate_pct = null;
+    index_rate_source = "live";
   }
 
   // ── Fixed rate ────────────────────────────────────────────────────
@@ -186,7 +210,9 @@ export async function resolveCanonicalPricingContext(
       deal_id: dealId,
       rate_type,
       index_code,
-      index_rate_pct,
+      // For floating loans with no manual override, persist null so the card
+      // auto-populates from live rates instead of showing a stale structural value.
+      index_rate_pct: index_rate_source === "live" ? null : index_rate_pct,
       spread_override_bps: spread_bps,
       loan_amount,
       term_months,
@@ -225,6 +251,7 @@ export async function resolveCanonicalPricingContext(
     rate_type,
     index_code,
     index_rate_pct,
+    index_rate_source,
     spread_bps,
     all_in_rate_pct,
     fixed_rate_pct,

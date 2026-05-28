@@ -473,25 +473,15 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                   value={form.index_rate_pct}
                   onChange={(e) => updateField("index_rate_pct", e.target.value)}
                 />
-                {form.index_rate_pct && (
-                  <div className="mt-1 text-[10px] text-white/40">
-                    Using saved rate: {Number(form.index_rate_pct).toFixed(2)}%
-                  </div>
-                )}
-                {liveRates[form.index_code] && (
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40">
-                    <span>Live: {liveRates[form.index_code]!.ratePct.toFixed(2)}% as of {liveRates[form.index_code]!.asOf}</span>
-                    {form.index_rate_pct && Number(form.index_rate_pct) !== liveRates[form.index_code]!.ratePct && (
-                      <button
-                        type="button"
-                        onClick={() => updateField("index_rate_pct", String(liveRates[form.index_code]!.ratePct))}
-                        className="underline text-primary/70 hover:text-primary"
-                      >
-                        Use live rate
-                      </button>
-                    )}
-                  </div>
-                )}
+                <IndexRateAnnotation
+                  formRate={form.index_rate_pct}
+                  liveRate={liveRates[form.index_code] ?? null}
+                  onUseLive={() => {
+                    if (liveRates[form.index_code]) {
+                      updateField("index_rate_pct", String(liveRates[form.index_code]!.ratePct));
+                    }
+                  }}
+                />
               </Field>
 
               <Field label="Spread / Margin (bps)">
@@ -663,4 +653,70 @@ function Field({
       {children}
     </div>
   );
+}
+
+// ── Index rate annotation: shows live vs locked source clearly ────────────
+function IndexRateAnnotation({
+  formRate,
+  liveRate,
+  onUseLive,
+}: {
+  formRate: string;
+  liveRate: LiveRateEntry | null;
+  onUseLive: () => void;
+}) {
+  const hasFormRate = formRate !== "" && formRate !== undefined;
+  const formNum = hasFormRate ? Number(formRate) : null;
+  const liveNum = liveRate?.ratePct ?? null;
+  const ratesMatch = formNum != null && liveNum != null && Math.abs(formNum - liveNum) < 0.001;
+
+  // Case 1: Live rate populated the field (matches live) → show "Using live rate"
+  if (hasFormRate && liveRate && ratesMatch) {
+    return (
+      <div className="mt-1 text-[10px] text-emerald-400/70">
+        Using live rate: {liveNum!.toFixed(2)}% as of {liveRate.asOf}
+      </div>
+    );
+  }
+
+  // Case 2: Form rate differs from live → banker locked/overrode it
+  if (hasFormRate && liveRate && !ratesMatch) {
+    return (
+      <div className="mt-1 space-y-0.5">
+        <div className="text-[10px] text-amber-300/70">
+          Locked/manual rate: {formNum!.toFixed(2)}%
+        </div>
+        <div className="flex items-center gap-2 text-[10px] text-white/40">
+          <span>Live: {liveNum!.toFixed(2)}% as of {liveRate.asOf}</span>
+          <button
+            type="button"
+            onClick={onUseLive}
+            className="underline text-primary/70 hover:text-primary"
+          >
+            Use live rate
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Case 3: Form rate set but no live rate available
+  if (hasFormRate && !liveRate) {
+    return (
+      <div className="mt-1 text-[10px] text-white/40">
+        Saved rate: {formNum!.toFixed(2)}% (live rate unavailable)
+      </div>
+    );
+  }
+
+  // Case 4: No form rate, live rate available → will be populated on mount
+  if (!hasFormRate && liveRate) {
+    return (
+      <div className="mt-1 text-[10px] text-white/40">
+        Live: {liveNum!.toFixed(2)}% as of {liveRate.asOf}
+      </div>
+    );
+  }
+
+  return null;
 }
