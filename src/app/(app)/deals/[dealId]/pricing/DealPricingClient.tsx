@@ -611,24 +611,15 @@ export default function DealPricingClient({
   const memoError = activeQuote?.id ? memoErrorByQuoteId[activeQuote.id] : "";
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+    <div className="space-y-6">
+      <div>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Risk-Based Pricing</h1>
-            <p className="text-sm text-slate-600 mt-1">
-              Deal: <span className="font-medium">{deal.borrower_name ?? deal.id}</span>
-              {deal.stage ? <> · Stage: <span className="font-medium">{deal.stage}</span></> : null}
+            <h3 className="text-sm font-semibold text-white">Risk-Based Pricing</h3>
+            <p className="text-xs text-white/60 mt-1">
+              {deal.borrower_name ?? deal.id}
+              {deal.stage ? <> · {deal.stage}</> : null}
             </p>
-          </div>
-
-          <div className="flex gap-2">
-            <Link
-              className="px-3 py-2 rounded border text-sm hover:bg-slate-50"
-              href={`/deals/${deal.id}/cockpit`}
-            >
-              Back to Cockpit
-            </Link>
           </div>
         </div>
 
@@ -638,7 +629,7 @@ export default function DealPricingClient({
               <Field label="Index">
                 <div className="flex items-center gap-2">
                   <select
-                    className="flex-1 rounded border px-3 py-2 text-sm"
+                    className="flex-1 rounded-lg border border-white/10 bg-[#1a1d23] px-3 py-2 text-sm text-white [color-scheme:dark]"
                     value={form.index_code}
                     onChange={(e) =>
                       setForm((prev) => ({
@@ -651,13 +642,13 @@ export default function DealPricingClient({
                     <option value="UST_5Y">5Y Treasury</option>
                     <option value="PRIME">Prime</option>
                   </select>
-                  <div className="shrink-0 rounded border bg-slate-50 px-3 py-2 text-sm text-center min-w-[90px]">
+                  <div className="shrink-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-center min-w-[90px]">
                     {effectiveRate != null ? (
-                      <span className="font-semibold text-slate-800">{effectiveRate.ratePct.toFixed(3)}%</span>
+                      <span className="font-semibold text-white">{effectiveRate.ratePct.toFixed(3)}%</span>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <span className="text-white/40">—</span>
                     )}
-                    <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                    <div className="text-[10px] text-white/40 leading-tight mt-0.5">
                       {effectiveRate?.asOf ?? "no rate"}
                     </div>
                   </div>
@@ -666,7 +657,7 @@ export default function DealPricingClient({
 
               <Field label={isLoc ? "Line Limit" : "Loan Amount"}>
                 <input
-                  className="w-full rounded border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                   type="number"
                   step="1000"
                   value={form.loan_amount ?? ""}
@@ -684,7 +675,7 @@ export default function DealPricingClient({
               {!isLoc && (
                 <Field label="Term (months)">
                   <input
-                    className="w-full rounded border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                     type="number"
                     step="1"
                     value={form.term_months}
@@ -702,7 +693,7 @@ export default function DealPricingClient({
               {!isLoc && (
                 <Field label="Amortization (months)">
                   <input
-                    className="w-full rounded border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                     type="number"
                     step="1"
                     value={form.amort_months}
@@ -720,7 +711,7 @@ export default function DealPricingClient({
               {!isLoc && (
                 <Field label="Interest-Only (months)">
                   <input
-                    className="w-full rounded border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                     type="number"
                     step="1"
                     value={form.interest_only_months}
@@ -736,7 +727,7 @@ export default function DealPricingClient({
 
               <Field label="Spread (bps)">
                 <input
-                  className="w-full rounded border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                   type="number"
                   step="25"
                   value={form.spread_override_bps ?? ""}
@@ -752,7 +743,7 @@ export default function DealPricingClient({
             </div>
 
             <button
-              className="mt-4 text-sm text-slate-600 underline"
+              className="mt-4 text-sm text-white/60 underline"
               onClick={() => setShowAdvanced((prev) => !prev)}
             >
               {showAdvanced ? "Hide advanced" : "Show advanced"}
@@ -762,7 +753,7 @@ export default function DealPricingClient({
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Field label="Base Rate Override (%)">
                   <input
-                    className="w-full rounded border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                     type="number"
                     step="0.01"
                     value={form.base_rate_override_pct ?? ""}
@@ -778,7 +769,7 @@ export default function DealPricingClient({
 
                 <Field label="Notes">
                   <input
-                    className="w-full rounded border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
                     type="text"
                     value={form.notes ?? ""}
                     onChange={(e) =>
@@ -802,26 +793,26 @@ export default function DealPricingClient({
               <Stat label="All-In Rate" value={`${formatPct(allInRatePct)}%`} emphasize />
             </div>
 
-            <div className="mt-2 text-xs text-slate-500">
+            <div className="mt-2 text-xs text-white/50">
               Live source: {rateSource ?? "—"}
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
-                className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary/90 disabled:opacity-50"
                 onClick={handleSave}
                 disabled={saving}
               >
                 {saving ? "Saving..." : "Save inputs"}
               </button>
               <button
-                className="rounded border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 hover:bg-white/10 disabled:opacity-50"
                 onClick={handleRefreshRates}
                 disabled={refreshing}
               >
                 {refreshing ? "Refreshing..." : "Refresh live rates"}
               </button>
               <button
-                className="rounded border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm text-white/70 hover:bg-white/10 disabled:opacity-50"
                 onClick={handleQuote}
                 disabled={quoting}
               >
@@ -832,7 +823,7 @@ export default function DealPricingClient({
                   className={
                     status.kind === "error"
                       ? "text-sm text-red-600"
-                      : "text-sm text-slate-600"
+                      : "text-sm text-white/60"
                   }
                 >
                   {status.message}
@@ -841,7 +832,7 @@ export default function DealPricingClient({
             </div>
 
             {lastSnapshot ? (
-              <div className="mt-4 rounded border bg-slate-50 p-3 text-xs text-slate-700">
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-white/70">
                 <div className="font-semibold">Latest bank-grade snapshot</div>
                 <div className="mt-1">
                   Snapshot ID: <span className="font-mono">{lastSnapshot.id}</span>
@@ -859,35 +850,35 @@ export default function DealPricingClient({
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card title="Quoted Rate">
-            <div className="text-3xl font-bold">{formatPct(allInRatePct)}%</div>
-            <div className="text-sm text-slate-600 mt-1">
+            <div className="text-3xl font-bold text-white">{formatPct(allInRatePct)}%</div>
+            <div className="text-sm text-white/60 mt-1">
               Spread: {fmtBps(spreadBps)} · Base: {formatPct(baseRatePct)}%
             </div>
           </Card>
 
           <Card title="Risk Score">
-            <div className="text-3xl font-bold">{pricing?.risk.score ?? "—"}</div>
-            <div className="text-sm text-slate-600 mt-1">
+            <div className="text-3xl font-bold text-white">{pricing?.risk.score ?? "—"}</div>
+            <div className="text-sm text-white/60 mt-1">
               Tier: {pricing?.risk.tier ?? "—"} · Decision:{" "}
-              <span className={pricing?.decision === "approve" ? "text-green-700 font-medium" : "text-amber-700 font-medium"}>
+              <span className={pricing?.decision === "approve" ? "text-emerald-400 font-medium" : "text-amber-400 font-medium"}>
                 {pricing?.decision?.toUpperCase() ?? "—"}
               </span>
             </div>
           </Card>
 
           <Card title={isLoc ? "Annual Interest Cost" : "Payment Estimate"}>
-            <div className="text-3xl font-bold">
+            <div className="text-3xl font-bold text-white">
               {isLoc
                 ? (annualInterestCost != null && annualInterestCost > 0 ? money(annualInterestCost) : "—")
                 : (paymentEstimate > 0 ? money(paymentEstimate) : "—")}
             </div>
-            <div className="text-sm text-slate-600 mt-1">
+            <div className="text-sm text-white/60 mt-1">
               {isLoc
                 ? `Interest-only on ${money(principal)} at ${formatPct(allInRatePct)}%`
                 : `P&I on ${money(principal)} · ${form.amort_months} mo amort`}
             </div>
             {!isLoc && ioPayment != null ? (
-              <div className="text-sm text-slate-600 mt-1">
+              <div className="text-sm text-white/60 mt-1">
                 IO payment: {money(ioPayment)} for {form.interest_only_months} mo
               </div>
             ) : null}
@@ -897,7 +888,7 @@ export default function DealPricingClient({
         <section className="grid grid-cols-1 gap-4">
           <Card title="Quote History">
             {quoteHistory.length === 0 ? (
-              <p className="text-sm text-slate-600">No quotes yet.</p>
+              <p className="text-sm text-white/60">No quotes yet.</p>
             ) : (
               <div className="space-y-3">
                 {quoteHistory.map((quote) => {
@@ -911,7 +902,7 @@ export default function DealPricingClient({
                   return (
                     <div
                       key={quote.id}
-                      className={`rounded border p-3 ${isActive ? "border-slate-900 bg-slate-50" : "border-slate-200"}`}
+                      className={`rounded-lg border p-3 ${isActive ? "border-primary bg-white/[0.05]" : "border-white/10"}`}
                       role="button"
                       tabIndex={0}
                       onClick={() => setActiveQuoteId(quote.id)}
@@ -929,23 +920,23 @@ export default function DealPricingClient({
                               {formatDateTime(quote.created_at)} · {quote.index_code}
                             </span>
                             {isLocked ? (
-                              <span className="inline-flex items-center rounded bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              <span className="inline-flex items-center rounded bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
                                 LOCKED
                               </span>
                             ) : null}
                             {isActive ? (
-                              <span className="inline-flex items-center rounded bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                              <span className="inline-flex items-center rounded bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/70">
                                 ACTIVE
                               </span>
                             ) : null}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-white/50">
                             Base {formatPct(quote.base_rate_pct)}% · Spread {quote.spread_bps} bps · All-in {formatPct(quote.all_in_rate_pct)}%
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleExplain(quote.id);
@@ -956,7 +947,7 @@ export default function DealPricingClient({
                           </button>
                           {!isLocked ? (
                             <button
-                              className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                              className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleLock(quote.id);
@@ -967,7 +958,7 @@ export default function DealPricingClient({
                             </button>
                           ) : null}
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCopyMemo(quote.id);
@@ -977,7 +968,7 @@ export default function DealPricingClient({
                             {memoCached ? "Copy pricing memo (cached)" : "Copy pricing memo"}
                           </button>
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={(e) => {
                               e.stopPropagation();
                               insertPricingIntoCreditMemo(quote.id);
@@ -987,7 +978,7 @@ export default function DealPricingClient({
                             Insert into credit memo
                           </button>
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCopy(quote);
@@ -998,23 +989,23 @@ export default function DealPricingClient({
                         </div>
                       </div>
 
-                      <div className="mt-2 text-xs text-slate-600">
+                      <div className="mt-2 text-xs text-white/60">
                         Amount {money(quote.loan_amount)} · Term {quote.term_months}m · Amort {quote.amort_months}m · IO {quote.interest_only_months}m
                       </div>
-                      <div className="mt-2 text-xs text-slate-600">
+                      <div className="mt-2 text-xs text-white/60">
                         P&I {quote.monthly_payment_pi != null ? money(quote.monthly_payment_pi) : "—"}
                         {quote.monthly_payment_io != null ? ` · IO ${money(quote.monthly_payment_io)}` : ""}
                       </div>
 
                       {isLocked ? (
-                        <div className="mt-2 text-xs text-slate-500">
+                        <div className="mt-2 text-xs text-white/50">
                           Locked{quote.locked_at ? ` on ${formatDateTime(quote.locked_at)}` : ""}
                           {quote.lock_reason ? ` · ${quote.lock_reason}` : ""}
                         </div>
                       ) : null}
 
                       {quote.rate_index_snapshots ? (
-                        <div className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
+                        <div className="mt-2 rounded-lg bg-white/[0.03] p-2 text-xs text-white/60">
                           Snapshot {quote.rate_index_snapshots.id} · {quote.rate_index_snapshots.index_label} @ {formatPct(quote.rate_index_snapshots.index_rate_pct)}%
                           <div>
                             As of {quote.rate_index_snapshots.as_of_date} · Source {quote.rate_index_snapshots.source}
@@ -1022,16 +1013,16 @@ export default function DealPricingClient({
                         </div>
                       ) : null}
                       {(quote.pricing_policy_id || quote.pricing_policy_version || quote.pricing_model_hash) ? (
-                        <div className="mt-2 text-xs text-slate-500">
+                        <div className="mt-2 text-xs text-white/50">
                           Policy {quote.pricing_policy_id ?? "—"} · Version {quote.pricing_policy_version ?? "—"} · Hash {quote.pricing_model_hash ?? "—"}
                         </div>
                       ) : null}
 
                       {isExpanded ? (
-                        <div className="mt-3 rounded border bg-slate-50 p-3 text-xs text-slate-700">
+                        <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-white/70">
                           <div className="flex items-center justify-between">
                             <div className="font-semibold">Explainability</div>
-                            <div className="text-slate-500">
+                            <div className="text-white/50">
                               Confidence {explain ? `${Math.round(explain.confidence * 100)}%` : "—"}
                             </div>
                           </div>
@@ -1039,23 +1030,23 @@ export default function DealPricingClient({
                             <>
                               <div className="mt-2">{explain.summary}</div>
                               <div className="mt-3">
-                                <div className="font-semibold text-slate-700">Drivers</div>
+                                <div className="font-semibold text-white/70">Drivers</div>
                                 <div className="mt-1 space-y-1">
                                   {explain.drivers?.map((d, i) => (
                                     <div key={i} className="flex items-start justify-between gap-2">
-                                      <div className="text-slate-700">
+                                      <div className="text-white/70">
                                         {d.label}
                                         {d.reason ? ` — ${d.reason}` : ""}
                                       </div>
-                                      <div className="font-mono text-slate-600">{fmtBps(d.bps)}</div>
+                                      <div className="font-mono text-white/60">{fmtBps(d.bps)}</div>
                                     </div>
                                   ))}
                                 </div>
                               </div>
                               {explain.missingInputs?.length ? (
                                 <div className="mt-3">
-                                  <div className="font-semibold text-slate-700">Missing inputs</div>
-                                  <ul className="mt-1 list-disc pl-4 text-slate-600">
+                                  <div className="font-semibold text-white/70">Missing inputs</div>
+                                  <ul className="mt-1 list-disc pl-4 text-white/60">
                                     {explain.missingInputs.map((m, i) => (
                                       <li key={i}>
                                         {m.label}
@@ -1065,11 +1056,11 @@ export default function DealPricingClient({
                                   </ul>
                                 </div>
                               ) : (
-                                <div className="mt-3 text-slate-500">No missing inputs flagged.</div>
+                                <div className="mt-3 text-white/50">No missing inputs flagged.</div>
                               )}
                             </>
                           ) : (
-                            <div className="mt-2 text-slate-500">Explainability not available yet.</div>
+                            <div className="mt-2 text-white/50">Explainability not available yet.</div>
                           )}
                         </div>
                       ) : null}
@@ -1084,7 +1075,7 @@ export default function DealPricingClient({
         <section className="grid grid-cols-1 gap-4">
           <Card title="Quote Detail">
             {quoteHistory.length === 0 || !activeQuote ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-white/60">
                 Create a quote to view memo preview.
               </p>
             ) : (
@@ -1093,8 +1084,8 @@ export default function DealPricingClient({
                   <button
                     className={
                       tab === "quote"
-                        ? "rounded-t border border-b-0 bg-white px-3 py-2 text-sm font-medium"
-                        : "rounded-t px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
+                        ? "rounded-t border border-b-0 border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-medium text-white"
+                        : "rounded-t px-3 py-2 text-sm text-white/40 hover:text-white/70"
                     }
                     onClick={() => setTab("quote")}
                   >
@@ -1103,8 +1094,8 @@ export default function DealPricingClient({
                   <button
                     className={
                       tab === "explain"
-                        ? "rounded-t border border-b-0 bg-white px-3 py-2 text-sm font-medium"
-                        : "rounded-t px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
+                        ? "rounded-t border border-b-0 border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-medium text-white"
+                        : "rounded-t px-3 py-2 text-sm text-white/40 hover:text-white/70"
                     }
                     onClick={() => setTab("explain")}
                   >
@@ -1113,8 +1104,8 @@ export default function DealPricingClient({
                   <button
                     className={
                       tab === "memo"
-                        ? "rounded-t border border-b-0 bg-white px-3 py-2 text-sm font-medium"
-                        : "rounded-t px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
+                        ? "rounded-t border border-b-0 border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-medium text-white"
+                        : "rounded-t px-3 py-2 text-sm text-white/40 hover:text-white/70"
                     }
                     onClick={() => setTab("memo")}
                   >
@@ -1124,33 +1115,33 @@ export default function DealPricingClient({
 
                 <div className="rounded-b border border-t-0 p-4">
                   {tab === "quote" ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-700">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-white/70">
                       <div>
-                        <div className="text-xs uppercase tracking-wide text-slate-500">Rate</div>
+                        <div className="text-xs uppercase tracking-wide text-white/50">Rate</div>
                         <div className="mt-1 font-semibold">
                           {formatPct(activeQuote.all_in_rate_pct)}% all-in
                         </div>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-white/50">
                           Base {formatPct(activeQuote.base_rate_pct)}% · Spread {activeQuote.spread_bps} bps
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs uppercase tracking-wide text-slate-500">Terms</div>
+                        <div className="text-xs uppercase tracking-wide text-white/50">Terms</div>
                         <div className="mt-1 font-semibold">
                           {money(activeQuote.loan_amount)}
                         </div>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-white/50">
                           {activeQuote.term_months}m term · {activeQuote.amort_months}m amort · {activeQuote.interest_only_months}m IO
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs uppercase tracking-wide text-slate-500">Payments</div>
+                        <div className="text-xs uppercase tracking-wide text-white/50">Payments</div>
                         <div className="mt-1 font-semibold">
                           {activeQuote.monthly_payment_pi != null
                             ? money(activeQuote.monthly_payment_pi)
                             : "—"}
                         </div>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-white/50">
                           {activeQuote.monthly_payment_io != null
                             ? `IO ${money(activeQuote.monthly_payment_io)}`
                             : "IO —"}
@@ -1160,14 +1151,14 @@ export default function DealPricingClient({
                   ) : null}
 
                   {tab === "explain" ? (
-                    <div className="text-sm text-slate-700">
+                    <div className="text-sm text-white/70">
                       {!explainByQuoteId[activeQuote.id] ? (
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-slate-500">
+                          <div className="text-white/50">
                             Explainability not loaded yet.
                           </div>
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={() => loadExplainability(activeQuote.id)}
                             disabled={!!busyByQuoteId[activeQuote.id]}
                           >
@@ -1178,7 +1169,7 @@ export default function DealPricingClient({
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <div className="font-semibold">Summary</div>
-                            <div className="text-xs text-slate-500">
+                            <div className="text-xs text-white/50">
                               Confidence {Math.round(explainByQuoteId[activeQuote.id].confidence * 100)}%
                             </div>
                           </div>
@@ -1192,7 +1183,7 @@ export default function DealPricingClient({
                                     {d.label}
                                     {d.reason ? ` — ${d.reason}` : ""}
                                   </div>
-                                  <div className="font-mono text-slate-600">{fmtBps(d.bps)}</div>
+                                  <div className="font-mono text-white/60">{fmtBps(d.bps)}</div>
                                 </div>
                               ))}
                             </div>
@@ -1200,7 +1191,7 @@ export default function DealPricingClient({
                           {explainByQuoteId[activeQuote.id].missingInputs.length ? (
                             <div>
                               <div className="font-semibold">Missing inputs</div>
-                              <ul className="mt-1 list-disc pl-4 text-slate-600">
+                              <ul className="mt-1 list-disc pl-4 text-white/60">
                                 {explainByQuoteId[activeQuote.id].missingInputs.map((m, i) => (
                                   <li key={i}>
                                     {m.label}
@@ -1210,7 +1201,7 @@ export default function DealPricingClient({
                               </ul>
                             </div>
                           ) : (
-                            <div className="text-slate-500">No missing inputs flagged.</div>
+                            <div className="text-white/50">No missing inputs flagged.</div>
                           )}
                         </div>
                       )}
@@ -1223,14 +1214,14 @@ export default function DealPricingClient({
                         <div className="text-sm font-semibold">Memo Preview</div>
                         <div className="flex flex-wrap items-center gap-2">
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={() => handleCopyMemo(activeQuote.id)}
                             disabled={!!busyByQuoteId[activeQuote.id]}
                           >
                             Copy memo
                           </button>
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={() =>
                               window.open(
                                 `/api/deals/${deal.id}/pricing/quote/${activeQuote.id}/memo-pdf`,
@@ -1242,7 +1233,7 @@ export default function DealPricingClient({
                             Download PDF Appendix
                           </button>
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
                             onClick={() => insertPricingIntoCreditMemo(activeQuote.id)}
                             disabled={!!busyByQuoteId[activeQuote.id]}
                           >
@@ -1251,18 +1242,18 @@ export default function DealPricingClient({
                         </div>
                       </div>
                       {activeQuote.status !== "locked" ? (
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-white/50">
                           Locking this quote will freeze the memo for committee.
                         </div>
                       ) : null}
 
                       {memoLoading ? (
-                        <div className="text-sm text-slate-500">Loading memo...</div>
+                        <div className="text-sm text-white/50">Loading memo...</div>
                       ) : memoError ? (
-                        <div className="flex items-center justify-between gap-3 text-sm text-slate-600">
+                        <div className="flex items-center justify-between gap-3 text-sm text-white/60">
                           <span>{memoError}</span>
                           <button
-                            className="rounded border px-3 py-1 text-xs hover:bg-slate-50"
+                            className="rounded border border-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/10"
                             onClick={() => loadMemo(activeQuote.id, true)}
                           >
                             Retry
@@ -1271,7 +1262,7 @@ export default function DealPricingClient({
                       ) : activeMemo ? (
                         <SafeMarkdown markdown={activeMemo} />
                       ) : (
-                        <div className="text-sm text-slate-500">
+                        <div className="text-sm text-white/50">
                           Memo not available yet.
                         </div>
                       )}
@@ -1284,14 +1275,14 @@ export default function DealPricingClient({
         </section>
 
       </div>
-    </main>
+    </div>
   );
 }
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border p-4 shadow-sm">
-      <div className="text-sm font-semibold text-slate-800 mb-2">{title}</div>
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <div className="text-sm font-semibold text-white mb-2">{title}</div>
       {children}
     </div>
   );
@@ -1299,8 +1290,8 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="block space-y-1 text-sm text-slate-700">
-      <div className="font-medium text-slate-800">{label}</div>
+    <div className="block space-y-1 text-sm text-white/70">
+      <div className="font-medium text-white/50 text-[11px]">{label}</div>
       {children}
     </div>
   );
@@ -1318,12 +1309,12 @@ function Stat({
   emphasize?: boolean;
 }) {
   return (
-    <div className="rounded-lg border bg-slate-50 px-3 py-2">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={emphasize ? "text-lg font-semibold" : "text-base font-semibold"}>
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+      <div className="text-xs uppercase tracking-wide text-white/40">{label}</div>
+      <div className={`${emphasize ? "text-lg font-semibold" : "text-base font-semibold"} text-white`}>
         {value}
       </div>
-      {hint ? <div className="text-xs text-slate-500 mt-1">{hint}</div> : null}
+      {hint ? <div className="text-xs text-white/40 mt-1">{hint}</div> : null}
     </div>
   );
 }
