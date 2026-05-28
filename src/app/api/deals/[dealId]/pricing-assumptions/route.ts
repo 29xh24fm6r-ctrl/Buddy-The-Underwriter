@@ -43,12 +43,36 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
+    // If DB row is missing or still stale after resolver ran (e.g. upsert failed
+    // due to CHECK constraint), synthesize pricingAssumptions from canonical context
+    // so the card renders correctly instead of falling back to live-rate defaults.
+    const row = data as Record<string, any> | null;
+    const dbStillStale = !row
+      || (row.rate_type === "fixed" && row.fixed_rate_pct == null && canonical.rate_type === "floating")
+      || (row.index_rate_pct == null && canonical.index_rate_pct != null);
+
+    const effectiveAssumptions = dbStillStale ? {
+      ...(row ?? {}),
+      deal_id: dealId,
+      rate_type: canonical.rate_type,
+      index_code: canonical.index_code,
+      index_rate_pct: canonical.index_rate_pct,
+      spread_override_bps: canonical.spread_bps,
+      loan_amount: canonical.loan_amount,
+      term_months: canonical.term_months,
+      amort_months: canonical.amort_months,
+      interest_only_months: canonical.interest_only_months,
+      fixed_rate_pct: canonical.fixed_rate_pct,
+    } : row;
+
     return NextResponse.json({
       ok: true,
-      pricingAssumptions: data ?? null,
-      ...(canonical.repair_applied ? {
+      pricingAssumptions: effectiveAssumptions,
+      ...(canonical.repair_applied || dbStillStale ? {
         repaired: true,
-        repairReason: canonical.repair_reason,
+        repairReason: dbStillStale && !canonical.repair_applied
+          ? "DB row stale after resolver; returning canonical context"
+          : canonical.repair_reason,
       } : {}),
     });
   } catch (e: any) {
