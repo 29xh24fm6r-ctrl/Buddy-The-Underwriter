@@ -591,8 +591,13 @@ export default function RiskClient({
             No open risk signals.
           </p>
           <p className="text-xs text-emerald-400/60 mt-1">
-            All flags are resolved or waived. Review evidence audit below.
+            {allFlags.length === 0
+              ? "No risk flags found. If financial data has been extracted, regenerate flags to check for issues."
+              : "All flags are resolved or waived. Review evidence audit below."}
           </p>
+          {allFlags.length === 0 && (
+            <RegenerateFlagsButton dealId={dealId} onComplete={loadFlags} />
+          )}
         </div>
       ) : Object.keys(byDomain).length === 0 ? (
         <div className="text-sm text-white/40 text-center py-8">
@@ -867,6 +872,57 @@ function OdDetailPanel({ dealId, year }: { dealId: string; year?: number | null 
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Regenerate flags button ─────────────────────────────────────────────────
+
+function RegenerateFlagsButton({
+  dealId,
+  onComplete,
+}: {
+  dealId: string;
+  onComplete: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handleRegenerate() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags/regenerate`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? "Regeneration failed");
+      } else {
+        setResult(`${json.flagCount} flag(s) generated.`);
+        onComplete();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={handleRegenerate}
+        disabled={busy}
+        className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 text-xs font-semibold text-white transition-colors"
+      >
+        {busy ? "Regenerating..." : "Regenerate Risk Flags"}
+      </button>
+      {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
+      {result && <p className="mt-1 text-xs text-emerald-400">{result}</p>}
     </div>
   );
 }
