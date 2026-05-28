@@ -28,6 +28,7 @@ import { extractForm8825 } from "./form8825Deterministic";
 import { extractForm1125A } from "./form1125aDeterministic";
 import { extractForm1125E } from "./form1125eDeterministic";
 import { extractK1 } from "./k1Deterministic";
+import { extractOtherDeductionsDetail } from "./otherDeductionsDetailDeterministic";
 import { validateArithmetic } from "./arithmeticValidator";
 import { writeScheduleLFacts } from "@/lib/financialFacts/writeScheduleLFacts";
 import { writeK1BaseFacts } from "@/lib/financialFacts/writeK1BaseFacts";
@@ -276,6 +277,7 @@ export async function extractTaxReturnDeterministic(
     { pattern: /form\s+8825\b/i, extractor: extractForm8825, factType: "TAX_RETURN_RENTAL" },
     { pattern: /form\s+1125-?a\b|cost\s+of\s+goods\s+sold/i, extractor: extractForm1125A, factType: "TAX_RETURN_COGS_DETAIL" },
     { pattern: /form\s+1125-?e\b|compensation\s+of\s+officers/i, extractor: extractForm1125E, factType: "TAX_RETURN_OFFICER_COMP" },
+    { pattern: /other\s+deductions|statement\s+\d+[:\s]*other|line\s+(?:19|20|26)\s+(?:detail|other)/i, extractor: extractOtherDeductionsDetail, factType: "TAX_RETURN_OTHER_DEDUCTIONS_DETAIL" },
   ];
 
   const schedulePromises = scheduleChecks
@@ -285,6 +287,39 @@ export async function extractTaxReturnDeterministic(
   const settled = await Promise.allSettled(schedulePromises);
   for (const r of settled) {
     if (r.status === "fulfilled") factsWritten += r.value;
+  }
+
+  // After OD detail extraction, write reconciliation fact
+  // Compare OD_DETAIL_TOTAL to OTHER_DEDUCTIONS aggregate
+  if (taxYear) {
+    const odAggregate = items.find((i) => i.factKey === "OTHER_DEDUCTIONS")?.value;
+    const odDetailResult = extractOtherDeductionsDetail(args);
+    const odDetailTotal = odDetailResult.items.find((i) => i.key === "OD_DETAIL_TOTAL")?.value;
+    if (typeof odAggregate === "number" && typeof odDetailTotal === "number") {
+      const reconciled = Math.abs(odAggregate - odDetailTotal) <= 1;
+      const { start: ps, end: pe } = normalizePeriod(`FY${taxYear}`);
+      const reconResult = await writeFactsBatch({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        sourceDocumentId: args.documentId,
+        factType: "TAX_RETURN_OTHER_DEDUCTIONS_DETAIL",
+        items: [{
+          factKey: "OD_DETAIL_RECONCILED",
+          value: reconciled ? 1 : 0,
+          confidence: 0.90,
+          periodStart: ps,
+          periodEnd: pe,
+          provenance: {
+            source_type: "DOC_EXTRACT",
+            source_ref: `tax_return:${args.documentId}`,
+            as_of_date: pe,
+            extractor: "otherDeductionsDetail:reconciliation:v1",
+            calc: `|${odAggregate} - ${odDetailTotal}| = ${Math.abs(odAggregate - odDetailTotal)}`,
+          },
+        }],
+      });
+      factsWritten += reconResult.factsWritten;
+    }
   }
 
   factsWritten += k1Facts;
