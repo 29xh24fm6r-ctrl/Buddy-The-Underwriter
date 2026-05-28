@@ -192,7 +192,14 @@ export async function resolveCanonicalPricingContext(
   const annual_debt_service_est = toFinite(s.annual_debt_service_est);
 
   // ── Repair / create detection ──────────────────────────────────────
-  const needsRepair = dpiExists && (dpiIsInvalid || indexConflict);
+  // Stale index rate: floating loan has index_rate_pct persisted from structural
+  // pricing (not a manual lock). Must clear to null so card uses live rate.
+  const hasStaleIndexRate = dpiExists
+    && rate_type === "floating"
+    && !hasManualOverride
+    && toFinite(d.index_rate_pct) != null;
+
+  const needsRepair = dpiExists && (dpiIsInvalid || indexConflict || hasStaleIndexRate);
   const needsCreate = !dpiExists && (sp != null || lr != null);
   let repair_reason: string | null = null;
 
@@ -200,6 +207,7 @@ export async function resolveCanonicalPricingContext(
     if (isFixedNoRate) repair_reason = "rate_type=fixed with null fixed_rate_pct";
     else if (isFloatingNoIdx) repair_reason = "rate_type=floating with null index_rate_pct";
     else if (indexConflict) repair_reason = `index_code ${dpiIndex} conflicts with structural pricing ${spIndex}`;
+    else if (hasStaleIndexRate) repair_reason = "floating loan had stale structural index_rate_pct without manual lock; cleared to use live rate";
   } else if (needsCreate) {
     repair_reason = "deal_pricing_inputs missing; created from structural pricing / loan request";
   }

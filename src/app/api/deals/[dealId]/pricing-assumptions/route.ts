@@ -49,7 +49,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const row = data as Record<string, any> | null;
     const dbStillStale = !row
       || (row.rate_type === "fixed" && row.fixed_rate_pct == null && canonical.rate_type === "floating")
-      || (row.index_rate_pct == null && canonical.index_rate_pct != null);
+      || (row.index_rate_pct == null && canonical.index_rate_pct != null)
+      // Floating loan has stale structural index_rate_pct that should be null (live source)
+      || (canonical.index_rate_source === "live" && row.index_rate_pct != null);
 
     const effectiveAssumptions = dbStillStale ? {
       ...(row ?? {}),
