@@ -605,16 +605,25 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
     integrationType: "visual_only",
     activationMode: "none",
     routeParamsNeeded: ["dealId"],
-    dataDependencies: ["borrower"],
-    apiCallsExpected: [],
-    writeActionsExpected: [],
+    dataDependencies: ["deal_management_profiles"],
+    apiCallsExpected: ["/api/deals/[dealId]/memo-inputs"],
+    writeActionsExpected: [
+      "create_management_profile",
+      "update_management_profile",
+      "delete_management_profile",
+    ],
     permissionModel: "bank_member + deal_access",
     hasActivationScript: false,
     hasHistoryPanel: false,
     hasReflectionMap: false,
     interactiveType: "none",
     status: "visual_static",
-    notes: "Static Stitch design.",
+    notes:
+      "Migrated from empty-export Stitch iframe to native ManagementProfilesForm " +
+      "in BUG-BORROWER-PROFILE-STITCH-LIVE-1. Stitch layer is unused (no activation); " +
+      "interactivity is native React persisting to deal_management_profiles via " +
+      "/memo-inputs (kind: management). Export retained for slug coverage. Whitelisted " +
+      "in stitchNativeFallbackGuard MIXED_MODE_SURFACES.",
   },
   {
     key: "credit_memo_pdf_template",

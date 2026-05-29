@@ -31,6 +31,10 @@ const MIXED_MODE_SURFACES = new Set([
   // native CreditCommitteeClient (real bank-scoped deals) in
   // SPEC-COMMITTEE-READY-FLOW-1 Fix 3 — it is now a native surface by design.
   "credit_committee_view",
+  // /deals/[dealId]/borrower was migrated from an empty-export Stitch iframe to
+  // the native ManagementProfilesForm in BUG-BORROWER-PROFILE-STITCH-LIVE-1 — it
+  // is now a native interactive surface by design (no Stitch embed).
+  "borrower_profile",
   "borrower_portal",    // native token validation + Stitch embed
   "portfolio",          // native analytics dashboard + Stitch embed
   "deal_intake",        // native intake flow + Stitch embed
