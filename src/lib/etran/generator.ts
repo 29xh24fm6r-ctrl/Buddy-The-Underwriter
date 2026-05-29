@@ -9,7 +9,10 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { XMLBuilder } from "fast-xml-parser";
 import { calculateSBAGuarantee, detectSBAProgram } from "@/lib/sba/sbaGuarantee";
-import { writeEvent } from "@/lib/ledger/writeEvent";
+// `writeEvent` (and its transitive `import "server-only"`) is loaded lazily
+// inside submitETranXML so the pure mapTruthToETran / generateETranXML exports
+// stay importable under the plain node+tsx test runner (which cannot resolve
+// the server-only marker package).
 
 export interface ETranData {
   // SBA Lender Info
@@ -332,6 +335,8 @@ export async function submitETranXML(params: {
   sba_application_number?: string;
   error?: string;
 }> {
+  const { writeEvent } = await import("@/lib/ledger/writeEvent");
+
   // Log submission attempt
   await writeEvent({
     dealId: params.dealId,

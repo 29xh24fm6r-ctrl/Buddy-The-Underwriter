@@ -54,12 +54,12 @@ export async function buildBrokerageOwnerCommandCenterFromOperationalState(): Pr
   const [dealsResult, eventsResult] = await Promise.all([
     sb
       .from("deals")
-      .select("id, borrower_name, business_name, assigned_user_id, updated_at")
+      .select("id, borrower_name, business_name, created_by_user_id, updated_at")
       .order("updated_at", { ascending: false })
       .limit(200),
     sb
       .from("deal_events")
-      .select("id, deal_id, event_type, created_at, payload")
+      .select("id, deal_id, kind, created_at, payload")
       .order("created_at", { ascending: false })
       .limit(50),
   ]);

@@ -5,7 +5,7 @@
  *
  * Renders the existing CreditCommitteeClient table UI with real deals
  * scoped to the banker's current bank, replacing the prior Stitch iframe
- * that surfaced the "Project Atlas" design mock. UI is unchanged — only
+ * that surfaced a hardcoded design-mock fixture. UI is unchanged — only
  * the data source moved from iframe to native query.
  */
 import { redirect } from "next/navigation";

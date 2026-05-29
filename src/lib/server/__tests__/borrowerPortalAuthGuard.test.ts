@@ -123,35 +123,16 @@ describe("Deal assignment enforcement", () => {
 // ---------------------------------------------------------------------------
 
 describe("Seed route gating", () => {
-  it("seed route blocks production", () => {
-    const content = readFile("app/api/deals/seed/route.ts");
+  // The flat /api/deals/seed route was removed in 824c90f7 ("remove 18 dead
+  // routes to stay under Vercel 2048 cap"). A non-existent route is the
+  // strongest possible gating — there is nothing to invoke. This guard now
+  // pins that removal: if the route is ever re-introduced, the gating tests
+  // (prod-block / auth / logging) must be restored alongside it.
+  it("flat seed route stays removed (gating-by-absence)", () => {
+    const seedRoutePath = path.join(SRC_ROOT, "app/api/deals/seed/route.ts");
     assert.ok(
-      content.includes("production"),
-      "seed route must check for production environment",
-    );
-    assert.ok(
-      content.includes("404") || content.includes("403"),
-      "seed route must return 404 or 403 in production",
-    );
-  });
-
-  it("seed route requires auth in non-prod", () => {
-    const content = readFile("app/api/deals/seed/route.ts");
-    assert.ok(
-      content.includes("clerkAuth") || content.includes("requireUser"),
-      "seed route must check auth in non-prod",
-    );
-    assert.ok(
-      content.includes("401"),
-      "seed route must return 401 for unauthenticated users",
-    );
-  });
-
-  it("seed route logs invocations", () => {
-    const content = readFile("app/api/deals/seed/route.ts");
-    assert.ok(
-      content.includes("seed_route_invoked") || content.includes("seed_route_denied"),
-      "seed route must log invocation events",
+      !fs.existsSync(seedRoutePath),
+      "app/api/deals/seed/route.ts was removed in the route-cap cleanup — if re-added, restore the prod-block/auth/logging gating tests",
     );
   });
 });

@@ -21,14 +21,14 @@ export type DealRow = {
   id: string;
   borrower_name: string | null;
   business_name: string | null;
-  assigned_user_id: string | null;
+  created_by_user_id: string | null;
   updated_at: string | null;
 };
 
 export type DealEventRow = {
   id: string;
   deal_id: string;
-  event_type: string;
+  kind: string;
   created_at: string;
   payload: Record<string, unknown> | null;
 };
@@ -46,18 +46,18 @@ export function mapDealRowToRecord(row: DealRow): BrokerageDealRecord {
   return {
     dealId: row.id,
     borrowerLabel,
-    assignedTeamMemberId: row.assigned_user_id ?? null,
+    assignedTeamMemberId: row.created_by_user_id ?? null,
     lastActivityAt: row.updated_at ?? null,
   };
 }
 
 export function mapEventToActivity(row: DealEventRow): BrokerageActivityEvent {
-  const label = humanizeEventType(row.event_type);
+  const label = humanizeEventType(row.kind);
   return {
     id: row.id,
     label,
     timestamp: row.created_at,
-    category: categorizeEvent(row.event_type),
+    category: categorizeEvent(row.kind),
   };
 }
 

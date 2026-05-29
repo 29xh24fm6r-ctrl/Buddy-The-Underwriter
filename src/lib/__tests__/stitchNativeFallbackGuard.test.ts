@@ -27,6 +27,10 @@ const MIXED_MODE_SURFACES = new Set([
   "deal_command",       // panel mode inside native deal shell
   "underwrite",         // native lifecycle guards + Stitch embed
   "credit_committee",   // native layout + Stitch embed
+  // /credit/committee was intentionally migrated from a Stitch iframe to the
+  // native CreditCommitteeClient (real bank-scoped deals) in
+  // SPEC-COMMITTEE-READY-FLOW-1 Fix 3 — it is now a native surface by design.
+  "credit_committee_view",
   "borrower_portal",    // native token validation + Stitch embed
   "portfolio",          // native analytics dashboard + Stitch embed
   "deal_intake",        // native intake flow + Stitch embed
