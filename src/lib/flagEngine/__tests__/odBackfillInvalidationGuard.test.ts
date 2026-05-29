@@ -76,6 +76,16 @@ describe("BUGFIX-OD-BACKFILL-INVALIDATION-REGENERATES-AFTER-CLEANUP-1 guards", (
     assert.match(PERSIST, /auto_generated.*true/, "Must only auto-resolve auto_generated flags");
   });
 
+  test("Guard 4b: backfill rejects partial/incomplete extractions below the completeness floor", () => {
+    // Lower-bound completeness gate — a detail total materially below the
+    // aggregate (e.g. $75k vs $2.34M) is incomplete and must NOT be written
+    // (else it creates a spurious other_deductions_detail_sum_mismatch).
+    assert.match(BACKFILL, /OD_DETAIL_MIN_COMPLETENESS_RATIO/);
+    assert.match(BACKFILL, /extractedTotalValue < preCheckAggregate \* OD_DETAIL_MIN_COMPLETENESS_RATIO/);
+    assert.match(BACKFILL, /incomplete\/unreconciled/);
+    assert.match(BACKFILL, /borrower breakdown required/);
+  });
+
   test("Guard 4: backfill supersedes pre-existing live OD_DETAIL facts when gate rejects", () => {
     assert.match(
       BACKFILL,

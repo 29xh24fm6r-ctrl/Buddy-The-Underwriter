@@ -25,6 +25,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Completeness floor: a backfill detail total below this fraction of the
+// aggregate OTHER_DEDUCTIONS is treated as a partial/incomplete extraction.
+// We do not persist OD_DETAIL facts in that case — a non-reconciling total
+// would create a spurious other_deductions_detail_sum_mismatch. Mirrors the
+// 5x upper-bound noise gate on the other side.
+const OD_DETAIL_MIN_COMPLETENESS_RATIO = 0.8;
+
 type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function POST(_req: Request, ctx: Ctx) {
@@ -131,13 +138,28 @@ export async function POST(_req: Request, ctx: Ctx) {
         preCheckAggregate = aggCheck?.fact_value_num ?? null;
       }
 
-      // If aggregate exists and detail total exceeds 5x aggregate, reject as noise.
+      // Plausibility + completeness gate. The extracted detail total must sit in
+      // a believable band around the aggregate OTHER_DEDUCTIONS:
+      //   • too high (>5x aggregate) → OCR noise / garbage extraction
+      //   • too low (<80% of aggregate) → partial/incomplete extraction that
+      //     cannot reconcile (e.g. $75k detail vs $2.34M aggregate)
+      // In either case we must NOT write OD_DETAIL facts — a non-reconciling
+      // total would create a spurious other_deductions_detail_sum_mismatch — and
+      // we supersede any stale OD_DETAIL facts so flag regeneration clears prior
+      // mismatches. Invalidating facts without clearing dependent flags is the
+      // bug this route must not cause.
+      let rejectReason: string | null = null;
       if (preCheckAggregate != null && extractedTotalValue > preCheckAggregate * 5) {
-        // Do not write the invalid extraction. AND: if a prior bad run already
-        // wrote live OD_DETAIL facts for this year, supersede them now so the
-        // end-of-route flag regeneration clears any stale
-        // other_deductions_detail_sum_mismatch flag. Invalidating facts without
-        // invalidating their dependent flags is the bug this route must not cause.
+        rejectReason = `Extraction invalid: detail total ($${extractedTotalValue.toLocaleString()}) exceeds 5x aggregate ($${preCheckAggregate.toLocaleString()})`;
+      } else if (
+        preCheckAggregate != null &&
+        preCheckAggregate > 0 &&
+        extractedTotalValue < preCheckAggregate * OD_DETAIL_MIN_COMPLETENESS_RATIO
+      ) {
+        const pct = Math.round((extractedTotalValue / preCheckAggregate) * 100);
+        rejectReason = `Statement found but incomplete/unreconciled: detail total ($${extractedTotalValue.toLocaleString()}) is only ${pct}% of aggregate ($${preCheckAggregate.toLocaleString()}) — borrower breakdown required`;
+      }
+      if (rejectReason) {
         if (doc.doc_year) {
           await (sb as any)
             .from("deal_financial_facts")
@@ -156,7 +178,7 @@ export async function POST(_req: Request, ctx: Ctx) {
           detailTotal: extractedTotalValue,
           aggregate: preCheckAggregate,
           reconciled: null,
-          reason: `Extraction invalid: detail total ($${extractedTotalValue.toLocaleString()}) exceeds 5x aggregate ($${preCheckAggregate.toLocaleString()})`,
+          reason: rejectReason,
         });
         continue;
       }
