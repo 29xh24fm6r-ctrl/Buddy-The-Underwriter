@@ -12,7 +12,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { needsFinancialPeriodReview, getFinancialPeriodReviewReason } from "@/lib/documents/financialPeriodReview";
+import { needsFinancialPeriodReview } from "@/lib/documents/financialPeriodReview";
+import { enqueueFinancialPeriodReviewIfNeeded } from "@/lib/documents/enqueueFinancialPeriodReview";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,47 +85,30 @@ export async function POST(req: NextRequest) {
     }),
   );
 
-  // Fetch existing open reviews to avoid duplicates
-  const docIds = candidates.map((c: any) => c.id);
-  const { data: existingOpen } = await (sb as any)
-    .from("financial_statement_period_reviews")
-    .select("document_id")
-    .in("document_id", docIds.length > 0 ? docIds : ["__none__"])
-    .eq("status", "OPEN");
-
-  const existingDocIds = new Set(((existingOpen ?? []) as any[]).map((r: any) => r.document_id));
-
-  // Seed new review rows
-  const newRows = candidates
-    .filter((c: any) => !existingDocIds.has(c.id))
-    .map((c: any) => ({
-      deal_id: c.deal_id,
-      document_id: c.id,
-      bank_id: c.bank_id,
-      current_document_type: c.document_type ?? "UNKNOWN",
-      current_canonical_type: c.canonical_type ?? "UNKNOWN",
-      current_checklist_key: c.checklist_key,
-      current_statement_period: c.statement_period,
-      review_reason: getFinancialPeriodReviewReason({
-        canonicalType: c.canonical_type,
-        checklistKey: c.checklist_key,
-        statementPeriod: c.statement_period,
-      }) ?? "Period ambiguity detected.",
-      status: "OPEN",
-    }));
-
+  // Seed via the shared enqueue path so the admin tool and the automatic
+  // classify-path enqueue share one rule + idempotency guard.
   let seeded = 0;
-  if (newRows.length > 0) {
-    const { error: insertErr } = await (sb as any)
-      .from("financial_statement_period_reviews")
-      .insert(newRows);
-    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
-    seeded = newRows.length;
+  let alreadyOpen = 0;
+  for (const c of candidates as any[]) {
+    const res = await enqueueFinancialPeriodReviewIfNeeded(
+      {
+        dealId: c.deal_id,
+        documentId: c.id,
+        bankId: c.bank_id ?? null,
+        documentType: c.document_type ?? null,
+        canonicalType: c.canonical_type ?? null,
+        checklistKey: c.checklist_key ?? null,
+        statementPeriod: c.statement_period ?? null,
+      },
+      sb,
+    );
+    if (res.enqueued) seeded++;
+    else if (res.skipped === "already_open") alreadyOpen++;
   }
 
   return NextResponse.json({
     candidatesFound: candidates.length,
-    alreadyOpen: existingDocIds.size,
+    alreadyOpen,
     seeded,
   });
 }
