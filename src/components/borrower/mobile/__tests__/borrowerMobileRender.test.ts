@@ -292,6 +292,7 @@ test("BorrowerMobileDocumentPriorityStack hides 'see all' when not hasMore", () 
 
 test("BorrowerMobileSection renders header and aria attributes", () => {
   const html = renderToStaticMarkup(
+    // eslint-disable-next-line react/no-children-prop -- .ts test file (no JSX); BorrowerMobileSection requires `children`, which React.createElement's positional child arg does not satisfy under TS's overloads.
     React.createElement(BorrowerMobileSection, {
       title: "Activity",
       subtitle: "Recent updates",
@@ -309,6 +310,7 @@ test("BorrowerMobileSection renders header and aria attributes", () => {
 
 test("BorrowerMobileSection renders children when defaultOpen", () => {
   const html = renderToStaticMarkup(
+    // eslint-disable-next-line react/no-children-prop -- .ts test file (no JSX); BorrowerMobileSection requires `children`, which React.createElement's positional child arg does not satisfy under TS's overloads.
     React.createElement(BorrowerMobileSection, {
       title: "Activity",
       defaultOpen: true,
