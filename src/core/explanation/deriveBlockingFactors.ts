@@ -23,6 +23,7 @@ const BLOCKER_DESCRIPTIONS: Record<string, string> = {
   financial_snapshot_stale: "Financial snapshot is outdated and needs regeneration",
   financial_validation_open: "Financial validation issues are unresolved",
   financial_snapshot_build_failed: "Financial snapshot generation failed",
+  financial_period_review_open: "A financial statement's reporting period needs banker confirmation",
   identity_not_verified: "Borrower identity has not been verified",
   intake_health_below_threshold: "Intake health score is below required threshold",
 };

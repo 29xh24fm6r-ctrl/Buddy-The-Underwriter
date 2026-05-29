@@ -49,6 +49,7 @@ export function blockerGatesStage(code: LifecycleBlockerCode): LifecycleStage | 
     case "financial_snapshot_stale":
     case "financial_snapshot_build_failed":
     case "financial_validation_open":
+    case "financial_period_review_open":
     case "missing_dscr":
     case "missing_global_cash_flow":
     case "missing_debt_service_facts":
