@@ -195,6 +195,32 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
 
       // Reconcile checklist now that we have year/type.
       await reconcileChecklistForDeal({ sb: supabase as any, dealId: args.dealId });
+
+      // SPEC-FINANCIAL-PERIOD-REVIEW-QUEUE-ENQUEUE-1:
+      // If this is a financial statement whose reporting period could not be
+      // resolved (generic / missing checklist_key), enqueue an OPEN period review
+      // so a banker can confirm CURRENT/HISTORICAL (BS) or YTD/ANNUAL (IS).
+      // Idempotent and non-fatal — uses the freshly computed canonical_type /
+      // checklist_key / statementPeriod, the authoritative current resolution.
+      try {
+        const { enqueueFinancialPeriodReviewIfNeeded } = await import(
+          "@/lib/documents/enqueueFinancialPeriodReview"
+        );
+        await enqueueFinancialPeriodReviewIfNeeded(
+          {
+            dealId: args.dealId,
+            documentId: args.attachmentId,
+            bankId: (docRes.data as any)?.bank_id ?? null,
+            documentType,
+            canonicalType: canonical_type,
+            checklistKey: checklist_key,
+            statementPeriod,
+          },
+          supabase as any,
+        );
+      } catch {
+        // best-effort; never fail job
+      }
     } catch {
       // best-effort; never fail job
     }
