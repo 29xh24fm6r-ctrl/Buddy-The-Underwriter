@@ -155,7 +155,7 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
             placeholder="Paste transcript here..."
-            className="mb-2 w-full rounded-md border border-amber-300 bg-white p-3 text-sm focus:border-amber-500 focus:outline-none"
+            className="mb-2 w-full rounded-md border border-amber-300 bg-white p-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-amber-500 focus:outline-none"
           />
           <button
             type="button"
@@ -184,10 +184,10 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
               onChange={(e) =>
                 setValues((s) => ({ ...s, [f.key]: e.target.value }))
               }
-              className={`w-full rounded-md border p-2 text-sm focus:outline-none ${
+              className={`w-full rounded-md border p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none ${
                 aiSuggestedKeys.has(f.key)
                   ? "border-amber-400 bg-amber-50 focus:border-amber-600"
-                  : "border-gray-300 focus:border-gray-500"
+                  : "border-gray-300 bg-white focus:border-gray-500"
               }`}
             />
             {f.hint ? (

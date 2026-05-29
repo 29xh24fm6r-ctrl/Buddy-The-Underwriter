@@ -263,7 +263,7 @@ function Input(props: {
         type={props.type ?? "text"}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-gray-500 focus:outline-none"
+        className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-500 focus:outline-none"
       />
     </label>
   );
@@ -281,7 +281,7 @@ function Textarea(props: {
         rows={2}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-gray-500 focus:outline-none"
+        className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-500 focus:outline-none"
       />
     </label>
   );
