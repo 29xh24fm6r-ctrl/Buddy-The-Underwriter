@@ -671,6 +671,27 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
+  // Financial statement period review gate — an unresolved reporting period
+  // (generic/missing checklist_key on a BS/P&L) means the statement cannot be
+  // reliably spread, so it gates underwrite readiness. Cheap indexed count;
+  // emitted whenever an OPEN review exists. Never throws.
+  try {
+    const { count: openPeriodReviews } = await (sb as any)
+      .from("financial_statement_period_reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("status", "OPEN");
+    if ((openPeriodReviews ?? 0) > 0) {
+      blockers.push({
+        code: "financial_period_review_open",
+        message: `${openPeriodReviews} financial statement period review(s) require period confirmation (CURRENT/HISTORICAL or YTD/ANNUAL) before underwriting`,
+        evidence: { openPeriodReviewCount: openPeriodReviews },
+      });
+    }
+  } catch {
+    // Non-fatal — period review gate failure must never block lifecycle derivation
+  }
+
   // Gatekeeper blocker telemetry — fire-and-forget, always emit when present
   if (deal.bank_id) {
     const gkBlockers = blockers.filter(

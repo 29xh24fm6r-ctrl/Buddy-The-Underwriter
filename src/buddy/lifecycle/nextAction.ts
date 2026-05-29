@@ -449,6 +449,12 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/financial-validation`,
       };
 
+    case "financial_period_review_open":
+      return {
+        label: "Confirm statement periods",
+        href: `/deals/${dealId}/documents`,
+      };
+
     case "critical_flags_unresolved":
       return {
         label: "Review critical risk flags",

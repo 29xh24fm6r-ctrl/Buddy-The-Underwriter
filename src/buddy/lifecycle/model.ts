@@ -82,6 +82,9 @@ export type LifecycleBlockerCode =
   | "financial_snapshot_stale"
   | "financial_validation_open"
   | "financial_snapshot_build_failed"
+  // Financial statement period review — unresolved BS/P&L reporting period
+  // (generic/missing checklist_key) awaiting banker confirmation
+  | "financial_period_review_open"
   // Critical risk flags blocker — emitted when unresolved critical flags exist
   | "critical_flags_unresolved"
   // Borrower is REQUIRED for every deal — no cockpit without it
