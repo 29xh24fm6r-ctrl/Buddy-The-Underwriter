@@ -131,8 +131,24 @@ export async function POST(_req: Request, ctx: Ctx) {
         preCheckAggregate = aggCheck?.fact_value_num ?? null;
       }
 
-      // If aggregate exists and detail total exceeds 5x aggregate, reject as noise
+      // If aggregate exists and detail total exceeds 5x aggregate, reject as noise.
       if (preCheckAggregate != null && extractedTotalValue > preCheckAggregate * 5) {
+        // Do not write the invalid extraction. AND: if a prior bad run already
+        // wrote live OD_DETAIL facts for this year, supersede them now so the
+        // end-of-route flag regeneration clears any stale
+        // other_deductions_detail_sum_mismatch flag. Invalidating facts without
+        // invalidating their dependent flags is the bug this route must not cause.
+        if (doc.doc_year) {
+          await (sb as any)
+            .from("deal_financial_facts")
+            .update({ is_superseded: true, resolution_status: "system_invalidated" })
+            .eq("deal_id", dealId)
+            .eq("bank_id", bankId)
+            .like("fact_key", "OD_DETAIL%")
+            .eq("is_superseded", false)
+            .gte("fact_period_end", `${doc.doc_year}-01-01`)
+            .lte("fact_period_end", `${doc.doc_year}-12-31`);
+        }
         results.push({
           documentId: doc.id,
           year: doc.doc_year,
