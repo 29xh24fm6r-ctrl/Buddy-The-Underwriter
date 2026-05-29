@@ -6,18 +6,14 @@ import path from "node:path";
 const routePath = (relativePath: string) =>
   path.resolve(process.cwd(), relativePath);
 
-test("builder verify and meta routes are registered", () => {
+// The builder/* verification harness (verify/underwrite, stitch/audit,
+// token/status, deals mint/make-ready/decision/financial-snapshot/seed-intake,
+// builder document uploads, and the _builder upload alias) was removed as
+// dead/unreferenced routes in 824c90f7 and f4132ceb to stay under the Vercel
+// route cap. This guard now pins the surviving meta + banker entry routes and
+// the canonical underwriting pages that must remain registered.
+test("meta + banker entry routes and underwriting pages are registered", () => {
   const buildRoute = routePath("src/app/api/_meta/build/route.ts");
-  const verifyRoute = routePath("src/app/api/builder/verify/underwrite/route.ts");
-  const stitchAuditRoute = routePath("src/app/api/builder/stitch/audit/route.ts");
-  const builderTokenStatus = routePath("src/app/api/builder/token/status/route.ts");
-  const builderMint = routePath("src/app/api/builder/deals/mint/route.ts");
-  const builderMakeReady = routePath("src/app/api/builder/deals/make-ready/route.ts");
-  const builderDecisionLatest = routePath("src/app/api/builder/deals/[dealId]/decision/latest/route.ts");
-  const builderFinancialDecision = routePath("src/app/api/builder/deals/[dealId]/financial-snapshot/decision/route.ts");
-  const builderSeedIntake = routePath("src/app/api/builder/deals/[dealId]/seed-intake/route.ts");
-  const builderUpload = routePath("src/app/api/builder/deals/[dealId]/documents/upload/route.ts");
-  const builderUploadAlias = routePath("src/app/api/_builder/deals/[dealId]/documents/upload/route.ts");
   const bankerInitIntake = routePath("src/app/api/deals/[dealId]/intake/init/route.ts");
   const nextStepRoute = routePath("src/app/api/deals/[dealId]/next-step/route.ts");
   const commandPage = routePath("src/app/(app)/deals/[dealId]/command/page.tsx");
@@ -27,16 +23,6 @@ test("builder verify and meta routes are registered", () => {
   const committeePage = routePath("src/app/(app)/deals/[dealId]/committee/page.tsx");
 
   assert.ok(fs.existsSync(buildRoute));
-  assert.ok(fs.existsSync(verifyRoute));
-  assert.ok(fs.existsSync(stitchAuditRoute));
-  assert.ok(fs.existsSync(builderTokenStatus));
-  assert.ok(fs.existsSync(builderMint));
-  assert.ok(fs.existsSync(builderMakeReady));
-  assert.ok(fs.existsSync(builderDecisionLatest));
-  assert.ok(fs.existsSync(builderFinancialDecision));
-  assert.ok(fs.existsSync(builderSeedIntake));
-  assert.ok(fs.existsSync(builderUpload));
-  assert.ok(fs.existsSync(builderUploadAlias));
   assert.ok(fs.existsSync(bankerInitIntake));
   assert.ok(fs.existsSync(nextStepRoute));
   assert.ok(fs.existsSync(commandPage));

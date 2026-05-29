@@ -155,23 +155,10 @@ test("forwarder core: returns ForwardResult with required fields", async () => {
 
 // ─── Route auth structural tests ────────────────────────────────────────────
 
-test("forward-ledger route: Bearer-only auth, no WORKER_SECRET", async () => {
-  const fs = await import("node:fs");
-  const source = fs.readFileSync("src/app/api/pulse/forward-ledger/route.ts", "utf-8");
-
-  assert.ok(
-    source.includes("PULSE_FORWARDER_TOKEN"),
-    "Must check PULSE_FORWARDER_TOKEN",
-  );
-  assert.ok(
-    !source.includes("WORKER_SECRET"),
-    "Must NOT reference WORKER_SECRET",
-  );
-  assert.ok(
-    !source.includes('searchParams.get("token")'),
-    "Must NOT check query param token",
-  );
-});
+// NOTE: the standalone `forward-ledger/route.ts` (Bearer/PULSE_FORWARDER_TOKEN)
+// and `forward-ledger/health/route.ts` endpoints were removed in 824c90f7
+// (dead-route cleanup to stay under the Vercel route cap). The forwarder is now
+// cron-only via `cron-forward-ledger/route.ts`, whose auth is asserted below.
 
 test("cron-forward-ledger route: uses CRON_SECRET, no query params", async () => {
   const fs = await import("node:fs");
@@ -185,19 +172,6 @@ test("cron-forward-ledger route: uses CRON_SECRET, no query params", async () =>
     source.includes("forwardLedgerBatch"),
     "Must call shared core function",
   );
-});
-
-test("health route: returns health metrics and checks degraded thresholds", async () => {
-  const fs = await import("node:fs");
-  const source = fs.readFileSync("src/app/api/pulse/forward-ledger/health/route.ts", "utf-8");
-
-  assert.ok(source.includes("backlog_unforwarded"), "Must report unforwarded backlog");
-  assert.ok(source.includes("backlog_claimed"), "Must report claimed count");
-  assert.ok(source.includes("deadlettered"), "Must report deadlettered count");
-  assert.ok(source.includes("failed_last_hour"), "Must report recent failures");
-  assert.ok(source.includes("max_attempts_seen"), "Must report max attempts");
-  assert.ok(source.includes("emitObserverEvent"), "Must emit degraded signal");
-  assert.ok(source.includes("pulse.forwarder"), "Degraded signal must reference pulse.forwarder");
 });
 
 // ─── Idempotency structural test ────────────────────────────────────────────

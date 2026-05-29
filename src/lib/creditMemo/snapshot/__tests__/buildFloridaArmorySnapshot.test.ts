@@ -92,7 +92,7 @@ function buildMemoFixture(opts: {
     risk_factors: [],
     strengths_weaknesses: { strengths: [], weaknesses: [] },
     policy_exceptions: [],
-    proposed_terms: { product: "CRE_TERM" },
+    proposed_terms: { product: "CRE_TERM", rate: { all_in_rate: 0.085 }, rationale: "fixture rationale" },
     conditions: { precedent: [], ongoing: [], insurance: [] },
     recommendation: { verdict: "approve", exceptions: [] },
     stress_testing: null,

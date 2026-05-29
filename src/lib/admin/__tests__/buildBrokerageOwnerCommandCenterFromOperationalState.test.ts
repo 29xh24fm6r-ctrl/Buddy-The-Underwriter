@@ -34,7 +34,7 @@ test("mapDealRowToRecord maps business_name as borrowerLabel", () => {
     id: "deal-001",
     borrower_name: "John Doe",
     business_name: "Acme Corp",
-    assigned_user_id: "user-1",
+    created_by_user_id: "user-1",
     updated_at: "2026-05-20T12:00:00Z",
   };
   const record = mapDealRowToRecord(row);
@@ -49,7 +49,7 @@ test("mapDealRowToRecord falls back to borrower_name when business_name empty", 
     id: "deal-002",
     borrower_name: "Jane Smith",
     business_name: "",
-    assigned_user_id: null,
+    created_by_user_id: null,
     updated_at: null,
   };
   const record = mapDealRowToRecord(row);
@@ -63,7 +63,7 @@ test("mapDealRowToRecord uses 'Unnamed deal' when both names missing", () => {
     id: "deal-003",
     borrower_name: null,
     business_name: null,
-    assigned_user_id: null,
+    created_by_user_id: null,
     updated_at: null,
   };
   const record = mapDealRowToRecord(row);
@@ -78,7 +78,7 @@ test("mapEventToActivity maps event row to activity event", () => {
   const row: DealEventRow = {
     id: "evt-001",
     deal_id: "deal-001",
-    event_type: "borrower_document_uploaded",
+    kind: "borrower_document_uploaded",
     created_at: "2026-05-20T14:00:00Z",
     payload: null,
   };

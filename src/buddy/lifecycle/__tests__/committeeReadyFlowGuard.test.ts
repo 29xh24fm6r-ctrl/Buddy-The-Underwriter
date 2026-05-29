@@ -93,7 +93,7 @@ test("Fix 3: /credit/committee no longer renders StitchSurface; queries deals na
   assert.doesNotMatch(
     src,
     /StitchSurface/,
-    "Stitch iframe was the source of fixture 'Project Atlas' data — must be removed",
+    "Stitch iframe was the source of hardcoded mock fixture data — must be removed",
   );
   assert.match(
     src,

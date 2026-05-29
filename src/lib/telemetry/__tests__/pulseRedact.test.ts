@@ -232,11 +232,17 @@ test("kill switch: forwarder core includes PULSE_TELEMETRY_ENABLED check", async
 
 test("kill switch: forwarder route requires authorization", async () => {
   const fs = await import("node:fs");
-  const routeSource = fs.readFileSync("src/app/api/pulse/forward-ledger/route.ts", "utf-8");
+  // Forwarder moved to a Vercel Cron entry point (824c90f7): no secrets in
+  // the URL, auth via the CRON_SECRET Bearer token instead of the old
+  // PULSE_FORWARDER_TOKEN query/header check.
+  const routeSource = fs.readFileSync(
+    "src/app/api/pulse/cron-forward-ledger/route.ts",
+    "utf-8",
+  );
 
   assert.ok(
-    routeSource.includes("PULSE_FORWARDER_TOKEN"),
-    "Route must check PULSE_FORWARDER_TOKEN",
+    routeSource.includes("CRON_SECRET"),
+    "Route must check CRON_SECRET",
   );
   assert.ok(
     routeSource.includes("Unauthorized"),
