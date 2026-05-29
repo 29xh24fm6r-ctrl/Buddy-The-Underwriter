@@ -65,7 +65,12 @@ async function loadCanonicalFacts(
       .select("fact_key, fact_value_num, fact_value_text, fact_period_end")
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
-      .neq("resolution_status", "rejected");
+      // Exclude invalidated facts. `system_invalidated` must be excluded even
+      // when is_superseded was left false (e.g. an upsert reset the flag without
+      // clearing the status) — otherwise a stale/partial invalidated fact can
+      // re-enter the engine and re-trigger flags (e.g. other_deductions_detail_sum_mismatch).
+      .neq("resolution_status", "rejected")
+      .neq("resolution_status", "system_invalidated");
 
     if (error || !data) {
       console.warn("[buildFlagEngineInput] facts query failed", { dealId, error: error?.message });
