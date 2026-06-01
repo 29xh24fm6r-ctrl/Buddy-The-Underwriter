@@ -37,17 +37,18 @@ test("form accepts a returnToMemoInputsHref prop (context-aware CTA)", () => {
 
 test("CTA is gated on a successful save and the href being provided", () => {
   const src = read(FORM);
+  // SPEC-BORROWER-PROFILE-CONTINUE-CTA-VISIBLE-1: gating is now per-row (the
+  // row's own saved status), not a global savedOnce latch — see the dedicated
+  // placement guard (borrowerProfileContinueCtaPlacement.test.ts) for layout.
   assert.ok(
-    /savedOnce/.test(src),
-    "must track whether at least one save succeeded",
+    /statusByKey\[p\.id\]\?\.state\s*===\s*"saved"/.test(src),
+    "CTA must render only for a row whose own status is saved",
   );
   assert.ok(
-    /setSavedOnce\(true\)/.test(src),
-    "must latch savedOnce on successful save",
-  );
-  assert.ok(
-    /returnToMemoInputsHref\s*&&\s*savedOnce/.test(src),
-    "CTA must render only when href is provided AND a save has succeeded",
+    /returnToMemoInputsHref\s*&&[\s\S]{0,80}statusByKey\[p\.id\]\?\.state\s*===\s*"saved"/.test(
+      src,
+    ),
+    "CTA must require the href AND that row being saved",
   );
 });
 

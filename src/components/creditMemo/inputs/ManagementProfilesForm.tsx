@@ -81,10 +81,6 @@ export default function ManagementProfilesForm({
   const [error, setError] = useState<string | null>(null);
   // Keyed by profile id for saved rows, DRAFT_KEY for the add-new card.
   const [statusByKey, setStatusByKey] = useState<Record<string, SaveStatus>>({});
-  // SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: latches true after the first
-  // successful save so the continue CTA persists while the banker keeps editing
-  // or adds further sponsors/guarantors (we do not auto-redirect).
-  const [savedOnce, setSavedOnce] = useState(false);
 
   function setStatus(key: string, status: SaveStatus) {
     setStatusByKey((prev) => ({ ...prev, [key]: status }));
@@ -134,7 +130,6 @@ export default function ManagementProfilesForm({
       setDraft(EMPTY_DRAFT);
       clearStatus(DRAFT_KEY);
       if (saved.id) setStatus(saved.id, { state: "saved", at: nowLocalTime() });
-      setSavedOnce(true);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
@@ -163,7 +158,6 @@ export default function ManagementProfilesForm({
         p.map((cur, i) => (i === idx ? toDraft(json.profile) : cur)),
       );
       setStatus(key, { state: "saved", at: nowLocalTime() });
-      setSavedOnce(true);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
@@ -241,11 +235,11 @@ export default function ManagementProfilesForm({
                 Remove
               </button>
               <SaveStatusBadge status={p.id ? statusByKey[p.id] : undefined} />
-              {/* SPEC-BORROWER-PROFILE-CONTINUE-CTA-PLACEMENT-1: surface the
-                  continue CTA in the SAME action row as the just-saved status,
-                  so the banker sees the next step without scrolling past the
-                  Add-new card. Gated on returnToMemoInputsHref so embedded Memo
-                  Inputs never shows it. */}
+              {/* SPEC-BORROWER-PROFILE-CONTINUE-CTA-VISIBLE-1: the continue CTA
+                  is the SOLE CTA (no bottom/global duplicate). It renders in the
+                  SAME action row as the just-saved status so the banker sees the
+                  next step without scrolling. Gated on returnToMemoInputsHref so
+                  the embedded Memo Inputs section never shows it. */}
               {returnToMemoInputsHref &&
               p.id &&
               statusByKey[p.id]?.state === "saved" ? (
@@ -274,19 +268,6 @@ export default function ManagementProfilesForm({
             {error ? <span className="text-xs text-rose-700">{error}</span> : null}
           </div>
         </div>
-
-        {/* SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: secondary, always-visible
-            continue banner once any save has succeeded. The primary CTA now lives
-            inline in the saved profile's action row (placement spec); this remains
-            as a persistent fallback. Only on the standalone borrower page. */}
-        {returnToMemoInputsHref && savedOnce ? (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
-            <span className="text-sm text-emerald-900">
-              Profile saved. You can add another sponsor/guarantor, or continue.
-            </span>
-            <ContinueCtaLink href={returnToMemoInputsHref} />
-          </div>
-        ) : null}
       </div>
     </section>
   );
