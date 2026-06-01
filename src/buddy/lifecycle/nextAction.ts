@@ -330,7 +330,11 @@ export function getBlockerFixAction(
     case "missing_research_quality_gate":
       return {
         label: "Run research",
-        href: `/deals/${dealId}/research`,
+        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
+        // not exist (404). Route to the canonical /underwrite page — the same
+        // destination memo readiness uses for missing_research_quality_gate — so
+        // both layers agree on one existing route.
+        href: `/deals/${dealId}/underwrite`,
       };
 
     case "open_fact_conflicts":
@@ -388,7 +392,11 @@ export function getBlockerFixAction(
     case "research_stalled":
       return {
         label: "Run research",
-        href: `/deals/${dealId}/research`,
+        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
+        // not exist (404). Route to the canonical /underwrite page — the same
+        // destination memo readiness uses for missing_research_quality_gate — so
+        // both layers agree on one existing route.
+        href: `/deals/${dealId}/underwrite`,
       };
 
     case "financial_snapshot_stale_recovery":
