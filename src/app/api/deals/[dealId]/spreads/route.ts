@@ -71,7 +71,13 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error, error_code, error_details_json, owner_type, owner_entity_id")
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId)
-      .neq("error_code", "SUPERSEDED_BY_NEWER_VERSION");
+      // SPEC-SPREADS-GET-NULL-ERROR-CODE-FILTER-1: null-safe supersession filter.
+      // A bare not-equal on error_code drops rows where error_code IS NULL
+      // (PostgREST/SQL: NULL != x is unknown → excluded), which hides every
+      // healthy queued/generating/ready row (their error_code is null) — so the
+      // GCF page never saw its own queued row. Keep null + non-superseded rows;
+      // exclude only rows explicitly marked superseded.
+      .or("error_code.is.null,error_code.neq.SUPERSEDED_BY_NEWER_VERSION");
 
     if (types.length) {
       q = q.in("spread_type", types);
