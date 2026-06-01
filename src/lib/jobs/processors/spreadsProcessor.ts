@@ -1024,7 +1024,12 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           dealId,
           bankId,
           spreadType: "GLOBAL_CASH_FLOW" as SpreadType,
-          ownerType: ownerType ?? "DEAL",
+          // SPEC-GCF-RECOMPUTE-OWNER-TYPE-PARITY-1: resolve to the canonical
+          // owner_type (GLOBAL for GCF), matching the placeholder and the CAS
+          // claim. renderSpread persists owner_type RAW, so passing the
+          // unresolved job-meta ownerType ("DEAL") here wrote a stale DEAL-owned
+          // GCF row and left the canonical GLOBAL row stuck queued/generating.
+          ownerType: resolveOwnerType("GLOBAL_CASH_FLOW" as SpreadType, ownerType),
           ownerEntityId: ownerEntityId,
         });
         if ((secondRender as any).ok) {
