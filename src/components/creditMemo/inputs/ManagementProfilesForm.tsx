@@ -1,11 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { DealManagementProfile } from "@/lib/creditMemo/inputs/types";
 
 type Props = {
   dealId: string;
   initial: DealManagementProfile[];
+  /**
+   * SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: when set, a "Return to Memo
+   * Inputs" continue CTA appears after a successful save so the banker is
+   * guided forward instead of stranded on a completed sub-task. The standalone
+   * borrower page passes this; the embedded Memo Inputs section omits it (the
+   * banker is already on Memo Inputs there, so the CTA would be redundant).
+   */
+  returnToMemoInputsHref?: string;
 };
 
 type DraftProfile = {
@@ -59,7 +68,11 @@ function nowLocalTime(): string {
   return new Date().toLocaleTimeString();
 }
 
-export default function ManagementProfilesForm({ dealId, initial }: Props) {
+export default function ManagementProfilesForm({
+  dealId,
+  initial,
+  returnToMemoInputsHref,
+}: Props) {
   const [profiles, setProfiles] = useState<DraftProfile[]>(() =>
     initial.map(toDraft),
   );
@@ -68,6 +81,10 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
   const [error, setError] = useState<string | null>(null);
   // Keyed by profile id for saved rows, DRAFT_KEY for the add-new card.
   const [statusByKey, setStatusByKey] = useState<Record<string, SaveStatus>>({});
+  // SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: latches true after the first
+  // successful save so the continue CTA persists while the banker keeps editing
+  // or adds further sponsors/guarantors (we do not auto-redirect).
+  const [savedOnce, setSavedOnce] = useState(false);
 
   function setStatus(key: string, status: SaveStatus) {
     setStatusByKey((prev) => ({ ...prev, [key]: status }));
@@ -117,6 +134,7 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
       setDraft(EMPTY_DRAFT);
       clearStatus(DRAFT_KEY);
       if (saved.id) setStatus(saved.id, { state: "saved", at: nowLocalTime() });
+      setSavedOnce(true);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
@@ -145,6 +163,7 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
         p.map((cur, i) => (i === idx ? toDraft(json.profile) : cur)),
       );
       setStatus(key, { state: "saved", at: nowLocalTime() });
+      setSavedOnce(true);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
@@ -245,6 +264,24 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
             {error ? <span className="text-xs text-rose-700">{error}</span> : null}
           </div>
         </div>
+
+        {/* SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: guide the banker forward
+            after a successful save. Only rendered on the standalone borrower page
+            (where returnToMemoInputsHref is provided), never in the embedded Memo
+            Inputs section. */}
+        {returnToMemoInputsHref && savedOnce ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
+            <span className="text-sm text-emerald-900">
+              Profile saved. You can add another sponsor/guarantor, or continue.
+            </span>
+            <Link
+              href={returnToMemoInputsHref}
+              className="inline-flex shrink-0 items-center rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
+            >
+              Return to Memo Inputs
+            </Link>
+          </div>
+        ) : null}
       </div>
     </section>
   );

@@ -75,6 +75,7 @@ export default async function BorrowerProfilePage(props: {
           <ManagementProfilesForm
             dealId={dealId}
             initial={result.package.management_profiles}
+            returnToMemoInputsHref={`/deals/${dealId}/memo-inputs`}
           />
         )}
       </div>
