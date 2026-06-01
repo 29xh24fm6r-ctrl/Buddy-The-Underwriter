@@ -33,13 +33,12 @@ test("loadRequiredFinancialFacts sources keys from CANONICAL_FACTS registry", ()
     "buildMemoInputPackage.ts must import CANONICAL_FACTS",
   );
 
-  // Must use CANONICAL_FACTS.DSCR.fact_key (and the other three) somewhere in
-  // the file. Each of these substrings is sufficient evidence that the reader
-  // is parameterised by the registry rather than a hardcoded string literal.
+  // Must use CANONICAL_FACTS.<KEY>.fact_key for the registry-sourced facts.
+  // Each of these substrings is sufficient evidence that the reader is
+  // parameterised by the registry rather than a hardcoded string literal.
   for (const ref of [
     "CANONICAL_FACTS.DSCR.fact_key",
     "CANONICAL_FACTS.ANNUAL_DEBT_SERVICE.fact_key",
-    "CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key",
     "CANONICAL_FACTS.BANK_LOAN_TOTAL.fact_key",
   ]) {
     assert.ok(
@@ -47,6 +46,23 @@ test("loadRequiredFinancialFacts sources keys from CANONICAL_FACTS registry", ()
       `buildMemoInputPackage.ts must reference ${ref}`,
     );
   }
+
+  // SPEC-GCF-SOURCE-OF-TRUTH-1: GCF now goes through the canonical fact-key
+  // contract (GCF_GLOBAL_CASH_FLOW preferred, GLOBAL_CASH_FLOW legacy fallback)
+  // via resolveGcfFactValue — NOT the bare legacy registry key. This keeps
+  // readiness in agreement with the credit memo / snapshot.
+  assert.ok(
+    src.includes("resolveGcfFactValue"),
+    "buildMemoInputPackage.ts must resolve GCF through the canonical contract",
+  );
+  assert.ok(
+    /globalCashFlow:\s*GCF_CANONICAL_FACT_KEY/.test(src),
+    "GCF must key on the canonical GCF_GLOBAL_CASH_FLOW (via GCF_CANONICAL_FACT_KEY)",
+  );
+  assert.ok(
+    !/globalCashFlow:\s*CANONICAL_FACTS\.GLOBAL_CASH_FLOW\.fact_key/.test(src),
+    "GCF must no longer read ONLY the legacy GLOBAL_CASH_FLOW registry key",
+  );
 
   // Must NOT hardcode lowercase fact keys in an .in() clause for fact_key.
   // This rejects the regression: .in("fact_key", ["dscr", ...]).
@@ -70,4 +86,24 @@ test("CANONICAL_FACTS registry has the four required entries with uppercase fact
       `CANONICAL_FACTS registry must define ${key} with fact_key: "${key}"`,
     );
   }
+});
+
+test("canonical GCF key constant matches the registry (no drift)", () => {
+  // The pure selector defines GCF_CANONICAL_FACT_KEY; it must equal the
+  // registry's GCF_GLOBAL_CASH_FLOW.fact_key so the contract can't silently drift.
+  const core = readFileSync(
+    resolve(process.cwd(), "src/lib/financialFacts/canonicalGcfCore.ts"),
+    "utf8",
+  );
+  const registry = readFileSync(REGISTRY_PATH, "utf8");
+  assert.match(
+    core,
+    /GCF_CANONICAL_FACT_KEY\s*=\s*["']GCF_GLOBAL_CASH_FLOW["']/,
+    "canonical GCF key constant must be GCF_GLOBAL_CASH_FLOW",
+  );
+  assert.match(
+    registry,
+    /GCF_GLOBAL_CASH_FLOW:\s*\{[^}]*fact_key:\s*["']GCF_GLOBAL_CASH_FLOW["']/,
+    "registry must define GCF_GLOBAL_CASH_FLOW with matching fact_key",
+  );
 });

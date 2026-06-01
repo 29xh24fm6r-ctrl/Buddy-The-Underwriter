@@ -10,6 +10,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
+import { sumGcfPersonalIncome } from "@/lib/financialSpreads/gcfPersonalIncome";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
 import {
@@ -242,12 +243,14 @@ export async function persistGlobalCashFlow(args: {
         usableEntityRows.find((e: any) => e.id === ownerId)?.name ??
         "Sponsor";
 
-      const totalPersonalIncome = findFact({
-        factType: "PERSONAL_INCOME",
-        factKey: "TOTAL_PERSONAL_INCOME",
-        ownerType: "PERSONAL",
+      // SPEC-GCF-SOURCE-OF-TRUTH-1: derive personal income from the SAME
+      // K-1-excluded component build-up the GCF spread template uses, instead of
+      // the AGI aggregate TOTAL_PERSONAL_INCOME which double-counts business
+      // pass-through/K-1 income. Shared list guarantees the pure-function value
+      // matches the rendered spread.
+      const totalPersonalIncome = sumGcfPersonalIncome(facts, {
         ownerEntityId: ownerId,
-      });
+      }).value;
 
       // Personal obligations from PFS
       const personalObligations = findFact({

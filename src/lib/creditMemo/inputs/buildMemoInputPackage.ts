@@ -18,6 +18,12 @@ import { writeMemoInputReadinessRow } from "./writeMemoInputReadiness";
 import { migrateLegacyOverridesToCanonical } from "./migrateLegacyOverridesAsync";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
+import {
+  resolveGcfFactValue,
+  GCF_CANONICAL_FACT_KEY,
+  GCF_LEGACY_FACT_KEY,
+  type GcfFactRow,
+} from "@/lib/financialFacts/canonicalGcfCore";
 import type {
   DealBorrowerStory,
   DealCollateralItem,
@@ -274,7 +280,12 @@ async function loadCollateralItems(
 const REQUIRED_FACT_KEYS = {
   dscr: CANONICAL_FACTS.DSCR.fact_key,
   annualDebtService: CANONICAL_FACTS.ANNUAL_DEBT_SERVICE.fact_key,
-  globalCashFlow: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key,
+  // SPEC-GCF-SOURCE-OF-TRUTH-1: readiness now prefers the canonical
+  // GCF_GLOBAL_CASH_FLOW key (what the credit memo / snapshot read), falling
+  // back to the legacy GLOBAL_CASH_FLOW alias. Previously this read ONLY the
+  // legacy key, which the render path never refreshes — so readiness could
+  // diverge from the credit memo. Resolution goes through resolveGcfFactValue.
+  globalCashFlow: GCF_CANONICAL_FACT_KEY,
   loanAmount: CANONICAL_FACTS.BANK_LOAN_TOTAL.fact_key,
 } as const;
 
@@ -283,23 +294,26 @@ async function loadRequiredFinancialFacts(
   dealId: string,
   bankId: string,
 ): Promise<RequiredFinancialFacts> {
-  const queryKeys = Object.values(REQUIRED_FACT_KEYS);
+  const queryKeys = [...Object.values(REQUIRED_FACT_KEYS), GCF_LEGACY_FACT_KEY];
 
   const { data } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end, created_at")
+    .select("fact_key, fact_value_num, owner_type, fact_period_end, created_at")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("is_superseded", false)
     .in("fact_key", queryKeys);
 
-  // Pick the most recent value per fact_key.
-  const latest = new Map<string, { value: number | null; recorded: string }>();
-  for (const r of (data ?? []) as Array<{
+  const rows = (data ?? []) as Array<{
     fact_key: string;
     fact_value_num: number | null;
+    owner_type: string | null;
     created_at: string | null;
-  }>) {
+  }>;
+
+  // Pick the most recent value per fact_key (used for the non-GCF facts).
+  const latest = new Map<string, { value: number | null; recorded: string }>();
+  for (const r of rows) {
     const recorded = r.created_at ?? "";
     const cur = latest.get(r.fact_key);
     if (!cur || recorded > cur.recorded) {
@@ -307,10 +321,13 @@ async function loadRequiredFinancialFacts(
     }
   }
 
+  // GCF: canonical-key-preferred resolution with legacy fallback (single contract).
+  const gcf = resolveGcfFactValue(rows as GcfFactRow[]);
+
   return {
     dscr: latest.get(REQUIRED_FACT_KEYS.dscr)?.value ?? null,
     annualDebtService: latest.get(REQUIRED_FACT_KEYS.annualDebtService)?.value ?? null,
-    globalCashFlow: latest.get(REQUIRED_FACT_KEYS.globalCashFlow)?.value ?? null,
+    globalCashFlow: gcf.value,
     loanAmount: latest.get(REQUIRED_FACT_KEYS.loanAmount)?.value ?? null,
   };
 }
