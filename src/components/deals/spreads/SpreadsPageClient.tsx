@@ -31,6 +31,12 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
   const [pricingRequired, setPricingRequired] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isClassicExporting, setIsClassicExporting] = useState(false);
+  // SPEC-SPREADS-ROOT-GCF-REDIRECT-OR-BANNER-1: the generic /spreads page opens
+  // on Executive Summary and can strand a banker while GCF is still required.
+  // Detect the live memo-readiness blocker and surface an above-the-fold CTA
+  // that deep-links to the dedicated Global Cash Flow page. Read-only; never
+  // mutates readiness. Fail-open (no banner) on any fetch error.
+  const [gcfBlocked, setGcfBlocked] = useState(false);
   const downloadRef = useRef<HTMLAnchorElement>(null);
 
   const fetchReport = useCallback(async () => {
@@ -99,6 +105,29 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) return; // fail-open: no banner
+        const blockers = json.package?.readiness?.blockers;
+        const blocked =
+          Array.isArray(blockers) &&
+          blockers.some((b: { code?: string }) => b?.code === "missing_global_cash_flow");
+        if (!cancelled) setGcfBlocked(blocked);
+      } catch {
+        // fail-open: never surface the banner on a transient error
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dealId]);
 
   return (
     <div className="flex flex-col min-h-screen bg-white">
@@ -201,6 +230,35 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
       {/* ── Main Content ─────────────────────────────────────────────── */}
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-[1400px]">
+          {/* SPEC-SPREADS-ROOT-GCF-REDIRECT-OR-BANNER-1: above-the-fold GCF
+              required banner — shown regardless of which tab/report state the
+              page is in, so the banker is never stranded on Executive Summary. */}
+          {gcfBlocked && (
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-[22px] text-amber-600">
+                  warning
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-amber-900">
+                    Global Cash Flow is required for memo readiness
+                  </h3>
+                  <p className="mt-0.5 text-xs text-amber-800">
+                    The Executive Summary does not resolve this. Open the Global
+                    Cash Flow page to compute it.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href={`/deals/${dealId}/spreads/global-cash-flow`}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500"
+              >
+                <span className="material-symbols-outlined text-[16px]">public</span>
+                Go to Global Cash Flow
+              </Link>
+            </div>
+          )}
+
           {loading && (
             <div className="flex h-64 items-center justify-center">
               <div className="text-sm text-gray-400 animate-pulse">Loading financial data...</div>
