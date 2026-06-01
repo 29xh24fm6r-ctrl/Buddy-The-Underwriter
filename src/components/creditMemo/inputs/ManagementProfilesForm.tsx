@@ -241,6 +241,16 @@ export default function ManagementProfilesForm({
                 Remove
               </button>
               <SaveStatusBadge status={p.id ? statusByKey[p.id] : undefined} />
+              {/* SPEC-BORROWER-PROFILE-CONTINUE-CTA-PLACEMENT-1: surface the
+                  continue CTA in the SAME action row as the just-saved status,
+                  so the banker sees the next step without scrolling past the
+                  Add-new card. Gated on returnToMemoInputsHref so embedded Memo
+                  Inputs never shows it. */}
+              {returnToMemoInputsHref &&
+              p.id &&
+              statusByKey[p.id]?.state === "saved" ? (
+                <ContinueCtaLink href={returnToMemoInputsHref} />
+              ) : null}
             </div>
           </div>
         ))}
@@ -265,25 +275,31 @@ export default function ManagementProfilesForm({
           </div>
         </div>
 
-        {/* SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: guide the banker forward
-            after a successful save. Only rendered on the standalone borrower page
-            (where returnToMemoInputsHref is provided), never in the embedded Memo
-            Inputs section. */}
+        {/* SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: secondary, always-visible
+            continue banner once any save has succeeded. The primary CTA now lives
+            inline in the saved profile's action row (placement spec); this remains
+            as a persistent fallback. Only on the standalone borrower page. */}
         {returnToMemoInputsHref && savedOnce ? (
           <div className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
             <span className="text-sm text-emerald-900">
               Profile saved. You can add another sponsor/guarantor, or continue.
             </span>
-            <Link
-              href={returnToMemoInputsHref}
-              className="inline-flex shrink-0 items-center rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
-            >
-              Return to Memo Inputs
-            </Link>
+            <ContinueCtaLink href={returnToMemoInputsHref} />
           </div>
         ) : null}
       </div>
     </section>
+  );
+}
+
+function ContinueCtaLink({ href }: { href: string }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex shrink-0 items-center rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
+    >
+      Return to Memo Inputs
+    </Link>
   );
 }
 
