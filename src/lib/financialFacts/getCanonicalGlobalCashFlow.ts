@@ -50,7 +50,13 @@ export async function getCanonicalGlobalCashFlow(
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .eq("spread_type", "GLOBAL_CASH_FLOW")
-      .neq("error_code", "SUPERSEDED_BY_NEWER_VERSION"),
+      // SPEC-GCF-SELECTOR-NULL-SAFE-FILTER-1: null-safe supersession filter (same
+      // fix as PR #463 for the spreads route). A bare not-equal on error_code
+      // drops rows where error_code IS NULL (PostgREST/SQL: NULL != x is unknown
+      // → excluded), which would hide every healthy queued/generating/ready GCF
+      // row from the canonical selector. Keep null + non-superseded; exclude only
+      // rows explicitly marked superseded.
+      .or("error_code.is.null,error_code.neq.SUPERSEDED_BY_NEWER_VERSION"),
     (sb as any)
       .from("deal_financial_facts")
       .select(

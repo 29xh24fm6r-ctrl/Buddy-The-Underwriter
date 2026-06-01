@@ -38,3 +38,18 @@ test("the canonical selector exposes the GCF accessor contract", () => {
     "must export the canonical async accessor",
   );
 });
+
+test("[null-safe] the selector's spread query keeps null-error_code rows", () => {
+  // SPEC-GCF-SELECTOR-NULL-SAFE-FILTER-1: a bare not-equal on error_code drops
+  // NULL rows in PostgREST — which is every healthy queued/generating/ready GCF
+  // row. The selector must use the null-safe OR filter (same fix as PR #463).
+  const src = read("src/lib/financialFacts/getCanonicalGlobalCashFlow.ts");
+  assert.ok(
+    src.includes('.or("error_code.is.null,error_code.neq.SUPERSEDED_BY_NEWER_VERSION")'),
+    "selector must use the null-safe .or() supersession filter",
+  );
+  assert.ok(
+    !/\.neq\(\s*["']error_code["']\s*,\s*["']SUPERSEDED_BY_NEWER_VERSION["']\s*\)/.test(src),
+    "the null-hostile bare not-equal on error_code must be removed",
+  );
+});
