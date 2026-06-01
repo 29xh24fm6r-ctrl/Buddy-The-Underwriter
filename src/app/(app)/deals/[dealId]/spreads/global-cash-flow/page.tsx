@@ -270,15 +270,33 @@ export default function GlobalCashFlowPage() {
             Cross-entity aggregation: personal income + property NOI - obligations = global cash flow.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
-        >
-          <Icon name="refresh" className="h-4 w-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {/* SPEC-GCF-READY-STATE-RECOMPUTE-CTA-1: in the ready state the compute
+              action otherwise disappears (it only lived in the missing/error
+              banners), so the banker couldn't intentionally recompute GCF after
+              fixes/new docs. Refresh stays a data reload only; this recomputes the
+              underwriting calculation (enqueues a job → Computing… → ready/error). */}
+          {view === "ready" && (
+            <button
+              type="button"
+              onClick={() => void compute()}
+              disabled={recomputing || isComputing}
+              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
+            >
+              <Icon name="sync" className="h-4 w-4" />
+              {recomputing ? "Starting…" : "Recompute Global Cash Flow"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
+          >
+            <Icon name="refresh" className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Transient fetch/compute error (network-level), distinct from a failed
