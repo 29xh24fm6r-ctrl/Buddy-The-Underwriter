@@ -66,7 +66,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     let q = (sb as any)
       .from("deal_spreads")
-      .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error, owner_type, owner_entity_id")
+      // error_code / error_details_json surface real failure diagnostics to the
+      // GCF page (SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1).
+      .select("deal_id, bank_id, spread_type, spread_version, status, rendered_json, updated_at, error, error_code, error_details_json, owner_type, owner_entity_id")
       .eq("deal_id", dealId)
       .eq("bank_id", access.bankId)
       .neq("error_code", "SUPERSEDED_BY_NEWER_VERSION");

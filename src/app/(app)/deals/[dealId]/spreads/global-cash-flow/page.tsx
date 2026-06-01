@@ -19,9 +19,25 @@ type SpreadData = {
   rendered_json: any;
   updated_at: string;
   error: string | null;
+  error_code?: string | null;
+  error_details_json?: any;
   owner_type?: string;
   owner_entity_id?: string | null;
 };
+
+// SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: deal_spreads status lifecycle is
+// queued → generating → ready | error. Both "queued" and "generating" are active
+// compute states; the page used to treat only "generating" as work-in-progress,
+// so a freshly-enqueued "queued" GLOBAL_CASH_FLOW row showed no progress.
+const ACTIVE_STATUSES = new Set(["queued", "generating"]);
+
+function isActiveSpread(s: SpreadData): boolean {
+  return ACTIVE_STATUSES.has(s.status);
+}
+
+function hasGcfValue(s: SpreadData): boolean {
+  return extractGcfKpis(s).some((k) => k.label === "Global Cash Flow");
+}
 
 type KpiValue = { label: string; value: string; color?: string };
 
@@ -185,8 +201,8 @@ export default function GlobalCashFlowPage() {
       if (!res.ok || !json?.ok) {
         throw new Error(json?.error ?? "Failed to start global cash flow computation");
       }
-      // Reload picks up the "generating" placeholder; the poll effect below
-      // refreshes until the computed spread lands.
+      // Reload picks up the "queued" row immediately; the poll effect below
+      // keeps refreshing through queued → generating → ready.
       await load();
     } catch (e: any) {
       setError(e?.message ?? "Failed to start computation");
@@ -200,29 +216,50 @@ export default function GlobalCashFlowPage() {
   }, [load]);
 
   React.useEffect(() => {
-    const hasGenerating = spreads.some((s) => s.status === "generating");
-    if (!hasGenerating) return;
-    const id = window.setInterval(() => void load(), 12_000);
+    // Poll while ANY GCF row is queued or generating — not just generating.
+    if (!spreads.some(isActiveSpread)) return;
+    const id = window.setInterval(() => void load(), 6_000);
     return () => window.clearInterval(id);
   }, [spreads, load]);
-
-  // Use latest version
-  const gcfSpread = spreads.length > 0 ? spreads[0] : null;
 
   const columns: SpreadTableColumn[] = [
     { key: "label", label: "Line Item", align: "left" },
     { key: "value", label: "Amount", align: "right" },
   ];
 
-  const kpis = gcfSpread ? extractGcfKpis(gcfSpread) : [];
+  // SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: select the canonical GCF row
+  // deterministically rather than blindly taking the newest row by updated_at,
+  // which could be a freshly-queued GLOBAL row with no value OR a stale legacy
+  // DEAL-owned ready row — either of which produced a misleading empty screen.
+  const isComputing = spreads.some(isActiveSpread);
 
-  // SPEC-GCF-FIXPATH-DEEP-LINK-1: surface a prominent, above-the-fold resolution
-  // banner whenever the global cash flow figure is not available — this is the
-  // exact state that drives the memo readiness `missing_global_cash_flow`
-  // blocker, so the banker who clicked Fix Now sees why + how to resolve it.
-  const isGenerating = spreads.some((s) => s.status === "generating");
-  const gcfValuePresent = kpis.some((k) => k.label === "Global Cash Flow");
-  const gcfMissing = !loading && !isGenerating && !gcfValuePresent;
+  // The displayable result: a row that actually carries the GCF figure. Prefer
+  // the canonical GLOBAL owner_type, then the most recently updated.
+  const readySpread =
+    [...spreads]
+      .filter(hasGcfValue)
+      .sort((a, b) => {
+        const ag = a.owner_type === "GLOBAL" ? 0 : 1;
+        const bg = b.owner_type === "GLOBAL" ? 0 : 1;
+        if (ag !== bg) return ag - bg;
+        return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+      })[0] ?? null;
+
+  const errorSpread = spreads.find((s) => s.status === "error") ?? null;
+
+  const gcfSpread = readySpread;
+  const kpis = readySpread ? extractGcfKpis(readySpread) : [];
+
+  // What to show, in priority order: computing → ready → error → missing.
+  const view: "loading" | "computing" | "ready" | "error" | "missing" = loading
+    ? "loading"
+    : isComputing
+    ? "computing"
+    : readySpread
+    ? "ready"
+    : errorSpread
+    ? "error"
+    : "missing";
 
   return (
     <div className="space-y-6">
@@ -244,61 +281,104 @@ export default function GlobalCashFlowPage() {
         </button>
       </div>
 
+      {/* Transient fetch/compute error (network-level), distinct from a failed
+          spread row which is rendered as the "error" view below. */}
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
           {error}
         </div>
       )}
 
-      {/* SPEC-GCF-FIXPATH-DEEP-LINK-1: prominent resolution banner shown above
-          the fold when GCF is missing (or currently computing). This is the
-          landing target for the missing_global_cash_flow Fix Now action. */}
-      {!loading && (gcfMissing || isGenerating) && (
+      {/* SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: explicit state machine so
+          a queued/generating row never falls back to "No analysis yet". */}
+      {view === "loading" && (
+        <div className="py-12 text-center text-xs text-white/50">Loading global cash flow...</div>
+      )}
+
+      {view === "computing" && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <Icon name="sync" className="mt-0.5 h-5 w-5 animate-spin text-amber-300" />
+            <div>
+              <h3 className="text-sm font-semibold text-amber-100">
+                Computing Global Cash Flow…
+              </h3>
+              <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                The global cash flow analysis is queued and being generated. This
+                page refreshes automatically — no action needed.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === "error" && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Icon name="error" className="mt-0.5 h-5 w-5 text-red-300" />
+              <div>
+                <h3 className="text-sm font-semibold text-red-100">
+                  Global Cash Flow computation failed
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-red-200/80">
+                  {errorSpread?.error_code
+                    ? `${errorSpread.error_code}: `
+                    : ""}
+                  {errorSpread?.error ?? "The computation did not complete. Retry below."}
+                </p>
+                {errorSpread?.error_details_json ? (
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-black/30 p-2 text-[10px] leading-relaxed text-red-200/70">
+                    {JSON.stringify(errorSpread.error_details_json, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void compute()}
+              disabled={recomputing || isComputing}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
+            >
+              <Icon name="sync" className="h-4 w-4" />
+              {recomputing ? "Starting…" : "Retry Compute"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view === "missing" && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
               <Icon name="error" className="mt-0.5 h-5 w-5 text-amber-300" />
               <div>
                 <h3 className="text-sm font-semibold text-amber-100">
-                  {isGenerating
-                    ? "Computing Global Cash Flow…"
-                    : "Global Cash Flow required"}
+                  Global Cash Flow required
                 </h3>
                 <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-                  {isGenerating
-                    ? "The global cash flow analysis is being generated. This page refreshes automatically."
-                    : "Memo readiness is blocked until global cash flow is computed. GCF aggregates personal income + property NOI − obligations across all entities. It is built from the business and personal financial spreads — if those exist, recompute to materialize the global figure; if not, upload the underlying financial documents first."}
+                  Memo readiness is blocked until global cash flow is computed. GCF
+                  aggregates personal income + property NOI − obligations across all
+                  entities. It is built from the business and personal financial
+                  spreads — if those exist, compute to materialize the global figure;
+                  if not, upload the underlying financial documents first.
                 </p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => void compute()}
-              disabled={recomputing || isGenerating}
+              disabled={recomputing || isComputing}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
             >
               <Icon name="sync" className="h-4 w-4" />
-              {recomputing
-                ? "Starting…"
-                : isGenerating
-                ? "Computing…"
-                : "Compute Global Cash Flow"}
+              {recomputing ? "Starting…" : "Compute Global Cash Flow"}
             </button>
           </div>
         </div>
       )}
 
-      {loading ? (
-        <div className="py-12 text-center text-xs text-white/50">Loading global cash flow...</div>
-      ) : !gcfSpread ? (
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
-          <Icon name="public" className="mx-auto h-8 w-8 text-white/20" />
-          <p className="mt-3 text-sm text-white/50">No global cash flow analysis yet.</p>
-          <p className="mt-1 text-xs text-white/30">
-            Upload business and personal financial documents to generate the global cash flow analysis.
-          </p>
-        </div>
-      ) : (
+      {view === "ready" && gcfSpread && (
         <>
           {/* KPI cards */}
           {kpis.length > 0 && (
