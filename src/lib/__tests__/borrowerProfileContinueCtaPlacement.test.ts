@@ -63,9 +63,24 @@ test("CTA stays gated on returnToMemoInputsHref (embedded Memo Inputs hides it)"
   const usages = src.split("<ContinueCtaLink").length - 1;
   assert.ok(usages >= 1, "must render ContinueCtaLink");
   const guardCount = (src.match(/returnToMemoInputsHref/g) ?? []).length;
-  // prop type + destructure + inline guard + inline prop + bottom guard + bottom prop
   assert.ok(
     guardCount >= usages + 1,
     "each CTA usage must be paired with a returnToMemoInputsHref gate/prop",
+  );
+});
+
+test("there is a single row-level CTA — no bottom/global duplicate", () => {
+  // SPEC-BORROWER-PROFILE-CONTINUE-CTA-VISIBLE-1: the bottom/global CTA and its
+  // savedOnce latch were removed to avoid duplicate/confusing CTAs.
+  const src = read(FORM);
+  const usages = src.split("<ContinueCtaLink").length - 1;
+  assert.equal(
+    usages,
+    1,
+    "exactly one ContinueCtaLink (the row-level CTA) — no bottom duplicate",
+  );
+  assert.ok(
+    !/savedOnce/.test(src),
+    "the global savedOnce latch must be gone (only per-row saved state gates the CTA)",
   );
 });
