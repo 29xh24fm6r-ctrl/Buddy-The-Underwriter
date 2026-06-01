@@ -184,7 +184,11 @@ export function evaluateMemoInputReadiness(
       code: "missing_global_cash_flow",
       label: "Global cash flow must be computed",
       owner: "buddy",
-      fixPath: `/deals/${dealId}/spreads`,
+      // SPEC-GCF-FIXPATH-DEEP-LINK-1: deep-link straight to the Global Cash Flow
+      // sub-page (which exposes a Compute action + diagnostic) instead of the
+      // /spreads root, which opens on the read-only Executive Summary tab and
+      // strands the banker with no GCF resolution action.
+      fixPath: `/deals/${dealId}/spreads/global-cash-flow`,
     });
   }
   const financialsComplete =

@@ -147,6 +147,10 @@ export default function GlobalCashFlowPage() {
   const [spreads, setSpreads] = React.useState<SpreadData[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  // SPEC-GCF-FIXPATH-DEEP-LINK-1: banker-initiated GCF computation, so the
+  // missing_global_cash_flow Fix Now path lands on a page with a real resolving
+  // action rather than a read-only dead-end.
+  const [recomputing, setRecomputing] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -168,6 +172,29 @@ export default function GlobalCashFlowPage() {
     }
   }, [dealId]);
 
+  const compute = React.useCallback(async () => {
+    setRecomputing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/spreads/recompute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ types: ["GLOBAL_CASH_FLOW"] }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to start global cash flow computation");
+      }
+      // Reload picks up the "generating" placeholder; the poll effect below
+      // refreshes until the computed spread lands.
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to start computation");
+    } finally {
+      setRecomputing(false);
+    }
+  }, [dealId, load]);
+
   React.useEffect(() => {
     void load();
   }, [load]);
@@ -188,6 +215,14 @@ export default function GlobalCashFlowPage() {
   ];
 
   const kpis = gcfSpread ? extractGcfKpis(gcfSpread) : [];
+
+  // SPEC-GCF-FIXPATH-DEEP-LINK-1: surface a prominent, above-the-fold resolution
+  // banner whenever the global cash flow figure is not available — this is the
+  // exact state that drives the memo readiness `missing_global_cash_flow`
+  // blocker, so the banker who clicked Fix Now sees why + how to resolve it.
+  const isGenerating = spreads.some((s) => s.status === "generating");
+  const gcfValuePresent = kpis.some((k) => k.label === "Global Cash Flow");
+  const gcfMissing = !loading && !isGenerating && !gcfValuePresent;
 
   return (
     <div className="space-y-6">
@@ -212,6 +247,44 @@ export default function GlobalCashFlowPage() {
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
           {error}
+        </div>
+      )}
+
+      {/* SPEC-GCF-FIXPATH-DEEP-LINK-1: prominent resolution banner shown above
+          the fold when GCF is missing (or currently computing). This is the
+          landing target for the missing_global_cash_flow Fix Now action. */}
+      {!loading && (gcfMissing || isGenerating) && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Icon name="error" className="mt-0.5 h-5 w-5 text-amber-300" />
+              <div>
+                <h3 className="text-sm font-semibold text-amber-100">
+                  {isGenerating
+                    ? "Computing Global Cash Flow…"
+                    : "Global Cash Flow required"}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                  {isGenerating
+                    ? "The global cash flow analysis is being generated. This page refreshes automatically."
+                    : "Memo readiness is blocked until global cash flow is computed. GCF aggregates personal income + property NOI − obligations across all entities. It is built from the business and personal financial spreads — if those exist, recompute to materialize the global figure; if not, upload the underlying financial documents first."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void compute()}
+              disabled={recomputing || isGenerating}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
+            >
+              <Icon name="sync" className="h-4 w-4" />
+              {recomputing
+                ? "Starting…"
+                : isGenerating
+                ? "Computing…"
+                : "Compute Global Cash Flow"}
+            </button>
+          </div>
         </div>
       )}
 

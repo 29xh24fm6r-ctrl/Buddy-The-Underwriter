@@ -198,6 +198,21 @@ test("[input-8] missing global cash flow → missing_global_cash_flow blocker", 
   assert.ok(r.blockers.some((b) => b.code === "missing_global_cash_flow"));
 });
 
+test("[input-8b] missing_global_cash_flow Fix Now deep-links to the GCF sub-page", () => {
+  // SPEC-GCF-FIXPATH-DEEP-LINK-1: must land on the Global Cash Flow resolution
+  // page (Compute action + diagnostic), not the read-only Executive Summary tab.
+  const r = evaluateMemoInputReadiness(
+    args({ financialFacts: { ...passingFacts(), globalCashFlow: null } }),
+  );
+  const gcf = r.blockers.find((b) => b.code === "missing_global_cash_flow");
+  assert.ok(gcf, "blocker must be present");
+  assert.equal(gcf!.fixPath, `/deals/${DEAL_ID}/spreads/global-cash-flow`);
+  assert.ok(
+    !/\/spreads$/.test(gcf!.fixPath),
+    "must not point at the bare /spreads root (Executive Summary dead-end)",
+  );
+});
+
 test("[input-9] failed research gate → missing_research_quality_gate blocker", () => {
   const r = evaluateMemoInputReadiness(args({ research: null }));
   assert.ok(r.blockers.some((b) => b.code === "missing_research_quality_gate"));

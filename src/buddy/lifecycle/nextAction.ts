@@ -345,8 +345,15 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/policy-exceptions`,
       };
 
-    case "missing_dscr":
+    // SPEC-GCF-FIXPATH-DEEP-LINK-1: GCF deep-links to its own sub-page (which
+    // exposes a Compute action + diagnostic), not the Executive Summary tab.
     case "missing_global_cash_flow":
+      return {
+        label: "Review Global Cash Flow",
+        href: `/deals/${dealId}/spreads/global-cash-flow`,
+      };
+
+    case "missing_dscr":
     case "missing_debt_service_facts":
       return {
         label: "Generate financial snapshot",
