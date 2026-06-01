@@ -60,8 +60,10 @@ test("GCF page shows a prominent 'required' banner when GCF is missing", () => {
     "must render a 'Global Cash Flow required' banner",
   );
   // Banner is gated on the same missing-value condition that drives the blocker.
+  // (Per SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1 this is now the "missing"
+  // view of an explicit state machine, computed via hasGcfValue.)
   assert.ok(
-    /gcfMissing/.test(src) && /gcfValuePresent/.test(src),
+    /view === "missing"/.test(src) && /hasGcfValue/.test(src),
     "banner must be gated on the GCF value actually being absent",
   );
   // It is rendered above the fold (before the loading/table conditional).
@@ -89,8 +91,10 @@ test("GCF page offers a Compute action wired to the recompute endpoint", () => {
     "recompute must target the GLOBAL_CASH_FLOW spread type",
   );
   // Auto-refresh while the computation runs (no manual reload dead-end).
+  // Polling now covers queued + generating via isActiveSpread (see
+  // SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1).
   assert.ok(
-    /status === "generating"/.test(src),
-    "page must poll while the spread is generating",
+    /spreads\.some\(isActiveSpread\)/.test(src),
+    "page must poll while the spread is queued or generating",
   );
 });
