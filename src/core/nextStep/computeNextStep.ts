@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { intakeDeepLinkForMissing } from "@/lib/deepLinks/intakeDeepLinks";
+import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
 import type { NextAction } from "@/core/nextStep/types";
 
 export type ComputeNextStepDeps = {
@@ -49,7 +50,10 @@ export async function computeNextStep(args: {
     };
   }
 
-  if (!(deal as any)?.borrower_id) {
+  // SPEC-UNDERWRITE-GUARD-BORROWER-REPRESENTATION-PARITY-1: shared borrower
+  // representation contract — attached if borrower_id OR borrower story OR
+  // management profile exists (not the legacy borrower_id-only check).
+  if (!(await hasBorrowerRepresentation(sb, dealId, (deal as any)?.borrower_id))) {
     return {
       key: "complete_intake",
       missing: ["borrower"],

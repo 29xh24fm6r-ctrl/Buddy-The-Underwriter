@@ -44,6 +44,7 @@ import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement"
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
+import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
 
 // Short-lived cache to prevent redundant lifecycle queries on rapid re-renders
 const lifecycleCache = new Map<string, { expiresAt: number; value: LifecycleState }>();
@@ -637,26 +638,13 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   // a borrower story OR a management profile, so the rail advances to the real
   // next task. Only fire borrower_not_attached when there is NO borrower
   // representation at all (preserving the genuine "attach a borrower" entry).
-  let hasBorrowerRepresentation = !!(deal as any).borrower_id;
-  if (!hasBorrowerRepresentation) {
-    try {
-      const [mgmtRes, storyRes] = await Promise.all([
-        sb
-          .from("deal_management_profiles")
-          .select("id", { count: "exact", head: true })
-          .eq("deal_id", dealId),
-        sb
-          .from("deal_borrower_story")
-          .select("id", { count: "exact", head: true })
-          .eq("deal_id", dealId),
-      ]);
-      hasBorrowerRepresentation =
-        ((mgmtRes as any).count ?? 0) > 0 || ((storyRes as any).count ?? 0) > 0;
-    } catch {
-      // On query failure, fall back to the borrower_id-only signal (safe default).
-    }
-  }
-  if (!hasBorrowerRepresentation) {
+  // Shared contract with verifyUnderwriteCore — see borrowerRepresentation.ts.
+  const borrowerRepresented = await hasBorrowerRepresentation(
+    sb,
+    dealId,
+    (deal as any).borrower_id,
+  );
+  if (!borrowerRepresented) {
     blockers.push({
       code: "borrower_not_attached",
       message: "A borrower must be attached to this deal before it can progress",
