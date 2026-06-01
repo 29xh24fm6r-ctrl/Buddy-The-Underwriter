@@ -4,6 +4,7 @@ import type { SpreadTemplate } from "@/lib/financialSpreads/templates/templateTy
 import type { FinancialFact, RenderedSpread, RenderedSpreadCellV2 } from "@/lib/financialSpreads/types";
 import { computedCell } from "@/lib/financialSpreads/formulas";
 import { factAsOfDate, factToCell, pickLatestFact } from "@/lib/financialSpreads/templateUtils";
+import { GCF_PERSONAL_INCOME_COMPONENT_KEYS } from "@/lib/financialSpreads/gcfPersonalIncome";
 
 function maxIsoDate(a: string | null, b: string | null): string | null {
   if (!a) return b;
@@ -137,20 +138,16 @@ export function globalCashFlowTemplate(): SpreadTemplate {
       // is intentionally excluded — it is already captured in business EBITDA.
       // Using AGI (TOTAL_PERSONAL_INCOME) would double-count pass-through income
       // or losses, producing materially wrong results.
+      // SPEC-GCF-SOURCE-OF-TRUTH-1: component list is shared with the
+      // persistGlobalCashFlow path so the rendered spread and canonical facts
+      // derive personal income identically (K-1 excluded — see gcfPersonalIncome.ts).
       const personalIncomeComponents: Array<{
         factType: string;
         factKey: string;
-      }> = [
-        { factType: "PERSONAL_INCOME", factKey: "WAGES_W2" },
-        { factType: "PERSONAL_INCOME", factKey: "SCH_E_RENTAL_TOTAL" },
-        { factType: "PERSONAL_INCOME", factKey: "SCH_E_NET" },
-        { factType: "PERSONAL_INCOME", factKey: "TAXABLE_INTEREST" },
-        { factType: "PERSONAL_INCOME", factKey: "ORDINARY_DIVIDENDS" },
-        { factType: "PERSONAL_INCOME", factKey: "SOCIAL_SECURITY" },
-        { factType: "PERSONAL_INCOME", factKey: "IRA_DISTRIBUTIONS" },
-        { factType: "PERSONAL_INCOME", factKey: "PENSION_ANNUITY" },
-        { factType: "PERSONAL_INCOME", factKey: "SCHED_C_NET" },
-      ];
+      }> = GCF_PERSONAL_INCOME_COMPONENT_KEYS.map((factKey) => ({
+        factType: "PERSONAL_INCOME",
+        factKey,
+      }));
 
       // Prefer SCH_E_RENTAL_TOTAL over SCH_E_NET to avoid any K-1 contamination
       // bundled into the combined Schedule E net figure.
