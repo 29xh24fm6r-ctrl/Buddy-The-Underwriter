@@ -26,7 +26,13 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { action } = await ctx.params;
   switch (action) {
+    // SPEC-RESEARCH-RERUN-ACTION-DISPATCH-FIX-1: "rerun"/"re-run" are aliases for
+    // "run". Stale client bundles (and the pre-consolidation UI) POST to
+    // /research/rerun; route them to the same handler so a re-run starts a fresh
+    // mission and returns JSON instead of 404/500. "run" behavior is unchanged.
     case "run":
+    case "rerun":
+    case "re-run":
       return (await import("./_handlers/run")).POST(req, ctx as any);
     default:
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
