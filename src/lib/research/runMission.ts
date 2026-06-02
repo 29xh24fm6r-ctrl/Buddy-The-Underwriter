@@ -406,15 +406,15 @@ export async function runMission(
       const subjectLockResult = validateSubjectLock({
         company_name: subject.company_name,
         naics_code: subject.naics_code,
-        naics_description: (subject as any).naics_description,
-        business_description: (subject as any).business_description,
-        city: (subject as any).city,
-        state: (subject as any).state,
+        naics_description: subject.naics_description,
+        business_description: subject.business_description,
+        city: subject.city,
+        state: subject.state,
         geography: subject.geography,
-        website: (subject as any).website,
-        dba: (subject as any).dba,
-        banker_summary: (subject as any).banker_summary,
-        banker_override: (subject as any).banker_override,
+        website: subject.website,
+        dba: subject.dba,
+        banker_summary: subject.banker_summary,
+        banker_override: subject.banker_override,
       });
 
       if (!subjectLockResult.ok) {
