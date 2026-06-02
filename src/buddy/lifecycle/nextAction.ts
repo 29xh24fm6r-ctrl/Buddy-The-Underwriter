@@ -328,12 +328,15 @@ export function getBlockerFixAction(
       };
 
     case "missing_research_quality_gate":
+      // Research resolution is canonical on the underwrite workbench route.
+      // There is intentionally no /deals/[dealId]/research page — it 404s — and
+      // the workbench (AnalystWorkbench → ResearchGateActionPanel) owns the
+      // run-research path. Route to /underwrite, the same destination memo
+      // readiness uses for missing_research_quality_gate, so both layers agree
+      // on one existing route. (SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1 /
+      // SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
       return {
         label: "Run research",
-        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
-        // not exist (404). Route to the canonical /underwrite page — the same
-        // destination memo readiness uses for missing_research_quality_gate — so
-        // both layers agree on one existing route.
         href: `/deals/${dealId}/underwrite`,
       };
 
