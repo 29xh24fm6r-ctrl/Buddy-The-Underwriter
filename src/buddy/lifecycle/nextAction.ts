@@ -328,9 +328,12 @@ export function getBlockerFixAction(
       };
 
     case "missing_research_quality_gate":
+      // Research resolution is canonical on the underwrite workbench route.
+      // There is intentionally no /deals/[dealId]/research page — the workbench
+      // (AnalystWorkbench → ResearchGateActionPanel) owns the run-research path.
       return {
         label: "Run research",
-        href: `/deals/${dealId}/research`,
+        href: `/deals/${dealId}/underwrite`,
       };
 
     case "open_fact_conflicts":
