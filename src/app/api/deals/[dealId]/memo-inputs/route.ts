@@ -64,6 +64,13 @@ const PATCHABLE_BORROWER_STORY_KEYS = [
   "seasonality",
   "key_risks",
   "banker_notes",
+  // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1
+  "industry_classification",
+  "naics_code",
+  "naics_description",
+  // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1 (naics_confidence is numeric —
+  // coerced separately in putBorrowerStory, not via this string allowlist).
+  "naics_source",
 ] as const;
 
 const COLLATERAL_STRING_KEYS = [
@@ -179,10 +186,21 @@ async function putBorrowerStory(
   dealId: string,
   body: Record<string, unknown>,
 ) {
-  const patch: Record<string, string> = {};
+  const patch: Record<string, string | number | null> = {};
   for (const k of PATCHABLE_BORROWER_STORY_KEYS) {
     const v = body[k];
     if (typeof v === "string") patch[k] = v;
+  }
+  // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: naics_confidence is numeric.
+  // Accept a number directly or a numeric string; "" / null clears it.
+  const conf = body.naics_confidence;
+  if (typeof conf === "number" && Number.isFinite(conf)) {
+    patch.naics_confidence = conf;
+  } else if (typeof conf === "string" && conf.trim().length > 0) {
+    const n = Number(conf);
+    if (Number.isFinite(n)) patch.naics_confidence = n;
+  } else if (conf === null || conf === "") {
+    patch.naics_confidence = null;
   }
   const result = await upsertBorrowerStory({
     dealId,

@@ -54,6 +54,11 @@ export type ResearchSubjectRaw = {
     banker_notes?: string | null;
     competitive_position?: string | null;
     customers?: string | null;
+    // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1: banker-entered industry /
+    // NAICS context, used when no borrowers row is attached.
+    industry_classification?: string | null;
+    naics_code?: string | null;
+    naics_description?: string | null;
   } | null;
   // memo-input management profiles (deal_management_profiles)
   managementProfiles?: Array<{
@@ -159,13 +164,22 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
     raw.story?.banker_notes,
   );
 
-  // 3/4. NAICS — never invent a number.
-  const rawNaics = (raw.borrower?.naics_code ?? "").trim();
-  const hasRealNaics = rawNaics.length > 0 && rawNaics !== PLACEHOLDER_NAICS;
-  const naicsCode = hasRealNaics ? rawNaics : PLACEHOLDER_NAICS;
+  // 3/4. NAICS — never invent a number. Source order (SPEC-MEMO-INPUTS-INDUSTRY-
+  // CLASSIFICATION-FIELD-1):
+  //   1. borrowers.naics_code (canonical, only when a borrower row is attached)
+  //   2. deal_borrower_story.naics_code (banker-entered on memo inputs)
+  //   3. deal_borrower_story.naics_description / industry_classification (description)
+  //   4. provisional description derived from business_description / products_services
+  const candidateNaics = firstNonEmpty(raw.borrower?.naics_code, raw.story?.naics_code);
+  const hasRealNaics = !!candidateNaics && candidateNaics !== PLACEHOLDER_NAICS;
+  const naicsCode = hasRealNaics ? candidateNaics! : PLACEHOLDER_NAICS;
   const naicsProvisional = !hasRealNaics;
 
-  let naicsDescription = firstNonEmpty(raw.borrower?.naics_description);
+  let naicsDescription = firstNonEmpty(
+    raw.borrower?.naics_description,
+    raw.story?.naics_description,
+    raw.story?.industry_classification,
+  );
   if (!naicsDescription && naicsProvisional) {
     naicsDescription = deriveProvisionalIndustry(raw.story);
   }
@@ -235,7 +249,7 @@ export async function buildResearchSubject(
     sb
       .from("deal_borrower_story")
       .select(
-        "business_description, products_services, revenue_model, banker_notes, competitive_position, customers",
+        "business_description, products_services, revenue_model, banker_notes, competitive_position, customers, industry_classification, naics_code, naics_description",
       )
       .eq("deal_id", dealId)
       .maybeSingle(),

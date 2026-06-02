@@ -94,16 +94,23 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       }
     }
 
-    // NAICS: when the subject locks via a provisional industry description (no
-    // real NAICS number), surface a precise, actionable advisory — NOT a hard
-    // "research cannot identify borrower" failure. Deep-links to memo-inputs,
-    // where the borrower story / business context is edited.
+    // NAICS: when there is no real NAICS *number*, surface a precise, actionable
+    // advisory — NOT a hard "research cannot identify borrower" failure. The
+    // wording depends on whether an industry description is already available:
+    //   - description present → "NAICS code not set — industry description is
+    //     available" (high-priority advisory; the subject lock still clears)
+    //   - nothing at all      → "Set industry classification / NAICS"
+    // Both deep-link to the memo-input Borrower Story section, where industry /
+    // NAICS context is now editable (SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1).
     if (naics_provisional) {
-      const advisory = "Set industry classification / NAICS";
+      const hasIndustryDesc = (subject.naics_description ?? "").trim().length > 0;
+      const advisory = hasIndustryDesc
+        ? "NAICS code not set — industry description is available"
+        : "Set industry classification / NAICS";
       if (!blockers.includes(advisory)) blockers.push(advisory);
       actions.push({
-        label: advisory,
-        actionApi: `/deals/${dealId}/memo-inputs`,
+        label: "Set industry classification / NAICS",
+        actionApi: `/deals/${dealId}/memo-inputs#borrower-story`,
         actionMethod: null,
         priority: lock.ok ? "high" : "critical",
       });

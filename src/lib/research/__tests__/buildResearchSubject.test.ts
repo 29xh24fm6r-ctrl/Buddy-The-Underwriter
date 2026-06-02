@@ -149,6 +149,97 @@ test("[V-5] borrower_id present with real borrowers row → prefers borrowers, n
   assert.equal(subject.state, "TX");
 });
 
+test("[V-7] borrower_id null + story.naics_description → subject carries industry context, NAICS provisional", () => {
+  // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1: memo-input NAICS description
+  // is used when no borrowers row is attached.
+  const { subject, naics_provisional } = assembleResearchSubject({
+    borrowerId: null,
+    dealBorrowerName: "OmniCare Deal Review",
+    story: {
+      ...OMNICARE_STORY,
+      naics_description: "Telephone call centers / customer contact center services",
+    },
+    managementProfiles: [{ person_name: "Matt Hunt", title: "President", ownership_pct: 100 }],
+  });
+  assert.equal(subject.naics_code, "999999"); // no numeric code → placeholder
+  assert.equal(naics_provisional, true);
+  assert.equal(
+    subject.naics_description,
+    "Telephone call centers / customer contact center services",
+  );
+  assert.equal(lockFor({
+    borrowerId: null,
+    dealBorrowerName: "OmniCare Deal Review",
+    story: {
+      ...OMNICARE_STORY,
+      naics_description: "Telephone call centers / customer contact center services",
+    },
+    managementProfiles: [{ person_name: "Matt Hunt", title: "President", ownership_pct: 100 }],
+  }).ok, true);
+});
+
+test("[V-8] borrower_id null + only industry_classification → subject lock does not fail 'industry not identified'", () => {
+  const { subject } = assembleResearchSubject({
+    borrowerId: null,
+    dealBorrowerName: "OmniCare Deal Review",
+    story: {
+      business_description: "BPO call center firm operating nationally.",
+      banker_notes: "A $1.5M revolving line is proposed to manage working-capital gaps.",
+      industry_classification: "Business process outsourcing / call center services",
+    },
+    managementProfiles: [{ person_name: "Matt Hunt", title: "President", ownership_pct: 100 }],
+  });
+  // industry_classification feeds the NAICS description used by the industry gate.
+  assert.equal(
+    subject.naics_description,
+    "Business process outsourcing / call center services",
+  );
+  const lock = lockFor({
+    borrowerId: null,
+    dealBorrowerName: "OmniCare Deal Review",
+    story: {
+      business_description: "BPO call center firm operating nationally.",
+      banker_notes: "A $1.5M revolving line is proposed to manage working-capital gaps.",
+      industry_classification: "Business process outsourcing / call center services",
+    },
+    managementProfiles: [{ person_name: "Matt Hunt", title: "President", ownership_pct: 100 }],
+  });
+  // Industry gate must not fire; the lock clears overall too.
+  const reasons = lock.ok ? [] : lock.reasons;
+  assert.ok(!reasons.some((r) => r.includes("Industry not identified")));
+  assert.equal(lock.ok, true);
+});
+
+test("[V-9] borrower_id null + story.naics_code (real) → not provisional, code from story", () => {
+  const { subject, naics_provisional } = assembleResearchSubject({
+    borrowerId: null,
+    dealBorrowerName: "OmniCare Deal Review",
+    story: {
+      ...OMNICARE_STORY,
+      naics_code: "561422",
+      naics_description: "Telemarketing Bureaus and Other Contact Centers",
+    },
+    managementProfiles: [{ person_name: "Matt Hunt", title: "President", ownership_pct: 100 }],
+  });
+  assert.equal(subject.naics_code, "561422");
+  assert.equal(naics_provisional, false);
+  assert.equal(subject.naics_description, "Telemarketing Bureaus and Other Contact Centers");
+});
+
+test("[V-10] borrowers.naics_code preferred over story.naics_code", () => {
+  const { subject } = assembleResearchSubject({
+    borrowerId: "b-1",
+    borrower: {
+      legal_name: "OmniCare BPO, Inc.",
+      naics_code: "561422",
+      naics_description: "Telemarketing Bureaus and Other Contact Centers",
+    },
+    story: { ...OMNICARE_STORY, naics_code: "999999", naics_description: "stale story value" },
+  });
+  assert.equal(subject.naics_code, "561422");
+  assert.equal(subject.naics_description, "Telemarketing Bureaus and Other Contact Centers");
+});
+
 test("[V-6] anchor composed when banker_notes absent but story + principal present", () => {
   const { subject } = assembleResearchSubject({
     borrowerId: null,

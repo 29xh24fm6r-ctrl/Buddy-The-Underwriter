@@ -29,6 +29,13 @@ export type UpsertBorrowerStoryArgs = {
       | "seasonality"
       | "key_risks"
       | "banker_notes"
+      // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1
+      | "industry_classification"
+      | "naics_code"
+      | "naics_description"
+      // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1
+      | "naics_source"
+      | "naics_confidence"
     >
   >;
   source?: DealBorrowerStory["source"];
