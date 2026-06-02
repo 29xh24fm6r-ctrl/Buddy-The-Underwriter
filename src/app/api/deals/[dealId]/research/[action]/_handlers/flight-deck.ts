@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
 import { buildResearchEntityProfile } from "@/lib/research/buildResearchSubject";
 import { validateSubjectLock } from "@/lib/research/subjectLock";
+import { describeThreadDiagnostic, type BIEThreadDiagnostic } from "@/lib/research/buddyIntelligenceEngine";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -66,7 +67,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       loadTrustGradeForDeal(dealId),
       (sb as any)
         .from("buddy_research_missions")
-        .select("id, status, completed_at, created_at")
+        .select("id, status, completed_at, created_at, thread_diagnostics")
         .eq("deal_id", dealId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -256,6 +257,26 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       researchQualityIssues.push(qItem(`Trust grade: ${trustGrade}`, "Committee-grade requires public confirmation + source thresholds.", true));
     }
 
+    // SPEC-BIE-...-MEGA-1 Phase 1: surface a human-readable reason for any thread
+    // that produced no usable output — null threads are never opaque.
+    const threadDiagnostics = (mission?.thread_diagnostics ?? {}) as Record<string, BIEThreadDiagnostic>;
+    const failedThreadDiagnostics: BIEThreadDiagnostic[] = [];
+    if (!missionInProgress) {
+      for (const d of Object.values(threadDiagnostics)) {
+        if (d && typeof d === "object" && d.ok === false && d.error_type !== "skipped") {
+          failedThreadDiagnostics.push(d);
+          researchQualityIssues.push({
+            label: describeThreadDiagnostic(d),
+            meaning: "BIE thread did not produce usable output — see diagnostic.",
+            status: "missing",
+            actionApi: null,
+            blocksPreliminary: false,
+            blocksCommittee: true,
+          });
+        }
+      }
+    }
+
     const bankerCertifiedEvidence: GroupItem[] = [
       { label: "Borrower story", meaning: "Banker-certified business narrative.", status: subject.business_description ? "present" : "missing", actionApi: subject.business_description ? null : `${memoInputs}#borrower-story`, blocksPreliminary: false, blocksCommittee: false },
       { label: "Management profile", meaning: "Principals on file (deal_management_profiles).", status: (subject.principals?.length ?? 0) > 0 ? "present" : "missing", actionApi: (subject.principals?.length ?? 0) > 0 ? null : memoInputs, blocksPreliminary: false, blocksCommittee: false },
@@ -281,6 +302,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       certificationLevel: profile.certification_level,
       nameIsPlaceholder: profile.name_is_placeholder,
       researchInProgress: missionInProgress,
+      threadDiagnostics: failedThreadDiagnostics,
       groups,
       blockers,
       actions,
