@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import type { DealBorrowerStory } from "@/lib/creditMemo/inputs/types";
+import NaicsSuggestionPicker, {
+  type NaicsSelection,
+} from "@/components/naics/NaicsSuggestionPicker";
 
 type Props = {
   dealId: string;
@@ -48,6 +51,14 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
       const v = (initial as any)?.[f.key];
       out[f.key] = typeof v === "string" ? v : "";
     }
+    // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: industry/NAICS fields are set via
+    // the suggestion picker (not the generic grid) but ride the same save payload.
+    for (const k of ["industry_classification", "naics_code", "naics_description", "naics_source"]) {
+      const v = (initial as any)?.[k];
+      out[k] = typeof v === "string" ? v : "";
+    }
+    const conf = (initial as any)?.naics_confidence;
+    out["naics_confidence"] = typeof conf === "number" ? String(conf) : "";
     return out;
   });
   const [saving, setSaving] = useState(false);
@@ -59,6 +70,17 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
   const [transcript, setTranscript] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [aiSuggestedKeys, setAiSuggestedKeys] = useState<Set<string>>(new Set());
+
+  function handleNaicsSelect(sel: NaicsSelection) {
+    setValues((s) => ({
+      ...s,
+      naics_code: sel.naics_code ?? "",
+      naics_description: sel.naics_description ?? "",
+      industry_classification: sel.industry_classification ?? "",
+      naics_source: sel.source,
+      naics_confidence: sel.confidence != null ? String(sel.confidence) : "",
+    }));
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -196,6 +218,21 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
           </label>
         ))}
       </div>
+
+      {/* SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: industry / NAICS via Buddy's
+          existing suggestion tool. Selecting/entering a value stages it into the
+          save payload — the banker still clicks "Save story" to persist. */}
+      <div className="mt-4">
+        <NaicsSuggestionPicker
+          dealId={dealId}
+          businessDescription={values.business_description}
+          currentNaicsCode={values.naics_code || null}
+          currentNaicsDescription={values.naics_description || null}
+          currentIndustryClassification={values.industry_classification || null}
+          onSelect={handleNaicsSelect}
+        />
+      </div>
+
       <div className="mt-3 flex items-center gap-3 text-xs">
         {savedAt ? <span className="text-emerald-700">Saved at {savedAt}</span> : null}
         {error ? <span className="text-rose-700">{error}</span> : null}

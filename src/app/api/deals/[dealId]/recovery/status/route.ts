@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
+import { buildResearchSubject } from "@/lib/research/buildResearchSubject";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -110,17 +111,27 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // ── Blocker list ────────────────────────────────────────────────────────
     const blockers: Blocker[] = [];
 
-    const hasNaics = !!borrower?.naics_code && borrower.naics_code !== "999999";
-    if (!hasNaics) {
+    // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: read industry/NAICS from the
+    // canonical research subject builder (borrowers row first, then
+    // deal_borrower_story NAICS/industry fields) so this agrees with the research
+    // subject lock and the flight deck. Missing numeric NAICS with a meaningful
+    // industry description is a WARN advisory, not a critical subject-lock failure.
+    const { subject: researchSubject } = await buildResearchSubject(sb, dealId);
+    const hasNumericNaics =
+      !!researchSubject.naics_code && researchSubject.naics_code !== "999999";
+    const hasIndustryDesc = (researchSubject.naics_description ?? "").trim().length > 0;
+
+    if (!hasNumericNaics) {
       blockers.push({
         key: "missing_naics",
-        severity: "error",
-        label: "Industry not identified",
-        detail: !borrower?.naics_code
-          ? "No industry code on file — BIE cannot run industry or competitive research."
-          : "NAICS 999999 is a placeholder — research will fail with this code.",
+        severity: hasIndustryDesc ? "warn" : "error",
+        label: hasIndustryDesc ? "NAICS code not set" : "Industry not identified",
+        detail: hasIndustryDesc
+          ? "Industry description is available — research can run, but adding the 6-digit NAICS code improves precision. Set it in Memo Inputs → Borrower Story."
+          : "No industry code or description on file — BIE cannot run industry or competitive research. Set it in Memo Inputs → Borrower Story.",
       });
     }
+    const hasNaics = hasNumericNaics;
 
     const hasGeo = !!(borrower?.city?.trim() || borrower?.state?.trim());
     if (!hasGeo) {
@@ -227,9 +238,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         (trustGrade === "manual_review_required" && !mission),
       isReadyForResearch: criticalBlockers.length === 0,
       borrower: {
-        legalName: borrower?.legal_name ?? null,
-        naicsCode: borrower?.naics_code ?? null,
-        naicsDescription: borrower?.naics_description ?? null,
+        legalName: borrower?.legal_name ?? researchSubject.company_name ?? null,
+        // Prefer a real numeric NAICS; the builder merges borrowers + story.
+        naicsCode: hasNumericNaics ? researchSubject.naics_code ?? null : borrower?.naics_code ?? null,
+        naicsDescription: researchSubject.naics_description ?? borrower?.naics_description ?? null,
         city: borrower?.city ?? null,
         state: borrower?.state ?? null,
         // website has no borrowers column — read from overrides

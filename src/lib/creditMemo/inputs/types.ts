@@ -71,6 +71,17 @@ export type DealBorrowerStory = {
   seasonality: string | null;
   key_risks: string | null;
   banker_notes: string | null;
+  // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1: industry / NAICS context,
+  // editable from the memo-input Borrower Story and read by buildResearchSubject.
+  // Optional: added as nullable columns, so rows persisted before the migration
+  // (and existing fixtures) need not carry them.
+  industry_classification?: string | null;
+  naics_code?: string | null;
+  naics_description?: string | null;
+  // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: provenance from Buddy's NAICS
+  // suggestion tool — "suggested" | "manual" and the model's 0.0–1.0 confidence.
+  naics_source?: string | null;
+  naics_confidence?: number | null;
   source: "banker" | "borrower" | "buddy" | "research";
   confidence: number | null;
   created_at: string;

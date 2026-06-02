@@ -37,6 +37,16 @@ export type MissionSubject = {
   annual_revenue?: number | null;
   loan_amount?: number | null;
   loan_purpose?: string | null;
+  // SPEC-RESEARCH-SUBJECT-LOCK-MEMO-INPUT-PARITY-1: memo-input borrower context.
+  // First-class subject-lock satisfiers so they stop being read via `(subject as any)`.
+  business_description?: string | null;
+  website?: string | null;
+  dba?: string | null;
+  banker_summary?: string | null;
+  banker_override?: boolean;
+  // True when naics_description was derived from banker-certified business context
+  // because borrowers.naics_code was missing/placeholder (no NAICS number invented).
+  naics_provisional?: boolean;
 };
 
 export type ResearchMission = {

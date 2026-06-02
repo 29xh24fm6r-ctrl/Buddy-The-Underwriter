@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
+import { buildResearchSubject } from "@/lib/research/buildResearchSubject";
+import { validateSubjectLock } from "@/lib/research/subjectLock";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -36,8 +38,12 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const sb = supabaseAdmin();
 
-    // Parallel data loads
-    const [trustGrade, missionRes, borrowerRes, qualityGateRes] = await Promise.all([
+    // Parallel data loads.
+    // SPEC-RESEARCH-SUBJECT-LOCK-MEMO-INPUT-PARITY-1: the subject lock is derived
+    // from the canonical builder (memo-input parity) instead of a borrowers-only
+    // read gated on the legacy borrower_id, so the flight deck agrees with
+    // research/run and with lifecycle/underwrite.
+    const [trustGrade, missionRes, subjectRes, qualityGateRes] = await Promise.all([
       loadTrustGradeForDeal(dealId),
       (sb as any)
         .from("buddy_research_missions")
@@ -46,19 +52,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      (sb as any)
-        .from("deals")
-        .select("borrower_id")
-        .eq("id", dealId)
-        .maybeSingle()
-        .then(async (dealRes: any) => {
-          if (!dealRes.data?.borrower_id) return { data: null };
-          return (sb as any)
-            .from("borrowers")
-            .select("legal_name, naics_code, naics_description, city, state")
-            .eq("id", dealRes.data.borrower_id)
-            .maybeSingle();
-        }),
+      buildResearchSubject(sb, dealId),
       (sb as any)
         .from("buddy_research_quality_gates")
         .select("trust_grade, quality_score, gate_failures, threads_failed, source_count, contradictions_found")
@@ -69,28 +63,57 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     ]);
 
     const mission = missionRes?.data;
-    const borrower = borrowerRes?.data;
     const gate = qualityGateRes?.data;
+    const { subject, naics_provisional } = subjectRes;
 
     // Compute blockers and recovery actions
     const blockers: string[] = [];
     const actions: RecoveryAction[] = [];
 
-    // Subject lock checks
-    const hasName = (borrower?.legal_name ?? "").trim().length >= 3;
-    const hasNaics = (borrower?.naics_code ?? "") !== "" && borrower?.naics_code !== "999999";
-    const hasGeo = (borrower?.city ?? "").trim().length > 0 || (borrower?.state ?? "").trim().length > 0;
+    // Subject lock — run the canonical validator over the built subject.
+    const lock = validateSubjectLock({
+      company_name: subject.company_name,
+      naics_code: subject.naics_code,
+      naics_description: subject.naics_description,
+      business_description: subject.business_description,
+      city: subject.city,
+      state: subject.state,
+      geography: subject.geography,
+      website: subject.website,
+      dba: subject.dba,
+      banker_summary: subject.banker_summary,
+      banker_override: subject.banker_override,
+    });
 
-    if (!hasName) {
-      blockers.push("Borrower legal name missing");
-      actions.push({ label: "Complete Intake", actionApi: null, actionMethod: null, priority: "critical" });
+    if (!lock.ok) {
+      for (const reason of lock.reasons) {
+        if (!blockers.includes(reason)) blockers.push(reason);
+        if (reason.includes("legal name")) {
+          actions.push({ label: "Complete Intake", actionApi: `/deals/${dealId}/memo-inputs`, actionMethod: null, priority: "critical" });
+        }
+      }
     }
-    if (!hasNaics) {
-      blockers.push("Industry classification missing or placeholder (999999)");
-      actions.push({ label: "Set NAICS Code", actionApi: null, actionMethod: null, priority: "critical" });
-    }
-    if (!hasGeo) {
-      blockers.push("Geography (city/state) missing");
+
+    // NAICS: when there is no real NAICS *number*, surface a precise, actionable
+    // advisory — NOT a hard "research cannot identify borrower" failure. The
+    // wording depends on whether an industry description is already available:
+    //   - description present → "NAICS code not set — industry description is
+    //     available" (high-priority advisory; the subject lock still clears)
+    //   - nothing at all      → "Set industry classification / NAICS"
+    // Both deep-link to the memo-input Borrower Story section, where industry /
+    // NAICS context is now editable (SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1).
+    if (naics_provisional) {
+      const hasIndustryDesc = (subject.naics_description ?? "").trim().length > 0;
+      const advisory = hasIndustryDesc
+        ? "NAICS code not set — industry description is available"
+        : "Set industry classification / NAICS";
+      if (!blockers.includes(advisory)) blockers.push(advisory);
+      actions.push({
+        label: "Set industry classification / NAICS",
+        actionApi: `/deals/${dealId}/memo-inputs#borrower-story`,
+        actionMethod: null,
+        priority: lock.ok ? "high" : "critical",
+      });
     }
 
     // Research status
@@ -133,14 +156,19 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       trustGrade,
       isCommitteeEligible: trustGrade === "committee_grade" && blockers.length === 0,
       qualityScore: gate?.quality_score ?? null,
-      subjectLocked: hasName && hasNaics,
+      // Subject lock now reflects the canonical validator (memo-input parity).
+      // A provisional NAICS is an advisory, not a lock failure.
+      subjectLocked: lock.ok,
+      naicsProvisional: naics_provisional,
       blockers,
       actions,
       borrower: {
-        legal_name: borrower?.legal_name ?? null,
-        naics_code: borrower?.naics_code ?? null,
-        city: borrower?.city ?? null,
-        state: borrower?.state ?? null,
+        legal_name: subject.company_name ?? null,
+        naics_code: subject.naics_code ?? null,
+        naics_description: subject.naics_description ?? null,
+        business_description: subject.business_description ?? null,
+        city: subject.city ?? null,
+        state: subject.state ?? null,
       },
       research: {
         status: mission?.status ?? null,
