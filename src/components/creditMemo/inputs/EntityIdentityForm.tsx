@@ -14,6 +14,7 @@
  */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { DealBorrowerStory } from "@/lib/creditMemo/inputs/types";
 
 type Props = {
@@ -47,6 +48,7 @@ export default function EntityIdentityForm({ dealId, initial }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   async function handleSave() {
     setSaving(true);
@@ -58,8 +60,12 @@ export default function EntityIdentityForm({ dealId, initial }: Props) {
         body: JSON.stringify(values),
       });
       const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json.error ?? "save_failed");
+      if (!res.ok || !json.ok) throw new Error(json.error ?? json.reason ?? "save_failed");
+      // SPEC-MEMO-INPUTS-IDENTITY-NAICS-RERUN-FRESHNESS-1: recompute the server
+      // components (readiness panel, research gate, prefilled values) so the saved
+      // identity is reflected immediately. Keep user-entered values + saved state.
       setSavedAt(new Date().toLocaleTimeString());
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

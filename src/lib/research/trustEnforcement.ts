@@ -117,13 +117,17 @@ export async function loadTrustGradeForDeal(
   try {
     const sb = supabaseAdmin();
 
-    // Find latest completed mission for this deal
+    // Find latest completed mission for this deal.
+    // SPEC-MEMO-INPUTS-IDENTITY-NAICS-RERUN-FRESHNESS-1: deterministic ordering
+    // (completed_at then created_at) so the newest completed mission's gate wins
+    // and an older research_failed cannot resurface on a tie.
     const { data: mission } = await (sb as any)
       .from("buddy_research_missions")
       .select("id")
       .eq("deal_id", dealId)
       .eq("status", "complete")
       .order("completed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -131,8 +135,10 @@ export async function loadTrustGradeForDeal(
 
     const { data: gate } = await (sb as any)
       .from("buddy_research_quality_gates")
-      .select("trust_grade")
+      .select("trust_grade, evaluated_at")
       .eq("mission_id", mission.id)
+      .order("evaluated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     return (gate?.trust_grade as TrustGrade) ?? null;

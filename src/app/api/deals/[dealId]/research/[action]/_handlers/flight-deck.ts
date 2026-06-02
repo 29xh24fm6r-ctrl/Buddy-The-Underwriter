@@ -58,29 +58,41 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // from the canonical builder (memo-input parity) instead of a borrowers-only
     // read gated on the legacy borrower_id, so the flight deck agrees with
     // research/run and with lifecycle/underwrite.
-    const [trustGrade, missionRes, subjectRes, qualityGateRes] = await Promise.all([
+    // SPEC-MEMO-INPUTS-IDENTITY-NAICS-RERUN-FRESHNESS-1: select the LATEST mission
+    // deterministically by created_at (queued/running missions have null
+    // completed_at), and read the gate that belongs to THAT mission — never a
+    // stale global latest-by-evaluated_at gate from an older run.
+    const [trustGrade, missionRes, subjectRes] = await Promise.all([
       loadTrustGradeForDeal(dealId),
       (sb as any)
         .from("buddy_research_missions")
-        .select("id, status, completed_at")
+        .select("id, status, completed_at, created_at")
         .eq("deal_id", dealId)
-        .order("completed_at", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
       buildResearchEntityProfile(sb, dealId),
-      (sb as any)
-        .from("buddy_research_quality_gates")
-        .select("trust_grade, quality_score, gate_failures, threads_failed, source_count, contradictions_found")
-        .eq("deal_id", dealId)
-        .order("evaluated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
     ]);
 
     const mission = missionRes?.data;
-    const gate = qualityGateRes?.data;
     const profile = subjectRes;
     const { subject, naics_provisional } = profile;
+
+    const missionInProgress = mission?.status === "queued" || mission?.status === "running";
+
+    // Gate tied to the latest mission. While a newer mission is in progress, do
+    // not surface the previous mission's gate (the source of the stale
+    // research_failed display).
+    const gateRes = mission && !missionInProgress
+      ? await (sb as any)
+          .from("buddy_research_quality_gates")
+          .select("trust_grade, quality_score, gate_failures, threads_failed, source_count, contradictions_found")
+          .eq("mission_id", mission.id)
+          .order("evaluated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
+    const gate = gateRes?.data;
 
     // Compute blockers and recovery actions
     const blockers: string[] = [];
@@ -132,17 +144,21 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       });
     }
 
-    // Research status
+    // Research status. SPEC-MEMO-INPUTS-IDENTITY-NAICS-RERUN-FRESHNESS-1: when a
+    // newer mission is queued/running, say so explicitly and DO NOT surface the
+    // previous mission's trust grade / gate failures as if they were current.
     if (!mission) {
       blockers.push("Research not yet run");
       actions.push({ label: "Run Research", actionApi: `/api/deals/${dealId}/research/run`, actionMethod: "POST", priority: "critical" });
+    } else if (missionInProgress) {
+      blockers.push("Research in progress — re-running with the latest inputs");
     } else if (mission.status === "failed" || mission.status === "error") {
       blockers.push("Research mission failed");
       actions.push({ label: "Re-run Research", actionApi: `/api/deals/${dealId}/research/run`, actionMethod: "POST", priority: "critical" });
     }
 
-    // Trust grade
-    if (trustGrade && trustGrade !== "committee_grade") {
+    // Trust grade — only meaningful for a settled (not in-progress) latest mission.
+    if (!missionInProgress && trustGrade && trustGrade !== "committee_grade") {
       blockers.push(`Research trust grade: ${trustGrade}`);
       if (trustGrade === "research_failed") {
         actions.push({ label: "Re-run Research", actionApi: `/api/deals/${dealId}/research/run`, actionMethod: "POST", priority: "critical" });
@@ -218,13 +234,25 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const qItem = (label: string, meaning: string, blocksCommittee: boolean): GroupItem => ({
       label, meaning, status: "missing", actionApi: null, blocksPreliminary: false, blocksCommittee,
     });
-    if (Array.isArray(gate?.gate_failures)) {
+    // SPEC-MEMO-INPUTS-IDENTITY-NAICS-RERUN-FRESHNESS-1: while a newer mission is
+    // running, show progress — not the previous mission's failures.
+    if (missionInProgress) {
+      researchQualityIssues.push({
+        label: "Research in progress",
+        meaning: "Re-running with the latest identity / NAICS inputs. Results will refresh when complete.",
+        status: "advisory",
+        actionApi: null,
+        blocksPreliminary: false,
+        blocksCommittee: false,
+      });
+    }
+    if (!missionInProgress && Array.isArray(gate?.gate_failures)) {
       for (const f of gate.gate_failures as any[]) {
         const reason = typeof f === "string" ? f : f?.reason ?? f?.gate_id;
         if (reason) researchQualityIssues.push(qItem(String(reason), "Surfaced by the research quality gate.", true));
       }
     }
-    if (trustGrade && trustGrade !== "committee_grade") {
+    if (!missionInProgress && trustGrade && trustGrade !== "committee_grade") {
       researchQualityIssues.push(qItem(`Trust grade: ${trustGrade}`, "Committee-grade requires public confirmation + source thresholds.", true));
     }
 
@@ -252,6 +280,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       naicsProvisional: naics_provisional,
       certificationLevel: profile.certification_level,
       nameIsPlaceholder: profile.name_is_placeholder,
+      researchInProgress: missionInProgress,
       groups,
       blockers,
       actions,

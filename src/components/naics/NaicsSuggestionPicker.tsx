@@ -14,6 +14,7 @@
  */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export type NaicsSuggestion = {
   naics_code: string;
@@ -88,6 +89,40 @@ export default function NaicsSuggestionPicker({
   const [manualDesc, setManualDesc] = useState<string>(
     currentNaicsDescription ?? currentIndustryClassification ?? "",
   );
+  const [savedNaics, setSavedNaics] = useState<string | null>(null);
+  const router = useRouter();
+
+  // SPEC-MEMO-INPUTS-IDENTITY-NAICS-RERUN-FRESHNESS-1: persist the selection
+  // immediately through the consolidated memo-inputs PUT so research picks it up
+  // without depending on a separate "Save story" click. naics_confidence is the
+  // model's 0.0–1.0 decimal (existing convention); naics_source is "suggested" |
+  // "manual". Then refresh server components so the new value is visible.
+  async function persistSelection(sel: NaicsSelection) {
+    setError(null);
+    void onSelect(sel);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          naics_code: sel.naics_code ?? "",
+          naics_description: sel.naics_description ?? "",
+          industry_classification: sel.industry_classification ?? "",
+          naics_source: sel.source,
+          naics_confidence: sel.confidence,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError("Saved selection locally, but persisting failed — try Save story.");
+        return;
+      }
+      setSavedNaics(sel.naics_code || sel.naics_description || "industry");
+      router.refresh();
+    } catch {
+      setError("Network error persisting NAICS — try Save story.");
+    }
+  }
 
   async function lookup() {
     if (description.trim().length < 10) {
@@ -123,7 +158,7 @@ export default function NaicsSuggestionPicker({
   function pickSuggestion(s: NaicsSuggestion) {
     setSelectedCode(s.naics_code);
     setManualMode(false);
-    void onSelect(selectionFromSuggestion(s));
+    void persistSelection(selectionFromSuggestion(s));
   }
 
   function applyManual() {
@@ -131,8 +166,7 @@ export default function NaicsSuggestionPicker({
       setError("Enter a NAICS code or an industry description.");
       return;
     }
-    setError(null);
-    void onSelect(selectionFromManual(manualCode, manualDesc));
+    void persistSelection(selectionFromManual(manualCode, manualDesc));
   }
 
   const hasCurrent =
@@ -185,6 +219,9 @@ export default function NaicsSuggestionPicker({
       </div>
 
       {error ? <p className="mt-2 text-xs text-rose-700">{error}</p> : null}
+      {savedNaics && !error ? (
+        <p className="mt-2 text-xs text-emerald-700">Saved {savedNaics} — research will use it on the next run.</p>
+      ) : null}
 
       {suggestions.length > 0 ? (
         <div className="mt-3 space-y-2">
