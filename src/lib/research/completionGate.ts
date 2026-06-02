@@ -11,7 +11,7 @@
  *   research_failed        — critical failures; do not surface to banker without re-run
  */
 
-import type { BIEResult, EntityLock } from "./buddyIntelligenceEngine";
+import type { BIEResult, EntityLock, EntityClassification } from "./buddyIntelligenceEngine";
 import {
   computeSourceQualityScore,
   classifySourceUrl,
@@ -79,9 +79,32 @@ export function evaluateCompletionGate(
     naicsCode?: string | null;
     /** Phase 82: evidence coverage ratio from latest memo (null when no memo exists yet) */
     evidenceSupportRatio?: number | null;
+    /**
+     * SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: deterministic
+     * entity disposition. `probable_private_entity` / `unconfirmed_needs_banker_identity`
+     * downgrade the entity gate from error→warn (no false research_failed);
+     * `conflicting_public_entity` / `wrong_entity_risk` keep the error.
+     */
+    entityClassification?: EntityClassification | null;
+    /** Banker-certified evidence present — downgrades management/source gates for private borrowers. */
+    bankerCertifiedEvidence?: {
+      hasStory: boolean;
+      hasManagement: boolean;
+      hasFinancials: boolean;
+    } | null;
   },
 ): CompletionGateResult {
   const checks: GateCheckResult[] = [];
+
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+  const entityClassification = opts?.entityClassification ?? null;
+  const isPrivateEntity = entityClassification === "probable_private_entity";
+  const isUnconfirmedIdentity = entityClassification === "unconfirmed_needs_banker_identity";
+  const isEntityConflict =
+    entityClassification === "conflicting_public_entity" ||
+    entityClassification === "wrong_entity_risk";
+  const bankerCertified = opts?.bankerCertifiedEvidence ?? null;
+  const hasBankerCertifiedManagement = !!bankerCertified?.hasManagement;
 
   // ── Gate 0 (Phase 80): NAICS Placeholder Guard ──────────────────────────
   const naics = opts?.naicsCode ?? null;
@@ -99,19 +122,42 @@ export function evaluateCompletionGate(
   }
 
   // ── Gate 1: Entity Lock ──────────────────────────────────────────────────
-  const entityConfidence = bieResult.entity_lock?.entity_confidence ?? 0;
-  const entityConfirmed = bieResult.entity_confirmed;
+  const entityConfidence = bieResult.entity_lock?.entity_confidence ?? bieResult.entity_confidence ?? 0;
+
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: disposition-aware.
+  // A banker-certified private borrower with limited public footprint, or one
+  // simply missing a public search name, is NOT a wrong-entity failure.
+  let entityStatus: "pass" | "warn" | "fail";
+  let entitySeverity: "error" | "warn" | "info";
+  let entityReason: string;
+  if (isEntityConflict) {
+    entityStatus = "fail";
+    entitySeverity = "error";
+    entityReason = `Conflicting/wrong public entity risk — research may cover the wrong company (${Math.round(entityConfidence * 100)}% confidence)`;
+  } else if (isUnconfirmedIdentity) {
+    entityStatus = "warn";
+    entitySeverity = "warn";
+    entityReason = "Entity not yet identifiable — provide legal borrower name / DBA / website in Memo Inputs to enable verification";
+  } else if (isPrivateEntity) {
+    entityStatus = "warn";
+    entitySeverity = "warn";
+    entityReason = `Probable private entity (${Math.round(entityConfidence * 100)}% confidence) — limited public footprint; banker-certified context on file. Not committee-grade without public confirmation.`;
+  } else {
+    entityStatus = entityConfidence >= 0.70 ? "pass" : entityConfidence >= 0.50 ? "warn" : "fail";
+    entitySeverity = entityConfidence < 0.50 ? "error" : entityConfidence < 0.70 ? "warn" : "info";
+    entityReason = entityConfidence >= 0.70
+      ? `Entity confirmed: "${bieResult.entity_lock?.confirmed_name}" (${Math.round(entityConfidence * 100)}% confidence)`
+      : entityConfidence >= 0.50
+        ? `Entity partially confirmed (${Math.round(entityConfidence * 100)}% confidence) — manual verification recommended`
+        : `Entity could not be confirmed (${Math.round(entityConfidence * 100)}% confidence) — research may cover wrong entity`;
+  }
 
   checks.push({
     gate_id: "entity_lock",
     label: "Entity Identity Lock",
-    status: entityConfidence >= 0.70 ? "pass" : entityConfidence >= 0.50 ? "warn" : "fail",
-    reason: entityConfidence >= 0.70
-      ? `Entity confirmed: "${bieResult.entity_lock?.confirmed_name}" (${Math.round(entityConfidence * 100)}% confidence)`
-      : entityConfidence >= 0.50
-        ? `Entity partially confirmed (${Math.round(entityConfidence * 100)}% confidence) — manual verification recommended`
-        : `Entity could not be confirmed (${Math.round(entityConfidence * 100)}% confidence) — research may cover wrong entity`,
-    severity: entityConfidence < 0.50 ? "error" : entityConfidence < 0.70 ? "warn" : "info",
+    status: entityStatus,
+    reason: entityReason,
+    severity: entitySeverity,
   });
 
   // ── Gate 2: Thread Coverage ───────────────────────────────────────────────
@@ -143,13 +189,23 @@ export function evaluateCompletionGate(
             "trade_publication", "news_primary", "market_research"].includes(t);
   }).length;
 
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: for a private/
+  // banker-certified borrower, weak PUBLIC source coverage is expected and must
+  // not force research_failed — downgrade the <5-sources error to a warning.
+  const privateOrCertified = isPrivateEntity || isUnconfirmedIdentity || hasBankerCertifiedManagement;
+  const sourceSeverity: "error" | "warn" | "info" =
+    allSourceUrls.length < 5
+      ? privateOrCertified ? "warn" : "error"
+      : sourceQuality < 0.35 ? "warn" : "info";
+
   checks.push({
     gate_id: "source_diversity",
     label: "Source Quality and Diversity",
     status: sourceQuality >= 0.50 && allSourceUrls.length >= 10 ? "pass"
            : sourceQuality >= 0.35 && allSourceUrls.length >= 5 ? "warn" : "fail",
-    reason: `${allSourceUrls.length} sources (${primarySources} primary/institutional), quality score ${Math.round(sourceQuality * 100)}%`,
-    severity: allSourceUrls.length < 5 ? "error" : sourceQuality < 0.35 ? "warn" : "info",
+    reason: `${allSourceUrls.length} public sources (${primarySources} primary/institutional), quality score ${Math.round(sourceQuality * 100)}%`
+      + (privateOrCertified && allSourceUrls.length < 5 ? " — limited public footprint expected for a private/banker-certified borrower" : ""),
+    severity: sourceSeverity,
   });
 
   // ── Gate 4: Management Validation ────────────────────────────────────────
@@ -158,17 +214,30 @@ export function evaluateCompletionGate(
   const unconfirmedCount = profiles.filter((p) => !p.identity_confirmed).length;
   const mgmtValidated = bieResult.synthesis?.management_profiles_validated ?? false;
 
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: a banker-certified
+  // principal (deal_management_profiles) who simply can't be PUBLICLY confirmed is
+  // a warning, not a hard failure. Committee-grade still requires public/attested
+  // confirmation (the committee-grade branch checks confirmedCount === profiles.length).
+  const mgmtUnvalidatedButCertified =
+    profiles.length > 0 && !mgmtValidated && hasBankerCertifiedManagement;
+  const mgmtSeverity: "error" | "warn" | "info" =
+    profiles.length > 0 && !mgmtValidated
+      ? mgmtUnvalidatedButCertified ? "warn" : "error"
+      : unconfirmedCount > profiles.length * 0.5 ? "warn" : "info";
+
   checks.push({
     gate_id: "management_validation",
     label: "Management Profile Validation",
     status: profiles.length === 0 ? "warn"
            : confirmedCount === profiles.length ? "pass"
+           : mgmtUnvalidatedButCertified ? "warn"
            : unconfirmedCount <= profiles.length * 0.5 ? "warn" : "fail",
     reason: profiles.length === 0
       ? "No ownership entities provided — management research not possible"
-      : `${confirmedCount}/${profiles.length} principals confirmed; synthesis validation: ${mgmtValidated ? "passed" : "FAILED"}`,
-    severity: profiles.length > 0 && !mgmtValidated ? "error"
-             : unconfirmedCount > profiles.length * 0.5 ? "warn" : "info",
+      : mgmtUnvalidatedButCertified
+        ? `${confirmedCount}/${profiles.length} principals publicly confirmed — banker-certified profile on file (not publicly verifiable)`
+        : `${confirmedCount}/${profiles.length} principals confirmed; synthesis validation: ${mgmtValidated ? "passed" : "FAILED"}`,
+    severity: mgmtSeverity,
   });
 
   // ── Gate 5: Synthesis Completion ─────────────────────────────────────────

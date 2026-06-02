@@ -36,6 +36,13 @@ export type UpsertBorrowerStoryArgs = {
       // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1
       | "naics_source"
       | "naics_confidence"
+      // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+      | "legal_name"
+      | "dba"
+      | "website"
+      | "hq_city"
+      | "hq_state"
+      | "banker_identity_summary"
     >
   >;
   source?: DealBorrowerStory["source"];

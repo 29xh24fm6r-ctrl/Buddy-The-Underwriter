@@ -140,7 +140,30 @@ export type BIEInput = {
   annual_revenue?: number | null;
   loan_amount?: number | null;
   loan_purpose?: string | null;
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: identity + private mode.
+  legal_name?: string | null;
+  dba?: string | null;
+  website?: string | null;
+  business_description?: string | null;
+  banker_summary?: string | null;
+  customer_anchors?: string | null;
+  // Null when only a placeholder deal label is available — entity-lock must NOT
+  // web-search it; it returns unconfirmed_needs_banker_identity instead.
+  company_search_name?: string | null;
+  private_company_mode?: boolean;
+  has_banker_certified_anchor?: boolean;
 };
+
+// SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+export type EntityClassification =
+  | "confirmed_public_entity"
+  | "probable_private_entity"
+  | "unconfirmed_needs_banker_identity"
+  | "conflicting_public_entity"
+  | "wrong_entity_risk";
+
+/** Confidence floored for a banker-certified private entity with limited public footprint. */
+export const PRIVATE_ENTITY_CONFIDENCE_FLOOR = 0.55;
 
 // Thread 0 — Entity Lock
 export type EntityLock = {
@@ -151,6 +174,8 @@ export type EntityLock = {
   disambiguation_notes: string;
   alternative_entities_found: string[];
   research_scope: string;
+  /** Deterministic disposition computed in code (not by the model). */
+  entity_classification?: EntityClassification;
 };
 
 // Thread 1 — Borrower
@@ -277,7 +302,8 @@ type ThreadSources = {
 export type BIEResult = {
   entity_lock: EntityLock | null;        // Thread 0 entity confirmation
   entity_confirmed: boolean;             // did entity lock succeed?
-  entity_confidence: number;             // 0.0–1.0
+  entity_confidence: number;             // 0.0–1.0 (may be floored for private entities)
+  entity_classification: EntityClassification;  // deterministic disposition
   borrower: BorrowerIntelligence | null;
   management: ManagementIntelligence | null;
   competitive: CompetitiveIntelligence | null;
@@ -295,6 +321,82 @@ export type BIEResult = {
 // Thread 0 — Entity Identity Lock
 // ============================================================================
 
+/**
+ * SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+ *
+ * Deterministic entity disposition — computed in CODE (not trusted from the
+ * model) so the institutional gate stays deterministic. Returns the
+ * classification and the (possibly floored) confidence the gate consumes.
+ *
+ * Rules:
+ *  - no company_search_name (placeholder only)        → unconfirmed_needs_banker_identity
+ *  - model conf ≥ 0.70                                 → confirmed_public_entity (keep)
+ *  - model conf ≥ 0.50 AND confirmed_name mismatches   → wrong_entity_risk (keep low → research_failed)
+ *  - banker-certified anchor AND no conflict           → probable_private_entity (floor 0.55)
+ *  - otherwise                                         → unconfirmed_needs_banker_identity
+ */
+export function classifyEntity(args: {
+  companySearchName: string | null | undefined;
+  hasBankerCertifiedAnchor: boolean;
+  modelConfidence: number;
+  confirmedName: string | null | undefined;
+  alternativeEntitiesFound: string[];
+}): { classification: EntityClassification; confidence: number } {
+  const { companySearchName, hasBankerCertifiedAnchor, modelConfidence, confirmedName } = args;
+
+  if (!companySearchName || companySearchName.trim().length < 2) {
+    return { classification: "unconfirmed_needs_banker_identity", confidence: 0 };
+  }
+
+  if (modelConfidence >= 0.7) {
+    return { classification: "confirmed_public_entity", confidence: modelConfidence };
+  }
+
+  // The model locked onto a real but DIFFERENT entity than our search target.
+  const confirmed = (confirmedName ?? "").trim();
+  const lockedOntoSomething = confirmed.length > 0 && confirmed.toUpperCase() !== "UNCONFIRMED";
+  const nameMismatch = lockedOntoSomething && !tokensOverlap(confirmed, companySearchName);
+  if (modelConfidence >= 0.5 && nameMismatch) {
+    return { classification: "wrong_entity_risk", confidence: modelConfidence };
+  }
+
+  if (hasBankerCertifiedAnchor) {
+    return {
+      classification: "probable_private_entity",
+      confidence: Math.max(modelConfidence, PRIVATE_ENTITY_CONFIDENCE_FLOOR),
+    };
+  }
+
+  return { classification: "unconfirmed_needs_banker_identity", confidence: modelConfidence };
+}
+
+/**
+ * Banker-certified context block injected into research prompts so threads
+ * disambiguate against the borrower's actual business — critical for private
+ * borrowers with limited public footprint.
+ */
+function bankerContextBlock(input: BIEInput): string {
+  const lines = [
+    input.business_description ? `Business (banker-certified): ${input.business_description}` : null,
+    input.customer_anchors ? `Known customers/anchors: ${input.customer_anchors}` : null,
+    input.banker_summary ? `Banker summary: ${input.banker_summary}` : null,
+  ].filter(Boolean);
+  return lines.length > 0 ? `\nBANKER-CERTIFIED CONTEXT:\n${lines.join("\n")}\n` : "";
+}
+
+/** Shared significant-token overlap (ignores common corporate suffixes). */
+function tokensOverlap(a: string, b: string): boolean {
+  const stop = new Set(["llc", "inc", "corp", "co", "ltd", "lp", "the", "company", "group", "holdings", "review", "deal"]);
+  const toks = (s: string) =>
+    new Set(
+      s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 2 && !stop.has(t)),
+    );
+  const ta = toks(a);
+  const tb = toks(b);
+  for (const t of ta) if (tb.has(t)) return true;
+  return false;
+}
+
 async function runEntityLock(
   input: BIEInput,
   apiKey: string,
@@ -305,19 +407,42 @@ async function runEntityLock(
     ? `approximately $${(input.annual_revenue / 1_000_000).toFixed(1)}M annual revenue`
     : "revenue unknown";
 
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: never web-search a
+  // placeholder deal label. When there is no real legal/DBA/website search name,
+  // skip the external lock entirely — the disposition becomes
+  // unconfirmed_needs_banker_identity (computed by the caller).
+  const searchName = (input.company_search_name ?? "").trim();
+  if (searchName.length < 2) {
+    console.warn("[BIE] Entity lock skipped — no legal/DBA/website search name (placeholder deal label)");
+    return { lock: null, sourceUrls: [] };
+  }
+
+  const identityLines = [
+    `- Legal/search name: ${searchName}`,
+    input.dba ? `- DBA / trade name: ${input.dba}` : null,
+    input.website ? `- Website: ${input.website}` : null,
+    `- Location: ${location}`,
+    `- Industry: ${input.naics_description || `NAICS ${input.naics_code}`}`,
+    `- Scale: ${revenueStr}`,
+    input.business_description ? `- What the business does (banker-certified): ${input.business_description}` : null,
+    input.customer_anchors ? `- Known customers/anchors: ${input.customer_anchors}` : null,
+    input.banker_summary ? `- Banker summary: ${input.banker_summary}` : null,
+  ].filter(Boolean).join("\n");
+
+  const privateClause = input.private_company_mode
+    ? `\n\nIMPORTANT — PRIVATE/RELATIONSHIP BORROWER: This is a banker-certified private company. Do NOT conclude the entity is nonexistent solely because its public web presence is limited. If you find no CONFLICTING public entity (a different real company that matches this name/location/industry), treat limited footprint as expected for a private firm and report private_company_limited_public_footprint in disambiguation_notes. Only flag a conflict if you find a DIFFERENT real entity that could be mistaken for this one.`
+    : "";
+
   const prompt = `You are a commercial bank's due diligence officer. Before any research can begin, you must confirm the exact legal entity being analyzed to prevent misidentification.
 
 TARGET ENTITY:
-- Name: ${input.company_name || "Unknown"}
-- Location: ${location}
-- Industry: ${input.naics_description || `NAICS ${input.naics_code}`}
-- Scale: ${revenueStr}
+${identityLines}
 
 TASK: Use web search to confirm which exact legal entity matches this description. Specifically:
-1. Search for "${input.company_name}" in "${location}" in the "${input.naics_description || "specified"}" industry
-2. If you find multiple entities with similar names (e.g., "Samaritus Management LLC" vs "Samaritan Companies" vs "Samaritas"), explicitly list EACH entity found, its location, industry, and revenue scale, and identify which one best matches the target
+1. Search for "${searchName}"${input.dba ? ` (DBA "${input.dba}")` : ""}${input.website ? ` / ${input.website}` : ""} in "${location}" in the "${input.naics_description || "specified"}" industry. Use the business description and known customers above as disambiguators.
+2. If you find multiple entities with similar names, explicitly list EACH entity found, its location, industry, and revenue scale, and identify which one best matches the target
 3. Note any entities that are SIMILAR IN NAME but DIFFERENT in identity — these must be excluded from subsequent research
-4. Assess how confident you are that you've correctly identified the target entity (0.0 = no match found, 1.0 = definitive match with multiple confirming sources)
+4. Assess how confident you are that you've correctly identified the target entity (0.0 = no match found, 1.0 = definitive match with multiple confirming sources)${privateClause}
 
 Return ONLY valid JSON:
 {
@@ -325,7 +450,7 @@ Return ONLY valid JSON:
   "confirmed_location": "confirmed city, state or 'Unknown'",
   "confirmed_industry": "confirmed industry description or 'Unknown'",
   "entity_confidence": 0.0-1.0,
-  "disambiguation_notes": "explain any similarly-named entities found and why they were excluded, or 'No similarly-named entities found'",
+  "disambiguation_notes": "explain any similarly-named entities found and why they were excluded; for a private borrower with limited footprint say 'private_company_limited_public_footprint'",
   "alternative_entities_found": ["Entity A at Location X (different from target)", "Entity B at Location Y"],
   "research_scope": "one sentence: confirm what specific entity all subsequent research should focus on"
 }`;
@@ -355,6 +480,8 @@ async function runBorrowerIntelligence(
   const scopeClause = entityLock?.research_scope
     ? `\nRESEARCH SCOPE (confirmed by entity lock): ${entityLock.research_scope}\nDo NOT include findings about: ${entityLock.alternative_entities_found.join("; ") || "N/A"}`
     : "";
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: banker-certified context.
+  const bankerContext = bankerContextBlock(input);
 
   const prompt = `You are a senior commercial credit analyst conducting pre-loan due diligence.
 
@@ -363,7 +490,7 @@ Industry: ${input.naics_description || input.naics_code || "Unknown"}
 Location: ${location}
 ${input.loan_purpose ? `Loan Purpose: ${input.loan_purpose}` : ""}
 ${input.annual_revenue ? `Annual Revenue: approximately $${(input.annual_revenue / 1_000_000).toFixed(1)}M` : ""}
-${scopeClause}
+${bankerContext}${scopeClause}
 
 ENTITY DISAMBIGUATION REQUIREMENT: You MUST research only the specific entity described above at the specified location. If your web search returns results for a similarly-named company at a different location or in a different industry, explicitly exclude it and note the disambiguation in your output.
 
@@ -747,8 +874,8 @@ async function runCreditSynthesis(
 
 COMPANY: ${input.company_name || "Unknown"} | ${input.naics_description || input.naics_code || "Unknown"} | ${location || "Unknown"}
 LOAN: ${input.loan_amount ? `$${(input.loan_amount / 1_000_000).toFixed(2)}M` : "Unknown"} | ${input.loan_purpose || "Unknown purpose"}
-ENTITY LOCK: ${entityLock ? `${entityLock.confirmed_name} (confidence: ${entityLock.entity_confidence}) — ${entityLock.disambiguation_notes}` : "Entity lock not performed"}
-KNOWN PRINCIPALS: ${principalNames}
+ENTITY LOCK: ${entityLock ? `${entityLock.confirmed_name} (confidence: ${entityLock.entity_confidence}, classification: ${entityLock.entity_classification ?? "n/a"}) — ${entityLock.disambiguation_notes}` : "Entity lock not performed"}
+${bankerContextBlock(input)}KNOWN PRINCIPALS: ${principalNames}
 CONFIRMED PRINCIPALS IN RESEARCH: ${confirmedPrincipals}
 
 RESEARCH FINDINGS:
@@ -842,6 +969,7 @@ function emptyBIEResult(): BIEResult {
     entity_lock: null,
     entity_confirmed: false,
     entity_confidence: 0,
+    entity_classification: "unconfirmed_needs_banker_identity",
     borrower: null,
     management: null,
     competitive: null,
@@ -944,12 +1072,29 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   }
 
   const successCount = [borrower, management, competitive, market, industry, transaction].filter(Boolean).length;
-  const entityConfidence = entityLock?.entity_confidence ?? 0;
+
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: deterministic
+  // disposition. Floors confidence for a banker-certified private entity so a
+  // legitimate relationship borrower with limited public footprint is not auto-
+  // failed; preserves wrong-entity/placeholder protection.
+  const { classification, confidence: entityConfidence } = classifyEntity({
+    companySearchName: input.company_search_name,
+    hasBankerCertifiedAnchor: !!input.has_banker_certified_anchor,
+    modelConfidence: entityLock?.entity_confidence ?? 0,
+    confirmedName: entityLock?.confirmed_name,
+    alternativeEntitiesFound: entityLock?.alternative_entities_found ?? [],
+  });
+  if (entityLock) {
+    entityLock.entity_classification = classification;
+    entityLock.entity_confidence = entityConfidence;
+  }
+  console.log(`[BIE] Entity classification: ${classification} (confidence=${entityConfidence})`);
 
   return {
     entity_lock: entityLock,
     entity_confirmed: entityConfidence >= 0.6,
     entity_confidence: entityConfidence,
+    entity_classification: classification,
     borrower,
     management,
     competitive,

@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { runMission } from "@/lib/research/runMission";
-import { buildResearchSubject } from "@/lib/research/buildResearchSubject";
+import { buildResearchEntityProfile } from "@/lib/research/buildResearchSubject";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import type { MissionType, MissionDepth } from "@/lib/research/types";
@@ -75,7 +75,12 @@ export async function POST(
     // borrower-representation contract used by lifecycle + underwrite, so a deal
     // with a banker-certified story but no legacy borrower_id is no longer
     // treated as having an empty subject.
-    const { subject, represented, naics_provisional } = await buildResearchSubject(sb, dealId);
+    // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: the entity profile
+    // folds legal name / DBA / website / banker-certified context + private-company
+    // mode into the subject so the BIE can disambiguate and avoid web-searching a
+    // placeholder deal label.
+    const { subject, represented, naics_provisional, name_is_placeholder, certification_level } =
+      await buildResearchEntityProfile(sb, dealId);
 
     if (!represented) {
       console.warn(
@@ -89,6 +94,9 @@ export async function POST(
     }
     if (naics_provisional) {
       console.warn(`[research/run] Deal ${dealId}: NAICS missing/placeholder — using provisional industry description, no NAICS number invented`);
+    }
+    if (name_is_placeholder) {
+      console.warn(`[research/run] Deal ${dealId}: no legal/DBA/website search name (placeholder deal label) — entity lock will not web-search; certification=${certification_level}`);
     }
 
     const bankId = await getCurrentBankId();

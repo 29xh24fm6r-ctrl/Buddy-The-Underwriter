@@ -71,6 +71,13 @@ const PATCHABLE_BORROWER_STORY_KEYS = [
   // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1 (naics_confidence is numeric —
   // coerced separately in putBorrowerStory, not via this string allowlist).
   "naics_source",
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: entity identity
+  "legal_name",
+  "dba",
+  "website",
+  "hq_city",
+  "hq_state",
+  "banker_identity_summary",
 ] as const;
 
 const COLLATERAL_STRING_KEYS = [

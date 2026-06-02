@@ -82,6 +82,15 @@ export type DealBorrowerStory = {
   // suggestion tool — "suggested" | "manual" and the model's 0.0–1.0 confidence.
   naics_source?: string | null;
   naics_confidence?: number | null;
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: deal-level entity
+  // identity for borrower_id=null deals. Gives research a real legal/DBA/website
+  // search name + a banker-certified identity summary for the private-company path.
+  legal_name?: string | null;
+  dba?: string | null;
+  website?: string | null;
+  hq_city?: string | null;
+  hq_state?: string | null;
+  banker_identity_summary?: string | null;
   source: "banker" | "borrower" | "buddy" | "research";
   confidence: number | null;
   created_at: string;

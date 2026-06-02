@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
-import { buildResearchSubject } from "@/lib/research/buildResearchSubject";
+import { buildResearchEntityProfile } from "@/lib/research/buildResearchSubject";
 import { validateSubjectLock } from "@/lib/research/subjectLock";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
@@ -20,6 +20,21 @@ type RecoveryAction = {
   actionApi: string | null;
   actionMethod: "POST" | null;
   priority: "critical" | "high" | "medium";
+};
+
+// SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: grouped action cards.
+type GroupItem = {
+  label: string;
+  meaning: string;
+  status: "missing" | "present" | "advisory";
+  actionApi: string | null;
+  blocksPreliminary: boolean;
+  blocksCommittee: boolean;
+};
+type ResearchGateGroups = {
+  requiredIdentityInputs: GroupItem[];
+  researchQualityIssues: GroupItem[];
+  bankerCertifiedEvidence: GroupItem[];
 };
 
 /**
@@ -52,7 +67,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      buildResearchSubject(sb, dealId),
+      buildResearchEntityProfile(sb, dealId),
       (sb as any)
         .from("buddy_research_quality_gates")
         .select("trust_grade, quality_score, gate_failures, threads_failed, source_count, contradictions_found")
@@ -64,7 +79,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const mission = missionRes?.data;
     const gate = qualityGateRes?.data;
-    const { subject, naics_provisional } = subjectRes;
+    const profile = subjectRes;
+    const { subject, naics_provisional } = profile;
 
     // Compute blockers and recovery actions
     const blockers: string[] = [];
@@ -151,6 +167,80 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // Always offer memo rebuild
     actions.push({ label: "Rebuild Memo", actionApi: `/api/deals/${dealId}/credit-memo/generate`, actionMethod: "POST", priority: "medium" });
 
+    // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: grouped action
+    // cards so /underwrite shows what to fix instead of an opaque failure dump.
+    const memoInputs = `/deals/${dealId}/memo-inputs`;
+    const idItem = (
+      label: string,
+      present: boolean,
+      meaning: string,
+      blocksCommittee: boolean,
+      blocksPreliminary = false,
+      anchor = "#entity-identity",
+    ): GroupItem => ({
+      label,
+      meaning,
+      status: present ? "present" : blocksPreliminary ? "missing" : "advisory",
+      actionApi: present ? null : `${memoInputs}${anchor}`,
+      blocksPreliminary,
+      blocksCommittee,
+    });
+
+    const requiredIdentityInputs: GroupItem[] = [
+      idItem(
+        "Legal borrower name",
+        !!profile.legal_name || (!profile.name_is_placeholder && !!subject.company_name),
+        "The exact entity research verifies — without it, research won't search the deal name.",
+        true,
+        profile.name_is_placeholder, // blocks preliminary only when nothing else identifies the entity
+      ),
+      idItem("DBA / trade name", !!profile.dba, "Helps disambiguate similarly-named entities.", false),
+      idItem("Website", !!profile.website, "A strong public identity anchor.", false),
+      idItem(
+        "HQ location",
+        !!(profile.hq_city || profile.hq_state),
+        "Anchors market and competitive research.",
+        false,
+      ),
+      idItem(
+        "Industry / NAICS",
+        !naics_provisional,
+        naics_provisional
+          ? "Industry description is available; the 6-digit NAICS improves precision."
+          : "NAICS on file.",
+        true,
+        false,
+        "#borrower-story",
+      ),
+    ];
+
+    const researchQualityIssues: GroupItem[] = [];
+    const qItem = (label: string, meaning: string, blocksCommittee: boolean): GroupItem => ({
+      label, meaning, status: "missing", actionApi: null, blocksPreliminary: false, blocksCommittee,
+    });
+    if (Array.isArray(gate?.gate_failures)) {
+      for (const f of gate.gate_failures as any[]) {
+        const reason = typeof f === "string" ? f : f?.reason ?? f?.gate_id;
+        if (reason) researchQualityIssues.push(qItem(String(reason), "Surfaced by the research quality gate.", true));
+      }
+    }
+    if (trustGrade && trustGrade !== "committee_grade") {
+      researchQualityIssues.push(qItem(`Trust grade: ${trustGrade}`, "Committee-grade requires public confirmation + source thresholds.", true));
+    }
+
+    const bankerCertifiedEvidence: GroupItem[] = [
+      { label: "Borrower story", meaning: "Banker-certified business narrative.", status: subject.business_description ? "present" : "missing", actionApi: subject.business_description ? null : `${memoInputs}#borrower-story`, blocksPreliminary: false, blocksCommittee: false },
+      { label: "Management profile", meaning: "Principals on file (deal_management_profiles).", status: (subject.principals?.length ?? 0) > 0 ? "present" : "missing", actionApi: (subject.principals?.length ?? 0) > 0 ? null : memoInputs, blocksPreliminary: false, blocksCommittee: false },
+      { label: "Financials", meaning: "Revenue / cash-flow facts extracted.", status: subject.annual_revenue != null ? "present" : "missing", actionApi: null, blocksPreliminary: false, blocksCommittee: false },
+      { label: "Banker identity summary", meaning: "Banker's certified description of who the borrower is.", status: profile.banker_identity_summary ? "present" : "missing", actionApi: profile.banker_identity_summary ? null : `${memoInputs}#entity-identity`, blocksPreliminary: false, blocksCommittee: false },
+    ];
+
+    const groups: ResearchGateGroups = {
+      requiredIdentityInputs,
+      researchQualityIssues,
+      bankerCertifiedEvidence,
+    };
+
     return NextResponse.json({
       ok: true,
       trustGrade,
@@ -160,6 +250,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       // A provisional NAICS is an advisory, not a lock failure.
       subjectLocked: lock.ok,
       naicsProvisional: naics_provisional,
+      certificationLevel: profile.certification_level,
+      nameIsPlaceholder: profile.name_is_placeholder,
+      groups,
       blockers,
       actions,
       borrower: {

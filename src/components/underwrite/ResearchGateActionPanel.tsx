@@ -19,7 +19,11 @@
  * is owned by AnalystWorkbench so there is a single source of truth for state.
  */
 
-import type { ResearchGateSnapshot, ResearchGatePending } from "./researchGateTypes";
+import type {
+  ResearchGateSnapshot,
+  ResearchGatePending,
+  ResearchGateGroupItem,
+} from "./researchGateTypes";
 import { deriveResearchGatePhase } from "./researchGatePhase";
 
 interface Props {
@@ -181,7 +185,26 @@ export default function ResearchGateActionPanel({
             </span>
           ) : null}
         </div>
-        {snapshot.gateFailures.length > 0 ? (
+        {/* SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: grouped
+            action cards. Falls back to the flat gateFailures list when the
+            flight deck didn't supply groups. */}
+        {snapshot.groups ? (
+          <div className="space-y-3">
+            <GateGroup
+              title="Required identity inputs"
+              items={snapshot.groups.requiredIdentityInputs}
+            />
+            <GateGroup
+              title="Research quality issues"
+              items={snapshot.groups.researchQualityIssues}
+            />
+            <GateGroup
+              title="Banker-certified evidence on file"
+              items={snapshot.groups.bankerCertifiedEvidence}
+              presentTone
+            />
+          </div>
+        ) : snapshot.gateFailures.length > 0 ? (
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">
               Gate failures
@@ -201,5 +224,54 @@ export default function ResearchGateActionPanel({
         onClick={onRunResearch}
       />
     </Shell>
+  );
+}
+
+// SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+function GateGroup({
+  title,
+  items,
+  presentTone = false,
+}: {
+  title: string;
+  items: ResearchGateGroupItem[];
+  presentTone?: boolean;
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">{title}</p>
+      <ul className="space-y-1">
+        {items.map((it, i) => {
+          const dot =
+            it.status === "present" ? "✓" : it.status === "advisory" ? "•" : "✗";
+          const tone =
+            it.status === "present"
+              ? "text-emerald-300/90"
+              : it.status === "advisory"
+                ? "text-amber-200/70"
+                : "text-amber-100/90";
+          return (
+            <li key={i} className="flex items-start gap-2 text-xs">
+              <span className={`mt-0.5 ${tone}`}>{dot}</span>
+              <span className="flex-1">
+                <span className={tone}>{it.label}</span>
+                {it.blocksCommittee && it.status !== "present" ? (
+                  <span className="ml-1 rounded bg-amber-500/15 px-1 text-[10px] text-amber-300/80">
+                    committee
+                  </span>
+                ) : null}
+                <span className="block text-amber-100/50">{it.meaning}</span>
+                {it.actionApi && !presentTone ? (
+                  <a href={it.actionApi} className="text-sky-300/80 underline">
+                    Fix in Memo Inputs →
+                  </a>
+                ) : null}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

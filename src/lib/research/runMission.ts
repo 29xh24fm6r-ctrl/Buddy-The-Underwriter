@@ -452,14 +452,24 @@ export async function runMission(
         const bieInput = {
           company_name: subject.company_name ?? null,
           naics_code: subject.naics_code ?? null,
-          naics_description: (subject as any).naics_description ?? null,
-          city: (subject as any).city ?? null,
-          state: (subject as any).state ?? null,
+          naics_description: subject.naics_description ?? null,
+          city: subject.city ?? null,
+          state: subject.state ?? null,
           geography: subject.geography ?? null,
-          principals: (subject as any).principals ?? [],
-          annual_revenue: (subject as any).annual_revenue ?? null,
-          loan_amount: (subject as any).loan_amount ?? null,
-          loan_purpose: (subject as any).loan_purpose ?? null,
+          principals: subject.principals ?? [],
+          annual_revenue: subject.annual_revenue ?? null,
+          loan_amount: subject.loan_amount ?? null,
+          loan_purpose: subject.loan_purpose ?? null,
+          // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+          legal_name: subject.legal_name ?? null,
+          dba: subject.dba ?? null,
+          website: subject.website ?? null,
+          business_description: subject.business_description ?? null,
+          banker_summary: subject.banker_summary ?? null,
+          customer_anchors: subject.customer_anchors ?? null,
+          company_search_name: subject.company_search_name ?? null,
+          private_company_mode: subject.private_company_mode ?? false,
+          has_banker_certified_anchor: subject.has_banker_certified_anchor ?? false,
         };
 
         const bieResult = await runBuddyIntelligenceEngine(bieInput);
@@ -580,9 +590,18 @@ export async function runMission(
             const evidenceCoverage = await computeEvidenceCoverage(dealId, opts?.bankId ?? "").catch(() => null);
 
             // 3. Run deterministic completion gate
+            // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: pass the
+            // deterministic entity disposition + banker-certified evidence flags so
+            // a private/banker-certified borrower isn't auto-failed on public gaps.
             const gateResult = evaluateCompletionGate(bieResult, missionId, {
               naicsCode: subject.naics_code,
               evidenceSupportRatio: evidenceCoverage?.supportRatio ?? null,
+              entityClassification: bieResult.entity_classification,
+              bankerCertifiedEvidence: {
+                hasStory: !!(subject.business_description && subject.business_description.trim().length > 0),
+                hasManagement: (subject.principals?.length ?? 0) > 0,
+                hasFinancials: subject.annual_revenue != null,
+              },
             });
             console.log(
               `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +

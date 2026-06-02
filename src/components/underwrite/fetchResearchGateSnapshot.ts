@@ -74,6 +74,9 @@ export async function fetchResearchGateSnapshot(
         gate?.quality_score ?? flight?.qualityScore ?? null,
       trustGrade: gate?.trust_grade ?? flight?.trustGrade ?? null,
       gateFailures: normalizeGateFailures(gate?.gate_failures),
+      // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+      groups: flight?.groups ?? null,
+      certificationLevel: flight?.certificationLevel ?? null,
     };
   } catch {
     return { ...EMPTY_RESEARCH_GATE_SNAPSHOT };

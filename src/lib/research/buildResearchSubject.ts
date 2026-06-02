@@ -29,6 +29,19 @@ import type { MissionSubject } from "./types";
 
 const PLACEHOLDER_NAICS = "999999";
 
+// SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+// Placeholder/deal-review labels that must NOT be web-searched as a legal entity.
+// Centralizes (and extends with "deal review") the pattern from recovery/status.
+const PLACEHOLDER_NAME_PATTERNS =
+  /^(chatgpt|fix|test|deal\s*\d|new deal|untitled|draft)|\bdeal review\b/i;
+
+/** True when a name is missing, too short, or a placeholder/deal-review label. */
+export function isPlaceholderEntityName(name: string | null | undefined): boolean {
+  const t = (name ?? "").trim();
+  if (t.length < 2) return true;
+  return PLACEHOLDER_NAME_PATTERNS.test(t);
+}
+
 // ─── Raw input (already-fetched rows) ────────────────────────────────────────
 
 export type ResearchSubjectRaw = {
@@ -59,6 +72,14 @@ export type ResearchSubjectRaw = {
     industry_classification?: string | null;
     naics_code?: string | null;
     naics_description?: string | null;
+    // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: deal-level entity
+    // identity, used when no borrowers row is attached.
+    legal_name?: string | null;
+    dba?: string | null;
+    website?: string | null;
+    hq_city?: string | null;
+    hq_state?: string | null;
+    banker_identity_summary?: string | null;
   } | null;
   // memo-input management profiles (deal_management_profiles)
   managementProfiles?: Array<{
@@ -215,20 +236,130 @@ export function assembleResearchSubject(raw: ResearchSubjectRaw): AssembledResea
   return { subject, represented: true, naics_provisional: naicsProvisional };
 }
 
-// ─── Async loader ──────────────────────────────────────────────────────────--
+// ─── Entity profile (private-company aware) ──────────────────────────────────
+
+export type EntityCertificationLevel = "public" | "banker_certified" | "unidentified";
+
+export type ResearchEntityProfile = AssembledResearchSubject & {
+  display_name: string | null;
+  legal_name: string | null;
+  dba: string | null;
+  website: string | null;
+  /** Null when the only name is a placeholder deal label — do NOT web-search it. */
+  company_search_name: string | null;
+  hq_city: string | null;
+  hq_state: string | null;
+  banker_identity_summary: string | null;
+  customer_anchors: string | null;
+  name_is_placeholder: boolean;
+  has_public_anchor: boolean;
+  has_banker_certified_anchor: boolean;
+  has_industry_context: boolean;
+  has_management_context: boolean;
+  private_company_mode_eligible: boolean;
+  certification_level: EntityCertificationLevel;
+};
+
+/**
+ * SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+ *
+ * Pure: builds on assembleResearchSubject with entity identity + deterministic
+ * flags, and folds the identity context into the subject so the BIE prompts can
+ * disambiguate (legal name / DBA / website first) and run a private-company path
+ * for banker-certified borrowers with limited public footprint.
+ */
+export function assembleResearchEntityProfile(raw: ResearchSubjectRaw): ResearchEntityProfile {
+  const base = assembleResearchSubject(raw);
+  const story = raw.story ?? null;
+
+  const legal_name = firstNonEmpty(raw.borrower?.legal_name, story?.legal_name);
+  const dba = firstNonEmpty(story?.dba);
+  const website = firstNonEmpty(story?.website);
+  const display_name = firstNonEmpty(raw.dealBorrowerName, raw.dealDisplayName, raw.dealName);
+  const banker_identity_summary = firstNonEmpty(story?.banker_identity_summary);
+  const customer_anchors = firstNonEmpty(story?.customers);
+  const hq_city = firstNonEmpty(raw.borrower?.city, story?.hq_city);
+  const hq_state = firstNonEmpty(raw.borrower?.state, story?.hq_state, raw.dealState);
+
+  // company_search_name: a real legal/DBA name, or a non-placeholder display name.
+  // Null => only a placeholder deal label is available → entity-lock must not search it.
+  const nonPlaceholderDisplay =
+    display_name && !isPlaceholderEntityName(display_name) ? display_name : null;
+  const company_search_name = firstNonEmpty(legal_name, dba, nonPlaceholderDisplay);
+  const name_is_placeholder = company_search_name === null;
+
+  const businessDesc = base.subject.business_description ?? null;
+  const has_management_context = (base.subject.principals?.length ?? 0) > 0;
+  const has_industry_context = !!(
+    base.subject.naics_description ||
+    (base.subject.naics_code && base.subject.naics_code !== PLACEHOLDER_NAICS)
+  );
+  const has_public_anchor = !!(website || dba || legal_name);
+  const has_banker_certified_anchor = !!(
+    (businessDesc && has_management_context) ||
+    (banker_identity_summary && banker_identity_summary.length > 10) ||
+    (base.subject.banker_summary && businessDesc)
+  );
+  const private_company_mode_eligible = base.represented && has_banker_certified_anchor;
+
+  let certification_level: EntityCertificationLevel;
+  if (!base.represented) certification_level = "unidentified";
+  else if (has_public_anchor) certification_level = "public";
+  else if (has_banker_certified_anchor) certification_level = "banker_certified";
+  else certification_level = "unidentified";
+
+  // Fold identity into the subject the BIE consumes. Prefer the legal name as the
+  // company_name when present; otherwise keep the base resolution (still gates the
+  // subject lock, while company_search_name governs whether the web is searched).
+  const subject: MissionSubject = {
+    ...base.subject,
+    company_name: legal_name ?? base.subject.company_name,
+    legal_name,
+    dba: dba ?? base.subject.dba,
+    website: website ?? base.subject.website,
+    customer_anchors,
+    company_search_name,
+    private_company_mode: private_company_mode_eligible,
+    has_banker_certified_anchor,
+    city: hq_city ?? base.subject.city,
+    state: hq_state ?? base.subject.state,
+    banker_summary: firstNonEmpty(banker_identity_summary, base.subject.banker_summary),
+  };
+
+  return {
+    subject,
+    represented: base.represented,
+    naics_provisional: base.naics_provisional,
+    display_name,
+    legal_name,
+    dba,
+    website,
+    company_search_name,
+    hq_city,
+    hq_state,
+    banker_identity_summary,
+    customer_anchors,
+    name_is_placeholder,
+    has_public_anchor,
+    has_banker_certified_anchor,
+    has_industry_context,
+    has_management_context,
+    private_company_mode_eligible,
+    certification_level,
+  };
+}
+
+// ─── Async loaders ─────────────────────────────────────────────────────────--
 
 type MinimalSb = { from: (table: string) => any };
 
 /**
- * Load every source the subject builder needs and assemble the MissionSubject.
+ * Load every source the research builders need into a ResearchSubjectRaw.
  * Story / management reads are filtered by deal_id ONLY (no bank_id), matching
  * hasBorrowerRepresentation exactly so `represented` cannot diverge from the
  * lifecycle/underwrite borrower-representation contract.
  */
-export async function buildResearchSubject(
-  sb: MinimalSb,
-  dealId: string,
-): Promise<AssembledResearchSubject> {
+async function loadResearchRaw(sb: MinimalSb, dealId: string): Promise<ResearchSubjectRaw> {
   const { data: deal } = await sb
     .from("deals")
     .select("id, borrower_id, borrower_name, display_name, name, state")
@@ -249,7 +380,7 @@ export async function buildResearchSubject(
     sb
       .from("deal_borrower_story")
       .select(
-        "business_description, products_services, revenue_model, banker_notes, competitive_position, customers, industry_classification, naics_code, naics_description",
+        "business_description, products_services, revenue_model, banker_notes, competitive_position, customers, industry_classification, naics_code, naics_description, legal_name, dba, website, hq_city, hq_state, banker_identity_summary",
       )
       .eq("deal_id", dealId)
       .maybeSingle(),
@@ -281,7 +412,7 @@ export async function buildResearchSubject(
       .maybeSingle(),
   ]);
 
-  return assembleResearchSubject({
+  return {
     borrowerId: deal?.borrower_id ?? null,
     dealBorrowerName: (deal as any)?.borrower_name ?? null,
     dealDisplayName: (deal as any)?.display_name ?? null,
@@ -294,5 +425,21 @@ export async function buildResearchSubject(
     annualRevenue: revRes?.data?.fact_value_num != null ? Number(revRes.data.fact_value_num) : null,
     loanAmount: loanRes?.data?.loan_amount != null ? Number(loanRes.data.loan_amount) : null,
     loanPurpose: loanRes?.data?.purpose ?? null,
-  });
+  };
+}
+
+/** Subject-only loader (back-compat: run.ts subject-lock path). */
+export async function buildResearchSubject(
+  sb: MinimalSb,
+  dealId: string,
+): Promise<AssembledResearchSubject> {
+  return assembleResearchSubject(await loadResearchRaw(sb, dealId));
+}
+
+/** Full entity profile loader (private-company aware) — used by run/flight-deck/recovery. */
+export async function buildResearchEntityProfile(
+  sb: MinimalSb,
+  dealId: string,
+): Promise<ResearchEntityProfile> {
+  return assembleResearchEntityProfile(await loadResearchRaw(sb, dealId));
 }

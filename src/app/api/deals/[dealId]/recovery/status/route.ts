@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
-import { buildResearchSubject } from "@/lib/research/buildResearchSubject";
+import { buildResearchEntityProfile } from "@/lib/research/buildResearchSubject";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -17,6 +17,7 @@ type BlockerKey =
   | "missing_identifying_anchor"
   | "malformed_principal"
   | "placeholder_deal_name"
+  | "missing_entity_search_name"
   | "research_failed"
   | "manual_review_required"
   | "research_not_run";
@@ -116,10 +117,23 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // deal_borrower_story NAICS/industry fields) so this agrees with the research
     // subject lock and the flight deck. Missing numeric NAICS with a meaningful
     // industry description is a WARN advisory, not a critical subject-lock failure.
-    const { subject: researchSubject } = await buildResearchSubject(sb, dealId);
+    const researchProfile = await buildResearchEntityProfile(sb, dealId);
+    const researchSubject = researchProfile.subject;
     const hasNumericNaics =
       !!researchSubject.naics_code && researchSubject.naics_code !== "999999";
     const hasIndustryDesc = (researchSubject.naics_description ?? "").trim().length > 0;
+
+    // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: a placeholder deal
+    // label is not a searchable legal entity. Ask for the exact identity inputs
+    // instead of letting research conclude the entity is nonexistent.
+    if (researchProfile.name_is_placeholder) {
+      blockers.push({
+        key: "missing_entity_search_name",
+        severity: "error",
+        label: "Legal borrower name needed",
+        detail: "The deal name is a placeholder. Add the legal borrower name / DBA / website in Memo Inputs → Entity Identity so research can verify the right company.",
+      });
+    }
 
     if (!hasNumericNaics) {
       blockers.push({
