@@ -120,6 +120,16 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       spreadTypes: requestedTypes,
       ownerType,
       ownerEntityId,
+      // SPEC-SPREAD-WORKER-NOT-CLAIMING-GCF-JOBS-1: this route already created
+      // "generating" placeholders (above) for every requested type. The DEFAULT
+      // (prereq-gated) enqueue path silently drops types whose prereqs aren't met
+      // at this instant — creating NO backing job — so those placeholders become
+      // orphaned (ORPHANED_BY_FAILED_ORCHESTRATION) and the banker sees
+      // "Computing…" while the pipeline never runs. A banker-initiated Compute
+      // must always produce a job for what it shows; defer prereq enforcement to
+      // the processor (it extracts facts, evaluates prereqs with bounded retry,
+      // and surfaces a VISIBLE error) — exactly the orchestrator contract.
+      skipPrereqCheck: true,
       meta: {
         source: "api",
         requested_at: new Date().toISOString(),

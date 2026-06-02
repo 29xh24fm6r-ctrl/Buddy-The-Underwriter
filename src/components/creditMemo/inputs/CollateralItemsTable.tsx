@@ -201,7 +201,7 @@ function ItemFields({
         <select
           value={draft.collateral_type}
           onChange={(e) => onChange({ collateral_type: e.target.value })}
-          className="w-full rounded-md border border-gray-300 p-2 text-sm"
+          className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
         >
           {COLLATERAL_TYPES.map((t) => (
             <option key={t} value={t}>
@@ -235,7 +235,7 @@ function Field(props: { label: string; value: string; onChange: (v: string) => v
         type={props.type ?? "text"}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-md border border-gray-300 p-2 text-sm"
+        className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-500 focus:outline-none"
       />
     </label>
   );

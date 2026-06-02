@@ -7,6 +7,7 @@ import {
   type UnderwriteVerifySource,
 } from "@/lib/deals/underwriteVerifyLedger";
 import { getMissingRequired } from "@/lib/deals/checklistSatisfaction";
+import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
 
 export type VerifyUnderwriteRecommendedNextAction =
   | "complete_intake"
@@ -226,7 +227,13 @@ export async function verifyUnderwriteCore(
     missing.push("deal_name");
   }
 
-  if (!deal.borrower_id) {
+  // SPEC-UNDERWRITE-GUARD-BORROWER-REPRESENTATION-PARITY-1: the borrower is
+  // attached when deals.borrower_id exists OR the borrower-profile flow's
+  // artifacts (borrower story / management profile) exist — the same contract
+  // deriveLifecycleState uses for borrower_not_attached. Gating purely on
+  // borrower_id made /underwrite block with "Missing: borrower" even after the
+  // borrower/sponsor profile was completed.
+  if (!(await hasBorrowerRepresentation(sb, dealId, deal.borrower_id))) {
     missing.push("borrower");
   }
 

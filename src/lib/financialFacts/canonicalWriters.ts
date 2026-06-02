@@ -191,7 +191,13 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       factKeys: [
         "NOI_TTM", "EBITDA", "CASH_FLOW_AVAILABLE", "ANNUAL_DEBT_SERVICE",
         "ANNUAL_DEBT_SERVICE_PROPOSED", "ANNUAL_DEBT_SERVICE_EXISTING",
-        "TOTAL_PERSONAL_INCOME", "PFS_ANNUAL_DEBT_SERVICE", "PFS_LIVING_EXPENSES",
+        // SPEC-GCF-SOURCE-OF-TRUTH-1: personal income now derives from the GCF
+        // template's K-1-excluded component build-up (WAGES_W2, SCH_E_RENTAL_TOTAL,
+        // etc. — see gcfPersonalIncome.ts), NOT the AGI aggregate TOTAL_PERSONAL_INCOME.
+        "WAGES_W2", "SCH_E_RENTAL_TOTAL", "SCH_E_NET", "TAXABLE_INTEREST",
+        "ORDINARY_DIVIDENDS", "SOCIAL_SECURITY", "IRA_DISTRIBUTIONS",
+        "PENSION_ANNUITY", "SCHED_C_NET",
+        "PFS_ANNUAL_DEBT_SERVICE", "PFS_LIVING_EXPENSES",
         "DEPRECIATION",
       ],
       tables: ["deal_entities"],

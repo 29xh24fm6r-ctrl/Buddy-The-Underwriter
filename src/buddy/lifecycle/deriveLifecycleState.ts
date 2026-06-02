@@ -44,6 +44,7 @@ import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement"
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
+import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
 
 // Short-lived cache to prevent redundant lifecycle queries on rapid re-renders
 const lifecycleCache = new Map<string, { expiresAt: number; value: LifecycleState }>();
@@ -504,6 +505,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   // /api/deals/[dealId]/readiness route.
   let memoInputsReady: boolean | undefined;
   let memoInputReadinessScore: number | null | undefined;
+  // SPEC-JOURNEY-RAIL-NEXT-ACTION-SOURCE-OF-TRUTH-1: retain the authoritative
+  // memo-input blockers (the gate evaluateMemoInputReadiness produced) so the
+  // rail's next action can reflect the real remaining task (e.g. research) —
+  // the lifecycle's own derived flags use different signals and miss it.
+  let memoInputBlockers: LifecycleBlocker[] = [];
   try {
     const { data: readinessRow } = await (sb as any)
       .from("deal_memo_input_readiness")
@@ -516,10 +522,19 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           ? (readinessRow as any).readiness_score
           : null;
       memoInputReadinessScore = score;
-      const blockers = Array.isArray((readinessRow as any).blockers)
+      const rawBlockers = Array.isArray((readinessRow as any).blockers)
         ? ((readinessRow as any).blockers as unknown[])
         : [];
-      memoInputsReady = score === 100 && blockers.length === 0;
+      memoInputsReady = score === 100 && rawBlockers.length === 0;
+      memoInputBlockers = rawBlockers
+        .filter(
+          (b): b is { code: string; label?: string } =>
+            !!b && typeof (b as any).code === "string",
+        )
+        .map((b) => ({
+          code: (b as any).code as LifecycleBlockerCode,
+          message: (b as any).label ?? (b as any).code,
+        }));
     } else {
       memoInputReadinessScore = null;
       memoInputsReady = false;
@@ -615,12 +630,48 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   // SYSTEM INVARIANT: Every deal MUST have a borrower.
-  // borrower_not_attached blocks advancement from intake stages.
-  if (!(deal as any).borrower_id) {
+  // SPEC-JOURNEY-RAIL-NEXT-ACTION-SOURCE-OF-TRUTH-1: the "Attach Borrower" page
+  // writes deal_borrower_story / deal_management_profiles — NOT deals.borrower_id
+  // (a legacy FK the borrower flow never sets). Gating purely on borrower_id made
+  // the rail show "Attach borrower" forever even after the borrower/sponsor
+  // profile was completed. Treat a deal as having a borrower attached when it has
+  // a borrower story OR a management profile, so the rail advances to the real
+  // next task. Only fire borrower_not_attached when there is NO borrower
+  // representation at all (preserving the genuine "attach a borrower" entry).
+  // Shared contract with verifyUnderwriteCore — see borrowerRepresentation.ts.
+  const borrowerRepresented = await hasBorrowerRepresentation(
+    sb,
+    dealId,
+    (deal as any).borrower_id,
+  );
+  if (!borrowerRepresented) {
     blockers.push({
       code: "borrower_not_attached",
       message: "A borrower must be attached to this deal before it can progress",
     });
+  }
+
+  // SPEC-JOURNEY-RAIL-NEXT-ACTION-SOURCE-OF-TRUTH-1: surface the authoritative
+  // memo-input blockers so the rail's next action reflects the real remaining
+  // task (e.g. missing_research_quality_gate) once the deal is at/past memo
+  // inputs — instead of stalling on lifecycle-only blockers or a stage default.
+  // Pushed AFTER existing lifecycle blockers so earlier-stage gates keep priority;
+  // deduped by code so we never double-count.
+  const MEMO_BLOCKER_STAGES = new Set<string>([
+    "memo_inputs_required",
+    "underwrite_ready",
+    "underwrite_in_progress",
+    "committee_ready",
+    "committee_decisioned",
+  ]);
+  if (MEMO_BLOCKER_STAGES.has(stage) && memoInputBlockers.length > 0) {
+    const seen = new Set(blockers.map((b) => b.code));
+    for (const mb of memoInputBlockers) {
+      if (!seen.has(mb.code)) {
+        blockers.push(mb);
+        seen.add(mb.code);
+      }
+    }
   }
 
   // Intake health gate — only active in docs_requested / docs_in_progress stages

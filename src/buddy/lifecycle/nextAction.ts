@@ -329,8 +329,12 @@ export function getBlockerFixAction(
 
     case "missing_research_quality_gate":
       // Research resolution is canonical on the underwrite workbench route.
-      // There is intentionally no /deals/[dealId]/research page — the workbench
-      // (AnalystWorkbench → ResearchGateActionPanel) owns the run-research path.
+      // There is intentionally no /deals/[dealId]/research page — it 404s — and
+      // the workbench (AnalystWorkbench → ResearchGateActionPanel) owns the
+      // run-research path. Route to /underwrite, the same destination memo
+      // readiness uses for missing_research_quality_gate, so both layers agree
+      // on one existing route. (SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1 /
+      // SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
       return {
         label: "Run research",
         href: `/deals/${dealId}/underwrite`,
@@ -348,8 +352,15 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/policy-exceptions`,
       };
 
-    case "missing_dscr":
+    // SPEC-GCF-FIXPATH-DEEP-LINK-1: GCF deep-links to its own sub-page (which
+    // exposes a Compute action + diagnostic), not the Executive Summary tab.
     case "missing_global_cash_flow":
+      return {
+        label: "Review Global Cash Flow",
+        href: `/deals/${dealId}/spreads/global-cash-flow`,
+      };
+
+    case "missing_dscr":
     case "missing_debt_service_facts":
       return {
         label: "Generate financial snapshot",
@@ -384,7 +395,11 @@ export function getBlockerFixAction(
     case "research_stalled":
       return {
         label: "Run research",
-        href: `/deals/${dealId}/research`,
+        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
+        // not exist (404). Route to the canonical /underwrite page — the same
+        // destination memo readiness uses for missing_research_quality_gate — so
+        // both layers agree on one existing route.
+        href: `/deals/${dealId}/underwrite`,
       };
 
     case "financial_snapshot_stale_recovery":
