@@ -2,6 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { buildCommitteeBlockerResolutions } from "@/lib/research/committeeBlockerResolution";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -30,23 +31,29 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     // 2. Latest mission for this deal
     const { data: mission } = await sb
       .from("buddy_research_missions")
-      .select("id")
+      .select("id, subject")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // 3. Evidence claims for that mission
+    // 3. Evidence claims for that mission (full rows for blocker-resolution linkage)
     let evidence: Array<{
+      id?: string | null;
+      section?: string | null;
       thread_origin: string | null;
       claim_layer: string | null;
+      evidence_type?: string | null;
+      claim?: string | null;
       confidence: number | null;
+      source_uris?: string[] | null;
+      source_types?: string[] | null;
     }> = [];
 
     if (mission?.id) {
       const { data: ev } = await sb
         .from("buddy_research_evidence")
-        .select("thread_origin, claim_layer, confidence")
+        .select("id, section, thread_origin, claim_layer, evidence_type, claim, confidence, source_uris, source_types")
         .eq("mission_id", mission.id);
       evidence = ev ?? [];
     }
@@ -63,8 +70,24 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       if (row.claim_layer === "narrative") byThread[t].narrative++;
     }
 
+    // SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1: derive
+    // evidence-linked, actionable resolution items for each committee blocker.
+    // Pure / derived-on-read — no new table.
+    const subj = (mission?.subject ?? null) as { company_name?: string | null; website?: string | null } | null;
+    const committee_blocker_resolutions = gate
+      ? buildCommitteeBlockerResolutions({
+          committeeBlockers: (gate.committee_blockers as string[]) ?? [],
+          evidenceQuality: (gate.evidence_quality as any) ?? null,
+          sectionSourceStatuses: (gate.section_source_statuses as any) ?? [],
+          contradictionChecklist: (gate.contradiction_checklist as any) ?? [],
+          evidenceRows: evidence,
+          subject: subj ? { company_name: subj.company_name ?? null, website: subj.website ?? null } : null,
+        })
+      : [];
+
     return NextResponse.json({
       ok: true,
+      committee_blocker_resolutions,
       gate: gate
         ? {
             trust_grade:                  gate.trust_grade,

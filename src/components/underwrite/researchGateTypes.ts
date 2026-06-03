@@ -4,6 +4,9 @@
  */
 
 import type { MissionStatus } from "@/lib/research/types";
+import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
+
+export type { CommitteeBlockerResolution };
 
 export type ResearchGatePending = "init" | "run" | null;
 
@@ -52,6 +55,9 @@ export interface ResearchGateSnapshot {
   committeeBlockers: string[];
   /** Public web footprint is limited (expected for a private borrower). */
   publicWebLimited: boolean;
+  // SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1
+  /** Evidence-linked, actionable resolution items per committee blocker. */
+  committeeBlockerResolutions: CommitteeBlockerResolution[];
 }
 
 export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
@@ -67,4 +73,5 @@ export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
   preliminaryBasis: null,
   committeeBlockers: [],
   publicWebLimited: false,
+  committeeBlockerResolutions: [],
 };

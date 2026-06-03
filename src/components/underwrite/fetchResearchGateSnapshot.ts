@@ -85,6 +85,9 @@ export async function fetchResearchGateSnapshot(
         ? gate.committee_blockers.filter((b: unknown): b is string => typeof b === "string")
         : [],
       publicWebLimited: gate?.evidence_quality?.public_web_limited === true,
+      committeeBlockerResolutions: Array.isArray(quality?.committee_blocker_resolutions)
+        ? quality.committee_blocker_resolutions
+        : [],
     };
   } catch {
     return { ...EMPTY_RESEARCH_GATE_SNAPSHOT };

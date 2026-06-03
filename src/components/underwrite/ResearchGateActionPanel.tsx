@@ -23,6 +23,7 @@ import type {
   ResearchGateSnapshot,
   ResearchGatePending,
   ResearchGateGroupItem,
+  CommitteeBlockerResolution,
 } from "./researchGateTypes";
 import { deriveResearchGatePhase, deriveDecisionReadiness } from "./researchGatePhase";
 
@@ -175,6 +176,9 @@ export default function ResearchGateActionPanel({
         {/* SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 7:
             decision readiness — preliminary vs committee, with explicit blockers. */}
         <DecisionReadiness readiness={readiness} />
+        {/* SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1:
+            evidence-linked, actionable path from preliminary → committee. */}
+        <CommitteeBlockerResolutions items={snapshot.committeeBlockerResolutions} />
         <div className="flex flex-wrap gap-4 text-amber-100/70">
           {snapshot.qualityScore != null ? (
             <span>
@@ -289,6 +293,67 @@ function DecisionReadiness({
           </ul>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1
+function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolution[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="space-y-2" data-testid="committee-blocker-resolutions">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">
+        Committee blocker resolution
+      </p>
+      <ul className="space-y-2">
+        {items.map((it) => (
+          <li
+            key={it.blocker_id}
+            className="rounded-lg border border-amber-500/20 bg-black/10 p-2.5 text-[11px]"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <span className="font-medium text-amber-100">{it.title}</span>
+              <span className="rounded bg-amber-500/15 px-1 text-[10px] text-amber-300/80">
+                {it.blocker_type.replace(/_/g, " ")}
+              </span>
+            </div>
+            <p className="mt-0.5 text-amber-100/60">{it.why_it_blocks_committee}</p>
+
+            {it.existing_supporting_evidence.length > 0 ? (
+              <p className="mt-1 text-emerald-300/80">
+                Existing evidence:{" "}
+                {it.existing_supporting_evidence
+                  .map((e) => e.section ?? e.thread_origin ?? "claim")
+                  .filter((v, i, a) => a.indexOf(v) === i)
+                  .join(", ")}
+              </p>
+            ) : (
+              <p className="mt-1 text-amber-100/40">Existing evidence: none on file.</p>
+            )}
+
+            {it.missing_evidence.length > 0 ? (
+              <p className="mt-0.5 text-amber-100/70">
+                Needed for committee: {it.missing_evidence.join("; ")}
+              </p>
+            ) : null}
+
+            {it.recommended_actions.length > 0 ? (
+              <p className="mt-0.5 text-sky-300/80">
+                Next action: {it.recommended_actions[0]}
+              </p>
+            ) : null}
+
+            <p className="mt-1 text-amber-100/40">
+              {it.can_be_banker_certified_for_preliminary
+                ? "Banker-certified/file evidence is sufficient for preliminary."
+                : "Cannot be cleared by banker certification."}
+              {it.requires_public_or_attested_evidence_for_committee
+                ? " Committee requires public/attested evidence."
+                : ""}
+            </p>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
