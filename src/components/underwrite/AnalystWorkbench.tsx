@@ -11,7 +11,10 @@ import type { TrustLayerState } from "./UnderwriteTrustLayer";
 import UnderwritingPipelineRail from "./UnderwritingPipelineRail";
 import { QuickLookBanner } from "@/components/deals/quickLook/QuickLookBanner";
 import { QuickLookQuestionsPanel } from "@/components/deals/quickLook/QuickLookQuestionsPanel";
-import ResearchGateActionPanel from "./ResearchGateActionPanel";
+import ResearchGateActionPanel, {
+  CommitteeReadinessPanel,
+  shouldShowCommitteeReadiness,
+} from "./ResearchGateActionPanel";
 import type { ResearchGateSnapshot, ResearchGatePending } from "./researchGateTypes";
 import { fetchResearchGateSnapshot } from "./fetchResearchGateSnapshot";
 
@@ -201,6 +204,13 @@ export default function AnalystWorkbench({ dealId }: Props) {
           onInitialize={initializeWorkbench}
           onRunResearch={runResearch}
         />
+      )}
+
+      {/* SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1:
+          gate passed (preliminary cleared) but committee still blocked — show the
+          non-blocking committee path so the banker can act on the blockers. */}
+      {!researchGateActive && research && shouldShowCommitteeReadiness(research) && (
+        <CommitteeReadinessPanel snapshot={research} />
       )}
 
       {/* Snapshot Banner */}

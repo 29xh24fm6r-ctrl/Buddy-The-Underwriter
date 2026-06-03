@@ -2,7 +2,8 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { fetchResearchGateSnapshot } from "../fetchResearchGateSnapshot";
-import { deriveResearchGatePhase } from "../researchGatePhase";
+import { deriveResearchGatePhase, shouldShowCommitteeReadiness } from "../researchGatePhase";
+import { EMPTY_RESEARCH_GATE_SNAPSHOT, type ResearchGateSnapshot } from "../researchGateTypes";
 
 /**
  * SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1
@@ -74,6 +75,45 @@ describe("committee_blocker_resolutions serialization", () => {
     const snap = await fetchResearchGateSnapshot("deal-1");
     const phase = deriveResearchGatePhase(snap, /* workspaceReady */ true, null);
     assert.equal(phase, "gate_failed");
+  });
+
+  it("committee path renders when gate PASSED but committee blocked (the OmniCare case)", async () => {
+    const snap = await fetchResearchGateSnapshot("deal-1");
+    // gate_passed=false in this payload → it's a blocker-panel case, not committee-readiness
+    assert.equal(shouldShowCommitteeReadiness(snap), false);
+    // Simulate the preliminary-passed OmniCare state:
+    const passed: ResearchGateSnapshot = {
+      ...EMPTY_RESEARCH_GATE_SNAPSHOT,
+      gatePassed: true,
+      trustGrade: "preliminary",
+      preliminaryEligible: true,
+      committeeEligible: false,
+      committeeBlockerResolutions: RESOLUTIONS as ResearchGateSnapshot["committeeBlockerResolutions"],
+    };
+    assert.equal(shouldShowCommitteeReadiness(passed), true);
+    // phase is "passed" (blocker panel hidden) — committee panel covers this state instead
+    assert.equal(deriveResearchGatePhase(passed, true, null), "passed");
+  });
+
+  it("committee panel hidden once committee is eligible or no resolutions", () => {
+    assert.equal(
+      shouldShowCommitteeReadiness({
+        ...EMPTY_RESEARCH_GATE_SNAPSHOT,
+        gatePassed: true,
+        committeeEligible: true,
+        committeeBlockerResolutions: RESOLUTIONS as ResearchGateSnapshot["committeeBlockerResolutions"],
+      }),
+      false,
+    );
+    assert.equal(
+      shouldShowCommitteeReadiness({
+        ...EMPTY_RESEARCH_GATE_SNAPSHOT,
+        gatePassed: true,
+        committeeEligible: false,
+        committeeBlockerResolutions: [],
+      }),
+      false,
+    );
   });
 
   it("missing resolutions field degrades to empty array (no throw)", async () => {

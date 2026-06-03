@@ -49,6 +49,19 @@ export type DecisionReadiness = {
   publicWebNote: string | null;
 };
 
+/**
+ * SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1
+ * The blocker panel hides once the gate PASSES. Show the non-blocking committee
+ * path when preliminary is cleared but committee is still blocked.
+ */
+export function shouldShowCommitteeReadiness(snapshot: ResearchGateSnapshot): boolean {
+  return (
+    snapshot.gatePassed &&
+    !snapshot.committeeEligible &&
+    (snapshot.committeeBlockerResolutions?.length ?? 0) > 0
+  );
+}
+
 const PRELIMINARY_BASIS_LABELS: Record<string, string> = {
   public_web: "public sources",
   banker_certified_private_company: "banker-certified private-company evidence",

@@ -25,7 +25,13 @@ import type {
   ResearchGateGroupItem,
   CommitteeBlockerResolution,
 } from "./researchGateTypes";
-import { deriveResearchGatePhase, deriveDecisionReadiness } from "./researchGatePhase";
+import {
+  deriveResearchGatePhase,
+  deriveDecisionReadiness,
+  shouldShowCommitteeReadiness,
+} from "./researchGatePhase";
+
+export { shouldShowCommitteeReadiness };
 
 interface Props {
   snapshot: ResearchGateSnapshot;
@@ -298,6 +304,36 @@ function DecisionReadiness({
 }
 
 // SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1
+/**
+ * Non-blocking committee-readiness panel shown when the research gate has
+ * PASSED (preliminary cleared) but committee-grade is still blocked. Renders the
+ * same Decision Readiness + Committee Blocker Resolution content as the blocker
+ * panel, in a neutral (non-amber) shell so it does not read as a hard blocker.
+ */
+export function CommitteeReadinessPanel({ snapshot }: { snapshot: ResearchGateSnapshot }) {
+  if (!shouldShowCommitteeReadiness(snapshot)) return null;
+  const readiness = deriveDecisionReadiness(snapshot);
+  return (
+    <div
+      data-testid="committee-readiness-panel"
+      className="rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-5 space-y-3"
+    >
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-6 items-center rounded-full bg-emerald-500/15 px-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+          Preliminary cleared
+        </span>
+        <h2 className="text-sm font-semibold text-sky-100">Committee readiness</h2>
+      </div>
+      <p className="text-sm text-sky-100/80">
+        Cleared for preliminary underwriting. Committee-grade remains blocked — resolve the
+        items below to reach committee.
+      </p>
+      <DecisionReadiness readiness={readiness} />
+      <CommitteeBlockerResolutions items={snapshot.committeeBlockerResolutions} />
+    </div>
+  );
+}
+
 function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolution[] }) {
   if (!items || items.length === 0) return null;
   return (
