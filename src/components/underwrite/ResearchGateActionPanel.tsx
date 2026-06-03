@@ -236,12 +236,11 @@ export default function ResearchGateActionPanel({
 }
 
 // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 7
-function DecisionReadiness({
-  readiness,
-}: {
-  readiness: ReturnType<typeof deriveDecisionReadiness>;
-}) {
-  const Pill = ({ state }: { state: "ready" | "not_ready" }) => (
+// Module-scoped (NOT defined inside DecisionReadiness) — defining a component
+// during another component's render trips react-hooks "Cannot create components
+// during render".
+function ReadinessPill({ state }: { state: "ready" | "not_ready" }) {
+  return (
     <span
       className={
         state === "ready"
@@ -252,6 +251,13 @@ function DecisionReadiness({
       {state === "ready" ? "Ready" : "Not ready"}
     </span>
   );
+}
+
+function DecisionReadiness({
+  readiness,
+}: {
+  readiness: ReturnType<typeof deriveDecisionReadiness>;
+}) {
   return (
     <div className="space-y-2 rounded-lg border border-amber-500/20 bg-black/10 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">
@@ -259,14 +265,14 @@ function DecisionReadiness({
       </p>
       <div className="flex items-center gap-2 text-xs text-amber-100/90">
         <span className="w-40">Preliminary underwriting</span>
-        <Pill state={readiness.preliminary} />
+        <ReadinessPill state={readiness.preliminary} />
         {readiness.preliminary === "ready" && readiness.preliminaryBasisLabel ? (
           <span className="text-amber-100/60">on {readiness.preliminaryBasisLabel}</span>
         ) : null}
       </div>
       <div className="flex items-center gap-2 text-xs text-amber-100/90">
         <span className="w-40">Committee-grade</span>
-        <Pill state={readiness.committee} />
+        <ReadinessPill state={readiness.committee} />
       </div>
       {readiness.publicWebNote ? (
         <p className="text-[11px] text-amber-100/50">{readiness.publicWebNote}</p>
