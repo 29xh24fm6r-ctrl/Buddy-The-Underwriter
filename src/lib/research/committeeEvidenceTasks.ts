@@ -37,6 +37,44 @@ export type CommitteeEvidenceTaskSpec = {
   target_url: string | null;
 };
 
+/**
+ * SPEC-BIE-COMMITTEE-EVIDENCE-COLLECTION-FROM-BLOCKERS-1: derived-on-read
+ * enrichment statuses. The persisted `status` is the banker WORKFLOW state
+ * (pending/collected/accepted/rejected); `evidence_status` is what the actual
+ * loan file says (missing/collected/needs_review); `resolved_status` is the
+ * composed 5-value status the UI shows.
+ */
+export type EvidenceTaskFileStatus = "missing" | "collected" | "needs_review";
+export type EvidenceTaskResolvedStatus =
+  | "missing"
+  | "collected"
+  | "needs_review"
+  | "accepted"
+  | "rejected";
+
+export type TaskEvidenceLink = {
+  kind:
+    | "research_claim"
+    | "document"
+    | "financial_fact"
+    | "borrower_story"
+    | "management_profile"
+    | "source";
+  id?: string;
+  label: string;
+  detail?: string;
+};
+
+/** One enumerated item of the evidence-coverage checklist. */
+export type CoverageChecklistItem = {
+  label: string;
+  status: EvidenceTaskFileStatus;
+  collect_from: string;
+  linked_evidence: TaskEvidenceLink[];
+  acceptable_evidence: string[];
+  linked_sections: string[];
+};
+
 /** The persisted task shape (returned to UI / API). */
 export type CommitteeEvidenceTask = {
   id?: string;
@@ -49,6 +87,20 @@ export type CommitteeEvidenceTask = {
   auto_collectible?: boolean;
   target_url?: string | null;
   source_snapshot_id?: string | null;
+  // ── SPEC-BIE-COMMITTEE-EVIDENCE-COLLECTION-FROM-BLOCKERS-1 enrichment ──
+  // (derived-on-read by enrichCommitteeTasks; absent until enriched).
+  /** What the loan file already provides for this task. */
+  evidence_status?: EvidenceTaskFileStatus;
+  /** Composed display status: banker action (accepted/rejected/collected) wins, else file-derived. */
+  resolved_status?: EvidenceTaskResolvedStatus;
+  /** Existing file/research evidence linked to this task. */
+  linked_evidence?: TaskEvidenceLink[];
+  /** Research/memo sections this task supports. */
+  linked_sections?: string[];
+  /** For the evidence-coverage task: the enumerated per-item checklist. */
+  checklist?: CoverageChecklistItem[];
+  /** Contradiction / scale tasks must never auto-clear. */
+  auto_clear_forbidden?: boolean;
 };
 
 type Subject = { company_name?: string | null; website?: string | null; naics_code?: string | null } | null;

@@ -5,8 +5,9 @@
 
 import type { MissionStatus } from "@/lib/research/types";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
+import type { CommitteeEvidenceTask } from "@/lib/research/committeeEvidenceTasks";
 
-export type { CommitteeBlockerResolution };
+export type { CommitteeBlockerResolution, CommitteeEvidenceTask };
 
 export type ResearchGatePending = "init" | "run" | null;
 

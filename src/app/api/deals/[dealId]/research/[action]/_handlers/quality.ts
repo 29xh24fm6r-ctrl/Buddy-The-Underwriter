@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildCommitteeBlockerResolutions } from "@/lib/research/committeeBlockerResolution";
 import { loadCommitteeTasks } from "@/lib/research/committeeEvidenceCollection";
+import { enrichCommitteeTasks } from "@/lib/research/committeeEvidenceLinkage";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -88,12 +89,38 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
 
     // SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1: attach the
     // persisted evidence-collection tasks to each blocker by blocker_id.
+    // SPEC-BIE-COMMITTEE-EVIDENCE-COLLECTION-FROM-BLOCKERS-1: enrich each task by
+    // linking it to the actual loan file (documents / facts / story / management)
+    // and deriving a real status (missing/collected/needs_review) — derived-on-
+    // read, no persistence change, never touches gate scoring or committee state.
     if (gate && mission?.id && committee_blocker_resolutions.length > 0) {
       const tasks = await loadCommitteeTasks(sb, mission.id);
       if (tasks.length > 0) {
+        const [docsRes, factsRes, storyRes, mgmtRes] = await Promise.all([
+          sb.from("deal_documents")
+            .select("id, canonical_type, document_type, document_category, original_filename, status")
+            .eq("deal_id", dealId).neq("is_active", false),
+          sb.from("deal_financial_facts")
+            .select("fact_key, fact_type")
+            .eq("deal_id", dealId).neq("is_superseded", true),
+          sb.from("deal_borrower_story")
+            .select("products_services, customer_concentration, competitive_position, website")
+            .eq("deal_id", dealId).maybeSingle(),
+          sb.from("deal_management_profiles")
+            .select("id, person_name, title, source")
+            .eq("deal_id", dealId),
+        ]);
+        const enriched = enrichCommitteeTasks(tasks, {
+          evidenceRows: evidence,
+          documents: docsRes.data ?? [],
+          financialFacts: factsRes.data ?? [],
+          borrowerStory: storyRes.data ?? null,
+          managementProfiles: mgmtRes.data ?? [],
+          subject: subj ? { website: subj.website ?? null } : null,
+        });
         committee_blocker_resolutions = committee_blocker_resolutions.map((r) => ({
           ...r,
-          evidence_tasks: tasks.filter((t) => t.blocker_id === r.blocker_id),
+          evidence_tasks: enriched.filter((t) => t.blocker_id === r.blocker_id),
         }));
       }
     }

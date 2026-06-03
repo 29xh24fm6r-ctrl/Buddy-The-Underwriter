@@ -24,6 +24,7 @@ import type {
   ResearchGatePending,
   ResearchGateGroupItem,
   CommitteeBlockerResolution,
+  CommitteeEvidenceTask,
 } from "./researchGateTypes";
 import {
   deriveResearchGatePhase,
@@ -388,16 +389,13 @@ function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolut
                 : ""}
             </p>
 
-            {/* SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1:
-                evidence-collection task status per blocker. */}
+            {/* SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1 +
+                SPEC-BIE-COMMITTEE-EVIDENCE-COLLECTION-FROM-BLOCKERS-1:
+                evidence-collection tasks per blocker, with loan-file linkage. */}
             {it.evidence_tasks && it.evidence_tasks.length > 0 ? (
-              <ul className="mt-1.5 space-y-0.5 border-t border-amber-500/10 pt-1.5">
+              <ul className="mt-1.5 space-y-1 border-t border-amber-500/10 pt-1.5">
                 {it.evidence_tasks.map((t) => (
-                  <li key={t.id ?? t.task_type} className="flex items-center gap-1.5">
-                    <TaskStatusDot status={String(t.status)} />
-                    <span className="text-amber-100/70">{t.title ?? t.task_type}</span>
-                    <span className="text-amber-100/40">— {String(t.status)}</span>
-                  </li>
+                  <EvidenceTaskRow key={t.id ?? t.task_type} task={t} />
                 ))}
               </ul>
             ) : null}
@@ -408,14 +406,54 @@ function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolut
   );
 }
 
+function EvidenceTaskRow({ task: t }: { task: CommitteeEvidenceTask }) {
+  const status = String(t.resolved_status ?? t.status);
+  const linkedCount = t.linked_evidence?.length ?? 0;
+  return (
+    <li className="space-y-0.5">
+      <div className="flex items-center gap-1.5">
+        <TaskStatusDot status={status} />
+        <span className="text-amber-100/70">{t.title ?? t.task_type}</span>
+        <span className="text-amber-100/40">— {status.replace(/_/g, " ")}</span>
+        {linkedCount > 0 ? (
+          <span className="text-emerald-300/70">· {linkedCount} on file</span>
+        ) : null}
+        {t.auto_clear_forbidden ? (
+          <span className="text-rose-300/60">· never auto-clears</span>
+        ) : null}
+      </div>
+      {t.checklist && t.checklist.length > 0 ? (
+        <ul className="ml-4 space-y-0.5">
+          {t.checklist.map((c) => (
+            <li key={c.label} className="flex items-center gap-1.5 text-amber-100/50">
+              <TaskStatusDot status={c.status} />
+              <span>{c.label}</span>
+              <span className="text-amber-100/30">— {c.status.replace(/_/g, " ")}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
 function TaskStatusDot({ status }: { status: string }) {
   const tone =
     status === "accepted" || status === "collected"
       ? "text-emerald-300"
       : status === "rejected"
         ? "text-rose-300"
-        : "text-amber-300/70";
-  const glyph = status === "accepted" || status === "collected" ? "✓" : status === "rejected" ? "✗" : "•";
+        : status === "needs_review"
+          ? "text-amber-300"
+          : "text-amber-300/60"; // missing | pending
+  const glyph =
+    status === "accepted" || status === "collected"
+      ? "✓"
+      : status === "rejected"
+        ? "✗"
+        : status === "needs_review"
+          ? "~"
+          : "•";
   return <span className={tone} aria-label={status}>{glyph}</span>;
 }
 
