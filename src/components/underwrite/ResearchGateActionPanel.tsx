@@ -387,11 +387,36 @@ function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolut
                 ? " Committee requires public/attested evidence."
                 : ""}
             </p>
+
+            {/* SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1:
+                evidence-collection task status per blocker. */}
+            {it.evidence_tasks && it.evidence_tasks.length > 0 ? (
+              <ul className="mt-1.5 space-y-0.5 border-t border-amber-500/10 pt-1.5">
+                {it.evidence_tasks.map((t) => (
+                  <li key={t.id ?? t.task_type} className="flex items-center gap-1.5">
+                    <TaskStatusDot status={String(t.status)} />
+                    <span className="text-amber-100/70">{t.title ?? t.task_type}</span>
+                    <span className="text-amber-100/40">— {String(t.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function TaskStatusDot({ status }: { status: string }) {
+  const tone =
+    status === "accepted" || status === "collected"
+      ? "text-emerald-300"
+      : status === "rejected"
+        ? "text-rose-300"
+        : "text-amber-300/70";
+  const glyph = status === "accepted" || status === "collected" ? "✓" : status === "rejected" ? "✗" : "•";
+  return <span className={tone} aria-label={status}>{glyph}</span>;
 }
 
 // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1

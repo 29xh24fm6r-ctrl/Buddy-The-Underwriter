@@ -705,6 +705,21 @@ export async function runMission(
             console.warn("[runMission] trust layer failed (non-fatal):", trustErr?.message);
           }
 
+          // SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1:
+          // generate committee evidence-collection tasks + snapshot the borrower
+          // website. Non-fatal — never blocks mission completion, never changes
+          // gate semantics.
+          try {
+            const { ensureCommitteeEvidenceTasks } = await import("./committeeEvidenceCollection");
+            const taskResult = await ensureCommitteeEvidenceTasks({ missionId, dealId });
+            console.log(
+              `[runMission] committee evidence tasks: ${taskResult.tasks_upserted} task(s); ` +
+              `website snapshot=${taskResult.website_snapshot?.status ?? "n/a"}`,
+            );
+          } catch (taskErr: any) {
+            console.warn("[runMission] committee evidence tasks failed (non-fatal):", taskErr?.message);
+          }
+
           // Perfect Banker Flow v1.1 — research finished. Refresh readiness
           // so the rail flips from "research_stalled" to ready without the
           // banker manually reloading. Fire-and-forget.

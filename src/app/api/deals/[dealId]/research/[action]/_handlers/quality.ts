@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildCommitteeBlockerResolutions } from "@/lib/research/committeeBlockerResolution";
+import { loadCommitteeTasks } from "@/lib/research/committeeEvidenceCollection";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -74,7 +75,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     // evidence-linked, actionable resolution items for each committee blocker.
     // Pure / derived-on-read — no new table.
     const subj = (mission?.subject ?? null) as { company_name?: string | null; website?: string | null } | null;
-    const committee_blocker_resolutions = gate
+    let committee_blocker_resolutions = gate
       ? buildCommitteeBlockerResolutions({
           committeeBlockers: (gate.committee_blockers as string[]) ?? [],
           evidenceQuality: (gate.evidence_quality as any) ?? null,
@@ -84,6 +85,18 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
           subject: subj ? { company_name: subj.company_name ?? null, website: subj.website ?? null } : null,
         })
       : [];
+
+    // SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1: attach the
+    // persisted evidence-collection tasks to each blocker by blocker_id.
+    if (gate && mission?.id && committee_blocker_resolutions.length > 0) {
+      const tasks = await loadCommitteeTasks(sb, mission.id);
+      if (tasks.length > 0) {
+        committee_blocker_resolutions = committee_blocker_resolutions.map((r) => ({
+          ...r,
+          evidence_tasks: tasks.filter((t) => t.blocker_id === r.blocker_id),
+        }));
+      }
+    }
 
     return NextResponse.json({
       ok: true,

@@ -22,6 +22,7 @@
 import type { EvidenceQualityResult } from "./evidenceQuality";
 import type { SectionSourceStatus } from "./sectionSourceStatus";
 import type { ContradictionCheck } from "./contradictionChecklist";
+import type { CommitteeEvidenceTask } from "./committeeEvidenceTasks";
 
 export type CommitteeBlockerType =
   | "public_entity_verification"
@@ -55,6 +56,12 @@ export type CommitteeBlockerResolution = {
   acceptable_evidence_examples: string[];
   can_be_banker_certified_for_preliminary: boolean;
   requires_public_or_attested_evidence_for_committee: boolean;
+  /**
+   * SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1: persisted
+   * evidence-collection tasks for this blocker. Left undefined by the pure
+   * builder; populated by the API after loading buddy_research_committee_tasks.
+   */
+  evidence_tasks?: CommitteeEvidenceTask[];
 };
 
 /** Minimal shape of a buddy_research_evidence row needed for linkage. */
