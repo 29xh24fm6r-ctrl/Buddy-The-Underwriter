@@ -103,6 +103,7 @@ function bieResult(over: Partial<BIEResult> = {}): BIEResult {
     entity_classification: "probable_private_entity",
     borrower: thread,
     management: { principal_profiles: [{ name: "Matt Hunt", title: "President", identity_confirmed: false, identity_confidence: 0.3, background: "", role_relevance: "", red_flags: [] }] } as any,
+    management_basis: "public_web",
     competitive: thread,
     market: thread,
     industry: thread,

@@ -86,6 +86,14 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
             underwriting_questions_found: gate.underwriting_questions_found,
             gate_failures:                gate.gate_failures ?? [],
             thread_results:               gate.thread_results ?? {},
+            // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phases 3–6.
+            section_source_statuses:      gate.section_source_statuses ?? [],
+            contradiction_checklist:      gate.contradiction_checklist ?? [],
+            evidence_quality:             gate.evidence_quality ?? null,
+            preliminary_eligible:         gate.preliminary_eligible ?? false,
+            committee_eligible:           gate.committee_eligible ?? false,
+            preliminary_basis:            gate.preliminary_basis ?? null,
+            committee_blockers:           gate.committee_blockers ?? [],
           }
         : null,
       evidence_summary: {

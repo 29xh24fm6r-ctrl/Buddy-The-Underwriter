@@ -616,6 +616,24 @@ export async function runMission(
                 hasManagement: (subject.principals?.length ?? 0) > 0,
                 hasFinancials: subject.annual_revenue != null,
               },
+              // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: provenance.
+              managementBasis: bieResult.management_basis,
+              // Phase 2: borrower's own website domain for source classification.
+              borrowerDomain: subject.website ?? null,
+              // Phase 5/6: loan-file / banker-certified evidence signals from the subject.
+              evidenceSignals: {
+                hasLegalName: !!subject.legal_name,
+                hasWebsite: !!subject.website,
+                hasHqLocation: !!(subject.city || subject.state || subject.geography),
+                hasBankerIdentitySummary: !!subject.banker_summary,
+                hasNaics: !!(subject.naics_code && subject.naics_code !== "999999"),
+                hasIndustryDescription: !!subject.naics_description,
+                hasBusinessDescription: !!(subject.business_description && subject.business_description.trim().length > 0),
+                hasCustomerAnchors: !!subject.customer_anchors,
+                hasRevenue: subject.annual_revenue != null,
+                hasLoanRequest: !!(subject.loan_purpose || subject.loan_amount),
+                privateCompanyMode: subject.private_company_mode ?? false,
+              },
             });
             console.log(
               `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +
@@ -645,6 +663,15 @@ export async function runMission(
               gate_failures: gateResult.checks.filter(c => c.status !== "pass").map(c => ({
                 gate_id: c.gate_id, reason: c.reason, severity: c.severity,
               })),
+              // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phases 3–6:
+              // structured artifacts for the research flight deck.
+              section_source_statuses: gateResult.section_source_statuses,
+              contradiction_checklist: gateResult.contradiction_checklist,
+              evidence_quality: gateResult.evidence_quality,
+              preliminary_eligible: gateResult.preliminary_eligible,
+              committee_eligible: gateResult.committee_eligible,
+              preliminary_basis: gateResult.preliminary_basis,
+              committee_blockers: gateResult.committee_blockers,
               thread_results: {
                 borrower: bieResult.borrower ? "ok" : "null",
                 management: bieResult.management ? "ok" : "null",

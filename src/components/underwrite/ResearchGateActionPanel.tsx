@@ -24,7 +24,7 @@ import type {
   ResearchGatePending,
   ResearchGateGroupItem,
 } from "./researchGateTypes";
-import { deriveResearchGatePhase } from "./researchGatePhase";
+import { deriveResearchGatePhase, deriveDecisionReadiness } from "./researchGatePhase";
 
 interface Props {
   snapshot: ResearchGateSnapshot;
@@ -113,8 +113,10 @@ export default function ResearchGateActionPanel({
     return (
       <Shell>
         <p className="text-sm text-amber-100/90">
-          Research has not been run for this deal. Buddy needs a committee-grade
-          research mission before the memo can clear the research quality gate.
+          Research has not been run for this deal. Buddy needs to run research
+          before the memo can clear the research quality gate. A banker-certified
+          preliminary result is enough for preliminary underwriting; committee-grade
+          additionally needs public/attested verification.
         </p>
         <PrimaryButton
           label="Run Research"
@@ -161,12 +163,18 @@ export default function ResearchGateActionPanel({
   }
 
   // phase === "gate_failed"
+  const readiness = deriveDecisionReadiness(snapshot);
   return (
     <Shell>
       <div className="space-y-2 text-sm">
         <p className="font-medium text-amber-100">
-          Research completed but did not clear the quality gate.
+          {readiness.preliminary === "ready"
+            ? "Research cleared for preliminary underwriting; committee-grade remains blocked."
+            : "Research completed but is not yet ready for preliminary underwriting."}
         </p>
+        {/* SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 7:
+            decision readiness — preliminary vs committee, with explicit blockers. */}
+        <DecisionReadiness readiness={readiness} />
         <div className="flex flex-wrap gap-4 text-amber-100/70">
           {snapshot.qualityScore != null ? (
             <span>
@@ -224,6 +232,58 @@ export default function ResearchGateActionPanel({
         onClick={onRunResearch}
       />
     </Shell>
+  );
+}
+
+// SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 7
+function DecisionReadiness({
+  readiness,
+}: {
+  readiness: ReturnType<typeof deriveDecisionReadiness>;
+}) {
+  const Pill = ({ state }: { state: "ready" | "not_ready" }) => (
+    <span
+      className={
+        state === "ready"
+          ? "rounded bg-emerald-500/15 px-1.5 text-[10px] font-semibold text-emerald-300"
+          : "rounded bg-amber-500/15 px-1.5 text-[10px] font-semibold text-amber-300"
+      }
+    >
+      {state === "ready" ? "Ready" : "Not ready"}
+    </span>
+  );
+  return (
+    <div className="space-y-2 rounded-lg border border-amber-500/20 bg-black/10 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">
+        Decision readiness
+      </p>
+      <div className="flex items-center gap-2 text-xs text-amber-100/90">
+        <span className="w-40">Preliminary underwriting</span>
+        <Pill state={readiness.preliminary} />
+        {readiness.preliminary === "ready" && readiness.preliminaryBasisLabel ? (
+          <span className="text-amber-100/60">on {readiness.preliminaryBasisLabel}</span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2 text-xs text-amber-100/90">
+        <span className="w-40">Committee-grade</span>
+        <Pill state={readiness.committee} />
+      </div>
+      {readiness.publicWebNote ? (
+        <p className="text-[11px] text-amber-100/50">{readiness.publicWebNote}</p>
+      ) : null}
+      {readiness.committee === "not_ready" && readiness.committeeBlockers.length > 0 ? (
+        <div className="space-y-0.5">
+          <p className="text-[11px] font-semibold text-amber-300/70">
+            Committee-grade remains blocked pending:
+          </p>
+          <ul className="list-disc space-y-0.5 pl-5 text-[11px] text-amber-100/70">
+            {readiness.committeeBlockers.map((b, i) => (
+              <li key={i}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

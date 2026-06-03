@@ -39,3 +39,39 @@ export function deriveResearchGatePhase(
   // E: status === "complete" but the gate has not passed.
   return "gate_failed";
 }
+
+// SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 7: decision readiness.
+export type DecisionReadiness = {
+  preliminary: "ready" | "not_ready";
+  committee: "ready" | "not_ready";
+  preliminaryBasisLabel: string | null;
+  committeeBlockers: string[];
+  publicWebNote: string | null;
+};
+
+const PRELIMINARY_BASIS_LABELS: Record<string, string> = {
+  public_web: "public sources",
+  banker_certified_private_company: "banker-certified private-company evidence",
+  loan_file_evidence: "loan-file evidence",
+};
+
+/**
+ * Derive the preliminary-vs-committee decision readiness for the gate UI.
+ * Copy rules: never imply the entity is nonexistent or that research failed
+ * when the file supports preliminary; surface committee blockers explicitly.
+ */
+export function deriveDecisionReadiness(s: ResearchGateSnapshot): DecisionReadiness {
+  // gate_passed (preliminary or committee) OR preliminaryEligible → preliminary ready.
+  const preliminary: "ready" | "not_ready" =
+    s.preliminaryEligible || s.gatePassed ? "ready" : "not_ready";
+  const committee: "ready" | "not_ready" = s.committeeEligible ? "ready" : "not_ready";
+  return {
+    preliminary,
+    committee,
+    preliminaryBasisLabel: s.preliminaryBasis ? PRELIMINARY_BASIS_LABELS[s.preliminaryBasis] ?? null : null,
+    committeeBlockers: s.committeeBlockers ?? [],
+    publicWebNote: s.publicWebLimited
+      ? "Public web footprint is limited — expected for a private borrower."
+      : null,
+  };
+}

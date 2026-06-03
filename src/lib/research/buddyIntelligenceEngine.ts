@@ -26,6 +26,11 @@ import "server-only";
 
 import type { NarrativeSection } from "./types";
 import { MODEL_RESEARCH, isGemini3Model } from "@/lib/ai/models";
+import {
+  repairManagementJson,
+  buildManagementFallback,
+  MANAGEMENT_REPAIR_STRATEGY,
+} from "./managementRepair";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -75,6 +80,12 @@ export type BIEThreadDiagnostic = {
   safety_ratings?: unknown;
   json_parse_error?: string | null;
   raw_text_preview?: string | null;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: when a malformed
+  // thread output is salvaged by a repair pass, the ORIGINAL parse diagnostic is
+  // preserved (error_type=json_parse_error, raw_text_preview, json_parse_error)
+  // and these two flags record that a repair (or deterministic fallback) ran.
+  repaired?: boolean;
+  repair_strategy?: string | null;
   prompt_chars: number;
   response_chars?: number | null;
   source_count: number;
@@ -111,7 +122,11 @@ function synthDiagnostic(
 export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   const t = cap(d.thread.replace(/_/g, " "));
-  if (d.ok) return `${t}: ok`;
+  if (d.ok) {
+    return d.repaired
+      ? `${t}: ok (recovered via ${d.repair_strategy ?? "repair"}; original output was invalid JSON)`
+      : `${t}: ok`;
+  }
   switch (d.error_type) {
     case "http_error":
       return `${t} failed: HTTP ${d.http_status ?? "error"}${d.raw_text_preview ? ` — ${d.raw_text_preview}` : ""}`;
@@ -153,6 +168,11 @@ export async function callGeminiGrounded<T>(args: {
   logTag: string;
   thread: BIEThreadName;
   useGrounding: boolean;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: optional ONE-shot
+  // repair pass invoked only on JSON.parse failure. Receives the cleaned model
+  // text; returns a salvaged value or null. The original parse diagnostic is
+  // preserved either way.
+  repair?: { strategy: string; fn: (clean: string) => T | null };
 }): Promise<GeminiGroundedResult<T>> {
   const promptChars = args.prompt.length;
   // SPEC-BIE-...-MEGA-1 Phase 1: build a diagnostic for EVERY return path.
@@ -279,6 +299,38 @@ export async function callGeminiGrounded<T>(args: {
       result = JSON.parse(clean) as T;
     } catch (pe: any) {
       console.warn(`[BIE:${args.logTag}] JSON parse error:`, pe?.message);
+      // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: one safe
+      // repair attempt. On success the ORIGINAL parse diagnostic is preserved
+      // (error_type=json_parse_error, raw_text_preview, json_parse_error) and
+      // marked repaired=true so the failure remains auditable.
+      if (args.repair) {
+        let salvaged: T | null = null;
+        try {
+          salvaged = args.repair.fn(clean);
+        } catch {
+          salvaged = null;
+        }
+        if (salvaged !== null) {
+          console.warn(`[BIE:${args.logTag}] JSON repaired via ${args.repair.strategy}`);
+          return {
+            result: salvaged,
+            sourceUrls: chunkUrls,
+            segments,
+            diagnostic: baseDiag({
+              ok: true,
+              error_type: "json_parse_error",
+              http_status: res.status,
+              finish_reason: finishReason,
+              json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+              raw_text_preview: clean.slice(0, 300),
+              response_chars: text.length,
+              source_count: chunkUrls.length,
+              repaired: true,
+              repair_strategy: args.repair.strategy,
+            }),
+          };
+        }
+      }
       return emptyWith(baseDiag({
         ok: false,
         error_type: "json_parse_error",
@@ -383,6 +435,8 @@ export type BorrowerIntelligence = {
 // Thread 2 — Management
 export type PrincipalProfile = {
   name: string;
+  /** Known title from the loan file (optional; populated by the file-based fallback). */
+  title?: string | null;
   identity_confirmed: boolean;
   identity_confidence: number;     // 0.0–1.0: confidence this is the right person
   identity_notes: string;          // "Confirmed via [source]" or "No records found"
@@ -495,6 +549,15 @@ export type BIEResult = {
   entity_classification: EntityClassification;  // deterministic disposition
   borrower: BorrowerIntelligence | null;
   management: ManagementIntelligence | null;
+  /**
+   * SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: provenance of the
+   * management thread so the gate + UI can distinguish public verification from
+   * file-based evidence.
+   *   "public_web" — produced by the management thread (incl. repaired JSON)
+   *   "fallback"   — deterministic banker-certified/file-based profile
+   *   null         — no management produced
+   */
+  management_basis: "public_web" | "fallback" | null;
   competitive: CompetitiveIntelligence | null;
   market: MarketIntelligence | null;
   industry: IndustryIntelligence | null;
@@ -813,6 +876,10 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<ManagementIntelligence>({
     prompt, apiKey, sources, logTag: "management", thread: "management", useGrounding: true,
+    // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1A: management-only
+    // JSON repair. On unrecoverable malformation this returns null and the
+    // deterministic file-based fallback (Phase 1B) takes over in the orchestrator.
+    repair: { strategy: MANAGEMENT_REPAIR_STRATEGY, fn: repairManagementJson },
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
@@ -1169,6 +1236,7 @@ function emptyBIEResult(): BIEResult {
     entity_classification: "unconfirmed_needs_banker_identity",
     borrower: null,
     management: null,
+    management_basis: null,
     competitive: null,
     market: null,
     industry: null,
@@ -1259,7 +1327,31 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   const industryR = settled(t5, "industry");
 
   const borrower = borrowerR.result;
-  const management = managementR.result;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1B: deterministic
+  // file-based fallback. If the management thread produced nothing usable (even
+  // after the repair pass) but we have banker-certified principals on file,
+  // synthesize a clearly-labelled file-based ManagementIntelligence. This keeps
+  // management non-null (no "management not possible" message) while never
+  // setting identity_confirmed=true or reaching committee-grade.
+  let management = managementR.result;
+  let managementBasis: "public_web" | "fallback" | null = management ? "public_web" : null;
+  let managementDiag = managementR.diagnostic;
+  if (!management) {
+    const fallback = buildManagementFallback(input);
+    if (fallback) {
+      management = fallback;
+      managementBasis = "fallback";
+      managementDiag = synthDiagnostic("management", "fallback_used", {
+        raw_text_preview: `${fallback.principal_profiles.length} banker-certified principal(s) on file — file-based fallback (public confirmation limited)`,
+        // Preserve the original failure mode for audit when one was recorded.
+        json_parse_error: managementR.diagnostic?.json_parse_error ?? null,
+      });
+      console.warn(
+        `[BIE] Management deterministic fallback used for "${input.company_name}": ` +
+        `${fallback.principal_profiles.length} file-based profile(s).`,
+      );
+    }
+  }
   const competitive = competitiveR.result;
   const market = marketR.result;
   const industry = industryR.result;
@@ -1336,7 +1428,7 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   const thread_diagnostics: Record<BIEThreadName, BIEThreadDiagnostic> = {
     entity_lock: entityLockDiag,
     borrower: borrowerR.diagnostic,
-    management: managementR.diagnostic,
+    management: managementDiag,
     competitive: competitiveR.diagnostic,
     market: marketR.diagnostic,
     industry: industryR.diagnostic,
@@ -1354,6 +1446,7 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     entity_classification: classification,
     borrower,
     management,
+    management_basis: managementBasis,
     competitive,
     market,
     industry,

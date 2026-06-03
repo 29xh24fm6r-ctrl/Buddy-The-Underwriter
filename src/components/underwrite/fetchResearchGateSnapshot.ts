@@ -77,6 +77,14 @@ export async function fetchResearchGateSnapshot(
       // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
       groups: flight?.groups ?? null,
       certificationLevel: flight?.certificationLevel ?? null,
+      // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 6/7: readiness split.
+      preliminaryEligible: gate?.preliminary_eligible === true,
+      committeeEligible: gate?.committee_eligible === true,
+      preliminaryBasis: gate?.preliminary_basis ?? null,
+      committeeBlockers: Array.isArray(gate?.committee_blockers)
+        ? gate.committee_blockers.filter((b: unknown): b is string => typeof b === "string")
+        : [],
+      publicWebLimited: gate?.evidence_quality?.public_web_limited === true,
     };
   } catch {
     return { ...EMPTY_RESEARCH_GATE_SNAPSHOT };

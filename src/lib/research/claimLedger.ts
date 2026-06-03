@@ -49,7 +49,7 @@ function makeClaimRecords(
       claim_layer: layer,
       thread_origin: thread,
       source_uris: sourceUrls.slice(0, 10),
-      source_types: sourceUrls.slice(0, 10).map(classifySourceUrl),
+      source_types: sourceUrls.slice(0, 10).map((u) => classifySourceUrl(u)),
       confidence,
       supports_memo_fields: memoFields,
       ...extra,
@@ -146,7 +146,7 @@ export async function persistClaimLedger(
         claim_layer: "fact",
         thread_origin: "competitive",
         source_uris: ts.competitive.slice(0, 5),
-        source_types: ts.competitive.slice(0, 5).map(classifySourceUrl),
+        source_types: ts.competitive.slice(0, 5).map((u) => classifySourceUrl(u)),
         confidence: 0.65,
         supports_memo_fields: ["competitive_positioning"],
       });

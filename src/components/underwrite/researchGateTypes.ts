@@ -37,6 +37,21 @@ export interface ResearchGateSnapshot {
   groups: ResearchGateGroups | null;
   /** Deterministic entity disposition certification level, when available. */
   certificationLevel: string | null;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 6/7: readiness split.
+  /** Preliminary underwriting is supported by certified/file evidence. */
+  preliminaryEligible: boolean;
+  /** Committee-grade readiness (public/attested verification + coverage). */
+  committeeEligible: boolean;
+  /** What preliminary readiness rests on, when eligible. */
+  preliminaryBasis:
+    | "public_web"
+    | "banker_certified_private_company"
+    | "loan_file_evidence"
+    | null;
+  /** Explicit blockers preventing committee-grade readiness. */
+  committeeBlockers: string[];
+  /** Public web footprint is limited (expected for a private borrower). */
+  publicWebLimited: boolean;
 }
 
 export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
@@ -47,4 +62,9 @@ export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
   gateFailures: [],
   groups: null,
   certificationLevel: null,
+  preliminaryEligible: false,
+  committeeEligible: false,
+  preliminaryBasis: null,
+  committeeBlockers: [],
+  publicWebLimited: false,
 };
