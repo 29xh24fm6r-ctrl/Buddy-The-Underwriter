@@ -39,20 +39,146 @@ type GroundingSegment = {
   confidences: number[]; // per-source confidence scores
 };
 
+// SPEC-BIE-PRIVATE-COMPANY-RESEARCH-ENGINE-MEGA-1 — Phase 1: thread diagnostics.
+// Every BIE thread must be auditable; null may never be opaque.
+export type BIEThreadName =
+  | "entity_lock"
+  | "borrower"
+  | "management"
+  | "competitive"
+  | "market"
+  | "industry"
+  | "transaction"
+  | "synthesis";
+
+export type BIEThreadErrorType =
+  | "none"
+  | "http_error"
+  | "empty_candidate"
+  | "empty_text"
+  | "json_parse_error"
+  | "safety_block"
+  | "finish_reason"
+  | "network_error"
+  | "fallback_used"
+  | "thread_threw"
+  | "skipped"
+  | "unknown_error";
+
+export type BIEThreadDiagnostic = {
+  thread: BIEThreadName;
+  ok: boolean;
+  error_type: BIEThreadErrorType;
+  http_status?: number | null;
+  finish_reason?: string | null;
+  prompt_block_reason?: string | null;
+  safety_ratings?: unknown;
+  json_parse_error?: string | null;
+  raw_text_preview?: string | null;
+  prompt_chars: number;
+  response_chars?: number | null;
+  source_count: number;
+  model: string;
+  created_at: string;
+};
+
+/** Synthesize a diagnostic for non-Gemini outcomes (skip, thread threw, fallback). */
+function synthDiagnostic(
+  thread: BIEThreadName,
+  error_type: BIEThreadErrorType,
+  over: Partial<BIEThreadDiagnostic> = {},
+): BIEThreadDiagnostic {
+  return {
+    thread,
+    ok: error_type === "none",
+    error_type,
+    http_status: null,
+    finish_reason: null,
+    prompt_block_reason: null,
+    safety_ratings: null,
+    json_parse_error: null,
+    raw_text_preview: null,
+    response_chars: null,
+    prompt_chars: 0,
+    source_count: 0,
+    model: GEMINI_MODEL,
+    created_at: new Date().toISOString(),
+    ...over,
+  };
+}
+
+/** Human-readable one-liner for the flight deck. */
+export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const t = cap(d.thread.replace(/_/g, " "));
+  if (d.ok) return `${t}: ok`;
+  switch (d.error_type) {
+    case "http_error":
+      return `${t} failed: HTTP ${d.http_status ?? "error"}${d.raw_text_preview ? ` — ${d.raw_text_preview}` : ""}`;
+    case "empty_candidate":
+      return `${t} failed: empty model response (no candidate).`;
+    case "empty_text":
+      return `${t} failed: empty model text${d.finish_reason ? ` (finishReason=${d.finish_reason})` : ""}${d.prompt_block_reason ? ` (blockReason=${d.prompt_block_reason})` : ""}.`;
+    case "safety_block":
+      return `${t} failed: safety block (finishReason=${d.finish_reason ?? "n/a"}, blockReason=${d.prompt_block_reason ?? "n/a"}).`;
+    case "finish_reason":
+      return `${t} failed: model stopped early (finishReason=${d.finish_reason ?? "n/a"}).`;
+    case "json_parse_error":
+      return `${t} failed: invalid JSON${d.json_parse_error ? ` (${d.json_parse_error})` : ""}. Preview: ${d.raw_text_preview ?? "n/a"}`;
+    case "network_error":
+      return `${t} failed: network error${d.json_parse_error ? ` (${d.json_parse_error})` : ""}.`;
+    case "fallback_used":
+      return `${t}: model output unusable — deterministic fallback generated.`;
+    case "thread_threw":
+      return `${t} failed: thread threw before completion${d.json_parse_error ? ` (${d.json_parse_error})` : ""}.`;
+    case "skipped":
+      return `${t}: skipped — ${d.raw_text_preview ?? "not applicable for this subject"}.`;
+    default:
+      return `${t} failed: ${d.error_type}.`;
+  }
+}
+
 type GeminiGroundedResult<T> = {
   result: T | null;
   sourceUrls: string[];           // all URLs from groundingChunks
   segments: GroundingSegment[];   // text segment → source URL mappings
+  diagnostic: BIEThreadDiagnostic; // Phase 1: never-silent failure record
 };
 
-async function callGeminiGrounded<T>(args: {
+// Exported for Phase 1 diagnostic tests (mock global.fetch). Internal otherwise.
+export async function callGeminiGrounded<T>(args: {
   prompt: string;
   apiKey: string;
   sources: string[];   // accumulated source list across all threads
   logTag: string;
+  thread: BIEThreadName;
   useGrounding: boolean;
 }): Promise<GeminiGroundedResult<T>> {
-  const empty: GeminiGroundedResult<T> = { result: null, sourceUrls: [], segments: [] };
+  const promptChars = args.prompt.length;
+  // SPEC-BIE-...-MEGA-1 Phase 1: build a diagnostic for EVERY return path.
+  const baseDiag = (
+    over: Partial<BIEThreadDiagnostic> & { ok: boolean; error_type: BIEThreadErrorType },
+  ): BIEThreadDiagnostic => ({
+    thread: args.thread,
+    http_status: null,
+    finish_reason: null,
+    prompt_block_reason: null,
+    safety_ratings: null,
+    json_parse_error: null,
+    raw_text_preview: null,
+    response_chars: null,
+    source_count: 0,
+    prompt_chars: promptChars,
+    model: GEMINI_MODEL,
+    created_at: new Date().toISOString(),
+    ...over,
+  });
+  const emptyWith = (diagnostic: BIEThreadDiagnostic): GeminiGroundedResult<T> => ({
+    result: null,
+    sourceUrls: [],
+    segments: [],
+    diagnostic,
+  });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${args.apiKey}`;
 
   // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
@@ -82,12 +208,31 @@ async function callGeminiGrounded<T>(args: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
-      return empty;
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "http_error",
+        http_status: res.status,
+        raw_text_preview: errText.slice(0, 300) || null,
+      }));
     }
 
     const data = await res.json();
     const candidate = data?.candidates?.[0];
     const groundingMeta = candidate?.groundingMetadata ?? {};
+    const promptBlockReason: string | null = data?.promptFeedback?.blockReason ?? null;
+    const finishReason: string | null = candidate?.finishReason ?? null;
+    const safetyRatings = candidate?.safetyRatings ?? data?.promptFeedback?.safetyRatings ?? null;
+
+    // No candidate at all (e.g., prompt blocked).
+    if (!candidate) {
+      const blocked = !!promptBlockReason;
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: blocked ? "safety_block" : "empty_candidate",
+        prompt_block_reason: promptBlockReason,
+        safety_ratings: safetyRatings,
+      }));
+    }
 
     // Extract all grounding chunk URLs
     const chunks: Array<{ web?: { uri?: string; title?: string } }> =
@@ -112,16 +257,60 @@ async function callGeminiGrounded<T>(args: {
         confidences: s.confidenceScores ?? [],
       }));
 
-    const text: string = candidate?.content?.parts?.[0]?.text ?? "";
-    if (!text) return empty;
+    const text: string = candidate?.content?.parts?.map((p: { text?: string }) => p?.text ?? "").join("") ?? "";
+    if (!text) {
+      // Distinguish a safety/early-stop empty text from a benign empty.
+      const stopped = !!finishReason && finishReason !== "STOP";
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: stopped ? (finishReason === "SAFETY" ? "safety_block" : "finish_reason") : "empty_text",
+        http_status: res.status,
+        finish_reason: finishReason,
+        prompt_block_reason: promptBlockReason,
+        safety_ratings: safetyRatings,
+        source_count: chunkUrls.length,
+        response_chars: 0,
+      }));
+    }
 
     const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-    const result = JSON.parse(clean) as T;
+    let result: T;
+    try {
+      result = JSON.parse(clean) as T;
+    } catch (pe: any) {
+      console.warn(`[BIE:${args.logTag}] JSON parse error:`, pe?.message);
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "json_parse_error",
+        http_status: res.status,
+        finish_reason: finishReason,
+        json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+        raw_text_preview: clean.slice(0, 300),
+        response_chars: text.length,
+        source_count: chunkUrls.length,
+      }));
+    }
 
-    return { result, sourceUrls: chunkUrls, segments };
+    return {
+      result,
+      sourceUrls: chunkUrls,
+      segments,
+      diagnostic: baseDiag({
+        ok: true,
+        error_type: "none",
+        http_status: res.status,
+        finish_reason: finishReason,
+        response_chars: text.length,
+        source_count: chunkUrls.length,
+      }),
+    };
   } catch (e: any) {
     console.warn(`[BIE:${args.logTag}] failed:`, e?.message);
-    return empty;
+    return emptyWith(baseDiag({
+      ok: false,
+      error_type: "network_error",
+      json_parse_error: String(e?.message ?? e).slice(0, 200),
+    }));
   }
 }
 
@@ -314,6 +503,7 @@ export type BIEResult = {
   research_quality: "deep" | "partial" | "minimal";
   sources_used: string[];
   thread_sources: ThreadSources;          // per-thread source URLs for citation threading
+  thread_diagnostics: Record<BIEThreadName, BIEThreadDiagnostic>; // Phase 1: never-silent failures
   compiled_at: string;
 };
 
@@ -401,7 +591,7 @@ async function runEntityLock(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ lock: EntityLock | null; sourceUrls: string[] }> {
+): Promise<{ lock: EntityLock | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const revenueStr = input.annual_revenue
     ? `approximately $${(input.annual_revenue / 1_000_000).toFixed(1)}M annual revenue`
@@ -414,7 +604,13 @@ async function runEntityLock(
   const searchName = (input.company_search_name ?? "").trim();
   if (searchName.length < 2) {
     console.warn("[BIE] Entity lock skipped — no legal/DBA/website search name (placeholder deal label)");
-    return { lock: null, sourceUrls: [] };
+    return {
+      lock: null,
+      sourceUrls: [],
+      diagnostic: synthDiagnostic("entity_lock", "skipped", {
+        raw_text_preview: "no legal/DBA/website search name (placeholder deal label)",
+      }),
+    };
   }
 
   const identityLines = [
@@ -460,10 +656,11 @@ Return ONLY valid JSON:
     apiKey,
     sources,
     logTag: "entity-lock",
+    thread: "entity_lock",
     useGrounding: true,
   });
 
-  return { lock: gr.result, sourceUrls: gr.sourceUrls };
+  return { lock: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -475,7 +672,7 @@ async function runBorrowerIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: BorrowerIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: BorrowerIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const scopeClause = entityLock?.research_scope
     ? `\nRESEARCH SCOPE (confirmed by entity lock): ${entityLock.research_scope}\nDo NOT include findings about: ${entityLock.alternative_entities_found.join("; ") || "N/A"}`
@@ -525,9 +722,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<BorrowerIntelligence>({
-    prompt, apiKey, sources, logTag: "borrower", useGrounding: true,
+    prompt, apiKey, sources, logTag: "borrower", thread: "borrower", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -539,7 +736,7 @@ async function runManagementIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: ManagementIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: ManagementIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const principalsList = input.principals
     .map((p, i) => `${i + 1}. ${p.name}${p.title ? ` (${p.title})` : ""}`)
@@ -615,9 +812,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<ManagementIntelligence>({
-    prompt, apiKey, sources, logTag: "management", useGrounding: true,
+    prompt, apiKey, sources, logTag: "management", thread: "management", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -629,7 +826,7 @@ async function runCompetitiveIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: CompetitiveIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: CompetitiveIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
 
   const prompt = `You are a senior commercial credit analyst assessing competitive positioning for a lending decision.
@@ -674,9 +871,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<CompetitiveIntelligence>({
-    prompt, apiKey, sources, logTag: "competitive", useGrounding: true,
+    prompt, apiKey, sources, logTag: "competitive", thread: "competitive", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -687,7 +884,7 @@ async function runMarketIntelligence(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ result: MarketIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: MarketIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
 
   const prompt = `You are a senior commercial credit analyst conducting local market research for a loan.
@@ -724,9 +921,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<MarketIntelligence>({
-    prompt, apiKey, sources, logTag: "market", useGrounding: true,
+    prompt, apiKey, sources, logTag: "market", thread: "market", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -737,7 +934,7 @@ async function runIndustryIntelligence(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ result: IndustryIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: IndustryIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const prompt = `You are a senior institutional credit analyst writing an industry analysis for a credit committee.
 
 Industry: ${input.naics_description || input.naics_code || "Unknown"} (NAICS ${input.naics_code || "Unknown"})
@@ -773,9 +970,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<IndustryIntelligence>({
-    prompt, apiKey, sources, logTag: "industry", useGrounding: true,
+    prompt, apiKey, sources, logTag: "industry", thread: "industry", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -791,7 +988,7 @@ async function runTransactionRepaymentIntelligence(
   industry: IndustryIntelligence | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: TransactionRepaymentIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ");
 
   const prompt = `You are a senior credit officer analyzing the repayment viability of a proposed commercial loan.
@@ -842,9 +1039,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<TransactionRepaymentIntelligence>({
-    prompt, apiKey, sources, logTag: "transaction", useGrounding: false,
+    prompt, apiKey, sources, logTag: "transaction", thread: "transaction", useGrounding: false,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -862,7 +1059,7 @@ async function runCreditSynthesis(
   transaction: TransactionRepaymentIntelligence | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: CreditSynthesis | null; sourceUrls: string[] }> {
+): Promise<{ result: CreditSynthesis | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ");
   const principalNames = input.principals.map((p) => p.name).join(", ") || "None on file";
   const confirmedPrincipals = management?.principal_profiles
@@ -955,9 +1152,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<CreditSynthesis>({
-    prompt, apiKey, sources, logTag: "synthesis", useGrounding: false,
+    prompt, apiKey, sources, logTag: "synthesis", thread: "synthesis", useGrounding: false,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -983,6 +1180,16 @@ function emptyBIEResult(): BIEResult {
       borrower: [], management: [], competitive: [],
       market: [], industry: [], transaction: [], entity_lock: [],
     },
+    thread_diagnostics: {
+      entity_lock: synthDiagnostic("entity_lock", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      borrower: synthDiagnostic("borrower", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      management: synthDiagnostic("management", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      competitive: synthDiagnostic("competitive", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      market: synthDiagnostic("market", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      industry: synthDiagnostic("industry", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      transaction: synthDiagnostic("transaction", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      synthesis: synthDiagnostic("synthesis", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+    },
     compiled_at: new Date().toISOString(),
   };
 }
@@ -999,10 +1206,12 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   // ── Thread 0: Entity Lock (sequential first — all other threads depend on it) ──
   let entityLock: EntityLock | null = null;
   let entityLockSources: string[] = [];
+  let entityLockDiag: BIEThreadDiagnostic = synthDiagnostic("entity_lock", "thread_threw");
   try {
     const r = await runEntityLock(input, apiKey, allSources);
     entityLock = r.lock;
     entityLockSources = r.sourceUrls;
+    entityLockDiag = r.diagnostic;
     if (entityLock) {
       console.log(
         `[BIE] Entity lock: "${entityLock.confirmed_name}" confidence=${entityLock.entity_confidence}`,
@@ -1013,6 +1222,9 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     }
   } catch (e: any) {
     console.warn("[BIE] Entity lock failed (non-fatal):", e?.message);
+    entityLockDiag = synthDiagnostic("entity_lock", "thread_threw", {
+      json_parse_error: String(e?.message ?? e).slice(0, 200),
+    });
   }
 
   // ── Threads 1–5: Run in parallel ──
@@ -1024,11 +1236,27 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     runIndustryIntelligence(input, apiKey, allSources),
   ]);
 
-  const borrowerR = t1.status === "fulfilled" ? t1.value : { result: null, sourceUrls: [] };
-  const managementR = t2.status === "fulfilled" ? t2.value : { result: null, sourceUrls: [] };
-  const competitiveR = t3.status === "fulfilled" ? t3.value : { result: null, sourceUrls: [] };
-  const marketR = t4.status === "fulfilled" ? t4.value : { result: null, sourceUrls: [] };
-  const industryR = t5.status === "fulfilled" ? t5.value : { result: null, sourceUrls: [] };
+  // SPEC-BIE-...-MEGA-1 Phase 1: a rejected thread gets a thread_threw diagnostic
+  // (never a silent null).
+  const settled = <T>(
+    s: PromiseSettledResult<{ result: T | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }>,
+    thread: BIEThreadName,
+  ): { result: T | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =>
+    s.status === "fulfilled"
+      ? s.value
+      : {
+          result: null,
+          sourceUrls: [],
+          diagnostic: synthDiagnostic(thread, "thread_threw", {
+            json_parse_error: String((s as PromiseRejectedResult).reason?.message ?? (s as PromiseRejectedResult).reason).slice(0, 200),
+          }),
+        };
+
+  const borrowerR = settled(t1, "borrower");
+  const managementR = settled(t2, "management");
+  const competitiveR = settled(t3, "competitive");
+  const marketR = settled(t4, "market");
+  const industryR = settled(t5, "industry");
 
   const borrower = borrowerR.result;
   const management = managementR.result;
@@ -1037,20 +1265,27 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   const industry = industryR.result;
 
   // ── Thread 6: Transaction (sequential — needs 1–5) ──
-  let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[] } =
-    { result: null, sourceUrls: [] };
+  let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =
+    { result: null, sourceUrls: [], diagnostic: synthDiagnostic("transaction", "thread_threw") };
   try {
     transactionR = await runTransactionRepaymentIntelligence(
       input, borrower, management, competitive, market, industry, apiKey, allSources,
     );
   } catch (e: any) {
     console.warn("[BIE] Transaction thread failed:", e?.message);
+    transactionR = {
+      result: null,
+      sourceUrls: [],
+      diagnostic: synthDiagnostic("transaction", "thread_threw", {
+        json_parse_error: String(e?.message ?? e).slice(0, 200),
+      }),
+    };
   }
   const transaction = transactionR.result;
 
   // ── Thread 7: Synthesis + Validation Pass (sequential) ──
-  let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[] } =
-    { result: null, sourceUrls: [] };
+  let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =
+    { result: null, sourceUrls: [], diagnostic: synthDiagnostic("synthesis", "thread_threw") };
   try {
     synthesisR = await runCreditSynthesis(
       input, entityLock, borrower, management, competitive, market, industry, transaction,
@@ -1058,6 +1293,13 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     );
   } catch (e: any) {
     console.warn("[BIE] Synthesis thread failed:", e?.message);
+    synthesisR = {
+      result: null,
+      sourceUrls: [],
+      diagnostic: synthDiagnostic("synthesis", "thread_threw", {
+        json_parse_error: String(e?.message ?? e).slice(0, 200),
+      }),
+    };
   }
   const synthesis = synthesisR.result;
 
@@ -1090,6 +1332,21 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   }
   console.log(`[BIE] Entity classification: ${classification} (confidence=${entityConfidence})`);
 
+  // SPEC-BIE-...-MEGA-1 Phase 1: every thread carries an auditable diagnostic.
+  const thread_diagnostics: Record<BIEThreadName, BIEThreadDiagnostic> = {
+    entity_lock: entityLockDiag,
+    borrower: borrowerR.diagnostic,
+    management: managementR.diagnostic,
+    competitive: competitiveR.diagnostic,
+    market: marketR.diagnostic,
+    industry: industryR.diagnostic,
+    transaction: transactionR.diagnostic,
+    synthesis: synthesisR.diagnostic,
+  };
+  for (const d of Object.values(thread_diagnostics)) {
+    if (!d.ok) console.warn(`[BIE] ${describeThreadDiagnostic(d)}`);
+  }
+
   return {
     entity_lock: entityLock,
     entity_confirmed: entityConfidence >= 0.6,
@@ -1113,6 +1370,7 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
       industry: industryR.sourceUrls,
       transaction: transactionR.sourceUrls,
     },
+    thread_diagnostics,
     compiled_at: new Date().toISOString(),
   };
 }

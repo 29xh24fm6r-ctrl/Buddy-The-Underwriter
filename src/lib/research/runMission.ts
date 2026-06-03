@@ -474,6 +474,20 @@ export async function runMission(
 
         const bieResult = await runBuddyIntelligenceEngine(bieInput);
 
+        // SPEC-BIE-...-MEGA-1 Phase 1: persist per-thread diagnostics on the
+        // mission row unconditionally — especially when research_quality is
+        // "minimal", which is exactly when the banker needs to know WHY a thread
+        // produced nothing. Non-fatal.
+        try {
+          const sbDiag = supabaseAdmin();
+          await (sbDiag as any)
+            .from("buddy_research_missions")
+            .update({ thread_diagnostics: bieResult.thread_diagnostics })
+            .eq("id", missionId);
+        } catch (e: any) {
+          console.warn("[runMission] thread_diagnostics persist failed (non-fatal):", e?.message);
+        }
+
         if (bieResult.research_quality !== "minimal") {
           // Build BIE sections — mutable so we can apply the hallucination guard below
           let bieSections = buildBIENarrativeSections(bieResult);
