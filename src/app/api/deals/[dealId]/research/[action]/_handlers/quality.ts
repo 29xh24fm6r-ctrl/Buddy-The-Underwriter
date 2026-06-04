@@ -8,6 +8,10 @@ import {
   persistEnrichedCommitteeTasks,
 } from "@/lib/research/committeeEvidenceCollection";
 import { enrichCommitteeTasks } from "@/lib/research/committeeEvidenceLinkage";
+import {
+  buildCommitteeRequirementsPlan,
+  type CommitteeRequirementsPlan,
+} from "@/lib/research/committeeRequirementsEngine";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -96,34 +100,49 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     // linking it to the actual loan file (documents / facts / story / management)
     // and deriving a real status (missing/collected/needs_review) — derived-on-
     // read, no persistence change, never touches gate scoring or committee state.
-    if (gate && mission?.id && committee_blocker_resolutions.length > 0) {
+    // SPEC-BIE-COMMITTEE-EVIDENCE-REQUIREMENTS-ENGINE-1: proactive required-
+    // evidence plan. Computed whenever a mission exists (NOT gated on gate
+    // failure) so predictable committee blockers surface as requirement gaps
+    // early. Pure / derived-on-read; never changes gate or committee state.
+    let committee_requirements_plan: CommitteeRequirementsPlan | null = null;
+
+    if (mission?.id) {
+      const subjAny = (subj ?? {}) as Record<string, any>;
       const tasks = await loadCommitteeTasks(sb, mission.id);
-      if (tasks.length > 0) {
-        const [docsRes, factsRes, storyRes, mgmtRes] = await Promise.all([
-          sb.from("deal_documents")
-            .select("id, canonical_type, document_type, document_category, original_filename, status")
-            .eq("deal_id", dealId).neq("is_active", false),
-          sb.from("deal_financial_facts")
-            .select("fact_key, fact_type")
-            .eq("deal_id", dealId).neq("is_superseded", true),
-          sb.from("deal_borrower_story")
-            .select("products_services, customer_concentration, competitive_position, website")
-            .eq("deal_id", dealId).maybeSingle(),
-          sb.from("deal_management_profiles")
-            .select("id, person_name, title, source")
-            .eq("deal_id", dealId),
-        ]);
-        const enriched = enrichCommitteeTasks(tasks, {
-          evidenceRows: evidence,
-          documents: docsRes.data ?? [],
-          financialFacts: factsRes.data ?? [],
-          borrowerStory: storyRes.data ?? null,
-          managementProfiles: mgmtRes.data ?? [],
-          subject: subj ? { website: subj.website ?? null } : null,
-        });
-        // SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1: make the derived
-        // status durable so Supabase agrees with the UI. Non-fatal — a failed
-        // write must never break the read.
+      const [docsRes, factsRes, storyRes, mgmtRes, loanRes, snapsRes] = await Promise.all([
+        sb.from("deal_documents")
+          .select("id, canonical_type, document_type, document_category, original_filename, status")
+          .eq("deal_id", dealId).neq("is_active", false),
+        sb.from("deal_financial_facts")
+          .select("fact_key, fact_type")
+          .eq("deal_id", dealId).neq("is_superseded", true),
+        sb.from("deal_borrower_story")
+          .select("products_services, customer_concentration, competitive_position, website, hq_city, hq_state, legal_name, dba")
+          .eq("deal_id", dealId).maybeSingle(),
+        sb.from("deal_management_profiles")
+          .select("id, person_name, title, source")
+          .eq("deal_id", dealId),
+        sb.from("deal_loan_requests")
+          .select("product_type, requested_amount, collateral_summary, property_type, purpose, loan_purpose, use_of_proceeds")
+          .eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        sb.from("buddy_research_source_snapshots")
+          .select("source_type, status")
+          .eq("mission_id", mission.id),
+      ]);
+
+      const linkInput = {
+        evidenceRows: evidence,
+        documents: docsRes.data ?? [],
+        financialFacts: factsRes.data ?? [],
+        borrowerStory: (storyRes.data as any) ?? null,
+        managementProfiles: mgmtRes.data ?? [],
+        subject: subj ? { website: subj.website ?? null } : null,
+      };
+
+      // Enrichment + durable persistence — only when there are resolutions/tasks
+      // (unchanged behavior from #483/#484/persist PR).
+      if (gate && committee_blocker_resolutions.length > 0 && tasks.length > 0) {
+        const enriched = enrichCommitteeTasks(tasks, linkInput);
         try {
           await persistEnrichedCommitteeTasks(sb, enriched);
         } catch {
@@ -134,11 +153,32 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
           evidence_tasks: enriched.filter((t) => t.blocker_id === r.blocker_id),
         }));
       }
+
+      const loan = (loanRes.data as any) ?? {};
+      const story = (storyRes.data as any) ?? {};
+      committee_requirements_plan = buildCommitteeRequirementsPlan({
+        ...linkInput,
+        loanType: loan.product_type ?? null,
+        loanAmount: loan.requested_amount != null ? Number(loan.requested_amount) : null,
+        collateralType: loan.collateral_summary ?? loan.property_type ?? null,
+        useOfProceeds: loan.purpose ?? loan.loan_purpose ?? null,
+        hasStructuredLoanRequest: !!(loan.use_of_proceeds && Object.keys(loan.use_of_proceeds).length > 0),
+        naicsCode: subjAny.naics_code ?? null,
+        naicsDescription: subjAny.naics_description ?? null,
+        isPrivate: true,
+        hqCity: story.hq_city ?? null,
+        hqState: story.hq_state ?? null,
+        legalName: subjAny.company_name ?? story.legal_name ?? null,
+        dba: story.dba ?? null,
+        sourceSnapshots: (snapsRes.data as any) ?? [],
+        committeeTasks: tasks as any,
+      });
     }
 
     return NextResponse.json({
       ok: true,
       committee_blocker_resolutions,
+      committee_requirements_plan,
       gate: gate
         ? {
             trust_grade:                  gate.trust_grade,

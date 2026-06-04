@@ -26,6 +26,7 @@ import type {
   CommitteeBlockerResolution,
   CommitteeEvidenceTask,
   CommitteeReviewAction,
+  CommitteeRequirementsPlan,
   ReviewTaskHandler,
 } from "./researchGateTypes";
 import {
@@ -194,6 +195,8 @@ export default function ResearchGateActionPanel({
           items={snapshot.committeeBlockerResolutions}
           onReviewTask={onReviewTask}
         />
+        {/* SPEC-BIE-COMMITTEE-EVIDENCE-REQUIREMENTS-ENGINE-1: proactive gaps. */}
+        <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
         <div className="flex flex-wrap gap-4 text-amber-100/70">
           {snapshot.qualityScore != null ? (
             <span>
@@ -348,6 +351,46 @@ export function CommitteeReadinessPanel({
         items={snapshot.committeeBlockerResolutions}
         onReviewTask={onReviewTask}
       />
+      <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
+    </div>
+  );
+}
+
+// SPEC-BIE-COMMITTEE-EVIDENCE-REQUIREMENTS-ENGINE-1
+// Minimal "committee evidence needed" surface: the proactive readiness gaps the
+// requirements engine derived from the deal inputs (shown before the gate fails).
+const REQ_STATUS_TONE: Record<string, string> = {
+  satisfied: "text-emerald-300",
+  preliminary_satisfied: "text-sky-300",
+  needs_review: "text-amber-300",
+  open: "text-amber-100/60",
+};
+
+function CommitteeRequirements({ plan }: { plan: CommitteeRequirementsPlan | null }) {
+  if (!plan || plan.committee_readiness_gaps.length === 0) return null;
+  return (
+    <div className="space-y-1" data-testid="committee-requirements">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">
+        Committee evidence needed
+      </p>
+      <ul className="space-y-1">
+        {plan.committee_readiness_gaps.map((g) => (
+          <li key={g.key} className="rounded-lg border border-amber-500/15 bg-black/10 p-2 text-[11px]">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-amber-100/80">{g.label}</span>
+              <span className={REQ_STATUS_TONE[g.status] ?? "text-amber-100/60"}>
+                {g.status.replace(/_/g, " ")}
+              </span>
+            </div>
+            <p className="mt-0.5 text-sky-300/70">{g.recommended_action}</p>
+          </li>
+        ))}
+      </ul>
+      {plan.scale_plausibility_plan.applicable ? (
+        <p className="text-[10px] text-rose-300/60">
+          Scale plausibility requires an explicit analyst conclusion — never auto-clears.
+        </p>
+      ) : null}
     </div>
   );
 }

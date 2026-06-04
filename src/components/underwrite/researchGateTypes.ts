@@ -7,8 +7,9 @@ import type { MissionStatus } from "@/lib/research/types";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
 import type { CommitteeEvidenceTask } from "@/lib/research/committeeEvidenceTasks";
 import type { CommitteeReviewAction } from "@/lib/research/committeeTaskReview";
+import type { CommitteeRequirementsPlan } from "@/lib/research/committeeRequirementsEngine";
 
-export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction };
+export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction, CommitteeRequirementsPlan };
 
 // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: handler the workbench passes down
 // to apply a review action to a committee evidence task.
@@ -68,6 +69,9 @@ export interface ResearchGateSnapshot {
   // SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1
   /** Evidence-linked, actionable resolution items per committee blocker. */
   committeeBlockerResolutions: CommitteeBlockerResolution[];
+  // SPEC-BIE-COMMITTEE-EVIDENCE-REQUIREMENTS-ENGINE-1
+  /** Proactive required-evidence plan (committee readiness gaps + sub-plans). */
+  committeeRequirementsPlan: CommitteeRequirementsPlan | null;
 }
 
 export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
@@ -84,4 +88,5 @@ export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
   committeeBlockers: [],
   publicWebLimited: false,
   committeeBlockerResolutions: [],
+  committeeRequirementsPlan: null,
 };

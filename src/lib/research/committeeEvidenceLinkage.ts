@@ -101,7 +101,7 @@ const ADVERSE_SOURCE_TYPES: SourceType[] = [
   "regulatory_filing",
 ];
 
-type FileContext = {
+export type FileContext = {
   websiteDomain: string | null;
   websiteSources: EvidenceRowInput[];
   registrySources: EvidenceRowInput[];
@@ -130,7 +130,7 @@ const sourceUrisOf = (r: EvidenceRowInput): string[] =>
 const hasAnyType = (r: EvidenceRowInput, types: SourceType[]) =>
   sourceTypesOf(r).some((s) => (types as string[]).includes(s));
 
-function buildContext(input: TaskLinkInput): FileContext {
+export function buildLoanFileContext(input: TaskLinkInput): FileContext {
   const rows = input.evidenceRows ?? [];
   const docs = input.documents ?? [];
   const facts = input.financialFacts ?? [];
@@ -423,7 +423,7 @@ export function enrichCommitteeTasks(
   tasks: CommitteeEvidenceTask[],
   input: TaskLinkInput,
 ): CommitteeEvidenceTask[] {
-  const ctx = buildContext(input);
+  const ctx = buildLoanFileContext(input);
   return (tasks ?? []).map((t) => {
     const d = deriveForTask(t, ctx);
     const buckets = deriveTaskItemBuckets({

@@ -88,6 +88,8 @@ export async function fetchResearchGateSnapshot(
       committeeBlockerResolutions: Array.isArray(quality?.committee_blocker_resolutions)
         ? quality.committee_blocker_resolutions
         : [],
+      // SPEC-BIE-COMMITTEE-EVIDENCE-REQUIREMENTS-ENGINE-1
+      committeeRequirementsPlan: quality?.committee_requirements_plan ?? null,
     };
   } catch {
     return { ...EMPTY_RESEARCH_GATE_SNAPSHOT };
