@@ -6,46 +6,57 @@ import { fileURLToPath } from "node:url";
 /**
  * SPEC-BIE-OFFICIAL-SOURCE-CONNECTOR-FRAMEWORK-1 — zero-net-function invariant.
  *
- * The source-snapshot write action is served by the existing consolidated
- * research/[action] dispatcher (SPEC-ROUTE-CONSOLIDATION-1), NOT a new app route
- * file — so the feature adds no serverless function (Buddy's Vercel
- * function-ceiling / "Deploying outputs" failure class). These are structural
- * guards over the route tree.
+ * The committee-task write actions (source-snapshot attach + review) are served
+ * by the existing consolidated research/[action] dispatcher
+ * (SPEC-ROUTE-CONSOLIDATION-1), NOT standalone app route files — so research/
+ * keeps exactly ONE route.ts and the feature adds no serverless function
+ * (Buddy's Vercel function-ceiling / "Deploying outputs" failure class). These
+ * are structural guards over the route tree.
  */
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
-const ROUTE_DIR = `${repoRoot}src/app/api/deals/[dealId]/research`;
+const RESEARCH_DIR = `${repoRoot}src/app/api/deals/[dealId]/research`;
 
-test("[consolidation] NO standalone source-snapshot route file exists (no added function)", () => {
+test("[consolidation] no standalone committee-tasks routes exist (no added functions)", () => {
   assert.equal(
-    existsSync(`${ROUTE_DIR}/committee-tasks/[taskId]/source-snapshot/route.ts`),
+    existsSync(`${RESEARCH_DIR}/committee-tasks`),
     false,
-    "standalone source-snapshot route must not exist — it would add a serverless function",
+    "committee-tasks/ route tree must not exist — its actions are consolidated into [action]",
   );
 });
 
-test("[consolidation] the only committee-tasks route is review (unchanged from main)", () => {
-  assert.equal(existsSync(`${ROUTE_DIR}/committee-tasks/[taskId]/review/route.ts`), true);
+test("[consolidation] research/ exposes exactly one route.ts (the [action] dispatcher)", () => {
+  assert.equal(existsSync(`${RESEARCH_DIR}/[action]/route.ts`), true);
 });
 
-test("[consolidation] dispatcher POST handles the 'source-snapshot' action", () => {
-  const dispatcher = readFileSync(`${ROUTE_DIR}/[action]/route.ts`, "utf8");
+test("[consolidation] dispatcher routes source-snapshot (POST) and committee-task-review (PATCH)", () => {
+  const dispatcher = readFileSync(`${RESEARCH_DIR}/[action]/route.ts`, "utf8");
   assert.match(dispatcher, /case "source-snapshot":/);
   assert.match(dispatcher, /_handlers\/sourceSnapshot/);
+  assert.match(dispatcher, /export async function PATCH/);
+  assert.match(dispatcher, /case "committee-task-review":/);
+  assert.match(dispatcher, /_handlers\/committeeTaskReview/);
 });
 
-test("[consolidation] the consolidated handler exists with a POST export", () => {
-  const handlerPath = `${ROUTE_DIR}/[action]/_handlers/sourceSnapshot.ts`;
-  assert.equal(existsSync(handlerPath), true);
-  const handler = readFileSync(handlerPath, "utf8");
-  assert.match(handler, /export async function POST/);
-  // Validation invariants preserved in the consolidated handler.
+function assertHandlerInvariants(handler: string) {
+  assert.match(handler, /export async function (POST|PATCH)/);
   assert.match(handler, /ensureDealBankAccess/);
   assert.match(handler, /taskId_required/);
+  assert.match(handler, /\.eq\("deal_id", dealId\)/); // task belongs to deal
+  // Never auto-clears committee: handler must not WRITE committee_grade_accepted
+  // or review_status as object keys (selecting them in a string is fine).
+  assert.equal(/committee_grade_accepted\s*[:=]/.test(handler), false);
+}
+
+test("[consolidation] source-snapshot handler preserves validation invariants", () => {
+  const handler = readFileSync(`${RESEARCH_DIR}/[action]/_handlers/sourceSnapshot.ts`, "utf8");
+  assertHandlerInvariants(handler);
   assert.match(handler, /isAllowedConnectorKind/);
   assert.match(handler, /isAllowedSourceType/);
-  assert.match(handler, /\.eq\("deal_id", dealId\)/); // task belongs to deal
-  // Never auto-clears committee: handler must not write committee_grade_accepted / review_status.
-  assert.equal(/committee_grade_accepted\s*[:=]/.test(handler), false);
-  assert.equal(/review_status\s*:/.test(handler), false);
+});
+
+test("[consolidation] committee-task-review handler preserves validation invariants", () => {
+  const handler = readFileSync(`${RESEARCH_DIR}/[action]/_handlers/committeeTaskReview.ts`, "utf8");
+  assertHandlerInvariants(handler);
+  assert.match(handler, /isCommitteeReviewAction/);
 });

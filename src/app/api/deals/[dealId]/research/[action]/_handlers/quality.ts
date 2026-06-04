@@ -116,7 +116,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       const tasks = await loadCommitteeTasks(sb, mission.id);
       const [docsRes, factsRes, storyRes, mgmtRes, loanRes, snapsRes] = await Promise.all([
         sb.from("deal_documents")
-          .select("id, canonical_type, document_type, document_category, original_filename, status")
+          .select("id, canonical_type, document_type, original_filename, status")
           .eq("deal_id", dealId).neq("is_active", false),
         sb.from("deal_financial_facts")
           .select("fact_key, fact_type")
