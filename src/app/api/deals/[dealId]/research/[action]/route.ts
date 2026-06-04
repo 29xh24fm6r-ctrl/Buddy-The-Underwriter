@@ -34,6 +34,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     case "rerun":
     case "re-run":
       return (await import("./_handlers/run")).POST(req, ctx as any);
+    // SPEC-BIE-OFFICIAL-SOURCE-CONNECTOR-FRAMEWORK-1: manual source-snapshot
+    // attach, consolidated here so it adds zero net serverless functions.
+    case "source-snapshot":
+      return (await import("./_handlers/sourceSnapshot")).POST(req, ctx as any);
     default:
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }

@@ -11,29 +11,32 @@ import {
 } from "@/lib/research/sourceConnectors";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 20;
 
-type Params = Promise<{ dealId: string; taskId: string }>;
+type Params = Promise<{ dealId: string }>;
 
 /**
- * POST /api/deals/[dealId]/research/committee-tasks/[taskId]/source-snapshot
+ * POST /api/deals/[dealId]/research/source-snapshot
  * SPEC-BIE-OFFICIAL-SOURCE-CONNECTOR-FRAMEWORK-1 — Phase 8
  *
- * Attach a banker-supplied source URL to a committee task via the manual URL
- * connector: fetch + hash + snapshot linked to the task. NEVER sets
+ * Consolidated dispatcher handler (SPEC-ROUTE-CONSOLIDATION-1) — runs inside the
+ * existing research/[action] function so this feature adds ZERO net serverless
+ * functions (avoids the deploy-output / function-ceiling failure). Behavior is
+ * identical to the prior standalone route: attach a banker-supplied source URL
+ * to a committee task via the manual URL connector. NEVER sets
  * committee_grade_accepted, never touches review_status, never changes the gate
- * or auto-clears a blocker. The task may advance pending → collected (workflow
- * status only) when the snapshot is collected.
+ * or auto-clears a blocker.
  *
- * Body: { connector_kind, source_url, source_type, note?, candidate_metadata? }
+ * Body: { taskId, connector_kind, source_url, source_type, note?, candidate_metadata? }
  * Response: { ok: true, snapshot, task }
  *
- * mission_id / deal_id come from the trusted DB row, never the client.
+ * taskId is in the body (the dispatcher path has no taskId segment); mission_id /
+ * deal_id are still read from the trusted DB task row, never the client, and the
+ * task is verified to belong to the URL dealId.
  */
 export async function POST(req: NextRequest, ctx: { params: Params }) {
   try {
-    const { dealId, taskId } = await ctx.params;
+    const { dealId } = await ctx.params;
 
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
@@ -42,6 +45,7 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
     const actorId = access.userId ?? null;
 
     let body: {
+      taskId?: unknown;
       connector_kind?: unknown;
       source_url?: unknown;
       source_type?: unknown;
@@ -54,6 +58,10 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
       return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
     }
 
+    const taskId = typeof body.taskId === "string" ? body.taskId.trim() : "";
+    if (!taskId) {
+      return NextResponse.json({ ok: false, error: "taskId_required" }, { status: 400 });
+    }
     if (!isAllowedConnectorKind(body.connector_kind)) {
       return NextResponse.json({ ok: false, error: "invalid_connector_kind" }, { status: 400 });
     }
@@ -148,12 +156,7 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
       if (t2) updatedTask = t2 as any;
     }
 
-    return NextResponse.json({
-      ok: true,
-      snapshot: inserted,
-      task: updatedTask,
-      actor_id: actorId,
-    });
+    return NextResponse.json({ ok: true, snapshot: inserted, task: updatedTask, actor_id: actorId });
   } catch (e: unknown) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "unexpected_error" },
