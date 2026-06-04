@@ -101,6 +101,15 @@ export type CommitteeEvidenceTask = {
   checklist?: CoverageChecklistItem[];
   /** Contradiction / scale tasks must never auto-clear. */
   auto_clear_forbidden?: boolean;
+  // ── SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1 ──
+  // Persisted, durable views of the enrichment above (also surfaced from the DB
+  // columns by loadCommitteeTasks so the UI agrees with Supabase even when the
+  // read-path re-link is skipped). Labels of checklist / single-item coverage.
+  collected_items?: string[];
+  missing_items?: string[];
+  needs_review_items?: string[];
+  /** When the enrichment was last linked/persisted. */
+  last_linked_at?: string | null;
 };
 
 type Subject = { company_name?: string | null; website?: string | null; naics_code?: string | null } | null;

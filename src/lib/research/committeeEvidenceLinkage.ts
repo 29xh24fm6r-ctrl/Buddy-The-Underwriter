@@ -426,14 +426,100 @@ export function enrichCommitteeTasks(
   const ctx = buildContext(input);
   return (tasks ?? []).map((t) => {
     const d = deriveForTask(t, ctx);
+    const buckets = deriveTaskItemBuckets({
+      checklist: d.checklist,
+      title: t.title,
+      task_type: t.task_type,
+      evidence_status: d.evidence_status,
+    });
     return {
       ...t,
       evidence_status: d.evidence_status,
       resolved_status: resolveStatus(String(t.status), d.evidence_status),
       linked_evidence: d.linked_evidence,
       linked_sections: d.linked_sections,
+      collected_items: buckets.collected_items,
+      missing_items: buckets.missing_items,
+      needs_review_items: buckets.needs_review_items,
       ...(d.checklist ? { checklist: d.checklist } : {}),
       ...(d.auto_clear_forbidden ? { auto_clear_forbidden: true } : {}),
     };
   });
+}
+
+// ── SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1 ────────────────────────
+// Pure derivation of the durable item buckets + persisted DB row. Kept pure (no
+// server-only / no DB) so persistence and tests share one source of truth.
+
+export type CommitteeTaskItemBuckets = {
+  collected_items: string[];
+  missing_items: string[];
+  needs_review_items: string[];
+};
+
+/**
+ * Bucket the labels of what this task already has / still needs. For the
+ * evidence-coverage task this enumerates the coverage checklist (DSCR /
+ * financials / collateral collected, loan request / primary sources missing,
+ * management needs_review). For single-status tasks it buckets the task itself.
+ */
+export function deriveTaskItemBuckets(task: {
+  checklist?: CoverageChecklistItem[];
+  title?: string | null;
+  task_type?: string;
+  evidence_status?: EvidenceTaskFileStatus;
+}): CommitteeTaskItemBuckets {
+  const collected_items: string[] = [];
+  const missing_items: string[] = [];
+  const needs_review_items: string[] = [];
+  const bucketFor = (s: EvidenceTaskFileStatus | undefined) =>
+    s === "collected" ? collected_items : s === "needs_review" ? needs_review_items : missing_items;
+
+  if (task.checklist && task.checklist.length > 0) {
+    for (const c of task.checklist) bucketFor(c.status).push(c.label);
+  } else {
+    const label = (task.title ?? task.task_type ?? "").toString().trim();
+    if (label) bucketFor(task.evidence_status).push(label);
+  }
+  return { collected_items, missing_items, needs_review_items };
+}
+
+/** The persisted DB row (column → value) for an enriched committee task. */
+export type CommitteeTaskPersistRow = {
+  resolved_status: EvidenceTaskResolvedStatus | null;
+  file_status: EvidenceTaskFileStatus | null;
+  linked_evidence: TaskEvidenceLink[];
+  coverage_checklist: CoverageChecklistItem[];
+  collected_items: string[];
+  missing_items: string[];
+  needs_review_items: string[];
+  auto_clear_forbidden: boolean;
+  last_linked_at: string;
+};
+
+/**
+ * Build the durable persistence row for one enriched task. Never includes the
+ * banker workflow `status` column — persistence must not auto-clear a blocker.
+ */
+export function buildCommitteeTaskPersistRow(
+  task: CommitteeEvidenceTask,
+  nowIso: string,
+): CommitteeTaskPersistRow {
+  const buckets = deriveTaskItemBuckets({
+    checklist: task.checklist,
+    title: task.title,
+    task_type: task.task_type,
+    evidence_status: task.evidence_status,
+  });
+  return {
+    resolved_status: task.resolved_status ?? null,
+    file_status: task.evidence_status ?? null,
+    linked_evidence: task.linked_evidence ?? [],
+    coverage_checklist: task.checklist ?? [],
+    collected_items: buckets.collected_items,
+    missing_items: buckets.missing_items,
+    needs_review_items: buckets.needs_review_items,
+    auto_clear_forbidden: task.auto_clear_forbidden ?? false,
+    last_linked_at: nowIso,
+  };
 }

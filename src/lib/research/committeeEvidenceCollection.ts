@@ -20,7 +20,15 @@ import { buildCommitteeBlockerResolutions } from "./committeeBlockerResolution";
 import {
   generateCommitteeEvidenceTaskSpecs,
   type CommitteeEvidenceTask,
+  type CoverageChecklistItem,
+  type EvidenceTaskFileStatus,
+  type EvidenceTaskResolvedStatus,
+  type TaskEvidenceLink,
 } from "./committeeEvidenceTasks";
+import {
+  buildCommitteeTaskPersistRow,
+  enrichCommitteeTasks,
+} from "./committeeEvidenceLinkage";
 import { fetchBorrowerWebsiteSnapshot, type BorrowerWebsiteSnapshot } from "./sourceSnapshot";
 
 type SupabaseAdmin = ReturnType<typeof supabaseAdmin>;
@@ -86,6 +94,16 @@ export async function ensureCommitteeEvidenceTasks(opts: {
   // 5. Auto-collect the borrower official website (once).
   const websiteSnapshot = await collectBorrowerWebsite(sb, missionId, dealId, subject?.website ?? null);
 
+  // 6. SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1: re-link every task to
+  // the loan file and persist the derived enrichment so Supabase agrees with the
+  // UI. Idempotent + non-fatal — never blocks mission completion, never touches
+  // the banker workflow `status`.
+  try {
+    await enrichAndPersistCommitteeTasks(sb, missionId, dealId);
+  } catch (err: any) {
+    console.warn("[committeeEvidence] enrich/persist failed (non-fatal):", err?.message);
+  }
+
   return { tasks_upserted: specs.length, website_snapshot: websiteSnapshot };
 }
 
@@ -147,15 +165,126 @@ async function collectBorrowerWebsite(
   return snap;
 }
 
-/** Load persisted committee evidence tasks for a mission (for the quality API). */
+/**
+ * Load persisted committee evidence tasks for a mission (for the quality API).
+ * SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1: also reads the persisted
+ * enrichment columns and maps them onto the task's enriched fields, so the UI
+ * sees durable statuses even when the read-path re-link is skipped. The columns
+ * are nullable/defaulted (rows predating the migration → undefined enrichment).
+ */
 export async function loadCommitteeTasks(
   sb: SupabaseAdmin,
   missionId: string,
 ): Promise<CommitteeEvidenceTask[]> {
   const { data } = await sb
     .from("buddy_research_committee_tasks")
-    .select("id, blocker_id, blocker_type, task_type, title, instructions, status, auto_collectible, target_url, source_snapshot_id")
+    .select(
+      "id, blocker_id, blocker_type, task_type, title, instructions, status, auto_collectible, target_url, source_snapshot_id, " +
+        "resolved_status, file_status, linked_evidence, coverage_checklist, collected_items, missing_items, needs_review_items, auto_clear_forbidden, last_linked_at",
+    )
     .eq("mission_id", missionId)
     .order("created_at", { ascending: true });
-  return (data as CommitteeEvidenceTask[]) ?? [];
+
+  return ((data as any[]) ?? []).map((row) => {
+    const task: CommitteeEvidenceTask = {
+      id: row.id,
+      blocker_id: row.blocker_id,
+      blocker_type: row.blocker_type,
+      task_type: row.task_type,
+      title: row.title,
+      instructions: row.instructions,
+      status: row.status,
+      auto_collectible: row.auto_collectible,
+      target_url: row.target_url,
+      source_snapshot_id: row.source_snapshot_id,
+    };
+    // Surface persisted enrichment (read persisted when present; the read-path
+    // re-link in enrichCommitteeTasks overrides these with fresh derivations).
+    if (row.resolved_status) task.resolved_status = row.resolved_status as EvidenceTaskResolvedStatus;
+    if (row.file_status) task.evidence_status = row.file_status as EvidenceTaskFileStatus;
+    if (Array.isArray(row.linked_evidence) && row.linked_evidence.length > 0)
+      task.linked_evidence = row.linked_evidence as TaskEvidenceLink[];
+    if (Array.isArray(row.coverage_checklist) && row.coverage_checklist.length > 0)
+      task.checklist = row.coverage_checklist as CoverageChecklistItem[];
+    if (Array.isArray(row.collected_items)) task.collected_items = row.collected_items as string[];
+    if (Array.isArray(row.missing_items)) task.missing_items = row.missing_items as string[];
+    if (Array.isArray(row.needs_review_items)) task.needs_review_items = row.needs_review_items as string[];
+    if (typeof row.auto_clear_forbidden === "boolean" && row.auto_clear_forbidden)
+      task.auto_clear_forbidden = true;
+    if (row.last_linked_at) task.last_linked_at = row.last_linked_at as string;
+    return task;
+  });
+}
+
+/**
+ * SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1: persist the durable
+ * enrichment columns for each enriched task. Idempotent (same inputs → same
+ * values, only timestamps move). Never writes the banker workflow `status`, so
+ * a committee blocker is never auto-cleared. Returns the number of rows written.
+ */
+export async function persistEnrichedCommitteeTasks(
+  sb: SupabaseAdmin,
+  enriched: CommitteeEvidenceTask[],
+): Promise<number> {
+  const now = new Date().toISOString();
+  let written = 0;
+  await Promise.all(
+    (enriched ?? []).map(async (t) => {
+      if (!t.id) return;
+      const row = buildCommitteeTaskPersistRow(t, now);
+      const { error } = await sb
+        .from("buddy_research_committee_tasks")
+        .update({ ...row, updated_at: now })
+        .eq("id", t.id);
+      if (!error) written += 1;
+    }),
+  );
+  return written;
+}
+
+/**
+ * Load committee tasks for a mission, re-link each to the current loan file
+ * (documents / facts / story / management / research claims), persist the
+ * derived enrichment, and return the freshly enriched tasks. Persistence is
+ * non-fatal: enrichment is still returned if the write fails. Idempotent.
+ */
+export async function enrichAndPersistCommitteeTasks(
+  sb: SupabaseAdmin,
+  missionId: string,
+  dealId: string,
+): Promise<CommitteeEvidenceTask[]> {
+  const tasks = await loadCommitteeTasks(sb, missionId);
+  if (tasks.length === 0) return [];
+
+  const [missionRes, evRes, docsRes, factsRes, storyRes, mgmtRes] = await Promise.all([
+    sb.from("buddy_research_missions").select("subject").eq("id", missionId).maybeSingle(),
+    sb.from("buddy_research_evidence")
+      .select("id, section, thread_origin, evidence_type, claim, confidence, source_uris, source_types")
+      .eq("mission_id", missionId),
+    sb.from("deal_documents")
+      .select("id, canonical_type, document_type, document_category, original_filename, status")
+      .eq("deal_id", dealId).neq("is_active", false),
+    sb.from("deal_financial_facts").select("fact_key, fact_type").eq("deal_id", dealId).neq("is_superseded", true),
+    sb.from("deal_borrower_story")
+      .select("products_services, customer_concentration, competitive_position, website")
+      .eq("deal_id", dealId).maybeSingle(),
+    sb.from("deal_management_profiles").select("id, person_name, title, source").eq("deal_id", dealId),
+  ]);
+
+  const subject = ((missionRes.data as any)?.subject ?? null) as { website?: string | null } | null;
+  const enriched = enrichCommitteeTasks(tasks, {
+    evidenceRows: (evRes.data as any) ?? [],
+    documents: docsRes.data ?? [],
+    financialFacts: factsRes.data ?? [],
+    borrowerStory: storyRes.data ?? null,
+    managementProfiles: mgmtRes.data ?? [],
+    subject: subject ? { website: subject.website ?? null } : null,
+  });
+
+  try {
+    await persistEnrichedCommitteeTasks(sb, enriched);
+  } catch (err: any) {
+    console.warn("[committeeEvidence] persistEnrichedCommitteeTasks failed (non-fatal):", err?.message);
+  }
+  return enriched;
 }

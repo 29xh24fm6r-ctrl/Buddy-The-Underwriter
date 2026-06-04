@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { buildCommitteeBlockerResolutions } from "@/lib/research/committeeBlockerResolution";
-import { loadCommitteeTasks } from "@/lib/research/committeeEvidenceCollection";
+import {
+  loadCommitteeTasks,
+  persistEnrichedCommitteeTasks,
+} from "@/lib/research/committeeEvidenceCollection";
 import { enrichCommitteeTasks } from "@/lib/research/committeeEvidenceLinkage";
 
 export const runtime = "nodejs";
@@ -118,6 +121,14 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
           managementProfiles: mgmtRes.data ?? [],
           subject: subj ? { website: subj.website ?? null } : null,
         });
+        // SPEC-BIE-PERSIST-COMMITTEE-EVIDENCE-TASK-STATUS-1: make the derived
+        // status durable so Supabase agrees with the UI. Non-fatal — a failed
+        // write must never break the read.
+        try {
+          await persistEnrichedCommitteeTasks(sb, enriched);
+        } catch {
+          /* non-fatal: response still uses the freshly derived enrichment */
+        }
         committee_blocker_resolutions = committee_blocker_resolutions.map((r) => ({
           ...r,
           evidence_tasks: enriched.filter((t) => t.blocker_id === r.blocker_id),
