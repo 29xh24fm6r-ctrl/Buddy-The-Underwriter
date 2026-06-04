@@ -27,7 +27,6 @@ import type {
   CommitteeEvidenceTask,
   CommitteeReviewAction,
   CommitteeRequirementsPlan,
-  CommitteeReadinessSection,
   ReviewTaskHandler,
 } from "./researchGateTypes";
 import {
@@ -35,6 +34,15 @@ import {
   deriveDecisionReadiness,
   shouldShowCommitteeReadiness,
 } from "./researchGatePhase";
+// SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1: banker-facing view-model.
+import {
+  buildCommitteeReadinessView,
+  type CommitteeReadinessSummaryView,
+  type CommitteeReadinessGroupView,
+  type ScalePlausibilityView,
+  type CommitteeReadinessAuditRow,
+  type GroupStatusLabel,
+} from "./committeeReadinessView";
 
 export { shouldShowCommitteeReadiness };
 
@@ -331,97 +339,251 @@ export function CommitteeReadinessPanel({
   onReviewTask?: ReviewTaskHandler;
 }) {
   if (!shouldShowCommitteeReadiness(snapshot)) return null;
-  const readiness = deriveDecisionReadiness(snapshot);
+  // SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1: banker-simple default view.
+  const view = buildCommitteeReadinessView(snapshot);
+  if (!view) return null;
   return (
     <div
       data-testid="committee-readiness-panel"
-      className="rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-5 space-y-3"
+      className="rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-5 space-y-4"
     >
-      <div className="flex items-center gap-2">
-        <span className="inline-flex h-6 items-center rounded-full bg-emerald-500/15 px-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
-          Preliminary cleared
-        </span>
-        <h2 className="text-sm font-semibold text-sky-100">Committee readiness</h2>
+      <CommitteeReadinessSummaryCard summary={view.summary} />
+
+      <div className="space-y-2" data-testid="committee-readiness-groups">
+        {view.groups.map((g) => (
+          <CommitteeReadinessGroupCard key={g.id} group={g} />
+        ))}
       </div>
-      <p className="text-sm text-sky-100/80">
-        Cleared for preliminary underwriting. Committee-grade remains blocked — resolve the
-        items below to reach committee.
-      </p>
-      <DecisionReadiness readiness={readiness} />
-      {/* SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1: read-only readiness. */}
-      <CommitteeReadinessSummary section={snapshot.committeeReadinessSection} />
-      <CommitteeBlockerResolutions
-        items={snapshot.committeeBlockerResolutions}
-        onReviewTask={onReviewTask}
-      />
-      <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
+
+      {view.scalePlausibility ? (
+        <ScalePlausibilityCallout scale={view.scalePlausibility} />
+      ) : null}
+
+      {/* Advanced technical fields live behind a disclosure; the default view
+          stays banker-simple. The full evidence-task review controls remain
+          available here so reviewers can still act on each task. */}
+      <details
+        data-testid="committee-readiness-audit"
+        className="rounded-lg border border-sky-500/15 bg-black/10 p-3"
+      >
+        <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">
+          Show audit details
+        </summary>
+        <div className="mt-3 space-y-3">
+          <CommitteeReadinessAuditTable rows={view.audit} />
+          <CommitteeBlockerResolutions
+            items={snapshot.committeeBlockerResolutions}
+            onReviewTask={onReviewTask}
+          />
+          <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
+        </div>
+      </details>
     </div>
   );
 }
 
-// SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1
-// Read-only committee readiness summary: preliminary cleared, committee not
-// ready / transition-eligible-after-operator-review, blockers reduced vs
-// remaining, accepted evidence, and exact next actions. Never implies approval.
-function CommitteeReadinessSummary({ section }: { section: CommitteeReadinessSection | null }) {
-  if (!section) return null;
-  const c = section.committee_status;
-  const committeeLine = c.ready
-    ? "Committee ready"
-    : c.eligible_for_transition
-      ? "Committee readiness transition eligible after operator review"
-      : "Committee not ready";
+// SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1
+// Top summary card: where we stand + 3 counters + one prioritized next action.
+function CommitteeReadinessSummaryCard({
+  summary,
+}: {
+  summary: CommitteeReadinessSummaryView;
+}) {
   return (
-    <div className="space-y-2 rounded-lg border border-sky-500/20 bg-black/10 p-3" data-testid="committee-readiness-summary">
-      <p className="text-xs font-semibold uppercase tracking-wide text-sky-300/80">Committee readiness</p>
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        <span className={section.preliminary_status.ready ? "text-emerald-300" : "text-amber-300"}>
-          {section.preliminary_status.ready ? "✓ Preliminary cleared" : "Preliminary not cleared"}
+    <div className="space-y-3" data-testid="committee-readiness-summary">
+      <div className="flex items-center gap-2">
+        <span
+          className={
+            "inline-flex h-6 items-center rounded-full px-2 text-[11px] font-semibold uppercase tracking-wide " +
+            (summary.committeeReady
+              ? "bg-emerald-500/15 text-emerald-300"
+              : "bg-amber-500/15 text-amber-300")
+          }
+        >
+          {summary.committeeStatusLabel}
         </span>
-        <span className="text-sky-100/40">·</span>
-        <span className={c.eligible_for_transition ? "text-emerald-300" : "text-amber-300"}>{committeeLine}</span>
-        <span className="text-sky-100/40">·</span>
-        <span className="text-sky-100/60">{c.remaining_blocker_count} blocker(s) remaining</span>
+        <h2 className="text-sm font-semibold text-sky-100">Committee readiness</h2>
       </div>
 
-      {section.accepted_evidence.length > 0 ? (
-        <div className="text-[11px]">
-          <p className="text-emerald-300/70">Accepted evidence:</p>
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className={summary.preliminaryClear ? "text-emerald-300" : "text-amber-300"}>
+          {summary.preliminaryClear ? "✓ " : ""}
+          {summary.preliminaryStatusLabel}
+        </span>
+        <span className="text-sky-100/40">·</span>
+        <span className={summary.committeeReady ? "text-emerald-300" : "text-amber-300"}>
+          {summary.committeeStatusLabel}
+        </span>
+      </div>
+
+      <p className="text-sm text-sky-100/80">{summary.subcopy}</p>
+
+      <div className="flex flex-wrap gap-2">
+        <CounterChip label="Ready for committee" value={summary.counters.ready} tone="ready" />
+        <CounterChip label="Needs review" value={summary.counters.needsReview} tone="review" />
+        <CounterChip label="Missing" value={summary.counters.missing} tone="missing" />
+      </div>
+
+      {summary.nextBestAction ? (
+        <div
+          className="rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5"
+          data-testid="committee-next-best-action"
+        >
+          <p className="text-[11px]">
+            <span className="font-semibold text-sky-200">Next best action: </span>
+            <span className="text-sky-100/90">{summary.nextBestAction}</span>
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CounterChip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "ready" | "review" | "missing";
+}) {
+  const toneClass =
+    tone === "ready"
+      ? "border-emerald-500/30 text-emerald-200"
+      : tone === "review"
+        ? "border-amber-500/30 text-amber-200"
+        : "border-rose-500/30 text-rose-200";
+  return (
+    <span
+      className={"rounded-lg border bg-black/10 px-2.5 py-1 text-[11px] " + toneClass}
+    >
+      {label}: <span className="font-semibold">{value}</span>
+    </span>
+  );
+}
+
+const GROUP_STATUS_TONE: Record<GroupStatusLabel, string> = {
+  Complete: "bg-emerald-500/15 text-emerald-300",
+  "Needs review": "bg-amber-500/15 text-amber-300",
+  "Needs analyst conclusion": "bg-rose-500/15 text-rose-200",
+  Missing: "bg-rose-500/15 text-rose-200",
+};
+
+// One of the 5 human-readable evidence groups.
+function CommitteeReadinessGroupCard({ group }: { group: CommitteeReadinessGroupView }) {
+  return (
+    <div
+      className="rounded-lg border border-sky-500/15 bg-black/10 p-3 text-[11px]"
+      data-testid={`committee-group-${group.id}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-sm font-medium text-sky-100">{group.title}</span>
+        <span
+          className={
+            "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+            GROUP_STATUS_TONE[group.status]
+          }
+          data-testid={`committee-group-${group.id}-status`}
+        >
+          {group.status}
+        </span>
+      </div>
+      <p className="mt-1 text-sky-100/70">{group.explanation}</p>
+
+      {group.alreadyOnFile.length > 0 ? (
+        <div className="mt-1.5">
+          <p className="text-emerald-300/70">Already on file:</p>
           <ul className="ml-3 list-disc text-sky-100/60">
-            {section.accepted_evidence.map((e, i) => (
+            {group.alreadyOnFile.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {group.stillNeeded.length > 0 ? (
+        <div className="mt-1.5">
+          <p className="text-amber-300/70">Still needed:</p>
+          <ul className="ml-3 list-disc text-sky-100/60">
+            {group.stillNeeded.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {group.capturedSources.length > 0 ? (
+        <div className="mt-1.5" data-testid={`committee-group-${group.id}-captured`}>
+          <p className="text-sky-300/70">Captured sources:</p>
+          <ul className="ml-3 list-disc text-sky-100/60">
+            {group.capturedSources.map((s, i) => (
               <li key={i}>
-                {e.title} — {e.review_status.replace(/_/g, " ")}
-                {e.committee_grade_accepted ? " (committee-grade)" : ""}
+                {s.label} —{" "}
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-300/90 underline decoration-dotted"
+                >
+                  View captured source
+                </a>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {section.remaining_blockers.length > 0 ? (
-        <div className="text-[11px]">
-          <p className="text-amber-300/70">Remaining committee blockers:</p>
-          <ul className="ml-3 list-disc text-amber-100/60">
-            {section.remaining_blockers.map((b) => (
-              <li key={b.blocker_id}>
-                {b.blocker_label} — {b.impact_status.replace(/_/g, " ")}
-                {b.auto_clear_forbidden ? " · never auto-clears" : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {group.nextAction ? (
+        <p className="mt-1.5 text-sky-300/80">Next action: {group.nextAction}</p>
       ) : null}
+    </div>
+  );
+}
 
-      {section.required_next_actions.length > 0 ? (
-        <div className="text-[11px]">
-          <p className="text-sky-300/70">Required next actions:</p>
-          <ul className="ml-3 list-disc text-sky-100/60">
-            {section.required_next_actions.slice(0, 8).map((a, i) => (
-              <li key={i}>{a}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+// Scale plausibility rendered as an analyst conclusion, never a raw contradiction.
+function ScalePlausibilityCallout({ scale }: { scale: ScalePlausibilityView }) {
+  return (
+    <div
+      className="rounded-lg border border-rose-500/20 bg-rose-500/[0.06] p-3 text-[11px]"
+      data-testid="committee-scale-plausibility"
+    >
+      <p className="text-sm font-medium text-rose-100">{scale.label}</p>
+      <p className="mt-1 text-rose-100/70">{scale.explanation}</p>
+      <p className="mt-1.5 text-sky-300/80">Next action: {scale.nextAction}</p>
+    </div>
+  );
+}
+
+// Audit table — the machine fields, kept behind the disclosure only.
+function CommitteeReadinessAuditTable({ rows }: { rows: CommitteeReadinessAuditRow[] }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div className="space-y-1.5 text-[10px]" data-testid="committee-readiness-audit-table">
+      <p className="font-mono text-sky-300/60">blocker / task fields</p>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li key={r.blocker_id} className="rounded border border-sky-500/10 bg-black/20 p-1.5">
+            <div className="font-mono text-sky-100/70">
+              {r.blocker_id} · blocker_type={r.blocker_type} · resolved_status={r.resolved_status}
+              {r.impact_status ? ` · impact_status=${r.impact_status}` : ""} · linked_evidence=
+              {r.linked_evidence_count}
+            </div>
+            {r.tasks.length > 0 ? (
+              <ul className="ml-3 mt-0.5 space-y-0.5">
+                {r.tasks.map((t, i) => (
+                  <li key={i} className="font-mono text-sky-100/50">
+                    task_type={t.task_type} · resolved_status={t.resolved_status} · review_status=
+                    {t.review_status} · committee_grade_accepted={String(t.committee_grade_accepted)} ·
+                    auto_clear_forbidden={String(t.auto_clear_forbidden)} · linked_evidence=
+                    {t.linked_evidence_count}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -562,6 +724,17 @@ function EvidenceTaskRow({
         ) : null}
         {t.auto_clear_forbidden ? (
           <span className="text-rose-300/60">· never auto-clears</span>
+        ) : null}
+        {/* SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable artifact. */}
+        {t.artifact_view_url ? (
+          <a
+            href={t.artifact_view_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sky-300/80 underline decoration-dotted"
+          >
+            · View captured source
+          </a>
         ) : null}
       </div>
       {t.checklist && t.checklist.length > 0 ? (
