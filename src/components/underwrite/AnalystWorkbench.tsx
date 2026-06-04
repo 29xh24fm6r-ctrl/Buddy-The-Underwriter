@@ -130,10 +130,10 @@ export default function AnalystWorkbench({ dealId }: Props) {
       opts?: { note?: string; reason?: string },
     ) => {
       try {
-        await fetch(`/api/deals/${dealId}/research/committee-tasks/${taskId}/review`, {
+        await fetch(`/api/deals/${dealId}/research/committee-task-review`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action, ...opts }),
+          body: JSON.stringify({ taskId, action, ...opts }),
         });
       } catch {
         // surfaced via refreshed research snapshot below

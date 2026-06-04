@@ -110,6 +110,58 @@ export async function fetchBorrowerWebsiteSnapshot(
   }
 }
 
+/**
+ * SPEC-BIE-OFFICIAL-SOURCE-CONNECTOR-FRAMEWORK-1
+ *
+ * Generic capped fetch + snapshot for a banker-supplied source URL (manual URL
+ * connector). Same size/time caps + sha256 hashing as the borrower-website
+ * connector, but NO domain guard — the URL is an explicit, human-attached source
+ * for a committee task (not autonomous crawling). Never throws.
+ */
+export async function fetchUrlSnapshot(
+  rawUrl: string | null | undefined,
+): Promise<BorrowerWebsiteSnapshot> {
+  const url = toHttpsUrl(rawUrl);
+  const base: BorrowerWebsiteSnapshot = {
+    ok: false, source_url: url ?? String(rawUrl ?? ""), status: "failed",
+    http_status: null, content_hash: null, content_type: null, title: null, byte_size: null, error: null,
+  };
+  if (!url) return { ...base, error: "no usable source URL" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "BuddyTheUnderwriter/1.0 (institutional lending research)",
+        Accept: "text/html,application/xhtml+xml,application/pdf,*/*",
+      },
+    });
+    const contentType = res.headers.get("content-type");
+    const body = await readCapped(res, MAX_BYTES);
+    const hash = createHash("sha256").update(body).digest("hex");
+    const okStatus = res.status >= 200 && res.status < 300;
+    return {
+      ok: okStatus,
+      source_url: url,
+      status: okStatus ? "collected" : "failed",
+      http_status: res.status,
+      content_hash: hash,
+      content_type: contentType,
+      title: extractTitle(body),
+      byte_size: body.length,
+      error: okStatus ? null : `HTTP ${res.status}`,
+    };
+  } catch (e: any) {
+    return { ...base, source_url: url, error: e?.name === "AbortError" ? "timeout" : (e?.message ?? "fetch_error") };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function readCapped(res: Response, maxBytes: number): Promise<string> {
   const reader = res.body?.getReader();
   if (!reader) return (await res.text()).slice(0, maxBytes);

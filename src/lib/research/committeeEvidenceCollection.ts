@@ -271,7 +271,7 @@ export async function enrichAndPersistCommitteeTasks(
       .select("id, section, thread_origin, evidence_type, claim, confidence, source_uris, source_types")
       .eq("mission_id", missionId),
     sb.from("deal_documents")
-      .select("id, canonical_type, document_type, document_category, original_filename, status")
+      .select("id, canonical_type, document_type, original_filename, status")
       .eq("deal_id", dealId).neq("is_active", false),
     sb.from("deal_financial_facts").select("fact_key, fact_type").eq("deal_id", dealId).neq("is_superseded", true),
     sb.from("deal_borrower_story")

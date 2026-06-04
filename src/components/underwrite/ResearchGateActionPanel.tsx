@@ -523,6 +523,40 @@ const REVIEW_STATUS_TONE: Record<string, string> = {
   unreviewed: "text-amber-100/40",
 };
 
+// Module-scoped (never created during render — react-hooks/static-components).
+function ReviewActionButton({
+  onRun,
+  label,
+  action,
+  disabled = false,
+  requireReason = false,
+  danger = false,
+}: {
+  onRun: (action: CommitteeReviewAction, requireReason: boolean) => void;
+  label: string;
+  action: CommitteeReviewAction;
+  disabled?: boolean;
+  requireReason?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={disabled ? "Not available for this task" : undefined}
+      onClick={() => onRun(action, requireReason)}
+      className={
+        "rounded px-1.5 py-0.5 text-[10px] border transition-colors disabled:opacity-30 disabled:cursor-not-allowed " +
+        (danger
+          ? "border-rose-500/30 text-rose-200/80 hover:bg-rose-500/10"
+          : "border-amber-500/20 text-amber-100/70 hover:bg-amber-500/10")
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
 function TaskReviewControls({
   task: t,
   onReviewTask,
@@ -544,49 +578,21 @@ function TaskReviewControls({
     void onReviewTask(t.id!, action, reason ? { reason } : undefined);
   };
 
-  const Btn = ({
-    label,
-    action,
-    disabled = false,
-    requireReason = false,
-    danger = false,
-  }: {
-    label: string;
-    action: CommitteeReviewAction;
-    disabled?: boolean;
-    requireReason?: boolean;
-    danger?: boolean;
-  }) => (
-    <button
-      type="button"
-      disabled={disabled}
-      title={disabled ? "Not available for this task" : undefined}
-      onClick={() => run(action, requireReason)}
-      className={
-        "rounded px-1.5 py-0.5 text-[10px] border transition-colors disabled:opacity-30 disabled:cursor-not-allowed " +
-        (danger
-          ? "border-rose-500/30 text-rose-200/80 hover:bg-rose-500/10"
-          : "border-amber-500/20 text-amber-100/70 hover:bg-amber-500/10")
-      }
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div className="ml-4 mt-0.5 space-y-1">
       <div className="flex flex-wrap items-center gap-1">
-        <Btn label="Accept" action="accept" disabled={!acceptable} />
-        <Btn
+        <ReviewActionButton onRun={run} label="Accept" action="accept" disabled={!acceptable} />
+        <ReviewActionButton
+          onRun={run}
           label="Committee-grade"
           action="mark_committee_grade"
           disabled={!acceptable || !!t.auto_clear_forbidden}
         />
-        <Btn label="Weak source" action="mark_weak_source" />
-        <Btn label="Wrong entity" action="mark_wrong_entity" requireReason danger />
-        <Btn label="Request more" action="request_more_evidence" />
-        <Btn label="Reject" action="reject" requireReason danger />
-        <Btn label="Reset" action="reset_review" />
+        <ReviewActionButton onRun={run} label="Weak source" action="mark_weak_source" />
+        <ReviewActionButton onRun={run} label="Wrong entity" action="mark_wrong_entity" requireReason danger />
+        <ReviewActionButton onRun={run} label="Request more" action="request_more_evidence" />
+        <ReviewActionButton onRun={run} label="Reject" action="reject" requireReason danger />
+        <ReviewActionButton onRun={run} label="Reset" action="reset_review" />
       </div>
       {reviewStatus !== "unreviewed" ? (
         <div className="text-[10px]">
