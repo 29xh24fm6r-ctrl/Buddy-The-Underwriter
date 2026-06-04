@@ -12,6 +12,10 @@ import {
   buildCommitteeRequirementsPlan,
   type CommitteeRequirementsPlan,
 } from "@/lib/research/committeeRequirementsEngine";
+import {
+  buildSourceCandidatePlan,
+  type SourceCandidatePlan,
+} from "@/lib/research/sourceConnectors";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -105,6 +109,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     // failure) so predictable committee blockers surface as requirement gaps
     // early. Pure / derived-on-read; never changes gate or committee state.
     let committee_requirements_plan: CommitteeRequirementsPlan | null = null;
+    let committee_source_candidates: SourceCandidatePlan | null = null;
 
     if (mission?.id) {
       const subjAny = (subj ?? {}) as Record<string, any>;
@@ -173,12 +178,29 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
         sourceSnapshots: (snapsRes.data as any) ?? [],
         committeeTasks: tasks as any,
       });
+
+      // SPEC-BIE-OFFICIAL-SOURCE-CONNECTOR-FRAMEWORK-1: Buddy-native official/free
+      // source candidates (registry/SOS, gov data, adverse plan, competitor) so
+      // each committee task shows the collection path BEFORE the gate fails.
+      // Pure aggregation — no fetch, no persist, no auto-clear.
+      committee_source_candidates = buildSourceCandidatePlan({
+        naicsCode: subjAny.naics_code ?? null,
+        naicsDescription: subjAny.naics_description ?? null,
+        hqCity: story.hq_city ?? null,
+        hqState: story.hq_state ?? null,
+        loanType: loan.product_type ?? null,
+        legalName: subjAny.company_name ?? story.legal_name ?? null,
+        dba: story.dba ?? null,
+        principals: (mgmtRes.data as any) ?? [],
+        competitiveRows: evidence.filter((e) => e.thread_origin === "competitive"),
+      });
     }
 
     return NextResponse.json({
       ok: true,
       committee_blocker_resolutions,
       committee_requirements_plan,
+      committee_source_candidates,
       gate: gate
         ? {
             trust_grade:                  gate.trust_grade,
