@@ -8,8 +8,9 @@ import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlocker
 import type { CommitteeEvidenceTask } from "@/lib/research/committeeEvidenceTasks";
 import type { CommitteeReviewAction } from "@/lib/research/committeeTaskReview";
 import type { CommitteeRequirementsPlan } from "@/lib/research/committeeRequirementsEngine";
+import type { CommitteeReadinessSection } from "@/lib/research/committeeReadinessTransition";
 
-export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction, CommitteeRequirementsPlan };
+export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction, CommitteeRequirementsPlan, CommitteeReadinessSection };
 
 // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: handler the workbench passes down
 // to apply a review action to a committee evidence task.
@@ -72,6 +73,9 @@ export interface ResearchGateSnapshot {
   // SPEC-BIE-COMMITTEE-EVIDENCE-REQUIREMENTS-ENGINE-1
   /** Proactive required-evidence plan (committee readiness gaps + sub-plans). */
   committeeRequirementsPlan: CommitteeRequirementsPlan | null;
+  // SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1
+  /** Read-only committee readiness section (impact preview + transition). */
+  committeeReadinessSection: CommitteeReadinessSection | null;
 }
 
 export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
@@ -89,4 +93,5 @@ export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
   publicWebLimited: false,
   committeeBlockerResolutions: [],
   committeeRequirementsPlan: null,
+  committeeReadinessSection: null,
 };

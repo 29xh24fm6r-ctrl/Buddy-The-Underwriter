@@ -16,6 +16,16 @@ import {
   buildSourceCandidatePlan,
   type SourceCandidatePlan,
 } from "@/lib/research/sourceConnectors";
+import {
+  buildCommitteeBlockerImpactPreview,
+  type CommitteeBlockerImpactPreview,
+} from "@/lib/research/committeeBlockerImpactPreview";
+import {
+  evaluateCommitteeReadinessTransition,
+  buildCommitteeReadinessSection,
+  type CommitteeReadinessTransitionResult,
+  type CommitteeReadinessSection,
+} from "@/lib/research/committeeReadinessTransition";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -110,6 +120,11 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     // early. Pure / derived-on-read; never changes gate or committee state.
     let committee_requirements_plan: CommitteeRequirementsPlan | null = null;
     let committee_source_candidates: SourceCandidatePlan | null = null;
+    // SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1: read-only impact preview,
+    // transition eligibility, and the committee readiness section. NO mutation.
+    let committee_blocker_impact_preview: CommitteeBlockerImpactPreview | null = null;
+    let committee_transition_result: CommitteeReadinessTransitionResult | null = null;
+    let committee_readiness_section: CommitteeReadinessSection | null = null;
 
     if (mission?.id) {
       const subjAny = (subj ?? {}) as Record<string, any>;
@@ -194,6 +209,42 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
         principals: (mgmtRes.data as any) ?? [],
         competitiveRows: evidence.filter((e) => e.thread_origin === "competitive"),
       });
+
+      // SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1: read-only impact +
+      // transition preview + committee readiness section. Never mutates the gate,
+      // tasks, trust grade, or committee_eligible.
+      if (gate) {
+        committee_blocker_impact_preview = buildCommitteeBlockerImpactPreview({
+          missionId: mission.id,
+          dealId,
+          generatedAt: new Date().toISOString(),
+          gate: {
+            trust_grade: gate.trust_grade,
+            gate_passed: gate.gate_passed,
+            preliminary_eligible: gate.preliminary_eligible,
+            committee_eligible: gate.committee_eligible,
+            committee_blockers: (gate.committee_blockers as string[]) ?? [],
+          },
+          resolutions: committee_blocker_resolutions,
+          requirementsPlan: committee_requirements_plan,
+          tasks: tasks as any,
+        });
+        committee_transition_result = evaluateCommitteeReadinessTransition({
+          preview: committee_blocker_impact_preview,
+          gate: {
+            trust_grade: gate.trust_grade,
+            preliminary_eligible: gate.preliminary_eligible,
+            committee_eligible: gate.committee_eligible,
+            committee_blockers: (gate.committee_blockers as string[]) ?? [],
+          },
+          tasks: tasks as any,
+        });
+        committee_readiness_section = buildCommitteeReadinessSection(
+          committee_blocker_impact_preview,
+          committee_transition_result,
+          tasks as any,
+        );
+      }
     }
 
     return NextResponse.json({
@@ -201,6 +252,9 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       committee_blocker_resolutions,
       committee_requirements_plan,
       committee_source_candidates,
+      committee_blocker_impact_preview,
+      committee_transition_result,
+      committee_readiness_section,
       gate: gate
         ? {
             trust_grade:                  gate.trust_grade,

@@ -18,6 +18,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return (await import("./_handlers/flight-deck")).GET(req, ctx as any);
     case "quality":
       return (await import("./_handlers/quality")).GET(req, ctx as any);
+    // SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1: read-only impact +
+    // transition preview, consolidated here (no new serverless function).
+    case "committee-transition-preview":
+      return (await import("./_handlers/committeeTransitionPreview")).GET(req, ctx as any);
     default:
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }

@@ -27,6 +27,7 @@ import type {
   CommitteeEvidenceTask,
   CommitteeReviewAction,
   CommitteeRequirementsPlan,
+  CommitteeReadinessSection,
   ReviewTaskHandler,
 } from "./researchGateTypes";
 import {
@@ -347,11 +348,80 @@ export function CommitteeReadinessPanel({
         items below to reach committee.
       </p>
       <DecisionReadiness readiness={readiness} />
+      {/* SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1: read-only readiness. */}
+      <CommitteeReadinessSummary section={snapshot.committeeReadinessSection} />
       <CommitteeBlockerResolutions
         items={snapshot.committeeBlockerResolutions}
         onReviewTask={onReviewTask}
       />
       <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
+    </div>
+  );
+}
+
+// SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1
+// Read-only committee readiness summary: preliminary cleared, committee not
+// ready / transition-eligible-after-operator-review, blockers reduced vs
+// remaining, accepted evidence, and exact next actions. Never implies approval.
+function CommitteeReadinessSummary({ section }: { section: CommitteeReadinessSection | null }) {
+  if (!section) return null;
+  const c = section.committee_status;
+  const committeeLine = c.ready
+    ? "Committee ready"
+    : c.eligible_for_transition
+      ? "Committee readiness transition eligible after operator review"
+      : "Committee not ready";
+  return (
+    <div className="space-y-2 rounded-lg border border-sky-500/20 bg-black/10 p-3" data-testid="committee-readiness-summary">
+      <p className="text-xs font-semibold uppercase tracking-wide text-sky-300/80">Committee readiness</p>
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className={section.preliminary_status.ready ? "text-emerald-300" : "text-amber-300"}>
+          {section.preliminary_status.ready ? "✓ Preliminary cleared" : "Preliminary not cleared"}
+        </span>
+        <span className="text-sky-100/40">·</span>
+        <span className={c.eligible_for_transition ? "text-emerald-300" : "text-amber-300"}>{committeeLine}</span>
+        <span className="text-sky-100/40">·</span>
+        <span className="text-sky-100/60">{c.remaining_blocker_count} blocker(s) remaining</span>
+      </div>
+
+      {section.accepted_evidence.length > 0 ? (
+        <div className="text-[11px]">
+          <p className="text-emerald-300/70">Accepted evidence:</p>
+          <ul className="ml-3 list-disc text-sky-100/60">
+            {section.accepted_evidence.map((e, i) => (
+              <li key={i}>
+                {e.title} — {e.review_status.replace(/_/g, " ")}
+                {e.committee_grade_accepted ? " (committee-grade)" : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {section.remaining_blockers.length > 0 ? (
+        <div className="text-[11px]">
+          <p className="text-amber-300/70">Remaining committee blockers:</p>
+          <ul className="ml-3 list-disc text-amber-100/60">
+            {section.remaining_blockers.map((b) => (
+              <li key={b.blocker_id}>
+                {b.blocker_label} — {b.impact_status.replace(/_/g, " ")}
+                {b.auto_clear_forbidden ? " · never auto-clears" : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {section.required_next_actions.length > 0 ? (
+        <div className="text-[11px]">
+          <p className="text-sky-300/70">Required next actions:</p>
+          <ul className="ml-3 list-disc text-sky-100/60">
+            {section.required_next_actions.slice(0, 8).map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
