@@ -110,6 +110,15 @@ export type CommitteeEvidenceTask = {
   needs_review_items?: string[];
   /** When the enrichment was last linked/persisted. */
   last_linked_at?: string | null;
+  // ── SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1 ──
+  // Banker/analyst review state (persisted). Orthogonal to the file-derived
+  // `resolved_status` and the banker workflow `status`; never clears a blocker.
+  review_status?: string;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  review_reason?: string | null;
+  committee_grade_accepted?: boolean;
 };
 
 type Subject = { company_name?: string | null; website?: string | null; naics_code?: string | null } | null;

@@ -180,7 +180,8 @@ export async function loadCommitteeTasks(
     .from("buddy_research_committee_tasks")
     .select(
       "id, blocker_id, blocker_type, task_type, title, instructions, status, auto_collectible, target_url, source_snapshot_id, " +
-        "resolved_status, file_status, linked_evidence, coverage_checklist, collected_items, missing_items, needs_review_items, auto_clear_forbidden, last_linked_at",
+        "resolved_status, file_status, linked_evidence, coverage_checklist, collected_items, missing_items, needs_review_items, auto_clear_forbidden, last_linked_at, " +
+        "review_status, reviewed_by, reviewed_at, review_note, review_reason, committee_grade_accepted",
     )
     .eq("mission_id", missionId)
     .order("created_at", { ascending: true });
@@ -212,6 +213,14 @@ export async function loadCommitteeTasks(
     if (typeof row.auto_clear_forbidden === "boolean" && row.auto_clear_forbidden)
       task.auto_clear_forbidden = true;
     if (row.last_linked_at) task.last_linked_at = row.last_linked_at as string;
+    // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: surface persisted review state.
+    if (row.review_status) task.review_status = row.review_status as string;
+    if (row.reviewed_by) task.reviewed_by = row.reviewed_by as string;
+    if (row.reviewed_at) task.reviewed_at = row.reviewed_at as string;
+    if (row.review_note) task.review_note = row.review_note as string;
+    if (row.review_reason) task.review_reason = row.review_reason as string;
+    if (typeof row.committee_grade_accepted === "boolean")
+      task.committee_grade_accepted = row.committee_grade_accepted;
     return task;
   });
 }

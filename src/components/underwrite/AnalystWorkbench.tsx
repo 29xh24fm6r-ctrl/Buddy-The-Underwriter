@@ -120,6 +120,30 @@ export default function AnalystWorkbench({ dealId }: Props) {
     }
   }, [dealId, fetchState, fetchResearch]);
 
+  // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: apply a banker/analyst review
+  // action to a committee evidence task, then refresh the research snapshot so
+  // the persisted review state surfaces. Never changes gate/committee state.
+  const reviewTask = useCallback(
+    async (
+      taskId: string,
+      action: string,
+      opts?: { note?: string; reason?: string },
+    ) => {
+      try {
+        await fetch(`/api/deals/${dealId}/research/committee-tasks/${taskId}/review`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, ...opts }),
+        });
+      } catch {
+        // surfaced via refreshed research snapshot below
+      } finally {
+        await fetchResearch();
+      }
+    },
+    [dealId, fetchResearch],
+  );
+
   const updateWorkstream = async (field: string, status: string) => {
     await fetch(`/api/deals/${dealId}/underwrite/workspace`, {
       method: "PATCH",
@@ -147,6 +171,7 @@ export default function AnalystWorkbench({ dealId }: Props) {
           pending={pending}
           onInitialize={initializeWorkbench}
           onRunResearch={runResearch}
+          onReviewTask={reviewTask}
         />
       );
     }
@@ -203,6 +228,7 @@ export default function AnalystWorkbench({ dealId }: Props) {
           pending={pending}
           onInitialize={initializeWorkbench}
           onRunResearch={runResearch}
+          onReviewTask={reviewTask}
         />
       )}
 
@@ -210,7 +236,7 @@ export default function AnalystWorkbench({ dealId }: Props) {
           gate passed (preliminary cleared) but committee still blocked — show the
           non-blocking committee path so the banker can act on the blockers. */}
       {!researchGateActive && research && shouldShowCommitteeReadiness(research) && (
-        <CommitteeReadinessPanel snapshot={research} />
+        <CommitteeReadinessPanel snapshot={research} onReviewTask={reviewTask} />
       )}
 
       {/* Snapshot Banner */}

@@ -6,8 +6,17 @@
 import type { MissionStatus } from "@/lib/research/types";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
 import type { CommitteeEvidenceTask } from "@/lib/research/committeeEvidenceTasks";
+import type { CommitteeReviewAction } from "@/lib/research/committeeTaskReview";
 
-export type { CommitteeBlockerResolution, CommitteeEvidenceTask };
+export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction };
+
+// SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: handler the workbench passes down
+// to apply a review action to a committee evidence task.
+export type ReviewTaskHandler = (
+  taskId: string,
+  action: CommitteeReviewAction,
+  opts?: { note?: string; reason?: string },
+) => void | Promise<void>;
 
 export type ResearchGatePending = "init" | "run" | null;
 

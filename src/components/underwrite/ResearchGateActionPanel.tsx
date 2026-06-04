@@ -25,6 +25,8 @@ import type {
   ResearchGateGroupItem,
   CommitteeBlockerResolution,
   CommitteeEvidenceTask,
+  CommitteeReviewAction,
+  ReviewTaskHandler,
 } from "./researchGateTypes";
 import {
   deriveResearchGatePhase,
@@ -40,6 +42,8 @@ interface Props {
   pending: ResearchGatePending;
   onInitialize: () => void;
   onRunResearch: () => void;
+  // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1
+  onReviewTask?: ReviewTaskHandler;
 }
 
 const Shell = ({ children }: { children: React.ReactNode }) => (
@@ -89,6 +93,7 @@ export default function ResearchGateActionPanel({
   pending,
   onInitialize,
   onRunResearch,
+  onReviewTask,
 }: Props) {
   const phase = deriveResearchGatePhase(snapshot, workspaceReady, pending);
 
@@ -185,7 +190,10 @@ export default function ResearchGateActionPanel({
         <DecisionReadiness readiness={readiness} />
         {/* SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1:
             evidence-linked, actionable path from preliminary → committee. */}
-        <CommitteeBlockerResolutions items={snapshot.committeeBlockerResolutions} />
+        <CommitteeBlockerResolutions
+          items={snapshot.committeeBlockerResolutions}
+          onReviewTask={onReviewTask}
+        />
         <div className="flex flex-wrap gap-4 text-amber-100/70">
           {snapshot.qualityScore != null ? (
             <span>
@@ -311,7 +319,13 @@ function DecisionReadiness({
  * same Decision Readiness + Committee Blocker Resolution content as the blocker
  * panel, in a neutral (non-amber) shell so it does not read as a hard blocker.
  */
-export function CommitteeReadinessPanel({ snapshot }: { snapshot: ResearchGateSnapshot }) {
+export function CommitteeReadinessPanel({
+  snapshot,
+  onReviewTask,
+}: {
+  snapshot: ResearchGateSnapshot;
+  onReviewTask?: ReviewTaskHandler;
+}) {
   if (!shouldShowCommitteeReadiness(snapshot)) return null;
   const readiness = deriveDecisionReadiness(snapshot);
   return (
@@ -330,12 +344,21 @@ export function CommitteeReadinessPanel({ snapshot }: { snapshot: ResearchGateSn
         items below to reach committee.
       </p>
       <DecisionReadiness readiness={readiness} />
-      <CommitteeBlockerResolutions items={snapshot.committeeBlockerResolutions} />
+      <CommitteeBlockerResolutions
+        items={snapshot.committeeBlockerResolutions}
+        onReviewTask={onReviewTask}
+      />
     </div>
   );
 }
 
-function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolution[] }) {
+function CommitteeBlockerResolutions({
+  items,
+  onReviewTask,
+}: {
+  items: CommitteeBlockerResolution[];
+  onReviewTask?: ReviewTaskHandler;
+}) {
   if (!items || items.length === 0) return null;
   return (
     <div className="space-y-2" data-testid="committee-blocker-resolutions">
@@ -395,7 +418,7 @@ function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolut
             {it.evidence_tasks && it.evidence_tasks.length > 0 ? (
               <ul className="mt-1.5 space-y-1 border-t border-amber-500/10 pt-1.5">
                 {it.evidence_tasks.map((t) => (
-                  <EvidenceTaskRow key={t.id ?? t.task_type} task={t} />
+                  <EvidenceTaskRow key={t.id ?? t.task_type} task={t} onReviewTask={onReviewTask} />
                 ))}
               </ul>
             ) : null}
@@ -406,7 +429,13 @@ function CommitteeBlockerResolutions({ items }: { items: CommitteeBlockerResolut
   );
 }
 
-function EvidenceTaskRow({ task: t }: { task: CommitteeEvidenceTask }) {
+function EvidenceTaskRow({
+  task: t,
+  onReviewTask,
+}: {
+  task: CommitteeEvidenceTask;
+  onReviewTask?: ReviewTaskHandler;
+}) {
   const status = String(t.resolved_status ?? t.status);
   const linkedCount = t.linked_evidence?.length ?? 0;
   return (
@@ -433,7 +462,109 @@ function EvidenceTaskRow({ task: t }: { task: CommitteeEvidenceTask }) {
           ))}
         </ul>
       ) : null}
+      {/* SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: review controls + state. */}
+      {onReviewTask && t.id ? <TaskReviewControls task={t} onReviewTask={onReviewTask} /> : null}
     </li>
+  );
+}
+
+// SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1
+// Module-scoped (never defined during render). Minimal per-task review controls.
+const REVIEW_STATUS_TONE: Record<string, string> = {
+  accepted: "text-emerald-300",
+  committee_grade: "text-emerald-300",
+  rejected: "text-rose-300",
+  wrong_entity: "text-rose-300",
+  weak_source: "text-amber-300",
+  needs_more_evidence: "text-amber-300",
+  unreviewed: "text-amber-100/40",
+};
+
+function TaskReviewControls({
+  task: t,
+  onReviewTask,
+}: {
+  task: CommitteeEvidenceTask;
+  onReviewTask: ReviewTaskHandler;
+}) {
+  const resolved = String(t.resolved_status ?? t.status ?? "");
+  const acceptable = resolved === "collected" || resolved === "needs_review";
+  const reviewStatus = String(t.review_status ?? "unreviewed");
+
+  const run = (action: CommitteeReviewAction, requireReason = false) => {
+    let reason: string | undefined;
+    if (requireReason) {
+      const entered = typeof window !== "undefined" ? window.prompt(`Reason for "${action}"?`) : null;
+      if (!entered || !entered.trim()) return; // reason mandatory; abort if blank
+      reason = entered.trim();
+    }
+    void onReviewTask(t.id!, action, reason ? { reason } : undefined);
+  };
+
+  const Btn = ({
+    label,
+    action,
+    disabled = false,
+    requireReason = false,
+    danger = false,
+  }: {
+    label: string;
+    action: CommitteeReviewAction;
+    disabled?: boolean;
+    requireReason?: boolean;
+    danger?: boolean;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      title={disabled ? "Not available for this task" : undefined}
+      onClick={() => run(action, requireReason)}
+      className={
+        "rounded px-1.5 py-0.5 text-[10px] border transition-colors disabled:opacity-30 disabled:cursor-not-allowed " +
+        (danger
+          ? "border-rose-500/30 text-rose-200/80 hover:bg-rose-500/10"
+          : "border-amber-500/20 text-amber-100/70 hover:bg-amber-500/10")
+      }
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="ml-4 mt-0.5 space-y-1">
+      <div className="flex flex-wrap items-center gap-1">
+        <Btn label="Accept" action="accept" disabled={!acceptable} />
+        <Btn
+          label="Committee-grade"
+          action="mark_committee_grade"
+          disabled={!acceptable || !!t.auto_clear_forbidden}
+        />
+        <Btn label="Weak source" action="mark_weak_source" />
+        <Btn label="Wrong entity" action="mark_wrong_entity" requireReason danger />
+        <Btn label="Request more" action="request_more_evidence" />
+        <Btn label="Reject" action="reject" requireReason danger />
+        <Btn label="Reset" action="reset_review" />
+      </div>
+      {reviewStatus !== "unreviewed" ? (
+        <div className="text-[10px]">
+          <span className={REVIEW_STATUS_TONE[reviewStatus] ?? "text-amber-100/60"}>
+            review: {reviewStatus.replace(/_/g, " ")}
+          </span>
+          {t.committee_grade_accepted ? (
+            <span className="text-emerald-300/70"> · committee-grade accepted</span>
+          ) : null}
+          {t.review_reason ? (
+            <span className="text-amber-100/50"> · reason: {t.review_reason}</span>
+          ) : null}
+          {t.review_note ? (
+            <span className="text-amber-100/50"> · note: {t.review_note}</span>
+          ) : null}
+          {t.reviewed_by ? (
+            <span className="text-amber-100/40"> · by {t.reviewed_by}</span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
