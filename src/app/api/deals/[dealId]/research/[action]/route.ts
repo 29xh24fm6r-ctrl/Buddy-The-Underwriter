@@ -22,6 +22,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     // transition preview, consolidated here (no new serverless function).
     case "committee-transition-preview":
       return (await import("./_handlers/committeeTransitionPreview")).GET(req, ctx as any);
+    // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: view a captured-source
+    // loan-file artifact (consolidated; no new serverless function).
+    case "source-artifact":
+      return (await import("./_handlers/sourceArtifact")).GET(req, ctx as any);
     default:
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }

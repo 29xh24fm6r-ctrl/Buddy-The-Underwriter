@@ -162,12 +162,19 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       // Enrichment + durable persistence — only when there are resolutions/tasks
       // (unchanged behavior from #483/#484/persist PR).
       if (gate && committee_blocker_resolutions.length > 0 && tasks.length > 0) {
-        const enriched = enrichCommitteeTasks(tasks, linkInput);
+        const enrichedBase = enrichCommitteeTasks(tasks, linkInput);
         try {
-          await persistEnrichedCommitteeTasks(sb, enriched);
+          await persistEnrichedCommitteeTasks(sb, enrichedBase);
         } catch {
           /* non-fatal: response still uses the freshly derived enrichment */
         }
+        // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: attach a banker-
+        // openable view URL for any captured loan-file artifact.
+        const enriched = enrichedBase.map((t) =>
+          t.source_artifact_id
+            ? { ...t, artifact_view_url: `/api/deals/${dealId}/research/source-artifact?artifact_id=${t.source_artifact_id}` }
+            : t,
+        );
         committee_blocker_resolutions = committee_blocker_resolutions.map((r) => ({
           ...r,
           evidence_tasks: enriched.filter((t) => t.blocker_id === r.blocker_id),

@@ -119,6 +119,11 @@ export type CommitteeEvidenceTask = {
   review_note?: string | null;
   review_reason?: string | null;
   committee_grade_accepted?: boolean;
+  // ── SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1 ──
+  /** Durable loan-file artifact captured from this task's source snapshot. */
+  source_artifact_id?: string | null;
+  /** Banker-openable URL for the captured-source artifact (set by the API). */
+  artifact_view_url?: string | null;
 };
 
 type Subject = { company_name?: string | null; website?: string | null; naics_code?: string | null } | null;

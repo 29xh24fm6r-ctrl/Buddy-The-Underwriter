@@ -156,7 +156,26 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
       if (t2) updatedTask = t2 as any;
     }
 
-    return NextResponse.json({ ok: true, snapshot: inserted, task: updatedTask, actor_id: actorId });
+    // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: capture the collected
+    // source into a durable loan-file artifact and return its reference.
+    // Non-fatal; never changes committee scoring / review state.
+    let artifact: { artifact_id: string | null; view_url: string | null } = { artifact_id: null, view_url: null };
+    if (snap.status === "collected") {
+      try {
+        const { ensureSourceArtifactForSnapshot } = await import("@/lib/research/ensureSourceArtifact");
+        const r = await ensureSourceArtifactForSnapshot(sb, (inserted as any).id, { createdBy: actorId });
+        if (r.artifact_id) {
+          artifact = {
+            artifact_id: r.artifact_id,
+            view_url: `/api/deals/${dealId}/research/source-artifact?artifact_id=${r.artifact_id}`,
+          };
+        }
+      } catch {
+        /* non-fatal: snapshot + task already persisted */
+      }
+    }
+
+    return NextResponse.json({ ok: true, snapshot: inserted, task: updatedTask, artifact, actor_id: actorId });
   } catch (e: unknown) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "unexpected_error" },

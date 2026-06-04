@@ -160,6 +160,19 @@ async function collectBorrowerWebsite(
       .eq("mission_id", missionId)
       .eq("task_type", "borrower_website_snapshot")
       .eq("status", "pending");
+
+    // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: capture the collected
+    // source into a durable loan-file artifact. Non-fatal — never blocks the
+    // snapshot path; never changes committee scoring.
+    if (snap.status === "collected") {
+      try {
+        const { ensureSourceArtifactForSnapshot } = await import("./ensureSourceArtifact");
+        const r = await ensureSourceArtifactForSnapshot(sb, inserted.id);
+        if (r.error) console.warn("[sourceArtifact] website capture failed (non-fatal):", r.error);
+      } catch (err: any) {
+        console.warn("[sourceArtifact] website capture threw (non-fatal):", err?.message);
+      }
+    }
   }
 
   return snap;
@@ -181,7 +194,7 @@ export async function loadCommitteeTasks(
     .select(
       "id, blocker_id, blocker_type, task_type, title, instructions, status, auto_collectible, target_url, source_snapshot_id, " +
         "resolved_status, file_status, linked_evidence, coverage_checklist, collected_items, missing_items, needs_review_items, auto_clear_forbidden, last_linked_at, " +
-        "review_status, reviewed_by, reviewed_at, review_note, review_reason, committee_grade_accepted",
+        "review_status, reviewed_by, reviewed_at, review_note, review_reason, committee_grade_accepted, source_artifact_id",
     )
     .eq("mission_id", missionId)
     .order("created_at", { ascending: true });
@@ -221,6 +234,8 @@ export async function loadCommitteeTasks(
     if (row.review_reason) task.review_reason = row.review_reason as string;
     if (typeof row.committee_grade_accepted === "boolean")
       task.committee_grade_accepted = row.committee_grade_accepted;
+    // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable artifact link.
+    if (row.source_artifact_id) task.source_artifact_id = row.source_artifact_id as string;
     return task;
   });
 }
