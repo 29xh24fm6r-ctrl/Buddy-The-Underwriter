@@ -236,7 +236,7 @@ describe("buildCommitteeReadinessView — 5 plain-English groups", () => {
     assert.match(byId.entity.explanation, /reliable public or official records/i);
     // Financial: items already on file are surfaced even though status is Missing.
     assert.ok(byId.financial.alreadyOnFile.some((s) => /DSCR/i.test(s) || /Financial Analysis/i.test(s)));
-    assert.ok(byId.financial.stillNeeded.some((s) => /loan request/i.test(s)));
+    assert.ok(byId.financial.missing.some((s) => /loan request/i.test(s)));
     // Each unresolved group has a concrete next action.
     for (const g of view.groups) {
       if (g.status !== "Complete") assert.ok(g.nextAction && g.nextAction.length > 0);
@@ -349,6 +349,125 @@ describe("buildCommitteeReadinessView — captured-source artifacts (SPEC-…-LO
   it("no artifacts → capturedSources is empty (no link shown)", () => {
     const view = buildCommitteeReadinessView(omniCareSnapshot())!;
     for (const g of view.groups) assert.deepEqual(g.capturedSources, []);
+  });
+});
+
+describe("buildCommitteeReadinessView — state-correctness (SPEC-…-STATE-CORRECTNESS-1)", () => {
+  // Realistic OmniCare state: website committee-grade, SOS captured/unreviewed,
+  // management accepted, financial_file with a coverage checklist, adverse missing.
+  function stateBlockers(): CommitteeBlockerResolution[] {
+    return [
+      mkBlocker({
+        blocker_id: "entity",
+        title: "Public/attested entity verification",
+        blocker_type: "public_entity_verification",
+        current_status: "present_but_not_committee_grade",
+        missing_evidence: ["Public/official entity record"],
+        evidence_tasks: [
+          task({ task_type: "borrower_website_snapshot", title: "Borrower website", resolved_status: "collected", review_status: "committee_grade", committee_grade_accepted: true, artifact_view_url: "/api/deals/d/research/source-artifact?artifact_id=web" }),
+          task({ task_type: "sos_business_registry", title: "Secretary of State record", resolved_status: "collected", review_status: "unreviewed", artifact_view_url: "/api/deals/d/research/source-artifact?artifact_id=sos" }),
+        ],
+      }),
+      mkBlocker({
+        blocker_id: "mgmt",
+        title: "Public/attested management verification + adverse screen",
+        blocker_type: "management_verification",
+        current_status: "present_but_not_committee_grade",
+        missing_evidence: ["Completed public adverse screen result"],
+        evidence_tasks: [
+          task({ task_type: "management_attestation", title: "Management attestation", resolved_status: "needs_review", review_status: "accepted" }),
+        ],
+      }),
+      mkBlocker({
+        blocker_id: "coverage",
+        title: "Evidence coverage below committee threshold",
+        blocker_type: "evidence_coverage",
+        current_status: "partial",
+        evidence_tasks: [
+          task({
+            task_type: "financial_file",
+            title: "Attach financial file evidence",
+            resolved_status: "needs_review",
+            checklist: [
+              { label: "DSCR", status: "collected", collect_from: "spreads", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+              { label: "Financial statements / tax returns", status: "collected", collect_from: "borrower", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+              { label: "Collateral records", status: "collected", collect_from: "borrower", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+              { label: "Loan request / use of proceeds", status: "missing", collect_from: "banker", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+              { label: "Primary/institutional sources", status: "missing", collect_from: "public_source", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+            ] as any,
+          }),
+        ],
+      }),
+      mkBlocker({
+        blocker_id: "lit",
+        title: "Section needs committee-grade sources: Litigation and Risk",
+        blocker_type: "adverse_screen",
+        current_status: "missing",
+        evidence_tasks: [task({ task_type: "public_adverse_screen", title: "Run public adverse-record screen", resolved_status: "missing" })],
+      }),
+      mkBlocker({
+        blocker_id: "scale",
+        title: "Contradiction unresolved: scale plausibility",
+        blocker_type: "contradiction_gap",
+        current_status: "missing",
+      }),
+    ];
+  }
+  const view = () => buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: stateBlockers() }))!;
+  const grp = (id: string) => view().groups.find((g) => g.id === id)!;
+
+  it("website committee-grade → Already on file; not under Missing; not re-reviewed", () => {
+    const e = grp("entity");
+    assert.ok(e.alreadyOnFile.some((s) => /website/i.test(s) && /committee-grade/i.test(s)));
+    assert.equal(e.missing.some((s) => /website/i.test(s)), false);
+    assert.doesNotMatch(e.nextAction ?? "", /website/i);
+  });
+
+  it("SOS captured/unreviewed → Needs review, and drives the entity next action", () => {
+    const e = grp("entity");
+    assert.ok(e.needsReview.some((s) => /secretary of state/i.test(s) && /needs review/i.test(s)));
+    assert.equal(e.missing.some((s) => /secretary of state/i.test(s)), false);
+    assert.match(e.nextAction ?? "", /review the SOS\/business registry source and mark it committee-grade/i);
+  });
+
+  it("accepted management → no 'attach or accept'; next action marks committee-grade + adverse screen", () => {
+    const m = grp("management");
+    assert.ok(m.needsReview.some((s) => /management attestation/i.test(s) && /committee-grade review still needed/i.test(s)));
+    assert.doesNotMatch(m.nextAction ?? "", /attach or accept/i);
+    assert.match(m.nextAction ?? "", /mark management attestation committee-grade.*adverse-record screen/i);
+  });
+
+  it("financial: collected checklist items on file/needs-review, NOT missing; loan request stays missing", () => {
+    const f = grp("financial");
+    assert.ok(f.alreadyOnFile.some((s) => /DSCR/i.test(s)));
+    assert.ok(f.alreadyOnFile.some((s) => /financial statements/i.test(s)));
+    assert.ok(f.alreadyOnFile.some((s) => /collateral/i.test(s)));
+    // Collected items must not be listed as missing.
+    assert.equal(f.missing.some((s) => /DSCR|financial statements|collateral records/i.test(s)), false);
+    // Truly-missing items remain missing.
+    assert.ok(f.missing.some((s) => /loan request/i.test(s)));
+    assert.ok(f.missing.some((s) => /primary\/institutional/i.test(s)));
+    assert.match(f.nextAction ?? "", /loan request and use-of-proceeds/i);
+  });
+
+  it("risk: adverse screen missing; scale plausibility analyst conclusion preserved", () => {
+    const r = grp("risk");
+    assert.ok(r.missing.some((s) => /adverse/i.test(s)));
+    const v = view();
+    assert.equal(v.scalePlausibility?.label, "Scale plausibility needs analyst conclusion");
+  });
+
+  it("no machine vocabulary leaks into the default view with realistic state", () => {
+    const text = defaultViewText(view()).toLowerCase();
+    for (const term of MACHINE_TERMS) assert.ok(!text.includes(term), `leaked: ${term}`);
+  });
+
+  it("captured items never appear under Missing across all groups", () => {
+    for (const g of view().groups) {
+      for (const s of g.missing) {
+        assert.doesNotMatch(s, /committee-grade|captured, needs review|accepted for preliminary/i);
+      }
+    }
   });
 });
 

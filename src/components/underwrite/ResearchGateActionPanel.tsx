@@ -492,7 +492,7 @@ function CommitteeReadinessGroupCard({ group }: { group: CommitteeReadinessGroup
       <p className="mt-1 text-sky-100/70">{group.explanation}</p>
 
       {group.alreadyOnFile.length > 0 ? (
-        <div className="mt-1.5">
+        <div className="mt-1.5" data-testid={`committee-group-${group.id}-onfile`}>
           <p className="text-emerald-300/70">Already on file:</p>
           <ul className="ml-3 list-disc text-sky-100/60">
             {group.alreadyOnFile.map((e, i) => (
@@ -502,11 +502,22 @@ function CommitteeReadinessGroupCard({ group }: { group: CommitteeReadinessGroup
         </div>
       ) : null}
 
-      {group.stillNeeded.length > 0 ? (
-        <div className="mt-1.5">
-          <p className="text-amber-300/70">Still needed:</p>
+      {group.needsReview.length > 0 ? (
+        <div className="mt-1.5" data-testid={`committee-group-${group.id}-needsreview`}>
+          <p className="text-sky-300/70">Needs review:</p>
           <ul className="ml-3 list-disc text-sky-100/60">
-            {group.stillNeeded.map((e, i) => (
+            {group.needsReview.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {group.missing.length > 0 ? (
+        <div className="mt-1.5" data-testid={`committee-group-${group.id}-missing`}>
+          <p className="text-amber-300/70">Missing:</p>
+          <ul className="ml-3 list-disc text-sky-100/60">
+            {group.missing.map((e, i) => (
               <li key={i}>{e}</li>
             ))}
           </ul>

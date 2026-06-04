@@ -46,11 +46,14 @@ export interface CommitteeReadinessGroupView {
   status: GroupStatusLabel;
   /** Plain-English "why this matters" for the group. */
   explanation: string;
-  /** Evidence Buddy already has, in banker language. */
+  /** Evidence already accepted as committee-grade / supported, in banker language. */
   alreadyOnFile: string[];
-  /** What committee still needs, in banker language. */
-  stillNeeded: string[];
-  /** One concrete next action for this group (null when complete). */
+  /** SPEC-…-STATE-CORRECTNESS-1: captured / accepted-for-preliminary items that
+   *  still need committee-grade review (NOT "still needed"). */
+  needsReview: string[];
+  /** Truly absent items committee still needs. */
+  missing: string[];
+  /** One concrete state-aware next action for this group (null when complete). */
   nextAction: string | null;
   /**
    * SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured-source
@@ -281,16 +284,37 @@ const STATUS_LABEL: Record<BankerStatus, GroupStatusLabel> = {
   complete: "Complete",
 };
 
-function taskOnFilePhrase(t: CommitteeEvidenceTask): string | null {
-  const resolved = taskResolvedStatus(t);
+type ItemBucket = "onFile" | "needsReview" | "missing";
+
+/**
+ * SPEC-BIE-COMMITTEE-READINESS-STATE-CORRECTNESS-1: classify a single evidence
+ * task into the correct bucket + banker label using ACTUAL review/collection
+ * state. Collected/accepted/committee-grade items never land in "missing".
+ */
+function classifyTaskItem(t: CommitteeEvidenceTask): { bucket: ItemBucket; label: string } {
   const title = scrub(String(t.title ?? t.task_type ?? "evidence"));
+  const resolved = taskResolvedStatus(t);
   if (t.review_status === "committee_grade" || t.committee_grade_accepted) {
-    return `${title} accepted (committee-grade)`;
+    return { bucket: "onFile", label: `${title} — accepted as committee-grade` };
   }
-  if (t.review_status === "accepted" || resolved === "accepted") return `${title} accepted`;
-  if (resolved === "needs_review") return `${title} captured, under review`;
-  if (resolved === "collected") return `${title} captured`;
-  return null;
+  if (t.review_status === "rejected" || t.review_status === "weak_source" || t.review_status === "wrong_entity") {
+    return { bucket: "missing", label: `${title} — re-collect (${scrub(t.review_status)})` };
+  }
+  if (t.review_status === "accepted" || resolved === "accepted") {
+    return { bucket: "needsReview", label: `${title} — accepted for preliminary; committee-grade review still needed` };
+  }
+  if (resolved === "collected" || resolved === "needs_review") {
+    return { bucket: "needsReview", label: `${title} — captured, needs review` };
+  }
+  return { bucket: "missing", label: `${title} — missing` };
+}
+
+/** Classify one coverage-checklist item by its file-derived status. */
+function classifyChecklistItem(label: string, status: string): { bucket: ItemBucket; label: string } {
+  const t = scrub(label);
+  if (status === "collected") return { bucket: "onFile", label: `${t} — on file` };
+  if (status === "needs_review") return { bucket: "needsReview", label: `${t} — captured, needs review` };
+  return { bucket: "missing", label: `${t} — missing` };
 }
 
 function dedupe(items: string[]): string[] {
@@ -405,6 +429,79 @@ function deriveNextBestAction(ranked: RankedBlocker[]): string | null {
   return null;
 }
 
+// ── State-aware per-group next action (SPEC-…-STATE-CORRECTNESS-1) ────────────
+// Uses the ACTUAL task review/collection state so the default view never tells
+// the banker to re-review something already committee-grade, or to "attach/
+// accept" something already accepted.
+
+function deriveGroupNextAction(
+  id: CommitteeReadinessGroupId,
+  members: RankedBlocker[],
+): string | null {
+  const tasks = members.flatMap((m) => m.r.evidence_tasks ?? []);
+  const byType = (tt: string) => tasks.filter((t) => String(t.task_type) === tt);
+  const isCG = (t: CommitteeEvidenceTask) => t.review_status === "committee_grade" || !!t.committee_grade_accepted;
+  const isAccepted = (t: CommitteeEvidenceTask) => t.review_status === "accepted";
+  const resolved = (t: CommitteeEvidenceTask) => taskResolvedStatus(t);
+  const captured = (t: CommitteeEvidenceTask) => resolved(t) === "collected" || resolved(t) === "needs_review";
+  const allMissing = (ts: CommitteeEvidenceTask[]) => ts.length === 0 || ts.every((t) => resolved(t) === "missing");
+
+  switch (id) {
+    case "entity": {
+      const website = byType("borrower_website_snapshot");
+      const sos = byType("sos_business_registry");
+      const websiteCG = website.some(isCG);
+      const sosCG = sos.some(isCG);
+      const sosCaptured = sos.some((t) => captured(t) && !isCG(t));
+      if (websiteCG && sosCaptured) {
+        return "Review the SOS/business registry source and mark it committee-grade, or reject it.";
+      }
+      if (websiteCG && sosCG) return "Add another official/public source only if required by policy.";
+      if (allMissing(sos)) return "Add a Secretary of State or business-registry record for the borrower.";
+      return "Review the registry and website records and mark them committee-grade, or reject them.";
+    }
+    case "management": {
+      const att = byType("management_attestation");
+      const adverse = byType("public_adverse_screen");
+      if (allMissing(att)) return "Attach management/ownership attestation.";
+      if (att.some((t) => isAccepted(t) && !isCG(t))) {
+        return "Mark management attestation committee-grade if acceptable, and complete the adverse-record screen.";
+      }
+      if (allMissing(adverse)) return "Complete the adverse-record screen.";
+      return "Mark the management/ownership attestation committee-grade, or reject it.";
+    }
+    case "financial": {
+      const loanMissing = members.some((m) => {
+        if (mentionsLoanRequest(m.r)) {
+          // mentioned in missing_evidence/why — confirm it isn't already on file via checklist
+          const ck = (m.r.evidence_tasks ?? []).flatMap((t) => t.checklist ?? []);
+          const loanItem = ck.find((c) => /loan request|use of proceeds/i.test(String(c.label ?? "")));
+          return loanItem ? loanItem.status === "missing" : true;
+        }
+        return (m.r.evidence_tasks ?? []).some((t) =>
+          (t.checklist ?? []).some((c) => /loan request|use of proceeds/i.test(String(c.label ?? "")) && c.status === "missing"),
+        );
+      });
+      if (loanMissing) return "Add loan request and use-of-proceeds support.";
+      return "Tie the loan request and repayment support to the financials, and mark them committee-grade.";
+    }
+    case "industry": {
+      const srcMissing = members.some(
+        (m) => /industry|market/i.test(m.r.title ?? "") && allMissing((m.r.evidence_tasks ?? []).filter((t) => String(t.task_type) === "industry_market_source")),
+      );
+      if (srcMissing) return "Add an industry or market source.";
+      return "Confirm the industry, market, and competitor sources are committee-grade.";
+    }
+    case "risk": {
+      const adverse = byType("public_adverse_screen");
+      if (adverse.length > 0 && allMissing(adverse)) return "Complete the adverse-record screen.";
+      return "Add an analyst conclusion for scale plausibility with supporting evidence.";
+    }
+    default:
+      return null;
+  }
+}
+
 // ── Builder ──────────────────────────────────────────────────────────────────
 
 /**
@@ -454,27 +551,44 @@ export function buildCommitteeReadinessView(
       if (STATUS_RANK[m.status] > STATUS_RANK[worst]) worst = m.status;
     }
 
-    const alreadyOnFile: string[] = [];
-    const stillNeeded: string[] = [];
+    const onFile: string[] = [];
+    const needsReview: string[] = [];
+    const missing: string[] = [];
     const capturedSources: { label: string; url: string }[] = [];
     const seenArtifactUrls = new Set<string>();
+    const push = (b: ItemBucket, label: string) =>
+      (b === "onFile" ? onFile : b === "needsReview" ? needsReview : missing).push(label);
+
     for (const m of members) {
-      for (const t of m.r.evidence_tasks ?? []) {
-        const phrase = taskOnFilePhrase(t);
-        if (phrase) alreadyOnFile.push(phrase);
-        else stillNeeded.push(scrub(String(t.title ?? t.task_type ?? "")));
-        // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: surface the durable
-        // captured-source artifact link in the default banker view.
+      const tasks = m.r.evidence_tasks ?? [];
+      let coveredByItems = false;
+      for (const t of tasks) {
+        // Prefer per-item coverage-checklist state when present (financial file).
+        if (Array.isArray(t.checklist) && t.checklist.length > 0) {
+          for (const c of t.checklist) {
+            const cls = classifyChecklistItem(String(c.label ?? ""), String(c.status ?? "missing"));
+            push(cls.bucket, cls.label);
+          }
+          coveredByItems = true;
+        } else {
+          const cls = classifyTaskItem(t);
+          push(cls.bucket, cls.label);
+          coveredByItems = true;
+        }
+        // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured source.
         if (t.artifact_view_url && !seenArtifactUrls.has(t.artifact_view_url)) {
           seenArtifactUrls.add(t.artifact_view_url);
           capturedSources.push({ label: scrub(String(t.title ?? t.task_type ?? "captured source")), url: t.artifact_view_url });
         }
       }
       for (const ev of m.r.existing_supporting_evidence ?? []) {
-        if (ev.section) alreadyOnFile.push(`Research support for ${scrub(ev.section)}`);
+        if (ev.section) onFile.push(`Research support for ${scrub(ev.section)}`);
       }
-      if (m.status !== "complete") {
-        for (const miss of m.r.missing_evidence ?? []) stillNeeded.push(scrub(miss));
+      // Fall back to the blocker's generic missing_evidence ONLY when no task/
+      // checklist provided real per-item state (avoids listing captured items
+      // as "missing").
+      if (!coveredByItems && m.status !== "complete") {
+        for (const miss of m.r.missing_evidence ?? []) missing.push(`${scrub(miss)} — missing`);
       }
     }
 
@@ -483,9 +597,10 @@ export function buildCommitteeReadinessView(
       title: GROUP_TITLE[id],
       status: STATUS_LABEL[worst],
       explanation: GROUP_EXPLANATION[id],
-      alreadyOnFile: dedupe(alreadyOnFile).slice(0, 6),
-      stillNeeded: worst === "complete" ? [] : dedupe(stillNeeded).slice(0, 6),
-      nextAction: worst === "complete" ? null : GROUP_NEXT_ACTION[id][worst] ?? null,
+      alreadyOnFile: dedupe(onFile).slice(0, 8),
+      needsReview: dedupe(needsReview).slice(0, 8),
+      missing: dedupe(missing).slice(0, 8),
+      nextAction: worst === "complete" ? null : deriveGroupNextAction(id, members) ?? GROUP_NEXT_ACTION[id][worst] ?? null,
       capturedSources: capturedSources.slice(0, 6),
     };
   });
@@ -550,7 +665,7 @@ export function defaultViewText(view: CommitteeReadinessView): string {
   ];
   for (const g of view.groups) {
     parts.push(g.title, g.status, g.explanation, g.nextAction ?? "");
-    parts.push(...g.alreadyOnFile, ...g.stillNeeded);
+    parts.push(...g.alreadyOnFile, ...g.needsReview, ...g.missing);
     parts.push(...g.capturedSources.map((s) => s.label));
   }
   if (view.scalePlausibility) {
