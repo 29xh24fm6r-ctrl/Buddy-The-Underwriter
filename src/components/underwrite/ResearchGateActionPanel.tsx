@@ -392,17 +392,8 @@ function CommitteeReadinessPanelInner({
         </div>
       ) : null}
 
-      {/* C. Evidence status board — READ-ONLY progress chips (no action controls). */}
-      <div className="space-y-2" data-testid="committee-readiness-groups">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">Evidence status</p>
-        {view.groups.map((g) => (
-          <CommitteeReadinessGroupCard
-            key={g.id}
-            group={g}
-            defaultOpen={false}
-          />
-        ))}
-      </div>
+      {/* C. Committee progress — READ-ONLY at-a-glance rail (no expansion). */}
+      <CommitteeProgressRail groups={view.groups} />
 
       {/* D. Committee blockers — read-only summary, shown once (reconciles 1:1
           with Next Actions). */}
@@ -454,25 +445,34 @@ function CommitteeReadinessPanelInner({
 function ReadinessHero({ hero, onResolveTop }: { hero: ReadinessHeroView; onResolveTop?: () => void }) {
   const committeeReady = /committee ready/i.test(hero.statusLine) && !/not ready/i.test(hero.statusLine);
   return (
-    <div className="space-y-2" data-testid="committee-readiness-hero">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={
-            "inline-flex h-7 items-center rounded-full px-3 text-xs font-bold uppercase tracking-wide " +
-            (committeeReady ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/20 text-amber-200")
-          }
-        >
-          {committeeReady ? "Ready for committee" : "Not ready for committee"}
-        </span>
-        <span className="text-[11px] text-sky-100/70">{hero.statusLine}</span>
-        {!committeeReady && hero.actionsRequired > 0 ? (
-          <span className="text-xs font-semibold text-amber-200" data-testid="committee-hero-actions-required">
-            {hero.actionsRequired} action{hero.actionsRequired === 1 ? "" : "s"} required
-          </span>
-        ) : null}
-      </div>
+    <div
+      className={
+        "rounded-2xl border p-6 space-y-4 " +
+        (committeeReady ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-amber-500/30 bg-amber-500/[0.08]")
+      }
+      data-testid="committee-readiness-hero"
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-300/70">Committee readiness</p>
 
-      <p className="text-sm text-sky-100/80">{hero.explanation}</p>
+      {/* Status dominates the section. */}
+      <p
+        className={
+          "text-2xl font-bold uppercase tracking-wide " +
+          (committeeReady ? "text-emerald-300" : "text-amber-200")
+        }
+      >
+        {committeeReady ? "Ready for committee" : "Not ready for committee"}
+      </p>
+
+      {!committeeReady && hero.actionsRequired > 0 ? (
+        <p className="text-lg font-semibold text-amber-100" data-testid="committee-hero-actions-required">
+          {hero.actionsRequired} action{hero.actionsRequired === 1 ? "" : "s"} required
+        </p>
+      ) : null}
+
+      <p className="text-sm text-sky-100/80 max-w-prose">
+        Buddy can continue preliminary underwriting. Committee review requires the actions below.
+      </p>
 
       <div className="flex flex-wrap gap-2">
         <CounterChip label="Ready" value={hero.progress.ready} tone="ready" />
@@ -484,42 +484,34 @@ function ReadinessHero({ hero, onResolveTop }: { hero: ReadinessHeroView; onReso
         <button
           type="button"
           onClick={onResolveTop}
-          className="block w-full rounded-lg border border-sky-400/40 bg-sky-500/15 p-3 text-left hover:bg-sky-500/25 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-sky-900/30 hover:bg-sky-400 transition-colors"
           data-testid="committee-hero-primary"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-300/80">Resolve now</span>
-          <p className="text-sm font-medium text-sky-100">{hero.primaryActionLabel}</p>
+          Resolve next action →
         </button>
       ) : null}
 
-      <a href="#committee-evidence-plan" className="inline-block text-[11px] text-sky-300/70 underline decoration-dotted">
+      <a href="#committee-evidence-plan" className="block text-[11px] text-sky-300/60 underline decoration-dotted">
         View evidence plan ↓
       </a>
     </div>
   );
 }
 
-// SPEC-…-UX-REDESIGN-1 (D): the EXACT committee blockers, listed once. This is
-// not "every memo weakness" — only items that prevent committee-grade readiness,
-// and it reconciles 1:1 with the hero's "need review + missing" count.
-const BLOCKER_TONE: Record<GroupStatusLabel, string> = {
-  Complete: "text-emerald-300/80",
-  "Needs review": "text-amber-300/80",
-  "Needs analyst conclusion": "text-rose-300/80",
-  Missing: "text-rose-300/80",
-};
-
+// SPEC-…-POLISH-1 (E): the EXACT committee blockers, listed once as compact
+// read-only bullets — nothing else (no status badges, no controls). Reconciles
+// 1:1 with the Next Actions cards.
 function CommitteeBlockersPanel({ blockers }: { blockers: CommitteeBlockerLine[] }) {
   return (
-    <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] p-3 text-[11px]" data-testid="committee-blockers-panel">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300/80">
+    <div className="rounded-lg border border-amber-500/15 bg-amber-500/[0.04] p-4" data-testid="committee-blockers-panel">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-300/80">
         Committee blockers ({blockers.length})
       </p>
-      <ul className="mt-1.5 space-y-1">
+      <ul className="mt-2 space-y-1 text-[13px] text-sky-100/85">
         {blockers.map((b, i) => (
-          <li key={i} className="flex items-start justify-between gap-2" data-testid={`committee-blocker-${b.groupId}`}>
-            <span className="min-w-0 text-sky-100/80">{b.label}</span>
-            <span className={"shrink-0 text-[10px] font-semibold " + BLOCKER_TONE[b.status]}>{b.status}</span>
+          <li key={i} className="flex items-center gap-2" data-testid={`committee-blocker-${b.groupId}`}>
+            <span className="text-amber-300/70" aria-hidden>•</span>
+            <span>{b.label}</span>
           </li>
         ))}
       </ul>
@@ -558,115 +550,40 @@ const GROUP_STATUS_TONE: Record<GroupStatusLabel, string> = {
   Missing: "bg-rose-500/15 text-rose-200",
 };
 
-// SPEC-…-FINAL-WORKFLOW-CORRECTION-1 (C): Evidence Status is READ-ONLY progress —
-// a compact, collapsed-by-default chip showing on-file / needs-review / missing +
-// captured-source links. No action controls live here; all resolution happens in
-// the Next Actions cards above.
-function CommitteeReadinessGroupCard({
-  group,
-  defaultOpen = false,
-}: {
-  group: CommitteeReadinessGroupView;
-  defaultOpen?: boolean;
-}) {
-  const counts = [
-    group.alreadyOnFile.length ? `${group.alreadyOnFile.length} on file` : null,
-    group.needsReview.length ? `${group.needsReview.length} to review` : null,
-    group.missing.length ? `${group.missing.length} missing` : null,
-  ].filter(Boolean).join(" · ");
+// SPEC-…-POLISH-1 (D): Committee Progress — a READ-ONLY, at-a-glance rail. One
+// row per group: ✓ complete / ⚠ outstanding + banker name. No expansion, no
+// controls. The official-capture-vs-Buddy-receipt signal stays visible (compact)
+// so a receipt is never mistaken for an official record.
+function CommitteeProgressRail({ groups }: { groups: CommitteeReadinessGroupView[] }) {
   return (
-    <details
-      open={defaultOpen}
-      id={`committee-group-${group.id}`}
-      className="rounded-lg border border-sky-500/15 bg-black/10 p-3 text-[11px]"
-      data-testid={`committee-group-${group.id}`}
-    >
-      <summary className="flex cursor-pointer items-center justify-between gap-2">
-        <span className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-sky-100">{group.title}</span>
-          {counts ? <span className="truncate text-[10px] text-sky-100/40">{counts}</span> : null}
-        </span>
-        <span
-          className={
-            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold " +
-            GROUP_STATUS_TONE[group.status]
-          }
-          data-testid={`committee-group-${group.id}-status`}
-        >
-          {group.status}
-        </span>
-      </summary>
-      <p className="mt-2 text-sky-100/70">{group.explanation}</p>
-
-      {group.alreadyOnFile.length > 0 ? (
-        <div className="mt-1.5" data-testid={`committee-group-${group.id}-onfile`}>
-          <p className="text-emerald-300/70">Already on file:</p>
-          <ul className="ml-3 list-disc text-sky-100/60">
-            {group.alreadyOnFile.map((e, i) => (
-              <li key={i}>{e}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {group.needsReview.length > 0 ? (
-        <div className="mt-1.5" data-testid={`committee-group-${group.id}-needsreview`}>
-          <p className="text-sky-300/70">Needs review:</p>
-          <ul className="ml-3 list-disc text-sky-100/60">
-            {group.needsReview.map((e, i) => (
-              <li key={i}>{e}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {group.missing.length > 0 ? (
-        <div className="mt-1.5" data-testid={`committee-group-${group.id}-missing`}>
-          <p className="text-amber-300/70">Missing:</p>
-          <ul className="ml-3 list-disc text-sky-100/60">
-            {group.missing.map((e, i) => (
-              <li key={i}>{e}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {group.capturedSources.length > 0 ? (
-        <div className="mt-1.5" data-testid={`committee-group-${group.id}-captured`}>
-          <p className="text-sky-300/70">Captured sources:</p>
-          <ul className="ml-3 list-disc text-sky-100/60">
-            {group.capturedSources.map((s, i) => (
-              <li key={i}>
-                {s.label} —{" "}
-                {/* SPEC-…-OFFICIAL-PDF-CAPTURE-1: the ACTUAL official capture is
-                    only linked when one exists; otherwise we say so plainly and
-                    never present the Buddy receipt as the official document. */}
-                {s.officialCaptureUrl ? (
-                  <a href={s.officialCaptureUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-300/90 underline decoration-dotted">
-                    Official capture
-                  </a>
-                ) : (
-                  <span className="text-amber-300/70">
-                    {s.officialCaptureStatus === "search_form_only"
-                      ? "No official capture (search form only)"
-                      : "No official capture yet"}
-                  </span>
-                )}
-                {" · "}
-                <a href={s.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-sky-300/70 underline decoration-dotted">
-                  Buddy receipt (PDF)
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* Read-only: the action to take lives in the Next Actions card above. */}
-      {group.nextAction ? (
-        <p className="mt-1.5 text-sky-300/60">To resolve: {group.nextAction} (see Next actions)</p>
-      ) : null}
-    </details>
+    <div className="space-y-2" data-testid="committee-progress-rail">
+      <p className="text-xs font-semibold uppercase tracking-wide text-sky-300/70">Committee progress</p>
+      <ul className="space-y-1.5">
+        {groups.map((g) => {
+          const done = g.status === "Complete";
+          const src = g.capturedSources[0];
+          return (
+            <li key={g.id} className="flex items-center gap-2.5 text-[13px]" data-testid={`committee-progress-${g.id}`}>
+              <span className={done ? "text-emerald-400" : "text-amber-300"} aria-hidden>{done ? "✓" : "⚠"}</span>
+              <span className={done ? "text-sky-100/70" : "text-sky-100"}>{g.title}</span>
+              {src ? (
+                <span className="ml-auto text-[11px]">
+                  {src.officialCaptureUrl ? (
+                    <a href={src.officialCaptureUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-300/80 underline decoration-dotted">
+                      Official capture
+                    </a>
+                  ) : (
+                    <a href={src.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-amber-300/70 underline decoration-dotted">
+                      Buddy receipt only
+                    </a>
+                  )}
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -682,10 +599,11 @@ function attachParamsForTask(taskType: string): { connector_kind: string; source
   return { connector_kind: "manual_url", source_type: "unknown_public_web" };
 }
 
+// SPEC-…-POLISH-1 (B/F): obvious primary buttons; subordinate secondaries.
 const ACTION_BTN =
-  "rounded px-1.5 py-0.5 text-[10px] border border-amber-500/20 text-amber-100/70 hover:bg-amber-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed";
+  "rounded-lg border border-white/15 px-3 py-2 text-xs font-medium text-sky-100/70 hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed";
 const PRIMARY_BTN =
-  "rounded px-2 py-0.5 text-[10px] font-semibold border border-sky-400/40 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25 transition-colors";
+  "rounded-lg bg-sky-500 px-4 py-2 text-xs font-bold text-white shadow shadow-sky-900/20 hover:bg-sky-400 transition-colors";
 
 // SPEC-COMMITTEE-ACTION-CENTER-FINAL-WORKFLOW-CORRECTION-1: the ONE canonical
 // executable action card, rendered in the Next Actions section. Large + readable;

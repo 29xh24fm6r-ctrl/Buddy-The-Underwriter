@@ -85,7 +85,7 @@ describe("Committee action center — rendered Next Actions are executable", () 
   it("the committee-next-actions section renders real action cards with buttons", () => {
     const html = render();
     assert.match(html, /data-testid="committee-next-actions"/);
-    const nextActions = section(html, "committee-next-actions", "committee-readiness-groups");
+    const nextActions = section(html, "committee-next-actions", "committee-progress-rail");
     // Real action cards rendered (one per unresolved group).
     assert.match(nextActions, /data-testid="committee-action-card-/);
     // Actual executable <button> elements inside the Next Actions section.
@@ -93,13 +93,14 @@ describe("Committee action center — rendered Next Actions are executable", () 
   });
 
   it("the adverse card exposes a Record-result primary button inside Next Actions", () => {
-    const nextActions = section(render(), "committee-next-actions", "committee-readiness-groups");
+    const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
     assert.match(nextActions, /data-testid="committee-action-primary-risk"/);
-    assert.match(nextActions, /Record the public adverse-record screen result\./i);
+    assert.match(nextActions, /Record result/i);
+    assert.match(nextActions, /Public screening/i);
   });
 
   it("the scale card exposes an analyst-conclusion primary button inside Next Actions", () => {
-    const nextActions = section(render(), "committee-next-actions", "committee-readiness-groups");
+    const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
     assert.match(nextActions, /data-testid="committee-action-primary-scale"/);
     assert.match(nextActions, /analyst conclusion/i);
   });
@@ -115,7 +116,7 @@ describe("Committee action center — rendered Next Actions are executable", () 
 
   it("Evidence Status is read-only — no action primary buttons live there", () => {
     const html = render();
-    const evidence = section(html, "committee-readiness-groups", "committee-blockers-panel");
+    const evidence = section(html, "committee-progress-rail", "committee-blockers-panel");
     assert.doesNotMatch(evidence, /committee-action-primary-/);
     assert.doesNotMatch(evidence, /committee-action-card-/);
   });

@@ -227,28 +227,25 @@ const GROUP_ORDER: CommitteeReadinessGroupId[] = [
   "scale",
 ];
 
+// SPEC-…-POLISH-1 (C): banker-readable group names — used by the progress rail,
+// the action cards, and the blocker bullets.
 const GROUP_TITLE: Record<CommitteeReadinessGroupId, string> = {
-  entity: "Entity & public record",
-  management: "Management & ownership",
-  financial: "Financial & loan support",
-  industry: "Industry, market & competition",
-  risk: "Risk & red flags",
-  scale: "Scale plausibility",
+  entity: "Public records",
+  management: "Management support",
+  financial: "Financial support",
+  industry: "Industry validation",
+  risk: "Public screening",
+  scale: "Analyst conclusion",
 };
 
+// Short banker subtext shown under each action card.
 const GROUP_EXPLANATION: Record<CommitteeReadinessGroupId, string> = {
-  entity:
-    "We need reliable public or official records showing this is the right company.",
-  management:
-    "We have management support for preliminary review, but committee needs reviewed or attested evidence.",
-  financial:
-    "Committee needs the loan request, repayment support, and collateral/financial evidence tied together.",
-  industry:
-    "Committee needs outside support for industry, local market, and competitor claims.",
-  risk:
-    "Committee needs documented public risk/adverse-record checks.",
-  scale:
-    "Committee needs an analyst conclusion that the borrower's revenue, request, growth story, staffing, and collateral are consistent in scale.",
+  entity: "Official public/entity record required for committee.",
+  management: "Management background support required.",
+  financial: "Loan request and repayment support required.",
+  industry: "Outside market validation required.",
+  risk: "Public-screen result required before committee review.",
+  scale: "Analyst sign-off required.",
 };
 
 // Per-group next action keyed by the group's worst remaining status. Curated so
@@ -637,19 +634,19 @@ export function deriveTaskActions(t: CommitteeEvidenceTask): TaskActionPlan {
 
   // Scale plausibility / contradictions: analyst conclusion only — never CG.
   if (t.auto_clear_forbidden || /scale/i.test(taskType)) {
-    return { ...base, primaryLabel: "Add analyst conclusion", primaryKind: "add_conclusion", showAccept: false, showCommitteeGrade: false };
+    return { ...base, primaryLabel: "Enter analyst conclusion", primaryKind: "add_conclusion", showAccept: false, showCommitteeGrade: false };
   }
 
   // Missing tasks: no Accept/Committee-grade; type-aware capture/record CTA.
   if (resolved === "missing") {
     if (/adverse/i.test(taskType)) {
-      return { ...base, primaryLabel: "Record adverse-screen result", primaryKind: "record_result", showAccept: false };
+      return { ...base, primaryLabel: "Record result", primaryKind: "record_result", showAccept: false };
     }
     if (/sos|registry/i.test(taskType)) {
-      return { ...base, primaryLabel: "Capture official result page", primaryKind: "capture_official", showAccept: false };
+      return { ...base, primaryLabel: "Attach official capture", primaryKind: "capture_official", showAccept: false };
     }
     if (/financial_file/i.test(taskType)) {
-      return { ...base, primaryLabel: "Add loan request / use-of-proceeds", primaryKind: "add_loan_request", showAccept: false };
+      return { ...base, primaryLabel: "Add loan request", primaryKind: "add_loan_request", showAccept: false };
     }
     return { ...base, primaryLabel: "Attach evidence", primaryKind: "attach_evidence", showAccept: false };
   }
@@ -658,11 +655,11 @@ export function deriveTaskActions(t: CommitteeEvidenceTask): TaskActionPlan {
   // capture; a search-form/receipt-only capture must capture the detail page first.
   if (/sos|registry/i.test(taskType) || t.blocker_type === "public_entity_verification") {
     if (t.official_capture_available) {
-      return { ...base, primaryLabel: "Mark committee-grade", primaryKind: "mark_committee_grade", showCommitteeGrade: !isCommitteeGrade };
+      return { ...base, primaryLabel: "Accept for committee", primaryKind: "mark_committee_grade", showCommitteeGrade: !isCommitteeGrade };
     }
     return {
       ...base,
-      primaryLabel: "Capture official result page",
+      primaryLabel: "Attach official capture",
       primaryKind: "capture_official",
       showCommitteeGrade: !isCommitteeGrade,
       committeeGradeDisabled: true,
@@ -680,7 +677,7 @@ export function deriveTaskActions(t: CommitteeEvidenceTask): TaskActionPlan {
   if (/financial_file/i.test(taskType) && checklistMissing) {
     return {
       ...base,
-      primaryLabel: "Add loan request / use-of-proceeds",
+      primaryLabel: "Add loan request",
       primaryKind: "add_loan_request",
       showCommitteeGrade: !isCommitteeGrade,
       committeeGradeDisabled: true,
@@ -689,7 +686,7 @@ export function deriveTaskActions(t: CommitteeEvidenceTask): TaskActionPlan {
   }
 
   // Default captured/needs-review task: Committee-grade is the primary.
-  return { ...base, primaryLabel: "Mark committee-grade", primaryKind: "mark_committee_grade", showCommitteeGrade: !isCommitteeGrade };
+  return { ...base, primaryLabel: "Accept for committee", primaryKind: "mark_committee_grade", showCommitteeGrade: !isCommitteeGrade };
 }
 
 // ── State-aware per-group next action (SPEC-…-STATE-CORRECTNESS-1) ────────────
@@ -954,7 +951,9 @@ export function buildCommitteeReadinessView(
     const task = [...g.missingActionableTasks, ...g.reviewableTasks][0] ?? null;
     return {
       id: gid,
-      title: g.nextAction ?? "Review committee evidence.",
+      // SPEC-…-POLISH-1 (C): the card heading is the banker requirement name; the
+      // action verb lives on the primary button (deriveTaskActions.primaryLabel).
+      title: GROUP_TITLE[gid],
       why: g.explanation,
       groupId: gid,
       status: g.status,
@@ -972,15 +971,12 @@ export function buildCommitteeReadinessView(
   }));
   const defaultExpandedGroupId = actionCards[0]?.groupId ?? null;
 
-  // Committee blockers — read-only summary, ONE per unresolved group, reconciling
-  // 1:1 with the action cards. Uses the group's worst unresolved blocker for a
-  // precise label (scale / SOS-search-form phrasing preserved).
+  // SPEC-…-POLISH-1 (E): compact read-only blocker bullets — ONE per unresolved
+  // group, banker-named, reconciling 1:1 with the action cards.
   const committeeBlockers: CommitteeBlockerLine[] = orderedGroupIds.map((gid) => {
-    const members = (byGroup.get(gid) ?? []).filter((b) => b.status !== "complete");
-    const rep = members.slice().sort((a, b) => STATUS_RANK[b.status] - STATUS_RANK[a.status])[0];
     const g = groupById.get(gid)!;
     return {
-      label: rep ? bankerBlockerLabel(rep) : `${g.title} — ${g.status.toLowerCase()}`,
+      label: GROUP_TITLE[gid],
       groupId: gid,
       status: g.status,
     };
@@ -1025,26 +1021,6 @@ export function buildCommitteeReadinessView(
     scalePlausibility: scaleApplies ? SCALE_PLAUSIBILITY : null,
     audit,
   };
-}
-
-/**
- * SPEC-…-UX-REDESIGN-1: a precise banker label for one committee blocker. Known
- * blockers get the spec's exact wording; others get a scrubbed title. NEVER
- * treats a Buddy receipt as official evidence.
- */
-function bankerBlockerLabel(b: RankedBlocker): string {
-  if (isScaleBlocker(b.r, b.impact)) return "Scale plausibility needs analyst conclusion";
-  const group = bucketFor(b.r, b.impact);
-  if (group === "entity") {
-    const sos = (b.r.evidence_tasks ?? []).filter((t) => /sos|registry/i.test(String(t.task_type)));
-    const sosCapturedNoOfficial = sos.some(
-      (t) => taskResolvedStatus(t) !== "missing" && !t.official_capture_available,
-    );
-    if (sosCapturedNoOfficial) return "SOS official capture unavailable — search form only (Buddy receipt is not official evidence)";
-  }
-  if (group === "risk") return "Public adverse-record screen result not on file";
-  const title = scrub(b.r.title ?? "committee evidence");
-  return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
 /**

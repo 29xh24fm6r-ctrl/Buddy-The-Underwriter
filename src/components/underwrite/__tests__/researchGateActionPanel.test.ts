@@ -124,7 +124,11 @@ describe("CommitteeReadinessPanel — source guards (still cheap to assert)", ()
   });
   it("captured sources distinguish Official capture from Buddy receipt", () => {
     assert.match(SRC, /Official capture/);
-    assert.match(SRC, /Buddy receipt \(PDF\)/);
+    assert.match(SRC, /Buddy receipt only/);
+  });
+  it("progress rail is read-only (no group action handlers / details expansion)", () => {
+    assert.match(SRC, /CommitteeProgressRail/);
+    assert.doesNotMatch(SRC, /function CommitteeReadinessGroupCard/);
   });
 });
 

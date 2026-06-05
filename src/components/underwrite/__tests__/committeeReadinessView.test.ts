@@ -219,23 +219,23 @@ describe("buildCommitteeReadinessView — 5 plain-English groups", () => {
       view.groups.map((g) => g.id),
       ["entity", "management", "financial", "industry", "risk", "scale"],
     );
-    assert.equal(byId.entity.title, "Entity & public record");
+    // SPEC-…-POLISH-1 (C): banker-readable group names.
+    assert.equal(byId.entity.title, "Public records");
     assert.equal(byId.entity.status, "Needs review");
-    assert.equal(byId.management.title, "Management & ownership");
+    assert.equal(byId.management.title, "Management support");
     assert.equal(byId.management.status, "Needs review");
-    assert.equal(byId.financial.title, "Financial & loan support");
+    assert.equal(byId.financial.title, "Financial support");
     assert.equal(byId.financial.status, "Missing");
-    assert.equal(byId.industry.title, "Industry, market & competition");
+    assert.equal(byId.industry.title, "Industry validation");
     assert.equal(byId.industry.status, "Missing");
-    // SPEC-…-UX-REDESIGN-1: scale plausibility is no longer folded into risk.
-    assert.equal(byId.scale.title, "Scale plausibility");
+    assert.equal(byId.scale.title, "Analyst conclusion");
     assert.equal(byId.scale.status, "Needs analyst conclusion");
   });
 
   it("groups carry plain-English explanations and evidence lists", () => {
     const view = buildCommitteeReadinessView(omniCareSnapshot())!;
     const byId = Object.fromEntries(view.groups.map((g) => [g.id, g]));
-    assert.match(byId.entity.explanation, /reliable public or official records/i);
+    assert.match(byId.entity.explanation, /official.*record required/i);
     // Financial: items already on file are surfaced even though status is Missing.
     assert.ok(byId.financial.alreadyOnFile.some((s) => /DSCR/i.test(s) || /Financial Analysis/i.test(s)));
     assert.ok(byId.financial.missing.some((s) => /loan request/i.test(s)));
@@ -568,13 +568,15 @@ describe("buildCommitteeReadinessView — single command surface (SPEC-…-SINGL
 });
 
 describe("action center — next-actions queue + default-expanded (SPEC-…-ACTION-CENTER-1)", () => {
-  it("renders a prioritized next-actions queue (OmniCare → adverse screen is the top action)", () => {
+  it("renders a prioritized next-actions queue with banker labels (adverse/management is top)", () => {
     const view = buildCommitteeReadinessView(omniCareSnapshot())!;
     assert.ok(view.nextActions.length >= 1);
-    assert.match(view.nextActions[0].label, /adverse-record screen/i);
-    // The top action's group is the only card expanded by default.
+    // In this fixture the adverse screen is carried by the management blocker, so
+    // the adverse rule ranks the management group top; label is banker-readable.
+    assert.equal(view.nextActions[0].groupId, "management");
+    assert.equal(view.nextActions[0].label, "Management support");
+    // The top action's group is the one the hero CTA opens.
     assert.equal(view.defaultExpandedGroupId, view.nextActions[0].groupId);
-    // Each queue item carries a why + status + group link.
     for (const a of view.nextActions) {
       assert.ok(a.why.length > 0);
       assert.ok(a.groupId);
@@ -644,27 +646,22 @@ describe("UX redesign — hero + committee blockers (SPEC-…-UX-REDESIGN-1)", (
     assert.equal(view.hero.actionsRequired, view.actionCards.length);
   });
 
-  it("committee blockers are shown once (deduped) and use specific labels", () => {
+  it("committee blockers are compact, deduped, banker-named (reconcile with action cards)", () => {
     const view = buildCommitteeReadinessView(omniCareSnapshot())!;
     const labels = view.committeeBlockers.map((b) => b.label);
     assert.equal(labels.length, new Set(labels.map((l) => l.toLowerCase())).size, "no duplicate blockers");
-    assert.ok(labels.some((l) => /scale plausibility needs analyst conclusion/i.test(l)));
+    assert.equal(view.committeeBlockers.length, view.actionCards.length);
+    // Banker group names (SPEC-…-POLISH-1 (C/E)).
+    assert.ok(labels.includes("Analyst conclusion"));
   });
 
-  it("SOS without official capture: blocker says search form only / not official evidence", () => {
-    const blockers: CommitteeBlockerResolution[] = [
-      mkBlocker({
-        blocker_id: "entity",
-        title: "Public/attested entity verification",
-        blocker_type: "public_entity_verification",
-        current_status: "present_but_not_committee_grade",
-        evidence_tasks: [
-          task({ id: "sos", task_type: "sos_business_registry", title: "SOS record", resolved_status: "needs_review", official_capture_available: false, official_capture_status: "search_form_only" }),
-        ],
-      }),
-    ];
-    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
-    assert.ok(view.committeeBlockers.some((b) => /search form only/i.test(b.label) && /not official evidence/i.test(b.label)));
+  it("SOS without official capture: the search-form/not-official detail is on the action card, not the blocker bullet", () => {
+    const sos = task({ id: "sos", task_type: "sos_business_registry", title: "SOS record", resolved_status: "needs_review", official_capture_available: false, official_capture_status: "search_form_only" });
+    // The detail now lives on the resolution plan (the Next Action card), keeping
+    // the blocker bullet compact.
+    const plan = deriveTaskActions(sos);
+    assert.equal(plan.committeeGradeDisabled, true);
+    assert.match((plan.note ?? "") + (plan.committeeGradeBlockedReason ?? ""), /search form|official result page/i);
   });
 });
 
