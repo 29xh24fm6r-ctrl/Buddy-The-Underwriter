@@ -19,6 +19,7 @@ import * as path from "node:path";
 import {
   buildCommitteeReadinessView,
   defaultViewText,
+  deriveTaskActions,
 } from "../committeeReadinessView";
 import { EMPTY_RESEARCH_GATE_SNAPSHOT, type ResearchGateSnapshot } from "../researchGateTypes";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
@@ -327,9 +328,11 @@ describe("buildCommitteeReadinessView — captured-source artifacts (SPEC-…-LO
     const view = buildCommitteeReadinessView(withArtifacts())!;
     const entity = view.groups.find((g) => g.id === "entity")!;
     assert.equal(entity.capturedSources.length, 2);
-    const urls = entity.capturedSources.map((s) => s.url);
+    const urls = entity.capturedSources.map((s) => s.receiptUrl);
     assert.ok(urls.some((u) => u.includes("art-web")));
     assert.ok(urls.some((u) => u.includes("art-sos")));
+    // No official capture was threaded in this fixture → no official-capture link.
+    assert.ok(entity.capturedSources.every((s) => s.officialCaptureUrl === null));
     assert.ok(entity.capturedSources.some((s) => /website/i.test(s.label)));
     assert.ok(entity.capturedSources.some((s) => /secretary of state/i.test(s.label)));
   });
@@ -516,12 +519,12 @@ describe("buildCommitteeReadinessView — default-card review actions (SPEC-…-
     assert.equal(grp("risk").reviewableTasks.some((t) => t.id === "task-adv"), false);
   });
 
-  it("captured sources expose both a PDF and an HTML link", () => {
+  it("captured sources expose a Buddy receipt PDF + html receipt", () => {
     const cs = grp("entity").capturedSources;
     assert.ok(cs.length >= 1);
     for (const s of cs) {
-      assert.match(s.pdfUrl, /format=pdf/);
-      assert.doesNotMatch(s.url, /format=pdf/);
+      assert.match(s.receiptUrl, /format=pdf/);
+      assert.doesNotMatch(s.htmlReceiptUrl, /format=pdf/);
     }
   });
 });
@@ -558,6 +561,70 @@ describe("buildCommitteeReadinessView — single command surface (SPEC-…-SINGL
       fin.reviewableTasks.some((t) => t.id === "task-fin"),
       "checklist-bearing needs-review task should be card-actionable",
     );
+  });
+});
+
+describe("action center — next-actions queue + default-expanded (SPEC-…-ACTION-CENTER-1)", () => {
+  it("renders a prioritized next-actions queue (OmniCare → adverse screen is the top action)", () => {
+    const view = buildCommitteeReadinessView(omniCareSnapshot())!;
+    assert.ok(view.nextActions.length >= 1);
+    assert.match(view.nextActions[0].label, /adverse-record screen/i);
+    // The top action's group is the only card expanded by default.
+    assert.equal(view.defaultExpandedGroupId, view.nextActions[0].groupId);
+    // Each queue item carries a why + status + group link.
+    for (const a of view.nextActions) {
+      assert.ok(a.why.length > 0);
+      assert.ok(a.groupId);
+    }
+  });
+});
+
+describe("deriveTaskActions — button presentation rules (SPEC-…-ACTION-CENTER-1 Phase 3)", () => {
+  const t = (over: Partial<CommitteeEvidenceTask>): CommitteeEvidenceTask =>
+    ({ blocker_id: "b", task_type: "x", status: "pending", ...over }) as CommitteeEvidenceTask;
+
+  it("missing adverse screen: primary 'Record adverse-screen result', NO Accept/Committee-grade", () => {
+    const p = deriveTaskActions(t({ task_type: "public_adverse_screen", resolved_status: "missing" }));
+    assert.equal(p.primaryKind, "record_result");
+    assert.equal(p.showAccept, false);
+    assert.equal(p.showCommitteeGrade, false);
+  });
+
+  it("scale plausibility: analyst conclusion only, never Committee-grade", () => {
+    const p = deriveTaskActions(t({ task_type: "scale_plausibility", resolved_status: "needs_review", auto_clear_forbidden: true }));
+    assert.equal(p.primaryKind, "add_conclusion");
+    assert.equal(p.showCommitteeGrade, false);
+  });
+
+  it("SOS captured WITH official capture → Committee-grade is the enabled primary", () => {
+    const p = deriveTaskActions(t({ task_type: "sos_business_registry", resolved_status: "needs_review", official_capture_available: true }));
+    assert.equal(p.primaryKind, "mark_committee_grade");
+    assert.equal(p.showCommitteeGrade, true);
+    assert.equal(p.committeeGradeDisabled, false);
+  });
+
+  it("SOS captured WITHOUT official capture (search form): primary capture, Committee-grade disabled + reason", () => {
+    const p = deriveTaskActions(t({ task_type: "sos_business_registry", resolved_status: "needs_review", official_capture_available: false, official_capture_status: "search_form_only" }));
+    assert.equal(p.primaryKind, "capture_official");
+    assert.equal(p.committeeGradeDisabled, true);
+    assert.match(p.committeeGradeBlockedReason ?? "", /override|official result page/i);
+  });
+
+  it("financial file with a missing checklist item: no blanket Committee-grade (disabled + reason)", () => {
+    const p = deriveTaskActions(
+      t({
+        task_type: "financial_file",
+        resolved_status: "needs_review",
+        checklist: [{ label: "Loan request", status: "missing", collect_from: "banker", linked_evidence: [], acceptable_evidence: [], linked_sections: [] }] as any,
+      }),
+    );
+    assert.equal(p.primaryKind, "add_loan_request");
+    assert.equal(p.committeeGradeDisabled, true);
+  });
+
+  it("already committee-grade: Committee-grade button is not re-shown", () => {
+    const p = deriveTaskActions(t({ task_type: "borrower_website_snapshot", resolved_status: "collected", review_status: "committee_grade", committee_grade_accepted: true }));
+    assert.equal(p.showCommitteeGrade, false);
   });
 });
 

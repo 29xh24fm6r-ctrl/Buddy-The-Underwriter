@@ -170,11 +170,34 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
         }
         // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: attach a banker-
         // openable view URL for any captured loan-file artifact.
-        const enriched = enrichedBase.map((t) =>
-          t.source_artifact_id
-            ? { ...t, artifact_view_url: `/api/deals/${dealId}/research/source-artifact?artifact_id=${t.source_artifact_id}` }
-            : t,
-        );
+        // SPEC-…-ACTION-CENTER-AND-OFFICIAL-PDF-CAPTURE-1: also attach the
+        // official-capture provenance so the card can distinguish a usable
+        // official capture from a search-form/receipt-only one and gate buttons.
+        const artifactIds = enrichedBase
+          .map((t) => t.source_artifact_id)
+          .filter((v): v is string => !!v);
+        const captureById = new Map<string, any>();
+        if (artifactIds.length > 0) {
+          const { data: artRows } = await sb
+            .from("buddy_research_source_artifacts")
+            .select("id, official_capture_available, official_capture_status, official_capture_format, receipt_pdf_available")
+            .in("id", artifactIds);
+          for (const a of (artRows as any[]) ?? []) captureById.set(a.id, a);
+        }
+        const enriched = enrichedBase.map((t) => {
+          if (!t.source_artifact_id) return t;
+          const base = `/api/deals/${dealId}/research/source-artifact?artifact_id=${t.source_artifact_id}`;
+          const cap = captureById.get(t.source_artifact_id);
+          return {
+            ...t,
+            artifact_view_url: base,
+            receipt_view_url: `${base}&format=pdf`,
+            official_capture_available: cap?.official_capture_available ?? false,
+            official_capture_status: cap?.official_capture_status ?? "none",
+            official_capture_format: cap?.official_capture_format ?? "none",
+            official_capture_view_url: cap?.official_capture_available ? `${base}&format=official` : null,
+          };
+        });
         committee_blocker_resolutions = committee_blocker_resolutions.map((r) => ({
           ...r,
           evidence_tasks: enriched.filter((t) => t.blocker_id === r.blocker_id),

@@ -37,11 +37,13 @@ import {
 // SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1: banker-facing view-model.
 import {
   buildCommitteeReadinessView,
+  deriveTaskActions,
   type CommitteeReadinessSummaryView,
   type CommitteeReadinessGroupView,
   type ScalePlausibilityView,
   type CommitteeReadinessAuditRow,
   type GroupStatusLabel,
+  type NextActionItem,
 } from "./committeeReadinessView";
 
 export { shouldShowCommitteeReadiness };
@@ -349,9 +351,20 @@ export function CommitteeReadinessPanel({
     >
       <CommitteeReadinessSummaryCard summary={view.summary} />
 
+      {/* SPEC-…-ACTION-CENTER-1 Phase 2: the prioritized guided queue. */}
+      {view.nextActions.length > 0 ? (
+        <NextActionsQueue actions={view.nextActions} />
+      ) : null}
+
+      {/* Compact cards — only the card for the top next action expands by default. */}
       <div className="space-y-2" data-testid="committee-readiness-groups">
         {view.groups.map((g) => (
-          <CommitteeReadinessGroupCard key={g.id} group={g} onReviewTask={onReviewTask} />
+          <CommitteeReadinessGroupCard
+            key={g.id}
+            group={g}
+            onReviewTask={onReviewTask}
+            defaultOpen={g.id === view.defaultExpandedGroupId}
+          />
         ))}
       </div>
 
@@ -392,6 +405,44 @@ export function CommitteeReadinessPanel({
           </div>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+// SPEC-…-ACTION-CENTER-1 Phase 2: prioritized "Next actions" queue. Each item
+// shows status + why it matters + a primary action label, and the card it maps
+// to expands by default below.
+const NEXT_ACTION_TONE: Record<GroupStatusLabel, string> = {
+  Complete: "border-emerald-500/30 text-emerald-200",
+  "Needs review": "border-amber-500/30 text-amber-200",
+  "Needs analyst conclusion": "border-rose-500/30 text-rose-200",
+  Missing: "border-rose-500/30 text-rose-200",
+};
+
+function NextActionsQueue({ actions }: { actions: NextActionItem[] }) {
+  return (
+    <div className="space-y-1.5" data-testid="committee-next-actions">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">Next actions</p>
+      <ol className="space-y-1.5">
+        {actions.map((a, i) => (
+          <li
+            key={a.id}
+            data-testid={`committee-next-action-${a.groupId}`}
+            className={"rounded-lg border bg-black/10 p-2.5 text-[11px] " + NEXT_ACTION_TONE[a.status]}
+          >
+            <div className="flex items-start gap-2">
+              <span className="font-semibold text-sky-200">{i + 1}.</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-sky-100">{a.label}</p>
+                <p className="mt-0.5 text-sky-100/60">{a.why}</p>
+              </div>
+              <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-black/20">
+                {a.status}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -484,32 +535,45 @@ const GROUP_STATUS_TONE: Record<GroupStatusLabel, string> = {
   Missing: "bg-rose-500/15 text-rose-200",
 };
 
-// One of the 5 human-readable evidence groups.
+// One of the 5 human-readable evidence groups — a COMPACT card by default; only
+// the card for the top next action is expanded (defaultOpen). The summary row
+// stays banker-readable (title + status) when collapsed.
 function CommitteeReadinessGroupCard({
   group,
   onReviewTask,
+  defaultOpen = false,
 }: {
   group: CommitteeReadinessGroupView;
   onReviewTask?: ReviewTaskHandler;
+  defaultOpen?: boolean;
 }) {
+  const counts = [
+    group.alreadyOnFile.length ? `${group.alreadyOnFile.length} on file` : null,
+    group.needsReview.length ? `${group.needsReview.length} to review` : null,
+    group.missing.length ? `${group.missing.length} missing` : null,
+  ].filter(Boolean).join(" · ");
   return (
-    <div
+    <details
+      open={defaultOpen}
       className="rounded-lg border border-sky-500/15 bg-black/10 p-3 text-[11px]"
       data-testid={`committee-group-${group.id}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-sky-100">{group.title}</span>
+      <summary className="flex cursor-pointer items-center justify-between gap-2">
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium text-sky-100">{group.title}</span>
+          {counts ? <span className="truncate text-[10px] text-sky-100/40">{counts}</span> : null}
+        </span>
         <span
           className={
-            "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold " +
             GROUP_STATUS_TONE[group.status]
           }
           data-testid={`committee-group-${group.id}-status`}
         >
           {group.status}
         </span>
-      </div>
-      <p className="mt-1 text-sky-100/70">{group.explanation}</p>
+      </summary>
+      <p className="mt-2 text-sky-100/70">{group.explanation}</p>
 
       {group.alreadyOnFile.length > 0 ? (
         <div className="mt-1.5" data-testid={`committee-group-${group.id}-onfile`}>
@@ -551,12 +615,23 @@ function CommitteeReadinessGroupCard({
             {group.capturedSources.map((s, i) => (
               <li key={i}>
                 {s.label} —{" "}
-                <a href={s.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-sky-300/90 underline decoration-dotted">
-                  View PDF
-                </a>
+                {/* SPEC-…-OFFICIAL-PDF-CAPTURE-1: the ACTUAL official capture is
+                    only linked when one exists; otherwise we say so plainly and
+                    never present the Buddy receipt as the official document. */}
+                {s.officialCaptureUrl ? (
+                  <a href={s.officialCaptureUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-300/90 underline decoration-dotted">
+                    Official capture
+                  </a>
+                ) : (
+                  <span className="text-amber-300/70">
+                    {s.officialCaptureStatus === "search_form_only"
+                      ? "No official capture (search form only)"
+                      : "No official capture yet"}
+                  </span>
+                )}
                 {" · "}
-                <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-sky-300/70 underline decoration-dotted">
-                  HTML receipt
+                <a href={s.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-sky-300/70 underline decoration-dotted">
+                  Buddy receipt (PDF)
                 </a>
               </li>
             ))}
@@ -564,23 +639,92 @@ function CommitteeReadinessGroupCard({
         </div>
       ) : null}
 
-      {/* SPEC-…-FINAL-UX-POLISH-1 Phase 1 + SINGLE-COMMAND-SURFACE-1: actionable
-          review controls live in the default card — the single action surface,
-          not the technical audit disclosure. */}
-      {onReviewTask && group.reviewableTasks.length > 0 ? (
+      {/* SPEC-…-ACTION-CENTER-1 Phase 3: type-aware action rows. Needs-review
+          tasks get the validated review controls (Committee-grade gated for
+          SOS-without-official-capture / financial gaps); missing tasks get a
+          capture/record primary, never Accept/Committee-grade. */}
+      {onReviewTask && (group.reviewableTasks.length > 0 || group.missingActionableTasks.length > 0) ? (
         <div className="mt-2 space-y-1.5" data-testid={`committee-group-${group.id}-actions`}>
-          <p className="text-amber-300/70">Review actions:</p>
-          {group.reviewableTasks.map((t) => (
-            <div key={t.id ?? t.task_type} className="ml-1 rounded border border-amber-500/10 bg-black/10 p-1.5">
-              <span className="text-sky-100/70">{t.title ?? t.task_type}</span>
-              <TaskReviewControls task={t} onReviewTask={onReviewTask} />
-            </div>
+          <p className="text-amber-300/70">Actions:</p>
+          {[...group.reviewableTasks, ...group.missingActionableTasks].map((t) => (
+            <TaskActionRow key={t.id ?? t.task_type} task={t} onReviewTask={onReviewTask} />
           ))}
         </div>
       ) : null}
 
       {group.nextAction ? (
         <p className="mt-1.5 text-sky-300/80">Next action: {group.nextAction}</p>
+      ) : null}
+    </details>
+  );
+}
+
+// SPEC-…-ACTION-CENTER-1 Phase 3: one task's action row, presentation driven by
+// the pure deriveTaskActions rules. Missing/capture/record/conclusion primaries
+// show only the labeled primary + "Request more"; needs-review tasks show the
+// full validated review set with Committee-grade shown/disabled per the plan.
+function TaskActionRow({
+  task: t,
+  onReviewTask,
+}: {
+  task: CommitteeEvidenceTask;
+  onReviewTask: ReviewTaskHandler;
+}) {
+  const plan = deriveTaskActions(t);
+  const reviewStatus = String(t.review_status ?? "unreviewed");
+  const isReviewPrimary = plan.primaryKind === "mark_committee_grade";
+
+  const run = (action: CommitteeReviewAction, requireReason = false) => {
+    let reason: string | undefined;
+    if (requireReason) {
+      const entered = typeof window !== "undefined" ? window.prompt(`Reason for "${action}"?`) : null;
+      if (!entered || !entered.trim()) return;
+      reason = entered.trim();
+    }
+    void onReviewTask(t.id!, action, reason ? { reason } : undefined);
+  };
+
+  return (
+    <div className="ml-1 rounded border border-amber-500/10 bg-black/10 p-1.5 space-y-1" data-testid={`committee-task-${t.id ?? t.task_type}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-sky-100/70">{t.title ?? t.task_type}</span>
+        <span className="shrink-0 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-200" data-testid={`committee-task-primary-${t.id ?? t.task_type}`}>
+          {plan.primaryLabel}
+        </span>
+      </div>
+      {plan.note ? <p className="text-[10px] text-amber-300/70">{plan.note}</p> : null}
+      <div className="flex flex-wrap items-center gap-1">
+        {plan.showAccept ? <ReviewActionButton onRun={run} label="Accept" action="accept" /> : null}
+        {plan.showCommitteeGrade ? (
+          <ReviewActionButton
+            onRun={run}
+            label="Committee-grade"
+            action="mark_committee_grade"
+            disabled={plan.committeeGradeDisabled}
+          />
+        ) : null}
+        {isReviewPrimary ? (
+          <>
+            <ReviewActionButton onRun={run} label="Weak source" action="mark_weak_source" />
+            <ReviewActionButton onRun={run} label="Wrong entity" action="mark_wrong_entity" requireReason danger />
+          </>
+        ) : null}
+        <ReviewActionButton onRun={run} label="Request more" action="request_more_evidence" />
+        {isReviewPrimary ? (
+          <ReviewActionButton onRun={run} label="Reject" action="reject" requireReason danger />
+        ) : null}
+        <ReviewActionButton onRun={run} label="Reset" action="reset_review" />
+      </div>
+      {plan.committeeGradeDisabled && plan.committeeGradeBlockedReason ? (
+        <p className="text-[10px] text-rose-300/70">{plan.committeeGradeBlockedReason}</p>
+      ) : null}
+      {reviewStatus !== "unreviewed" ? (
+        <div className="text-[10px]">
+          <span className={REVIEW_STATUS_TONE[reviewStatus] ?? "text-amber-100/60"}>
+            review: {reviewStatus.replace(/_/g, " ")}
+          </span>
+          {t.committee_grade_accepted ? <span className="text-emerald-300/70"> · committee-grade accepted</span> : null}
+        </div>
       ) : null}
     </div>
   );
