@@ -636,12 +636,12 @@ describe("UX redesign — hero + committee blockers (SPEC-…-UX-REDESIGN-1)", (
     const view = buildCommitteeReadinessView(omniCareSnapshot())!;
     assert.equal(view.hero.statusLine, "Preliminary clear · Committee not ready");
     assert.match(view.hero.explanation, /preliminary underwriting/i);
-    assert.equal(view.hero.primaryActionLabel, view.nextActions[0].label);
-    // Progress counts reconcile 1:1 with the visible committee blockers.
-    assert.equal(
-      view.committeeBlockers.length,
-      view.hero.progress.needsReview + view.hero.progress.missing,
-    );
+    assert.equal(view.hero.primaryActionLabel, view.actionCards[0].title);
+    // SPEC-…-FINAL-WORKFLOW-CORRECTION-1: Next Actions, Committee Blockers, and the
+    // hero count reconcile 1:1 (one canonical per-group action list).
+    assert.equal(view.committeeBlockers.length, view.actionCards.length);
+    assert.equal(view.nextActions.length, view.actionCards.length);
+    assert.equal(view.hero.actionsRequired, view.actionCards.length);
   });
 
   it("committee blockers are shown once (deduped) and use specific labels", () => {

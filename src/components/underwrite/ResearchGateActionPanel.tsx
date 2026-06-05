@@ -43,9 +43,9 @@ import {
   type CommitteeReadinessGroupView,
   type CommitteeReadinessAuditRow,
   type GroupStatusLabel,
-  type NextActionItem,
   type ReadinessHeroView,
   type CommitteeBlockerLine,
+  type CommitteeActionCard,
 } from "./committeeReadinessView";
 
 export { shouldShowCommitteeReadiness };
@@ -344,40 +344,68 @@ export function CommitteeReadinessPanel({
   onReviewTask?: ReviewTaskHandler;
   onAttachSource?: AttachSourceHandler;
 }) {
-  if (!shouldShowCommitteeReadiness(snapshot)) return null;
-  // SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1: banker-simple default view.
-  const view = buildCommitteeReadinessView(snapshot);
+  return (
+    <CommitteeReadinessPanelInner snapshot={snapshot} onReviewTask={onReviewTask} onAttachSource={onAttachSource} />
+  );
+}
+
+// SPEC-…-FINAL-WORKFLOW-CORRECTION-1: the panel holds which Next Action drawer is
+// open so the hero CTA can open the FIRST action's drawer directly (not scroll).
+function CommitteeReadinessPanelInner({
+  snapshot,
+  onReviewTask,
+  onAttachSource,
+}: {
+  snapshot: ResearchGateSnapshot;
+  onReviewTask?: ReviewTaskHandler;
+  onAttachSource?: AttachSourceHandler;
+}) {
+  const view = shouldShowCommitteeReadiness(snapshot) ? buildCommitteeReadinessView(snapshot) : null;
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
   if (!view) return null;
   return (
     <div
       data-testid="committee-readiness-panel"
       className="rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-5 space-y-4"
     >
-      {/* A. Top readiness hero — can it go to committee? */}
-      <ReadinessHero hero={view.hero} topGroupId={view.defaultExpandedGroupId} />
+      {/* A. Top readiness hero — can it go to committee? CTA opens the first
+          Next Action drawer directly. */}
+      <ReadinessHero
+        hero={view.hero}
+        onResolveTop={view.actionCards.length > 0 ? () => setOpenCardId(view.actionCards[0].id) : undefined}
+      />
 
-      {/* B. Steps to committee readiness — the fastest path, top step first. */}
-      {view.nextActions.length > 0 ? (
-        <NextActionsQueue actions={view.nextActions} />
+      {/* B. Next Actions — the EXECUTABLE workspace. Each card resolves in place. */}
+      {view.actionCards.length > 0 ? (
+        <div className="space-y-2" data-testid="committee-next-actions">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">Next actions</p>
+          {view.actionCards.map((card) => (
+            <CommitteeTaskActionCard
+              key={card.id}
+              card={card}
+              open={openCardId === card.id}
+              onToggle={() => setOpenCardId(openCardId === card.id ? null : card.id)}
+              onReviewTask={onReviewTask}
+              onAttachSource={onAttachSource}
+            />
+          ))}
+        </div>
       ) : null}
 
-      {/* C. Evidence status board — 6 compact group chips; expand on click, only
-          the top action's group open by default (so Risk/Scale stay collapsed
-          unless they are the top blocker). */}
+      {/* C. Evidence status board — READ-ONLY progress chips (no action controls). */}
       <div className="space-y-2" data-testid="committee-readiness-groups">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">Evidence status</p>
         {view.groups.map((g) => (
           <CommitteeReadinessGroupCard
             key={g.id}
             group={g}
-            onReviewTask={onReviewTask}
-            onAttachSource={onAttachSource}
-            defaultOpen={g.id === view.defaultExpandedGroupId}
+            defaultOpen={false}
           />
         ))}
       </div>
 
-      {/* D. Committee blockers — the exact items that block committee-grade, once. */}
+      {/* D. Committee blockers — read-only summary, shown once (reconciles 1:1
+          with Next Actions). */}
       {view.committeeBlockers.length > 0 ? (
         <CommitteeBlockersPanel blockers={view.committeeBlockers} />
       ) : null}
@@ -420,60 +448,28 @@ export function CommitteeReadinessPanel({
   );
 }
 
-// SPEC-…-ACTION-CENTER-1 Phase 2: prioritized "Next actions" queue. Each item
-// shows status + why it matters + a primary action label, and the card it maps
-// to expands by default below.
-const NEXT_ACTION_TONE: Record<GroupStatusLabel, string> = {
-  Complete: "border-emerald-500/30 text-emerald-200",
-  "Needs review": "border-amber-500/30 text-amber-200",
-  "Needs analyst conclusion": "border-rose-500/30 text-rose-200",
-  Missing: "border-rose-500/30 text-rose-200",
-};
-
-function NextActionsQueue({ actions }: { actions: NextActionItem[] }) {
-  return (
-    <div className="space-y-1.5" data-testid="committee-next-actions">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">Next actions</p>
-      <ol className="space-y-1.5">
-        {actions.map((a, i) => (
-          <li
-            key={a.id}
-            data-testid={`committee-next-action-${a.groupId}`}
-            className={"rounded-lg border bg-black/10 p-2.5 text-[11px] " + NEXT_ACTION_TONE[a.status]}
-          >
-            <div className="flex items-start gap-2">
-              <span className="font-semibold text-sky-200">{i + 1}.</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-sky-100">{a.label}</p>
-                <p className="mt-0.5 text-sky-100/60">{a.why}</p>
-              </div>
-              <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-black/20">
-                {a.status}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-// SPEC-…-UX-REDESIGN-1 (A): the compact top readiness hero — one status line,
-// one explanation, the 3-count progress, and the single top next action.
-function ReadinessHero({ hero, topGroupId }: { hero: ReadinessHeroView; topGroupId: string | null }) {
+// SPEC-…-FINAL-WORKFLOW-CORRECTION-1 (A): mission-control hero — large status,
+// "X actions required", 3-count progress, and a CTA that OPENS the first Next
+// Action drawer directly (onResolveTop), not a scroll/deep-link.
+function ReadinessHero({ hero, onResolveTop }: { hero: ReadinessHeroView; onResolveTop?: () => void }) {
   const committeeReady = /committee ready/i.test(hero.statusLine) && !/not ready/i.test(hero.statusLine);
   return (
     <div className="space-y-2" data-testid="committee-readiness-hero">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span
           className={
-            "inline-flex h-6 items-center rounded-full px-2 text-[11px] font-semibold uppercase tracking-wide " +
-            (committeeReady ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")
+            "inline-flex h-7 items-center rounded-full px-3 text-xs font-bold uppercase tracking-wide " +
+            (committeeReady ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/20 text-amber-200")
           }
         >
-          {hero.statusLine}
+          {committeeReady ? "Ready for committee" : "Not ready for committee"}
         </span>
-        <h2 className="text-sm font-semibold text-sky-100">Committee readiness</h2>
+        <span className="text-[11px] text-sky-100/70">{hero.statusLine}</span>
+        {!committeeReady && hero.actionsRequired > 0 ? (
+          <span className="text-xs font-semibold text-amber-200" data-testid="committee-hero-actions-required">
+            {hero.actionsRequired} action{hero.actionsRequired === 1 ? "" : "s"} required
+          </span>
+        ) : null}
       </div>
 
       <p className="text-sm text-sky-100/80">{hero.explanation}</p>
@@ -484,18 +480,16 @@ function ReadinessHero({ hero, topGroupId }: { hero: ReadinessHeroView; topGroup
         <CounterChip label="Missing" value={hero.progress.missing} tone="missing" />
       </div>
 
-      {hero.primaryActionLabel ? (
-        <a
-          href={topGroupId ? `#committee-group-${topGroupId}` : undefined}
-          className="block rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5 hover:bg-sky-500/20 transition-colors"
+      {hero.primaryActionLabel && onResolveTop ? (
+        <button
+          type="button"
+          onClick={onResolveTop}
+          className="block w-full rounded-lg border border-sky-400/40 bg-sky-500/15 p-3 text-left hover:bg-sky-500/25 transition-colors"
           data-testid="committee-hero-primary"
         >
-          <p className="text-[11px]">
-            <span className="font-semibold text-sky-200">Resolve now: </span>
-            <span className="text-sky-100/90">{hero.primaryActionLabel}</span>
-            <span className="text-sky-300/70"> →</span>
-          </p>
-        </a>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-300/80">Resolve now</span>
+          <p className="text-sm font-medium text-sky-100">{hero.primaryActionLabel}</p>
+        </button>
       ) : null}
 
       <a href="#committee-evidence-plan" className="inline-block text-[11px] text-sky-300/70 underline decoration-dotted">
@@ -564,18 +558,15 @@ const GROUP_STATUS_TONE: Record<GroupStatusLabel, string> = {
   Missing: "bg-rose-500/15 text-rose-200",
 };
 
-// One of the 5 human-readable evidence groups — a COMPACT card by default; only
-// the card for the top next action is expanded (defaultOpen). The summary row
-// stays banker-readable (title + status) when collapsed.
+// SPEC-…-FINAL-WORKFLOW-CORRECTION-1 (C): Evidence Status is READ-ONLY progress —
+// a compact, collapsed-by-default chip showing on-file / needs-review / missing +
+// captured-source links. No action controls live here; all resolution happens in
+// the Next Actions cards above.
 function CommitteeReadinessGroupCard({
   group,
-  onReviewTask,
-  onAttachSource,
   defaultOpen = false,
 }: {
   group: CommitteeReadinessGroupView;
-  onReviewTask?: ReviewTaskHandler;
-  onAttachSource?: AttachSourceHandler;
   defaultOpen?: boolean;
 }) {
   const counts = [
@@ -671,21 +662,9 @@ function CommitteeReadinessGroupCard({
         </div>
       ) : null}
 
-      {/* SPEC-…-ACTION-CENTER-1 Phase 3: type-aware action rows. Needs-review
-          tasks get the validated review controls (Committee-grade gated for
-          SOS-without-official-capture / financial gaps); missing tasks get a
-          capture/record primary, never Accept/Committee-grade. */}
-      {onReviewTask && (group.reviewableTasks.length > 0 || group.missingActionableTasks.length > 0) ? (
-        <div className="mt-2 space-y-1.5" data-testid={`committee-group-${group.id}-actions`}>
-          <p className="text-amber-300/70">Actions:</p>
-          {[...group.reviewableTasks, ...group.missingActionableTasks].map((t) => (
-            <TaskActionRow key={t.id ?? t.task_type} task={t} onReviewTask={onReviewTask} onAttachSource={onAttachSource} />
-          ))}
-        </div>
-      ) : null}
-
+      {/* Read-only: the action to take lives in the Next Actions card above. */}
       {group.nextAction ? (
-        <p className="mt-1.5 text-sky-300/80">Next action: {group.nextAction}</p>
+        <p className="mt-1.5 text-sky-300/60">To resolve: {group.nextAction} (see Next actions)</p>
       ) : null}
     </details>
   );
@@ -708,32 +687,39 @@ const ACTION_BTN =
 const PRIMARY_BTN =
   "rounded px-2 py-0.5 text-[10px] font-semibold border border-sky-400/40 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25 transition-colors";
 
-// SPEC-…-ACTION-CENTER-1 Phase 3 + WORKFLOW-RESOLUTION-1: one task's action row.
-// Presentation is driven by the pure deriveTaskActions rules; the primary opens
-// an IN-PLACE resolution drawer (screening result / official-capture attach /
-// evidence attach / analyst conclusion) so the banker resolves it without leaving
-// the page. Needs-review tasks keep the validated review set.
-function TaskActionRow({
-  task: t,
+// SPEC-COMMITTEE-ACTION-CENTER-FINAL-WORKFLOW-CORRECTION-1: the ONE canonical
+// executable action card, rendered in the Next Actions section. Large + readable;
+// the primary opens an in-place resolution drawer (screening result /
+// official-capture attach / evidence attach / analyst conclusion) controlled by
+// the panel's `open` state so the hero CTA can open the first card directly.
+// Needs-review tasks keep the validated review set. Reuses #498 persistence only.
+function CommitteeTaskActionCard({
+  card,
+  open,
+  onToggle,
   onReviewTask,
   onAttachSource,
 }: {
-  task: CommitteeEvidenceTask;
-  onReviewTask: ReviewTaskHandler;
+  card: CommitteeActionCard;
+  open: boolean;
+  onToggle: () => void;
+  onReviewTask?: ReviewTaskHandler;
   onAttachSource?: AttachSourceHandler;
 }) {
-  const plan = deriveTaskActions(t);
-  const reviewStatus = String(t.review_status ?? "unreviewed");
-  const isReviewPrimary = plan.primaryKind === "mark_committee_grade";
-  const taskType = String(t.task_type ?? "");
+  const t = card.task;
+  const plan = t ? deriveTaskActions(t) : null;
+  const isReviewPrimary = plan?.primaryKind === "mark_committee_grade";
+  const taskType = String(t?.task_type ?? "");
+  const reviewStatus = String(t?.review_status ?? "unreviewed");
 
-  const [open, setOpen] = useState<"" | "resolve" | "override">("");
+  const [overrideOpen, setOverrideOpen] = useState(false);
   const [result, setResult] = useState<"clear" | "finding" | "unable_to_verify">("clear");
-  const [text, setText] = useState(""); // notes / conclusion
+  const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [reason, setReason] = useState("");
 
   const run = (action: CommitteeReviewAction, requireReason = false) => {
+    if (!t || !onReviewTask) return;
     let r: string | undefined;
     if (requireReason) {
       const entered = typeof window !== "undefined" ? window.prompt(`Reason for "${action}"?`) : null;
@@ -743,46 +729,50 @@ function TaskActionRow({
     void onReviewTask(t.id!, action, r ? { reason: r } : undefined);
   };
 
-  const resetForm = () => { setOpen(""); setText(""); setUrl(""); setReason(""); setResult("clear"); };
+  const reset = () => { setText(""); setUrl(""); setReason(""); setResult("clear"); setOverrideOpen(false); };
 
   const saveResolution = async () => {
+    if (!t || !onReviewTask || !plan) return;
     if (plan.primaryKind === "add_conclusion") {
       if (!text.trim()) return;
       await onReviewTask(t.id!, "submit_analyst_conclusion", { note: text.trim() });
     } else if (plan.primaryKind === "record_result") {
       if (url.trim() && onAttachSource) {
-        const p = attachParamsForTask(taskType);
-        await onAttachSource(t.id!, { ...p, source_url: url.trim(), note: text.trim() || undefined });
+        await onAttachSource(t.id!, { ...attachParamsForTask(taskType), source_url: url.trim(), note: text.trim() || undefined });
       }
       await onReviewTask(t.id!, "record_screening_result", { result, note: text.trim() || undefined });
     } else {
-      // capture_official / attach_evidence / add_loan_request → attach a source URL.
       if (!url.trim() || !onAttachSource) return;
-      const p = attachParamsForTask(taskType);
-      await onAttachSource(t.id!, { ...p, source_url: url.trim(), note: text.trim() || undefined });
+      await onAttachSource(t.id!, { ...attachParamsForTask(taskType), source_url: url.trim(), note: text.trim() || undefined });
     }
-    resetForm();
+    reset();
+    onToggle(); // close
   };
 
   const saveOverride = async () => {
-    if (!reason.trim()) return;
+    if (!t || !onReviewTask || !reason.trim()) return;
     await onReviewTask(t.id!, "banker_override", { reason: reason.trim() });
-    resetForm();
+    reset();
   };
 
   return (
-    <div className="ml-1 rounded border border-amber-500/10 bg-black/10 p-1.5 space-y-1" data-testid={`committee-task-${t.id ?? t.task_type}`}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-sky-100/70">{t.title ?? t.task_type}</span>
-        <span className="shrink-0 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-200" data-testid={`committee-task-primary-${t.id ?? t.task_type}`}>
-          {plan.primaryLabel}
+    <div className="rounded-lg border border-sky-500/20 bg-black/20 p-3 space-y-2" data-testid={`committee-action-card-${card.id}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-sky-100">{card.title}</p>
+          <p className="mt-0.5 text-[11px] text-sky-100/60">{card.why}</p>
+        </div>
+        <span className={"shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold " + GROUP_STATUS_TONE[card.status]}>
+          {card.status}
         </span>
       </div>
-      {plan.note ? <p className="text-[10px] text-amber-300/70">{plan.note}</p> : null}
+      {plan?.note ? <p className="text-[11px] text-amber-300/70">{plan.note}</p> : null}
 
-      {isReviewPrimary ? (
-        // Needs-review task: the validated review controls.
-        <div className="flex flex-wrap items-center gap-1">
+      {!t || !plan || !onReviewTask ? (
+        <p className="text-[11px] text-sky-100/50">Resolve via the Evidence plan below.</p>
+      ) : isReviewPrimary ? (
+        // Captured + needs committee review: the validated review controls.
+        <div className="flex flex-wrap items-center gap-1.5">
           {plan.showAccept ? <ReviewActionButton onRun={run} label="Accept" action="accept" /> : null}
           {plan.showCommitteeGrade ? (
             <ReviewActionButton onRun={run} label="Committee-grade" action="mark_committee_grade" disabled={plan.committeeGradeDisabled} />
@@ -794,13 +784,13 @@ function TaskActionRow({
           <ReviewActionButton onRun={run} label="Reset" action="reset_review" />
         </div>
       ) : (
-        // Missing/attestation task: an in-place resolution primary + override.
-        <div className="flex flex-wrap items-center gap-1">
-          <button type="button" className={PRIMARY_BTN} onClick={() => setOpen(open === "resolve" ? "" : "resolve")} data-testid={`committee-task-resolve-${t.id ?? t.task_type}`}>
+        // Missing/attestation: the primary opens the in-place resolution drawer.
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button type="button" className={PRIMARY_BTN} onClick={onToggle} data-testid={`committee-action-primary-${card.id}`} aria-expanded={open}>
             {plan.primaryLabel}
           </button>
           {plan.primaryKind !== "add_conclusion" ? (
-            <button type="button" className={ACTION_BTN} onClick={() => setOpen(open === "override" ? "" : "override")}>
+            <button type="button" className={ACTION_BTN} onClick={() => setOverrideOpen((v) => !v)} data-testid={`committee-action-override-${card.id}`}>
               Override (reason)
             </button>
           ) : null}
@@ -809,13 +799,13 @@ function TaskActionRow({
         </div>
       )}
 
-      {/* In-place resolution drawer. */}
-      {open === "resolve" ? (
-        <div className="mt-1 space-y-1 rounded border border-sky-500/20 bg-black/20 p-1.5" data-testid={`committee-task-drawer-${t.id ?? t.task_type}`}>
+      {/* In-place resolution drawer (opened by the card primary OR the hero CTA). */}
+      {t && plan && open && !isReviewPrimary ? (
+        <div className="space-y-1.5 rounded border border-sky-500/25 bg-black/30 p-2" data-testid={`committee-action-drawer-${card.id}`}>
           {plan.primaryKind === "record_result" ? (
-            <label className="block text-[10px] text-sky-100/70">
-              Result
-              <select className="ml-1 rounded bg-black/30 text-[10px] text-sky-100" value={result} onChange={(e) => setResult(e.target.value as any)}>
+            <label className="block text-[11px] text-sky-100/80">
+              Result{" "}
+              <select className="ml-1 rounded bg-black/40 p-0.5 text-[11px] text-sky-100" value={result} onChange={(e) => setResult(e.target.value as any)} data-testid={`committee-action-result-${card.id}`}>
                 <option value="clear">Clear</option>
                 <option value="finding">Finding</option>
                 <option value="unable_to_verify">Unable to verify</option>
@@ -823,39 +813,38 @@ function TaskActionRow({
             </label>
           ) : null}
           {plan.primaryKind === "add_conclusion" ? (
-            <textarea className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" rows={2} placeholder="Analyst conclusion…" value={text} onChange={(e) => setText(e.target.value)} />
+            <textarea className="w-full rounded bg-black/40 p-1.5 text-[11px] text-sky-100" rows={3} placeholder="Analyst conclusion…" value={text} onChange={(e) => setText(e.target.value)} data-testid={`committee-action-conclusion-${card.id}`} />
           ) : (
             <>
-              <input className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" placeholder={plan.primaryKind === "record_result" ? "Official capture URL (optional)" : "Official source URL"} value={url} onChange={(e) => setUrl(e.target.value)} />
-              <input className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" placeholder="Notes (optional)" value={text} onChange={(e) => setText(e.target.value)} />
+              <input className="w-full rounded bg-black/40 p-1.5 text-[11px] text-sky-100" placeholder={plan.primaryKind === "record_result" ? "Official capture URL (optional)" : "Official source URL"} value={url} onChange={(e) => setUrl(e.target.value)} data-testid={`committee-action-url-${card.id}`} />
+              <input className="w-full rounded bg-black/40 p-1.5 text-[11px] text-sky-100" placeholder="Notes (optional)" value={text} onChange={(e) => setText(e.target.value)} />
             </>
           )}
-          <div className="flex gap-1">
-            <button type="button" className={PRIMARY_BTN} onClick={() => void saveResolution()}>Save</button>
-            <button type="button" className={ACTION_BTN} onClick={resetForm}>Cancel</button>
+          <div className="flex gap-1.5">
+            <button type="button" className={PRIMARY_BTN} onClick={() => void saveResolution()} data-testid={`committee-action-save-${card.id}`}>Save</button>
+            <button type="button" className={ACTION_BTN} onClick={() => { reset(); onToggle(); }}>Cancel</button>
           </div>
         </div>
       ) : null}
 
-      {open === "override" ? (
-        <div className="mt-1 space-y-1 rounded border border-rose-500/20 bg-black/20 p-1.5" data-testid={`committee-task-override-${t.id ?? t.task_type}`}>
-          <input className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" placeholder="Override reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <div className="flex gap-1">
+      {t && overrideOpen ? (
+        <div className="space-y-1.5 rounded border border-rose-500/25 bg-black/30 p-2" data-testid={`committee-action-override-drawer-${card.id}`}>
+          <input className="w-full rounded bg-black/40 p-1.5 text-[11px] text-sky-100" placeholder="Override reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <div className="flex gap-1.5">
             <button type="button" className={ACTION_BTN} onClick={() => void saveOverride()}>Save override</button>
-            <button type="button" className={ACTION_BTN} onClick={resetForm}>Cancel</button>
+            <button type="button" className={ACTION_BTN} onClick={reset}>Cancel</button>
           </div>
         </div>
       ) : null}
 
-      {plan.committeeGradeDisabled && plan.committeeGradeBlockedReason ? (
-        <p className="text-[10px] text-rose-300/70">{plan.committeeGradeBlockedReason}</p>
+      {plan?.committeeGradeDisabled && plan.committeeGradeBlockedReason ? (
+        <p className="text-[11px] text-rose-300/70">{plan.committeeGradeBlockedReason}</p>
       ) : null}
       {reviewStatus !== "unreviewed" ? (
         <div className="text-[10px]">
           <span className={REVIEW_STATUS_TONE[reviewStatus] ?? "text-amber-100/60"}>
-            review: {reviewStatus.replace(/_/g, " ")}
+            status: {reviewStatus.replace(/_/g, " ")}
           </span>
-          {t.committee_grade_accepted ? <span className="text-emerald-300/70"> · committee-grade accepted</span> : null}
         </div>
       ) : null}
     </div>

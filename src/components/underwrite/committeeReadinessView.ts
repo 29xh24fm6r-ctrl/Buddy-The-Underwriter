@@ -113,6 +113,9 @@ export interface ReadinessHeroView {
   progress: { ready: number; needsReview: number; missing: number };
   /** The single top next action (queue[0]), or null when committee-ready. */
   primaryActionLabel: string | null;
+  /** SPEC-…-FINAL-WORKFLOW-CORRECTION-1: number of executable Next Action cards
+   *  (reconciles 1:1 with committeeBlockers). */
+  actionsRequired: number;
 }
 
 /** SPEC-…-UX-REDESIGN-1: one exact committee blocker (shown once). */
@@ -120,6 +123,23 @@ export interface CommitteeBlockerLine {
   label: string;
   groupId: CommitteeReadinessGroupId;
   status: GroupStatusLabel;
+}
+
+/**
+ * SPEC-COMMITTEE-ACTION-CENTER-FINAL-WORKFLOW-CORRECTION-1: the canonical
+ * executable work item — ONE per unresolved group, in priority order. The Next
+ * Actions section renders a resolution card per item; Committee Blockers + the
+ * hero count reconcile 1:1 with this list. `task` is the evidence task the card
+ * resolves (null when a group has an unresolved blocker but no actionable task).
+ */
+export interface CommitteeActionCard {
+  id: string;
+  /** The action to take, state-aware (e.g. "Record the public adverse-record screen result."). */
+  title: string;
+  why: string;
+  groupId: CommitteeReadinessGroupId;
+  status: GroupStatusLabel;
+  task: CommitteeEvidenceTask | null;
 }
 
 /** SPEC-…-ACTION-CENTER-1: one item in the prioritized "Next actions" queue. */
@@ -183,7 +203,9 @@ export interface CommitteeReadinessView {
   summary: CommitteeReadinessSummaryView;
   /** SPEC-…-UX-REDESIGN-1: compact top readiness hero. */
   hero: ReadinessHeroView;
-  /** SPEC-…-ACTION-CENTER-1: prioritized guided queue (top item first). */
+  /** SPEC-…-FINAL-WORKFLOW-CORRECTION-1: canonical executable Next Action cards. */
+  actionCards: CommitteeActionCard[];
+  /** SPEC-…-ACTION-CENTER-1: label projection of actionCards (same order/count). */
   nextActions: NextActionItem[];
   /** The group of the top next action — the only card expanded by default. */
   defaultExpandedGroupId: CommitteeReadinessGroupId | null;
@@ -913,33 +935,66 @@ export function buildCommitteeReadinessView(
   // the evidence card never show different/duplicated text, and the SOS step
   // reads "capture official result page" when no official capture exists).
   const groupById = new Map(groups.map((g) => [g.id, g] as const));
-  const nextActions = deriveNextActionQueue(ranked).map((a) => {
-    const g = groupById.get(a.groupId);
-    return g && g.nextAction ? { ...a, label: g.nextAction, status: g.status } : a;
-  });
-  const defaultExpandedGroupId = nextActions[0]?.groupId ?? null;
 
-  // SPEC-…-UX-REDESIGN-1: hero + the exact committee blockers (one per unresolved
-  // blocker, deduped) so the visible blocker list reconciles with the counters.
+  // SPEC-…-FINAL-WORKFLOW-CORRECTION-1: ONE canonical executable card per
+  // unresolved group, in priority order (rule queue first, then any remaining
+  // unresolved group). Next Actions, Committee Blockers, and the hero count all
+  // derive from this single list, so they reconcile 1:1.
+  const orderedGroupIds: CommitteeReadinessGroupId[] = [];
+  for (const a of deriveNextActionQueue(ranked)) {
+    if (!orderedGroupIds.includes(a.groupId)) orderedGroupIds.push(a.groupId);
+  }
+  for (const g of groups) {
+    if (g.status !== "Complete" && !orderedGroupIds.includes(g.id)) orderedGroupIds.push(g.id);
+  }
+
+  const actionCards: CommitteeActionCard[] = orderedGroupIds.map((gid) => {
+    const g = groupById.get(gid)!;
+    // The task the card resolves: prefer a still-missing task, else a needs-review one.
+    const task = [...g.missingActionableTasks, ...g.reviewableTasks][0] ?? null;
+    return {
+      id: gid,
+      title: g.nextAction ?? "Review committee evidence.",
+      why: g.explanation,
+      groupId: gid,
+      status: g.status,
+      task,
+    };
+  });
+
+  // Back-compat label projection (same order/count as actionCards).
+  const nextActions: NextActionItem[] = actionCards.map((c) => ({
+    id: c.id,
+    label: c.title,
+    why: c.why,
+    status: c.status,
+    groupId: c.groupId,
+  }));
+  const defaultExpandedGroupId = actionCards[0]?.groupId ?? null;
+
+  // Committee blockers — read-only summary, ONE per unresolved group, reconciling
+  // 1:1 with the action cards. Uses the group's worst unresolved blocker for a
+  // precise label (scale / SOS-search-form phrasing preserved).
+  const committeeBlockers: CommitteeBlockerLine[] = orderedGroupIds.map((gid) => {
+    const members = (byGroup.get(gid) ?? []).filter((b) => b.status !== "complete");
+    const rep = members.slice().sort((a, b) => STATUS_RANK[b.status] - STATUS_RANK[a.status])[0];
+    const g = groupById.get(gid)!;
+    return {
+      label: rep ? bankerBlockerLabel(rep) : `${g.title} — ${g.status.toLowerCase()}`,
+      groupId: gid,
+      status: g.status,
+    };
+  });
+
   const hero: ReadinessHeroView = {
     statusLine: `${preliminaryClear ? "Preliminary clear" : "Preliminary not clear"} · ${committeeReady ? "Committee ready" : "Committee not ready"}`,
     explanation: preliminaryClear
-      ? `Buddy can continue preliminary underwriting, but committee review still needs ${counters.needsReview + counters.missing} item(s).`
+      ? `Buddy can continue preliminary underwriting, but committee review still needs ${actionCards.length} action(s).`
       : "Research is not yet clear enough for preliminary underwriting.",
     progress: counters,
-    primaryActionLabel: nextActions[0]?.label ?? null,
+    primaryActionLabel: actionCards[0]?.title ?? null,
+    actionsRequired: actionCards.length,
   };
-
-  const committeeBlockers: CommitteeBlockerLine[] = [];
-  const seenBlockerLabel = new Set<string>();
-  for (const b of ranked) {
-    if (b.status === "complete") continue;
-    const label = bankerBlockerLabel(b);
-    const key = label.toLowerCase();
-    if (seenBlockerLabel.has(key)) continue;
-    seenBlockerLabel.add(key);
-    committeeBlockers.push({ label, groupId: bucketFor(b.r, b.impact), status: STATUS_LABEL[b.status] });
-  }
 
   // Audit projection — the ONLY place machine vocabulary is allowed.
   const audit: CommitteeReadinessAuditRow[] = ranked.map((b) => ({
@@ -962,6 +1017,7 @@ export function buildCommitteeReadinessView(
   return {
     summary,
     hero,
+    actionCards,
     nextActions,
     defaultExpandedGroupId,
     groups,

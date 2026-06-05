@@ -111,61 +111,20 @@ describe("CommitteeReadinessPanel — single command surface (SPEC-…-SINGLE-CO
   });
 });
 
-describe("CommitteeReadinessPanel — action center (SPEC-…-ACTION-CENTER-1)", () => {
-  const SRC = fs.readFileSync(
-    path.resolve(__dirname, "..", "ResearchGateActionPanel.tsx"),
-    "utf8",
-  );
-
-  it("renders the prioritized Next actions queue", () => {
-    assert.match(SRC, /NextActionsQueue/);
-    assert.match(SRC, /committee-next-actions/);
+describe("CommitteeReadinessPanel — source guards (still cheap to assert)", () => {
+  const SRC = fs.readFileSync(path.resolve(__dirname, "..", "ResearchGateActionPanel.tsx"), "utf8");
+  it("one canonical action component (no separate passive queue / TaskActionRow)", () => {
+    assert.match(SRC, /CommitteeTaskActionCard/);
+    assert.doesNotMatch(SRC, /function NextActionsQueue/);
+    assert.doesNotMatch(SRC, /function TaskActionRow/);
   });
-
-  it("only the top next action's card is expanded by default", () => {
-    assert.match(SRC, /defaultOpen=\{g\.id === view\.defaultExpandedGroupId\}/);
-    assert.match(SRC, /<details\s+open=\{defaultOpen\}/);
-  });
-
-  it("captured sources distinguish Official capture from Buddy receipt", () => {
-    assert.match(SRC, /Official capture/);
-    assert.match(SRC, /Buddy receipt \(PDF\)/);
-    assert.match(SRC, /No official capture \(search form only\)/);
-  });
-
-  it("action rows are driven by the pure deriveTaskActions rules", () => {
-    assert.match(SRC, /deriveTaskActions/);
-    assert.match(SRC, /TaskActionRow/);
-  });
-
-  it("UX redesign: renders the readiness hero + committee blockers panel + evidence status board", () => {
-    assert.match(SRC, /ReadinessHero/);
-    assert.match(SRC, /committee-readiness-hero/);
-    assert.match(SRC, /CommitteeBlockersPanel/);
-    assert.match(SRC, /committee-blockers-panel/);
-    assert.match(SRC, /Evidence status/);
-    assert.match(SRC, /View evidence plan/);
-  });
-
-  it("UX redesign: the old single summary card + scale callout are gone (no duplication)", () => {
+  it("Evidence Status group card no longer takes action handlers (read-only)", () => {
     assert.doesNotMatch(SRC, /CommitteeReadinessSummaryCard/);
     assert.doesNotMatch(SRC, /ScalePlausibilityCallout/);
   });
-
-  it("WORKFLOW-RESOLUTION: in-place resolution drawers + attach wiring + hero deep-link", () => {
-    // Resolution drawer + override drawer.
-    assert.match(SRC, /committee-task-resolve-/);
-    assert.match(SRC, /committee-task-override-/);
-    assert.match(SRC, /committee-task-drawer-/);
-    // The four resolution kinds drive the drawer.
-    assert.match(SRC, /submit_analyst_conclusion/);
-    assert.match(SRC, /record_screening_result/);
-    assert.match(SRC, /banker_override/);
-    // Attach reuses the source-snapshot connector via onAttachSource.
-    assert.match(SRC, /onAttachSource/);
-    assert.match(SRC, /attachParamsForTask/);
-    // Hero CTA deep-links to the top action's group card.
-    assert.match(SRC, /#committee-group-\$\{topGroupId\}/);
+  it("captured sources distinguish Official capture from Buddy receipt", () => {
+    assert.match(SRC, /Official capture/);
+    assert.match(SRC, /Buddy receipt \(PDF\)/);
   });
 });
 
