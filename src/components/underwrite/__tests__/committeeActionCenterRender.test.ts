@@ -92,25 +92,28 @@ describe("Committee action center — rendered Next Actions are executable", () 
     assert.ok((nextActions.match(/<button/g) ?? []).length >= 2, "expected executable buttons in Next Actions");
   });
 
-  it("the adverse card exposes a Record-result primary button inside Next Actions", () => {
+  it("the public-records card frames a business question with a No-findings primary button", () => {
     const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
     assert.match(nextActions, /data-testid="committee-action-primary-risk"/);
-    assert.match(nextActions, /Record result/i);
-    assert.match(nextActions, /Public screening/i);
+    assert.match(nextActions, /Public Records Review/i);
+    assert.match(nextActions, /adverse findings/i);
+    assert.match(nextActions, /No findings/i);
   });
 
-  it("the scale card exposes an analyst-conclusion primary button inside Next Actions", () => {
+  it("the business-scale card frames a question with an Enter-conclusion primary button", () => {
     const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
     assert.match(nextActions, /data-testid="committee-action-primary-scale"/);
-    assert.match(nextActions, /analyst conclusion/i);
+    assert.match(nextActions, /Business Scale/i);
+    assert.match(nextActions, /Enter conclusion/i);
   });
 
-  it("hero shows 'Not ready for committee' + actions-required count + a Resolve-now CTA button", () => {
+  it("hero shows 'Not ready' + decisions-required count + a Start-next-decision CTA button", () => {
     const html = render();
     const hero = section(html, "committee-readiness-hero", "committee-next-actions");
-    assert.match(hero, /Not ready for committee/i);
-    assert.match(hero, /data-testid="committee-hero-actions-required"/);
+    assert.match(hero, /Not ready/i);
+    assert.match(hero, /decisions? required/i);
     assert.match(hero, /data-testid="committee-hero-primary"/);
+    assert.match(hero, /Start next decision/i);
     assert.match(hero, /<button/);
   });
 

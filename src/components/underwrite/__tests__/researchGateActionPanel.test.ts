@@ -94,14 +94,14 @@ describe("CommitteeReadinessPanel — single command surface (SPEC-…-SINGLE-CO
     "utf8",
   );
 
-  it("the disclosure is renamed to 'Technical audit details' (no 'Show audit details')", () => {
-    assert.match(SRC, /Technical audit details/);
+  it("internal detail lives behind ONE collapsed 'Supporting details' disclosure", () => {
+    assert.match(SRC, /Supporting details/);
     assert.doesNotMatch(SRC, /Show audit details/);
   });
 
-  it("the committee evidence plan moves into its own collapsed disclosure", () => {
-    assert.match(SRC, /committee-readiness-evidence-plan/);
-    assert.match(SRC, /Evidence plan/);
+  it("evidence plan + audit are folded into Supporting details (single disclosure)", () => {
+    assert.match(SRC, /CommitteeRequirements plan=\{snapshot\.committeeRequirementsPlan\}/);
+    assert.match(SRC, /CommitteeReadinessAuditTable rows=\{view\.audit\}/);
   });
 
   it("blocker resolutions inside the audit disclosure are read-only (no duplicate review buttons)", () => {
