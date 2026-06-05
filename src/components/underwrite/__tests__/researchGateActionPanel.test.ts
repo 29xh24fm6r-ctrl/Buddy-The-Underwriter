@@ -151,6 +151,22 @@ describe("CommitteeReadinessPanel — action center (SPEC-…-ACTION-CENTER-1)",
     assert.doesNotMatch(SRC, /CommitteeReadinessSummaryCard/);
     assert.doesNotMatch(SRC, /ScalePlausibilityCallout/);
   });
+
+  it("WORKFLOW-RESOLUTION: in-place resolution drawers + attach wiring + hero deep-link", () => {
+    // Resolution drawer + override drawer.
+    assert.match(SRC, /committee-task-resolve-/);
+    assert.match(SRC, /committee-task-override-/);
+    assert.match(SRC, /committee-task-drawer-/);
+    // The four resolution kinds drive the drawer.
+    assert.match(SRC, /submit_analyst_conclusion/);
+    assert.match(SRC, /record_screening_result/);
+    assert.match(SRC, /banker_override/);
+    // Attach reuses the source-snapshot connector via onAttachSource.
+    assert.match(SRC, /onAttachSource/);
+    assert.match(SRC, /attachParamsForTask/);
+    // Hero CTA deep-links to the top action's group card.
+    assert.match(SRC, /#committee-group-\$\{topGroupId\}/);
+  });
 });
 
 describe("no duplicate research source of truth", () => {

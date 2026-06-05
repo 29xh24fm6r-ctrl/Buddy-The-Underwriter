@@ -7,7 +7,6 @@ import {
   applyCommitteeTaskReview,
   buildReviewAuditRow,
   isCommitteeReviewAction,
-  mapActionToReviewStatus,
   type ReviewableTask,
 } from "@/lib/research/committeeTaskReview";
 
@@ -46,7 +45,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
     }
     const actorId = access.userId ?? null;
 
-    let body: { taskId?: unknown; action?: unknown; note?: unknown; reason?: unknown };
+    let body: { taskId?: unknown; action?: unknown; note?: unknown; reason?: unknown; result?: unknown };
     try {
       body = await req.json();
     } catch {
@@ -63,6 +62,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
     }
     const note = typeof body.note === "string" ? body.note : null;
     const reason = typeof body.reason === "string" ? body.reason : null;
+    const screenResult = typeof body.result === "string" ? body.result : null;
 
     const sb = supabaseAdmin();
 
@@ -91,7 +91,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
     };
 
     const now = new Date().toISOString();
-    const result = applyCommitteeTaskReview(task, action, { note, reason, actorId, now });
+    const result = applyCommitteeTaskReview(task, action, { note, reason, result: screenResult, actorId, now });
     if (!result.ok) {
       return NextResponse.json(
         { ok: false, error: result.error, detail: result.detail },
@@ -123,7 +123,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
     const auditRow = buildReviewAuditRow({
       task,
       action,
-      newStatus: mapActionToReviewStatus(action),
+      // Use the ACTUAL persisted status (screening "unable_to_verify" downgrades
+      // to needs_more_evidence, so the audit reflects the real outcome).
+      newStatus: result.patch.review_status,
       opts: { note, reason, actorId },
     });
     const { data: review, error: auditErr } = await sb

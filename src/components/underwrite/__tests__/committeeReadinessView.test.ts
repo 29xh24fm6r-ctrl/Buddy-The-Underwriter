@@ -668,6 +668,56 @@ describe("UX redesign — hero + committee blockers (SPEC-…-UX-REDESIGN-1)", (
   });
 });
 
+describe("in-place resolution derivation (SPEC-…-WORKFLOW-RESOLUTION-1)", () => {
+  it("a banker-attested scale conclusion moves the scale group to Complete", () => {
+    const blockers: CommitteeBlockerResolution[] = [
+      mkBlocker({
+        blocker_id: "scale",
+        title: "Contradiction unresolved: scale plausibility",
+        blocker_type: "contradiction_gap",
+        current_status: "missing",
+        evidence_tasks: [task({ id: "scale-t", task_type: "scale_plausibility", title: "Scale plausibility", resolved_status: "missing", review_status: "banker_attested", auto_clear_forbidden: true })],
+      }),
+    ];
+    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    const scale = view.groups.find((g) => g.id === "scale")!;
+    assert.equal(scale.status, "Complete");
+    // No longer an active committee blocker.
+    assert.equal(view.committeeBlockers.some((b) => b.groupId === "scale"), false);
+  });
+
+  it("a banker-attested adverse result clears the risk blocker and is not re-offered as missing", () => {
+    const blockers: CommitteeBlockerResolution[] = [
+      mkBlocker({
+        blocker_id: "adverse",
+        title: "Public adverse screen",
+        blocker_type: "adverse_screen",
+        current_status: "missing",
+        evidence_tasks: [task({ id: "adv-t", task_type: "public_adverse_screen", title: "Adverse screen", resolved_status: "missing", review_status: "banker_attested" })],
+      }),
+    ];
+    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    const risk = view.groups.find((g) => g.id === "risk")!;
+    assert.equal(risk.status, "Complete");
+    assert.equal(risk.missingActionableTasks.some((t) => t.id === "adv-t"), false);
+  });
+
+  it("an accepted (preliminary) management task is NOT auto-complete — committee-grade still needed", () => {
+    const blockers: CommitteeBlockerResolution[] = [
+      mkBlocker({
+        blocker_id: "mgmt",
+        title: "Management verification",
+        blocker_type: "management_verification",
+        current_status: "present_but_not_committee_grade",
+        evidence_tasks: [task({ id: "mgmt-t", task_type: "management_attestation", title: "Management attestation", resolved_status: "needs_review", review_status: "accepted" })],
+      }),
+    ];
+    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    const mgmt = view.groups.find((g) => g.id === "management")!;
+    assert.notEqual(mgmt.status, "Complete");
+  });
+});
+
 describe("buildCommitteeReadinessView — pure projection (no gate/DB changes)", () => {
   it("does not mutate the input snapshot", () => {
     const snap = omniCareSnapshot();

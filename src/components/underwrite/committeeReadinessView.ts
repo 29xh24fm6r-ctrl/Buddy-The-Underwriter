@@ -299,6 +299,32 @@ function isAdverseScreenBlocker(r: CommitteeBlockerResolution): boolean {
   return r.blocker_type === "adverse_screen" || /adverse screen/i.test(r.title ?? "");
 }
 
+// Only committee-grade or an explicit banker attestation fully resolves a blocker
+// in the VIEW. "accepted" (preliminary) is NOT here — the impact engine already
+// promotes "accepted" to would_resolve for the blockers where that applies
+// (adverse/industry); treating it as a blanket resolve would wrongly clear
+// management/source-quality, which need committee-grade.
+const RESOLVING_REVIEW = new Set(["committee_grade", "banker_attested"]);
+const BLOCKING_REVIEW = new Set(["rejected", "wrong_entity", "weak_source"]);
+
+/**
+ * SPEC-…-WORKFLOW-RESOLUTION-1: a blocker is resolved by IN-PLACE banker review
+ * when it has actionable tasks and every one is in a resolving review state
+ * (committee-grade / accepted / banker-attested) with none in a blocking state.
+ * This is committee-readiness VIEW derivation only — it never touches the gate,
+ * scoring, eligibility, or the impact engine. It is what lets a recorded
+ * screening result, an analyst scale conclusion, or a banker override move a
+ * blocker to Complete on the next read.
+ */
+function blockerResolvedByReview(r: CommitteeBlockerResolution): boolean {
+  const tasks = (r.evidence_tasks ?? []).filter((t) => !!t.id);
+  if (tasks.length === 0) return false;
+  if (tasks.some((t) => BLOCKING_REVIEW.has(String(t.review_status ?? "")))) return false;
+  return tasks.every(
+    (t) => RESOLVING_REVIEW.has(String(t.review_status ?? "")) || !!t.committee_grade_accepted,
+  );
+}
+
 /**
  * Classify one blocker into the banker status taxonomy.
  *
@@ -316,6 +342,10 @@ function classifyBlocker(
   if (impact?.impact_status === "would_resolve" || r.current_status === "resolved") {
     return "complete";
   }
+  // In-place banker resolution (screening result / analyst conclusion / override)
+  // moves the blocker to Complete even for scale/contradiction, which the impact
+  // engine deliberately never auto-resolves.
+  if (blockerResolvedByReview(r)) return "complete";
   // Scale plausibility / contradictions never auto-clear — analyst must conclude.
   const needsConclusion =
     impact?.requires_human_conclusion === true ||
@@ -392,6 +422,11 @@ function classifyTaskItem(t: CommitteeEvidenceTask): { bucket: ItemBucket; label
   const resolved = taskResolvedStatus(t);
   if (t.review_status === "committee_grade" || t.committee_grade_accepted) {
     return { bucket: "onFile", label: `${title} — accepted as committee-grade` };
+  }
+  // SPEC-…-WORKFLOW-RESOLUTION-1: a banker-attested resolution (screening result,
+  // analyst conclusion, override) is on file — never "missing".
+  if (t.review_status === "banker_attested") {
+    return { bucket: "onFile", label: `${title} — resolved by banker (attested)` };
   }
   if (t.review_status === "rejected" || t.review_status === "weak_source" || t.review_status === "wrong_entity") {
     return { bucket: "missing", label: `${title} — re-collect (${scrub(t.review_status)})` };
@@ -800,8 +835,15 @@ export function buildCommitteeReadinessView(
           reviewableTasks.push(t);
         }
         // SPEC-…-ACTION-CENTER-1 Phase 3: missing tasks get a type-aware capture/
-        // record CTA (never Accept/Committee-grade).
-        if (t.id && !seenMissing.has(t.id) && taskResolvedStatus(t) === "missing") {
+        // record CTA (never Accept/Committee-grade) — UNLESS already resolved by a
+        // banker attestation/review (then it's on file, not actionable).
+        if (
+          t.id &&
+          !seenMissing.has(t.id) &&
+          taskResolvedStatus(t) === "missing" &&
+          !RESOLVING_REVIEW.has(String(t.review_status ?? "")) &&
+          !t.committee_grade_accepted
+        ) {
           seenMissing.add(t.id);
           missingActionableTasks.push(t);
         }

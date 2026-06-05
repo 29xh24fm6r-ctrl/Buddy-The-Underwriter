@@ -127,13 +127,37 @@ export default function AnalystWorkbench({ dealId }: Props) {
     async (
       taskId: string,
       action: string,
-      opts?: { note?: string; reason?: string },
+      opts?: { note?: string; reason?: string; result?: string },
     ) => {
       try {
         await fetch(`/api/deals/${dealId}/research/committee-task-review`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ taskId, action, ...opts }),
+        });
+      } catch {
+        // surfaced via refreshed research snapshot below
+      } finally {
+        await fetchResearch();
+      }
+    },
+    [dealId, fetchResearch],
+  );
+
+  // SPEC-COMMITTEE-ACTION-CENTER-WORKFLOW-RESOLUTION-1: attach a banker-supplied
+  // source URL to a committee task via the existing source-snapshot connector
+  // (route-0), then refresh so the official-capture provenance + collected state
+  // surface. Never changes gate/committee state.
+  const attachSource = useCallback(
+    async (
+      taskId: string,
+      payload: { connector_kind: string; source_url: string; source_type: string; note?: string },
+    ) => {
+      try {
+        await fetch(`/api/deals/${dealId}/research/source-snapshot`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, ...payload }),
         });
       } catch {
         // surfaced via refreshed research snapshot below
@@ -236,7 +260,7 @@ export default function AnalystWorkbench({ dealId }: Props) {
           gate passed (preliminary cleared) but committee still blocked — show the
           non-blocking committee path so the banker can act on the blockers. */}
       {!researchGateActive && research && shouldShowCommitteeReadiness(research) && (
-        <CommitteeReadinessPanel snapshot={research} onReviewTask={reviewTask} />
+        <CommitteeReadinessPanel snapshot={research} onReviewTask={reviewTask} onAttachSource={attachSource} />
       )}
 
       {/* Snapshot Banner */}

@@ -21,7 +21,14 @@ export type CommitteeReviewAction =
   | "mark_wrong_entity"
   | "mark_committee_grade"
   | "request_more_evidence"
-  | "reset_review";
+  | "reset_review"
+  // SPEC-COMMITTEE-ACTION-CENTER-WORKFLOW-RESOLUTION-1: banker-attested in-place
+  // resolutions that the standard actions cannot express (missing /
+  // auto_clear_forbidden tasks). They record an explicit human result and never
+  // change gate scoring; the committee-readiness view re-derives "resolved".
+  | "record_screening_result"
+  | "submit_analyst_conclusion"
+  | "banker_override";
 
 export type CommitteeReviewStatus =
   | "unreviewed"
@@ -30,7 +37,8 @@ export type CommitteeReviewStatus =
   | "weak_source"
   | "wrong_entity"
   | "committee_grade"
-  | "needs_more_evidence";
+  | "needs_more_evidence"
+  | "banker_attested";
 
 export const COMMITTEE_REVIEW_ACTIONS: CommitteeReviewAction[] = [
   "accept",
@@ -40,7 +48,14 @@ export const COMMITTEE_REVIEW_ACTIONS: CommitteeReviewAction[] = [
   "mark_committee_grade",
   "request_more_evidence",
   "reset_review",
+  "record_screening_result",
+  "submit_analyst_conclusion",
+  "banker_override",
 ];
+
+/** Screening outcome for record_screening_result. */
+export type ScreeningResult = "clear" | "finding" | "unable_to_verify";
+export const SCREENING_RESULTS: ScreeningResult[] = ["clear", "finding", "unable_to_verify"];
 
 /** The minimal task shape the review layer needs (read from the DB row). */
 export type ReviewableTask = {
@@ -59,6 +74,8 @@ export type CommitteeReviewOpts = {
   note?: string | null;
   reason?: string | null;
   actorId?: string | null;
+  /** record_screening_result outcome. */
+  result?: ScreeningResult | string | null;
   /** Injected for determinism/testability; defaults applied by the caller. */
   now?: string;
 };
@@ -68,7 +85,9 @@ export type CommitteeReviewError =
   | "task_not_acceptable"
   | "task_not_committee_gradeable"
   | "auto_clear_forbidden_not_committee_gradeable"
-  | "reason_required";
+  | "reason_required"
+  | "result_required"
+  | "conclusion_required";
 
 export type ReviewValidation =
   | { ok: true }
@@ -98,6 +117,12 @@ export function mapActionToReviewStatus(action: CommitteeReviewAction): Committe
       return "needs_more_evidence";
     case "reset_review":
       return "unreviewed";
+    // Banker-attested resolutions. record_screening_result with an
+    // "unable_to_verify" outcome is downgraded to needs_more_evidence in apply().
+    case "record_screening_result":
+    case "submit_analyst_conclusion":
+    case "banker_override":
+      return "banker_attested";
   }
 }
 
@@ -167,6 +192,25 @@ export function validateCommitteeTaskReview(
       }
       return { ok: true };
 
+    case "record_screening_result":
+      if (!SCREENING_RESULTS.includes((opts.result ?? "") as ScreeningResult)) {
+        return { ok: false, error: "result_required", status: 400, detail: "record_screening_result requires result in clear|finding|unable_to_verify" };
+      }
+      return { ok: true };
+
+    case "submit_analyst_conclusion":
+      // The explicit human conclusion text is the resolution (stored in the note).
+      if (!hasText(opts.note)) {
+        return { ok: false, error: "conclusion_required", status: 400, detail: "submit_analyst_conclusion requires a conclusion" };
+      }
+      return { ok: true };
+
+    case "banker_override":
+      if (!hasText(opts.reason)) {
+        return { ok: false, error: "reason_required", status: 400, detail: "banker_override requires a reason" };
+      }
+      return { ok: true };
+
     case "mark_weak_source":
     case "request_more_evidence":
     case "reset_review":
@@ -226,6 +270,44 @@ export function applyCommitteeTaskReview(
         review_reason: null,
         reviewed_by: null,
         reviewed_at: null,
+        committee_grade_accepted: false,
+      },
+    };
+  }
+
+  // SPEC-…-WORKFLOW-RESOLUTION-1: banker-attested resolutions reuse the
+  // free-text columns. The structured outcome lives in review_reason
+  // (machine-parseable), the human text in review_note. An "unable_to_verify"
+  // screen does NOT resolve (downgrades to needs_more_evidence). Never sets
+  // committee_grade_accepted (banker attestation ≠ committee-grade evidence).
+  if (action === "record_screening_result") {
+    const result = (opts.result ?? "").toString() as ScreeningResult;
+    const resolves = result === "clear" || result === "finding";
+    return {
+      ok: true,
+      patch: {
+        review_status: resolves ? "banker_attested" : "needs_more_evidence",
+        review_note: hasText(opts.note) ? opts.note!.trim() : null,
+        review_reason: `screening_result:${result}`,
+        reviewed_by: actor,
+        reviewed_at: now,
+        committee_grade_accepted: false,
+      },
+    };
+  }
+
+  if (action === "submit_analyst_conclusion" || action === "banker_override") {
+    return {
+      ok: true,
+      patch: {
+        review_status: "banker_attested",
+        review_note: hasText(opts.note) ? opts.note!.trim() : null,
+        review_reason:
+          action === "banker_override"
+            ? (hasText(opts.reason) ? opts.reason!.trim() : "banker_override")
+            : "analyst_conclusion",
+        reviewed_by: actor,
+        reviewed_at: now,
         committee_grade_accepted: false,
       },
     };

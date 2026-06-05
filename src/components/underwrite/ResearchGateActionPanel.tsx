@@ -19,6 +19,7 @@
  * is owned by AnalystWorkbench so there is a single source of truth for state.
  */
 
+import { useState } from "react";
 import type {
   ResearchGateSnapshot,
   ResearchGatePending,
@@ -28,6 +29,7 @@ import type {
   CommitteeReviewAction,
   CommitteeRequirementsPlan,
   ReviewTaskHandler,
+  AttachSourceHandler,
 } from "./researchGateTypes";
 import {
   deriveResearchGatePhase,
@@ -336,9 +338,11 @@ function DecisionReadiness({
 export function CommitteeReadinessPanel({
   snapshot,
   onReviewTask,
+  onAttachSource,
 }: {
   snapshot: ResearchGateSnapshot;
   onReviewTask?: ReviewTaskHandler;
+  onAttachSource?: AttachSourceHandler;
 }) {
   if (!shouldShowCommitteeReadiness(snapshot)) return null;
   // SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1: banker-simple default view.
@@ -350,7 +354,7 @@ export function CommitteeReadinessPanel({
       className="rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-5 space-y-4"
     >
       {/* A. Top readiness hero — can it go to committee? */}
-      <ReadinessHero hero={view.hero} />
+      <ReadinessHero hero={view.hero} topGroupId={view.defaultExpandedGroupId} />
 
       {/* B. Steps to committee readiness — the fastest path, top step first. */}
       {view.nextActions.length > 0 ? (
@@ -367,6 +371,7 @@ export function CommitteeReadinessPanel({
             key={g.id}
             group={g}
             onReviewTask={onReviewTask}
+            onAttachSource={onAttachSource}
             defaultOpen={g.id === view.defaultExpandedGroupId}
           />
         ))}
@@ -455,7 +460,7 @@ function NextActionsQueue({ actions }: { actions: NextActionItem[] }) {
 
 // SPEC-…-UX-REDESIGN-1 (A): the compact top readiness hero — one status line,
 // one explanation, the 3-count progress, and the single top next action.
-function ReadinessHero({ hero }: { hero: ReadinessHeroView }) {
+function ReadinessHero({ hero, topGroupId }: { hero: ReadinessHeroView; topGroupId: string | null }) {
   const committeeReady = /committee ready/i.test(hero.statusLine) && !/not ready/i.test(hero.statusLine);
   return (
     <div className="space-y-2" data-testid="committee-readiness-hero">
@@ -480,12 +485,17 @@ function ReadinessHero({ hero }: { hero: ReadinessHeroView }) {
       </div>
 
       {hero.primaryActionLabel ? (
-        <div className="rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5" data-testid="committee-hero-primary">
+        <a
+          href={topGroupId ? `#committee-group-${topGroupId}` : undefined}
+          className="block rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5 hover:bg-sky-500/20 transition-colors"
+          data-testid="committee-hero-primary"
+        >
           <p className="text-[11px]">
-            <span className="font-semibold text-sky-200">Next action: </span>
+            <span className="font-semibold text-sky-200">Resolve now: </span>
             <span className="text-sky-100/90">{hero.primaryActionLabel}</span>
+            <span className="text-sky-300/70"> →</span>
           </p>
-        </div>
+        </a>
       ) : null}
 
       <a href="#committee-evidence-plan" className="inline-block text-[11px] text-sky-300/70 underline decoration-dotted">
@@ -560,10 +570,12 @@ const GROUP_STATUS_TONE: Record<GroupStatusLabel, string> = {
 function CommitteeReadinessGroupCard({
   group,
   onReviewTask,
+  onAttachSource,
   defaultOpen = false,
 }: {
   group: CommitteeReadinessGroupView;
   onReviewTask?: ReviewTaskHandler;
+  onAttachSource?: AttachSourceHandler;
   defaultOpen?: boolean;
 }) {
   const counts = [
@@ -574,6 +586,7 @@ function CommitteeReadinessGroupCard({
   return (
     <details
       open={defaultOpen}
+      id={`committee-group-${group.id}`}
       className="rounded-lg border border-sky-500/15 bg-black/10 p-3 text-[11px]"
       data-testid={`committee-group-${group.id}`}
     >
@@ -666,7 +679,7 @@ function CommitteeReadinessGroupCard({
         <div className="mt-2 space-y-1.5" data-testid={`committee-group-${group.id}-actions`}>
           <p className="text-amber-300/70">Actions:</p>
           {[...group.reviewableTasks, ...group.missingActionableTasks].map((t) => (
-            <TaskActionRow key={t.id ?? t.task_type} task={t} onReviewTask={onReviewTask} />
+            <TaskActionRow key={t.id ?? t.task_type} task={t} onReviewTask={onReviewTask} onAttachSource={onAttachSource} />
           ))}
         </div>
       ) : null}
@@ -678,29 +691,83 @@ function CommitteeReadinessGroupCard({
   );
 }
 
-// SPEC-…-ACTION-CENTER-1 Phase 3: one task's action row, presentation driven by
-// the pure deriveTaskActions rules. Missing/capture/record/conclusion primaries
-// show only the labeled primary + "Request more"; needs-review tasks show the
-// full validated review set with Committee-grade shown/disabled per the plan.
+// SPEC-…-WORKFLOW-RESOLUTION-1: the source-snapshot connector params for a task's
+// "attach" primary, by task type. Reuses the existing validated connector kinds /
+// source types (no new endpoint).
+function attachParamsForTask(taskType: string): { connector_kind: string; source_type: string } {
+  if (/sos|registry/i.test(taskType)) return { connector_kind: "secretary_of_state", source_type: "secretary_of_state" };
+  if (/adverse/i.test(taskType)) return { connector_kind: "public_adverse_screen", source_type: "public_adverse_record_search" };
+  if (/industry|market/i.test(taskType)) return { connector_kind: "trade_or_market_source", source_type: "market_research" };
+  if (/competit/i.test(taskType)) return { connector_kind: "competitor_source", source_type: "company_primary" };
+  if (/management/i.test(taskType)) return { connector_kind: "manual_url", source_type: "company_primary" };
+  return { connector_kind: "manual_url", source_type: "unknown_public_web" };
+}
+
+const ACTION_BTN =
+  "rounded px-1.5 py-0.5 text-[10px] border border-amber-500/20 text-amber-100/70 hover:bg-amber-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed";
+const PRIMARY_BTN =
+  "rounded px-2 py-0.5 text-[10px] font-semibold border border-sky-400/40 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25 transition-colors";
+
+// SPEC-…-ACTION-CENTER-1 Phase 3 + WORKFLOW-RESOLUTION-1: one task's action row.
+// Presentation is driven by the pure deriveTaskActions rules; the primary opens
+// an IN-PLACE resolution drawer (screening result / official-capture attach /
+// evidence attach / analyst conclusion) so the banker resolves it without leaving
+// the page. Needs-review tasks keep the validated review set.
 function TaskActionRow({
   task: t,
   onReviewTask,
+  onAttachSource,
 }: {
   task: CommitteeEvidenceTask;
   onReviewTask: ReviewTaskHandler;
+  onAttachSource?: AttachSourceHandler;
 }) {
   const plan = deriveTaskActions(t);
   const reviewStatus = String(t.review_status ?? "unreviewed");
   const isReviewPrimary = plan.primaryKind === "mark_committee_grade";
+  const taskType = String(t.task_type ?? "");
+
+  const [open, setOpen] = useState<"" | "resolve" | "override">("");
+  const [result, setResult] = useState<"clear" | "finding" | "unable_to_verify">("clear");
+  const [text, setText] = useState(""); // notes / conclusion
+  const [url, setUrl] = useState("");
+  const [reason, setReason] = useState("");
 
   const run = (action: CommitteeReviewAction, requireReason = false) => {
-    let reason: string | undefined;
+    let r: string | undefined;
     if (requireReason) {
       const entered = typeof window !== "undefined" ? window.prompt(`Reason for "${action}"?`) : null;
       if (!entered || !entered.trim()) return;
-      reason = entered.trim();
+      r = entered.trim();
     }
-    void onReviewTask(t.id!, action, reason ? { reason } : undefined);
+    void onReviewTask(t.id!, action, r ? { reason: r } : undefined);
+  };
+
+  const resetForm = () => { setOpen(""); setText(""); setUrl(""); setReason(""); setResult("clear"); };
+
+  const saveResolution = async () => {
+    if (plan.primaryKind === "add_conclusion") {
+      if (!text.trim()) return;
+      await onReviewTask(t.id!, "submit_analyst_conclusion", { note: text.trim() });
+    } else if (plan.primaryKind === "record_result") {
+      if (url.trim() && onAttachSource) {
+        const p = attachParamsForTask(taskType);
+        await onAttachSource(t.id!, { ...p, source_url: url.trim(), note: text.trim() || undefined });
+      }
+      await onReviewTask(t.id!, "record_screening_result", { result, note: text.trim() || undefined });
+    } else {
+      // capture_official / attach_evidence / add_loan_request → attach a source URL.
+      if (!url.trim() || !onAttachSource) return;
+      const p = attachParamsForTask(taskType);
+      await onAttachSource(t.id!, { ...p, source_url: url.trim(), note: text.trim() || undefined });
+    }
+    resetForm();
+  };
+
+  const saveOverride = async () => {
+    if (!reason.trim()) return;
+    await onReviewTask(t.id!, "banker_override", { reason: reason.trim() });
+    resetForm();
   };
 
   return (
@@ -712,28 +779,74 @@ function TaskActionRow({
         </span>
       </div>
       {plan.note ? <p className="text-[10px] text-amber-300/70">{plan.note}</p> : null}
-      <div className="flex flex-wrap items-center gap-1">
-        {plan.showAccept ? <ReviewActionButton onRun={run} label="Accept" action="accept" /> : null}
-        {plan.showCommitteeGrade ? (
-          <ReviewActionButton
-            onRun={run}
-            label="Committee-grade"
-            action="mark_committee_grade"
-            disabled={plan.committeeGradeDisabled}
-          />
-        ) : null}
-        {isReviewPrimary ? (
-          <>
-            <ReviewActionButton onRun={run} label="Weak source" action="mark_weak_source" />
-            <ReviewActionButton onRun={run} label="Wrong entity" action="mark_wrong_entity" requireReason danger />
-          </>
-        ) : null}
-        <ReviewActionButton onRun={run} label="Request more" action="request_more_evidence" />
-        {isReviewPrimary ? (
+
+      {isReviewPrimary ? (
+        // Needs-review task: the validated review controls.
+        <div className="flex flex-wrap items-center gap-1">
+          {plan.showAccept ? <ReviewActionButton onRun={run} label="Accept" action="accept" /> : null}
+          {plan.showCommitteeGrade ? (
+            <ReviewActionButton onRun={run} label="Committee-grade" action="mark_committee_grade" disabled={plan.committeeGradeDisabled} />
+          ) : null}
+          <ReviewActionButton onRun={run} label="Weak source" action="mark_weak_source" />
+          <ReviewActionButton onRun={run} label="Wrong entity" action="mark_wrong_entity" requireReason danger />
+          <ReviewActionButton onRun={run} label="Request more" action="request_more_evidence" />
           <ReviewActionButton onRun={run} label="Reject" action="reject" requireReason danger />
-        ) : null}
-        <ReviewActionButton onRun={run} label="Reset" action="reset_review" />
-      </div>
+          <ReviewActionButton onRun={run} label="Reset" action="reset_review" />
+        </div>
+      ) : (
+        // Missing/attestation task: an in-place resolution primary + override.
+        <div className="flex flex-wrap items-center gap-1">
+          <button type="button" className={PRIMARY_BTN} onClick={() => setOpen(open === "resolve" ? "" : "resolve")} data-testid={`committee-task-resolve-${t.id ?? t.task_type}`}>
+            {plan.primaryLabel}
+          </button>
+          {plan.primaryKind !== "add_conclusion" ? (
+            <button type="button" className={ACTION_BTN} onClick={() => setOpen(open === "override" ? "" : "override")}>
+              Override (reason)
+            </button>
+          ) : null}
+          <ReviewActionButton onRun={run} label="Request more" action="request_more_evidence" />
+          {reviewStatus !== "unreviewed" ? <ReviewActionButton onRun={run} label="Reset" action="reset_review" /> : null}
+        </div>
+      )}
+
+      {/* In-place resolution drawer. */}
+      {open === "resolve" ? (
+        <div className="mt-1 space-y-1 rounded border border-sky-500/20 bg-black/20 p-1.5" data-testid={`committee-task-drawer-${t.id ?? t.task_type}`}>
+          {plan.primaryKind === "record_result" ? (
+            <label className="block text-[10px] text-sky-100/70">
+              Result
+              <select className="ml-1 rounded bg-black/30 text-[10px] text-sky-100" value={result} onChange={(e) => setResult(e.target.value as any)}>
+                <option value="clear">Clear</option>
+                <option value="finding">Finding</option>
+                <option value="unable_to_verify">Unable to verify</option>
+              </select>
+            </label>
+          ) : null}
+          {plan.primaryKind === "add_conclusion" ? (
+            <textarea className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" rows={2} placeholder="Analyst conclusion…" value={text} onChange={(e) => setText(e.target.value)} />
+          ) : (
+            <>
+              <input className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" placeholder={plan.primaryKind === "record_result" ? "Official capture URL (optional)" : "Official source URL"} value={url} onChange={(e) => setUrl(e.target.value)} />
+              <input className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" placeholder="Notes (optional)" value={text} onChange={(e) => setText(e.target.value)} />
+            </>
+          )}
+          <div className="flex gap-1">
+            <button type="button" className={PRIMARY_BTN} onClick={() => void saveResolution()}>Save</button>
+            <button type="button" className={ACTION_BTN} onClick={resetForm}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+
+      {open === "override" ? (
+        <div className="mt-1 space-y-1 rounded border border-rose-500/20 bg-black/20 p-1.5" data-testid={`committee-task-override-${t.id ?? t.task_type}`}>
+          <input className="w-full rounded bg-black/30 p-1 text-[10px] text-sky-100" placeholder="Override reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <div className="flex gap-1">
+            <button type="button" className={ACTION_BTN} onClick={() => void saveOverride()}>Save override</button>
+            <button type="button" className={ACTION_BTN} onClick={resetForm}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+
       {plan.committeeGradeDisabled && plan.committeeGradeBlockedReason ? (
         <p className="text-[10px] text-rose-300/70">{plan.committeeGradeBlockedReason}</p>
       ) : null}

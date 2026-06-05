@@ -17,7 +17,14 @@ export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReview
 export type ReviewTaskHandler = (
   taskId: string,
   action: CommitteeReviewAction,
-  opts?: { note?: string; reason?: string },
+  opts?: { note?: string; reason?: string; result?: string },
+) => void | Promise<void>;
+
+// SPEC-COMMITTEE-ACTION-CENTER-WORKFLOW-RESOLUTION-1: attach a banker-supplied
+// source URL to a committee task (reuses the source-snapshot connector).
+export type AttachSourceHandler = (
+  taskId: string,
+  payload: { connector_kind: string; source_url: string; source_type: string; note?: string },
 ) => void | Promise<void>;
 
 export type ResearchGatePending = "init" | "run" | null;

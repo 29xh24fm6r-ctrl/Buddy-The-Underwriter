@@ -244,3 +244,63 @@ test("[audit] previous_review_status reflects the prior state on a re-review", (
   assert.equal(row.previous_review_status, "accepted");
   assert.equal(row.new_review_status, "unreviewed");
 });
+
+// SPEC-COMMITTEE-ACTION-CENTER-WORKFLOW-RESOLUTION-1 — banker-attested resolutions
+test("[screening] clear/finding on a missing task → banker_attested, never committee-grade", () => {
+  for (const result of ["clear", "finding"] as const) {
+    const r = applyCommitteeTaskReview(task({ resolved_status: "missing" }), "record_screening_result", { result, note: "screened", now: NOW, actorId: ACTOR });
+    assert.ok(r.ok);
+    if (r.ok) {
+      assert.equal(r.patch.review_status, "banker_attested");
+      assert.equal(r.patch.committee_grade_accepted, false);
+      assert.equal(r.patch.review_reason, `screening_result:${result}`);
+    }
+  }
+});
+
+test("[screening] unable_to_verify does NOT resolve (downgrades to needs_more_evidence)", () => {
+  const r = applyCommitteeTaskReview(task({ resolved_status: "missing" }), "record_screening_result", { result: "unable_to_verify", now: NOW });
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(r.patch.review_status, "needs_more_evidence");
+});
+
+test("[screening] requires a valid result", () => {
+  const r = validateCommitteeTaskReview(task({ resolved_status: "missing" }), "record_screening_result", {});
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error, "result_required");
+});
+
+test("[scale conclusion] resolves an auto_clear_forbidden task via banker_attested (not committee-grade)", () => {
+  const r = applyCommitteeTaskReview(task({ resolved_status: "missing", auto_clear_forbidden: true }), "submit_analyst_conclusion", { note: "Revenue ramp consistent with staffing + collateral.", now: NOW });
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.patch.review_status, "banker_attested");
+    assert.equal(r.patch.committee_grade_accepted, false);
+    assert.match(r.patch.review_note ?? "", /revenue ramp/i);
+  }
+});
+
+test("[scale conclusion] requires conclusion text", () => {
+  const r = validateCommitteeTaskReview(task({ auto_clear_forbidden: true }), "submit_analyst_conclusion", {});
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error, "conclusion_required");
+});
+
+test("[override] requires a reason; resolves via banker_attested", () => {
+  const bad = validateCommitteeTaskReview(task({ resolved_status: "missing" }), "banker_override", {});
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.equal(bad.error, "reason_required");
+  const ok = applyCommitteeTaskReview(task({ resolved_status: "missing" }), "banker_override", { reason: "Registry has no linkable detail URL; verified by phone.", now: NOW });
+  assert.ok(ok.ok);
+  if (ok.ok) {
+    assert.equal(ok.patch.review_status, "banker_attested");
+    assert.equal(ok.patch.committee_grade_accepted, false);
+  }
+});
+
+test("[guard] new actions are recognized + in the action list", () => {
+  for (const a of ["record_screening_result", "submit_analyst_conclusion", "banker_override"] as const) {
+    assert.ok(isCommitteeReviewAction(a));
+    assert.ok(COMMITTEE_REVIEW_ACTIONS.includes(a));
+  }
+});
