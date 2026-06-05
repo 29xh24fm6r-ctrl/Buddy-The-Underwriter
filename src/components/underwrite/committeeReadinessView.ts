@@ -56,11 +56,18 @@ export interface CommitteeReadinessGroupView {
   /** One concrete state-aware next action for this group (null when complete). */
   nextAction: string | null;
   /**
-   * SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured-source
-   * loan-file artifacts the banker can open from the default view. pdfUrl is the
-   * on-demand PDF receipt (SPEC-…-PDF-ARTIFACTS-1); url is the HTML fallback.
+   * SPEC-…-OFFICIAL-PDF-CAPTURE-1: durable captured-source artifacts, split into
+   * the ACTUAL official capture (when available) and Buddy's generated receipt —
+   * never conflated. `officialCaptureUrl` is null unless a usable official capture
+   * exists; `officialCaptureStatus` explains why (e.g. search_form_only).
    */
-  capturedSources: { label: string; url: string; pdfUrl: string }[];
+  capturedSources: {
+    label: string;
+    officialCaptureUrl: string | null;
+    officialCaptureStatus: string;
+    receiptUrl: string;
+    htmlReceiptUrl: string;
+  }[];
   /**
    * SPEC-BIE-COMMITTEE-READINESS-FINAL-UX-POLISH-AND-PDF-ARTIFACTS-1 Phase 1:
    * needs-review tasks that are directly actionable in the default card (mark
@@ -68,6 +75,13 @@ export interface CommitteeReadinessGroupView {
    * "Show audit details".
    */
   reviewableTasks: CommitteeEvidenceTask[];
+  /**
+   * SPEC-…-ACTION-CENTER-1 Phase 3: still-missing tasks (with ids) that need a
+   * type-aware capture/record action (never Accept/Committee-grade). Rendered with
+   * deriveTaskActions so the card shows the right primary (e.g. "Record
+   * adverse-screen result", "Capture official result page").
+   */
+  missingActionableTasks: CommitteeEvidenceTask[];
 }
 
 export interface CommitteeReadinessSummaryView {
@@ -87,6 +101,44 @@ export interface ScalePlausibilityView {
   label: string;
   explanation: string;
   nextAction: string;
+}
+
+/** SPEC-…-ACTION-CENTER-1: one item in the prioritized "Next actions" queue. */
+export interface NextActionItem {
+  id: string;
+  /** The primary action, plain banker English. */
+  label: string;
+  /** Why it matters for committee. */
+  why: string;
+  status: GroupStatusLabel;
+  groupId: CommitteeReadinessGroupId;
+}
+
+/**
+ * SPEC-…-ACTION-CENTER-1 Phase 3: pure button-presentation plan for one task.
+ * Uses the existing validated review actions; only the PRESENTATION changes.
+ */
+export type TaskPrimaryKind =
+  | "mark_committee_grade"
+  | "capture_official"
+  | "attach_evidence"
+  | "record_result"
+  | "add_conclusion"
+  | "add_loan_request"
+  | "request_more";
+
+export interface TaskActionPlan {
+  primaryLabel: string;
+  primaryKind: TaskPrimaryKind;
+  /** Show the Accept button (collected/needs-review, not committee-grade yet). */
+  showAccept: boolean;
+  /** Show the Committee-grade button at all (hidden for missing/scale). */
+  showCommitteeGrade: boolean;
+  /** Committee-grade shown but disabled (e.g. SOS search-form-only, financial gaps). */
+  committeeGradeDisabled: boolean;
+  committeeGradeBlockedReason: string | null;
+  /** A short provenance/limitation note for the card. */
+  note: string | null;
 }
 
 export interface CommitteeReadinessAuditTaskRow {
@@ -110,6 +162,10 @@ export interface CommitteeReadinessAuditRow {
 
 export interface CommitteeReadinessView {
   summary: CommitteeReadinessSummaryView;
+  /** SPEC-…-ACTION-CENTER-1: prioritized guided queue (top item first). */
+  nextActions: NextActionItem[];
+  /** The group of the top next action — the only card expanded by default. */
+  defaultExpandedGroupId: CommitteeReadinessGroupId | null;
   groups: CommitteeReadinessGroupView[];
   scalePlausibility: ScalePlausibilityView | null;
   audit: CommitteeReadinessAuditRow[];
@@ -364,77 +420,187 @@ function mentionsLoanRequest(r: CommitteeBlockerResolution): boolean {
   return /loan request|use of proceeds/.test(hay);
 }
 
-function deriveNextBestAction(ranked: RankedBlocker[]): string | null {
+// Prioritized next-action rules (module-scope so both the single next-best-action
+// and the action-center queue share one source of truth + ordering). Adverse
+// screen is rule #2 → the top action for a deal whose only-missing risk item is
+// the adverse screen (the OmniCare case).
+const NEXT_ACTION_RULES: Array<{
+  match: (b: RankedBlocker) => boolean;
+  action: string;
+  why: string;
+}> = [
+  {
+    match: (b) =>
+      /wrong\/conflicting|conflicting public entity/i.test(b.r.title ?? "") ||
+      hasRejectedOrWrongEntityEvidence(b.r),
+    action: "Resolve the wrong or conflicting borrower entity before committee review.",
+    why: "Committee cannot rely on evidence tied to the wrong or a conflicting entity.",
+  },
+  {
+    match: (b) => isAdverseScreenBlocker(b.r) && b.status !== "complete",
+    action: "Complete the adverse-record screen.",
+    why: "Committee requires a documented public adverse-record screen result.",
+  },
+  {
+    match: (b) =>
+      bucketFor(b.r, b.impact) === "financial" && mentionsLoanRequest(b.r) && b.status !== "complete",
+    action: "Add loan request and use-of-proceeds support.",
+    why: "Committee needs the loan request and use of proceeds tied to the financials.",
+  },
+  {
+    match: (b) =>
+      (b.r.blocker_type === "public_entity_verification" || b.r.blocker_type === "source_quality") &&
+      b.status === "needs_review",
+    action: "Review the Secretary of State record and mark it committee-grade, or reject it.",
+    why: "An official entity record is captured but not yet reviewed to committee-grade.",
+  },
+  {
+    match: (b) => b.r.blocker_type === "management_verification" && b.status === "needs_review",
+    action: "Attach or accept the management/ownership attestation.",
+    why: "Management/ownership needs reviewed or attested evidence for committee.",
+  },
+  {
+    match: (b) =>
+      bucketFor(b.r, b.impact) === "industry" &&
+      /industry|market/i.test(b.r.title ?? "") &&
+      !/competit/i.test(b.r.title ?? "") &&
+      b.status === "missing",
+    action: "Add an industry or market source.",
+    why: "Committee needs an outside industry/market source for the sector claims.",
+  },
+  {
+    match: (b) => /competit/i.test(b.r.title ?? "") && b.status !== "complete",
+    action: "Add committee-grade competitor support.",
+    why: "Competitor claims need an outside source committee can rely on.",
+  },
+  {
+    match: (b) => isScaleBlocker(b.r, b.impact) && b.status !== "complete",
+    action: "Add an analyst conclusion for scale plausibility.",
+    why: "Scale plausibility never auto-clears — it needs an explicit analyst conclusion.",
+  },
+];
+
+/**
+ * SPEC-…-ACTION-CENTER-1: the prioritized guided queue. One item per matched
+ * rule (deduped by action), in rule priority order, each linked to its group.
+ */
+function deriveNextActionQueue(ranked: RankedBlocker[]): NextActionItem[] {
   const unresolved = ranked.filter((b) => b.status !== "complete");
-  if (unresolved.length === 0) return null;
-
-  const rules: Array<{ match: (b: RankedBlocker) => boolean; action: string }> = [
-    // 1. Any wrong-entity / rejected source.
-    {
-      match: (b) =>
-        /wrong\/conflicting|conflicting public entity/i.test(b.r.title ?? "") ||
-        hasRejectedOrWrongEntityEvidence(b.r),
-      action: "Resolve the wrong or conflicting borrower entity before committee review.",
-    },
-    // 2. Adverse screen missing.
-    {
-      match: (b) => isAdverseScreenBlocker(b.r) && b.status !== "complete",
-      action: "Complete the adverse-record screen.",
-    },
-    // 3. Loan request / use-of-proceeds missing.
-    {
-      match: (b) =>
-        bucketFor(b.r, b.impact) === "financial" &&
-        mentionsLoanRequest(b.r) &&
-        b.status !== "complete",
-      action: "Add loan request and use-of-proceeds support.",
-    },
-    // 4. SOS / business registry needs review.
-    {
-      match: (b) =>
-        (b.r.blocker_type === "public_entity_verification" ||
-          b.r.blocker_type === "source_quality") &&
-        b.status === "needs_review",
-      action: "Review the Secretary of State record and mark it committee-grade, or reject it.",
-    },
-    // 5. Management attestation needs review.
-    {
-      match: (b) => b.r.blocker_type === "management_verification" && b.status === "needs_review",
-      action: "Attach or accept the management/ownership attestation.",
-    },
-    // 6. Industry / market source missing.
-    {
-      match: (b) =>
-        bucketFor(b.r, b.impact) === "industry" &&
-        /industry|market/i.test(b.r.title ?? "") &&
-        !/competit/i.test(b.r.title ?? "") &&
-        b.status === "missing",
-      action: "Add an industry or market source.",
-    },
-    // 7. Competitor support needs review.
-    {
-      match: (b) => /competit/i.test(b.r.title ?? "") && b.status !== "complete",
-      action: "Add committee-grade competitor support.",
-    },
-    // 8. Scale plausibility analyst conclusion.
-    {
-      match: (b) => isScaleBlocker(b.r, b.impact) && b.status !== "complete",
-      action: "Add an analyst conclusion for scale plausibility.",
-    },
-  ];
-
-  for (const rule of rules) {
-    if (unresolved.some(rule.match)) return rule.action;
+  if (unresolved.length === 0) return [];
+  const out: NextActionItem[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < NEXT_ACTION_RULES.length; i++) {
+    const rule = NEXT_ACTION_RULES[i];
+    const hit = unresolved.find(rule.match);
+    if (!hit) continue;
+    if (seen.has(rule.action)) continue;
+    seen.add(rule.action);
+    out.push({
+      id: `na-${i}`,
+      label: rule.action,
+      why: rule.why,
+      status: STATUS_LABEL[hit.status],
+      groupId: bucketFor(hit.r, hit.impact),
+    });
   }
-  // Fallback: any remaining group's curated next action (priority group order).
+  // Fallback: any remaining unresolved group with no rule hit yet.
   for (const id of GROUP_ORDER) {
+    if (out.some((a) => a.groupId === id)) continue;
     const b = unresolved.find((x) => bucketFor(x.r, x.impact) === id);
-    if (b) {
-      const action = GROUP_NEXT_ACTION[id][b.status];
-      if (action) return action;
+    if (!b) continue;
+    const action = GROUP_NEXT_ACTION[id][b.status];
+    if (action && !seen.has(action)) {
+      seen.add(action);
+      out.push({ id: `na-grp-${id}`, label: action, why: GROUP_EXPLANATION[id], status: STATUS_LABEL[b.status], groupId: id });
     }
   }
-  return null;
+  return out;
+}
+
+function deriveNextBestAction(ranked: RankedBlocker[]): string | null {
+  return deriveNextActionQueue(ranked)[0]?.label ?? null;
+}
+
+/**
+ * SPEC-…-ACTION-CENTER-1 Phase 3: pure button-presentation rules for one task.
+ * Never changes the validated review API — only WHICH buttons show and the
+ * primary label/disabled state. Missing tasks never offer Accept/Committee-grade;
+ * SOS without a usable official capture cannot be committee-graded without an
+ * override; scale plausibility is analyst-conclusion only; a financial file with
+ * a missing loan-request checklist item does not present a blanket Committee-grade.
+ */
+export function deriveTaskActions(t: CommitteeEvidenceTask): TaskActionPlan {
+  const resolved = String(t.resolved_status ?? t.status ?? "");
+  const taskType = String(t.task_type ?? "");
+  const isCommitteeGrade = t.review_status === "committee_grade" || !!t.committee_grade_accepted;
+  const acceptable = resolved === "collected" || resolved === "needs_review" || t.review_status === "accepted";
+  const checklistMissing = (t.checklist ?? []).some((c) => String(c.status) === "missing");
+
+  const base: TaskActionPlan = {
+    primaryLabel: "Review",
+    primaryKind: "request_more",
+    showAccept: acceptable && !isCommitteeGrade,
+    showCommitteeGrade: false,
+    committeeGradeDisabled: false,
+    committeeGradeBlockedReason: null,
+    note: null,
+  };
+
+  // Scale plausibility / contradictions: analyst conclusion only — never CG.
+  if (t.auto_clear_forbidden || /scale/i.test(taskType)) {
+    return { ...base, primaryLabel: "Add analyst conclusion", primaryKind: "add_conclusion", showAccept: false, showCommitteeGrade: false };
+  }
+
+  // Missing tasks: no Accept/Committee-grade; type-aware capture/record CTA.
+  if (resolved === "missing") {
+    if (/adverse/i.test(taskType)) {
+      return { ...base, primaryLabel: "Record adverse-screen result", primaryKind: "record_result", showAccept: false };
+    }
+    if (/sos|registry/i.test(taskType)) {
+      return { ...base, primaryLabel: "Capture official result page", primaryKind: "capture_official", showAccept: false };
+    }
+    if (/financial_file/i.test(taskType)) {
+      return { ...base, primaryLabel: "Add loan request / use-of-proceeds", primaryKind: "add_loan_request", showAccept: false };
+    }
+    return { ...base, primaryLabel: "Attach evidence", primaryKind: "attach_evidence", showAccept: false };
+  }
+
+  // SOS / business registry captured: Committee-grade only with a usable official
+  // capture; a search-form/receipt-only capture must capture the detail page first.
+  if (/sos|registry/i.test(taskType) || t.blocker_type === "public_entity_verification") {
+    if (t.official_capture_available) {
+      return { ...base, primaryLabel: "Mark committee-grade", primaryKind: "mark_committee_grade", showCommitteeGrade: !isCommitteeGrade };
+    }
+    return {
+      ...base,
+      primaryLabel: "Capture official result page",
+      primaryKind: "capture_official",
+      showCommitteeGrade: !isCommitteeGrade,
+      committeeGradeDisabled: true,
+      committeeGradeBlockedReason:
+        "Only a search form / Buddy receipt is captured — attach the official result page, or add an override note, before committee-grade.",
+      note:
+        t.official_capture_status === "search_form_only"
+          ? "Official result page not captured (search form only)."
+          : "No official source capture on file (Buddy receipt only).",
+    };
+  }
+
+  // Financial file: a missing loan-request/use-of-proceeds checklist item means
+  // Committee-grade does not resolve everything — disable it with a reason.
+  if (/financial_file/i.test(taskType) && checklistMissing) {
+    return {
+      ...base,
+      primaryLabel: "Add loan request / use-of-proceeds",
+      primaryKind: "add_loan_request",
+      showCommitteeGrade: !isCommitteeGrade,
+      committeeGradeDisabled: true,
+      committeeGradeBlockedReason: "Some required items are still missing (e.g. loan request / use of proceeds).",
+    };
+  }
+
+  // Default captured/needs-review task: Committee-grade is the primary.
+  return { ...base, primaryLabel: "Mark committee-grade", primaryKind: "mark_committee_grade", showCommitteeGrade: !isCommitteeGrade };
 }
 
 // ── State-aware per-group next action (SPEC-…-STATE-CORRECTNESS-1) ────────────
@@ -562,10 +728,12 @@ export function buildCommitteeReadinessView(
     const onFile: string[] = [];
     const needsReview: string[] = [];
     const missing: string[] = [];
-    const capturedSources: { label: string; url: string; pdfUrl: string }[] = [];
+    const capturedSources: CommitteeReadinessGroupView["capturedSources"] = [];
     const reviewableTasks: CommitteeEvidenceTask[] = [];
+    const missingActionableTasks: CommitteeEvidenceTask[] = [];
     const seenArtifactUrls = new Set<string>();
     const seenReviewable = new Set<string>();
+    const seenMissing = new Set<string>();
     const push = (b: ItemBucket, label: string) =>
       (b === "onFile" ? onFile : b === "needsReview" ? needsReview : missing).push(label);
 
@@ -593,14 +761,24 @@ export function buildCommitteeReadinessView(
           seenReviewable.add(t.id);
           reviewableTasks.push(t);
         }
+        // SPEC-…-ACTION-CENTER-1 Phase 3: missing tasks get a type-aware capture/
+        // record CTA (never Accept/Committee-grade).
+        if (t.id && !seenMissing.has(t.id) && taskResolvedStatus(t) === "missing") {
+          seenMissing.add(t.id);
+          missingActionableTasks.push(t);
+        }
         // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured source.
         if (t.artifact_view_url && !seenArtifactUrls.has(t.artifact_view_url)) {
           seenArtifactUrls.add(t.artifact_view_url);
           const u = t.artifact_view_url;
           capturedSources.push({
             label: scrub(String(t.title ?? t.task_type ?? "captured source")),
-            url: u,
-            pdfUrl: u + (u.includes("?") ? "&" : "?") + "format=pdf",
+            // Only a USABLE official capture gets an "Official capture" link;
+            // a search-form/receipt-only artifact does not (status explains why).
+            officialCaptureUrl: t.official_capture_available ? (t.official_capture_view_url ?? `${u}&format=official`) : null,
+            officialCaptureStatus: String(t.official_capture_status ?? "none"),
+            receiptUrl: t.receipt_view_url ?? u + (u.includes("?") ? "&" : "?") + "format=pdf",
+            htmlReceiptUrl: u,
           });
         }
       }
@@ -626,6 +804,7 @@ export function buildCommitteeReadinessView(
       nextAction: worst === "complete" ? null : deriveGroupNextAction(id, members) ?? GROUP_NEXT_ACTION[id][worst] ?? null,
       capturedSources: capturedSources.slice(0, 6),
       reviewableTasks: reviewableTasks.slice(0, 6),
+      missingActionableTasks: missingActionableTasks.slice(0, 6),
     };
   });
 
@@ -649,6 +828,10 @@ export function buildCommitteeReadinessView(
     nextBestAction: deriveNextBestAction(ranked),
   };
 
+  // SPEC-…-ACTION-CENTER-1: prioritized guided queue + the one card to expand.
+  const nextActions = deriveNextActionQueue(ranked);
+  const defaultExpandedGroupId = nextActions[0]?.groupId ?? null;
+
   // Audit projection — the ONLY place machine vocabulary is allowed.
   const audit: CommitteeReadinessAuditRow[] = ranked.map((b) => ({
     blocker_id: b.r.blocker_id,
@@ -669,6 +852,8 @@ export function buildCommitteeReadinessView(
 
   return {
     summary,
+    nextActions,
+    defaultExpandedGroupId,
     groups,
     scalePlausibility: scaleApplies ? SCALE_PLAUSIBILITY : null,
     audit,
@@ -687,6 +872,7 @@ export function defaultViewText(view: CommitteeReadinessView): string {
     view.summary.subcopy,
     view.summary.nextBestAction ?? "",
   ];
+  for (const a of view.nextActions) parts.push(a.label, a.why);
   for (const g of view.groups) {
     parts.push(g.title, g.status, g.explanation, g.nextAction ?? "");
     parts.push(...g.alreadyOnFile, ...g.needsReview, ...g.missing);

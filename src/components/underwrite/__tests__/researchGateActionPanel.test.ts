@@ -111,6 +111,34 @@ describe("CommitteeReadinessPanel — single command surface (SPEC-…-SINGLE-CO
   });
 });
 
+describe("CommitteeReadinessPanel — action center (SPEC-…-ACTION-CENTER-1)", () => {
+  const SRC = fs.readFileSync(
+    path.resolve(__dirname, "..", "ResearchGateActionPanel.tsx"),
+    "utf8",
+  );
+
+  it("renders the prioritized Next actions queue", () => {
+    assert.match(SRC, /NextActionsQueue/);
+    assert.match(SRC, /committee-next-actions/);
+  });
+
+  it("only the top next action's card is expanded by default", () => {
+    assert.match(SRC, /defaultOpen=\{g\.id === view\.defaultExpandedGroupId\}/);
+    assert.match(SRC, /<details\s+open=\{defaultOpen\}/);
+  });
+
+  it("captured sources distinguish Official capture from Buddy receipt", () => {
+    assert.match(SRC, /Official capture/);
+    assert.match(SRC, /Buddy receipt \(PDF\)/);
+    assert.match(SRC, /No official capture \(search form only\)/);
+  });
+
+  it("action rows are driven by the pure deriveTaskActions rules", () => {
+    assert.match(SRC, /deriveTaskActions/);
+    assert.match(SRC, /TaskActionRow/);
+  });
+});
+
 describe("no duplicate research source of truth", () => {
   it("no /deals/[dealId]/research page route exists", () => {
     const appRoot = path.resolve(__dirname, "..", "..", "..", "app");

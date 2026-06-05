@@ -358,11 +358,13 @@ function buildResearchStep(
           blockerMessage = buildDegradedReasons(qualityGate);
         } else if (grade === "preliminary") {
           status = "complete";
-          // Append degraded reasons to detail for visibility
-          const reasons = buildDegradedReasons(qualityGate);
-          if (reasons) detail += ` — ${reasons}`;
+          // SPEC-…-ACTION-CENTER-1 Phase 4: keep the pipeline summary SHORT — the
+          // long source/quality story lives in Committee Readiness → Technical
+          // audit details, not here (prevents the repeated, overflowing line).
+          detail = "Preliminary clear · Committee not ready";
         } else {
           status = "complete";
+          detail = "Committee-grade ✓ · Committee ready";
         }
       } else {
         status = "complete";

@@ -124,6 +124,17 @@ export type CommitteeEvidenceTask = {
   source_artifact_id?: string | null;
   /** Banker-openable URL for the captured-source artifact (set by the API). */
   artifact_view_url?: string | null;
+  // ── SPEC-BIE-COMMITTEE-ACTION-CENTER-AND-OFFICIAL-PDF-CAPTURE-1 ──
+  // Provenance of the artifact's official-source capture (set by the API from
+  // buddy_research_source_artifacts). Lets the card distinguish a usable official
+  // capture from a search-form/receipt-only one, and gate Committee-grade.
+  official_capture_available?: boolean;
+  official_capture_status?: string | null;
+  official_capture_format?: string | null;
+  /** Opens the ACTUAL captured official source (?format=official). */
+  official_capture_view_url?: string | null;
+  /** Opens Buddy's generated receipt PDF (?format=pdf). */
+  receipt_view_url?: string | null;
 };
 
 type Subject = { company_name?: string | null; website?: string | null; naics_code?: string | null } | null;
