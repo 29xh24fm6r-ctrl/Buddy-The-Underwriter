@@ -167,7 +167,17 @@ async function collectBorrowerWebsite(
     if (snap.status === "collected") {
       try {
         const { ensureSourceArtifactForSnapshot } = await import("./ensureSourceArtifact");
-        const r = await ensureSourceArtifactForSnapshot(sb, inserted.id);
+        const r = await ensureSourceArtifactForSnapshot(sb, inserted.id, {
+          // SPEC-…-OFFICIAL-PDF-CAPTURE-1: persist the fetched website content as
+          // the durable official capture.
+          capture: {
+            content: snap.captured_content ?? null,
+            encoding: snap.captured_content_encoding ?? null,
+            format: snap.captured_format ?? null,
+            contentType: snap.content_type ?? null,
+            fetchOk: snap.status === "collected",
+          },
+        });
         if (r.error) console.warn("[sourceArtifact] website capture failed (non-fatal):", r.error);
       } catch (err: any) {
         console.warn("[sourceArtifact] website capture threw (non-fatal):", err?.message);

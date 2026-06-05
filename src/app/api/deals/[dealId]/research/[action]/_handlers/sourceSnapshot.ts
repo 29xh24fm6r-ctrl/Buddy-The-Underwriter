@@ -163,7 +163,19 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
     if (snap.status === "collected") {
       try {
         const { ensureSourceArtifactForSnapshot } = await import("@/lib/research/ensureSourceArtifact");
-        const r = await ensureSourceArtifactForSnapshot(sb, (inserted as any).id, { createdBy: actorId });
+        const r = await ensureSourceArtifactForSnapshot(sb, (inserted as any).id, {
+          createdBy: actorId,
+          // SPEC-…-OFFICIAL-PDF-CAPTURE-1: persist the actual fetched content as
+          // the durable official capture (search-form URLs are flagged, not
+          // available, by the pure classifier).
+          capture: {
+            content: snap.captured_content ?? null,
+            encoding: snap.captured_content_encoding ?? null,
+            format: snap.captured_format ?? null,
+            contentType: snap.content_type ?? null,
+            fetchOk: snap.status === "collected",
+          },
+        });
         if (r.artifact_id) {
           artifact = {
             artifact_id: r.artifact_id,

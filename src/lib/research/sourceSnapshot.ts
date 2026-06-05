@@ -13,6 +13,7 @@
 
 import { createHash } from "crypto";
 import { normalizeDomain } from "./sourcePolicy";
+import { isPdfContentType } from "./officialSourceCapture";
 
 export type BorrowerWebsiteSnapshot = {
   ok: boolean;
@@ -24,6 +25,12 @@ export type BorrowerWebsiteSnapshot = {
   title: string | null;
   byte_size: number | null;
   error: string | null;
+  // SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1: the actual captured source content
+  // (HTML as utf8 text, or native-PDF bytes as base64), for durable official
+  // capture. Present only on a successful collect; undefined otherwise.
+  captured_content?: string | null;
+  captured_content_encoding?: "utf8" | "base64" | null;
+  captured_format?: "html" | "pdf" | null;
 };
 
 const MAX_BYTES = 1_500_000; // 1.5MB
@@ -89,20 +96,9 @@ export async function fetchBorrowerWebsiteSnapshot(
       },
     });
     const contentType = res.headers.get("content-type");
-    const body = await readCapped(res, MAX_BYTES);
-    const hash = createHash("sha256").update(body).digest("hex");
+    const bytes = await readCappedBytes(res, MAX_BYTES);
     const okStatus = res.status >= 200 && res.status < 300;
-    return {
-      ok: okStatus,
-      source_url: url,
-      status: okStatus ? "collected" : "failed",
-      http_status: res.status,
-      content_hash: hash,
-      content_type: contentType,
-      title: extractTitle(body),
-      byte_size: body.length,
-      error: okStatus ? null : `HTTP ${res.status}`,
-    };
+    return { ...buildSnapshotFromBytes(url, res.status, contentType, bytes, okStatus) };
   } catch (e: any) {
     return { ...base, source_url: url, error: e?.name === "AbortError" ? "timeout" : (e?.message ?? "fetch_error") };
   } finally {
@@ -141,20 +137,9 @@ export async function fetchUrlSnapshot(
       },
     });
     const contentType = res.headers.get("content-type");
-    const body = await readCapped(res, MAX_BYTES);
-    const hash = createHash("sha256").update(body).digest("hex");
+    const bytes = await readCappedBytes(res, MAX_BYTES);
     const okStatus = res.status >= 200 && res.status < 300;
-    return {
-      ok: okStatus,
-      source_url: url,
-      status: okStatus ? "collected" : "failed",
-      http_status: res.status,
-      content_hash: hash,
-      content_type: contentType,
-      title: extractTitle(body),
-      byte_size: body.length,
-      error: okStatus ? null : `HTTP ${res.status}`,
-    };
+    return { ...buildSnapshotFromBytes(url, res.status, contentType, bytes, okStatus) };
   } catch (e: any) {
     return { ...base, source_url: url, error: e?.name === "AbortError" ? "timeout" : (e?.message ?? "fetch_error") };
   } finally {
@@ -162,9 +147,43 @@ export async function fetchUrlSnapshot(
   }
 }
 
-async function readCapped(res: Response, maxBytes: number): Promise<string> {
+/**
+ * Build a snapshot result from the captured raw bytes. HTML is decoded to utf8
+ * text and kept as the official capture; native PDFs are kept as base64 (a utf8
+ * decode would corrupt the binary). sha256 is computed over the raw bytes.
+ */
+function buildSnapshotFromBytes(
+  url: string,
+  httpStatus: number,
+  contentType: string | null,
+  bytes: Uint8Array,
+  okStatus: boolean,
+): BorrowerWebsiteSnapshot {
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const pdf = isPdfContentType(contentType, url);
+  const text = pdf ? "" : new TextDecoder().decode(bytes);
+  return {
+    ok: okStatus,
+    source_url: url,
+    status: okStatus ? "collected" : "failed",
+    http_status: httpStatus,
+    content_hash: hash,
+    content_type: contentType,
+    title: pdf ? null : extractTitle(text),
+    byte_size: bytes.length,
+    error: okStatus ? null : `HTTP ${httpStatus}`,
+    captured_content: okStatus ? (pdf ? Buffer.from(bytes).toString("base64") : text) : null,
+    captured_content_encoding: okStatus ? (pdf ? "base64" : "utf8") : null,
+    captured_format: okStatus ? (pdf ? "pdf" : "html") : null,
+  };
+}
+
+async function readCappedBytes(res: Response, maxBytes: number): Promise<Uint8Array> {
   const reader = res.body?.getReader();
-  if (!reader) return (await res.text()).slice(0, maxBytes);
+  if (!reader) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return buf.length > maxBytes ? buf.subarray(0, maxBytes) : buf;
+  }
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
@@ -180,5 +199,5 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
     if (off + c.length > combined.length) { combined.set(c.subarray(0, combined.length - off), off); break; }
     combined.set(c, off); off += c.length;
   }
-  return new TextDecoder().decode(combined);
+  return combined;
 }

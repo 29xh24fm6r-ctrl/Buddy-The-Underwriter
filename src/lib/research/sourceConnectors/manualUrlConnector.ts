@@ -67,6 +67,9 @@ export async function runManualUrlConnector(
     title: snap.title,
     byte_size: snap.byte_size,
     error: snap.error,
+    captured_content: snap.captured_content ?? null,
+    captured_content_encoding: snap.captured_content_encoding ?? null,
+    captured_format: snap.captured_format ?? null,
   };
 
   return {

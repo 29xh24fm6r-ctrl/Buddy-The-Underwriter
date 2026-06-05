@@ -49,6 +49,11 @@ export type SourceSnapshotInput = {
   title?: string | null;
   byte_size?: number | null;
   error?: string | null;
+  // SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1: actual captured source content carried
+  // through to artifact persistence (HTML utf8 text / native-PDF base64).
+  captured_content?: string | null;
+  captured_content_encoding?: "utf8" | "base64" | null;
+  captured_format?: "html" | "pdf" | null;
 };
 
 /** A planned (not-yet-collected) source the banker/analyst can pursue. */

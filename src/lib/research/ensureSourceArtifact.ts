@@ -12,9 +12,19 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildSourceArtifactRow, sourceArtifactTitle } from "./sourceArtifact";
+import { classifyOfficialCapture } from "./officialSourceCapture";
 import { normalizeDomain } from "./sourcePolicy";
 
 type SupabaseAdmin = ReturnType<typeof supabaseAdmin>;
+
+/** The actual captured source content to persist as the durable official capture. */
+export type CapturedSourceContent = {
+  content: string | null;
+  encoding: "utf8" | "base64" | null;
+  format: "html" | "pdf" | null;
+  contentType?: string | null;
+  fetchOk?: boolean;
+};
 
 export type EnsureArtifactResult = {
   artifact_id: string | null;
@@ -30,12 +40,12 @@ export type EnsureArtifactResult = {
 export async function ensureSourceArtifactForSnapshot(
   sb: SupabaseAdmin,
   snapshotId: string,
-  opts?: { createdBy?: string | null },
+  opts?: { createdBy?: string | null; capture?: CapturedSourceContent | null },
 ): Promise<EnsureArtifactResult> {
   const { data: snap } = await sb
     .from("buddy_research_source_snapshots")
     .select(
-      "id, mission_id, deal_id, source_url, source_type, status, http_status, content_hash, title, artifact_id, task_id, connector_kind, connector_mode, limitations, candidate_metadata",
+      "id, mission_id, deal_id, source_url, source_type, status, http_status, content_hash, content_type, title, artifact_id, task_id, connector_kind, connector_mode, limitations, candidate_metadata",
     )
     .eq("id", snapshotId)
     .maybeSingle();
@@ -65,6 +75,21 @@ export async function ensureSourceArtifactForSnapshot(
   taskQuery = s.task_id ? taskQuery.eq("id", s.task_id) : taskQuery.eq("source_snapshot_id", snapshotId);
   const { data: task } = await taskQuery.limit(1).maybeSingle();
 
+  // SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1: classify the official-source capture.
+  // When the caller threads the fetched content (forward path), persist it as the
+  // durable official capture; otherwise (legacy/backfill, no body) the artifact is
+  // receipt-only and is honestly flagged (not_retained / search_form_only).
+  const cap = opts?.capture ?? null;
+  const hasContent = !!(cap && cap.content && cap.content.length > 0);
+  const classification = classifyOfficialCapture({
+    sourceType: s.source_type,
+    sourceUrl: s.source_url,
+    contentType: cap?.contentType ?? s.content_type ?? null,
+    hasContent,
+    fetchOk: cap?.fetchOk ?? true,
+  });
+  const storeContent = hasContent && classification.official_capture_format !== "none";
+
   const row = buildSourceArtifactRow({
     dealId: s.deal_id,
     missionId: s.mission_id ?? null,
@@ -86,6 +111,17 @@ export async function ensureSourceArtifactForSnapshot(
     candidateMetadata: (s.candidate_metadata as Record<string, unknown>) ?? {},
     excerpt: s.title ?? null,
     createdBy: opts?.createdBy ?? "buddy_system",
+    officialCaptureAvailable: classification.official_capture_available,
+    officialCaptureFormat: classification.official_capture_format,
+    officialCaptureStatus: classification.official_capture_status,
+    officialCaptureHash: storeContent ? (s.content_hash ?? null) : null,
+    officialCaptureUrl: s.source_url ?? null,
+    officialCaptureLimitations: classification.official_capture_limitations,
+    officialCaptureContent: storeContent ? (cap!.content ?? null) : null,
+    officialCaptureContentEncoding: storeContent
+      ? (cap!.encoding ?? (classification.official_capture_format === "pdf" ? "base64" : "utf8"))
+      : "none",
+    receiptPdfAvailable: true,
   });
 
   const { data: inserted, error } = await sb
