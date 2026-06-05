@@ -33,6 +33,19 @@ export type SourceArtifactInput = {
   /** Captured text snippet, if available (e.g. page <title> / excerpt). */
   excerpt?: string | null;
   createdBy?: string | null;
+  // SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1: provenance of the actual captured
+  // OFFICIAL source (distinct from this Buddy receipt). Defaults treat the
+  // artifact as receipt-only (no official capture) when omitted.
+  officialCaptureAvailable?: boolean;
+  officialCaptureFormat?: "none" | "html" | "pdf";
+  officialCaptureStatus?: string;
+  officialCaptureHash?: string | null;
+  officialCaptureUrl?: string | null;
+  officialCaptureLimitations?: string[];
+  /** HTML (utf8) or native-PDF (base64) captured content, stored inline. */
+  officialCaptureContent?: string | null;
+  officialCaptureContentEncoding?: "none" | "utf8" | "base64";
+  receiptPdfAvailable?: boolean;
 };
 
 function esc(v: unknown): string {
@@ -112,6 +125,16 @@ export type SourceArtifactRow = {
   candidate_metadata: Record<string, unknown>;
   review_status: string | null;
   created_by: string;
+  // SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1
+  official_capture_available: boolean;
+  official_capture_format: "none" | "html" | "pdf";
+  official_capture_status: string;
+  official_capture_hash: string | null;
+  official_capture_url: string | null;
+  official_capture_limitations: string[];
+  official_capture_content: string | null;
+  official_capture_content_encoding: "none" | "utf8" | "base64";
+  receipt_pdf_available: boolean;
 };
 
 /** Build the durable artifact DB row (incl. the HTML receipt) for an insert. */
@@ -138,6 +161,15 @@ export function buildSourceArtifactRow(input: SourceArtifactInput): SourceArtifa
     candidate_metadata: input.candidateMetadata ?? {},
     review_status: input.reviewStatus ?? null,
     created_by: input.createdBy ?? "buddy_system",
+    official_capture_available: input.officialCaptureAvailable ?? false,
+    official_capture_format: input.officialCaptureFormat ?? "none",
+    official_capture_status: input.officialCaptureStatus ?? "none",
+    official_capture_hash: input.officialCaptureHash ?? null,
+    official_capture_url: input.officialCaptureUrl ?? null,
+    official_capture_limitations: input.officialCaptureLimitations ?? [],
+    official_capture_content: input.officialCaptureContent ?? null,
+    official_capture_content_encoding: input.officialCaptureContentEncoding ?? "none",
+    receipt_pdf_available: input.receiptPdfAvailable ?? true,
   };
 }
 

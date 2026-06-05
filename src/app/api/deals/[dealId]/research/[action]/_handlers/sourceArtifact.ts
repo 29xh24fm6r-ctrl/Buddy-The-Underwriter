@@ -37,7 +37,8 @@ export async function GET(req: NextRequest, ctx: { params: Params }) {
     const { data: artifact } = await sb
       .from("buddy_research_source_artifacts")
       .select(
-        "id, deal_id, mission_id, source_snapshot_id, task_id, artifact_type, title, source_url, source_type, source_domain, connector_kind, connector_mode, http_status, content_hash, captured_at, status, artifact_html, excerpt, limitations, review_status, created_at",
+        "id, deal_id, mission_id, source_snapshot_id, task_id, artifact_type, title, source_url, source_type, source_domain, connector_kind, connector_mode, http_status, content_hash, captured_at, status, artifact_html, excerpt, limitations, review_status, created_at, " +
+          "official_capture_available, official_capture_format, official_capture_status, official_capture_hash, official_capture_url, official_capture_limitations, official_capture_content, official_capture_content_encoding, receipt_pdf_available",
       )
       .eq("id", artifactId)
       .eq("deal_id", dealId)
@@ -48,17 +49,63 @@ export async function GET(req: NextRequest, ctx: { params: Params }) {
     }
 
     const fmt = (url.searchParams.get("format") ?? "").toLowerCase();
+    const a = artifact as any;
+
     if (fmt === "json") {
-      const { artifact_html, ...meta } = artifact as any;
+      // Strip the heavy inline blobs; keep all capture-provenance metadata so the
+      // UI can label "Official capture" vs "Buddy receipt".
+      const { artifact_html, official_capture_content, ...meta } = a;
       void artifact_html;
+      void official_capture_content;
       return NextResponse.json({ ok: true, artifact: meta });
+    }
+
+    // SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1: serve the ACTUAL captured official
+    // source (distinct from the Buddy receipt). Never misrepresents a receipt as
+    // the official document; returns 409 with limitations when none was captured.
+    if (fmt === "official" || (url.searchParams.get("capture") ?? "") === "official") {
+      const content: string | null = a.official_capture_content ?? null;
+      if (!content) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "official_capture_unavailable",
+            official_capture_status: a.official_capture_status ?? "none",
+            official_capture_limitations: Array.isArray(a.official_capture_limitations)
+              ? a.official_capture_limitations
+              : [],
+            receipt_available: a.receipt_pdf_available ?? true,
+            hint: "Open the Buddy receipt (format=pdf|html) instead, or attach the official source.",
+          },
+          { status: 409 },
+        );
+      }
+      const encoding = a.official_capture_content_encoding ?? "utf8";
+      if (encoding === "base64") {
+        return new NextResponse(Buffer.from(content, "base64"), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="official-capture-${artifactId}.pdf"`,
+            "X-Content-Type-Options": "nosniff",
+            "X-Buddy-Artifact-Kind": "official-capture",
+          },
+        });
+      }
+      return new NextResponse(content, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "X-Content-Type-Options": "nosniff",
+          "X-Buddy-Artifact-Kind": "official-capture",
+        },
+      });
     }
 
     // SPEC-BIE-COMMITTEE-READINESS-FINAL-UX-POLISH-AND-PDF-ARTIFACTS-1 Phase 2:
     // serve a PDF receipt (generated on demand from the durable columns via
     // pdf-lib — no headless browser). HTML stays the default fallback.
     if (fmt === "pdf") {
-      const a = artifact as any;
       const { renderSourceArtifactPdf } = await import("@/lib/research/sourceArtifactPdf");
       const bytes = await renderSourceArtifactPdf({
         dealId: a.deal_id,

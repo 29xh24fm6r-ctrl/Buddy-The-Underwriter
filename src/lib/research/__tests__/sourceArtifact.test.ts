@@ -89,6 +89,38 @@ test("[row] never carries a committee_grade flag (artifact ≠ committee-grade)"
   assert.equal("committee_eligible" in row, false);
 });
 
+// ── official-capture columns (SPEC-…-OFFICIAL-PDF-CAPTURE-1 Phase 1) ────────────
+
+test("[row] defaults to receipt-only: no official capture, receipt available", () => {
+  const row = buildSourceArtifactRow(input());
+  assert.equal(row.official_capture_available, false);
+  assert.equal(row.official_capture_format, "none");
+  assert.equal(row.official_capture_status, "none");
+  assert.equal(row.official_capture_content, null);
+  assert.equal(row.official_capture_content_encoding, "none");
+  assert.equal(row.receipt_pdf_available, true);
+});
+
+test("[row] carries an official capture when provided (distinct from the receipt)", () => {
+  const row = buildSourceArtifactRow(
+    input({
+      officialCaptureAvailable: true,
+      officialCaptureFormat: "html",
+      officialCaptureStatus: "captured",
+      officialCaptureHash: "deadbeef",
+      officialCaptureUrl: "https://www.sos.ok.gov/corp/corpInformation.aspx?id=99",
+      officialCaptureContent: "<html>entity detail</html>",
+      officialCaptureContentEncoding: "utf8",
+    }),
+  );
+  assert.equal(row.official_capture_available, true);
+  assert.equal(row.official_capture_format, "html");
+  assert.equal(row.official_capture_content, "<html>entity detail</html>");
+  assert.equal(row.official_capture_content_encoding, "utf8");
+  // The official capture is NOT the receipt HTML.
+  assert.notEqual(row.official_capture_content, row.artifact_html);
+});
+
 // ── title helper ──────────────────────────────────────────────────────────────
 
 test("[title] maps source types to friendly provenance labels", () => {
