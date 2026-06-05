@@ -181,8 +181,14 @@ function buildSnapshotFromBytes(
 async function readCappedBytes(res: Response, maxBytes: number): Promise<Uint8Array> {
   const reader = res.body?.getReader();
   if (!reader) {
-    const buf = new Uint8Array(await res.arrayBuffer());
-    return buf.length > maxBytes ? buf.subarray(0, maxBytes) : buf;
+    // No stream (e.g. test mocks / some runtimes): prefer arrayBuffer when
+    // available (preserves binary), else fall back to text() and re-encode.
+    if (typeof (res as any).arrayBuffer === "function") {
+      const buf = new Uint8Array(await res.arrayBuffer());
+      return buf.length > maxBytes ? buf.subarray(0, maxBytes) : buf;
+    }
+    const text = (await res.text()).slice(0, maxBytes);
+    return new TextEncoder().encode(text);
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
