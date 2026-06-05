@@ -38,12 +38,12 @@ import {
 import {
   buildCommitteeReadinessView,
   deriveTaskActions,
-  type CommitteeReadinessSummaryView,
   type CommitteeReadinessGroupView,
-  type ScalePlausibilityView,
   type CommitteeReadinessAuditRow,
   type GroupStatusLabel,
   type NextActionItem,
+  type ReadinessHeroView,
+  type CommitteeBlockerLine,
 } from "./committeeReadinessView";
 
 export { shouldShowCommitteeReadiness };
@@ -349,15 +349,19 @@ export function CommitteeReadinessPanel({
       data-testid="committee-readiness-panel"
       className="rounded-xl border border-sky-500/20 bg-sky-500/[0.05] p-5 space-y-4"
     >
-      <CommitteeReadinessSummaryCard summary={view.summary} />
+      {/* A. Top readiness hero — can it go to committee? */}
+      <ReadinessHero hero={view.hero} />
 
-      {/* SPEC-…-ACTION-CENTER-1 Phase 2: the prioritized guided queue. */}
+      {/* B. Steps to committee readiness — the fastest path, top step first. */}
       {view.nextActions.length > 0 ? (
         <NextActionsQueue actions={view.nextActions} />
       ) : null}
 
-      {/* Compact cards — only the card for the top next action expands by default. */}
+      {/* C. Evidence status board — 6 compact group chips; expand on click, only
+          the top action's group open by default (so Risk/Scale stay collapsed
+          unless they are the top blocker). */}
       <div className="space-y-2" data-testid="committee-readiness-groups">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">Evidence status</p>
         {view.groups.map((g) => (
           <CommitteeReadinessGroupCard
             key={g.id}
@@ -368,8 +372,9 @@ export function CommitteeReadinessPanel({
         ))}
       </div>
 
-      {view.scalePlausibility ? (
-        <ScalePlausibilityCallout scale={view.scalePlausibility} />
+      {/* D. Committee blockers — the exact items that block committee-grade, once. */}
+      {view.committeeBlockers.length > 0 ? (
+        <CommitteeBlockersPanel blockers={view.committeeBlockers} />
       ) : null}
 
       {/* SPEC-BIE-COMMITTEE-READINESS-SINGLE-COMMAND-SURFACE-1: the summary + five
@@ -394,6 +399,7 @@ export function CommitteeReadinessPanel({
       {snapshot.committeeRequirementsPlan &&
       snapshot.committeeRequirementsPlan.committee_readiness_gaps.length > 0 ? (
         <details
+          id="committee-evidence-plan"
           data-testid="committee-readiness-evidence-plan"
           className="rounded-lg border border-sky-500/15 bg-black/10 p-3"
         >
@@ -447,59 +453,72 @@ function NextActionsQueue({ actions }: { actions: NextActionItem[] }) {
   );
 }
 
-// SPEC-BIE-COMMITTEE-READINESS-UX-SIMPLIFICATION-1
-// Top summary card: where we stand + 3 counters + one prioritized next action.
-function CommitteeReadinessSummaryCard({
-  summary,
-}: {
-  summary: CommitteeReadinessSummaryView;
-}) {
+// SPEC-…-UX-REDESIGN-1 (A): the compact top readiness hero — one status line,
+// one explanation, the 3-count progress, and the single top next action.
+function ReadinessHero({ hero }: { hero: ReadinessHeroView }) {
+  const committeeReady = /committee ready/i.test(hero.statusLine) && !/not ready/i.test(hero.statusLine);
   return (
-    <div className="space-y-3" data-testid="committee-readiness-summary">
+    <div className="space-y-2" data-testid="committee-readiness-hero">
       <div className="flex items-center gap-2">
         <span
           className={
             "inline-flex h-6 items-center rounded-full px-2 text-[11px] font-semibold uppercase tracking-wide " +
-            (summary.committeeReady
-              ? "bg-emerald-500/15 text-emerald-300"
-              : "bg-amber-500/15 text-amber-300")
+            (committeeReady ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")
           }
         >
-          {summary.committeeStatusLabel}
+          {hero.statusLine}
         </span>
         <h2 className="text-sm font-semibold text-sky-100">Committee readiness</h2>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        <span className={summary.preliminaryClear ? "text-emerald-300" : "text-amber-300"}>
-          {summary.preliminaryClear ? "✓ " : ""}
-          {summary.preliminaryStatusLabel}
-        </span>
-        <span className="text-sky-100/40">·</span>
-        <span className={summary.committeeReady ? "text-emerald-300" : "text-amber-300"}>
-          {summary.committeeStatusLabel}
-        </span>
-      </div>
-
-      <p className="text-sm text-sky-100/80">{summary.subcopy}</p>
+      <p className="text-sm text-sky-100/80">{hero.explanation}</p>
 
       <div className="flex flex-wrap gap-2">
-        <CounterChip label="Ready for committee" value={summary.counters.ready} tone="ready" />
-        <CounterChip label="Needs review" value={summary.counters.needsReview} tone="review" />
-        <CounterChip label="Missing" value={summary.counters.missing} tone="missing" />
+        <CounterChip label="Ready" value={hero.progress.ready} tone="ready" />
+        <CounterChip label="Need review" value={hero.progress.needsReview} tone="review" />
+        <CounterChip label="Missing" value={hero.progress.missing} tone="missing" />
       </div>
 
-      {summary.nextBestAction ? (
-        <div
-          className="rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5"
-          data-testid="committee-next-best-action"
-        >
+      {hero.primaryActionLabel ? (
+        <div className="rounded-lg border border-sky-400/30 bg-sky-500/10 p-2.5" data-testid="committee-hero-primary">
           <p className="text-[11px]">
-            <span className="font-semibold text-sky-200">Next best action: </span>
-            <span className="text-sky-100/90">{summary.nextBestAction}</span>
+            <span className="font-semibold text-sky-200">Next action: </span>
+            <span className="text-sky-100/90">{hero.primaryActionLabel}</span>
           </p>
         </div>
       ) : null}
+
+      <a href="#committee-evidence-plan" className="inline-block text-[11px] text-sky-300/70 underline decoration-dotted">
+        View evidence plan ↓
+      </a>
+    </div>
+  );
+}
+
+// SPEC-…-UX-REDESIGN-1 (D): the EXACT committee blockers, listed once. This is
+// not "every memo weakness" — only items that prevent committee-grade readiness,
+// and it reconciles 1:1 with the hero's "need review + missing" count.
+const BLOCKER_TONE: Record<GroupStatusLabel, string> = {
+  Complete: "text-emerald-300/80",
+  "Needs review": "text-amber-300/80",
+  "Needs analyst conclusion": "text-rose-300/80",
+  Missing: "text-rose-300/80",
+};
+
+function CommitteeBlockersPanel({ blockers }: { blockers: CommitteeBlockerLine[] }) {
+  return (
+    <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] p-3 text-[11px]" data-testid="committee-blockers-panel">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300/80">
+        Committee blockers ({blockers.length})
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {blockers.map((b, i) => (
+          <li key={i} className="flex items-start justify-between gap-2" data-testid={`committee-blocker-${b.groupId}`}>
+            <span className="min-w-0 text-sky-100/80">{b.label}</span>
+            <span className={"shrink-0 text-[10px] font-semibold " + BLOCKER_TONE[b.status]}>{b.status}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -726,20 +745,6 @@ function TaskActionRow({
           {t.committee_grade_accepted ? <span className="text-emerald-300/70"> · committee-grade accepted</span> : null}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-// Scale plausibility rendered as an analyst conclusion, never a raw contradiction.
-function ScalePlausibilityCallout({ scale }: { scale: ScalePlausibilityView }) {
-  return (
-    <div
-      className="rounded-lg border border-rose-500/20 bg-rose-500/[0.06] p-3 text-[11px]"
-      data-testid="committee-scale-plausibility"
-    >
-      <p className="text-sm font-medium text-rose-100">{scale.label}</p>
-      <p className="mt-1 text-rose-100/70">{scale.explanation}</p>
-      <p className="mt-1.5 text-sky-300/80">Next action: {scale.nextAction}</p>
     </div>
   );
 }
