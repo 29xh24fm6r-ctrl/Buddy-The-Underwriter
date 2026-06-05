@@ -471,6 +471,61 @@ describe("buildCommitteeReadinessView — state-correctness (SPEC-…-STATE-CORR
   });
 });
 
+describe("buildCommitteeReadinessView — default-card review actions (SPEC-…-FINAL-UX-POLISH-1)", () => {
+  function stateBlockers(): CommitteeBlockerResolution[] {
+    return [
+      mkBlocker({
+        blocker_id: "entity",
+        title: "Public/attested entity verification",
+        blocker_type: "public_entity_verification",
+        current_status: "present_but_not_committee_grade",
+        evidence_tasks: [
+          task({ id: "task-web", task_type: "borrower_website_snapshot", title: "Borrower website", resolved_status: "collected", review_status: "committee_grade", committee_grade_accepted: true, artifact_view_url: "/api/deals/d/research/source-artifact?artifact_id=web" }),
+          task({ id: "task-sos", task_type: "sos_business_registry", title: "Secretary of State record", resolved_status: "collected", review_status: "unreviewed", artifact_view_url: "/api/deals/d/research/source-artifact?artifact_id=sos" }),
+        ],
+      }),
+      mkBlocker({
+        blocker_id: "mgmt", title: "Management verification", blocker_type: "management_verification",
+        current_status: "present_but_not_committee_grade",
+        evidence_tasks: [task({ id: "task-mgmt", task_type: "management_attestation", title: "Management attestation", resolved_status: "needs_review", review_status: "accepted" })],
+      }),
+      mkBlocker({
+        blocker_id: "lit", title: "Section needs committee-grade sources: Litigation and Risk", blocker_type: "adverse_screen",
+        current_status: "missing",
+        evidence_tasks: [task({ id: "task-adv", task_type: "public_adverse_screen", title: "Run public adverse-record screen", resolved_status: "missing" })],
+      }),
+    ];
+  }
+  const groups = () => buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: stateBlockers() }))!.groups;
+  const grp = (id: string) => groups().find((g) => g.id === id)!;
+
+  it("SOS captured/needs-review is a reviewable task in the entity default card", () => {
+    const ids = grp("entity").reviewableTasks.map((t) => t.id);
+    assert.ok(ids.includes("task-sos"));
+  });
+
+  it("website committee-grade is NOT reviewable (no redundant Committee-grade button)", () => {
+    assert.equal(grp("entity").reviewableTasks.some((t) => t.id === "task-web"), false);
+  });
+
+  it("accepted management attestation is reviewable in the management card", () => {
+    assert.ok(grp("management").reviewableTasks.some((t) => t.id === "task-mgmt"));
+  });
+
+  it("missing adverse screen is NOT reviewable (no invalid Committee-grade)", () => {
+    assert.equal(grp("risk").reviewableTasks.some((t) => t.id === "task-adv"), false);
+  });
+
+  it("captured sources expose both a PDF and an HTML link", () => {
+    const cs = grp("entity").capturedSources;
+    assert.ok(cs.length >= 1);
+    for (const s of cs) {
+      assert.match(s.pdfUrl, /format=pdf/);
+      assert.doesNotMatch(s.url, /format=pdf/);
+    }
+  });
+});
+
 describe("buildCommitteeReadinessView — pure projection (no gate/DB changes)", () => {
   it("does not mutate the input snapshot", () => {
     const snap = omniCareSnapshot();

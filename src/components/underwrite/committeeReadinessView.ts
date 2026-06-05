@@ -57,9 +57,17 @@ export interface CommitteeReadinessGroupView {
   nextAction: string | null;
   /**
    * SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured-source
-   * loan-file artifacts the banker can open from the default view.
+   * loan-file artifacts the banker can open from the default view. pdfUrl is the
+   * on-demand PDF receipt (SPEC-…-PDF-ARTIFACTS-1); url is the HTML fallback.
    */
-  capturedSources: { label: string; url: string }[];
+  capturedSources: { label: string; url: string; pdfUrl: string }[];
+  /**
+   * SPEC-BIE-COMMITTEE-READINESS-FINAL-UX-POLISH-AND-PDF-ARTIFACTS-1 Phase 1:
+   * needs-review tasks that are directly actionable in the default card (mark
+   * committee-grade / reject / etc.), so review controls are not buried under
+   * "Show audit details".
+   */
+  reviewableTasks: CommitteeEvidenceTask[];
 }
 
 export interface CommitteeReadinessSummaryView {
@@ -554,8 +562,10 @@ export function buildCommitteeReadinessView(
     const onFile: string[] = [];
     const needsReview: string[] = [];
     const missing: string[] = [];
-    const capturedSources: { label: string; url: string }[] = [];
+    const capturedSources: { label: string; url: string; pdfUrl: string }[] = [];
+    const reviewableTasks: CommitteeEvidenceTask[] = [];
     const seenArtifactUrls = new Set<string>();
+    const seenReviewable = new Set<string>();
     const push = (b: ItemBucket, label: string) =>
       (b === "onFile" ? onFile : b === "needsReview" ? needsReview : missing).push(label);
 
@@ -574,11 +584,21 @@ export function buildCommitteeReadinessView(
           const cls = classifyTaskItem(t);
           push(cls.bucket, cls.label);
           coveredByItems = true;
+          // Needs-review tasks are directly actionable in the default card.
+          if (cls.bucket === "needsReview" && t.id && !seenReviewable.has(t.id)) {
+            seenReviewable.add(t.id);
+            reviewableTasks.push(t);
+          }
         }
         // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured source.
         if (t.artifact_view_url && !seenArtifactUrls.has(t.artifact_view_url)) {
           seenArtifactUrls.add(t.artifact_view_url);
-          capturedSources.push({ label: scrub(String(t.title ?? t.task_type ?? "captured source")), url: t.artifact_view_url });
+          const u = t.artifact_view_url;
+          capturedSources.push({
+            label: scrub(String(t.title ?? t.task_type ?? "captured source")),
+            url: u,
+            pdfUrl: u + (u.includes("?") ? "&" : "?") + "format=pdf",
+          });
         }
       }
       for (const ev of m.r.existing_supporting_evidence ?? []) {
@@ -602,6 +622,7 @@ export function buildCommitteeReadinessView(
       missing: dedupe(missing).slice(0, 8),
       nextAction: worst === "complete" ? null : deriveGroupNextAction(id, members) ?? GROUP_NEXT_ACTION[id][worst] ?? null,
       capturedSources: capturedSources.slice(0, 6),
+      reviewableTasks: reviewableTasks.slice(0, 6),
     };
   });
 

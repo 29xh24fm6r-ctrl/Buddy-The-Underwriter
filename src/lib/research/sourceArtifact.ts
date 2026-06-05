@@ -141,6 +141,39 @@ export function buildSourceArtifactRow(input: SourceArtifactInput): SourceArtifa
   };
 }
 
+/**
+ * SPEC-BIE-COMMITTEE-READINESS-FINAL-UX-POLISH-AND-PDF-ARTIFACTS-1 — Phase 2.
+ * The ordered receipt field rows + disclaimer, shared by the HTML receipt and
+ * the PDF generator so both render the same evidence content. Pure.
+ */
+export const SOURCE_ARTIFACT_DISCLAIMER =
+  "Captured by Buddy for loan-file evidence review. Requires analyst review; does not by itself constitute committee-grade evidence or approval.";
+
+export function buildSourceArtifactReceiptRows(input: SourceArtifactInput): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [];
+  const add = (label: string, value: unknown) => {
+    const v = (value ?? "").toString().trim();
+    if (v) rows.push({ label, value: v });
+  };
+  add("Deal", input.dealId);
+  add("Research mission", input.missionId);
+  add("Source title", input.title);
+  add("Source URL", input.sourceUrl);
+  add("Source type", input.sourceType);
+  add("Source domain", input.sourceDomain);
+  add("Connector", [input.connectorKind, input.connectorMode].filter(Boolean).join(" / "));
+  add("Captured at", input.capturedAt);
+  add("HTTP status", input.httpStatus);
+  add("Content hash (sha256)", input.contentHash);
+  add("Committee task", input.taskTitle);
+  add("Supports blocker / requirement", input.blockerLabel);
+  add("Review status", input.reviewStatus ?? "unreviewed");
+  if (input.candidateMetadata && Object.keys(input.candidateMetadata).length > 0) {
+    add("Candidate metadata", JSON.stringify(input.candidateMetadata));
+  }
+  return rows;
+}
+
 /** A friendly artifact title from source type + page title. */
 export function sourceArtifactTitle(sourceType: string | null | undefined, pageTitle: string | null | undefined): string {
   const label: Record<string, string> = {

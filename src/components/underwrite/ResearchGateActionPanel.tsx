@@ -351,7 +351,7 @@ export function CommitteeReadinessPanel({
 
       <div className="space-y-2" data-testid="committee-readiness-groups">
         {view.groups.map((g) => (
-          <CommitteeReadinessGroupCard key={g.id} group={g} />
+          <CommitteeReadinessGroupCard key={g.id} group={g} onReviewTask={onReviewTask} />
         ))}
       </div>
 
@@ -471,7 +471,13 @@ const GROUP_STATUS_TONE: Record<GroupStatusLabel, string> = {
 };
 
 // One of the 5 human-readable evidence groups.
-function CommitteeReadinessGroupCard({ group }: { group: CommitteeReadinessGroupView }) {
+function CommitteeReadinessGroupCard({
+  group,
+  onReviewTask,
+}: {
+  group: CommitteeReadinessGroupView;
+  onReviewTask?: ReviewTaskHandler;
+}) {
   return (
     <div
       className="rounded-lg border border-sky-500/15 bg-black/10 p-3 text-[11px]"
@@ -531,17 +537,30 @@ function CommitteeReadinessGroupCard({ group }: { group: CommitteeReadinessGroup
             {group.capturedSources.map((s, i) => (
               <li key={i}>
                 {s.label} —{" "}
-                <a
-                  href={s.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sky-300/90 underline decoration-dotted"
-                >
-                  View captured source
+                <a href={s.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-sky-300/90 underline decoration-dotted">
+                  View PDF
+                </a>
+                {" · "}
+                <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-sky-300/70 underline decoration-dotted">
+                  HTML receipt
                 </a>
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {/* SPEC-…-FINAL-UX-POLISH-1 Phase 1: actionable review controls in the
+          default card (no longer buried under "Show audit details"). */}
+      {onReviewTask && group.reviewableTasks.length > 0 ? (
+        <div className="mt-2 space-y-1.5" data-testid={`committee-group-${group.id}-actions`}>
+          <p className="text-amber-300/70">Review actions:</p>
+          {group.reviewableTasks.map((t) => (
+            <div key={t.id ?? t.task_type} className="ml-1 rounded border border-amber-500/10 bg-black/10 p-1.5">
+              <span className="text-sky-100/70">{t.title ?? t.task_type}</span>
+              <TaskReviewControls task={t} onReviewTask={onReviewTask} />
+            </div>
+          ))}
         </div>
       ) : null}
 

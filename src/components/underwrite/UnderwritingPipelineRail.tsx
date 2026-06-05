@@ -192,14 +192,20 @@ export default function UnderwritingPipelineRail({ dealId, onMemoGenerated }: Pr
                   </div>
 
                   {/* Step content */}
-                  <div className={`flex-1 pb-3 ${isLast ? "pb-0" : ""}`}>
+                  <div className={`flex-1 min-w-0 pb-3 ${isLast ? "pb-0" : ""}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`text-sm font-medium ${style.label}`}>
+                      {/* min-w-0 + flex-1 let the long research summary truncate
+                          instead of forcing page-level horizontal overflow
+                          (SPEC-…-FINAL-UX-POLISH-1 Phase 3). */}
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className={`text-sm font-medium shrink-0 ${style.label}`}>
                           {step.label}
                         </span>
                         {step.detail && (
-                          <span className="text-xs text-white/30 truncate">
+                          <span
+                            className="min-w-0 flex-1 truncate text-xs text-white/30"
+                            title={step.detail}
+                          >
                             — {step.detail}
                           </span>
                         )}

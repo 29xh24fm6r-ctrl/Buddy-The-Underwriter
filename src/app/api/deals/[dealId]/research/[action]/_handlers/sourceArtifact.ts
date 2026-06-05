@@ -47,10 +47,45 @@ export async function GET(req: NextRequest, ctx: { params: Params }) {
       return NextResponse.json({ ok: false, error: "artifact_not_found" }, { status: 404 });
     }
 
-    if ((url.searchParams.get("format") ?? "").toLowerCase() === "json") {
+    const fmt = (url.searchParams.get("format") ?? "").toLowerCase();
+    if (fmt === "json") {
       const { artifact_html, ...meta } = artifact as any;
       void artifact_html;
       return NextResponse.json({ ok: true, artifact: meta });
+    }
+
+    // SPEC-BIE-COMMITTEE-READINESS-FINAL-UX-POLISH-AND-PDF-ARTIFACTS-1 Phase 2:
+    // serve a PDF receipt (generated on demand from the durable columns via
+    // pdf-lib — no headless browser). HTML stays the default fallback.
+    if (fmt === "pdf") {
+      const a = artifact as any;
+      const { renderSourceArtifactPdf } = await import("@/lib/research/sourceArtifactPdf");
+      const bytes = await renderSourceArtifactPdf({
+        dealId: a.deal_id,
+        missionId: a.mission_id,
+        sourceSnapshotId: a.source_snapshot_id,
+        taskId: a.task_id,
+        title: a.title,
+        sourceUrl: a.source_url,
+        sourceType: a.source_type,
+        sourceDomain: a.source_domain,
+        connectorKind: a.connector_kind,
+        connectorMode: a.connector_mode,
+        httpStatus: a.http_status,
+        contentHash: a.content_hash,
+        capturedAt: a.captured_at,
+        reviewStatus: a.review_status,
+        limitations: Array.isArray(a.limitations) ? a.limitations : [],
+        excerpt: a.excerpt,
+      });
+      return new NextResponse(Buffer.from(bytes), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="captured-source-${artifactId}.pdf"`,
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
     }
 
     return new NextResponse((artifact as any).artifact_html ?? "", {
