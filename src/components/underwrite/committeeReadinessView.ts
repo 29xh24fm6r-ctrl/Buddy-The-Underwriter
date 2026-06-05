@@ -584,11 +584,14 @@ export function buildCommitteeReadinessView(
           const cls = classifyTaskItem(t);
           push(cls.bucket, cls.label);
           coveredByItems = true;
-          // Needs-review tasks are directly actionable in the default card.
-          if (cls.bucket === "needsReview" && t.id && !seenReviewable.has(t.id)) {
-            seenReviewable.add(t.id);
-            reviewableTasks.push(t);
-          }
+        }
+        // SPEC-BIE-COMMITTEE-READINESS-SINGLE-COMMAND-SURFACE-1: the card is the
+        // SINGLE action surface, so every needs-review task is actionable here —
+        // whether or not it carries a coverage checklist. (Task-level review
+        // state, not checklist items, decides reviewability.)
+        if (t.id && !seenReviewable.has(t.id) && classifyTaskItem(t).bucket === "needsReview") {
+          seenReviewable.add(t.id);
+          reviewableTasks.push(t);
         }
         // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: durable captured source.
         if (t.artifact_view_url && !seenArtifactUrls.has(t.artifact_view_url)) {

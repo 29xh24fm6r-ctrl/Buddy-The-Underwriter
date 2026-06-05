@@ -526,6 +526,41 @@ describe("buildCommitteeReadinessView — default-card review actions (SPEC-…-
   });
 });
 
+describe("buildCommitteeReadinessView — single command surface (SPEC-…-SINGLE-COMMAND-SURFACE-1)", () => {
+  // A checklist-bearing, needs-review task must ALSO be actionable in its card —
+  // the card is the single action surface, so nothing is stranded once the audit
+  // disclosure's duplicate review buttons are removed.
+  it("a needs-review task with a coverage checklist is reviewable in its card", () => {
+    const blockers: CommitteeBlockerResolution[] = [
+      mkBlocker({
+        blocker_id: "fin",
+        title: "Attach financial file evidence",
+        blocker_type: "financial_file_gap",
+        current_status: "present_but_not_committee_grade",
+        evidence_tasks: [
+          task({
+            id: "task-fin",
+            task_type: "financial_file",
+            title: "Attach financial file evidence",
+            resolved_status: "needs_review",
+            review_status: "unreviewed",
+            checklist: [
+              { label: "Loan request", status: "missing", collect_from: "banker", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+              { label: "DSCR support", status: "collected", collect_from: "spreads", linked_evidence: [], acceptable_evidence: [], linked_sections: [] },
+            ] as any,
+          }),
+        ],
+      }),
+    ];
+    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    const fin = view.groups.find((g) => g.id === "financial")!;
+    assert.ok(
+      fin.reviewableTasks.some((t) => t.id === "task-fin"),
+      "checklist-bearing needs-review task should be card-actionable",
+    );
+  });
+});
+
 describe("buildCommitteeReadinessView — pure projection (no gate/DB changes)", () => {
   it("does not mutate the input snapshot", () => {
     const snap = omniCareSnapshot();

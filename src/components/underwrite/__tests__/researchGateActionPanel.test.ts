@@ -88,6 +88,29 @@ describe("research blocker routing", () => {
   });
 });
 
+describe("CommitteeReadinessPanel — single command surface (SPEC-…-SINGLE-COMMAND-SURFACE-1)", () => {
+  const SRC = fs.readFileSync(
+    path.resolve(__dirname, "..", "ResearchGateActionPanel.tsx"),
+    "utf8",
+  );
+
+  it("the disclosure is renamed to 'Technical audit details' (no 'Show audit details')", () => {
+    assert.match(SRC, /Technical audit details/);
+    assert.doesNotMatch(SRC, /Show audit details/);
+  });
+
+  it("the committee evidence plan moves into its own collapsed disclosure", () => {
+    assert.match(SRC, /committee-readiness-evidence-plan/);
+    assert.match(SRC, /Evidence plan/);
+  });
+
+  it("blocker resolutions inside the audit disclosure are read-only (no duplicate review buttons)", () => {
+    // The audit disclosure must render CommitteeBlockerResolutions WITHOUT
+    // onReviewTask, so the five group cards remain the single action surface.
+    assert.match(SRC, /<CommitteeBlockerResolutions items=\{snapshot\.committeeBlockerResolutions\} \/>/);
+  });
+});
+
 describe("no duplicate research source of truth", () => {
   it("no /deals/[dealId]/research page route exists", () => {
     const appRoot = path.resolve(__dirname, "..", "..", "..", "app");

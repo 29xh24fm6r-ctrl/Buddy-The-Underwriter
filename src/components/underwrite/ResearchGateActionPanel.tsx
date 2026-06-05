@@ -359,25 +359,39 @@ export function CommitteeReadinessPanel({
         <ScalePlausibilityCallout scale={view.scalePlausibility} />
       ) : null}
 
-      {/* Advanced technical fields live behind a disclosure; the default view
-          stays banker-simple. The full evidence-task review controls remain
-          available here so reviewers can still act on each task. */}
+      {/* SPEC-BIE-COMMITTEE-READINESS-SINGLE-COMMAND-SURFACE-1: the summary + five
+          group cards above are the ONE banker command surface and the single
+          place to act. Everything below is collapsed reference detail, never a
+          second action surface — so the blocker-resolution rows are rendered
+          read-only here (no onReviewTask → no duplicate review buttons), and the
+          proactive evidence plan lives in its own separate disclosure. */}
       <details
         data-testid="committee-readiness-audit"
         className="rounded-lg border border-sky-500/15 bg-black/10 p-3"
       >
         <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">
-          Show audit details
+          Technical audit details
         </summary>
         <div className="mt-3 space-y-3">
           <CommitteeReadinessAuditTable rows={view.audit} />
-          <CommitteeBlockerResolutions
-            items={snapshot.committeeBlockerResolutions}
-            onReviewTask={onReviewTask}
-          />
-          <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
+          <CommitteeBlockerResolutions items={snapshot.committeeBlockerResolutions} />
         </div>
       </details>
+
+      {snapshot.committeeRequirementsPlan &&
+      snapshot.committeeRequirementsPlan.committee_readiness_gaps.length > 0 ? (
+        <details
+          data-testid="committee-readiness-evidence-plan"
+          className="rounded-lg border border-sky-500/15 bg-black/10 p-3"
+        >
+          <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">
+            Evidence plan
+          </summary>
+          <div className="mt-3">
+            <CommitteeRequirements plan={snapshot.committeeRequirementsPlan} />
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -550,8 +564,9 @@ function CommitteeReadinessGroupCard({
         </div>
       ) : null}
 
-      {/* SPEC-…-FINAL-UX-POLISH-1 Phase 1: actionable review controls in the
-          default card (no longer buried under "Show audit details"). */}
+      {/* SPEC-…-FINAL-UX-POLISH-1 Phase 1 + SINGLE-COMMAND-SURFACE-1: actionable
+          review controls live in the default card — the single action surface,
+          not the technical audit disclosure. */}
       {onReviewTask && group.reviewableTasks.length > 0 ? (
         <div className="mt-2 space-y-1.5" data-testid={`committee-group-${group.id}-actions`}>
           <p className="text-amber-300/70">Review actions:</p>
