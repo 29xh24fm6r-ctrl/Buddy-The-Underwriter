@@ -38,7 +38,8 @@ export type CommitteeReadinessGroupId =
   | "management"
   | "financial"
   | "industry"
-  | "risk";
+  | "risk"
+  | "scale";
 
 export interface CommitteeReadinessGroupView {
   id: CommitteeReadinessGroupId;
@@ -103,6 +104,24 @@ export interface ScalePlausibilityView {
   nextAction: string;
 }
 
+/** SPEC-…-UX-REDESIGN-1: the compact top readiness hero. */
+export interface ReadinessHeroView {
+  /** "Preliminary clear · Committee not ready". */
+  statusLine: string;
+  /** One short banker sentence. */
+  explanation: string;
+  progress: { ready: number; needsReview: number; missing: number };
+  /** The single top next action (queue[0]), or null when committee-ready. */
+  primaryActionLabel: string | null;
+}
+
+/** SPEC-…-UX-REDESIGN-1: one exact committee blocker (shown once). */
+export interface CommitteeBlockerLine {
+  label: string;
+  groupId: CommitteeReadinessGroupId;
+  status: GroupStatusLabel;
+}
+
 /** SPEC-…-ACTION-CENTER-1: one item in the prioritized "Next actions" queue. */
 export interface NextActionItem {
   id: string;
@@ -162,11 +181,15 @@ export interface CommitteeReadinessAuditRow {
 
 export interface CommitteeReadinessView {
   summary: CommitteeReadinessSummaryView;
+  /** SPEC-…-UX-REDESIGN-1: compact top readiness hero. */
+  hero: ReadinessHeroView;
   /** SPEC-…-ACTION-CENTER-1: prioritized guided queue (top item first). */
   nextActions: NextActionItem[];
   /** The group of the top next action — the only card expanded by default. */
   defaultExpandedGroupId: CommitteeReadinessGroupId | null;
   groups: CommitteeReadinessGroupView[];
+  /** SPEC-…-UX-REDESIGN-1: exact committee blockers, deduped, shown once. */
+  committeeBlockers: CommitteeBlockerLine[];
   scalePlausibility: ScalePlausibilityView | null;
   audit: CommitteeReadinessAuditRow[];
 }
@@ -179,6 +202,7 @@ const GROUP_ORDER: CommitteeReadinessGroupId[] = [
   "financial",
   "industry",
   "risk",
+  "scale",
 ];
 
 const GROUP_TITLE: Record<CommitteeReadinessGroupId, string> = {
@@ -187,6 +211,7 @@ const GROUP_TITLE: Record<CommitteeReadinessGroupId, string> = {
   financial: "Financial & loan support",
   industry: "Industry, market & competition",
   risk: "Risk & red flags",
+  scale: "Scale plausibility",
 };
 
 const GROUP_EXPLANATION: Record<CommitteeReadinessGroupId, string> = {
@@ -199,7 +224,9 @@ const GROUP_EXPLANATION: Record<CommitteeReadinessGroupId, string> = {
   industry:
     "Committee needs outside support for industry, local market, and competitor claims.",
   risk:
-    "Committee needs documented risk checks and an analyst conclusion on scale plausibility.",
+    "Committee needs documented public risk/adverse-record checks.",
+  scale:
+    "Committee needs an analyst conclusion that the borrower's revenue, request, growth story, staffing, and collateral are consistent in scale.",
 };
 
 // Per-group next action keyed by the group's worst remaining status. Curated so
@@ -234,9 +261,14 @@ const GROUP_NEXT_ACTION: Record<
       "Confirm the industry, market, and competitor sources are committee-grade.",
   },
   risk: {
-    missing: "Complete the adverse-record screen and document the risk checks.",
-    needs_review: "Review the risk checks and record an analyst conclusion.",
-    needs_analyst_conclusion: "Add an analyst conclusion with supporting evidence.",
+    missing: "Record the public adverse-record screen result.",
+    needs_review: "Review the adverse-record screen result and mark it committee-grade.",
+    needs_analyst_conclusion: "Record the public adverse-record screen result.",
+  },
+  scale: {
+    missing: "Add an analyst conclusion for scale plausibility.",
+    needs_review: "Add an analyst conclusion for scale plausibility.",
+    needs_analyst_conclusion: "Add an analyst conclusion for scale plausibility.",
   },
 };
 
@@ -303,6 +335,8 @@ function bucketFor(
   impact: CommitteeBlockerImpact | undefined,
 ): CommitteeReadinessGroupId {
   const t = (r.title ?? "").toLowerCase();
+  // SPEC-…-UX-REDESIGN-1: scale plausibility is its own evidence group.
+  if (isScaleBlocker(r, impact)) return "scale";
   switch (r.blocker_type) {
     case "adverse_screen":
       return "risk";
@@ -323,9 +357,7 @@ function bucketFor(
       break;
   }
   // "other" + fallbacks: route by impact taxonomy / title keywords.
-  if (impact?.blocker_type === "scale_plausibility" || impact?.blocker_type === "contradiction") {
-    return "risk";
-  }
+  if (impact?.blocker_type === "contradiction") return "risk";
   if (impact?.blocker_type === "management_verification") return "management";
   if (impact?.blocker_type === "evidence_coverage") return "financial";
   if (/industry|market|competit/.test(t)) return "industry";
@@ -627,6 +659,10 @@ function deriveGroupNextAction(
       const websiteCG = website.some(isCG);
       const sosCG = sos.some(isCG);
       const sosCaptured = sos.some((t) => captured(t) && !isCG(t));
+      // SPEC-…-UX-REDESIGN-1: a captured SOS without a usable OFFICIAL capture
+      // (search-form/receipt only) needs the official result page, not "review".
+      const sosNeedsOfficial = sos.some((t) => captured(t) && !isCG(t) && !t.official_capture_available);
+      if (sosNeedsOfficial) return "Capture the SOS official result page (search form only — not committee-grade).";
       if (websiteCG && sosCaptured) {
         return "Review the SOS/business registry source and mark it committee-grade, or reject it.";
       }
@@ -668,9 +704,11 @@ function deriveGroupNextAction(
     }
     case "risk": {
       const adverse = byType("public_adverse_screen");
-      if (adverse.length > 0 && allMissing(adverse)) return "Complete the adverse-record screen.";
-      return "Add an analyst conclusion for scale plausibility with supporting evidence.";
+      if (adverse.length > 0 && allMissing(adverse)) return "Record the public adverse-record screen result.";
+      return "Review the adverse-record screen result and mark it committee-grade.";
     }
+    case "scale":
+      return "Add an analyst conclusion for scale plausibility.";
     default:
       return null;
   }
@@ -828,9 +866,38 @@ export function buildCommitteeReadinessView(
     nextBestAction: deriveNextBestAction(ranked),
   };
 
-  // SPEC-…-ACTION-CENTER-1: prioritized guided queue + the one card to expand.
-  const nextActions = deriveNextActionQueue(ranked);
+  // SPEC-…-ACTION-CENTER-1 + UX-REDESIGN-1: prioritized guided queue. Reconcile
+  // each item's label with its group's state-aware next action (so the queue and
+  // the evidence card never show different/duplicated text, and the SOS step
+  // reads "capture official result page" when no official capture exists).
+  const groupById = new Map(groups.map((g) => [g.id, g] as const));
+  const nextActions = deriveNextActionQueue(ranked).map((a) => {
+    const g = groupById.get(a.groupId);
+    return g && g.nextAction ? { ...a, label: g.nextAction, status: g.status } : a;
+  });
   const defaultExpandedGroupId = nextActions[0]?.groupId ?? null;
+
+  // SPEC-…-UX-REDESIGN-1: hero + the exact committee blockers (one per unresolved
+  // blocker, deduped) so the visible blocker list reconciles with the counters.
+  const hero: ReadinessHeroView = {
+    statusLine: `${preliminaryClear ? "Preliminary clear" : "Preliminary not clear"} · ${committeeReady ? "Committee ready" : "Committee not ready"}`,
+    explanation: preliminaryClear
+      ? `Buddy can continue preliminary underwriting, but committee review still needs ${counters.needsReview + counters.missing} item(s).`
+      : "Research is not yet clear enough for preliminary underwriting.",
+    progress: counters,
+    primaryActionLabel: nextActions[0]?.label ?? null,
+  };
+
+  const committeeBlockers: CommitteeBlockerLine[] = [];
+  const seenBlockerLabel = new Set<string>();
+  for (const b of ranked) {
+    if (b.status === "complete") continue;
+    const label = bankerBlockerLabel(b);
+    const key = label.toLowerCase();
+    if (seenBlockerLabel.has(key)) continue;
+    seenBlockerLabel.add(key);
+    committeeBlockers.push({ label, groupId: bucketFor(b.r, b.impact), status: STATUS_LABEL[b.status] });
+  }
 
   // Audit projection — the ONLY place machine vocabulary is allowed.
   const audit: CommitteeReadinessAuditRow[] = ranked.map((b) => ({
@@ -852,12 +919,34 @@ export function buildCommitteeReadinessView(
 
   return {
     summary,
+    hero,
     nextActions,
     defaultExpandedGroupId,
     groups,
+    committeeBlockers,
     scalePlausibility: scaleApplies ? SCALE_PLAUSIBILITY : null,
     audit,
   };
+}
+
+/**
+ * SPEC-…-UX-REDESIGN-1: a precise banker label for one committee blocker. Known
+ * blockers get the spec's exact wording; others get a scrubbed title. NEVER
+ * treats a Buddy receipt as official evidence.
+ */
+function bankerBlockerLabel(b: RankedBlocker): string {
+  if (isScaleBlocker(b.r, b.impact)) return "Scale plausibility needs analyst conclusion";
+  const group = bucketFor(b.r, b.impact);
+  if (group === "entity") {
+    const sos = (b.r.evidence_tasks ?? []).filter((t) => /sos|registry/i.test(String(t.task_type)));
+    const sosCapturedNoOfficial = sos.some(
+      (t) => taskResolvedStatus(t) !== "missing" && !t.official_capture_available,
+    );
+    if (sosCapturedNoOfficial) return "SOS official capture unavailable — search form only (Buddy receipt is not official evidence)";
+  }
+  if (group === "risk") return "Public adverse-record screen result not on file";
+  const title = scrub(b.r.title ?? "committee evidence");
+  return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
 /**
@@ -871,8 +960,12 @@ export function defaultViewText(view: CommitteeReadinessView): string {
     view.summary.committeeStatusLabel,
     view.summary.subcopy,
     view.summary.nextBestAction ?? "",
+    view.hero.statusLine,
+    view.hero.explanation,
+    view.hero.primaryActionLabel ?? "",
   ];
   for (const a of view.nextActions) parts.push(a.label, a.why);
+  for (const b of view.committeeBlockers) parts.push(b.label);
   for (const g of view.groups) {
     parts.push(g.title, g.status, g.explanation, g.nextAction ?? "");
     parts.push(...g.alreadyOnFile, ...g.needsReview, ...g.missing);

@@ -137,6 +137,20 @@ describe("CommitteeReadinessPanel — action center (SPEC-…-ACTION-CENTER-1)",
     assert.match(SRC, /deriveTaskActions/);
     assert.match(SRC, /TaskActionRow/);
   });
+
+  it("UX redesign: renders the readiness hero + committee blockers panel + evidence status board", () => {
+    assert.match(SRC, /ReadinessHero/);
+    assert.match(SRC, /committee-readiness-hero/);
+    assert.match(SRC, /CommitteeBlockersPanel/);
+    assert.match(SRC, /committee-blockers-panel/);
+    assert.match(SRC, /Evidence status/);
+    assert.match(SRC, /View evidence plan/);
+  });
+
+  it("UX redesign: the old single summary card + scale callout are gone (no duplication)", () => {
+    assert.doesNotMatch(SRC, /CommitteeReadinessSummaryCard/);
+    assert.doesNotMatch(SRC, /ScalePlausibilityCallout/);
+  });
 });
 
 describe("no duplicate research source of truth", () => {

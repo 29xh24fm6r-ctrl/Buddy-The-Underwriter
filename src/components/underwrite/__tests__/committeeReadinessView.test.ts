@@ -212,12 +212,12 @@ describe("buildCommitteeReadinessView — summary", () => {
 });
 
 describe("buildCommitteeReadinessView — 5 plain-English groups", () => {
-  it("renders all 5 human-readable groups with expected statuses", () => {
+  it("renders all 6 human-readable groups (scale plausibility is its own group)", () => {
     const view = buildCommitteeReadinessView(omniCareSnapshot())!;
     const byId = Object.fromEntries(view.groups.map((g) => [g.id, g]));
     assert.deepEqual(
       view.groups.map((g) => g.id),
-      ["entity", "management", "financial", "industry", "risk"],
+      ["entity", "management", "financial", "industry", "risk", "scale"],
     );
     assert.equal(byId.entity.title, "Entity & public record");
     assert.equal(byId.entity.status, "Needs review");
@@ -227,8 +227,9 @@ describe("buildCommitteeReadinessView — 5 plain-English groups", () => {
     assert.equal(byId.financial.status, "Missing");
     assert.equal(byId.industry.title, "Industry, market & competition");
     assert.equal(byId.industry.status, "Missing");
-    assert.equal(byId.risk.title, "Risk & red flags");
-    assert.equal(byId.risk.status, "Needs analyst conclusion");
+    // SPEC-…-UX-REDESIGN-1: scale plausibility is no longer folded into risk.
+    assert.equal(byId.scale.title, "Scale plausibility");
+    assert.equal(byId.scale.status, "Needs analyst conclusion");
   });
 
   it("groups carry plain-English explanations and evidence lists", () => {
@@ -426,11 +427,13 @@ describe("buildCommitteeReadinessView — state-correctness (SPEC-…-STATE-CORR
     assert.doesNotMatch(e.nextAction ?? "", /website/i);
   });
 
-  it("SOS captured/unreviewed → Needs review, and drives the entity next action", () => {
+  it("SOS captured/unreviewed without official capture → Needs review, next action is capture official page", () => {
     const e = grp("entity");
     assert.ok(e.needsReview.some((s) => /secretary of state/i.test(s) && /needs review/i.test(s)));
     assert.equal(e.missing.some((s) => /secretary of state/i.test(s)), false);
-    assert.match(e.nextAction ?? "", /review the SOS\/business registry source and mark it committee-grade/i);
+    // SPEC-…-UX-REDESIGN-1: captured SOS with no usable official capture must
+    // capture the official result page (search form only), not just "review".
+    assert.match(e.nextAction ?? "", /capture the SOS official result page/i);
   });
 
   it("accepted management → no 'attach or accept'; next action marks committee-grade + adverse screen", () => {
@@ -625,6 +628,43 @@ describe("deriveTaskActions — button presentation rules (SPEC-…-ACTION-CENTE
   it("already committee-grade: Committee-grade button is not re-shown", () => {
     const p = deriveTaskActions(t({ task_type: "borrower_website_snapshot", resolved_status: "collected", review_status: "committee_grade", committee_grade_accepted: true }));
     assert.equal(p.showCommitteeGrade, false);
+  });
+});
+
+describe("UX redesign — hero + committee blockers (SPEC-…-UX-REDESIGN-1)", () => {
+  it("hero reads 'Preliminary clear · Committee not ready' with reconciling progress + top action", () => {
+    const view = buildCommitteeReadinessView(omniCareSnapshot())!;
+    assert.equal(view.hero.statusLine, "Preliminary clear · Committee not ready");
+    assert.match(view.hero.explanation, /preliminary underwriting/i);
+    assert.equal(view.hero.primaryActionLabel, view.nextActions[0].label);
+    // Progress counts reconcile 1:1 with the visible committee blockers.
+    assert.equal(
+      view.committeeBlockers.length,
+      view.hero.progress.needsReview + view.hero.progress.missing,
+    );
+  });
+
+  it("committee blockers are shown once (deduped) and use specific labels", () => {
+    const view = buildCommitteeReadinessView(omniCareSnapshot())!;
+    const labels = view.committeeBlockers.map((b) => b.label);
+    assert.equal(labels.length, new Set(labels.map((l) => l.toLowerCase())).size, "no duplicate blockers");
+    assert.ok(labels.some((l) => /scale plausibility needs analyst conclusion/i.test(l)));
+  });
+
+  it("SOS without official capture: blocker says search form only / not official evidence", () => {
+    const blockers: CommitteeBlockerResolution[] = [
+      mkBlocker({
+        blocker_id: "entity",
+        title: "Public/attested entity verification",
+        blocker_type: "public_entity_verification",
+        current_status: "present_but_not_committee_grade",
+        evidence_tasks: [
+          task({ id: "sos", task_type: "sos_business_registry", title: "SOS record", resolved_status: "needs_review", official_capture_available: false, official_capture_status: "search_form_only" }),
+        ],
+      }),
+    ];
+    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    assert.ok(view.committeeBlockers.some((b) => /search form only/i.test(b.label) && /not official evidence/i.test(b.label)));
   });
 });
 
