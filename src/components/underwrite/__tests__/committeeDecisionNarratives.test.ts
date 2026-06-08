@@ -119,6 +119,7 @@ describe("narratives carry no internal workflow vocabulary", () => {
 function omniEvidence(over: Partial<DecisionEvidenceProjection> = {}): DecisionEvidenceProjection {
   return {
     privateCompanyEvidenceMode: true,
+    scalePlausibilityUnresolved: true,
     scaleFactors: [
       { factor: "Revenue support", status: "Supported", evidenceClass: "file_supported", label: "Revenue / income facts on file", reason: "" },
       { factor: "Loan request / use of proceeds", status: "Supported", evidenceClass: "file_supported", label: "Loan request on file", reason: "" },
@@ -166,6 +167,36 @@ describe("Business Scale consumes the evidence projection (PR-B)", () => {
     const cap = n.factors.find((f) => /Capacity/.test(f.factor))!;
     assert.equal(cap.evidenceClass, "borrower_supported");
     assert.notEqual(cap.status, "Missing");
+  });
+
+  it("caps at Approve-with-caveat (never Approve/High) while the gate scale blocker is unresolved", () => {
+    const ev = omniEvidence(); // scalePlausibilityUnresolved: true
+    // 5 of 6 supported (capacity becomes file-supported too) → would be Approve/High.
+    ev.scaleFactors[3] = { factor: "Capacity / staffing", status: "Supported", evidenceClass: "file_supported", label: "Staffing facts on file", reason: "" };
+    const n = buildInstitutionalDecisionNarratives(snapE(ev)).scale;
+    assert.equal(n.recommendation, "Approve with caveat");
+    assert.notEqual(n.confidence, "High");
+    assert.ok(n.confidenceDrivers.negative.some((d) => /analyst scale-plausibility conclusion still required/i.test(d)));
+    assert.match(n.conclusion, /analyst scale-plausibility conclusion is still required/i);
+    // Evidence factors are NOT downgraded by the cap.
+    assert.ok(n.factors.filter((f) => f.evidenceClass === "file_supported").length >= 5);
+  });
+
+  it("allows Approve / High once the scale blocker is clear (no cap)", () => {
+    const ev = omniEvidence({ scalePlausibilityUnresolved: false });
+    ev.scaleFactors[3] = { factor: "Capacity / staffing", status: "Supported", evidenceClass: "file_supported", label: "Staffing facts on file", reason: "" };
+    const n = buildInstitutionalDecisionNarratives(snapE(ev)).scale; // 5 supported, blocker clear
+    assert.equal(n.recommendation, "Approve");
+    assert.equal(n.confidence, "High");
+    assert.equal(n.confidenceDrivers.negative.some((d) => /analyst scale-plausibility/i.test(d)), false);
+  });
+
+  it("does not over-downgrade: a weak Request-more / Low base stays put (driver still added)", () => {
+    const ev = omniEvidence();
+    ev.scaleFactors = ev.scaleFactors.map((f) => ({ ...f, status: "Missing", evidenceClass: "missing" }));
+    const n = buildInstitutionalDecisionNarratives(snapE(ev)).scale; // revenue+loan missing
+    assert.equal(n.recommendation, "Unable to conclude");
+    assert.equal(n.confidence, "Low");
   });
 
   it("falls to Unable-to-conclude only when revenue is truly missing", () => {

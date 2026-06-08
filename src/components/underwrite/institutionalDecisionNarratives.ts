@@ -138,6 +138,26 @@ function findNaics(blockers: CommitteeBlockerResolution[]): { code: string; desc
   return null;
 }
 
+/**
+ * SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1 / FINAL-CARD-CAP-1: cap a Business Scale
+ * narrative when the gate still flags scale_plausibility. Applied at the final
+ * card-model boundary so it holds regardless of which path produced the narrative
+ * (evidence-backed, legacy fallback, or a payload missing the projection field).
+ * Verdict only — evidence factors are never downgraded. Idempotent.
+ */
+export function applyScaleConclusionCap(n: InstitutionalDecisionNarrative): InstitutionalDecisionNarrative {
+  const driver = "Analyst scale-plausibility conclusion still required";
+  const recommendation: DecisionRecommendation = n.recommendation === "Approve" ? "Approve with caveat" : n.recommendation;
+  const confidence: DecisionConfidence = n.confidence === "High" ? "Medium" : n.confidence;
+  const negative = n.confidenceDrivers.negative.includes(driver)
+    ? n.confidenceDrivers.negative
+    : [...n.confidenceDrivers.negative, driver];
+  const conclusion = /analyst scale-plausibility conclusion is still required/i.test(n.conclusion)
+    ? n.conclusion
+    : "Scale appears supported by file evidence, but an analyst scale-plausibility conclusion is still required before committee readiness.";
+  return { ...n, recommendation, confidence, conclusion, confidenceDrivers: { ...n.confidenceDrivers, negative } };
+}
+
 // ── per-decision narratives ───────────────────────────────────────────────────
 
 export function buildDecisionNarrative(
@@ -349,7 +369,7 @@ function scaleFromEvidence(evidence: DecisionEvidenceProjection, base: Narrative
   const loanMissing = find(/loan request/i)?.status === "Missing";
   const contradicted = factors.some((f) => f.status === "Contradicted");
 
-  const recommendation: DecisionRecommendation = contradicted
+  let recommendation: DecisionRecommendation = contradicted
     ? "Escalate"
     : revenueMissing || loanMissing
       ? "Unable to conclude"
@@ -358,13 +378,22 @@ function scaleFromEvidence(evidence: DecisionEvidenceProjection, base: Narrative
         : supported.length >= 3
           ? "Approve with caveat"
           : "Request more support";
-  const confidence: DecisionConfidence = contradicted || revenueMissing || loanMissing
+  let confidence: DecisionConfidence = contradicted || revenueMissing || loanMissing
     ? "Low"
     : supported.length >= 5
       ? "High"
       : supported.length >= 3
         ? "Medium"
         : "Low";
+
+  // SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1: Business Scale must not read
+  // "Approve / High" while the latest quality gate still flags scale_plausibility
+  // as an unresolved committee blocker (gate-derived — not a committee task). The
+  // evidence can support scale, but the verdict is capped until an analyst records
+  // the scale-plausibility conclusion. Evidence factors are NOT downgraded.
+  const conclusionPending = evidence.scalePlausibilityUnresolved;
+  if (conclusionPending && recommendation === "Approve") recommendation = "Approve with caveat";
+  if (conclusionPending && confidence === "High") confidence = "Medium";
 
   const keyFindings = factors.map((f) => {
     const tag = f.evidenceClass !== "missing" && f.evidenceClass !== "not_derivable" ? ` (${EVIDENCE_CLASS_LABEL[f.evidenceClass]})` : "";
@@ -373,16 +402,21 @@ function scaleFromEvidence(evidence: DecisionEvidenceProjection, base: Narrative
   const conclusion = contradicted
     ? "Scale factors conflict — escalate before committee."
     : revenueMissing || loanMissing
-      ? "Buddy cannot conclude on scale yet: core revenue or loan-request support is missing."
-      : supported.length >= 5
-        ? "Scale appears reasonable — revenue, request, capacity, collateral, and industry context are supported and consistent."
-        : `Scale is supported by ${supported.length} of ${factors.length} factors; the remaining factors rest on borrower narrative or are still missing.`;
+      ? "Buddy cannot conclude on scale yet: core revenue or loan-request support is missing." + (conclusionPending ? " An analyst scale-plausibility conclusion is also still required." : "")
+      : conclusionPending
+        ? "Scale appears supported by file evidence, but an analyst scale-plausibility conclusion is still required before committee readiness."
+        : supported.length >= 5
+          ? "Scale appears reasonable — revenue, request, capacity, collateral, and industry context are supported and consistent."
+          : `Scale is supported by ${supported.length} of ${factors.length} factors; the remaining factors rest on borrower narrative or are still missing.`;
   const confidenceDrivers: ConfidenceDrivers = {
     positive: [...supported, ...partial].map((f) => `${f.factor} — ${EVIDENCE_CLASS_LABEL[f.evidenceClass]}`),
-    negative: factors.filter((f) => f.status === "Missing" || f.status === "Not derivable").map((f) => `${f.factor}: ${f.status.toLowerCase()}`),
+    negative: [
+      ...factors.filter((f) => f.status === "Missing" || f.status === "Not derivable").map((f) => `${f.factor}: ${f.status.toLowerCase()}`),
+      ...(conclusionPending ? ["Analyst scale-plausibility conclusion still required"] : []),
+    ],
     neutral: [],
   };
-  const recommendationDrivers = [`${recommendation}: ${supported.length} of ${factors.length} scale factors supported${partial.length ? `, ${partial.length} partially` : ""}.`];
+  const recommendationDrivers = [`${recommendation}: ${supported.length} of ${factors.length} scale factors supported${partial.length ? `, ${partial.length} partially` : ""}${conclusionPending ? "; analyst conclusion still required" : ""}.`];
   return {
     ...base,
     conclusion,

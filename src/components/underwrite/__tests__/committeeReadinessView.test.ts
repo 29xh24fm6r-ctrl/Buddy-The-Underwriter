@@ -818,3 +818,66 @@ describe("committee task dedupe (SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTIO
     assert.equal(out.length, 2);
   });
 });
+
+describe("Business Scale card caps from the gate scale_plausibility blocker (SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1)", () => {
+  // OmniCare-shaped: strong promoted scale evidence that WOULD score Approve/High.
+  const strongScaleEvidence = (scalePlausibilityUnresolved: boolean) => ({
+    privateCompanyEvidenceMode: true,
+    scalePlausibilityUnresolved,
+    scaleFactors: [
+      { factor: "Revenue support", status: "Supported", evidenceClass: "file_supported", label: "Revenue / income facts on file", reason: "" },
+      { factor: "Loan request / use of proceeds", status: "Supported", evidenceClass: "file_supported", label: "Loan request on file", reason: "" },
+      { factor: "AR / customer concentration", status: "Supported", evidenceClass: "file_supported", label: "AR facts on file", reason: "" },
+      { factor: "Capacity / staffing", status: "Supported", evidenceClass: "file_supported", label: "Staffing facts on file", reason: "" },
+      { factor: "Collateral support", status: "Supported", evidenceClass: "file_supported", label: "Collateral on file", reason: "" },
+      { factor: "Industry context", status: "Partially supported", evidenceClass: "borrower_supported", label: "NAICS + story", reason: "" },
+    ],
+    industry: { naicsCode: "561422", naicsDescription: "Telemarketing Bureaus", understanding: { factor: "Industry understanding", status: "Supported", evidenceClass: "borrower_supported", label: "NAICS + story", reason: "" }, independentSource: { factor: "Independent industry source", status: "Missing", evidenceClass: "missing", label: "No source", reason: "expected for a private borrower" } },
+    management: { principals: [{ name: "Matt Hunt", title: "CEO" }], profilePresent: true, publicVerification: true, adverseStatus: "manual_clear_attested" },
+    publicRecords: { attestedClear: true, officialCaptured: false, searchFormOnly: false, status: "manual_clear_attested" },
+  });
+
+  // Live gate stores the blocker as a committee_blockers string; the deployed
+  // projection payload may NOT carry scalePlausibilityUnresolved (=> false here).
+  const scaleCard = (over: Partial<ResearchGateSnapshot>) =>
+    buildCommitteeReadinessView({
+      ...omniCareSnapshot(),
+      committeeBlockers: ["Contradiction check unresolved: scale_plausibility"],
+      committeeDecisionEvidence: strongScaleEvidence(false) as any,
+      ...over,
+    })!.actionCards.find((c) => c.groupId === "scale")!;
+
+  it("the rendered card model is Approve-with-caveat / Medium even when the projection field is stale (false)", () => {
+    const n = scaleCard({}).narrative;
+    assert.equal(n.recommendation, "Approve with caveat");
+    assert.equal(n.confidence, "Medium");
+    assert.ok(n.confidenceDrivers.negative.some((d) => /Analyst scale-plausibility conclusion still required/i.test(d)));
+    assert.match(n.conclusion, /analyst scale-plausibility conclusion is still required/i);
+  });
+
+  it("does NOT downgrade the evidence factors (still six, still file/borrower-supported)", () => {
+    const n = scaleCard({}).narrative;
+    assert.equal(n.factors.length, 6);
+    assert.ok(n.factors.filter((f) => f.evidenceClass === "file_supported").length >= 5);
+  });
+
+  it("allows Approve / High once the gate blocker is gone (no committee_blockers entry, field clear)", () => {
+    const n = scaleCard({ committeeBlockers: [], committeeDecisionEvidence: strongScaleEvidence(false) as any }).narrative;
+    assert.equal(n.recommendation, "Approve");
+    assert.equal(n.confidence, "High");
+  });
+
+  // The deployed-bug scenario: the live payload may carry NO decision-evidence
+  // projection at all (legacy narrative path). The final-card cap must STILL hold,
+  // driven purely by the raw gate committee_blockers.
+  it("caps path-independently even when there is no decision-evidence projection (legacy path)", () => {
+    const card = buildCommitteeReadinessView({
+      ...omniCareSnapshot(),
+      committeeBlockers: ["Contradiction check unresolved: scale_plausibility"],
+      committeeDecisionEvidence: null,
+    })!.actionCards.find((c) => c.groupId === "scale")!;
+    assert.notEqual(card.narrative.recommendation, "Approve");
+    assert.notEqual(card.narrative.confidence, "High");
+    assert.ok(card.narrative.confidenceDrivers.negative.some((d) => /Analyst scale-plausibility conclusion still required/i.test(d)));
+  });
+});
