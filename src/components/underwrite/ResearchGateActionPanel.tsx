@@ -361,7 +361,9 @@ function CommitteeReadinessPanelInner({
   onAttachSource?: AttachSourceHandler;
 }) {
   const view = shouldShowCommitteeReadiness(snapshot) ? buildCommitteeReadinessView(snapshot) : null;
-  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  // SPEC-…-DECISION-INTELLIGENCE-1 (A): the top decision opens by default so its
+  // support/drawer is immediately visible; the hero CTA re-opens it.
+  const [openCardId, setOpenCardId] = useState<string | null>(view?.actionCards[0]?.id ?? null);
   if (!view) return null;
   return (
     <div
@@ -600,7 +602,7 @@ const PRIMARY_BTN =
 // official-capture attach / evidence attach / analyst conclusion) controlled by
 // the panel's `open` state so the hero CTA can open the first card directly.
 // Needs-review tasks keep the validated review set. Reuses #498 persistence only.
-function CommitteeTaskActionCard({
+export function CommitteeTaskActionCard({
   card,
   open,
   onToggle,
@@ -619,6 +621,7 @@ function CommitteeTaskActionCard({
   const taskType = String(t?.task_type ?? "");
   const decision = DECISION_COPY[card.groupId];
   const complete = card.status === "Complete";
+  const s = card.support;
 
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
@@ -657,16 +660,56 @@ function CommitteeTaskActionCard({
   const primaryLabel = kind === "add_conclusion" ? "Enter conclusion" : "Add support";
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3" data-testid={`committee-action-card-${card.id}`}>
+    <div
+      className={
+        "rounded-xl border bg-white/[0.03] p-4 space-y-3 " +
+        (open ? "border-sky-400/60 ring-1 ring-sky-400/40" : "border-white/10")
+      }
+      data-testid={`committee-action-card-${card.id}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-300/70">{decision.domain}</p>
-          <p className="mt-1 text-sm text-sky-100">{decision.question}</p>
+          <p className="mt-1 text-sm font-medium text-sky-100">{decision.question}</p>
         </div>
         <span className={"shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold " + (complete ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200")}>
           {complete ? "Complete" : "Incomplete"}
         </span>
       </div>
+
+      {/* SPEC-…-DECISION-INTELLIGENCE-1: decision support, visible by default so a
+          banker never needs Supporting details to understand the decision. */}
+      <div className="space-y-2 text-[12px]" data-testid={`committee-decision-support-${card.id}`}>
+        <p className="text-sky-100/70"><span className="font-semibold text-sky-200">Why this matters: </span>{s.decisionReason}</p>
+        <SupportList label="Buddy found" items={s.evidenceFound} empty="Nothing on file yet." tone="found" />
+        {s.evidenceMissing.length > 0 ? <SupportList label="Still needed" items={s.evidenceMissing} tone="missing" /> : null}
+        <SupportList label="What satisfies this" items={s.acceptableEvidence} tone="accept" />
+        {s.scaleChecklist.length > 0 ? (
+          <div data-testid={`committee-scale-checklist-${card.id}`}>
+            <p className="font-semibold text-sky-200">Scale factors Buddy considered:</p>
+            <ul className="ml-1 mt-0.5 space-y-0.5">
+              {s.scaleChecklist.map((it, i) => (
+                <li key={i} className={it.present ? "text-emerald-300/80" : "text-amber-300/80"}>
+                  {it.present ? "✓" : "✗"} {it.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {s.sourceLinks.length > 0 ? (
+          <p className="flex flex-wrap gap-2 text-[11px]">
+            {s.sourceLinks.map((l, i) => (
+              <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className={(l.official ? "text-emerald-300/80" : "text-amber-300/70") + " underline decoration-dotted"}>
+                {l.official ? "Official capture" : "Buddy receipt only"}: {l.label}
+              </a>
+            ))}
+          </p>
+        ) : null}
+        {s.sourceLimitations.map((lim, i) => (
+          <p key={i} className="text-[11px] text-amber-300/60">{lim}</p>
+        ))}
+      </div>
+
       {plan?.note ? <p className="text-[11px] text-amber-300/70">{plan.note}</p> : null}
 
       {!t || !plan || !onReviewTask ? (
@@ -703,6 +746,16 @@ function CommitteeTaskActionCard({
         </div>
       )}
 
+      {/* SPEC-…-DECISION-INTELLIGENCE-1 (A): for approve/record cards (no drawer),
+          the hero CTA / primary opens a highlighted decision-support panel so the
+          click ALWAYS produces a visible change and explains what to review. */}
+      {t && plan && open && !drawerKind ? (
+        <div className="rounded-lg border border-sky-400/40 bg-sky-500/10 p-3 text-[12px]" data-testid={`committee-decision-panel-${card.id}`}>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-300/80">Decision support — review before you decide</p>
+          <p className="mt-1 text-sky-100/85">{s.bankerGuidance}</p>
+        </div>
+      ) : null}
+
       {/* Drawer for Add support / Enter conclusion (opened by primary OR hero CTA). */}
       {t && plan && open && drawerKind ? (
         <div className="space-y-2 rounded-lg border border-sky-500/25 bg-black/30 p-3" data-testid={`committee-action-drawer-${card.id}`}>
@@ -724,6 +777,36 @@ function CommitteeTaskActionCard({
       {plan?.committeeGradeDisabled && plan.committeeGradeBlockedReason ? (
         <p className="text-[11px] text-rose-300/70">{plan.committeeGradeBlockedReason}</p>
       ) : null}
+    </div>
+  );
+}
+
+// SPEC-…-DECISION-INTELLIGENCE-1: a compact labelled evidence list on a card.
+function SupportList({
+  label,
+  items,
+  empty,
+  tone,
+}: {
+  label: string;
+  items: string[];
+  empty?: string;
+  tone: "found" | "missing" | "accept";
+}) {
+  const labelTone = tone === "found" ? "text-emerald-300/80" : tone === "missing" ? "text-amber-300/80" : "text-sky-200";
+  if (items.length === 0 && !empty) return null;
+  return (
+    <div>
+      <span className={"font-semibold " + labelTone}>{label}:</span>{" "}
+      {items.length === 0 ? (
+        <span className="text-sky-100/50">{empty}</span>
+      ) : (
+        <ul className="ml-3 mt-0.5 list-disc text-sky-100/70">
+          {items.map((it, i) => (
+            <li key={i}>{it}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

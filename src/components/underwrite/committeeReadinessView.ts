@@ -140,6 +140,40 @@ export interface CommitteeActionCard {
   groupId: CommitteeReadinessGroupId;
   status: GroupStatusLabel;
   task: CommitteeEvidenceTask | null;
+  /** SPEC-BIE-COMMITTEE-DECISION-INTELLIGENCE-1: institutional decision support. */
+  support: DecisionSupport;
+}
+
+/** One scale-plausibility input the analyst conclusion must reconcile. */
+export interface ScaleChecklistItem {
+  label: string;
+  present: boolean;
+}
+
+/** A captured source link for a decision card (official capture vs Buddy receipt). */
+export interface DecisionSourceLink {
+  label: string;
+  url: string;
+  official: boolean;
+}
+
+/**
+ * SPEC-BIE-COMMITTEE-DECISION-INTELLIGENCE-1: everything a banker needs to make
+ * one committee decision, projected from existing BIE data (blocker resolutions,
+ * requirements plan, evidence tasks, captured sources). No new facts/IO.
+ */
+export interface DecisionSupport {
+  decisionReason: string;
+  evidenceFound: string[];
+  evidenceMissing: string[];
+  acceptableEvidence: string[];
+  bankerGuidance: string;
+  sourceLinks: DecisionSourceLink[];
+  sourceLimitations: string[];
+  /** Scale-plausibility group only. */
+  scaleChecklist: ScaleChecklistItem[];
+  /** True when there is captured evidence to approve; false → "add support / request more". */
+  enoughToApprove: boolean;
 }
 
 /** SPEC-…-ACTION-CENTER-1: one item in the prioritized "Next actions" queue. */
@@ -440,7 +474,7 @@ function classifyTaskItem(t: CommitteeEvidenceTask): { bucket: ItemBucket; label
   const title = scrub(String(t.title ?? t.task_type ?? "evidence"));
   const resolved = taskResolvedStatus(t);
   if (t.review_status === "committee_grade" || t.committee_grade_accepted) {
-    return { bucket: "onFile", label: `${title} — accepted as committee-grade` };
+    return { bucket: "onFile", label: `${title} — accepted for committee` };
   }
   // SPEC-…-WORKFLOW-RESOLUTION-1: a banker-attested resolution (screening result,
   // analyst conclusion, override) is on file — never "missing".
@@ -451,7 +485,7 @@ function classifyTaskItem(t: CommitteeEvidenceTask): { bucket: ItemBucket; label
     return { bucket: "missing", label: `${title} — re-collect (${scrub(t.review_status)})` };
   }
   if (t.review_status === "accepted" || resolved === "accepted") {
-    return { bucket: "needsReview", label: `${title} — accepted for preliminary; committee-grade review still needed` };
+    return { bucket: "needsReview", label: `${title} — accepted for preliminary; committee review still needed` };
   }
   if (resolved === "collected" || resolved === "needs_review") {
     return { bucket: "needsReview", label: `${title} — captured, needs review` };
@@ -664,7 +698,7 @@ export function deriveTaskActions(t: CommitteeEvidenceTask): TaskActionPlan {
       showCommitteeGrade: !isCommitteeGrade,
       committeeGradeDisabled: true,
       committeeGradeBlockedReason:
-        "Only a search form / Buddy receipt is captured — attach the official result page, or add an override note, before committee-grade.",
+        "Only a search form / Buddy receipt is captured — attach the official result page, or add an override note, before approving for committee.",
       note:
         t.official_capture_status === "search_form_only"
           ? "Official result page not captured (search form only)."
@@ -766,6 +800,167 @@ function deriveGroupNextAction(
     default:
       return null;
   }
+}
+
+// ── Decision support (SPEC-BIE-COMMITTEE-DECISION-INTELLIGENCE-1) ─────────────
+// Static banker copy per decision: why it matters, acceptable evidence, guidance.
+// Evidence found/missing + source links come from the (already banker-ized) group.
+
+const DECISION_SUPPORT_COPY: Record<
+  CommitteeReadinessGroupId,
+  { reason: string; acceptable: string[]; guidance: string }
+> = {
+  entity: {
+    reason:
+      "Committee needs an official public/registry record confirming the borrowing entity is the right company.",
+    acceptable: [
+      "Secretary of State / business-registry record",
+      "Official entity filing",
+      "Banker-attested entity confirmation",
+    ],
+    guidance:
+      "Confirm the official entity record (not a search form). Approve only when an official record is on file; otherwise capture it or override with a reason.",
+  },
+  risk: {
+    reason:
+      "Committee needs assurance that a public-record / adverse search was run and either found nothing disqualifying or surfaced findings the banker has assessed.",
+    acceptable: [
+      "Secretary of State / official business-registry result",
+      "Court / litigation record search",
+      "Regulatory or sanctions check",
+      "Lien / UCC search",
+      "Banker-attested public-records result",
+    ],
+    guidance:
+      "Record “No findings” only if the search was actually run and clean. If anything surfaced, choose “Findings identified” and document it. Prefer an official capture over a search-form / Buddy receipt.",
+  },
+  management: {
+    reason:
+      "Committee needs documented support that management has the experience, role authority, and credibility to execute the business plan.",
+    acceptable: [
+      "SOS officer / manager listing",
+      "Professional license or credential",
+      "Resume / bio",
+      "Borrower-signed management attestation",
+      "PFS or ownership package",
+      "Credible public source confirming role / experience",
+    ],
+    guidance:
+      "Approve only if the available file supports management quality for committee. Otherwise add support or request more.",
+  },
+  financial: {
+    reason:
+      "Committee needs the loan request, use of proceeds, and repayment / collateral support tied to the financials.",
+    acceptable: [
+      "Loan request / use of proceeds",
+      "DSCR / repayment support",
+      "Collateral records",
+      "Financial statements / tax returns",
+    ],
+    guidance:
+      "Attach the loan request and repayment / collateral support. Approve only when the financial support is tied together for committee.",
+  },
+  industry: {
+    reason:
+      "Committee needs outside support that the borrower's industry, local market, and competitive position are sound — not just the borrower's own claims.",
+    acceptable: ["BLS", "Census", "FRED", "IBISWorld", "Statista", "Trade publications", "Local economic-development sources"],
+    guidance:
+      "Add an outside industry / market source relevant to the borrower's NAICS. Approve only when the sources support the industry position for committee.",
+  },
+  scale: {
+    reason:
+      "Business scale asks whether revenue, the loan request / use of proceeds, staffing / capacity, collateral, customer concentration, and industry type make sense together.",
+    acceptable: [
+      "Revenue support",
+      "Use-of-proceeds / loan request",
+      "AR / customer-concentration support",
+      "Staffing / capacity support",
+      "Collateral support",
+      "Industry-norm context",
+    ],
+    guidance:
+      "Enter an analyst conclusion explaining why the business is or is not reasonable in scale, citing revenue, request, capacity, collateral, customer concentration, and industry context. This never auto-clears.",
+  },
+};
+
+const SCALE_SUPPORT_LABEL: Record<string, string> = {
+  revenue_support: "Revenue support",
+  capacity_support: "Staffing / capacity support",
+  ar_customer_concentration_support: "AR / customer-concentration support",
+  use_of_proceeds_support: "Use-of-proceeds / loan request",
+  analyst_conclusion: "Analyst conclusion",
+};
+
+function buildDecisionSupport(
+  groupId: CommitteeReadinessGroupId,
+  group: CommitteeReadinessGroupView,
+  members: RankedBlocker[],
+  plan: ResearchGateSnapshot["committeeRequirementsPlan"],
+  groupsById: Map<CommitteeReadinessGroupId, CommitteeReadinessGroupView>,
+): DecisionSupport {
+  const copy = DECISION_SUPPORT_COPY[groupId];
+  const evidenceFound = dedupe([...group.alreadyOnFile, ...group.needsReview]).slice(0, 8);
+  const evidenceMissing = dedupe([...group.missing]);
+  const acceptableEvidence = dedupe([
+    ...copy.acceptable,
+    ...members.flatMap((m) => m.r.acceptable_evidence_examples ?? []).map((s) => scrub(s)),
+  ]).slice(0, 8);
+
+  const sourceLinks: DecisionSourceLink[] = group.capturedSources.map((s) => ({
+    label: s.label,
+    url: s.officialCaptureUrl ?? s.receiptUrl,
+    official: !!s.officialCaptureUrl,
+  }));
+  const sourceLimitations = group.capturedSources
+    .filter((s) => !s.officialCaptureUrl)
+    .map((s) =>
+      `${s.label}: ${s.officialCaptureStatus === "search_form_only" ? "search form only — not official evidence" : "Buddy receipt only — not official evidence"}`,
+    );
+
+  let scaleChecklist: ScaleChecklistItem[] = [];
+  if (groupId === "scale") {
+    const sp = plan?.scale_plausibility_plan ?? null;
+    const present = new Set(sp?.present_supports ?? []);
+    const base = (sp?.required_supports ?? ["revenue_support", "use_of_proceeds_support", "ar_customer_concentration_support", "capacity_support"]).filter(
+      (k) => k !== "analyst_conclusion",
+    );
+    scaleChecklist = base.map((k) => ({ label: SCALE_SUPPORT_LABEL[k] ?? scrub(k), present: present.has(k) }));
+    // Cross-group context (projected from existing group state — no new facts).
+    const fin = groupsById.get("financial");
+    const ind = groupsById.get("industry");
+    scaleChecklist.push({
+      label: "Collateral support",
+      present: !!fin && [...fin.alreadyOnFile, ...fin.needsReview].some((s) => /collateral/i.test(s)),
+    });
+    scaleChecklist.push({
+      label: "Industry context",
+      present: !!ind && ind.alreadyOnFile.length + ind.needsReview.length > 0,
+    });
+    for (const k of sp?.missing_supports ?? []) {
+      const lbl = SCALE_SUPPORT_LABEL[k];
+      if (lbl && k !== "analyst_conclusion" && !evidenceMissing.includes(lbl)) evidenceMissing.push(lbl);
+    }
+  }
+
+  // "Approve"-style decisions (management/financial/industry/entity) need captured
+  // evidence to approve; record/conclusion decisions (risk/scale) keep their copy.
+  const isDirectDecision = groupId === "risk" || groupId === "scale";
+  const enoughToApprove = isDirectDecision || group.reviewableTasks.length > 0;
+  const bankerGuidance = enoughToApprove
+    ? copy.guidance
+    : "Buddy does not yet have enough support to recommend approval. Add support or request more.";
+
+  return {
+    decisionReason: copy.reason,
+    evidenceFound,
+    evidenceMissing: evidenceMissing.slice(0, 8),
+    acceptableEvidence,
+    bankerGuidance,
+    sourceLinks,
+    sourceLimitations,
+    scaleChecklist,
+    enoughToApprove,
+  };
 }
 
 // ── Builder ──────────────────────────────────────────────────────────────────
@@ -958,6 +1153,8 @@ export function buildCommitteeReadinessView(
       groupId: gid,
       status: g.status,
       task,
+      // SPEC-…-DECISION-INTELLIGENCE-1: institutional decision support per card.
+      support: buildDecisionSupport(gid, g, byGroup.get(gid) ?? [], snapshot.committeeRequirementsPlan ?? null, groupById),
     };
   });
 
@@ -1024,6 +1221,18 @@ export function buildCommitteeReadinessView(
 }
 
 /**
+ * SPEC-BIE-COMMITTEE-DECISION-INTELLIGENCE-1: per-decision support, keyed by
+ * group, projected from existing BIE data. Returns {} when nothing to show.
+ */
+export function buildCommitteeDecisionSupportView(
+  snapshot: ResearchGateSnapshot,
+): Record<string, DecisionSupport> {
+  const view = buildCommitteeReadinessView(snapshot);
+  if (!view) return {};
+  return Object.fromEntries(view.actionCards.map((c) => [c.groupId, c.support]));
+}
+
+/**
  * Concatenate every banker-visible string in the default view (everything except
  * the `audit` projection). Test helper used to assert machine vocabulary never
  * leaks into the default surface.
@@ -1039,6 +1248,11 @@ export function defaultViewText(view: CommitteeReadinessView): string {
     view.hero.primaryActionLabel ?? "",
   ];
   for (const a of view.nextActions) parts.push(a.label, a.why);
+  for (const c of view.actionCards) {
+    const s = c.support;
+    parts.push(s.decisionReason, s.bankerGuidance, ...s.evidenceFound, ...s.evidenceMissing, ...s.acceptableEvidence, ...s.sourceLimitations);
+    parts.push(...s.scaleChecklist.map((i) => i.label));
+  }
   for (const b of view.committeeBlockers) parts.push(b.label);
   for (const g of view.groups) {
     parts.push(g.title, g.status, g.explanation, g.nextAction ?? "");

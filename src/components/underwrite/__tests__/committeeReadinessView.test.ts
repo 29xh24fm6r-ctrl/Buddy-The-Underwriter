@@ -18,6 +18,7 @@ import * as path from "node:path";
 
 import {
   buildCommitteeReadinessView,
+  buildCommitteeDecisionSupportView,
   defaultViewText,
   deriveTaskActions,
 } from "../committeeReadinessView";
@@ -420,9 +421,9 @@ describe("buildCommitteeReadinessView — state-correctness (SPEC-…-STATE-CORR
   const view = () => buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: stateBlockers() }))!;
   const grp = (id: string) => view().groups.find((g) => g.id === id)!;
 
-  it("website committee-grade → Already on file; not under Missing; not re-reviewed", () => {
+  it("website accepted-for-committee → Already on file; not under Missing; not re-reviewed", () => {
     const e = grp("entity");
-    assert.ok(e.alreadyOnFile.some((s) => /website/i.test(s) && /committee-grade/i.test(s)));
+    assert.ok(e.alreadyOnFile.some((s) => /website/i.test(s) && /accepted for committee/i.test(s)));
     assert.equal(e.missing.some((s) => /website/i.test(s)), false);
     assert.doesNotMatch(e.nextAction ?? "", /website/i);
   });
@@ -438,7 +439,7 @@ describe("buildCommitteeReadinessView — state-correctness (SPEC-…-STATE-CORR
 
   it("accepted management → no 'attach or accept'; next action marks committee-grade + adverse screen", () => {
     const m = grp("management");
-    assert.ok(m.needsReview.some((s) => /management attestation/i.test(s) && /committee-grade review still needed/i.test(s)));
+    assert.ok(m.needsReview.some((s) => /management attestation/i.test(s) && /committee review still needed/i.test(s)));
     assert.doesNotMatch(m.nextAction ?? "", /attach or accept/i);
     assert.match(m.nextAction ?? "", /mark management attestation committee-grade.*adverse-record screen/i);
   });
@@ -712,6 +713,57 @@ describe("in-place resolution derivation (SPEC-…-WORKFLOW-RESOLUTION-1)", () =
     const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
     const mgmt = view.groups.find((g) => g.id === "management")!;
     assert.notEqual(mgmt.status, "Complete");
+  });
+});
+
+describe("decision support (SPEC-BIE-COMMITTEE-DECISION-INTELLIGENCE-1)", () => {
+  const support = () => buildCommitteeDecisionSupportView(omniCareSnapshot());
+
+  it("management card explains why + found + still-needed + acceptable support", () => {
+    const m = support().management;
+    assert.ok(m);
+    assert.match(m.decisionReason, /experience, role authority/i);
+    assert.ok(Array.isArray(m.evidenceFound));
+    assert.ok(m.acceptableEvidence.some((x) => /SOS officer/i.test(x)));
+    assert.ok(m.acceptableEvidence.some((x) => /attestation/i.test(x)));
+    assert.ok(m.acceptableEvidence.some((x) => /resume|bio/i.test(x)));
+    assert.ok(m.bankerGuidance.length > 0);
+  });
+
+  it("industry card lists NAICS-relevant acceptable sources (BLS/Census/FRED…)", () => {
+    const i = support().industry;
+    assert.ok(i);
+    for (const src of ["BLS", "Census", "FRED"]) assert.ok(i.acceptableEvidence.includes(src), `missing ${src}`);
+    assert.ok(i.acceptableEvidence.some((x) => /trade publications/i.test(x)));
+  });
+
+  it("business-scale card shows the scale checklist (revenue, use-of-proceeds, AR, capacity, collateral, industry)", () => {
+    const sc = support().scale;
+    assert.ok(sc);
+    const labels = sc.scaleChecklist.map((c) => c.label.toLowerCase());
+    for (const re of [/revenue/, /use-of-proceeds|loan request/, /ar|customer/, /capacity|staffing/, /collateral/, /industry/]) {
+      assert.ok(labels.some((l) => re.test(l)), `scale checklist missing ${re}`);
+    }
+    assert.match(sc.decisionReason, /reasonable in scale|make sense together/i);
+  });
+
+  it("an approve card with no captured evidence says so clearly (quality bar F)", () => {
+    // Industry in OmniCare is Missing (no captured industry source) → not enough.
+    const i = support().industry;
+    if (i.evidenceFound.length === 0) {
+      assert.match(i.bankerGuidance, /does not yet have enough support/i);
+    }
+  });
+
+  it("decision support carries NO internal workflow vocabulary", () => {
+    const all = Object.values(support());
+    const text = all
+      .flatMap((s) => [s.decisionReason, s.bankerGuidance, ...s.evidenceFound, ...s.evidenceMissing, ...s.acceptableEvidence, ...s.scaleChecklist.map((c) => c.label)])
+      .join(" ")
+      .toLowerCase();
+    for (const term of ["committee_grade", "auto_clear_forbidden", "review_status", "task_type", "blocker_type", "resolved_status"]) {
+      assert.ok(!text.includes(term), `leaked internal term: ${term}`);
+    }
   });
 });
 
