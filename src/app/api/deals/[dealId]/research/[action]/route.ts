@@ -46,6 +46,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // attach, consolidated here so it adds zero net serverless functions.
     case "source-snapshot":
       return (await import("./_handlers/sourceSnapshot")).POST(req, ctx as any);
+    // SPEC-BIE-ACTIVE-SOURCE-COLLECTION-PR-B: execute the industry source plan.
+    case "collect-industry-source":
+      return (await import("./_handlers/collectIndustrySource")).POST(req, ctx as any);
     default:
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }

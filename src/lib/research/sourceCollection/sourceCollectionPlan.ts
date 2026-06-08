@@ -69,7 +69,7 @@ function hasIndependentIndustrySource(i: SourceCollectionInput): boolean {
   if (i.currentDecisionEvidence?.industry?.independentSource?.status === "Supported") return true;
   return (i.currentSourceSnapshots ?? []).some((s) => {
     const t = String(s.source_type ?? "");
-    if (!/government_industry_data|bls|census|fred|ibisworld|statista|industry|market|trade/i.test(t)) return false;
+    if (!/government|bls|census|fred|ibisworld|statista|industry|market|trade/i.test(t)) return false;
     // borrower website / SOS are explicitly NOT industry sources.
     if (/website|\bsos\b|registry|secretary_of_state/i.test(t)) return false;
     return String(s.status ?? "") === "collected";

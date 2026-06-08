@@ -6,9 +6,8 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import {
   isAllowedConnectorKind,
   isAllowedSourceType,
-  runManualUrlConnector,
-  sourceDomainOf,
 } from "@/lib/research/sourceConnectors";
+import { persistManualSourceSnapshot } from "@/lib/research/sourceConnectors/persistSnapshot";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
@@ -91,103 +90,27 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
       return NextResponse.json({ ok: false, error: "task_not_found" }, { status: 404 });
     }
 
-    const result = await runManualUrlConnector({
-      missionId: (task as any).mission_id,
-      dealId: (task as any).deal_id,
-      taskId,
+    const r = await persistManualSourceSnapshot(sb, {
+      dealId,
+      task: {
+        id: taskId,
+        mission_id: (task as any).mission_id,
+        deal_id: (task as any).deal_id,
+        status: (task as any).status ?? null,
+      },
       connectorKind: body.connector_kind,
       sourceUrl,
       sourceType: body.source_type,
       note,
+      candidateMetadata,
+      actorId,
     });
 
-    if (result.error === "invalid_url") {
-      return NextResponse.json({ ok: false, error: "invalid_url" }, { status: 400 });
+    if (!r.ok) {
+      return NextResponse.json({ ok: false, error: r.error }, { status: r.status ?? 500 });
     }
 
-    const snap = result.snapshots[0];
-    const now = new Date().toISOString();
-    const { data: inserted, error: insErr } = await sb
-      .from("buddy_research_source_snapshots")
-      .insert({
-        mission_id: snap.mission_id,
-        deal_id: snap.deal_id,
-        task_id: taskId,
-        source_url: snap.source_url,
-        source_type: snap.source_type,
-        status: snap.status,
-        http_status: snap.http_status,
-        content_hash: snap.content_hash,
-        content_type: snap.content_type,
-        title: snap.title,
-        source_title: snap.title,
-        source_domain: sourceDomainOf(snap.source_url),
-        byte_size: snap.byte_size,
-        error: snap.error,
-        connector_kind: result.connector_kind,
-        connector_mode: result.mode,
-        limitations: result.limitations,
-        candidate_metadata: candidateMetadata,
-        fetched_at: now,
-      })
-      .select(
-        "id, task_id, source_url, source_type, status, connector_kind, connector_mode, source_domain, content_hash, limitations, created_at",
-      )
-      .maybeSingle();
-
-    if (insErr || !inserted) {
-      return NextResponse.json(
-        { ok: false, error: insErr?.message ?? "snapshot_insert_failed" },
-        { status: 500 },
-      );
-    }
-
-    // Advance the banker WORKFLOW status pending → collected on success only.
-    // NEVER touch review_status / committee_grade_accepted / resolved_status.
-    let updatedTask = task;
-    if (snap.status === "collected" && (task as any).status === "pending") {
-      const { data: t2 } = await sb
-        .from("buddy_research_committee_tasks")
-        .update({ status: "collected", source_snapshot_id: inserted.id, updated_at: now })
-        .eq("id", taskId)
-        .eq("deal_id", dealId)
-        .select("id, status, review_status, committee_grade_accepted, resolved_status")
-        .maybeSingle();
-      if (t2) updatedTask = t2 as any;
-    }
-
-    // SPEC-BIE-SOURCE-SNAPSHOT-TO-LOAN-FILE-ARTIFACT-1: capture the collected
-    // source into a durable loan-file artifact and return its reference.
-    // Non-fatal; never changes committee scoring / review state.
-    let artifact: { artifact_id: string | null; view_url: string | null } = { artifact_id: null, view_url: null };
-    if (snap.status === "collected") {
-      try {
-        const { ensureSourceArtifactForSnapshot } = await import("@/lib/research/ensureSourceArtifact");
-        const r = await ensureSourceArtifactForSnapshot(sb, (inserted as any).id, {
-          createdBy: actorId,
-          // SPEC-…-OFFICIAL-PDF-CAPTURE-1: persist the actual fetched content as
-          // the durable official capture (search-form URLs are flagged, not
-          // available, by the pure classifier).
-          capture: {
-            content: snap.captured_content ?? null,
-            encoding: snap.captured_content_encoding ?? null,
-            format: snap.captured_format ?? null,
-            contentType: snap.content_type ?? null,
-            fetchOk: snap.status === "collected",
-          },
-        });
-        if (r.artifact_id) {
-          artifact = {
-            artifact_id: r.artifact_id,
-            view_url: `/api/deals/${dealId}/research/source-artifact?artifact_id=${r.artifact_id}`,
-          };
-        }
-      } catch {
-        /* non-fatal: snapshot + task already persisted */
-      }
-    }
-
-    return NextResponse.json({ ok: true, snapshot: inserted, task: updatedTask, artifact, actor_id: actorId });
+    return NextResponse.json({ ok: true, snapshot: r.snapshot, task: r.task ?? task, artifact: r.artifact, actor_id: actorId });
   } catch (e: unknown) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "unexpected_error" },
