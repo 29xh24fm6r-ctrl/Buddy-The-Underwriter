@@ -25,6 +25,7 @@ import type { ResearchGateSnapshot } from "./researchGateTypes";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
 import type { CommitteeEvidenceTask } from "@/lib/research/committeeEvidenceTasks";
 import type { CommitteeBlockerImpact } from "@/lib/research/committeeBlockerImpactPreview";
+import { buildDecisionNarrative, type InstitutionalDecisionNarrative } from "./institutionalDecisionNarratives";
 
 // ── Public view-model types ──────────────────────────────────────────────────
 
@@ -142,6 +143,8 @@ export interface CommitteeActionCard {
   task: CommitteeEvidenceTask | null;
   /** SPEC-BIE-COMMITTEE-DECISION-INTELLIGENCE-1: institutional decision support. */
   support: DecisionSupport;
+  /** SPEC-BIE-INSTITUTIONAL-DECISION-NARRATIVES-1: conclusion + recommendation. */
+  narrative: InstitutionalDecisionNarrative;
 }
 
 /** One scale-plausibility input the analyst conclusion must reconcile. */
@@ -246,6 +249,8 @@ export interface CommitteeReadinessView {
   groups: CommitteeReadinessGroupView[];
   /** SPEC-…-UX-REDESIGN-1: exact committee blockers, deduped, shown once. */
   committeeBlockers: CommitteeBlockerLine[];
+  /** SPEC-…-INSTITUTIONAL-DECISION-NARRATIVES-1: narrative per group (all groups). */
+  decisionNarratives: Record<string, InstitutionalDecisionNarrative>;
   scalePlausibility: ScalePlausibilityView | null;
   audit: CommitteeReadinessAuditRow[];
 }
@@ -1140,6 +1145,20 @@ export function buildCommitteeReadinessView(
     if (g.status !== "Complete" && !orderedGroupIds.includes(g.id)) orderedGroupIds.push(g.id);
   }
 
+  // Decision support + institutional narrative for EVERY group (complete or not),
+  // computed once and reused by the action cards. Completed decisions still get a
+  // narrative (Approve/High) even though they no longer appear as a Next Action.
+  const plan = snapshot.committeeRequirementsPlan ?? null;
+  const supportByGroup = new Map(
+    groups.map((g) => [g.id, buildDecisionSupport(g.id, g, byGroup.get(g.id) ?? [], plan, groupById)] as const),
+  );
+  const narrativeByGroup = new Map(
+    groups.map((g) => [
+      g.id,
+      buildDecisionNarrative(g.id, g, (byGroup.get(g.id) ?? []).map((m) => m.r), supportByGroup.get(g.id)!, plan),
+    ] as const),
+  );
+
   const actionCards: CommitteeActionCard[] = orderedGroupIds.map((gid) => {
     const g = groupById.get(gid)!;
     // The task the card resolves: prefer a still-missing task, else a needs-review one.
@@ -1153,10 +1172,11 @@ export function buildCommitteeReadinessView(
       groupId: gid,
       status: g.status,
       task,
-      // SPEC-…-DECISION-INTELLIGENCE-1: institutional decision support per card.
-      support: buildDecisionSupport(gid, g, byGroup.get(gid) ?? [], snapshot.committeeRequirementsPlan ?? null, groupById),
+      support: supportByGroup.get(gid)!,
+      narrative: narrativeByGroup.get(gid)!,
     };
   });
+  const decisionNarratives: Record<string, InstitutionalDecisionNarrative> = Object.fromEntries(narrativeByGroup);
 
   // Back-compat label projection (same order/count as actionCards).
   const nextActions: NextActionItem[] = actionCards.map((c) => ({
@@ -1215,6 +1235,7 @@ export function buildCommitteeReadinessView(
     defaultExpandedGroupId,
     groups,
     committeeBlockers,
+    decisionNarratives,
     scalePlausibility: scaleApplies ? SCALE_PLAUSIBILITY : null,
     audit,
   };
@@ -1230,6 +1251,17 @@ export function buildCommitteeDecisionSupportView(
   const view = buildCommitteeReadinessView(snapshot);
   if (!view) return {};
   return Object.fromEntries(view.actionCards.map((c) => [c.groupId, c.support]));
+}
+
+/**
+ * SPEC-BIE-INSTITUTIONAL-DECISION-NARRATIVES-1: per-decision institutional
+ * narratives (conclusion / recommendation / confidence / findings / evidence /
+ * gaps / risks), keyed by group. Pure projection of existing snapshot data.
+ */
+export function buildInstitutionalDecisionNarratives(
+  snapshot: ResearchGateSnapshot,
+): Record<string, InstitutionalDecisionNarrative> {
+  return buildCommitteeReadinessView(snapshot)?.decisionNarratives ?? {};
 }
 
 /**
@@ -1252,6 +1284,8 @@ export function defaultViewText(view: CommitteeReadinessView): string {
     const s = c.support;
     parts.push(s.decisionReason, s.bankerGuidance, ...s.evidenceFound, ...s.evidenceMissing, ...s.acceptableEvidence, ...s.sourceLimitations);
     parts.push(...s.scaleChecklist.map((i) => i.label));
+    const n = c.narrative;
+    parts.push(n.domain, n.conclusion, n.recommendation, n.bankerGuidance, ...n.keyFindings, ...n.evidenceGaps, ...n.riskNotes, ...n.evidenceUsed.map((e) => e.label));
   }
   for (const b of view.committeeBlockers) parts.push(b.label);
   for (const g of view.groups) {
