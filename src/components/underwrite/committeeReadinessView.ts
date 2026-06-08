@@ -974,10 +974,54 @@ function buildDecisionSupport(
  * Project the research-gate snapshot into the simplified, banker-facing
  * committee readiness view. Returns null when there is nothing to show.
  */
+// SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTION-1 (H): deterministic dedupe of
+// committee tasks so duplicate adverse/industry tasks don't inflate counts. The
+// most-advanced state wins; item arrays merge. Audit history is untouched (this is
+// projection-only — no production rows deleted).
+function committeeTaskRank(t: CommitteeEvidenceTask): number {
+  if ((t as { committee_grade_accepted?: boolean }).committee_grade_accepted) return 5;
+  const rs = String((t as { review_status?: string }).review_status ?? "");
+  if (rs === "banker_attested" || rs === "reviewed" || rs === "accepted") return 4;
+  const resolved = String((t as { resolved_status?: string }).resolved_status ?? t.status ?? "");
+  if (resolved === "collected") return 3;
+  if (resolved === "needs_review") return 2;
+  return 1;
+}
+function mergeItemArrays(a: unknown, b: unknown): string[] {
+  const out = [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])].map((x) => String(x));
+  return [...new Set(out)];
+}
+export function dedupeCommitteeTasks(tasks: CommitteeEvidenceTask[]): CommitteeEvidenceTask[] {
+  const byKey = new Map<string, CommitteeEvidenceTask>();
+  const order: string[] = [];
+  for (const t of tasks) {
+    const title = String((t as { title?: string }).title ?? t.task_type ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const key = `${String(t.task_type ?? "")}|${title}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, t);
+      order.push(key);
+      continue;
+    }
+    const winner = committeeTaskRank(t) > committeeTaskRank(existing) ? t : existing;
+    const loser = winner === t ? existing : t;
+    byKey.set(key, {
+      ...winner,
+      collected_items: mergeItemArrays((winner as { collected_items?: unknown }).collected_items, (loser as { collected_items?: unknown }).collected_items),
+      missing_items: mergeItemArrays((winner as { missing_items?: unknown }).missing_items, (loser as { missing_items?: unknown }).missing_items),
+      needs_review_items: mergeItemArrays((winner as { needs_review_items?: unknown }).needs_review_items, (loser as { needs_review_items?: unknown }).needs_review_items),
+    } as CommitteeEvidenceTask);
+  }
+  return order.map((k) => byKey.get(k)!);
+}
+
 export function buildCommitteeReadinessView(
   snapshot: ResearchGateSnapshot,
 ): CommitteeReadinessView | null {
-  const resolutions = snapshot.committeeBlockerResolutions ?? [];
+  const resolutions = (snapshot.committeeBlockerResolutions ?? []).map((r) => ({
+    ...r,
+    evidence_tasks: dedupeCommitteeTasks(r.evidence_tasks ?? []),
+  }));
   if (resolutions.length === 0) return null;
 
   const section = snapshot.committeeReadinessSection;

@@ -21,6 +21,7 @@ import {
   buildCommitteeDecisionSupportView,
   defaultViewText,
   deriveTaskActions,
+  dedupeCommitteeTasks,
 } from "../committeeReadinessView";
 import { EMPTY_RESEARCH_GATE_SNAPSHOT, type ResearchGateSnapshot } from "../researchGateTypes";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
@@ -783,5 +784,37 @@ describe("buildCommitteeReadinessView — pure projection (no gate/DB changes)",
     assert.ok(!/server-only/.test(src), "must not import server-only");
     assert.ok(!/from\s+["']@\/lib\/(supabase|db)/.test(src), "must not import supabase/db");
     assert.ok(!/supabaseAdmin|createClient|\.from\(|upsert|insert\(|update\(/.test(src), "must not touch the database");
+  });
+});
+
+describe("committee task dedupe (SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTION-1)", () => {
+  const t = (over: Partial<CommitteeEvidenceTask>): CommitteeEvidenceTask =>
+    ({ id: "x", blocker_id: "b", task_type: "manual_review", status: "pending", ...over } as CommitteeEvidenceTask);
+
+  it("collapses duplicate public_adverse_screen tasks to one, most-advanced wins", () => {
+    const out = dedupeCommitteeTasks([
+      t({ id: "a1", task_type: "public_adverse_screen", status: "pending", resolved_status: "missing" } as any),
+      t({ id: "a2", task_type: "public_adverse_screen", review_status: "banker_attested" } as any),
+    ]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].id, "a2"); // banker_attested outranks pending/missing
+  });
+
+  it("collapses duplicate industry_market_source tasks and merges item arrays", () => {
+    const out = dedupeCommitteeTasks([
+      t({ id: "i1", task_type: "industry_market_source", resolved_status: "needs_review", collected_items: ["A"] } as any),
+      t({ id: "i2", task_type: "industry_market_source", resolved_status: "missing", collected_items: ["B"] } as any),
+    ]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].id, "i1"); // needs_review outranks missing
+    assert.deepEqual([...((out[0] as any).collected_items ?? [])].sort(), ["A", "B"]);
+  });
+
+  it("keeps genuinely different task types separate", () => {
+    const out = dedupeCommitteeTasks([
+      t({ id: "a", task_type: "public_adverse_screen" } as any),
+      t({ id: "b", task_type: "industry_market_source" } as any),
+    ]);
+    assert.equal(out.length, 2);
   });
 });

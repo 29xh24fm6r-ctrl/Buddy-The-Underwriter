@@ -92,6 +92,9 @@ export async function fetchResearchGateSnapshot(
       committeeRequirementsPlan: quality?.committee_requirements_plan ?? null,
       // SPEC-BIE-COMMITTEE-READINESS-FINALIZATION-MEGA-1
       committeeReadinessSection: quality?.committee_readiness_section ?? null,
+      // SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTION-1
+      committeeDecisionEvidence: quality?.committee_decision_evidence ?? null,
+      researchFactProjection: quality?.research_fact_projection ?? null,
     };
   } catch {
     return { ...EMPTY_RESEARCH_GATE_SNAPSHOT };
