@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { CommitteeReadinessPanel } from "../ResearchGateActionPanel";
+import { CommitteeReadinessPanel, CommitteeTaskActionCard } from "../ResearchGateActionPanel";
+import { buildCommitteeReadinessView } from "../committeeReadinessView";
 import { EMPTY_RESEARCH_GATE_SNAPSHOT, type ResearchGateSnapshot } from "../researchGateTypes";
 
 /**
@@ -130,5 +131,54 @@ describe("Committee action center — rendered Next Actions are executable", () 
     const blockers = section(html, "committee-blockers-panel", "committee-readiness-audit");
     // No executable buttons in the read-only blocker summary.
     assert.doesNotMatch(blockers, /<button/);
+  });
+
+  it("each card shows decision support by default (why / found / what satisfies)", () => {
+    const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
+    assert.match(nextActions, /data-testid="committee-decision-support-/);
+    assert.match(nextActions, /Why this matters/i);
+    assert.match(nextActions, /Buddy found/i);
+    assert.match(nextActions, /What satisfies this/i);
+  });
+
+  it("no internal workflow vocabulary leaks into the Next Actions surface", () => {
+    const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
+    // Internal machine terms AND the hyphenated "committee-grade" stay off the
+    // default surface. ("attestation" is a legitimate banker evidence term and is
+    // allowed in acceptable-evidence copy.)
+    for (const term of ["committee_grade", "committee-grade", "auto_clear_forbidden", "review_status", "task_type", "blocker_type", "resolved_status"]) {
+      assert.doesNotMatch(nextActions, new RegExp(term, "i"));
+    }
+  });
+});
+
+// SPEC-…-DECISION-INTELLIGENCE-1 (A): opening a card ALWAYS produces a visible
+// change — a drawer for attach/conclusion cards, a decision-support panel for
+// approve/record cards. Rendered directly with open=true (no click needed).
+describe("opening a decision card always changes the UI", () => {
+  const cardFor = (groupId: string) =>
+    buildCommitteeReadinessView(snapshot())!.actionCards.find((c) => c.groupId === groupId)!;
+  const renderCard = (groupId: string, open: boolean) =>
+    renderToStaticMarkup(
+      React.createElement(CommitteeTaskActionCard, {
+        card: cardFor(groupId),
+        open,
+        onToggle: () => {},
+        onReviewTask: () => {},
+        onAttachSource: () => {},
+      }),
+    );
+
+  it("a record/approve card (public records) opens a decision-support panel, not a drawer", () => {
+    const opened = renderCard("risk", true);
+    assert.match(opened, /data-testid="committee-decision-panel-risk"/);
+    assert.match(opened, /review before you decide/i);
+    assert.doesNotMatch(renderCard("risk", false), /committee-decision-panel-risk/);
+  });
+
+  it("a conclusion card (business scale) opens a drawer", () => {
+    const opened = renderCard("scale", true);
+    assert.match(opened, /data-testid="committee-action-drawer-scale"/);
+    assert.doesNotMatch(renderCard("scale", false), /committee-action-drawer-scale/);
   });
 });
