@@ -17,6 +17,12 @@ import {
   type SourceCandidatePlan,
 } from "@/lib/research/sourceConnectors";
 import {
+  buildDecisionEvidenceProjection,
+  buildResearchFactProjection,
+  type DecisionEvidenceProjection,
+  type ResearchFactProjection,
+} from "@/lib/research/committeeEvidenceProjection";
+import {
   buildCommitteeBlockerImpactPreview,
   type CommitteeBlockerImpactPreview,
 } from "@/lib/research/committeeBlockerImpactPreview";
@@ -125,6 +131,10 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     let committee_blocker_impact_preview: CommitteeBlockerImpactPreview | null = null;
     let committee_transition_result: CommitteeReadinessTransitionResult | null = null;
     let committee_readiness_section: CommitteeReadinessSection | null = null;
+    // SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTION-1: classify the evidence
+    // already on the deal so narratives can promote borrower/file support.
+    let committee_decision_evidence: DecisionEvidenceProjection | null = null;
+    let research_fact_projection: ResearchFactProjection | null = null;
 
     if (mission?.id) {
       const subjAny = (subj ?? {}) as Record<string, any>;
@@ -137,7 +147,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
           .select("fact_key, fact_type")
           .eq("deal_id", dealId).neq("is_superseded", true),
         sb.from("deal_borrower_story")
-          .select("products_services, customer_concentration, competitive_position, website, hq_city, hq_state, legal_name, dba")
+          .select("products_services, customer_concentration, competitive_position, website, hq_city, hq_state, legal_name, dba, business_description, growth_strategy, key_risks, customers")
           .eq("deal_id", dealId).maybeSingle(),
         sb.from("deal_management_profiles")
           .select("id, person_name, title, source")
@@ -275,6 +285,29 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
           tasks as any,
         );
       }
+
+      // SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTION-1: classify the evidence
+      // already loaded above (no new query, no schema) into explicit classes +
+      // a research fact projection, so narratives can promote borrower/file
+      // support instead of bluntly labelling it "missing".
+      const privateCompanyEvidenceMode =
+        (gate?.evidence_quality as any)?.private_company_evidence_mode === true ||
+        gate?.preliminary_basis === "banker_certified_private_company";
+      const projectionInput = {
+        financialFactKeys: ((factsRes.data as any[]) ?? []).map((f) => String(f.fact_key)),
+        borrowerStory: (storyRes.data as any) ?? null,
+        loan,
+        managementProfiles: (mgmtRes.data as any[]) ?? [],
+        naicsCode: subjAny.naics_code ?? null,
+        naicsDescription: subjAny.naics_description ?? null,
+        sourceSnapshots: (snapsRes.data as any[]) ?? [],
+        committeeTasks: tasks as any,
+        privateCompanyEvidenceMode,
+        managementValidationPass: gate?.management_validation_check === "pass" || gate?.management_validation_check === true,
+        principalsConfirmed: typeof gate?.principals_confirmed === "number" ? gate.principals_confirmed : 0,
+      };
+      committee_decision_evidence = buildDecisionEvidenceProjection(projectionInput);
+      research_fact_projection = buildResearchFactProjection(projectionInput);
     }
 
     return NextResponse.json({
@@ -285,6 +318,8 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       committee_blocker_impact_preview,
       committee_transition_result,
       committee_readiness_section,
+      committee_decision_evidence,
+      research_fact_projection,
       gate: gate
         ? {
             trust_grade:                  gate.trust_grade,
