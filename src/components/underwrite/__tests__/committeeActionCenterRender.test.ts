@@ -184,3 +184,49 @@ describe("opening a decision card always changes the UI", () => {
     assert.doesNotMatch(renderCard("scale", false), /committee-action-drawer-scale/);
   });
 });
+
+// SPEC-…-EVIDENCE-PROMOTION-1 PR-B (L): evidence-class badges + confidence drivers
+// render on the card when the classified projection is present.
+describe("classified evidence renders class badges + confidence drivers", () => {
+  function snapshotWithEvidence(): ResearchGateSnapshot {
+    return {
+      ...snapshot(),
+      committeeDecisionEvidence: {
+        privateCompanyEvidenceMode: true,
+        scaleFactors: [
+          { factor: "Revenue support", status: "Supported", evidenceClass: "file_supported", label: "Revenue / income facts on file", reason: "" },
+          { factor: "Loan request / use of proceeds", status: "Supported", evidenceClass: "file_supported", label: "Loan request on file", reason: "" },
+          { factor: "AR / customer concentration", status: "Supported", evidenceClass: "file_supported", label: "AR facts on file", reason: "" },
+          { factor: "Capacity / staffing", status: "Partially supported", evidenceClass: "borrower_supported", label: "Capacity narrative on file", reason: "" },
+          { factor: "Collateral support", status: "Supported", evidenceClass: "file_supported", label: "Collateral on file", reason: "" },
+          { factor: "Industry context", status: "Partially supported", evidenceClass: "borrower_supported", label: "NAICS + story", reason: "" },
+        ],
+        industry: {
+          naicsCode: "561422", naicsDescription: "Telemarketing Bureaus",
+          understanding: { factor: "Industry understanding", status: "Supported", evidenceClass: "borrower_supported", label: "NAICS + story", reason: "" },
+          independentSource: { factor: "Independent industry source", status: "Missing", evidenceClass: "missing", label: "No source", reason: "expected for a private borrower" },
+        },
+        management: { principals: [{ name: "Matt Hunt", title: "CEO" }], profilePresent: true, publicVerification: true, adverseStatus: "manual_clear_attested" },
+        publicRecords: { attestedClear: true, officialCaptured: false, searchFormOnly: false, status: "manual_clear_attested" },
+      },
+    } as ResearchGateSnapshot;
+  }
+  const scaleCard = () => buildCommitteeReadinessView(snapshotWithEvidence())!.actionCards.find((c) => c.groupId === "scale")!;
+  const html = () =>
+    renderToStaticMarkup(
+      React.createElement(CommitteeTaskActionCard, { card: scaleCard(), open: false, onToggle: () => {}, onReviewTask: () => {}, onAttachSource: () => {} }),
+    );
+
+  it("shows a File-supported evidence-class badge on the scale factor breakdown", () => {
+    const out = html();
+    assert.match(out, /committee-scale-checklist-scale/);
+    assert.match(out, /File-supported/);
+    assert.match(out, /Revenue support: Supported/);
+  });
+
+  it("shows confidence drivers explaining the badge", () => {
+    const out = html();
+    assert.match(out, /data-testid="committee-confidence-drivers-scale"/);
+    assert.match(out, /Why this confidence/i);
+  });
+});

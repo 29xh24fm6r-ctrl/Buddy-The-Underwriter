@@ -16,10 +16,34 @@
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
 import type { CommitteeRequirementsPlan } from "@/lib/research/committeeRequirementsEngine";
 import type {
+  DecisionEvidenceProjection,
+  DecisionEvidenceFactor,
+  EvidenceClass,
+} from "@/lib/research/committeeEvidenceProjection";
+import type {
   CommitteeReadinessGroupId,
   CommitteeReadinessGroupView,
   DecisionSupport,
 } from "./committeeReadinessView";
+
+/** SPEC-…-EVIDENCE-PROMOTION-1 (L): banker-facing label for an evidence class. */
+export const EVIDENCE_CLASS_LABEL: Record<EvidenceClass, string> = {
+  missing: "Missing",
+  borrower_supported: "Borrower-supported",
+  file_supported: "File-supported",
+  public_supported: "Public source",
+  official_supported: "Official",
+  banker_attested: "Banker-attested",
+  committee_grade: "Committee-ready",
+  contradicted: "Contradicted",
+  not_derivable: "Not derivable",
+};
+
+export interface ConfidenceDrivers {
+  positive: string[];
+  negative: string[];
+  neutral: string[];
+}
 
 export type DecisionRecommendation =
   | "Approve"
@@ -36,6 +60,8 @@ export interface DecisionEvidenceItem {
   sourceUrl?: string;
   officialCaptureStatus?: string;
   strength: "Strong" | "Moderate" | "Weak";
+  /** SPEC-…-EVIDENCE-PROMOTION-1 (L): evidence class for the badge, when known. */
+  evidenceClass?: EvidenceClass;
 }
 
 export interface InstitutionalDecisionNarrative {
@@ -48,6 +74,13 @@ export interface InstitutionalDecisionNarrative {
   evidenceGaps: string[];
   riskNotes: string[];
   bankerGuidance: string;
+  // SPEC-…-EVIDENCE-PROMOTION-1 (K/L)
+  /** Why confidence is what it is — never empty when a badge shows. */
+  confidenceDrivers: ConfidenceDrivers;
+  /** Why this recommendation. */
+  recommendationDrivers: string[];
+  /** Classified factor breakdown (Business Scale's six factors), when available. */
+  factors: DecisionEvidenceFactor[];
 }
 
 const GROUP_DOMAIN: Record<CommitteeReadinessGroupId, string> = {
@@ -113,6 +146,7 @@ export function buildDecisionNarrative(
   blockers: CommitteeBlockerResolution[],
   support: DecisionSupport,
   plan: CommitteeRequirementsPlan | null,
+  evidence: DecisionEvidenceProjection | null = null,
 ): InstitutionalDecisionNarrative {
   const domain = GROUP_DOMAIN[groupId];
   const complete = group.status === "Complete";
@@ -131,7 +165,36 @@ export function buildDecisionNarrative(
     riskNotes.push("Unresolved research contradiction flagged — review before committee.");
   }
   void plan; // accepted as input per spec; current narratives derive from support + blockers
-  const base = { domain, evidenceUsed, evidenceGaps, riskNotes, bankerGuidance: support.bankerGuidance };
+  // Default drivers (legacy / no-projection path) — never leave confidence
+  // unexplained (K). Evidence-backed branches override with precise drivers.
+  const positive = evidenceUsed.map((e) => e.label).slice(0, 4);
+  const negative = evidenceGaps.slice(0, 4);
+  const defaultDrivers: ConfidenceDrivers = {
+    positive,
+    negative,
+    neutral: positive.length === 0 && negative.length === 0 ? ["Based on the committee evidence available"] : [],
+  };
+  const base = {
+    domain,
+    evidenceUsed,
+    evidenceGaps,
+    riskNotes,
+    bankerGuidance: support.bankerGuidance,
+    confidenceDrivers: defaultDrivers,
+    recommendationDrivers: [] as string[],
+    factors: [] as DecisionEvidenceFactor[],
+  };
+
+  // SPEC-…-EVIDENCE-PROMOTION-1 (PR-B): when the classified evidence projection is
+  // available, derive Scale / Industry / Management / Public-Records narratives
+  // from the PROMOTED evidence (file/borrower/official classes) instead of the
+  // blocker fallback — so real support is no longer reported as "missing".
+  if (evidence) {
+    if (groupId === "scale") return scaleFromEvidence(evidence, base);
+    if (groupId === "industry") return industryFromEvidence(evidence, base);
+    if (groupId === "management") return managementFromEvidence(evidence, base);
+    if (groupId === "risk") return riskFromEvidence(evidence, base, findingRecorded);
+  }
 
   switch (groupId) {
     case "risk": {
@@ -255,4 +318,185 @@ export function buildDecisionNarrative(
       return { ...base, conclusion, recommendation, confidence, keyFindings };
     }
   }
+}
+
+// ── evidence-backed narratives (PR-B: consume the classified projection) ────────
+
+type NarrativeBase = Omit<InstitutionalDecisionNarrative, "conclusion" | "recommendation" | "confidence" | "keyFindings">;
+
+function strengthFromClass(cls: EvidenceClass): DecisionEvidenceItem["strength"] {
+  if (cls === "file_supported" || cls === "official_supported" || cls === "committee_grade") return "Strong";
+  if (cls === "public_supported" || cls === "borrower_supported" || cls === "banker_attested") return "Moderate";
+  return "Weak";
+}
+function itemFromFactor(f: DecisionEvidenceFactor): DecisionEvidenceItem {
+  return { label: f.label, strength: strengthFromClass(f.evidenceClass), evidenceClass: f.evidenceClass };
+}
+const truthy = (xs: Array<string | null | undefined>): string[] => xs.filter((x): x is string => !!x);
+function adverseStatusLabel(s: string): string {
+  if (s === "official_captured") return "official source captured";
+  if (s === "manual_clear_attested") return "banker-attested clear (manual, not official)";
+  if (s === "search_form_only") return "search form only — not official";
+  return "not yet run";
+}
+
+function scaleFromEvidence(evidence: DecisionEvidenceProjection, base: NarrativeBase): InstitutionalDecisionNarrative {
+  const factors = evidence.scaleFactors;
+  const supported = factors.filter((f) => f.status === "Supported");
+  const partial = factors.filter((f) => f.status === "Partially supported");
+  const find = (re: RegExp) => factors.find((f) => re.test(f.factor));
+  const revenueMissing = find(/revenue/i)?.status === "Missing";
+  const loanMissing = find(/loan request/i)?.status === "Missing";
+  const contradicted = factors.some((f) => f.status === "Contradicted");
+
+  const recommendation: DecisionRecommendation = contradicted
+    ? "Escalate"
+    : revenueMissing || loanMissing
+      ? "Unable to conclude"
+      : supported.length >= 5
+        ? "Approve"
+        : supported.length >= 3
+          ? "Approve with caveat"
+          : "Request more support";
+  const confidence: DecisionConfidence = contradicted || revenueMissing || loanMissing
+    ? "Low"
+    : supported.length >= 5
+      ? "High"
+      : supported.length >= 3
+        ? "Medium"
+        : "Low";
+
+  const keyFindings = factors.map((f) => {
+    const tag = f.evidenceClass !== "missing" && f.evidenceClass !== "not_derivable" ? ` (${EVIDENCE_CLASS_LABEL[f.evidenceClass]})` : "";
+    return `${f.factor}: ${f.status}${tag}`;
+  });
+  const conclusion = contradicted
+    ? "Scale factors conflict — escalate before committee."
+    : revenueMissing || loanMissing
+      ? "Buddy cannot conclude on scale yet: core revenue or loan-request support is missing."
+      : supported.length >= 5
+        ? "Scale appears reasonable — revenue, request, capacity, collateral, and industry context are supported and consistent."
+        : `Scale is supported by ${supported.length} of ${factors.length} factors; the remaining factors rest on borrower narrative or are still missing.`;
+  const confidenceDrivers: ConfidenceDrivers = {
+    positive: [...supported, ...partial].map((f) => `${f.factor} — ${EVIDENCE_CLASS_LABEL[f.evidenceClass]}`),
+    negative: factors.filter((f) => f.status === "Missing" || f.status === "Not derivable").map((f) => `${f.factor}: ${f.status.toLowerCase()}`),
+    neutral: [],
+  };
+  const recommendationDrivers = [`${recommendation}: ${supported.length} of ${factors.length} scale factors supported${partial.length ? `, ${partial.length} partially` : ""}.`];
+  return {
+    ...base,
+    conclusion,
+    recommendation,
+    confidence,
+    keyFindings,
+    factors,
+    evidenceUsed: factors.filter((f) => f.status !== "Missing").map(itemFromFactor),
+    evidenceGaps: factors.filter((f) => f.status === "Missing" || f.status === "Not derivable").map((f) => f.label),
+    confidenceDrivers,
+    recommendationDrivers,
+  };
+}
+
+function industryFromEvidence(evidence: DecisionEvidenceProjection, base: NarrativeBase): InstitutionalDecisionNarrative {
+  const { understanding, independentSource, naicsCode, naicsDescription } = evidence.industry;
+  const understood = understanding.status === "Supported";
+  const hasSource = independentSource.status === "Supported";
+  const keyFindings = [
+    naicsCode ? `NAICS: ${naicsCode}${naicsDescription ? ` — ${naicsDescription}` : ""}` : "NAICS / industry code: not on file",
+    `Industry understanding: ${understanding.status}`,
+    `Independent committee-grade source: ${hasSource ? "present" : "missing"}`,
+  ];
+  const recommendation: DecisionRecommendation = hasSource ? "Approve with caveat" : "Request more support";
+  const confidence: DecisionConfidence = hasSource ? "Medium" : "Low";
+  const privateNote = evidence.privateCompanyEvidenceMode
+    ? " (limited independent source is expected for a private borrower; file / banker evidence supports preliminary underwriting)"
+    : "";
+  const conclusion = `Buddy understands the borrower's industry from ${naicsCode ? `NAICS ${naicsCode} and ` : ""}the borrower story; ${hasSource ? "an independent committee-grade industry/market source is on file." : `an independent committee-grade industry/market source is still missing${privateNote}.`}`;
+  const confidenceDrivers: ConfidenceDrivers = {
+    positive: truthy([understood ? understanding.label : null]),
+    negative: truthy([hasSource ? null : independentSource.reason]),
+    neutral: [],
+  };
+  const recommendationDrivers = [
+    hasSource
+      ? "Approve with caveat: NAICS + borrower understanding with an independent source on file."
+      : "Request more support: industry is understood from the file, but no recognized independent source (BLS/Census/FRED/IBISWorld/Statista/trade) is on file.",
+  ];
+  return {
+    ...base,
+    conclusion,
+    recommendation,
+    confidence,
+    keyFindings,
+    evidenceUsed: [understanding, independentSource].filter((f) => f.status !== "Missing").map(itemFromFactor),
+    evidenceGaps: hasSource ? [] : ["Independent committee-grade industry / market source"],
+    confidenceDrivers,
+    recommendationDrivers,
+  };
+}
+
+function managementFromEvidence(evidence: DecisionEvidenceProjection, base: NarrativeBase): InstitutionalDecisionNarrative {
+  const { principals, profilePresent, publicVerification, adverseStatus } = evidence.management;
+  const named = principals.length > 0;
+  const keyFindings = [
+    ...principals.slice(0, 3).map((p) => (p.title ? `${p.name} — ${p.title}` : p.name)),
+    `Management profile: ${profilePresent ? "on file" : "missing"}`,
+    `Public verification: ${publicVerification ? "present" : "limited"}`,
+    `Adverse screen: ${adverseStatusLabel(adverseStatus)}`,
+  ];
+  const recommendation: DecisionRecommendation = !named ? "Request more support" : "Approve with caveat";
+  const confidence: DecisionConfidence = !named ? "Low" : publicVerification && adverseStatus === "official_captured" ? "High" : "Medium";
+  const conclusion = named
+    ? `${principals[0].name}${principals[0].title ? ` (${principals[0].title})` : ""} is confirmed with a management profile on file; independent committee verification ${publicVerification ? "is present but limited" : "is still needed"}.`
+    : "No named principal or management support is on file; committee needs management evidence before a decision.";
+  const confidenceDrivers: ConfidenceDrivers = {
+    positive: truthy([named ? "Principal confirmed" : null, profilePresent ? "Management profile on file" : null, publicVerification ? "Public verification present" : null]),
+    negative: truthy([publicVerification ? null : "Independent / attested committee support limited", adverseStatus === "official_captured" ? null : "Adverse screen manual rather than official"]),
+    neutral: [],
+  };
+  const recommendationDrivers = [
+    named
+      ? "Approve with caveat: principal confirmed and profile on file, but independent committee support remains limited."
+      : "Request more support: no named principal or meaningful management support on file.",
+  ];
+  return { ...base, conclusion, recommendation, confidence, keyFindings, confidenceDrivers, recommendationDrivers };
+}
+
+function riskFromEvidence(evidence: DecisionEvidenceProjection, base: NarrativeBase, findingRecorded: boolean): InstitutionalDecisionNarrative {
+  const pr = evidence.publicRecords;
+  const keyFindings = truthy([
+    `Banker-attested clear result: ${pr.attestedClear ? "yes" : "no"}`,
+    `Official adverse source captured: ${pr.officialCaptured ? "yes" : "no"}`,
+    pr.searchFormOnly ? "Search limitation: search form only — official result page not captured" : null,
+  ]);
+  const recommendation: DecisionRecommendation = findingRecorded
+    ? "Escalate"
+    : pr.officialCaptured
+      ? "Approve"
+      : pr.attestedClear
+        ? "Approve with caveat"
+        : "Request more support";
+  const confidence: DecisionConfidence = pr.officialCaptured ? "High" : pr.attestedClear ? "Medium" : "Low";
+  const conclusion = findingRecorded
+    ? "A public-record finding has been recorded and must be reviewed before committee."
+    : pr.officialCaptured
+      ? "An official adverse-screen source is on file with no unresolved finding."
+      : pr.attestedClear
+        ? "A banker-attested no-findings result exists; an official adverse search source has not been captured."
+        : "No adverse-screen result is recorded yet.";
+  const confidenceDrivers: ConfidenceDrivers = {
+    positive: truthy([pr.officialCaptured ? "Official adverse source captured" : null, pr.attestedClear ? "Banker-attested clear result" : null]),
+    negative: truthy([pr.officialCaptured ? null : "Official adverse search source not captured", pr.searchFormOnly ? "Only a search form / Buddy receipt captured (not official)" : null]),
+    neutral: [],
+  };
+  const recommendationDrivers = [
+    findingRecorded
+      ? "Escalate: a public-record finding was recorded."
+      : pr.officialCaptured
+        ? "Approve: an official adverse-screen source is captured."
+        : pr.attestedClear
+          ? "Approve with caveat: banker-attested clear, but no official adverse source captured."
+          : "Request more support: no adverse-screen result recorded.",
+  ];
+  return { ...base, conclusion, recommendation, confidence, keyFindings, confidenceDrivers, recommendationDrivers };
 }
