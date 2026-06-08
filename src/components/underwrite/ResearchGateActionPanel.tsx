@@ -47,8 +47,30 @@ import {
   type CommitteeBlockerLine,
   type CommitteeActionCard,
 } from "./committeeReadinessView";
+import { EVIDENCE_CLASS_LABEL } from "./institutionalDecisionNarratives";
+import type { EvidenceClass } from "@/lib/research/committeeEvidenceProjection";
 
 export { shouldShowCommitteeReadiness };
+
+// SPEC-…-EVIDENCE-PROMOTION-1 (L): compact evidence-class badge.
+const CLASS_TONE: Record<string, string> = {
+  file_supported: "bg-emerald-500/15 text-emerald-300",
+  official_supported: "bg-emerald-500/20 text-emerald-200",
+  committee_grade: "bg-emerald-500/20 text-emerald-200",
+  public_supported: "bg-sky-500/15 text-sky-200",
+  borrower_supported: "bg-sky-500/10 text-sky-200/80",
+  banker_attested: "bg-violet-500/15 text-violet-200",
+  contradicted: "bg-rose-500/20 text-rose-200",
+  not_derivable: "bg-white/10 text-sky-100/50",
+  missing: "bg-amber-500/15 text-amber-200",
+};
+function ClassBadge({ cls }: { cls: EvidenceClass }) {
+  return (
+    <span className={"ml-1 rounded px-1.5 py-0.5 text-[9px] font-semibold align-middle " + (CLASS_TONE[cls] ?? "bg-white/10 text-sky-100/60")}>
+      {EVIDENCE_CLASS_LABEL[cls]}
+    </span>
+  );
+}
 
 interface Props {
   snapshot: ResearchGateSnapshot;
@@ -704,8 +726,34 @@ export function CommitteeTaskActionCard({
           <span className={"rounded-full px-2 py-0.5 text-[10px] font-semibold " + CONF_TONE[n.confidence]}>Confidence: {n.confidence}</span>
         </div>
 
-        {/* Scale shows its six-factor checklist; other decisions show key findings. */}
-        {s.scaleChecklist.length > 0 ? (
+        {/* SPEC-…-EVIDENCE-PROMOTION-1 (K): why confidence is what it is. */}
+        {(n.confidenceDrivers.positive.length > 0 || n.confidenceDrivers.negative.length > 0 || n.confidenceDrivers.neutral.length > 0) ? (
+          <div data-testid={`committee-confidence-drivers-${card.id}`} className="text-[11px] text-sky-100/60">
+            <span className="font-semibold text-sky-200/80">Why this confidence:</span>
+            <ul className="ml-1 mt-0.5 space-y-0.5">
+              {n.confidenceDrivers.positive.map((d, i) => <li key={`p${i}`} className="text-emerald-300/70">+ {d}</li>)}
+              {n.confidenceDrivers.negative.map((d, i) => <li key={`n${i}`} className="text-amber-300/70">− {d}</li>)}
+              {n.confidenceDrivers.neutral.map((d, i) => <li key={`u${i}`} className="text-sky-100/50">· {d}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
+        {/* SPEC-…-EVIDENCE-PROMOTION-1 (D/L): Business Scale shows the classified
+            six-factor breakdown (status + evidence class). Falls back to the
+            checklist / key findings when the projection is unavailable. */}
+        {n.factors.length > 0 ? (
+          <div data-testid={`committee-scale-checklist-${card.id}`}>
+            <p className="font-semibold text-sky-200">Scale factors Buddy considered:</p>
+            <ul className="ml-1 mt-0.5 space-y-0.5">
+              {n.factors.map((f, i) => (
+                <li key={i} className={f.status === "Supported" ? "text-emerald-300/80" : f.status === "Missing" ? "text-amber-300/80" : "text-sky-100/70"}>
+                  {f.status === "Supported" ? "✓" : f.status === "Missing" ? "✗" : "•"} {f.factor}: {f.status}
+                  {f.evidenceClass !== "missing" && f.evidenceClass !== "not_derivable" ? <ClassBadge cls={f.evidenceClass} /> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : s.scaleChecklist.length > 0 ? (
           <div data-testid={`committee-scale-checklist-${card.id}`}>
             <p className="font-semibold text-sky-200">Scale factors Buddy considered:</p>
             <ul className="ml-1 mt-0.5 space-y-0.5">
@@ -731,7 +779,7 @@ export function CommitteeTaskActionCard({
                   ) : (
                     e.label
                   )}{" "}
-                  <span className="text-sky-100/40">({e.strength})</span>
+                  {e.evidenceClass ? <ClassBadge cls={e.evidenceClass} /> : <span className="text-sky-100/40">({e.strength})</span>}
                 </li>
               ))}
             </ul>

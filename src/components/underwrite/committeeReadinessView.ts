@@ -1196,10 +1196,11 @@ export function buildCommitteeReadinessView(
   const supportByGroup = new Map(
     groups.map((g) => [g.id, buildDecisionSupport(g.id, g, byGroup.get(g.id) ?? [], plan, groupById)] as const),
   );
+  const decisionEvidence = snapshot.committeeDecisionEvidence ?? null;
   const narrativeByGroup = new Map(
     groups.map((g) => [
       g.id,
-      buildDecisionNarrative(g.id, g, (byGroup.get(g.id) ?? []).map((m) => m.r), supportByGroup.get(g.id)!, plan),
+      buildDecisionNarrative(g.id, g, (byGroup.get(g.id) ?? []).map((m) => m.r), supportByGroup.get(g.id)!, plan, decisionEvidence),
     ] as const),
   );
 
