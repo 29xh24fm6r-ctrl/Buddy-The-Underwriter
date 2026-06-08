@@ -95,6 +95,8 @@ export async function fetchResearchGateSnapshot(
       // SPEC-BIE-DERIVATION-AUDIT-AND-EVIDENCE-PROMOTION-1
       committeeDecisionEvidence: quality?.committee_decision_evidence ?? null,
       researchFactProjection: quality?.research_fact_projection ?? null,
+      // SPEC-BIE-ACTIVE-SOURCE-COLLECTION-PR-A
+      sourceCollectionPlan: quality?.committee_source_collection_plan ?? null,
     };
   } catch {
     return { ...EMPTY_RESEARCH_GATE_SNAPSHOT };

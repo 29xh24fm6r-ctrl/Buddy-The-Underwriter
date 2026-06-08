@@ -10,8 +10,9 @@ import type { CommitteeReviewAction } from "@/lib/research/committeeTaskReview";
 import type { CommitteeRequirementsPlan } from "@/lib/research/committeeRequirementsEngine";
 import type { CommitteeReadinessSection } from "@/lib/research/committeeReadinessTransition";
 import type { DecisionEvidenceProjection, ResearchFactProjection } from "@/lib/research/committeeEvidenceProjection";
+import type { CommitteeSourceCollectionPlan } from "@/lib/research/sourceCollection/sourceCollectionPlan";
 
-export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction, CommitteeRequirementsPlan, CommitteeReadinessSection, DecisionEvidenceProjection, ResearchFactProjection };
+export type { CommitteeBlockerResolution, CommitteeEvidenceTask, CommitteeReviewAction, CommitteeRequirementsPlan, CommitteeReadinessSection, DecisionEvidenceProjection, ResearchFactProjection, CommitteeSourceCollectionPlan };
 
 // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: handler the workbench passes down
 // to apply a review action to a committee evidence task.
@@ -89,6 +90,9 @@ export interface ResearchGateSnapshot {
   committeeDecisionEvidence: DecisionEvidenceProjection | null;
   /** Durable-style research fact projection (provenance + confidence). */
   researchFactProjection: ResearchFactProjection | null;
+  // SPEC-BIE-ACTIVE-SOURCE-COLLECTION-PR-A
+  /** Read-only plan of the independent committee sources still needed. */
+  sourceCollectionPlan: CommitteeSourceCollectionPlan | null;
 }
 
 export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
@@ -109,4 +113,5 @@ export const EMPTY_RESEARCH_GATE_SNAPSHOT: ResearchGateSnapshot = {
   committeeReadinessSection: null,
   committeeDecisionEvidence: null,
   researchFactProjection: null,
+  sourceCollectionPlan: null,
 };

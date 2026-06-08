@@ -23,6 +23,10 @@ import {
   type ResearchFactProjection,
 } from "@/lib/research/committeeEvidenceProjection";
 import {
+  buildCommitteeSourceCollectionPlan,
+  type CommitteeSourceCollectionPlan,
+} from "@/lib/research/sourceCollection/sourceCollectionPlan";
+import {
   buildCommitteeBlockerImpactPreview,
   type CommitteeBlockerImpactPreview,
 } from "@/lib/research/committeeBlockerImpactPreview";
@@ -135,6 +139,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     // already on the deal so narratives can promote borrower/file support.
     let committee_decision_evidence: DecisionEvidenceProjection | null = null;
     let research_fact_projection: ResearchFactProjection | null = null;
+    let committee_source_collection_plan: CommitteeSourceCollectionPlan | null = null;
 
     if (mission?.id) {
       const subjAny = (subj ?? {}) as Record<string, any>;
@@ -311,6 +316,28 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       };
       committee_decision_evidence = buildDecisionEvidenceProjection(projectionInput);
       research_fact_projection = buildResearchFactProjection(projectionInput);
+
+      // SPEC-BIE-ACTIVE-SOURCE-COLLECTION-PR-A: deterministic plan of the
+      // independent committee sources still needed (read-only metadata; no fetch,
+      // no task/snapshot mutation, no UI change).
+      committee_source_collection_plan = buildCommitteeSourceCollectionPlan({
+        dealId,
+        generatedAt: new Date().toISOString(),
+        legalName: subjAny.company_name ?? story.legal_name ?? null,
+        dba: story.dba ?? null,
+        website: story.website ?? subjAny.website ?? null,
+        hqCity: story.hq_city ?? null,
+        hqState: story.hq_state ?? null,
+        naicsCode: subjAny.naics_code ?? null,
+        naicsDescription: subjAny.naics_description ?? null,
+        businessDescription: story.business_description ?? null,
+        customers: story.customers ?? null,
+        customerProfile: story.customer_concentration ?? null,
+        privateCompanyEvidenceMode,
+        currentCommitteeTasks: tasks as any,
+        currentSourceSnapshots: (snapsRes.data as any[]) ?? [],
+        currentDecisionEvidence: committee_decision_evidence,
+      });
     }
 
     return NextResponse.json({
@@ -323,6 +350,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
       committee_readiness_section,
       committee_decision_evidence,
       research_fact_projection,
+      committee_source_collection_plan,
       gate: gate
         ? {
             trust_grade:                  gate.trust_grade,
