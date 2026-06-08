@@ -193,6 +193,7 @@ describe("classified evidence renders class badges + confidence drivers", () => 
       ...snapshot(),
       committeeDecisionEvidence: {
         privateCompanyEvidenceMode: true,
+        scalePlausibilityUnresolved: true,
         scaleFactors: [
           { factor: "Revenue support", status: "Supported", evidenceClass: "file_supported", label: "Revenue / income facts on file", reason: "" },
           { factor: "Loan request / use of proceeds", status: "Supported", evidenceClass: "file_supported", label: "Loan request on file", reason: "" },

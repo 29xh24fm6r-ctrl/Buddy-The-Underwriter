@@ -42,6 +42,13 @@ export interface ResearchFact {
 
 export interface DecisionEvidenceProjection {
   privateCompanyEvidenceMode: boolean;
+  /**
+   * SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1: the latest quality gate still has
+   * scale_plausibility flagged as a committee blocker (gate-derived, NOT a task).
+   * When true, the Business Scale verdict is capped until an analyst records the
+   * scale-plausibility conclusion — even though the evidence factors are strong.
+   */
+  scalePlausibilityUnresolved: boolean;
   /** Six Business Scale factors. */
   scaleFactors: DecisionEvidenceFactor[];
   industry: {
@@ -95,7 +102,32 @@ export type EvidenceProjectionInput = {
   /** From the quality gate's management_validation_check, if available. */
   managementValidationPass?: boolean;
   principalsConfirmed?: number;
+  // SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1: gate-derived scale-plausibility state.
+  contradictionChecklist?: Array<Record<string, unknown>>;
+  committeeBlockers?: string[];
 };
+
+/**
+ * SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1: detect an UNRESOLVED scale-plausibility
+ * committee blocker from the latest quality gate. Primary signal is the
+ * contradiction_checklist item; the committee_blockers string list is the fallback
+ * (the live gate stores "Contradiction check unresolved: scale_plausibility"
+ * there). Deliberately does NOT consult buddy_research_committee_tasks — the live
+ * deal has no dedicated scale task row; the blocker is gate-derived.
+ */
+export function hasUnresolvedScalePlausibilityBlocker(input: {
+  contradictionChecklist?: Array<Record<string, unknown>>;
+  committeeBlockers?: string[];
+}): boolean {
+  for (const item of input.contradictionChecklist ?? []) {
+    const key = String(item?.["check_key"] ?? item?.["key"] ?? "").toLowerCase();
+    if (key !== "scale_plausibility") continue;
+    const status = String(item?.["status"] ?? "").toLowerCase();
+    if (item?.["committee_blocker"] === true && status !== "clear" && status !== "resolved") return true;
+  }
+  if ((input.committeeBlockers ?? []).some((b) => /scale_plausibility/i.test(String(b)))) return true;
+  return false;
+}
 
 const has = (v: unknown): boolean => {
   if (v == null) return false;
@@ -220,6 +252,7 @@ export function buildDecisionEvidenceProjection(i: EvidenceProjectionInput): Dec
 
   return {
     privateCompanyEvidenceMode: i.privateCompanyEvidenceMode,
+    scalePlausibilityUnresolved: hasUnresolvedScalePlausibilityBlocker(i),
     scaleFactors,
     industry: { naicsCode: i.naicsCode, naicsDescription: i.naicsDescription, understanding, independentSource: independent },
     management: {

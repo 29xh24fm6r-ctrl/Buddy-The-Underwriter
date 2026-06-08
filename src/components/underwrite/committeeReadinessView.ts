@@ -25,7 +25,8 @@ import type { ResearchGateSnapshot } from "./researchGateTypes";
 import type { CommitteeBlockerResolution } from "@/lib/research/committeeBlockerResolution";
 import type { CommitteeEvidenceTask } from "@/lib/research/committeeEvidenceTasks";
 import type { CommitteeBlockerImpact } from "@/lib/research/committeeBlockerImpactPreview";
-import { buildDecisionNarrative, type InstitutionalDecisionNarrative } from "./institutionalDecisionNarratives";
+import { buildDecisionNarrative, applyScaleConclusionCap, type InstitutionalDecisionNarrative } from "./institutionalDecisionNarratives";
+import { hasUnresolvedScalePlausibilityBlocker } from "@/lib/research/committeeEvidenceProjection";
 
 // ── Public view-model types ──────────────────────────────────────────────────
 
@@ -1203,6 +1204,20 @@ export function buildCommitteeReadinessView(
       buildDecisionNarrative(g.id, g, (byGroup.get(g.id) ?? []).map((m) => m.r), supportByGroup.get(g.id)!, plan, decisionEvidence),
     ] as const),
   );
+
+  // SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1 / FINAL-CARD-CAP-1: the Business Scale
+  // card must NEVER read "Approve / High" while the gate still flags
+  // scale_plausibility. Cap at the FINAL card-model boundary — path-independent,
+  // so it holds for the evidence narrative, the legacy fallback narrative, and any
+  // payload that omits the server `scalePlausibilityUnresolved` field. Driven by
+  // the gate signal (committee_blockers / contradiction_checklist), NOT committee
+  // tasks or group.status (there is no dedicated scale task row in live data).
+  const scaleUnresolved =
+    decisionEvidence?.scalePlausibilityUnresolved === true ||
+    hasUnresolvedScalePlausibilityBlocker({ committeeBlockers: snapshot.committeeBlockers ?? [] });
+  if (scaleUnresolved && narrativeByGroup.has("scale")) {
+    narrativeByGroup.set("scale", applyScaleConclusionCap(narrativeByGroup.get("scale")!));
+  }
 
   const actionCards: CommitteeActionCard[] = orderedGroupIds.map((gid) => {
     const g = groupById.get(gid)!;

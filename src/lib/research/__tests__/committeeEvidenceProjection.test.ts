@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildDecisionEvidenceProjection,
   buildResearchFactProjection,
+  hasUnresolvedScalePlausibilityBlocker,
   type EvidenceProjectionInput,
 } from "../committeeEvidenceProjection";
 
@@ -149,5 +150,26 @@ describe("Research fact projection (J)", () => {
     const { facts } = buildResearchFactProjection(inp());
     assert.ok(facts.every((f) => f.source && f.confidence > 0));
     assert.equal(facts.some((f) => f.key === "naics_code"), false);
+  });
+});
+
+describe("scale_plausibility blocker detection (SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1)", () => {
+  it("detects from the contradiction_checklist (primary signal)", () => {
+    assert.equal(hasUnresolvedScalePlausibilityBlocker({ contradictionChecklist: [{ check_key: "scale_plausibility", committee_blocker: true, status: "flagged" }] }), true);
+  });
+
+  it("detects from committee_blockers text (fallback — the live gate shape)", () => {
+    assert.equal(hasUnresolvedScalePlausibilityBlocker({ committeeBlockers: ["Contradiction check unresolved: scale_plausibility"] }), true);
+  });
+
+  it("does NOT flag when the checklist item is clear / not a committee blocker", () => {
+    assert.equal(hasUnresolvedScalePlausibilityBlocker({ contradictionChecklist: [{ check_key: "scale_plausibility", committee_blocker: true, status: "clear" }] }), false);
+    assert.equal(hasUnresolvedScalePlausibilityBlocker({ contradictionChecklist: [{ check_key: "scale_plausibility", committee_blocker: false, status: "flagged" }] }), false);
+    assert.equal(hasUnresolvedScalePlausibilityBlocker({}), false);
+  });
+
+  it("flows into the projection (no committee-task dependency)", () => {
+    const p = buildDecisionEvidenceProjection(inp({ committeeBlockers: ["Contradiction check unresolved: scale_plausibility"], committeeTasks: [] }));
+    assert.equal(p.scalePlausibilityUnresolved, true);
   });
 });

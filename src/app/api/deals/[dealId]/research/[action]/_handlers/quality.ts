@@ -305,6 +305,9 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
         privateCompanyEvidenceMode,
         managementValidationPass: gate?.management_validation_check === "pass" || gate?.management_validation_check === true,
         principalsConfirmed: typeof gate?.principals_confirmed === "number" ? gate.principals_confirmed : 0,
+        // SPEC-SCALE-PLAUSIBILITY-RECONCILIATION-1: gate-derived scale blocker state.
+        contradictionChecklist: (gate?.contradiction_checklist as any[]) ?? [],
+        committeeBlockers: (gate?.committee_blockers as string[]) ?? [],
       };
       committee_decision_evidence = buildDecisionEvidenceProjection(projectionInput);
       research_fact_projection = buildResearchFactProjection(projectionInput);
