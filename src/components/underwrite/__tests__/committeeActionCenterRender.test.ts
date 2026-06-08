@@ -133,11 +133,13 @@ describe("Committee action center — rendered Next Actions are executable", () 
     assert.doesNotMatch(blockers, /<button/);
   });
 
-  it("each card shows decision support by default (why / found / what satisfies)", () => {
+  it("each card shows the decision narrative by default (conclusion + recommendation + evidence + satisfies)", () => {
     const nextActions = section(render(), "committee-next-actions", "committee-progress-rail");
     assert.match(nextActions, /data-testid="committee-decision-support-/);
-    assert.match(nextActions, /Why this matters/i);
-    assert.match(nextActions, /Buddy found/i);
+    assert.match(nextActions, /conclusion:/i); // "Buddy's conclusion:" (apostrophe HTML-escaped)
+    assert.match(nextActions, /data-testid="committee-recommendation-/);
+    assert.match(nextActions, /Confidence:/i);
+    assert.match(nextActions, /Evidence used|Key findings|Scale factors/i);
     assert.match(nextActions, /What satisfies this/i);
   });
 

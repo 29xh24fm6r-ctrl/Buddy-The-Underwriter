@@ -596,6 +596,20 @@ const ACTION_BTN =
 const PRIMARY_BTN =
   "rounded-lg bg-sky-500 px-4 py-2 text-xs font-bold text-white shadow shadow-sky-900/20 hover:bg-sky-400 transition-colors";
 
+// SPEC-…-INSTITUTIONAL-DECISION-NARRATIVES-1: recommendation + confidence badges.
+const RECO_TONE: Record<string, string> = {
+  Approve: "bg-emerald-500/15 text-emerald-300",
+  "Approve with caveat": "bg-sky-500/15 text-sky-200",
+  "Request more support": "bg-amber-500/15 text-amber-200",
+  Escalate: "bg-rose-500/20 text-rose-200",
+  "Unable to conclude": "bg-rose-500/15 text-rose-200",
+};
+const CONF_TONE: Record<string, string> = {
+  High: "bg-emerald-500/10 text-emerald-300/80",
+  Medium: "bg-amber-500/10 text-amber-200/80",
+  Low: "bg-rose-500/10 text-rose-200/80",
+};
+
 // SPEC-COMMITTEE-ACTION-CENTER-FINAL-WORKFLOW-CORRECTION-1: the ONE canonical
 // executable action card, rendered in the Next Actions section. Large + readable;
 // the primary opens an in-place resolution drawer (screening result /
@@ -622,6 +636,7 @@ export function CommitteeTaskActionCard({
   const decision = DECISION_COPY[card.groupId];
   const complete = card.status === "Complete";
   const s = card.support;
+  const n = card.narrative;
 
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
@@ -677,37 +692,59 @@ export function CommitteeTaskActionCard({
         </span>
       </div>
 
-      {/* SPEC-…-DECISION-INTELLIGENCE-1: decision support, visible by default so a
-          banker never needs Supporting details to understand the decision. */}
-      <div className="space-y-2 text-[12px]" data-testid={`committee-decision-support-${card.id}`}>
-        <p className="text-sky-100/70"><span className="font-semibold text-sky-200">Why this matters: </span>{s.decisionReason}</p>
-        <SupportList label="Buddy found" items={s.evidenceFound} empty="Nothing on file yet." tone="found" />
-        {s.evidenceMissing.length > 0 ? <SupportList label="Still needed" items={s.evidenceMissing} tone="missing" /> : null}
-        <SupportList label="What satisfies this" items={s.acceptableEvidence} tone="accept" />
+      {/* SPEC-…-INSTITUTIONAL-DECISION-NARRATIVES-1: the institutional decision
+          narrative — conclusion, recommendation + confidence, key findings,
+          evidence used, gaps — visible by DEFAULT so the banker never opens
+          Supporting details to understand the decision. */}
+      <div className="space-y-2.5 text-[12px]" data-testid={`committee-decision-support-${card.id}`}>
+        <p className="text-sky-100/90"><span className="font-semibold text-sky-200">Buddy's conclusion: </span>{n.conclusion}</p>
+
+        <div className="flex flex-wrap items-center gap-2" data-testid={`committee-recommendation-${card.id}`}>
+          <span className={"rounded-full px-2.5 py-0.5 text-[11px] font-semibold " + RECO_TONE[n.recommendation]}>{n.recommendation}</span>
+          <span className={"rounded-full px-2 py-0.5 text-[10px] font-semibold " + CONF_TONE[n.confidence]}>Confidence: {n.confidence}</span>
+        </div>
+
+        {/* Scale shows its six-factor checklist; other decisions show key findings. */}
         {s.scaleChecklist.length > 0 ? (
           <div data-testid={`committee-scale-checklist-${card.id}`}>
             <p className="font-semibold text-sky-200">Scale factors Buddy considered:</p>
             <ul className="ml-1 mt-0.5 space-y-0.5">
               {s.scaleChecklist.map((it, i) => (
                 <li key={i} className={it.present ? "text-emerald-300/80" : "text-amber-300/80"}>
-                  {it.present ? "✓" : "✗"} {it.label}
+                  {it.present ? "✓" : "✗"} {it.label}: {it.present ? "Supported" : "Missing"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : n.keyFindings.length > 0 ? (
+          <SupportList label="Key findings" items={n.keyFindings} tone="found" />
+        ) : null}
+
+        {n.evidenceUsed.length > 0 ? (
+          <div data-testid={`committee-evidence-used-${card.id}`}>
+            <p className="font-semibold text-emerald-300/80">Evidence used:</p>
+            <ul className="ml-3 list-disc text-sky-100/70">
+              {n.evidenceUsed.map((e, i) => (
+                <li key={i}>
+                  {e.sourceUrl ? (
+                    <a href={e.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted text-sky-300/80">{e.label}</a>
+                  ) : (
+                    e.label
+                  )}{" "}
+                  <span className="text-sky-100/40">({e.strength})</span>
                 </li>
               ))}
             </ul>
           </div>
         ) : null}
-        {s.sourceLinks.length > 0 ? (
-          <p className="flex flex-wrap gap-2 text-[11px]">
-            {s.sourceLinks.map((l, i) => (
-              <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className={(l.official ? "text-emerald-300/80" : "text-amber-300/70") + " underline decoration-dotted"}>
-                {l.official ? "Official capture" : "Buddy receipt only"}: {l.label}
-              </a>
-            ))}
-          </p>
-        ) : null}
-        {s.sourceLimitations.map((lim, i) => (
-          <p key={i} className="text-[11px] text-amber-300/60">{lim}</p>
+
+        {n.evidenceGaps.length > 0 ? <SupportList label="Gaps / still needed" items={n.evidenceGaps} tone="missing" /> : null}
+        {n.riskNotes.map((r, i) => (
+          <p key={i} className="text-[11px] text-amber-300/70">⚠ {r}</p>
         ))}
+        {s.acceptableEvidence.length > 0 ? (
+          <p className="text-[11px] text-sky-100/50"><span className="font-semibold">What satisfies this: </span>{s.acceptableEvidence.join("; ")}</p>
+        ) : null}
       </div>
 
       {plan?.note ? <p className="text-[11px] text-amber-300/70">{plan.note}</p> : null}
