@@ -44,6 +44,11 @@ import { buildExhibitRegistry } from "@/lib/creditMemo/canonical/buildExhibitReg
 import { buildDscrReconciliation } from "@/lib/creditMemo/financials/buildDscrReconciliation";
 import { sanitizeMemoBorrowerStory } from "@/lib/creditMemo/trust/sanitizeMemoBorrowerStory";
 import { loadMemoCommitteeIntelligence } from "@/lib/creditMemo/committee/loadMemoCommitteeIntelligence";
+import {
+  applyCommitteeGateToRecommendation,
+  committeeGateConditions,
+  isCommitteeEligible,
+} from "@/lib/creditMemo/committee/applyCommitteeGate";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1448,6 +1453,17 @@ export async function buildCanonicalCreditMemo(args: {
       return null;
     });
 
+    // SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1 (decision coherence): keep the
+    // FINANCIAL verdict, but when committee readiness is not met the recommendation
+    // carries an EXPLICIT caveat and the remaining blockers become conditions-
+    // precedent — the memo never reads as a clean approval while committee is gated.
+    if (recommendation) {
+      recommendation = applyCommitteeGateToRecommendation(recommendation, committeeReadiness);
+    }
+    for (const cond of committeeGateConditions(committeeReadiness)) {
+      if (!conditionsPrecedent.includes(cond)) conditionsPrecedent.push(cond);
+    }
+
     const memo: CanonicalCreditMemoV1 = {
       version: "canonical_v1",
       deal_id: String(deal.id),
@@ -1838,6 +1854,14 @@ export async function buildCanonicalCreditMemo(args: {
           else if (trustGrade === "preliminary") blockers.push("Research is preliminary — not committee-grade");
           if (readiness.status !== "ready") blockers.push("Financial data incomplete");
 
+          // SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee_readiness is the
+          // AUTHORITATIVE committee state. Surface its remaining blockers here so the
+          // certification, the recommendation caveat, and the submission gate all read
+          // the same truth (no divergent eligibility definitions).
+          if (committeeReadiness && committeeReadiness.committee_ready === false) {
+            for (const b of committeeReadiness.remaining_blockers) blockers.push(b);
+          }
+
           // Phase 82: evidence coverage from latest research_trace_json
           const evidenceCoverage = await computeEvidenceCoverage(args.dealId, bankId).catch(() => null);
           const evidenceSupportRatio = evidenceCoverage?.supportRatio ?? null;
@@ -1851,7 +1875,15 @@ export async function buildCanonicalCreditMemo(args: {
           }
 
           return {
-            isCommitteeEligible: trustGrade === "committee_grade" && readiness.status === "ready" && blockers.length === 0,
+            // committee_readiness is authoritative when present (the research-gate
+            // model the panel renders); fall back to the trust-grade definition only
+            // when no committee model exists (research not run).
+            isCommitteeEligible: isCommitteeEligible({
+              financialReady: readiness.status === "ready",
+              trustGrade,
+              evidenceBlockersClear: blockers.length === 0,
+              section: committeeReadiness,
+            }),
             trustGrade,
             subjectLocked: !!borrower?.legal_name && !!borrower?.naics_code && borrower.naics_code !== "999999",
             renderMode: mode,

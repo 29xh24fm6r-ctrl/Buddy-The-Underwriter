@@ -133,7 +133,7 @@ describe("READINESS §D — Empty state", () => {
 // E. OmniCare-style fixture: full canonical = 5/5
 // ══════════════════════════════════════════════════════════════════════════
 
-describe("READINESS §E — Full canonical deal = 5/5", () => {
+describe("READINESS §E — Full canonical deal = 6/6", () => {
   it("all required items pass from canonical memo data alone", () => {
     const memo = stubMemo({
       business_description: "OmniCare365 provides comprehensive home healthcare staffing services to hospitals, assisted living facilities, and rehabilitation centers across the southeastern United States.",
@@ -149,7 +149,8 @@ describe("READINESS §E — Full canonical deal = 5/5", () => {
 
     const items = buildRequiredItems(memo, {});
     const doneCount = items.filter((r) => r.ok).length;
-    assert.equal(doneCount, 5, `Expected 5/5, got ${doneCount}/5: ${items.filter((r) => !r.ok).map((r) => r.id).join(", ")}`);
+    // 6 items incl. committee_ready (no committee model on this fixture → gate n/a, ok).
+    assert.equal(doneCount, 6, `Expected 6/6, got ${doneCount}/6: ${items.filter((r) => !r.ok).map((r) => r.id).join(", ")}`);
 
     // Verify labels are canonical-friendly (no "filled ≥ 20 chars")
     assert.ok(!items.some((r) => r.label.includes("≥ 20")), "Labels must not mention char counts");

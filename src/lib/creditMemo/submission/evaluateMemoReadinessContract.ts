@@ -27,6 +27,18 @@ export function evaluateMemoReadinessContract(args: {
   const { memo, overrides } = args;
   const now = args.now ?? new Date();
 
+  // SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1 (decision coherence): committee
+  // readiness gates committee submission. OVERRIDABLE — a banker may proceed by
+  // recording a reason in overrides["committee_not_ready_override"] (persisted with
+  // the snapshot as the audit trail). The gate ITSELF lives in buildRequiredItems
+  // (id "committee") so the banker UI checklist and this server gate never diverge.
+  const committeeReady = memo.committee_readiness?.committee_ready;
+  const committeeOverrideReason =
+    typeof overrides["committee_not_ready_override"] === "string"
+      ? (overrides["committee_not_ready_override"] as string).trim()
+      : "";
+  const committeeOverridden = committeeOverrideReason.length > 0;
+
   // ── Required items — canonical-first, mirrors BankerReviewPanel.tsx ────
   // Uses the shared helper so client UI and server gate stay in lockstep.
   const items = buildRequiredItems(memo, overrides);
@@ -38,6 +50,7 @@ export function evaluateMemoReadinessContract(args: {
     collateral_value: itemById.get("collat")?.ok ?? false,
     business_description: itemById.get("bizdesc")?.ok ?? false,
     management_bio: itemById.get("mgmtbio")?.ok ?? false,
+    committee_ready: itemById.get("committee")?.ok ?? true,
   };
 
   // ── Warnings (do not block submission, but recorded with the snapshot) ─
@@ -62,6 +75,7 @@ export function evaluateMemoReadinessContract(args: {
     research_missing: !researchOk,
     covenant_review_missing: !covenantReviewOk,
     qualitative_review_missing: !qualitativeReviewOk,
+    committee_not_ready_overridden: !!memo.committee_readiness && committeeReady === false && committeeOverridden,
   };
 
   // ── Build blocker list ────────────────────────────────────────────────
@@ -107,6 +121,18 @@ export function evaluateMemoReadinessContract(args: {
     });
   }
 
+  if (!required.committee_ready) {
+    const remaining = memo.committee_readiness?.remaining_blockers ?? [];
+    blockers.push({
+      code: "committee_ready",
+      label: remaining.length
+        ? `Committee readiness blockers remain: ${remaining.join("; ")}`
+        : "Committee review is not ready",
+      owner: "banker",
+      fixHref: `/deals/${memo.deal_id}/underwrite`,
+    });
+  }
+
   const warningList: ReadinessWarning[] = [];
   if (warnings.ai_narrative_missing) {
     warningList.push({ code: "ai_narrative_missing", label: "AI narrative not generated" });
@@ -119,6 +145,13 @@ export function evaluateMemoReadinessContract(args: {
   }
   if (warnings.qualitative_review_missing) {
     warningList.push({ code: "qualitative_review_missing", label: "Qualitative assessment not reviewed" });
+  }
+  // Record an explicit, audited warning when the committee gate was overridden.
+  if (memo.committee_readiness && committeeReady === false && committeeOverridden) {
+    warningList.push({
+      code: "committee_not_ready_overridden",
+      label: `Committee readiness blockers overridden by banker: ${committeeOverrideReason}`,
+    });
   }
 
   const passed = blockers.length === 0;
