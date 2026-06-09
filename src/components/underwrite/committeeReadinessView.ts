@@ -125,6 +125,13 @@ export interface CommitteeBlockerLine {
   label: string;
   groupId: CommitteeReadinessGroupId;
   status: GroupStatusLabel;
+  /**
+   * BUGFIX-INDUSTRY-SOURCE-COLLECTED-BLOCKER-COPY-1: evidence-state-aware blocker
+   * copy that overrides the static per-group line. Set when the literal default
+   * ("… support missing") would be inaccurate — e.g. an independent industry
+   * source is collected but not yet committee-approved ("review required").
+   */
+  blocking?: string | null;
 }
 
 /**
@@ -1250,12 +1257,34 @@ export function buildCommitteeReadinessView(
 
   // SPEC-…-POLISH-1 (E): compact read-only blocker bullets — ONE per unresolved
   // group, banker-named, reconciling 1:1 with the action cards.
+  // BUGFIX-INDUSTRY-SOURCE-COLLECTED-BLOCKER-COPY-1: an independent industry/market
+  // source is COLLECTED (but not yet committee-approved). Look at the collected
+  // source/evidence FIRST (so duplicate pending tasks can't force stale "missing"
+  // copy), via the decision-evidence projection OR a collected industry task /
+  // recognized government/industry source snapshot. A group still appearing as a
+  // blocker is by definition not committee-approved (approved → Complete → absent).
+  const industryMembers = byGroup.get("industry") ?? [];
+  const industrySourceCollected =
+    decisionEvidence?.industry?.independentSource?.status === "Supported" ||
+    industryMembers.some((m) =>
+      (m.r.evidence_tasks ?? []).some((t) => {
+        const tt = String(t.task_type ?? "");
+        if (tt !== "industry_market_source") return false;
+        return (
+          !!(t as { source_snapshot_id?: string | null }).source_snapshot_id ||
+          String((t as { resolved_status?: string | null }).resolved_status ?? "") === "collected" ||
+          String(t.status ?? "") === "collected"
+        );
+      }),
+    );
+
   const committeeBlockers: CommitteeBlockerLine[] = orderedGroupIds.map((gid) => {
     const g = groupById.get(gid)!;
     return {
       label: GROUP_TITLE[gid],
       groupId: gid,
       status: g.status,
+      blocking: gid === "industry" && industrySourceCollected ? "Industry source review required" : null,
     };
   });
 

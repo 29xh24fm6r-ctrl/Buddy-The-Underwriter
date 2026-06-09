@@ -231,3 +231,41 @@ describe("classified evidence renders class badges + confidence drivers", () => 
     assert.match(out, /Why this confidence/i);
   });
 });
+
+// BUGFIX-INDUSTRY-SOURCE-COLLECTED-BLOCKER-COPY-1: the rendered global blocker
+// list shows "Industry source review required" (not "… support missing") once an
+// independent industry source is collected but not committee-approved.
+describe("industry blocker copy is evidence-aware in the rendered blocker list", () => {
+  function industrySnapshot(): ResearchGateSnapshot {
+    return {
+      ...snapshot(),
+      committeeBlockerResolutions: [
+        blocker({
+          blocker_id: "industry_source",
+          blocker_type: "section_source_gap",
+          title: "Section needs committee-grade sources: Industry Overview",
+          current_status: "present_but_not_committee_grade",
+          evidence_tasks: [task({ id: "ind", blocker_id: "industry_source", task_type: "industry_market_source", title: "Industry source", status: "collected", resolved_status: "collected", source_snapshot_id: "snap-1" })],
+        }),
+      ],
+      committeeDecisionEvidence: {
+        privateCompanyEvidenceMode: true,
+        scalePlausibilityUnresolved: false,
+        scaleFactors: [],
+        industry: { naicsCode: "561422", naicsDescription: null,
+          understanding: { factor: "Industry understanding", status: "Supported", evidenceClass: "borrower_supported", label: "x", reason: "" },
+          independentSource: { factor: "Independent industry source", status: "Supported", evidenceClass: "public_supported", label: "x", reason: "" } },
+        management: { principals: [], profilePresent: false, publicVerification: false, adverseStatus: "not_run" },
+        publicRecords: { attestedClear: false, officialCaptured: false, searchFormOnly: false, status: "not_run" },
+      } as any,
+    } as ResearchGateSnapshot;
+  }
+  const html = () =>
+    renderToStaticMarkup(React.createElement(CommitteeReadinessPanel, { snapshot: industrySnapshot(), onReviewTask: () => {}, onAttachSource: () => {} }));
+
+  it("renders 'Industry source review required', not 'Industry support missing'", () => {
+    const out = html();
+    assert.match(out, /Industry source review required/);
+    assert.doesNotMatch(out, /Industry support missing/);
+  });
+});

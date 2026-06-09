@@ -881,3 +881,64 @@ describe("Business Scale card caps from the gate scale_plausibility blocker (SPE
     assert.ok(card.narrative.confidenceDrivers.negative.some((d) => /Analyst scale-plausibility conclusion still required/i.test(d)));
   });
 });
+
+describe("industry blocker copy reflects collected-but-not-approved (BUGFIX-INDUSTRY-SOURCE-COLLECTED-BLOCKER-COPY-1)", () => {
+  const industryLine = (snap: ResearchGateSnapshot) =>
+    buildCommitteeReadinessView(snap)!.committeeBlockers.find((b) => b.groupId === "industry");
+
+  // Complete projection shape (quality.ts always sends a full one).
+  const fullEvidence = (independentStatus: string): any => ({
+    privateCompanyEvidenceMode: true,
+    scalePlausibilityUnresolved: true,
+    scaleFactors: [],
+    industry: {
+      naicsCode: "561422", naicsDescription: null,
+      understanding: { factor: "Industry understanding", status: "Supported", evidenceClass: "borrower_supported", label: "x", reason: "" },
+      independentSource: { factor: "Independent industry source", status: independentStatus, evidenceClass: independentStatus === "Supported" ? "public_supported" : "missing", label: "x", reason: "" },
+    },
+    management: { principals: [], profilePresent: false, publicVerification: false, adverseStatus: "not_run" },
+    publicRecords: { attestedClear: false, officialCaptured: false, searchFormOnly: false, status: "not_run" },
+  });
+
+  it("Test 1: collected independent source (not approved) → 'Industry source review required', not missing; committee still not ready", () => {
+    const view = buildCommitteeReadinessView(omniCareSnapshot({
+      committeeDecisionEvidence: fullEvidence("Supported"),
+    }))!;
+    const line = view.committeeBlockers.find((b) => b.groupId === "industry")!;
+    assert.equal(line.blocking, "Industry source review required");
+    assert.notEqual(line.blocking, "Industry support missing");
+    assert.ok(view.committeeBlockers.length > 0, "committee still not ready");
+  });
+
+  it("Test 2: no independent source → falls back to default (no override)", () => {
+    const line = industryLine(omniCareSnapshot())!;
+    assert.equal(line.blocking ?? null, null); // panel renders DECISION_COPY → "Industry support missing"
+  });
+
+  it("Test 3: collected source + a duplicate pending industry task → still 'review required'", () => {
+    const blockers = omniCareBlockers().map((b) =>
+      b.blocker_id === "industry_source"
+        ? { ...b, evidence_tasks: [
+            task({ task_type: "industry_market_source", title: "Industry source", status: "collected", resolved_status: "collected", source_snapshot_id: "snap-1" } as any),
+            task({ task_type: "industry_market_source", title: "Industry source (dup)", status: "pending", resolved_status: "missing" } as any),
+          ] }
+        : b,
+    );
+    const line = industryLine(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    assert.equal(line.blocking, "Industry source review required");
+  });
+
+  it("Test 4: industry source committee-grade accepted → no industry blocker line", () => {
+    const blockers = [
+      mkBlocker({
+        blocker_id: "industry_source",
+        title: "Section needs committee-grade sources: Industry Overview",
+        blocker_type: "section_source_gap",
+        current_status: "present_but_not_committee_grade",
+        evidence_tasks: [task({ task_type: "industry_market_source", title: "Industry source", status: "collected", resolved_status: "collected", committee_grade_accepted: true } as any)],
+      }),
+    ];
+    const view = buildCommitteeReadinessView(omniCareSnapshot({ committeeBlockerResolutions: blockers }))!;
+    assert.equal(view.committeeBlockers.some((b) => b.groupId === "industry"), false);
+  });
+});
