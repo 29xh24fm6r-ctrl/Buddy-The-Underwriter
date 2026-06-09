@@ -329,3 +329,46 @@ test("[guard-6f] blocker labels use canonical wording", () => {
   assert.ok(mgmtBlocker);
   assert.equal(mgmtBlocker!.label, "Management profile is not available");
 });
+
+// ─── SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee readiness gate ───
+function withCommittee(memo: CanonicalCreditMemoV1, committee_ready: boolean, remaining: string[] = []) {
+  (memo as any).committee_readiness = { committee_ready, status_line: "", remaining_blockers: remaining, decision_support: [], sources: [], markdown: "" };
+  return memo;
+}
+
+test("[committee] not ready → blocks submission with a committee_ready blocker", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: withCommittee(memoStub(), false, ["Management support missing", "Analyst conclusion missing"]),
+    overrides: PASSING_OVERRIDES(),
+  });
+  assert.equal(c.passed, false);
+  assert.equal(c.required.committee_ready, false);
+  const b = c.blockers.find((x) => x.code === "committee_ready");
+  assert.ok(b, "committee blocker present");
+  assert.match(b!.label, /Management support missing; Analyst conclusion missing/);
+});
+
+test("[committee] overridable — a banker reason clears the block + records an audited warning", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: withCommittee(memoStub(), false, ["Analyst conclusion missing"]),
+    overrides: { ...PASSING_OVERRIDES(), committee_not_ready_override: "Chair approved verbal; minutes to follow" },
+  });
+  assert.equal(c.passed, true);
+  assert.equal(c.required.committee_ready, true);
+  assert.equal(c.blockers.some((x) => x.code === "committee_ready"), false);
+  const w = c.warningList.find((x) => x.code === "committee_not_ready_overridden");
+  assert.ok(w, "override warning recorded");
+  assert.match(w!.label, /Chair approved verbal/);
+});
+
+test("[committee] ready → no committee blocker", () => {
+  const c = evaluateMemoReadinessContract({ memo: withCommittee(memoStub(), true), overrides: PASSING_OVERRIDES() });
+  assert.equal(c.passed, true);
+  assert.equal(c.required.committee_ready, true);
+});
+
+test("[committee] no committee model → gate is satisfied (back-compat)", () => {
+  const c = evaluateMemoReadinessContract({ memo: memoStub(), overrides: PASSING_OVERRIDES() });
+  assert.equal(c.required.committee_ready, true);
+  assert.equal(c.blockers.some((x) => x.code === "committee_ready"), false);
+});

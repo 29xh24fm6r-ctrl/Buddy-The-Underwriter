@@ -86,6 +86,24 @@ export function hasMemoCollateral(memo: CanonicalCreditMemoV1): boolean {
 }
 
 /**
+ * SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee readiness gate. Satisfied
+ * when there is no committee model (research not run → gate n/a), when committee is
+ * ready, or when a banker recorded an override reason
+ * (overrides["committee_not_ready_override"]). Shared by the UI checklist and the
+ * server contract so they never diverge.
+ */
+export function hasCommitteeReadinessOrOverride(
+  memo: CanonicalCreditMemoV1,
+  overrides: Record<string, unknown>,
+): boolean {
+  const cr = memo.committee_readiness;
+  if (!cr) return true;
+  if (cr.committee_ready) return true;
+  const ov = overrides["committee_not_ready_override"];
+  return typeof ov === "string" && ov.trim().length > 0;
+}
+
+/**
  * Build the required items list using canonical-first checks.
  */
 export type RequiredItem = {
@@ -123,6 +141,11 @@ export function buildRequiredItems(
       id: "mgmtbio",
       ok: hasMemoManagementBio(memo, overrides),
       label: "Management profile available",
+    },
+    {
+      id: "committee",
+      ok: hasCommitteeReadinessOrOverride(memo, overrides),
+      label: "Committee readiness met",
     },
   ];
 }
