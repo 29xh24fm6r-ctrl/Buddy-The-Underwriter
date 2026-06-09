@@ -2,6 +2,11 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { selectPeriods } from "@/lib/creditMemo/selectPeriods";
+import {
+  resolveGcfFactValue,
+  GCF_CANONICAL_FACT_KEY,
+  type GcfFactRow,
+} from "@/lib/financialFacts/canonicalGcfCore";
 import type {
   CreditMemoBindings,
   CreditMemoProvenance,
@@ -151,8 +156,27 @@ export async function buildCreditMemoBindings(args: {
   }
 
   // 6. Bind GLOBAL metrics (cross-entity GCF)
+  // SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 2: route Global Cash Flow through the
+  // canonical SELECTOR (prefer GCF_GLOBAL_CASH_FLOW, fall back to the legacy
+  // GLOBAL_CASH_FLOW alias) — the same resolver memo readiness uses — so the memo can
+  // never show a null GCF while the value exists only under the legacy key.
+  const gcfResolved = resolveGcfFactValue(facts as unknown as GcfFactRow[]);
+  provenance.push({
+    memoField: "global.globalCashFlow",
+    factType: "FINANCIAL_ANALYSIS",
+    factKey: gcfResolved.factKey ?? GCF_CANONICAL_FACT_KEY,
+    ownerType: "DEAL",
+    ownerEntityId: null,
+    periodStart: null,
+    periodEnd: gcfResolved.asOf,
+    sourceDocumentId: null,
+    confidence: null,
+    source: gcfResolved.factKey
+      ? `Facts:FINANCIAL_ANALYSIS.${gcfResolved.factKey}${gcfResolved.usedLegacy ? " (legacy fallback)" : ""}`
+      : "Missing",
+  });
   const global = {
-    globalCashFlow: bindFact({ memoField: "global.globalCashFlow", factType: "FINANCIAL_ANALYSIS", factKey: "GCF_GLOBAL_CASH_FLOW", ownerType: "DEAL" }),
+    globalCashFlow: gcfResolved.value,
     globalDscr: bindFact({ memoField: "global.globalDscr", factType: "FINANCIAL_ANALYSIS", factKey: "GCF_DSCR", ownerType: "DEAL" }),
     cashAvailable: null as number | null,
     personalDebtService: null as number | null,
