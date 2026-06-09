@@ -43,6 +43,7 @@ import { buildConventionalRiskRating } from "@/lib/creditMemo/riskRating/buildCo
 import { buildExhibitRegistry } from "@/lib/creditMemo/canonical/buildExhibitRegistry";
 import { buildDscrReconciliation } from "@/lib/creditMemo/financials/buildDscrReconciliation";
 import { sanitizeMemoBorrowerStory } from "@/lib/creditMemo/trust/sanitizeMemoBorrowerStory";
+import { loadMemoCommitteeIntelligence } from "@/lib/creditMemo/committee/loadMemoCommitteeIntelligence";
 
 // ---------------------------------------------------------------------------
 // Phase 80: Render Mode — committee vs diagnostic
@@ -1439,6 +1440,14 @@ export async function buildCanonicalCreditMemo(args: {
       console.warn("[buildCanonicalCreditMemo] OD narrative failed (non-fatal)", odErr?.message);
     }
 
+    // SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 (PR-B): consume the SAME
+    // committee-readiness model the Committee Readiness panel renders. Read-only;
+    // non-fatal (the memo still renders if research has not been run).
+    const committeeReadiness = await loadMemoCommitteeIntelligence({ sb, dealId: args.dealId }).catch((err) => {
+      console.warn("[buildCanonicalCreditMemo] committee readiness load failed (non-fatal)", err?.message);
+      return null;
+    });
+
     const memo: CanonicalCreditMemoV1 = {
       version: "canonical_v1",
       deal_id: String(deal.id),
@@ -1867,6 +1876,9 @@ export async function buildCanonicalCreditMemo(args: {
       stress_testing: stressTable,
       covenant_package: covenantPackage,
       qualitative_assessment: qualitativeAssessment,
+
+      // SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 (PR-B)
+      committee_readiness: committeeReadiness,
 
       meta: {
         notes: mgmtResult.aliasesDeduped.length > 0
