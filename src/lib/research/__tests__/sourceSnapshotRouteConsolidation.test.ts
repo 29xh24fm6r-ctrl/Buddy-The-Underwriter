@@ -60,3 +60,27 @@ test("[consolidation] committee-task-review handler preserves validation invaria
   assertHandlerInvariants(handler);
   assert.match(handler, /isCommitteeReviewAction/);
 });
+
+// SPEC-BIE-ACTIVE-SOURCE-COLLECTION-PR-B: industry source collection is a new
+// dispatcher ACTION (zero net functions) and never auto-clears committee.
+test("[consolidation] dispatcher routes collect-industry-source (POST)", () => {
+  const dispatcher = readFileSync(`${RESEARCH_DIR}/[action]/route.ts`, "utf8");
+  assert.match(dispatcher, /case "collect-industry-source":/);
+  assert.match(dispatcher, /_handlers\/collectIndustrySource/);
+});
+
+test("[consolidation] collect-industry-source handler invariants (deterministic, no committee_grade write)", () => {
+  const handler = readFileSync(`${RESEARCH_DIR}/[action]/_handlers/collectIndustrySource.ts`, "utf8");
+  assert.match(handler, /export async function POST/);
+  assert.match(handler, /ensureDealBankAccess/);
+  assert.match(handler, /buildIndustrySourceDescriptor/); // deterministic source only
+  assert.match(handler, /persistManualSourceSnapshot/);   // reuses the safe persist-core
+  assert.match(handler, /resolved_status.*needs_review/s); // analyst review required
+  // INVARIANT: never writes committee_grade_accepted (no auto-clear).
+  assert.equal(/committee_grade_accepted\s*[:=]/.test(handler), false);
+});
+
+test("[consolidation] research/ still exposes exactly one route.ts after PR-B (no added function)", () => {
+  assert.equal(existsSync(`${RESEARCH_DIR}/collect-industry-source`), false);
+  assert.equal(existsSync(`${RESEARCH_DIR}/[action]/route.ts`), true);
+});

@@ -173,3 +173,11 @@ describe("scale_plausibility blocker detection (SPEC-SCALE-PLAUSIBILITY-RECONCIL
     assert.equal(p.scalePlausibilityUnresolved, true);
   });
 });
+
+describe("collected government_data source flips industry independent-source (PR-B)", () => {
+  it("independentSource becomes Supported / public_supported after collection", () => {
+    const p = buildDecisionEvidenceProjection(inp({ naicsCode: "561422", sourceSnapshots: [{ source_type: "government_data", status: "collected" }] }));
+    assert.equal(p.industry.independentSource.status, "Supported");
+    assert.equal(p.industry.independentSource.evidenceClass, "public_supported");
+  });
+});

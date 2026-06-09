@@ -112,3 +112,13 @@ describe("links to an existing industry task instead of duplicating", () => {
     assert.equal(t.linkedTaskId, "task-123");
   });
 });
+
+describe("a collected government_data source suppresses the duplicate (PR-B flip)", () => {
+  it("review_existing_source once an industry government_data snapshot exists", () => {
+    const t = industry(buildCommitteeSourceCollectionPlan(omni({
+      currentSourceSnapshots: [{ source_type: "government_data", status: "collected" }],
+    })));
+    assert.notEqual(t.priority, "high");
+    assert.ok(t.status === "review_existing_source" || t.status === "already_collected");
+  });
+});
