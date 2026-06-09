@@ -3,6 +3,7 @@ import type { TaxSpread } from "@/lib/finance/tax/taxSpreadTypes";
 import type { UnderwritingResults } from "@/lib/finance/underwriting/results";
 import type { UnderwritingVerdict } from "@/lib/finance/underwriting/verdict";
 import type { DocumentCoverage } from "@/lib/finance/underwriting/documentCoverage";
+import type { MemoCommitteeIntelligence } from "@/lib/creditMemo/committee/buildMemoCommitteeIntelligence";
 
 type BuildArgs = {
   dealId: string;
@@ -68,6 +69,9 @@ export function buildCreditMemoV1(args: {
   research?: CreditMemoV1["research"];
   hasPfs: boolean;
   hasFinancialStatement: boolean;
+  // SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 (PR-B): committee decision
+  // intelligence (same model as Committee Readiness), frozen into the memo.
+  committeeIntelligence?: MemoCommitteeIntelligence | null;
 }): CreditMemoV1 {
   const {
     dealId,
@@ -146,6 +150,20 @@ export function buildCreditMemoV1(args: {
       body: research.owner?.summary ?? "",
       bullets: research.owner?.bullets,
       sources: research.owner?.sources,
+    });
+  }
+
+  // SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 (PR-B): committee readiness
+  // section — same narratives + blockers as the Committee Readiness screen, so the
+  // memo can't drift. Read-only projection; never approves/clears anything.
+  if (args.committeeIntelligence) {
+    const ci = args.committeeIntelligence;
+    sections.push({
+      id: "committee_readiness",
+      title: "Committee Readiness",
+      body: ci.markdown,
+      bullets: ci.committeeReadinessStatus.remainingBlockers.map((b) => `Remaining blocker: ${b}`),
+      flags: ci.committeeReadinessStatus.committeeReady ? undefined : ["Committee review not ready"],
     });
   }
 

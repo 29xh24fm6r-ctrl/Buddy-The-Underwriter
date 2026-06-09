@@ -14,7 +14,12 @@
 
 import type { EvidenceClass } from "@/lib/research/committeeEvidenceProjection";
 import type { InstitutionalDecisionNarrative } from "@/components/underwrite/institutionalDecisionNarratives";
-import type { CommitteeBlockerLine } from "@/components/underwrite/committeeReadinessView";
+import {
+  buildCommitteeReadinessView,
+  buildInstitutionalDecisionNarratives,
+  type CommitteeBlockerLine,
+} from "@/components/underwrite/committeeReadinessView";
+import type { ResearchGateSnapshot } from "@/components/underwrite/researchGateTypes";
 
 /** SPEC §D — banker-readable label per evidence class (no raw enum spam). */
 export const MEMO_EVIDENCE_LABEL: Record<EvidenceClass, string> = {
@@ -162,4 +167,25 @@ export function buildMemoCommitteeIntelligence(input: MemoCommitteeIntelligenceI
     sources,
     markdown,
   };
+}
+
+/**
+ * Derive the memo committee-intelligence from a ResearchGateSnapshot (the same
+ * snapshot the Committee Readiness screen renders). Pure — reuses the readiness
+ * view + narrative builders, then the adapter above. Returns null when there is
+ * no committee model on the snapshot. The single cross-layer seam.
+ */
+export function memoCommitteeIntelligenceFromSnapshot(
+  snapshot: ResearchGateSnapshot,
+  sources?: MemoSourceRef[],
+): MemoCommitteeIntelligence | null {
+  const view = buildCommitteeReadinessView(snapshot);
+  if (!view) return null;
+  return buildMemoCommitteeIntelligence({
+    narratives: buildInstitutionalDecisionNarratives(snapshot),
+    committeeBlockers: view.committeeBlockers,
+    preliminaryReady: Boolean(snapshot.preliminaryEligible),
+    committeeReady: Boolean(snapshot.committeeEligible),
+    sources,
+  });
 }
