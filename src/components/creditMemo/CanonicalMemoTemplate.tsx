@@ -3,6 +3,7 @@ import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, Balanc
 import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
+import type { MemoCommitteeReadinessSection } from "@/lib/creditMemo/committee/buildMemoCommitteeReadinessSection";
 
 // ── Phase 82: Research Trace types ────────────────────────────────────────
 
@@ -542,6 +543,85 @@ function ScoreStars({ score }: { score: number }) {
   );
 }
 
+// BUGFIX-CANONICAL-MEMO-RENDER-COMMITTEE-READINESS-SECTION-1: render the committee
+// readiness intelligence the memo already carries (built + serialized upstream) so
+// the memo no longer states a separate, weaker truth than the Committee Readiness
+// panel. Read-only projection — never approves sources or clears blockers.
+export function CommitteeReadinessSection({ section }: { section: MemoCommitteeReadinessSection | null }) {
+  if (!section) return null;
+  return (
+    <div className="border border-gray-300 p-4 mb-6 bg-white" data-testid="memo-committee-readiness">
+      <div className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-2">
+        Committee Readiness and Evidence Status
+      </div>
+
+      <div className={`text-sm font-semibold mb-3 ${section.committee_ready ? "text-emerald-700" : "text-amber-700"}`}>
+        {section.status_line}
+      </div>
+
+      {section.remaining_blockers.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Remaining blockers</div>
+          <ul className="text-sm text-gray-800 list-disc ml-4 space-y-0.5">
+            {section.remaining_blockers.map((b, i) => (
+              <li key={`crb-${i}`}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {section.decision_support.length > 0 && (
+        <div className="mb-3 space-y-2">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Decision support</div>
+          {section.decision_support.map((d, i) => (
+            <div key={`crd-${i}`} className="border-l-2 border-gray-300 pl-3">
+              <div className="text-sm font-semibold text-gray-800">
+                {d.domain} — {d.recommendation}{" "}
+                <span className="text-[11px] font-normal text-gray-500">(confidence: {d.confidence})</span>
+              </div>
+              {d.conclusion ? <div className="text-xs text-gray-700">{d.conclusion}</div> : null}
+              {d.evidence.length > 0 && (
+                <ul className="text-[11px] text-gray-600 list-disc ml-4 mt-0.5 space-y-0.5">
+                  {d.evidence.map((e, j) => (
+                    <li key={`cre-${i}-${j}`}>{e}</li>
+                  ))}
+                </ul>
+              )}
+              {d.caveats.length > 0 && (
+                <ul className="text-[11px] text-amber-700 list-disc ml-4 mt-0.5 space-y-0.5">
+                  {d.caveats.map((c, j) => (
+                    <li key={`crc-${i}-${j}`}>{c}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {section.sources.length > 0 && (
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Supporting sources</div>
+          <ul className="text-xs text-gray-700 list-disc ml-4 space-y-0.5">
+            {section.sources.map((s, i) => (
+              <li key={`crs-${i}`}>
+                {s.url ? (
+                  <a href={s.url} target="_blank" rel="noreferrer" className="underline">{s.label}</a>
+                ) : (
+                  s.label
+                )}
+                {s.evidence_label ? ` — ${s.evidence_label}` : ""}
+                {s.review_state ? ` · ${s.review_state}` : ""}
+                {!s.committee_approved ? " (not committee-approved)" : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QualitativeAssessmentSection({ qa }: { qa: QualitativeAssessment | null }) {
   if (!qa) return null;
 
@@ -894,6 +974,11 @@ export default function CanonicalMemoTemplate({
           </ul>
         </div>
       )}
+
+      {/* ── COMMITTEE READINESS AND EVIDENCE STATUS ──
+          BUGFIX-CANONICAL-MEMO-RENDER-COMMITTEE-READINESS-SECTION-1: render the
+          committee_readiness the memo already carries (null-guarded). */}
+      <CommitteeReadinessSection section={memo.committee_readiness} />
 
       {/* ── FINANCING REQUEST BOX ── */}
       <div className="border border-gray-300 p-4 mb-6 bg-gray-50">
