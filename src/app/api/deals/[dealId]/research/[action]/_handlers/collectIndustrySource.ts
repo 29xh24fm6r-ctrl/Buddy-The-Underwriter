@@ -66,18 +66,25 @@ export async function POST(_req: NextRequest, ctx: { params: Params }) {
       return NextResponse.json({ ok: false, error: "no_usable_naics" }, { status: 422 });
     }
 
-    // The industry_market_source committee task (gate-derived; no scale task case).
-    const { data: task } = await sb
+    // The industry_market_source committee task(s). Live data can carry DUPLICATE
+    // rows, so select all and pick a canonical one deterministically (oldest id),
+    // and stay idempotent: if one already has a collected source, don't refetch.
+    const { data: tasks } = await sb
       .from("buddy_research_committee_tasks")
-      .select("id, mission_id, deal_id, status")
+      .select("id, mission_id, deal_id, status, source_snapshot_id")
       .eq("deal_id", dealId)
       .eq("mission_id", mission.id)
-      .eq("task_type", "industry_market_source")
-      .limit(1)
-      .maybeSingle();
-    if (!task) {
+      .eq("task_type", "industry_market_source");
+    const taskRows = (tasks as any[]) ?? [];
+    if (taskRows.length === 0) {
       return NextResponse.json({ ok: false, error: "no_industry_task" }, { status: 404 });
     }
+    const already = taskRows.find((t) => !!t.source_snapshot_id);
+    if (already) {
+      return NextResponse.json({ ok: true, collected: true, status: "already_collected", task_id: already.id, duplicate_task_count: taskRows.length }, { status: 200 });
+    }
+    // Deterministic canonical pick across duplicates.
+    const task = [...taskRows].sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
 
     const r = await persistManualSourceSnapshot(sb, {
       dealId,

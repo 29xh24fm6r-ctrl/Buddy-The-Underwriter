@@ -76,6 +76,10 @@ test("[consolidation] collect-industry-source handler invariants (deterministic,
   assert.match(handler, /buildIndustrySourceDescriptor/); // deterministic source only
   assert.match(handler, /persistManualSourceSnapshot/);   // reuses the safe persist-core
   assert.match(handler, /resolved_status.*needs_review/s); // analyst review required
+  // BUGFIX-INDUSTRY-COLLECTOR-LIVE-EXECUTION-1: robust to DUPLICATE industry tasks
+  // (selects all + idempotent already_collected; no nondeterministic single pick).
+  assert.match(handler, /already_collected/);
+  assert.match(handler, /source_snapshot_id/);
   // INVARIANT: never writes committee_grade_accepted (no auto-clear).
   assert.equal(/committee_grade_accepted\s*[:=]/.test(handler), false);
 });
