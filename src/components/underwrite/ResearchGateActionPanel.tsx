@@ -555,7 +555,7 @@ function CommitteeBlockersPanel({ blockers }: { blockers: CommitteeBlockerLine[]
         {lines.map((b, i) => (
           <li key={i} className="flex items-center gap-2" data-testid={`committee-blocker-${b.groupId}`}>
             <span className="text-amber-300/70" aria-hidden>•</span>
-            <span>{DECISION_COPY[b.groupId].blocking}</span>
+            <span>{b.blocking ?? DECISION_COPY[b.groupId].blocking}</span>
           </li>
         ))}
       </ul>
