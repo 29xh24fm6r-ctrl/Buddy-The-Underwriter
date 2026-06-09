@@ -574,6 +574,14 @@ export type CanonicalCreditMemoV1 = {
   // ── QUALITATIVE ASSESSMENT (Phase 90 Part C) ─────────────────────────────
   qualitative_assessment: import("./buildQualitativeAssessment").QualitativeAssessment | null;
 
+  // ── COMMITTEE READINESS (SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 PR-B)
+  // Projection of the SAME committee-readiness model the Committee Readiness panel
+  // renders — the memo no longer states a separate, weaker truth. Null when no
+  // committee model is on file (research not run / no mission).
+  committee_readiness:
+    | import("@/lib/creditMemo/committee/buildMemoCommitteeReadinessSection").MemoCommitteeReadinessSection
+    | null;
+
   // ── META ─────────────────────────────────────────────────────────────────
   meta: {
     notes: string[];
