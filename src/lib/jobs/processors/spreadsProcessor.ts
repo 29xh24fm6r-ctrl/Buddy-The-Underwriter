@@ -783,6 +783,25 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1 (Step 1) — institutional NCADS.
+    // Runs AFTER computeBusinessEbitdaFacts + analyzeOfficerCompFacts, BEFORE the
+    // aggregator, so the waterfall-derived CF_NCADS / CASH_FLOW_AVAILABLE (most recent
+    // complete fiscal year) is in place when the aggregator runs and prefers it. Non-fatal:
+    // when no complete FY exists it writes nothing and the aggregator's cold-start bootstrap
+    // (below) applies.
+    try {
+      const { computeCashFlowWaterfallFacts } = await import(
+        "@/lib/financialFacts/computeCashFlowWaterfallFacts"
+      );
+      const wfResult = await computeCashFlowWaterfallFacts({ dealId, bankId });
+      if (!wfResult.ok) {
+        console.warn(`[spreadsProcessor] computeCashFlowWaterfallFacts: ${wfResult.reason}${wfResult.detail ? ` (${wfResult.detail})` : ""}`);
+      }
+    } catch (wfErr: any) {
+      console.warn("[spreadsProcessor] computeCashFlowWaterfallFacts threw:", wfErr?.message);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // BOOTSTRAP-WRITER-DO-NOT-REMOVE
     //
     // SPEC-FOUNDATION-V1 PR5i — Cold-start bootstrap writer for CASH_FLOW_AVAILABLE.

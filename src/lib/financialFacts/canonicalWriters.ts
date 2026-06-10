@@ -155,6 +155,39 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       "to display officer comp normalization in EBITDA waterfalls.",
   },
 
+  computeCashFlowWaterfallFacts: {
+    name: "computeCashFlowWaterfallFacts",
+    role: "compute",
+    // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: institutional NCADS source. Writes CF_NCADS
+    // and the canonical CASH_FLOW_AVAILABLE (high confidence) from the cash-flow waterfall
+    // for the most recent COMPLETE fiscal year.
+    ownedFactKeys: ["CF_NCADS", "CASH_FLOW_AVAILABLE"],
+    bootstrapsForDownstream: ["CASH_FLOW_AVAILABLE"],
+    reads: {
+      factKeys: [
+        "ORDINARY_BUSINESS_INCOME", "TAXABLE_INCOME", "NET_INCOME", "DEPRECIATION",
+        "AMORTIZATION", "SECTION_179_EXPENSE", "BONUS_DEPRECIATION", "INTEREST_EXPENSE",
+        "NON_RECURRING_INCOME", "NON_RECURRING_EXPENSE", "OFFICER_COMPENSATION",
+        "GUARANTEED_PAYMENTS", "GROSS_RECEIPTS", "TOTAL_TAX", "M1_FEDERAL_TAX_BOOK",
+        "MAINTENANCE_CAPEX", "SCH_C_NET_PROFIT",
+      ],
+      tables: ["deal_financial_facts", "deal_methodology_choices"],
+    },
+    runsAfter: ["computeBusinessEbitdaFacts", "analyzeOfficerCompFacts"],
+    runsBefore: ["runCashFlowAggregator"],
+    invariant:
+      "When a complete fiscal-year period with an income base fact exists, CF_NCADS and " +
+      "CASH_FLOW_AVAILABLE are written from the institutional waterfall (base + addbacks + " +
+      "QoE + owner benefit − tax − capex) with full provenance. Interim periods are never " +
+      "used. When no complete FY exists, nothing is written and a labeled diagnostic event " +
+      "is emitted (runCashFlowAggregator's cold-start bootstrap then applies).",
+    loadBearing: false,
+    notes:
+      "SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1 Step 1. The canonical NCADS source; " +
+      "runCashFlowAggregator prefers CF_NCADS and demotes its crude C-corp/tax-return " +
+      "fallbacks to cold-start diagnostics. DSCR remains owned by computeTotalDebtService.",
+  },
+
   computeTotalDebtService: {
     name: "computeTotalDebtService",
     role: "compute",

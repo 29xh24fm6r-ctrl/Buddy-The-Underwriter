@@ -48,11 +48,20 @@ export type FinancialFactProvenance = {
   preliminary?: boolean;
   global_obligations_confirmed?: boolean;
   note?: string;
+
+  /**
+   * SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: full NCADS waterfall trace on CF_NCADS /
+   * CASH_FLOW_AVAILABLE (selected period, base, addbacks, QoE, owner benefit, tax/capex,
+   * source facts). `ncads_path` on aggregator-written facts records waterfall vs cold-start.
+   */
+  ncads_waterfall?: Record<string, unknown>;
+  ncads_path?: "waterfall" | "cold_start_fallback";
 };
 
 export type CanonicalFact = {
   canonical_key:
     | "CASH_FLOW_AVAILABLE"
+    | "CF_NCADS"
     | "ANNUAL_DEBT_SERVICE"
     | "EXCESS_CASH_FLOW"
     | "DSCR"
@@ -126,6 +135,13 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "CASH_FLOW_AVAILABLE",
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "CASH_FLOW_AVAILABLE",
+  },
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: institutional NCADS from the cash-flow
+  // waterfall; mirrored into CASH_FLOW_AVAILABLE as the canonical repayment-capacity value.
+  CF_NCADS: {
+    canonical_key: "CF_NCADS",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "CF_NCADS",
   },
   ANNUAL_DEBT_SERVICE: {
     canonical_key: "ANNUAL_DEBT_SERVICE",
