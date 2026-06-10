@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeDebtService } from "./debtServiceMath";
+import { assessDenominatorCompleteness } from "./debtServiceCompleteness";
 
 export type TotalDebtServiceResult = {
   proposed: number | null;
@@ -12,6 +13,9 @@ export type TotalDebtServiceResult = {
   dscr: number | null;
   gcf_dscr: number | null;
   dscr_stressed_300bps: number | null;
+  /** SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: denominator completeness labeling. */
+  existingDebtOnFile: boolean;
+  globalDscrPreliminary: boolean;
 };
 
 /**
@@ -55,6 +59,7 @@ export async function computeTotalDebtService(args: {
 
     // Step 2: Sum existing debt (included_in_global = true, not being refinanced)
     let existing: number | null = null;
+    let existingDebtRowsPresent = false;
 
     if (skipExistingDebt) {
       existing = 0;
@@ -70,6 +75,7 @@ export async function computeTotalDebtService(args: {
         return { ok: false, error: `existing_debt query: ${exErr.message}` };
       }
 
+      existingDebtRowsPresent = !!(existingRows && existingRows.length > 0);
       if (existingRows && existingRows.length > 0) {
         existing = 0;
         for (const row of existingRows) {
@@ -92,6 +98,37 @@ export async function computeTotalDebtService(args: {
         : null;
 
     const asOfDate = new Date().toISOString().slice(0, 10);
+
+    // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: assess denominator completeness.
+    // Guarantor/personal obligations are confirmed if we have either a PFS personal
+    // debt-service fact or any guarantor-cashflow row on file. Otherwise the GLOBAL
+    // DSCR is labeled preliminary (business DSCR is still shown as-is).
+    let guarantorObligationsConfirmed = false;
+    if (!skipExistingDebt) {
+      const [{ data: pfsDebt }, { data: guarRows }] = await Promise.all([
+        (sb as any)
+          .from("deal_financial_facts")
+          .select("fact_value_num")
+          .eq("deal_id", dealId)
+          .eq("fact_key", "PFS_ANNUAL_DEBT_SERVICE")
+          .eq("is_superseded", false)
+          .neq("resolution_status", "rejected")
+          .not("fact_value_num", "is", null)
+          .limit(1),
+        (sb as any)
+          .from("buddy_guarantor_cashflow")
+          .select("id")
+          .eq("deal_id", dealId)
+          .limit(1),
+      ]);
+      guarantorObligationsConfirmed =
+        (Array.isArray(pfsDebt) && pfsDebt.length > 0) ||
+        (Array.isArray(guarRows) && guarRows.length > 0);
+    }
+    const completeness = assessDenominatorCompleteness({
+      existingDebtRowsPresent,
+      guarantorObligationsConfirmed,
+    });
 
     // Step 4: Write 3 facts
     const factWrites: Promise<{ ok: boolean; error?: string }>[] = [];
@@ -199,6 +236,12 @@ export async function computeTotalDebtService(args: {
             as_of_date: asOfDate,
             extractor: "computeTotalDebtService:v1",
             calc: `${noiFact.fact_value_num} / ${total}`,
+            // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: this is BUSINESS DSCR over the
+            // total business denominator (proposed + on-file existing), not proposed-only.
+            denominator: "total_business_ads",
+            denominator_basis: { proposed, existing: existing ?? 0 },
+            existing_debt_on_file: completeness.existingDebtOnFile,
+            note: completeness.businessNote,
           },
           ownerType: "DEAL",
           ownerEntityId: SENTINEL_UUID,
@@ -254,6 +297,11 @@ export async function computeTotalDebtService(args: {
             as_of_date: asOfDate,
             extractor: "computeTotalDebtService:v1",
             calc: `${gcfFact.fact_value_num} / ${total}`,
+            // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: GLOBAL DSCR is preliminary until
+            // guarantor/personal obligations are confirmed.
+            preliminary: completeness.globalDscrPreliminary,
+            global_obligations_confirmed: guarantorObligationsConfirmed,
+            note: completeness.globalNote,
           },
           ownerType: "DEAL",
           ownerEntityId: SENTINEL_UUID,
@@ -303,7 +351,16 @@ export async function computeTotalDebtService(args: {
 
     return {
       ok: true,
-      data: { proposed, existing, total, dscr, gcf_dscr, dscr_stressed_300bps },
+      data: {
+        proposed,
+        existing,
+        total,
+        dscr,
+        gcf_dscr,
+        dscr_stressed_300bps,
+        existingDebtOnFile: completeness.existingDebtOnFile,
+        globalDscrPreliminary: completeness.globalDscrPreliminary,
+      },
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

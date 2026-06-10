@@ -35,6 +35,19 @@ export type FinancialFactProvenance = {
    * Existing facts (pre-Batch 2) have undefined methodology.
    */
   methodology?: MethodologyProvenance[];
+
+  /**
+   * SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: DSCR denominator transparency.
+   * On DSCR: `denominator` ("total_business_ads"), `denominator_basis`,
+   * `existing_debt_on_file`. On GCF_DSCR: `preliminary` (global obligations
+   * unconfirmed), `global_obligations_confirmed`. `note` is human-readable.
+   */
+  denominator?: string;
+  denominator_basis?: { proposed: number | null; existing: number };
+  existing_debt_on_file?: boolean;
+  preliminary?: boolean;
+  global_obligations_confirmed?: boolean;
+  note?: string;
 };
 
 export type CanonicalFact = {
@@ -78,6 +91,7 @@ export type CanonicalFact = {
     // Structural debt service breakdown
     | "ANNUAL_DEBT_SERVICE_PROPOSED"
     | "ANNUAL_DEBT_SERVICE_EXISTING"
+    | "PROPOSED_LOAN_COVERAGE"
     // Income statement computed metrics
     | "REVENUE"
     | "COGS"
@@ -297,6 +311,13 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "ANNUAL_DEBT_SERVICE_EXISTING",
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "ANNUAL_DEBT_SERVICE_EXISTING",
+  },
+  // Proposed-loan-only coverage (NCADS / proposed ADS). Explicitly NOT DSCR — DSCR
+  // uses the total/business denominator (owned by computeTotalDebtService).
+  PROPOSED_LOAN_COVERAGE: {
+    canonical_key: "PROPOSED_LOAN_COVERAGE",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "PROPOSED_LOAN_COVERAGE",
   },
 
   // Income statement computed metrics
