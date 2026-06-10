@@ -56,7 +56,7 @@ export type RunCashFlowAggregatorResult =
       bankId: string;
       proposedAds: number;
       ncads: number | null;
-      ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null;
+      ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | "WATERFALL" | null;
       latestPeriod: string;
       dscr: number | null;
       factsWritten: number;
@@ -156,6 +156,24 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: prefer the institutional waterfall NCADS
+  // (CF_NCADS, written by computeCashFlowWaterfallFacts which runs before this writer).
+  // When present it WINS; the crude C-corp / tax-return fallbacks below are demoted to
+  // cold-start diagnostics that cannot fire while the waterfall NCADS exists.
+  const { data: cfNcadsRow } = await (sb as any)
+    .from("deal_financial_facts")
+    .select("fact_value_num, fact_period_end")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .eq("fact_key", "CF_NCADS")
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
+    .not("fact_value_num", "is", null)
+    .order("confidence", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const waterfallNcads = cfNcadsRow?.fact_value_num != null ? Number(cfNcadsRow.fact_value_num) : null;
+
   // 2. Read NCADS candidates — prefer active (tax return) over inferred (spread)
   const { data: factRows } = await (sb as any)
     .from("deal_financial_facts")
@@ -184,21 +202,32 @@ export async function runCashFlowAggregator(args: {
       .limit(10);
 
     if (!taxFallback || taxFallback.length === 0) {
-      return { ok: false, reason: "no_ncads_candidates" };
-    }
+      // Waterfall NCADS can still carry the deal even with no income-base facts here.
+      if (waterfallNcads !== null) {
+        (factRows as any) = [{
+          fact_key: "NET_INCOME",
+          fact_value_num: waterfallNcads,
+          fact_period_end: cfNcadsRow?.fact_period_end ?? SENTINEL_DATE,
+          resolution_status: "active",
+        }];
+      } else {
+        return { ok: false, reason: "no_ncads_candidates" };
+      }
+    } else {
 
     const niRow = (taxFallback as any[]).find((r: any) => r.fact_key === "NET_INCOME");
     const oiRow = (taxFallback as any[]).find((r: any) => r.fact_key === "ORDINARY_INCOME");
     const grRow = (taxFallback as any[]).find((r: any) => r.fact_key === "GROSS_RECEIPTS");
     const useRow = niRow ?? oiRow ?? grRow;
-    if (!useRow) return { ok: false, reason: "no_ncads_candidates" };
+    if (!useRow && waterfallNcads === null) return { ok: false, reason: "no_ncads_candidates" };
 
     (factRows as any) = [{
       fact_key: niRow ? "NET_INCOME" : oiRow ? "ORDINARY_BUSINESS_INCOME" : "NET_INCOME",
-      fact_value_num: useRow.fact_value_num,
-      fact_period_end: useRow.fact_period_end,
+      fact_value_num: useRow ? useRow.fact_value_num : waterfallNcads,
+      fact_period_end: useRow ? useRow.fact_period_end : (cfNcadsRow?.fact_period_end ?? SENTINEL_DATE),
       resolution_status: "active",
     }];
+    }
   }
 
   // 3. Apply fallback logic — match route exactly
@@ -214,7 +243,7 @@ export async function runCashFlowAggregator(args: {
   const ncadsVariant = methodologySlate.ncads_source;
 
   let ncads: number | null = null;
-  let ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null = null;
+  let ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | "WATERFALL" | null = null;
 
   if (ncadsVariant === "conservative") {
     const niRow = periodFacts.find((r: any) => r.fact_key === "NET_INCOME");
@@ -255,14 +284,24 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: the institutional waterfall NCADS WINS.
+  // When CF_NCADS exists, it overrides any fact-derived candidate and the crude
+  // fallbacks below are skipped (they remain only for cold-start, when CF_NCADS is null).
+  if (waterfallNcads !== null) {
+    ncads = waterfallNcads;
+    ncadsSource = "WATERFALL";
+  }
+
   // SPEC-FACT-DISAMBIGUATION-1: C-Corp addback using source_canonical_type
   // column — single-step filter, no two-step deal_documents lookup needed.
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: demoted to a cold-start diagnostic —
+  // it cannot fire while the waterfall NCADS exists.
   let ccorpTaxableUsed: number | null = null;
   let ccorpOfficerUsed: number | null = null;
   let ccorpDeprUsed: number | null = null;
   let ccorpOfficerAddback = 0;
   const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
-  if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
+  if (ncadsSource !== "WATERFALL" && (ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
     const { data: ccorpFacts } = await (sb as any)
       .from("deal_financial_facts")
       .select("id, fact_key, fact_value_num, fact_period_start, fact_period_end, fact_value_text, confidence, provenance, created_at, resolution_status, source_canonical_type")
@@ -416,7 +455,12 @@ export async function runCashFlowAggregator(args: {
     { key: "PROPOSED_LOAN_COVERAGE", value: proposedLoanCoverage },
     ...(ncads !== null && Number(ncads) > 0
       ? [
-          { key: "CASH_FLOW_AVAILABLE", value: Number(ncads) },
+          // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: when NCADS came from the waterfall,
+          // computeCashFlowWaterfallFacts already owns CASH_FLOW_AVAILABLE (higher
+          // confidence) — don't write a competing copy. EXCESS_CASH_FLOW still derives here.
+          ...(ncadsSource === "WATERFALL"
+            ? []
+            : [{ key: "CASH_FLOW_AVAILABLE", value: Number(ncads) }]),
           { key: "EXCESS_CASH_FLOW", value: Number(ncads) - proposedAds },
         ]
       : []),
@@ -483,6 +527,8 @@ export async function runCashFlowAggregator(args: {
             as_of_date: persistDate,
             extractor: "runCashFlowAggregator:v2",
             methodology: methodologyProvenance,
+            // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: which NCADS path produced this.
+            ncads_path: ncadsSource === "WATERFALL" ? "waterfall" : "cold_start_fallback",
           },
           owner_type: "DEAL",
           owner_entity_id: SENTINEL_UUID,
