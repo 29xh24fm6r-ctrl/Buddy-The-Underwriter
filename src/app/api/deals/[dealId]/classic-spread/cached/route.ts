@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import type { ClassicPdfCachedPayload } from "@/lib/classicSpread/classicPdfWorker";
 
@@ -69,6 +70,17 @@ export async function GET(_req: Request, ctx: Ctx) {
       return NextResponse.json(
         { error: "Cached row missing PDF data", status: "corrupt" },
         { status: 409 },
+      );
+    }
+
+    // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: code-version invalidation. A blob rendered
+    // by an older renderer version (no/old renderVersion) must NOT be served — return 404 so
+    // the client falls back to a fresh /classic-spread render. This is what guarantees a
+    // pre-fix blob cannot be served after deploy (fact-timestamp staleness alone won't catch it).
+    if ((payload.renderVersion ?? 0) !== CLASSIC_PDF_RENDER_VERSION) {
+      return NextResponse.json(
+        { error: "Cached classic spread is from an older render version", status: "version_stale" },
+        { status: 404 },
       );
     }
 
