@@ -121,19 +121,24 @@ describe("dual pipeline guard", () => {
     }
   });
 
-  it("BUSINESS_TAX_RETURN triggers T12 (operating performance) spread", () => {
+  it("BUSINESS_TAX_RETURN triggers GLOBAL_CASH_FLOW, NOT T12 (SPEC-CREDIT-MEMO-NON-T12-FINANCIAL-PATH-INTEGRITY-1)", () => {
     const mappingSrc = fs.readFileSync(
       "src/lib/financialSpreads/docTypeToSpreadTypes.ts",
       "utf-8",
     );
-    // The line mapping business tax returns must include T12
     const taxReturnLine = mappingSrc
       .split("\n")
       .find((l: string) => l.includes("BUSINESS_TAX_RETURN"));
     assert.ok(taxReturnLine, "Must have a line mapping BUSINESS_TAX_RETURN");
+    // T12 (trailing-twelve, CRE/monthly) must NOT be enqueued from tax returns;
+    // repayment support routes to GLOBAL_CASH_FLOW; annual figures come from extraction.
     assert.ok(
-      taxReturnLine!.includes('"T12"'),
-      "BUSINESS_TAX_RETURN must trigger T12 spread (operating performance derives from tax returns)",
+      !taxReturnLine!.includes('"T12"'),
+      "BUSINESS_TAX_RETURN must NOT trigger T12 (trailing-twelve is CRE/monthly only)",
+    );
+    assert.ok(
+      taxReturnLine!.includes('"GLOBAL_CASH_FLOW"'),
+      "BUSINESS_TAX_RETURN must trigger GLOBAL_CASH_FLOW (repayment support)",
     );
   });
 

@@ -954,12 +954,13 @@ test("[guard-57] resolveOwnerType: PI→PERSONAL, PFS→PERSONAL, GCF→GLOBAL, 
 
 // ── Guard 58: spreadsForDocType canonical routing ─────────────────────
 
-test("[guard-58] spreadsForDocType: T12→[T12], RENT_ROLL→[RENT_ROLL], PTR→[PI,GCF]", async () => {
+test("[guard-58] spreadsForDocType: INCOME_STATEMENT→[], RENT_ROLL→[RENT_ROLL], PTR→[PI,GCF]", async () => {
   const { spreadsForDocType } = await import(
     "@/lib/financialSpreads/docTypeToSpreadTypes"
   );
-  // T12 is a spread type, not a document type — INCOME_STATEMENT maps to T12
-  assert.deepStrictEqual(spreadsForDocType("INCOME_STATEMENT"), ["T12"]);
+  // SPEC-CREDIT-MEMO-NON-T12-FINANCIAL-PATH-INTEGRITY-1: income statements no longer
+  // enqueue T12 — annual figures come from extraction.
+  assert.deepStrictEqual(spreadsForDocType("INCOME_STATEMENT"), []);
   assert.deepStrictEqual(spreadsForDocType("RENT_ROLL"), ["RENT_ROLL"]);
   assert.deepStrictEqual(spreadsForDocType("PERSONAL_TAX_RETURN"), ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"]);
   assert.deepStrictEqual(spreadsForDocType("BALANCE_SHEET"), ["BALANCE_SHEET"]);
