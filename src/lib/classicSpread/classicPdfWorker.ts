@@ -20,6 +20,7 @@ import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ export type ClassicPdfCachedPayload = {
   pdf_size_bytes: number;
   canonicalFactsTimestamp: string | null;
   generatedAt: string;
+  /** SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: code-version stamp — a mismatch busts the blob. */
+  renderVersion?: number;
 };
 
 // ── Main worker function ──────────────────────────────────────────────────────
@@ -105,6 +108,7 @@ export async function renderClassicPdfSpread(args: {
     pdf_size_bytes: pdfBuffer.length,
     canonicalFactsTimestamp,
     generatedAt,
+    renderVersion: CLASSIC_PDF_RENDER_VERSION,
   };
 
   // 8. Upsert to deal_spreads — the row IS the cache

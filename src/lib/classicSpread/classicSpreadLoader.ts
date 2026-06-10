@@ -1333,14 +1333,13 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     }
     return true;
   });
-  const { periods, byPeriod } = buildPeriodMaps(facts);
+  const { periods: rawPeriods, byPeriod } = buildPeriodMaps(facts);
   const currentYear = new Date().getFullYear();
 
-  // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: source attribution (audit method,
-  // statement type, months covered) comes from the canonical reconciled view model —
-  // derived from the ACTUAL facts' source_canonical_type per column, not inferred from
-  // dates or fact-key presence. Legacy deriveAuditMethod is the fallback only when a
-  // column is absent from the canonical model.
+  // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: the canonical reconciled view model is the
+  // SINGLE source of truth for which period columns render and their source attribution
+  // (audit method, statement type, months covered) — derived from the ACTUAL facts'
+  // source_canonical_type per column, not inferred from dates/fact-key presence.
   const canonByPeriod = new Map<string, { auditMethod: string; statementType: string; monthsCovered: number | null }>();
   if (deal?.bank_id) {
     try {
@@ -1349,9 +1348,15 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
         canonByPeriod.set(c.periodEnd, { auditMethod: c.auditMethod, statementType: c.statementType, monthsCovered: c.monthsCovered });
       }
     } catch {
-      // Non-fatal — fall back to legacy per-period derivation below.
+      // Non-fatal — fall back to the legacy period list + per-period derivation below.
     }
   }
+
+  // Drive the rendered period list from the VM when available: drop any period the VM did
+  // not emit (empty columns the VM suppressed, or columns whose facts were quarantined).
+  // Surviving periods therefore always carry VM attribution — the legacy "Company Prepared"
+  // fallback only runs when the VM is entirely unavailable.
+  const periods = canonByPeriod.size > 0 ? rawPeriods.filter((p) => canonByPeriod.has(p)) : rawPeriods;
 
   const statementPeriods: StatementPeriod[] = periods.map((p) => {
     const canon = canonByPeriod.get(p);
