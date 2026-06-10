@@ -8,6 +8,7 @@ import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
+import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { ClassicPdfCachedPayload } from "@/lib/classicSpread/classicPdfWorker";
@@ -111,6 +112,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         pdf_size_bytes: pdf.length,
         canonicalFactsTimestamp: latestFact?.updated_at ?? null,
         generatedAt,
+        renderVersion: CLASSIC_PDF_RENDER_VERSION,
       };
 
       await (sb as any)
