@@ -28,13 +28,15 @@ describe("Spread Recompute Idempotency Proof", () => {
       "@/lib/financialSpreads/docTypeToSpreadTypes"
     );
 
-    // T12 cluster
-    const t12Only = ["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"];
-    for (const dt of t12Only) {
+    // SPEC-CREDIT-MEMO-NON-T12-FINANCIAL-PATH-INTEGRITY-1: annual operating/financial
+    // statements no longer enqueue a spread — their figures materialize as canonical
+    // facts via extraction. T12 is never enqueued from these doc types.
+    const noSpread = ["FINANCIAL_STATEMENT", "T12", "INCOME_STATEMENT", "TRAILING_12", "OPERATING_STATEMENT"];
+    for (const dt of noSpread) {
       assert.deepStrictEqual(
         spreadsForDocType(dt),
-        ["T12"],
-        `${dt} must map to [T12]`,
+        [],
+        `${dt} must map to [] (no T12; annual facts come from extraction)`,
       );
     }
 
@@ -52,13 +54,14 @@ describe("Spread Recompute Idempotency Proof", () => {
       "RENT_ROLL must map to [RENT_ROLL]",
     );
 
-    // Business tax returns → T12 + GCF
+    // Business tax returns → GCF only (repayment); no T12. Annual figures come from
+    // extraction, not a spread.
     const businessTax = ["IRS_1065", "IRS_1120", "IRS_1120S", "IRS_BUSINESS", "K1", "BUSINESS_TAX_RETURN", "TAX_RETURN"];
     for (const dt of businessTax) {
       assert.deepStrictEqual(
         spreadsForDocType(dt),
-        ["T12", "GLOBAL_CASH_FLOW"],
-        `${dt} must map to [T12, GLOBAL_CASH_FLOW]`,
+        ["GLOBAL_CASH_FLOW"],
+        `${dt} must map to [GLOBAL_CASH_FLOW] (no T12)`,
       );
     }
 

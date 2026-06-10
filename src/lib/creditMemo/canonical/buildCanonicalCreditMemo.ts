@@ -439,8 +439,16 @@ export async function buildCanonicalCreditMemo(args: {
       financial.annualDebtService.value === null;
 
     if (needsTier3) {
-      // CFA: prefer T12 NOI row as proxy for operating cash flow
-      if (financial.cashFlowAvailable.value === null) {
+      // SPEC-CREDIT-MEMO-NON-T12-FINANCIAL-PATH-INTEGRITY-1: the T12 (trailing-twelve)
+      // NOI proxy for operating cash flow is valid ONLY for CRE / monthly-statement
+      // eligible deals (rent roll or property collateral). For SBA / conventional
+      // annual-fact deals T12 is not a valid proxy — operating cash flow comes from
+      // annual facts / STANDARD / GLOBAL_CASH_FLOW, never T12.
+      const isMonthlyStatementEligible =
+        spreads.some((s: any) => String(s.spread_type).toUpperCase() === "RENT_ROLL") ||
+        !!loanReq?.property_type;
+      // CFA: prefer T12 NOI row as proxy for operating cash flow (CRE/monthly only).
+      if (financial.cashFlowAvailable.value === null && isMonthlyStatementEligible) {
         try {
           const t12 = await getLatestSpread({
             dealId: args.dealId,
