@@ -10,6 +10,7 @@ import {
   buildWaterfallInputFromFacts,
   type PeriodFact,
 } from "@/lib/financialFacts/cashFlowWaterfallInput";
+import { reconcileFinancialFacts, type ReconcileFact } from "@/lib/financialFacts/reconcileFinancialFacts";
 
 /**
  * SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1 (Step 1) — canonical NCADS writer.
@@ -57,9 +58,9 @@ export async function computeCashFlowWaterfallFacts(args: {
   try {
     const sb = supabaseAdmin();
 
-    const { data: rows, error } = await (sb as any)
+    const { data: rawRows, error } = await (sb as any)
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_period_end, confidence")
+      .select("id, fact_key, fact_value_num, fact_period_end, owner_type, owner_entity_id, source_document_id, source_canonical_type, confidence, provenance")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .eq("owner_type", "DEAL")
@@ -70,7 +71,49 @@ export async function computeCashFlowWaterfallFacts(args: {
 
     if (error) return { ok: false, reason: "query_failed", detail: error.message };
 
-    const facts: PeriodFact[] = (rows ?? []) as PeriodFact[];
+    // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: reconcile duplicate /
+    // impossible / conflicting facts BEFORE they feed NCADS. Rejected facts are
+    // excluded from selection (never deleted) and audited via a ledger event.
+    const reconcileInput: ReconcileFact[] = ((rawRows ?? []) as any[]).map((r) => ({
+      id: r.id ?? null,
+      fact_key: r.fact_key,
+      fact_period_end: r.fact_period_end ?? null,
+      owner_type: r.owner_type,
+      owner_entity_id: r.owner_entity_id ?? null,
+      source_document_id: r.source_document_id ?? null,
+      source_canonical_type: r.source_canonical_type ?? null,
+      confidence: r.confidence ?? null,
+      extractor: r.provenance?.extractor ?? null,
+      fact_value_num: r.fact_value_num !== null ? Number(r.fact_value_num) : null,
+    }));
+    const reconciliation = reconcileFinancialFacts(reconcileInput);
+    if (reconciliation.rejected.length > 0) {
+      void writeEvent({
+        dealId,
+        kind: "deal.compute.fact_reconciliation",
+        meta: {
+          severity: "warning",
+          rejected_count: reconciliation.rejected.length,
+          confidence_tier: reconciliation.confidenceTier,
+          rejected: reconciliation.rejected.slice(0, 20).map((x) => ({
+            fact_key: x.fact.fact_key,
+            value: x.fact.fact_value_num,
+            period: x.fact.fact_period_end,
+            extractor: x.fact.extractor,
+            conflict_class: x.conflictClass,
+            reason: x.reason,
+          })),
+        },
+      }).catch(() => {});
+    }
+
+    // Only reconciliation-SELECTED facts feed NCADS.
+    const rows = reconciliation.selected;
+    const facts: PeriodFact[] = rows.map((r) => ({
+      fact_key: r.fact_key,
+      fact_value_num: r.fact_value_num,
+      fact_period_end: r.fact_period_end,
+    }));
 
     // 1. Select the most recent COMPLETE fiscal year (never interim).
     const period = selectCompleteFiscalYearPeriod(facts);
@@ -155,6 +198,12 @@ export async function computeCashFlowWaterfallFacts(args: {
         ebitda_reported: waterfall.cfEbitdaReported,
         ebitda_owner_adjusted: waterfall.cfEbitdaOwnerAdjusted,
         ncads: ncads,
+        reconciliation: {
+          confidence_tier: reconciliation.confidenceTier,
+          rejected_count: reconciliation.rejected.length,
+          caveats: reconciliation.caveats,
+          by_class: reconciliation.summary.byClass,
+        },
       },
     };
 
