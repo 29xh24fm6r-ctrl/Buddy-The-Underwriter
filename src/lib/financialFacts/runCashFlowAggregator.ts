@@ -390,8 +390,12 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // 4. Compute DSCR
-  const dscrValue =
+  // 4. Compute PROPOSED-LOAN coverage (NCADS / proposed ADS).
+  // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1 (PR-519): this is proposed-loan-only
+  // coverage, NOT DSCR. The canonical DSCR uses the TOTAL/business denominator
+  // (proposed + existing) and is owned solely by computeTotalDebtService, which runs
+  // after this writer. We must never let proposed-only coverage masquerade as DSCR.
+  const proposedLoanCoverage =
     ncads !== null && isFinite(Number(ncads))
       ? Math.round((Number(ncads) / proposedAds) * 100) / 100
       : null;
@@ -407,8 +411,9 @@ export async function runCashFlowAggregator(args: {
   const persistDate = new Date().toISOString().slice(0, 10);
 
   const factsToWrite = [
-    { key: "ANNUAL_DEBT_SERVICE", value: proposedAds },
-    { key: "DSCR", value: dscrValue },
+    // Proposed-loan-only ADS + coverage — explicitly NOT total ANNUAL_DEBT_SERVICE / DSCR.
+    { key: "ANNUAL_DEBT_SERVICE_PROPOSED", value: proposedAds },
+    { key: "PROPOSED_LOAN_COVERAGE", value: proposedLoanCoverage },
     ...(ncads !== null && Number(ncads) > 0
       ? [
           { key: "CASH_FLOW_AVAILABLE", value: Number(ncads) },
@@ -506,7 +511,9 @@ export async function runCashFlowAggregator(args: {
     ncads: ncads !== null ? Number(ncads) : null,
     ncadsSource,
     latestPeriod,
-    dscr: dscrValue,
+    // In-memory proposed-loan coverage (NCADS / proposed ADS) — same value as before;
+    // persisted as PROPOSED_LOAN_COVERAGE, NOT the canonical DSCR (which uses total ADS).
+    dscr: proposedLoanCoverage,
     factsWritten,
     factsAttempted: factsToWrite.length,
     ncadsWarnings,

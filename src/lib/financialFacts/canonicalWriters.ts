@@ -42,9 +42,12 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
   runCashFlowAggregator: {
     name: "runCashFlowAggregator",
     role: "bootstrap",
+    // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1 (PR-519): the aggregator writes only
+    // PROPOSED-loan figures. Total ANNUAL_DEBT_SERVICE + canonical DSCR (total/business
+    // denominator) are owned SOLELY by computeTotalDebtService, which runs after.
     ownedFactKeys: [
-      "ANNUAL_DEBT_SERVICE",
-      "DSCR",
+      "ANNUAL_DEBT_SERVICE_PROPOSED",
+      "PROPOSED_LOAN_COVERAGE",
       "CASH_FLOW_AVAILABLE",
       "EXCESS_CASH_FLOW",
     ],
