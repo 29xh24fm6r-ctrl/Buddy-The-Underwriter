@@ -44,6 +44,10 @@ const INPUT_FACT_KEYS = [
   "M1_FEDERAL_TAX_BOOK",
   "MAINTENANCE_CAPEX",
   "SCH_C_NET_PROFIT",
+  // Gross-profit identity (1120) — reconciliation caveats a mismatch (not used by the
+  // waterfall input directly).
+  "COST_OF_GOODS_SOLD",
+  "GROSS_PROFIT",
 ];
 
 export type ComputeCashFlowWaterfallResult =

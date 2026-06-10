@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import { reconcileFinancialFacts, type ReconcileFact } from "../reconcileFinancialFacts";
 
@@ -99,6 +100,30 @@ describe("extractor conflict + source priority", () => {
   });
 });
 
+describe("Form 1120 gross-profit identity (caveat, not quarantine)", () => {
+  it("caveats + limits confidence when GROSS_RECEIPTS − COGS ≠ GROSS_PROFIT", () => {
+    const r = reconcileFinancialFacts([
+      f({ fact_key: "GROSS_RECEIPTS", fact_value_num: 15088769, owner_type: "DEAL", owner_entity_id: null }),
+      f({ fact_key: "COST_OF_GOODS_SOLD", fact_value_num: 10000000, owner_type: "DEAL", owner_entity_id: null }),
+      f({ fact_key: "GROSS_PROFIT", fact_value_num: 2000000, owner_type: "DEAL", owner_entity_id: null }), // expected ~5.09M
+    ]);
+    assert.ok(r.caveats.some((c) => /gross-profit identity mismatch/i.test(c)));
+    assert.equal(r.confidenceTier, "low"); // confidence limited
+    // Components are NOT quarantined — they may each be individually correct.
+    assert.equal(r.rejected.length, 0);
+    assert.equal(r.selected.filter((s) => s.fact_key === "GROSS_PROFIT").length, 1);
+  });
+
+  it("no caveat when the identity holds", () => {
+    const r = reconcileFinancialFacts([
+      f({ fact_key: "GROSS_RECEIPTS", fact_value_num: 15000000, owner_type: "DEAL", owner_entity_id: null }),
+      f({ fact_key: "COST_OF_GOODS_SOLD", fact_value_num: 10000000, owner_type: "DEAL", owner_entity_id: null }),
+      f({ fact_key: "GROSS_PROFIT", fact_value_num: 5000000, owner_type: "DEAL", owner_entity_id: null }),
+    ]);
+    assert.ok(!r.caveats.some((c) => /gross-profit identity/i.test(c)));
+  });
+});
+
 describe("clean facts", () => {
   it("no conflicts → tier high, nothing rejected, not blocked", () => {
     const r = reconcileFinancialFacts([
@@ -109,5 +134,19 @@ describe("clean facts", () => {
     assert.equal(r.rejected.length, 0);
     assert.equal(r.blocked, false);
     assert.equal(r.confidenceTier, "high");
+  });
+});
+
+describe("GCF gate wiring (global cash flow blocked/preliminary on unresolved personal facts)", () => {
+  const gcf = fs.readFileSync("src/lib/financialIntelligence/persistGlobalCashFlow.ts", "utf8");
+  it("persistGlobalCashFlow reconciles PERSONAL facts and excludes rejected from the income sum", () => {
+    assert.match(gcf, /reconcileFinancialFacts/);
+    assert.match(gcf, /personalRejectedIds/);
+    assert.match(gcf, /sumGcfPersonalIncome\(reconciledFacts/);
+  });
+  it("marks GCF preliminary + notes when personal facts are blocked", () => {
+    assert.match(gcf, /personalFactsBlocked/);
+    assert.match(gcf, /preliminary: personalFactsBlocked/);
+    assert.match(gcf, /global cash flow is PRELIMINARY/i);
   });
 });

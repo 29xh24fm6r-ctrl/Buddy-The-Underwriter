@@ -107,6 +107,7 @@ const emptyByClass = (): Record<ConflictClass, number> => ({
 export function reconcileFinancialFacts(facts: ReconcileFact[]): ReconcileResult {
   const rejected: RejectedFact[] = [];
   const caveats: string[] = [];
+  let gprofitIdentityMismatch = 0;
   const reject = (fact: ReconcileFact, conflictClass: ConflictClass, reason: string) =>
     rejected.push({ fact, conflictClass, reason });
 
@@ -203,6 +204,28 @@ export function reconcileFinancialFacts(facts: ReconcileFact[]): ReconcileResult
     if (taxable && agi && isMaterial(agi.fact_value_num) && taxable.fact_value_num !== null && Math.abs(taxable.fact_value_num) < Math.abs(agi.fact_value_num) * TINY_RATIO && !dropped.has(groupKey(taxable))) {
       caveats.push(`TAXABLE_INCOME ${taxable.fact_value_num} is unusually small relative to AGI ${agi.fact_value_num}; verify before committee.`);
     }
+
+    // Form 1120 gross-profit identity: GROSS_RECEIPTS − COGS = GROSS_PROFIT. A material
+    // mismatch must CAVEAT / limit confidence (not silently feed EBITDA) — per spec this
+    // is an impossible_tax_relationship that downgrades confidence rather than quarantining
+    // (the components may each be individually correct but inconsistent).
+    const grossReceipts = byKey.get("GROSS_RECEIPTS");
+    const cogs = byKey.get("COST_OF_GOODS_SOLD");
+    const grossProfit = byKey.get("GROSS_PROFIT");
+    if (
+      grossReceipts?.fact_value_num != null &&
+      cogs?.fact_value_num != null &&
+      grossProfit?.fact_value_num != null
+    ) {
+      const expected = grossReceipts.fact_value_num - cogs.fact_value_num;
+      const tolerance = Math.max(1, Math.abs(grossReceipts.fact_value_num) * 0.005);
+      if (Math.abs(expected - grossProfit.fact_value_num) > tolerance) {
+        gprofitIdentityMismatch += 1;
+        caveats.push(
+          `Form 1120 gross-profit identity mismatch (${grossReceipts.fact_period_end ?? "period"}): GROSS_RECEIPTS ${grossReceipts.fact_value_num} − COGS ${cogs.fact_value_num} = ${expected}, but GROSS_PROFIT is ${grossProfit.fact_value_num}. Confidence limited; verify before committee.`,
+        );
+      }
+    }
   }
 
   // ── Build outputs ─────────────────────────────────────────────────────────
@@ -216,7 +239,7 @@ export function reconcileFinancialFacts(facts: ReconcileFact[]): ReconcileResult
 
   let confidenceTier: ConfidenceTier;
   if (blocked) confidenceTier = "blocked";
-  else if (byClass.extractor_conflict > 0 || rejected.length > 2 || caveats.length > 1) confidenceTier = "low";
+  else if (gprofitIdentityMismatch > 0 || byClass.extractor_conflict > 0 || rejected.length > 2 || caveats.length > 1) confidenceTier = "low";
   else if (rejected.length > 0 || caveats.length > 0) confidenceTier = "medium";
   else confidenceTier = "high";
 
