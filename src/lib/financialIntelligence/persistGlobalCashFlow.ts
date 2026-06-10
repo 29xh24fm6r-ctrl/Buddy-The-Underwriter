@@ -13,6 +13,8 @@ import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
 import { sumGcfPersonalIncome } from "@/lib/financialSpreads/gcfPersonalIncome";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
+import { reconcileFinancialFacts, type ReconcileFact } from "@/lib/financialFacts/reconcileFinancialFacts";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import {
   computeGlobalCashFlow,
   type GcfEntityInput,
@@ -208,6 +210,62 @@ export async function persistGlobalCashFlow(args: {
     }
 
     // ── 4. Build sponsor inputs ────────────────────────────────────────────
+    // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: reconcile PERSONAL facts
+    // before they feed global cash flow. Impossible / duplicate personal-income facts
+    // (e.g. WAGES_W2=3 beside 310,134, AGI=0 with material wages, TOTAL_INCOME below
+    // wages) are EXCLUDED from the personal-income sum, and an unresolved (blocked)
+    // result marks global cash flow PRELIMINARY rather than letting broken facts inflate
+    // it. This also catches Form 1040 "partial"-quality personal returns deterministically.
+    const personalReconInput: ReconcileFact[] = facts
+      .filter((f: any) => f.owner_type === "PERSONAL")
+      .map((f: any) => ({
+        id: f.id ?? null,
+        fact_key: f.fact_key,
+        fact_period_end: f.fact_period_end ?? null,
+        owner_type: f.owner_type,
+        owner_entity_id: f.owner_entity_id ?? null,
+        source_document_id: null,
+        source_canonical_type: f.source_canonical_type ?? null,
+        confidence: f.confidence ?? null,
+        extractor: f.provenance?.extractor ?? null,
+        fact_value_num: f.fact_value_num !== null && f.fact_value_num !== undefined ? Number(f.fact_value_num) : null,
+      }));
+    const personalRecon = reconcileFinancialFacts(personalReconInput);
+    const personalRejectedIds = new Set(
+      personalRecon.rejected.map((r) => r.fact.id).filter((id): id is string => !!id),
+    );
+    const personalFactsBlocked = personalRecon.blocked;
+    // Facts used for the personal-income sum exclude reconciliation-rejected personal facts.
+    const reconciledFacts = facts.filter(
+      (f: any) => !(f.owner_type === "PERSONAL" && f.id && personalRejectedIds.has(f.id)),
+    );
+    if (personalRecon.rejected.length > 0) {
+      void writeEvent({
+        dealId: args.dealId,
+        kind: "deal.compute.fact_reconciliation",
+        meta: {
+          severity: personalFactsBlocked ? "warning" : "info",
+          scope: "personal_income_gcf",
+          confidence_tier: personalRecon.confidenceTier,
+          blocked: personalFactsBlocked,
+          rejected: personalRecon.rejected.slice(0, 20).map((x) => ({
+            fact_key: x.fact.fact_key,
+            value: x.fact.fact_value_num,
+            period: x.fact.fact_period_end,
+            extractor: x.fact.extractor,
+            conflict_class: x.conflictClass,
+            reason: x.reason,
+          })),
+        },
+      }).catch(() => {});
+    }
+    if (personalFactsBlocked) {
+      notes.push(
+        "Personal income facts are unresolved or impossible — global cash flow is PRELIMINARY until reconciled.",
+      );
+    }
+    for (const c of personalRecon.caveats) notes.push(c);
+
     const sponsors: GcfSponsorInput[] = [];
     const personalEntityIds = new Set<string>();
 
@@ -248,7 +306,7 @@ export async function persistGlobalCashFlow(args: {
       // the AGI aggregate TOTAL_PERSONAL_INCOME which double-counts business
       // pass-through/K-1 income. Shared list guarantees the pure-function value
       // matches the rendered spread.
-      const totalPersonalIncome = sumGcfPersonalIncome(facts, {
+      const totalPersonalIncome = sumGcfPersonalIncome(reconciledFacts, {
         ownerEntityId: ownerId,
       }).value;
 
@@ -356,6 +414,12 @@ export async function persistGlobalCashFlow(args: {
           calc: "entity_cash_flow + personal_cash_flow",
           confidence: result.globalCashFlowAvailable === null ? null : 0.85,
           methodology: methodologyProvenance,
+          // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: preliminary when
+          // personal income facts are unresolved/impossible.
+          preliminary: personalFactsBlocked,
+          note: personalFactsBlocked
+            ? "PRELIMINARY — personal income facts unresolved/impossible; reconcile before committee."
+            : undefined,
         },
       }),
     );
@@ -378,6 +442,10 @@ export async function persistGlobalCashFlow(args: {
           calc: "global_cash_flow_available / total_debt_service",
           confidence: result.globalDscr === null ? null : 0.85,
           methodology: methodologyProvenance,
+          preliminary: personalFactsBlocked,
+          note: personalFactsBlocked
+            ? "PRELIMINARY — personal income facts unresolved/impossible; reconcile before committee."
+            : undefined,
         },
       }),
     );
