@@ -7,6 +7,13 @@ export type CanonicalMetricSource = {
 
 export type CanonicalMetricValue = CanonicalMetricSource & {
   value: CanonicalMemoNumber;
+  /**
+   * SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: when true, the metric's denominator is
+   * not yet committee-final (e.g. global obligations unconfirmed / existing debt not
+   * on file). `caveat` is the human-readable reason rendered next to the value.
+   */
+  preliminary?: boolean;
+  caveat?: string | null;
 };
 
 // ── Debt Coverage Row (one period: Interim, Year 1, Year 2, etc.) ─────────

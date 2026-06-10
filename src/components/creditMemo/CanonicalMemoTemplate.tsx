@@ -139,6 +139,43 @@ function MetricRow({ label, value, src }: { label: string; value: React.ReactNod
   );
 }
 
+// ── Key-metric KPI card ───────────────────────────────────────────────────
+// SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: surfaces a "Preliminary" badge + caveat
+// when a metric's denominator is not yet committee-final (e.g. global obligations
+// unconfirmed). Exported for label/caveat render tests.
+
+export function MetricKpiCard({
+  label,
+  val,
+  src,
+  preliminary,
+  caveat,
+}: {
+  label: string;
+  val: React.ReactNode;
+  src?: string;
+  preliminary?: boolean;
+  caveat?: string | null;
+}) {
+  return (
+    <div data-testid={`kpi-${label}`} className="border border-gray-200 bg-white rounded p-2 text-center">
+      <div className="text-[10px] text-gray-500 uppercase">{label}</div>
+      <div className="text-base font-bold mt-0.5">
+        {val}
+        {preliminary && (
+          <span className="ml-1 align-middle text-[8px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 rounded px-1 py-0.5">
+            Preliminary
+          </span>
+        )}
+      </div>
+      {preliminary && caveat && (
+        <div className="text-[8px] text-amber-700 mt-0.5 leading-tight">{caveat}</div>
+      )}
+      {src && <div className="text-[9px] text-gray-400 truncate">{src}</div>}
+    </div>
+  );
+}
+
 // ── Debt Coverage Table ───────────────────────────────────────────────────
 
 function DebtCoverageTable({ rows }: { rows: DebtCoverageRow[] }) {
@@ -1000,16 +1037,20 @@ export default function CanonicalMemoTemplate({
 
         <div className="mt-3 grid grid-cols-4 gap-3">
           {[
-            { label: "DSCR (UW)", val: fmtRatio(km.dscr_uw.value), src: km.dscr_uw.source },
-            { label: "DSCR (Stressed)", val: fmtRatio(km.dscr_stressed.value), src: km.dscr_stressed.source },
-            { label: "LTV Gross", val: km.ltv_gross.value !== null ? fmtPct(km.ltv_gross.value) : "—", src: km.ltv_gross.source },
-            { label: "Discounted Cov.", val: fmtRatio(km.discounted_coverage.value), src: km.discounted_coverage.source },
+            // SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: surface a preliminary caveat when
+            // the DSCR denominator is not yet committee-final.
+            {
+              label: "DSCR (UW)",
+              val: fmtRatio(km.dscr_uw.value),
+              src: km.dscr_uw.source,
+              preliminary: km.dscr_uw.preliminary === true,
+              caveat: km.dscr_uw.caveat ?? null,
+            },
+            { label: "DSCR (Stressed)", val: fmtRatio(km.dscr_stressed.value), src: km.dscr_stressed.source, preliminary: false, caveat: null },
+            { label: "LTV Gross", val: km.ltv_gross.value !== null ? fmtPct(km.ltv_gross.value) : "—", src: km.ltv_gross.source, preliminary: false, caveat: null },
+            { label: "Discounted Cov.", val: fmtRatio(km.discounted_coverage.value), src: km.discounted_coverage.source, preliminary: false, caveat: null },
           ].map((kpi) => (
-            <div key={kpi.label} className="border border-gray-200 bg-white rounded p-2 text-center">
-              <div className="text-[10px] text-gray-500 uppercase">{kpi.label}</div>
-              <div className="text-base font-bold mt-0.5">{kpi.val}</div>
-              <div className="text-[9px] text-gray-400 truncate">{kpi.src}</div>
-            </div>
+            <MetricKpiCard key={kpi.label} {...kpi} />
           ))}
         </div>
       </div>

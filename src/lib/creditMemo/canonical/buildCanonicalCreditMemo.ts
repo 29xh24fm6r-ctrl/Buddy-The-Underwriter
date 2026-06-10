@@ -13,6 +13,7 @@ import {
   computeLtvPct,
   computeReadiness,
   getLatestSpread,
+  readDscrDenominatorStatus,
   type RequiredMetric,
 } from "@/lib/creditMemo/canonical/factsAdapter";
 import { buildDealFinancialSnapshotForBank } from "@/lib/deals/financialSnapshot";
@@ -415,11 +416,19 @@ export async function buildCanonicalCreditMemo(args: {
       ? await computeFinancialAnalysisMetrics({ dealId: args.dealId, bankId })
       : null;
 
+    // SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: read the DSCR/GCF_DSCR denominator
+    // status from canonical-fact provenance so the memo can flag a preliminary DSCR.
+    const dscrDenominatorStatus = await readDscrDenominatorStatus({ dealId: args.dealId, bankId });
+
     let financial = {
       cashFlowAvailable: mergeMetric(snapshotFinancial.cashFlowAvailable, spreadFinancial?.cashFlowAvailable),
       annualDebtService: mergeMetric(snapshotFinancial.annualDebtService, spreadFinancial?.annualDebtService),
       excessCashFlow: mergeMetric(snapshotFinancial.excessCashFlow, spreadFinancial?.excessCashFlow),
-      dscrGlobal: mergeMetric(snapshotFinancial.dscrGlobal, spreadFinancial?.dscrGlobal),
+      dscrGlobal: {
+        ...mergeMetric(snapshotFinancial.dscrGlobal, spreadFinancial?.dscrGlobal),
+        preliminary: dscrDenominatorStatus.preliminary,
+        caveat: dscrDenominatorStatus.caveat,
+      },
       dscrStressed300bps: mergeMetric(snapshotFinancial.dscrStressed300bps, spreadFinancial?.dscrStressed300bps),
       // Placeholder — recomputed after rate/LOC variables are known (Bug 10 fix below)
       annualDebtServiceStressed300bps: (() => {
@@ -503,6 +512,9 @@ export async function buildCanonicalCreditMemo(args: {
             value: Math.round((cfa / ads) * 100) / 100,
             source: `Computed:${financial.cashFlowAvailable.source}/${financial.annualDebtService.source}`,
             updated_at: null,
+            // preserve the preliminary/caveat denominator status (SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1)
+            preliminary: dscrDenominatorStatus.preliminary,
+            caveat: dscrDenominatorStatus.caveat,
           };
         }
 
