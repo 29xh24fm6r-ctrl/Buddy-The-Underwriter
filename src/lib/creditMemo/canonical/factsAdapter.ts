@@ -11,7 +11,48 @@ export type MetricSource = {
 
 export type MetricValue = MetricSource & {
   value: number | null;
+  /** SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: denominator not yet committee-final. */
+  preliminary?: boolean;
+  caveat?: string | null;
 };
+
+/**
+ * SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: read the DSCR / GCF_DSCR fact provenance
+ * (written by computeTotalDebtService) to determine whether the displayed DSCR is
+ * preliminary — i.e. global guarantor/personal obligations are unconfirmed, or the
+ * business denominator lacks an existing-debt schedule. No new math, no new facts.
+ */
+export async function readDscrDenominatorStatus(args: {
+  dealId: string;
+  bankId: string;
+}): Promise<{ preliminary: boolean; caveat: string | null }> {
+  const sb = supabaseAdmin();
+  const readProv = async (factKey: string): Promise<any | null> => {
+    const res = await (sb as any)
+      .from("deal_financial_facts")
+      .select("provenance")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId)
+      .eq("fact_type", "FINANCIAL_ANALYSIS")
+      .eq("fact_key", factKey)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return res?.data?.provenance ?? null;
+  };
+  const [dscrProv, gcfProv] = await Promise.all([readProv("DSCR"), readProv("GCF_DSCR")]);
+  const globalPreliminary = gcfProv?.preliminary === true;
+  const existingNotOnFile = dscrProv?.existing_debt_on_file === false;
+  const preliminary = globalPreliminary || existingNotOnFile;
+  if (!preliminary) return { preliminary: false, caveat: null };
+  const caveat =
+    (globalPreliminary ? gcfProv?.note : null) ??
+    (existingNotOnFile ? dscrProv?.note : null) ??
+    "Preliminary — debt-service denominator is not yet confirmed.";
+  return { preliminary: true, caveat: typeof caveat === "string" ? caveat : null };
+}
 
 export type SpreadSnapshot = {
   spread_type: string;
