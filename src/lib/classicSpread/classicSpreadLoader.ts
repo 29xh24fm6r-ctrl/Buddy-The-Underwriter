@@ -11,6 +11,7 @@ import type {
   StatementPeriod,
 } from "./types";
 import { loadPersonalIncome } from "./personalIncomeLoader";
+import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
 import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
 import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
@@ -1335,13 +1336,40 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   const { periods, byPeriod } = buildPeriodMaps(facts);
   const currentYear = new Date().getFullYear();
 
+  // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: source attribution (audit method,
+  // statement type, months covered) comes from the canonical reconciled view model —
+  // derived from the ACTUAL facts' source_canonical_type per column, not inferred from
+  // dates or fact-key presence. Legacy deriveAuditMethod is the fallback only when a
+  // column is absent from the canonical model.
+  const canonByPeriod = new Map<string, { auditMethod: string; statementType: string; monthsCovered: number | null }>();
+  if (deal?.bank_id) {
+    try {
+      const vm = await buildCanonicalSpreadViewModel(dealId, deal.bank_id);
+      for (const c of vm.columns) {
+        canonByPeriod.set(c.periodEnd, { auditMethod: c.auditMethod, statementType: c.statementType, monthsCovered: c.monthsCovered });
+      }
+    } catch {
+      // Non-fatal — fall back to legacy per-period derivation below.
+    }
+  }
+
   const statementPeriods: StatementPeriod[] = periods.map((p) => {
-    const auditMethod = deriveAuditMethod(byPeriod, p);
+    const canon = canonByPeriod.get(p);
+    const auditMethod = canon?.auditMethod ?? deriveAuditMethod(byPeriod, p);
+    const months = canon?.monthsCovered ?? deriveMonths(p);
+    const stmtType =
+      canon?.statementType && canon.statementType !== "Unknown"
+        ? (canon.statementType === "Interim" ? "Interim" : "Annual")
+        : auditMethod === "Tax Return"
+          ? "Annual"
+          : months === 12
+            ? "Annual"
+            : "Interim";
     return {
       date: formatPeriodDate(p),
-      months: deriveMonths(p),
+      months,
       auditMethod,
-      stmtType: auditMethod === "Tax Return" ? "Annual" : (deriveMonths(p) === 12 ? "Annual" : "Interim"),
+      stmtType,
       label: derivePeriodLabel(p, currentYear),
     };
   });
