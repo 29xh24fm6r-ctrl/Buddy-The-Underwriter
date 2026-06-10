@@ -89,16 +89,13 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         loadTrendReport(sb, dealId),
       ]);
 
-    // Inject ADS from pricing into facts for all years
-    const annualDebtService = pricingRow ? toNumSafe(pricingRow.annual_debt_service_est) : null;
-    if (annualDebtService !== null) {
-      for (const year of factsResult.years) {
-        const adsKey = `cf_annual_debt_service_${year}`;
-        if ((factsResult.facts as Record<string, unknown>)[adsKey] == null) {
-          (factsResult.facts as Record<string, unknown>)[adsKey] = annualDebtService;
-        }
-      }
-    }
+    // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: do NOT inject the proposed-loan
+    // annual_debt_service_est into every historical year — that made each year's DSCR
+    // a proposed-loan-coverage figure masquerading as historical debt-service coverage.
+    // Historical debt service must come from actual statement facts
+    // (cf_annual_debt_service_{year}); the canonical/authoritative DSCR (computeTotalDebtService
+    // → snapshot, read below) governs the deal-level ratio. (Defect removed; pricingRow
+    // retained for the pricing gate above.)
 
     // --- Ratios: derived inline as safety net, V2 authoritative wins ---
     const derivedRatios = deriveInlineRatios(factsResult.facts, factsResult.years);
