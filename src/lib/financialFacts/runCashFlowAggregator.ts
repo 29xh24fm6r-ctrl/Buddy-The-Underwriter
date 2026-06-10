@@ -33,6 +33,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
+import { classifyEntityTaxForm, ownerCompTreatment } from "@/lib/financialIntelligence/entityTaxForm";
 import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
 import { computeSlateHash } from "@/lib/methodology/slateHash";
 import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
@@ -259,6 +260,7 @@ export async function runCashFlowAggregator(args: {
   let ccorpTaxableUsed: number | null = null;
   let ccorpOfficerUsed: number | null = null;
   let ccorpDeprUsed: number | null = null;
+  let ccorpOfficerAddback = 0;
   const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
   if ((ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
     const { data: ccorpFacts } = await (sb as any)
@@ -268,9 +270,9 @@ export async function runCashFlowAggregator(args: {
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .eq("source_canonical_type", "BUSINESS_TAX_RETURN")
-      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION"])
+      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION", "GROSS_RECEIPTS"])
       .not("fact_value_num", "is", null)
-      .limit(15);
+      .limit(20);
 
     if (ccorpFacts && (ccorpFacts as any[]).length > 0) {
       const allFacts = ccorpFacts as any[];
@@ -290,17 +292,32 @@ export async function runCashFlowAggregator(args: {
       const deprFacts = periodFacts.filter(
         (r: any) => r.fact_key === "DEPRECIATION",
       );
+      const grossFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "GROSS_RECEIPTS",
+      );
 
       const { chosen: bestTaxable } = selectBestFact(taxableFacts);
       const { chosen: bestOfficer } = selectBestFact(officerFacts);
       const { chosen: bestDepr } = selectBestFact(deprFacts);
+      const { chosen: bestGross } = selectBestFact(grossFacts);
 
       if (bestTaxable && bestOfficer) {
         ccorpTaxableUsed = Number(bestTaxable.fact_value_num);
         ccorpOfficerUsed = Number(bestOfficer.fact_value_num);
         ccorpDeprUsed = Number(bestDepr?.fact_value_num ?? 0);
-        ncads = ccorpTaxableUsed + ccorpOfficerUsed + ccorpDeprUsed;
-        ncadsSource = "EBITDA"; // C-Corp addback method
+        // SPEC-CANONICAL-DSCR-NCADS-PERFECTION-PROGRAM-1 Phase 2: normalize owner comp
+        // against replacement compensation — add back ONLY the excess, never 100% of
+        // officer comp (reasonable owner comp is a real operating expense).
+        const compFactMap = {
+          TAXABLE_INCOME: ccorpTaxableUsed,
+          OFFICER_COMPENSATION: ccorpOfficerUsed,
+          DEPRECIATION: ccorpDeprUsed,
+          GROSS_RECEIPTS: bestGross ? Number(bestGross.fact_value_num) : null,
+        };
+        const treatment = ownerCompTreatment(compFactMap, classifyEntityTaxForm(compFactMap), methodologySlate);
+        ccorpOfficerAddback = treatment.addback;
+        ncads = ccorpTaxableUsed + ccorpOfficerAddback + ccorpDeprUsed;
+        ncadsSource = "EBITDA"; // C-Corp normalized addback method
       }
     }
   }
@@ -312,9 +329,10 @@ export async function runCashFlowAggregator(args: {
   if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0
       && ccorpTaxableUsed !== null && ccorpOfficerUsed !== null) {
     ncadsWarnings.push(
-      `C-Corp addback applied: taxable_income($${ccorpTaxableUsed.toLocaleString()}) ` +
-      `+ officer_comp($${ccorpOfficerUsed.toLocaleString()}) ` +
-      `+ depreciation($${(ccorpDeprUsed ?? 0).toLocaleString()}) = $${ncads.toLocaleString()}`,
+      `C-Corp normalized addback: taxable_income($${ccorpTaxableUsed.toLocaleString()}) ` +
+      `+ normalized_officer_comp_excess($${ccorpOfficerAddback.toLocaleString()} of reported $${ccorpOfficerUsed.toLocaleString()}) ` +
+      `+ depreciation($${(ccorpDeprUsed ?? 0).toLocaleString()}) = $${ncads.toLocaleString()} ` +
+      `(owner comp normalized against replacement — excess only, not 100%)`,
     );
   }
 
