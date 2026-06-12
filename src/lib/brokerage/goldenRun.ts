@@ -53,9 +53,9 @@ async function s2(c: Ctx): Promise<StepResult> {
   const facts = { borrower: { first_name: "Golden", last_name: "Borrower", email: "golden@test.local" }, business: { legal_name: NAME, industry_description: "Metal fabrication", naics: "332710", is_franchise: false, years_in_business: 8 }, loan: { amount_requested: AMOUNT, use_of_proceeds: "Equipment", term_months: TERM } };
   const { error: e1 } = await c.sb.from("borrower_concierge_sessions").insert({ deal_id: c.dealId, bank_id: c.brokerageBankId, program: "7a", progress_pct: 100, extracted_facts: facts, confirmed_facts: facts, conversation_history: [{ role: "user", content: "Equipment loan" }], metadata: { golden_test: true } });
   if (e1) return { ok: false, error: `concierge: ${e1.message}` };
-  const { error: e2 } = await c.sb.from("borrower_applications").upsert({ deal_id: c.dealId, legal_name: NAME, industry: "Metal fabrication", naics_code: "332710", is_franchise: false, loan_amount: AMOUNT }, { onConflict: "deal_id" });
+  const { error: e2 } = await c.sb.from("borrower_applications").upsert({ deal_id: c.dealId, business_legal_name: NAME, industry: "Metal fabrication", naics: "332710", loan_amount: AMOUNT, loan_type: "7a" }, { onConflict: "deal_id" });
   if (e2) return { ok: false, error: `app: ${e2.message}` };
-  const { error: e3 } = await c.sb.from("deal_financial_facts").insert([{ deal_id: c.dealId, fact_key: "TOTAL_REVENUE", fact_value: 2000000, period_label: "CY2025", source: "concierge" }, { deal_id: c.dealId, fact_key: "YEARS_IN_BUSINESS", fact_value: 8, period_label: "current", source: "concierge" }]);
+  const { error: e3 } = await c.sb.from("deal_financial_facts").insert([{ deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "TOTAL_REVENUE", fact_value_num: 2000000, fact_period_start: "2025-01-01", fact_period_end: "2025-12-31", provenance: { source: "concierge", golden_test: true } }, { deal_id: c.dealId, bank_id: c.brokerageBankId, fact_type: "concierge", fact_key: "YEARS_IN_BUSINESS", fact_value_num: 8, provenance: { source: "concierge", golden_test: true } }]);
   if (e3) return { ok: false, error: `facts: ${e3.message}` };
   return { ok: true };
 }
