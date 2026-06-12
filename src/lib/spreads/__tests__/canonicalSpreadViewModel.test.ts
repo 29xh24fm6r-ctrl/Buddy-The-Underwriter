@@ -120,3 +120,77 @@ describe("buildSpreadColumns — reconciliation + empty suppression + GCF gate",
     assert.equal(vm.gcfPreliminary, false);
   });
 });
+
+describe("SPEC-CLASSIC-SPREAD-FINANCIAL-PERIOD-SPINE-1 — column eligibility by source type", () => {
+  // OmniCare shape: 3 business tax years + company-prepared FY + interim + an AR-aging period.
+  const omniCare = (): (ReconcileFact & SpreadColumnFact)[] => [
+    cf({ fact_key: "GROSS_RECEIPTS", fact_period_end: "2022-12-31", source_canonical_type: "BUSINESS_TAX_RETURN" }),
+    cf({ fact_key: "GROSS_RECEIPTS", fact_period_end: "2023-12-31", source_canonical_type: "BUSINESS_TAX_RETURN" }),
+    cf({ fact_key: "GROSS_RECEIPTS", fact_period_end: "2024-12-31", source_canonical_type: "BUSINESS_TAX_RETURN" }),
+    cf({ fact_key: "SL_TOTAL_ASSETS", fact_value_num: 4_200_000, fact_period_end: "2025-12-31", fact_period_start: "2025-01-01", source_canonical_type: "BALANCE_SHEET" }),
+    cf({ fact_key: "TOTAL_REVENUE", fact_value_num: 1_100_000, fact_period_end: "2026-03-31", fact_period_start: "2026-01-01", source_canonical_type: "INCOME_STATEMENT" }),
+    // AR aging is collateral/borrowing-base evidence, NOT a statement period.
+    cf({ fact_key: "TOTAL_AR", fact_value_num: 850_000, fact_period_end: "2026-04-28", source_canonical_type: "AR_AGING" }),
+  ];
+
+  it("AR_AGING period does not create a spread column", () => {
+    const vm = buildSpreadColumns(omniCare());
+    assert.ok(!vm.columns.some((c) => c.periodEnd === "2026-04-28"));
+  });
+
+  it("2022 tax return appears once AR_AGING no longer occupies a column", () => {
+    const vm = buildSpreadColumns(omniCare());
+    const ends = vm.columns.map((c) => c.periodEnd).sort();
+    assert.deepEqual(ends, ["2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31", "2026-03-31"]);
+  });
+
+  it("2022 / 2023 / 2024 business tax returns remain eligible (Tax Return)", () => {
+    const vm = buildSpreadColumns(omniCare());
+    for (const pe of ["2022-12-31", "2023-12-31", "2024-12-31"]) {
+      const col = vm.columns.find((c) => c.periodEnd === pe);
+      assert.equal(col?.auditMethod, "Tax Return", pe);
+    }
+  });
+
+  it("2025 company-prepared full-year IS/BS remains eligible (Company Prepared)", () => {
+    const vm = buildSpreadColumns(omniCare());
+    const col = vm.columns.find((c) => c.periodEnd === "2025-12-31");
+    assert.equal(col?.auditMethod, "Company Prepared");
+    assert.equal(col?.statementType, "Annual");
+  });
+
+  it("2026-03-31 company-prepared interim IS/BS remains eligible (Interim)", () => {
+    const vm = buildSpreadColumns(omniCare());
+    const col = vm.columns.find((c) => c.periodEnd === "2026-03-31");
+    assert.equal(col?.auditMethod, "Interim");
+    assert.equal(col?.statementType, "Interim");
+  });
+
+  it("PERSONAL_TAX_RETURN does not create a business spread column (even when mis-owned as DEAL)", () => {
+    // OmniCare stores some personal-tax facts with owner_type=DEAL — the owner filter alone
+    // would not catch them; the source-type guard must.
+    const vm = buildSpreadColumns([
+      cf({ fact_key: "ADJUSTED_GROSS_INCOME", fact_value_num: 340_000, fact_period_end: "2021-12-31", owner_type: "DEAL", source_canonical_type: "PERSONAL_TAX_RETURN" }),
+    ]);
+    assert.equal(vm.columns.length, 0);
+  });
+
+  it("AR_AGING alone produces no columns", () => {
+    const vm = buildSpreadColumns([
+      cf({ fact_key: "TOTAL_AR", fact_value_num: 850_000, fact_period_end: "2026-04-28", owner_type: "DEAL", source_canonical_type: "AR_AGING" }),
+    ]);
+    assert.equal(vm.columns.length, 0);
+  });
+
+  it("a computed fact joins an eligible statement period but never creates one on its own", () => {
+    const vm = buildSpreadColumns([
+      cf({ fact_key: "GROSS_RECEIPTS", fact_period_end: "2024-12-31", source_canonical_type: "BUSINESS_TAX_RETURN" }),
+      // computed (no source type) on an anchored period → joins it
+      cf({ fact_key: "EBITDA", fact_value_num: 250_000, fact_period_end: "2024-12-31", source_canonical_type: null, extractor: "computeBusinessEbitdaFacts:v2" }),
+      // computed on a lone (un-anchored) period → must NOT create a column
+      cf({ fact_key: "GCF_GLOBAL_CASH_FLOW", fact_value_num: 500_000, fact_period_end: "1900-01-01", source_canonical_type: null, extractor: "waterfall" }),
+    ]);
+    const ends = vm.columns.map((c) => c.periodEnd);
+    assert.deepEqual(ends, ["2024-12-31"]);
+  });
+});
