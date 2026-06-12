@@ -13,7 +13,8 @@ const routePath = (relativePath: string) =>
 // route cap. This guard now pins the surviving meta + banker entry routes and
 // the canonical underwriting pages that must remain registered.
 test("meta + banker entry routes and underwriting pages are registered", () => {
-  const buildRoute = routePath("src/app/api/_meta/build/route.ts");
+  // _meta/build was a duplicate 1-line re-export shim of meta/build; assert the canonical route.
+  const buildRoute = routePath("src/app/api/meta/build/route.ts");
   const bankerInitIntake = routePath("src/app/api/deals/[dealId]/intake/init/route.ts");
   const nextStepRoute = routePath("src/app/api/deals/[dealId]/next-step/route.ts");
   const commandPage = routePath("src/app/(app)/deals/[dealId]/command/page.tsx");
