@@ -8,5 +8,9 @@
  *
  * BUMP this whenever the classic-spread loader/renderer output changes materially.
  *   v2 — VM-driven period list + canonical source attribution.
+ *   v3 — financial-period spine: AR_AGING / PFS / PERSONAL_TAX_RETURN periods can no
+ *        longer create business spread columns (SPEC-CLASSIC-SPREAD-FINANCIAL-PERIOD-SPINE-1).
+ *        A v2 blob rendered before the spine fix (e.g. one still showing a 4/28/2026 AR-aging
+ *        column) must be rejected so a fresh v3 render replaces it.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 2;
+export const CLASSIC_PDF_RENDER_VERSION = 3;
