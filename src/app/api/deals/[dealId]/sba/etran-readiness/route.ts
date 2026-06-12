@@ -97,7 +97,7 @@ export async function GET(
     // Load gross revenue from financial facts
     const { data: revFact } = await sb
       .from("deal_financial_facts")
-      .select("value_numeric")
+      .select("fact_value_num")
       .eq("deal_id", dealId)
       .eq("fact_key", "TOTAL_REVENUE_IS")
       .order("created_at", { ascending: false })
@@ -191,7 +191,7 @@ export async function GET(
         managementQualifications:
           (story.management_qualifications as string | null) ?? null,
       },
-      grossAnnualRevenue: revFact?.value_numeric ?? null,
+      grossAnnualRevenue: revFact?.fact_value_num != null ? Number(revFact.fact_value_num) : null,
       hasSbaAssumptions: !!assumptionsRow,
       hasConfirmedAssumptions:
         assumptionsRow?.status === "confirmed",
