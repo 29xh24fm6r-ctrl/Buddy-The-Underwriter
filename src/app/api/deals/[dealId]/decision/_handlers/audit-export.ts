@@ -15,6 +15,9 @@ import {
   validateUuidParam,
 } from "@/lib/api/respond";
 
+// The catch-all dispatcher (../[...path]/route.ts) owns the ACTIVE route-segment config; these
+// exports are inert in this handler module but are retained (verbatim from the original route)
+// so the Spec D5 headroom contract stays self-documented on the handler.
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
 // 10s default for cold-start auth + multi-step Supabase I/O.

@@ -65,7 +65,7 @@
       "name": "decision_latest",
       "method": "GET",
       "path": "/api/deals/{dealId}/decision/latest",
-      "sourceFile": "src/app/api/deals/[dealId]/decision/latest/route.ts",
+      "sourceFile": "src/app/api/deals/[dealId]/decision/_handlers/latest.ts",
       "routeHeader": "/api/deals/[dealId]/decision/latest",
       "correlationPrefix": "dec-",
       "probe": "scripts/tests/gate-probe-decision-latest.mjs"

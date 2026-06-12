@@ -12,11 +12,13 @@ function readSource(relPath: string) {
   return fs.readFileSync(path.join(repoRoot, relPath), "utf8");
 }
 
+// The decision route family was consolidated into a catch-all dispatcher; these handlers'
+// logic moved verbatim from .../[snapshotId]/{attest,finalize}/route.ts into _handlers/*.
 const attestRoute = readSource(
-  "src/app/api/deals/[dealId]/decision/[snapshotId]/attest/route.ts",
+  "src/app/api/deals/[dealId]/decision/_handlers/attest.ts",
 );
 const finalizeRoute = readSource(
-  "src/app/api/deals/[dealId]/decision/[snapshotId]/finalize/route.ts",
+  "src/app/api/deals/[dealId]/decision/_handlers/finalize.ts",
 );
 const onePager = readSource(
   "src/components/decision/DecisionOnePager.tsx",
