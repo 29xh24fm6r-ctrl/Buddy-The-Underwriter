@@ -23,8 +23,14 @@ import {
   safeWithTimeout,
 } from "@/lib/api/respond";
 
-// Route-segment config (runtime/maxDuration/dynamic) now lives on the catch-all dispatcher
-// at ../[...path]/route.ts — Spec D5 headroom (maxDuration 60, nodejs, force-dynamic) preserved there.
+// The catch-all dispatcher (../[...path]/route.ts) owns the ACTIVE route-segment config; these
+// exports are inert in this handler module but are retained (verbatim from the original route)
+// so the Spec D5 headroom contract stays self-documented on the handler.
+export const runtime = "nodejs";
+// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
+// 10s default for cold-start auth + multi-step Supabase I/O.
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 const ROUTE = "/api/deals/[dealId]/decision/latest";
 
