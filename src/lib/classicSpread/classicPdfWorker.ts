@@ -49,6 +49,8 @@ export type ClassicPdfCachedPayload = {
   generatedAt: string;
   /** SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: code-version stamp — a mismatch busts the blob. */
   renderVersion?: number;
+  /** SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1: pre-render certification audit. */
+  certificationAudit?: import("@/lib/classicSpread/certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit | null;
 };
 
 // ── Main worker function ──────────────────────────────────────────────────────
@@ -109,6 +111,7 @@ export async function renderClassicPdfSpread(args: {
     canonicalFactsTimestamp,
     generatedAt,
     renderVersion: CLASSIC_PDF_RENDER_VERSION,
+    certificationAudit: input.certificationAudit ?? null,
   };
 
   // 8. Upsert to deal_spreads — the row IS the cache

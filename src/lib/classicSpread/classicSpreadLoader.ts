@@ -12,6 +12,10 @@ import type {
 } from "./types";
 import { loadPersonalIncome } from "./personalIncomeLoader";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
+import {
+  runClassicSpreadCertification,
+  applyCertificationToInput,
+} from "./certification/certifiedSpreadGate";
 import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
 import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
 import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
@@ -1418,7 +1422,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     ? await loadPersonalIncome(dealId, deal.bank_id)
     : null;
 
-  return {
+  const input: ClassicSpreadInput = {
     dealId,
     companyName: deal?.borrower_name ?? deal?.name ?? "Unknown Company",
     preparedDate,
@@ -1435,4 +1439,20 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     personalIncome,
     executiveSummary: buildExecutiveSummary(byPeriod, periods),
   };
+
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6): pre-render certification gate.
+  // Suppress blocked values and replace weak personal-income values with certified ones BEFORE the
+  // PDF is rendered, and persist the audit. Non-fatal — a gate failure leaves the input unchanged.
+  if (deal?.bank_id) {
+    const gate = await runClassicSpreadCertification(dealId, deal.bank_id, {
+      periods,
+      gcfTaxYear: globalCashFlow?.taxYear ?? null,
+    });
+    if (gate) {
+      applyCertificationToInput(input, gate.decisions);
+      input.certificationAudit = gate.audit;
+    }
+  }
+
+  return input;
 }
