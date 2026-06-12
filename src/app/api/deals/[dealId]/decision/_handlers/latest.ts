@@ -23,11 +23,8 @@ import {
   safeWithTimeout,
 } from "@/lib/api/respond";
 
-export const runtime = "nodejs";
-// Spec D5: cockpit-supporting GET routes must allow headroom beyond the
-// 10s default for cold-start auth + multi-step Supabase I/O.
-export const maxDuration = 60;
-export const dynamic = "force-dynamic";
+// Route-segment config (runtime/maxDuration/dynamic) now lives on the catch-all dispatcher
+// at ../[...path]/route.ts — Spec D5 headroom (maxDuration 60, nodejs, force-dynamic) preserved there.
 
 const ROUTE = "/api/deals/[dealId]/decision/latest";
 
