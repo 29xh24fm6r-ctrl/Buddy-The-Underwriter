@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
  *
  * Two facts make this route necessary:
  *   1. The Clerk production instance is domain-locked to
- *      app.buddytheunderwriter.com, so /sign-in and /admin render broken
+ *      app.buddytheunderwriter.com, so /admin and /sign-in render broken
  *      on buddysba.com (ClerkJS refuses to initialize off-domain).
  *   2. The middleware public-route matcher already opens "/brokerage(.*)"
  *      — so this page runs unauthenticated on any domain, unlike paths
@@ -15,7 +15,7 @@ import { redirect } from "next/navigation";
  *      before they can redirect.
  *
  * Result:
- *   buddysba.com/brokerage/admin                     → lender control center
+ *   buddysba.com/brokerage/admin                     → admin lender control center
  *   buddysba.com/brokerage/admin/brokerage/listings  → brokerage ops dashboard
  *   buddysba.com/brokerage/admin/<anything>          → app domain /admin/<anything>
  *
