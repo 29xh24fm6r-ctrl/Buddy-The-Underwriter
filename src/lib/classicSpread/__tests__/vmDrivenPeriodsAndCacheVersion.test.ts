@@ -27,21 +27,21 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.match(v, /CLASSIC_PDF_RENDER_VERSION\s*=\s*\d+/);
   });
 
-  // SPEC-CLASSIC-SPREAD-FINANCIAL-PERIOD-SPINE-1: the period-spine fix changed classic output
-  // (AR_AGING / personal-tax periods dropped), so the version must advance past the v2 blobs
-  // rendered before it — otherwise a stale v2 blob (e.g. OmniCare's, still showing a 4/28/2026
-  // AR-aging column) keeps being served by /classic-spread/cached.
-  it("render version is 3 (bumped for the period-spine output change)", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 3);
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1: the certification gate changed the
+  // rendered output (suppressed/replaced values), so the version must advance past every pre-gate
+  // blob — otherwise a stale blob keeps being served by /classic-spread/cached.
+  it("render version is 4 (bumped for the certification-gate output change)", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 4);
   });
 
-  it("the cached-route version comparison rejects a pre-spine v2 blob and accepts a v3 blob", () => {
+  it("the cached-route version comparison rejects any pre-gate blob and accepts a v4 blob", () => {
     // Mirrors the cached route guard: (payload.renderVersion ?? 0) !== CLASSIC_PDF_RENDER_VERSION
     const isRejected = (renderVersion: number | undefined) =>
       (renderVersion ?? 0) !== CLASSIC_PDF_RENDER_VERSION;
-    assert.equal(isRejected(2), true); // existing OmniCare v2 blob is rejected
-    assert.equal(isRejected(undefined), true); // legacy unversioned blob is rejected
-    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v3 blob is served
+    assert.equal(isRejected(2), true); // pre-spine v2 blob rejected
+    assert.equal(isRejected(3), true); // pre-gate v3 blob rejected
+    assert.equal(isRejected(undefined), true); // legacy unversioned blob rejected
+    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v4 blob is served
   });
   it("worker + sync route stamp renderVersion into the cached payload", () => {
     assert.match(read("src/lib/classicSpread/classicPdfWorker.ts"), /renderVersion: CLASSIC_PDF_RENDER_VERSION/);

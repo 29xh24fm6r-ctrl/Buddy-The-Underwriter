@@ -12,5 +12,10 @@
  *        longer create business spread columns (SPEC-CLASSIC-SPREAD-FINANCIAL-PERIOD-SPINE-1).
  *        A v2 blob rendered before the spine fix (e.g. one still showing a 4/28/2026 AR-aging
  *        column) must be rejected so a fresh v3 render replaces it.
+ *   v4 — certification gate: the render now suppresses blocked values (e.g. a derived zero
+ *        Total Liabilities), replaces weak personal-income OCR values with certified tax-return
+ *        values, strips a false GCF tax-year label, and drops interest-expense-denominated DSCR
+ *        rows (SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1). A v3 blob predates these
+ *        suppressions and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 3;
+export const CLASSIC_PDF_RENDER_VERSION = 4;

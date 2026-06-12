@@ -104,4 +104,9 @@ export type ClassicSpreadInput = {
     liabilitiesAndNetWorth: FinancialRow[];
     incomeStatement: FinancialRow[];
   };
+
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6): the certification audit
+  // applied to this input before render (suppression/replacement decisions + per-domain status).
+  // Persisted into rendered_json; never rendered as a page.
+  certificationAudit?: import("./certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit | null;
 };
