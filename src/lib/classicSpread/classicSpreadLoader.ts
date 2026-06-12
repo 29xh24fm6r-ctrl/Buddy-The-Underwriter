@@ -1333,7 +1333,6 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     }
     return true;
   });
-  const { periods: rawPeriods, byPeriod } = buildPeriodMaps(facts);
   const currentYear = new Date().getFullYear();
 
   // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: the canonical reconciled view model is the
@@ -1351,6 +1350,19 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
       // Non-fatal — fall back to the legacy period list + per-period derivation below.
     }
   }
+
+  // SPEC-CLASSIC-SPREAD-FINANCIAL-PERIOD-SPINE-1: restrict the period universe (and thus the
+  // 5-column cap math in buildPeriodMaps) to the VM's eligible statement periods. The VM
+  // already excludes AR-aging / PFS / personal-tax / collateral periods, so non-statement
+  // periods can no longer consume a cap slot and push a real tax year (e.g. 2022) out.
+  const eligibleFacts =
+    canonByPeriod.size > 0
+      ? facts.filter((f) => {
+          const pe = f.fact_period_end?.slice(0, 10);
+          return pe ? canonByPeriod.has(pe) : true;
+        })
+      : facts;
+  const { periods: rawPeriods, byPeriod } = buildPeriodMaps(eligibleFacts);
 
   // Drive the rendered period list from the VM when available: drop any period the VM did
   // not emit (empty columns the VM suppressed, or columns whose facts were quarantined).
