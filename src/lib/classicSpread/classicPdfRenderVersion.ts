@@ -17,5 +17,11 @@
  *        values, strips a false GCF tax-year label, and drops interest-expense-denominated DSCR
  *        rows (SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1). A v3 blob predates these
  *        suppressions and must be rejected.
+ *   v5 — render-consistency fix (code-only, no fact change): liability-derived ratios
+ *        (Debt/Worth, Debt/Tangible Net Worth, Total Liabilities/Total Assets, Total
+ *        Liabilities Growth %) now blank when the visible TOTAL LIABILITIES value is
+ *        unavailable instead of rendering 0.00 / -100%, and the GCF coverage band falls back
+ *        to UNKNOWN when globalDscr is blank (no false "TIGHT — DSCR 1.00x–1.25x"). A v4 blob
+ *        predates these and must be rejected so the fixed renderer replaces it.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 4;
+export const CLASSIC_PDF_RENDER_VERSION = 5;

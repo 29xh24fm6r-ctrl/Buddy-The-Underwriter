@@ -8,6 +8,7 @@ import {
   type GateFact,
 } from "../certifiedSpreadGateCore";
 import type { ClassicSpreadInput } from "../../types";
+import { CLASSIC_PDF_RENDER_VERSION } from "../../classicPdfRenderVersion";
 
 /**
  * SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6) — the pre-render gate runs
@@ -132,8 +133,8 @@ describe("computeCertificationDecisions — OmniCare-shaped", () => {
     assert.ok(!decisions.ratios.some((r) => r.rowLabel === "Interest Coverage"));
   });
 
-  it("audit carries version 4, per-domain status, and suppression decisions", () => {
-    assert.equal(audit.certificationVersion, 4);
+  it("audit carries the current render version, per-domain status, and suppression decisions", () => {
+    assert.equal(audit.certificationVersion, CLASSIC_PDF_RENDER_VERSION);
     assert.ok(audit.suppressions.length > 0);
     assert.equal(audit.dependencyStatuses.personalIncome, "ok");
     assert.ok(audit.domains.personal_income.replacements.some((r) => r.value === 310_134));

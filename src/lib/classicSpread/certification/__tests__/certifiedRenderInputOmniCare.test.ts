@@ -164,16 +164,16 @@ describe("final render input — OmniCare certification applied", () => {
     assert.deepEqual(cov.rows.find((r) => r.label === "Interest Coverage")!.values, [2.68]);
   });
 
-  it("certification audit is version 4 and records the suppressions", () => {
+  it("certification audit version tracks CLASSIC_PDF_RENDER_VERSION and records the suppressions", () => {
     const { audit } = applied();
-    assert.equal(audit.certificationVersion, 4);
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 4);
+    assert.equal(audit.certificationVersion, 5);
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 5);
     assert.equal(audit.domains.balance_sheet.status, "blocked");
     assert.ok(audit.suppressions.some((s) => s.page === "ratios" && /liability-derived/.test(s.reason)));
   });
 });
 
-describe("rendered_json wiring — version 4 + certificationAudit persisted", () => {
+describe("rendered_json wiring — renderVersion + certificationAudit persisted", () => {
   it("loader runs the gate and attaches certificationAudit before render", () => {
     const src = fs.readFileSync("src/lib/classicSpread/classicSpreadLoader.ts", "utf8");
     assert.match(src, /runClassicSpreadCertification/);
