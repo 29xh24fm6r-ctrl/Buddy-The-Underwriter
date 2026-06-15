@@ -29,7 +29,44 @@ export function spreadAuditGuardrailLines(audit: SpreadAuditResult | null | unde
       "liabilities, profitability, or coverage that depends on them). Explicitly caveat them as " +
       "unverified/incomplete pending corrected source data. Confine confident analysis to rows that passed.",
   );
+  if (audit.status === "blocker") {
+    // SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1 #3: under a BLOCKER, forbid unqualified positive conclusions.
+    lines.push(
+      "BLOCKER CLAMP: This spread is NOT reliable for credit decisioning until reconciled. Do NOT use " +
+        'phrases like "strong", "favorable trends", "supports", "adequacy/adequate", "resilience", ' +
+        '"robust", "healthy", or "solid" unless immediately caveated as unverified. Prefer "reported", ' +
+        '"preliminary", "unverified", and state results are "not reliable for credit decisioning until ' +
+        'reconciled."',
+    );
+  }
   return lines;
+}
+
+// SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1 #3: strong-positive conclusion vocabulary that must not stand
+// unqualified while a blocker is open.
+const STRONG_POSITIVE = /\b(strong(?:ly)?|favorabl[ey]|support(?:s|ed|ing)?|adequa(?:te|cy)|resilien(?:t|ce)|robust|healthy|solid|well[- ]positioned)\b/gi;
+
+const BLOCKER_DISCLAIMER =
+  "These figures are reported and preliminary; under unresolved accuracy blockers they are " +
+  "unverified and not reliable for credit decisioning until reconciled.";
+
+/**
+ * Under a BLOCKER audit, neutralize unqualified strong-positive conclusions in each model-generated
+ * section: tag every strong-positive term as "(unverified)" and append a conservative disclaimer so
+ * no section reads as a confident endorsement. Pure; returns a new array.
+ */
+export function clampBlockerConclusions<T extends NarrativeSectionLike>(
+  sections: T[],
+  audit: SpreadAuditResult | null | undefined,
+): T[] {
+  if (!audit || audit.status !== "blocker") return sections;
+  return sections.map((s) => {
+    let body = s.body.replace(STRONG_POSITIVE, (m) => `${m} (unverified)`);
+    if (!/not reliable for credit decisioning until reconciled/i.test(body)) {
+      body = body.trim().length > 0 ? `${body.trim()} ${BLOCKER_DISCLAIMER}` : BLOCKER_DISCLAIMER;
+    }
+    return { ...s, body };
+  });
 }
 
 /**

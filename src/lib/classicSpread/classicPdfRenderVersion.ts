@@ -33,5 +33,9 @@
  *        net-AR/current-liability deltas, true-zero rendering (0 ≠ blank), and a fail-closed
  *        "NOT CERTIFIED" banner (SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2). Output changes
  *        materially, so a v6 blob must be rejected.
+ *   v8 — v7 follow-up: Executive Financial Statement uses the shared liability hierarchy (so its
+ *        TOTAL LIABILITIES matches the Detailed Balance Sheet), the audit page sanitizes finding
+ *        text to plain ASCII (no Δ/≠/→ corrupted glyphs), and the narrative clamps strong-positive
+ *        conclusions under a BLOCKER (SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1). A v7 blob must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 7;
+export const CLASSIC_PDF_RENDER_VERSION = 8;

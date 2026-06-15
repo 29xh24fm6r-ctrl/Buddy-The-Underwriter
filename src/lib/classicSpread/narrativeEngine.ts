@@ -2,7 +2,7 @@ import "server-only";
 
 import type { ClassicSpreadInput } from "./types";
 import { MODEL_CLASSIC_SPREAD, isGemini3Model } from "@/lib/ai/models";
-import { spreadAuditGuardrailLines, withAuditCaveat } from "./narrativeGuardrail";
+import { spreadAuditGuardrailLines, withAuditCaveat, clampBlockerConclusions } from "./narrativeGuardrail";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,7 +162,10 @@ export async function generateSpreadNarrative(
     // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: when the spread audit found blocker-level
     // exceptions, lead the narrative with a deterministic data-reliability caveat regardless of what
     // the model produced — strong conclusions must not stand unqualified on unreconciled rows.
-    const finalSections = withAuditCaveat(sections, input.certificationAudit?.spreadAccuracy ?? null);
+    // #3: under a BLOCKER, clamp strong-positive conclusions in the model sections, THEN lead with
+    // the deterministic Data Reliability Caveat.
+    const audit = input.certificationAudit?.spreadAccuracy ?? null;
+    const finalSections = withAuditCaveat(clampBlockerConclusions(sections, audit), audit);
 
     return {
       sections: finalSections,

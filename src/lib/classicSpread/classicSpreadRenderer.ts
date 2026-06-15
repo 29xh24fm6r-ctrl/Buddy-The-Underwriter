@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import type { PersonalIncomeSection, PersonalIncomeYear } from "./personalIncomeLoader";
 import type { SpreadNarrative } from "./narrativeEngine";
+import { sanitizeForPdf } from "./pdfText";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -450,8 +451,10 @@ function drawSpreadAuditSection(
   const sm = audit.summary;
   doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
   doc.text(
-    `${sm.blockers} blocker(s), ${sm.warnings} warning(s), ${sm.infos} info — ${sm.footingsChecked} footing checks across ${sm.periodsAudited.join(", ") || "no"} period(s); ` +
-      `${sm.mappedFactKeys} source line(s) mapped, ${sm.unmappedFactKeys} unmapped.`,
+    sanitizeForPdf(
+      `${sm.blockers} blocker(s), ${sm.warnings} warning(s), ${sm.infos} info - ${sm.footingsChecked} footing checks across ${sm.periodsAudited.join(", ") || "no"} period(s); ` +
+        `${sm.mappedFactKeys} source line(s) mapped, ${sm.unmappedFactKeys} unmapped.`,
+    ),
     PAGE_MARGIN,
     s.y,
     { width: textWidth },
@@ -485,7 +488,7 @@ function drawSpreadAuditSection(
   for (const f of shown) {
     checkPageBreak(s, 3);
     const color = f.severity === "blocker" ? "#dc2626" : f.severity === "warning" ? "#d97706" : "#666666";
-    const head = `[${f.severity.toUpperCase()}] ${f.period} · ${f.statement.replace(/_/g, " ")} · ${f.rowLabel} — ${f.issueType}`;
+    const head = sanitizeForPdf(`[${f.severity.toUpperCase()}] ${f.period} - ${f.statement.replace(/_/g, " ")} - ${f.rowLabel} - ${f.issueType}`);
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_META).fillColor(color);
     const headHeight = doc.heightOfString(head, { width: textWidth });
     doc.text(head, PAGE_MARGIN, s.y, { width: textWidth });
@@ -494,8 +497,8 @@ function drawSpreadAuditSection(
     const nums: string[] = [];
     if (f.expectedValue != null) nums.push(`expected ${fmtCurrency(f.expectedValue)}`);
     if (f.actualValue != null) nums.push(`actual ${fmtCurrency(f.actualValue)}`);
-    if (f.difference != null) nums.push(`Δ ${fmtCurrency(f.difference)}`);
-    const body = nums.length > 0 ? `${f.detail} (${nums.join(", ")})` : f.detail;
+    if (f.difference != null) nums.push(`diff ${fmtCurrency(f.difference)}`);
+    const body = sanitizeForPdf(nums.length > 0 ? `${f.detail} (${nums.join(", ")})` : f.detail);
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#000000");
     const bodyHeight = doc.heightOfString(body, { width: textWidth - 8 });
     doc.text(body, PAGE_MARGIN + 8, s.y, { width: textWidth - 8 });
@@ -504,7 +507,7 @@ function drawSpreadAuditSection(
 
   if (sorted.length > MAX_SHOWN) {
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
-    doc.text(`…and ${sorted.length - MAX_SHOWN} more finding(s). See certificationAudit.spreadAccuracy for the full list.`, PAGE_MARGIN, s.y, { width: textWidth });
+    doc.text(sanitizeForPdf(`...and ${sorted.length - MAX_SHOWN} more finding(s). See certificationAudit.spreadAccuracy for the full list.`), PAGE_MARGIN, s.y, { width: textWidth });
     doc.fillColor("#000000");
     s.y += 12;
   }

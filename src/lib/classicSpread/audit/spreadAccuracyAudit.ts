@@ -223,7 +223,7 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
         issueType: "contradictory_components",
         expectedValue: expected, actualValue: rendered, difference: diff, tolerance: tol,
         severity: "warning",
-        detail: `${label} matches the directly-stored total (${directSource}) but its components sum to ${expected} (Δ ${diff}).`,
+        detail: `${label} matches the directly-stored total (${directSource}) but its components sum to ${expected} (diff ${diff}).`,
       });
       return;
     }
@@ -233,7 +233,7 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
       issueType: "unreconciled_total",
       expectedValue: expected, actualValue: rendered, difference: diff, tolerance: tol,
       severity: isMaterial(diff, base) ? "blocker" : "warning",
-      detail: `${label} (${rendered}) does not reconcile to its components (${expected}); Δ ${diff} exceeds tolerance ${tol}.`,
+      detail: `${label} (${rendered}) does not reconcile to its components (${expected}); diff ${diff} exceeds tolerance ${tol}.`,
     });
   }
 
@@ -265,7 +265,7 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
       issueType: "formula_mismatch",
       expectedValue: expected, actualValue: rendered, difference: diff, tolerance: tol,
       severity: isMaterial(diff, base) ? "blocker" : "warning",
-      detail: `${label} (${rendered}) ≠ expected ${expected} (Δ ${diff}).`,
+      detail: `${label} (${rendered}) != expected ${expected} (diff ${diff}).`,
     });
   }
 
@@ -391,7 +391,7 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
             issueType: "unreconciled_total",
             expectedValue: ta, actualValue: expected, difference: diff, tolerance: tol,
             severity: "blocker",
-            detail: `Balance sheet does not balance: Liabilities (${tl}) + Net Worth (${nw}) = ${expected} ≠ Total Assets ${ta} (Δ ${diff}).`,
+            detail: `Balance sheet does not balance: Liabilities (${tl}) + Net Worth (${nw}) = ${expected} != Total Assets ${ta} (diff ${diff}).`,
           });
         }
       }

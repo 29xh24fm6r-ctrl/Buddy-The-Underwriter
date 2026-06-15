@@ -645,21 +645,11 @@ function buildExecutiveSummary(
   const totalAssets = getVals(byPeriod, periods, "SL_TOTAL_ASSETS");
   const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
 
-  // S-corp fallback: retained earnings = total equity when SL_TOTAL_EQUITY missing
-  const totalEquity = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
-    if (direct != null) return direct;
-    return getVal(byPeriod, p, "SL_RETAINED_EARNINGS");
-  });
-
-  // Derive total liabilities when not directly stored
-  const totalLiabilities = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
-    if (direct != null) return direct;
-    const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
-    const eq = totalEquity[periods.indexOf(p)];
-    return ta != null && eq != null ? ta - eq : null;
-  });
+  // SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1 #1: the Executive Financial Statement MUST use the IDENTICAL
+  // liability hierarchy (direct → component sum → assets−equity) as the Detailed Balance Sheet, so
+  // the two pages never disagree on TOTAL LIABILITIES (OmniCare 2024 = 2,287,062 on both).
+  const totalEquity = deriveTotalEquity(byPeriod, periods);
+  const totalLiabilities = deriveTotalLiabilities(byPeriod, periods);
 
   return {
     assets: [
