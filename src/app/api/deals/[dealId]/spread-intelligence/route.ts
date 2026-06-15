@@ -30,7 +30,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    const spreadData = await loadClassicSpreadData(dealId);
+    const bankId = (access as any).bankId as string;
+    const spreadData = await loadClassicSpreadData(dealId, bankId);
 
     // ── Extract DSCR values from spread data ──────────────────────────────
 

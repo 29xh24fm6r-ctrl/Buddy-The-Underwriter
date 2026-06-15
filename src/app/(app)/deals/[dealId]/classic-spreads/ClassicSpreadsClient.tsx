@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import SpreadReviewActionsPanel from "@/components/deals/spreads/SpreadReviewActionsPanel";
 
 type State = "idle" | "loading" | "ready" | "error";
 
@@ -79,6 +80,9 @@ export default function ClassicSpreadsClient({ dealId }: { dealId: string }) {
           {error}
         </div>
       )}
+
+      {/* SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1: banker review workflow for blocker findings */}
+      <SpreadReviewActionsPanel dealId={dealId} />
 
       {/* Idle state — prompt */}
       {state === "idle" && (

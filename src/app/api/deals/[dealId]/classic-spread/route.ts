@@ -27,8 +27,36 @@ export async function GET(_req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const input = await loadClassicSpreadData(dealId);
     const bankId = (access as any).bankId as string;
+
+    // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #8: run the cash-flow aggregator + snapshot
+    // rebuild BEFORE loading the spread, so the rendered/cached PDF reflects the post-bridge facts.
+    // (Previously these mutated facts AFTER render but before cache → a cached PDF that did not
+    // reflect the very facts the bridge produced.) Non-fatal: the PDF still renders on bridge error.
+    try {
+      const { runCashFlowAggregator } = await import(
+        "@/lib/financialFacts/runCashFlowAggregator"
+      );
+      const aggregatorResult = await runCashFlowAggregator({ dealId, bankId });
+      if (!aggregatorResult.ok) {
+        console.warn(
+          "[classic-spread] aggregator returned non-ok (non-fatal):",
+          aggregatorResult.reason,
+          aggregatorResult.detail ?? "",
+        );
+      }
+
+      // Always build + persist snapshot from whatever facts exist — not gated on ADS
+      const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
+      const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+      await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
+    } catch (bridgeErr: any) {
+      console.warn("[classic-spread] bridge persist failed (non-fatal):", bridgeErr?.message);
+    }
+
+    // Load AFTER the bridge so the spread reflects the just-written aggregator facts (#8), bank-scoped (#1).
+    const input = await loadClassicSpreadData(dealId, bankId);
 
     // P0b preflight gate: if balance-sheet or income-statement rows are empty,
     // the renderer would emit "data not available" placeholders ("PENDING
@@ -58,39 +86,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     const narrative = await generateSpreadNarrative(input).catch(() => null);
     const pdf = await renderClassicSpread(input, narrative);
 
-    // Bridge: persist computed debt service metrics → facts → snapshot.
-    // Awaited before response — Vercel kills background promises on response send.
-    // Non-fatal: PDF always returns regardless of bridge outcome.
-    //
-    // SPEC-FOUNDATION-V1-PR4-EXTRACT: the embedded compute logic that was
-    // inline here is now extracted to runCashFlowAggregator. The route calls
-    // the standalone module, then rebuilds the snapshot. Behavioral parity
-    // with the pre-extraction code verified via PRECHECK on Samaritus
-    // (DSCR 2.94, four facts written, commit ce262f37).
-    try {
-      const { runCashFlowAggregator } = await import(
-        "@/lib/financialFacts/runCashFlowAggregator"
-      );
-      const aggregatorResult = await runCashFlowAggregator({ dealId, bankId });
-      if (!aggregatorResult.ok) {
-        console.warn(
-          "[classic-spread] aggregator returned non-ok (non-fatal):",
-          aggregatorResult.reason,
-          aggregatorResult.detail ?? "",
-        );
-      }
-
-      // Always build + persist snapshot from whatever facts exist — not gated on ADS
-      const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
-      const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
-      const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
-      await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
-    } catch (bridgeErr: any) {
-      console.warn("[classic-spread] bridge persist failed (non-fatal):", bridgeErr?.message);
-    }
-
     // SPEC-B3 cache shim: persist the just-generated PDF to deal_spreads so
-    // the /cached endpoint can serve it without re-rendering. Fire-and-forget.
+    // the /cached endpoint can serve it without re-rendering. The bridge that mutates facts ran
+    // BEFORE the load above (#8), so this cached blob reflects post-bridge facts.
     try {
       const pdfSha256 = createHash("sha256").update(pdf).digest("hex");
       const generatedAt = new Date().toISOString();

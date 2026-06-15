@@ -1135,6 +1135,20 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
           // #6: arbitrate candidate facts via the statement truth resolver and surface its findings.
           resolve: true,
         });
+
+        // SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1 #5: consume reviewed banker decisions so the
+        // rendered PDF + persisted audit reflect confirmations/waivers/verifications. Non-fatal and
+        // never clears a blocker without a reviewer (enforced inside applyReviewDecisions).
+        try {
+          const { loadReviewDecisions } = await import("./review/reviewActionsRepo");
+          const { applyReviewDecisions } = await import("./review/applyReviewDecisions");
+          const decisions = await loadReviewDecisions(dealId, bankId);
+          if (decisions.length > 0 && gate.audit.spreadAccuracy) {
+            gate.audit.spreadAccuracy = applyReviewDecisions(gate.audit.spreadAccuracy, decisions);
+          }
+        } catch {
+          // Non-fatal — decisions are an overlay on top of the audit.
+        }
       } catch {
         // Non-fatal — the audit is supplemental; a failure must not block the PDF.
       }

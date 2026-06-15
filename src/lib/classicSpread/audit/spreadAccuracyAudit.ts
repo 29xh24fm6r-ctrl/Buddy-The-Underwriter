@@ -59,6 +59,8 @@ export type SpreadAuditFinding = {
   documentIds: string[];
   severity: SpreadAuditSeverity;
   detail: string;
+  /** SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1: set when a banker decision has been applied. */
+  reviewStatus?: string;
 };
 
 export type SpreadAuditResult = {
