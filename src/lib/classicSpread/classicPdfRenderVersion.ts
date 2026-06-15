@@ -55,5 +55,9 @@
  *         model, finding→action classification, and a grouped action summary rendered as "top
  *         blocker actions" instead of every finding (SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1).
  *         The rendered liability rows + audit page content change; a v11 blob must be rejected.
+ *   v13 — final action de-dup: a TOTAL NON-CURRENT ASSETS unreconciled_total is downgraded to a
+ *         warning when the SAME period has a TOTAL CURRENT ASSETS missing_implied_component (same
+ *         incomplete asset detail), so the single actionable blocker is the implied-AR request
+ *         (SPEC-CLASSIC-SPREAD-V12-FINAL-ACTION-DEDUPE-1). The audit page blocker list shrinks.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 12;
+export const CLASSIC_PDF_RENDER_VERSION = 13;

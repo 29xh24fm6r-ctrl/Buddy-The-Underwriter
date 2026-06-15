@@ -636,6 +636,31 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
       seen.add(k);
       return true;
     });
+
+    // SPEC-CLASSIC-SPREAD-V12-FINAL-ACTION-DEDUPE-1: when a period has a missing_implied_component on
+    // TOTAL CURRENT ASSETS, the generic TOTAL NON-CURRENT ASSETS unreconciled_total in that SAME
+    // period is the OTHER half of the same incomplete asset detail (TNCA = Total Assets − Total
+    // Current Assets absorbs the same gap). Downgrade it to a warning so the single actionable
+    // blocker is the implied-AR REQUEST_SOURCE_DETAIL — not a separate TNCA VERIFY_SOURCE_LINE.
+    // Scoped to the same period: unrelated TNCA blockers in other periods are untouched.
+    const periodsWithImpliedTca = new Set(
+      deduped
+        .filter((f) => f.issueType === "missing_implied_component" && f.statement === "balance_sheet" && f.rowLabel === "TOTAL CURRENT ASSETS")
+        .map((f) => f.period),
+    );
+    for (const f of deduped) {
+      if (
+        f.statement === "balance_sheet" &&
+        f.rowLabel === "TOTAL NON-CURRENT ASSETS" &&
+        f.issueType === "unreconciled_total" &&
+        f.severity === "blocker" &&
+        periodsWithImpliedTca.has(f.period)
+      ) {
+        f.severity = "warning";
+        f.detail = `${f.detail} (Downgraded: stems from the same incomplete current-asset detail already flagged as a missing implied current asset for ${f.period}.)`;
+      }
+    }
+
     findings.length = 0;
     findings.push(...deduped);
   }
