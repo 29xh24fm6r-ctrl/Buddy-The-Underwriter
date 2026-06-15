@@ -13,8 +13,11 @@ import {
   buildRatioSections,
   deriveTotalEquity,
   deriveTotalLiabilities,
+  deriveTotalCurrentLiabilities,
+  deriveTotalNonCurrentLiabilities,
 } from "./classicSpreadRatios";
 import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAudit";
+import { isBusinessStatementFact } from "./businessFactScope";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import {
   runClassicSpreadCertification,
@@ -37,6 +40,8 @@ type RawFact = {
   created_at: string;
   id?: string | null;
   source_document_id?: string | null;
+  owner_type?: string | null;
+  source_canonical_type?: string | null;
 };
 
 /** Group facts by period_end, picking the highest-confidence value per key per period. */
@@ -194,7 +199,10 @@ function buildBalanceSheetRows(
   const cash = getVals(byPeriod, periods, "SL_CASH");
   const ar = getVals(byPeriod, periods, "SL_AR_GROSS");
   const arAllowance = getVals(byPeriod, periods, "SL_AR_ALLOWANCE");
-  const netAr = sub(ar, arAllowance);
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #4 (policy A): Net AR uses the SAME derivation as
+  // the Total Current Assets roll-up — a missing allowance is treated as zero (Net AR = Gross AR),
+  // never blank. This prevents a blank Net AR row while TCA silently includes that same AR value.
+  const netAr = ar.map((v, i) => (v != null ? v - (arAllowance[i] ?? 0) : null));
   const inventory = getVals(byPeriod, periods, "SL_INVENTORY");
   const usGov = getVals(byPeriod, periods, "SL_US_GOV_OBLIGATIONS");
   const taxExempt = getVals(byPeriod, periods, "SL_TAX_EXEMPT_SECURITIES");
@@ -240,19 +248,7 @@ function buildBalanceSheetRows(
   const wagesPayable = getVals(byPeriod, periods, "SL_WAGES_PAYABLE");
   const shortTermDebt = getVals(byPeriod, periods, "SL_SHORT_TERM_DEBT");
   const operatingCurrLiab = getVals(byPeriod, periods, "SL_OPERATING_CURRENT_LIABILITIES");
-  const totalCurrentLiab = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
-    if (direct != null) return direct;
-    // Derive from components
-    const components = [
-      getVal(byPeriod, p, "SL_ACCOUNTS_PAYABLE"),
-      getVal(byPeriod, p, "SL_WAGES_PAYABLE"),
-      getVal(byPeriod, p, "SL_SHORT_TERM_DEBT"),
-      getVal(byPeriod, p, "SL_OPERATING_CURRENT_LIABILITIES"),
-    ];
-    const nonNull = components.filter((v) => v != null) as number[];
-    return nonNull.length > 0 ? nonNull.reduce((a, b) => a + b, 0) : null;
-  });
+  const totalCurrentLiab = deriveTotalCurrentLiabilities(byPeriod, periods);
   const otherCurrentLiab = deriveValues(periods, (p) => {
     const i = periods.indexOf(p);
     const tcl = totalCurrentLiab[i];
@@ -277,15 +273,12 @@ function buildBalanceSheetRows(
   // ratios derive from the identical source/rule (BUGFIX classic-spread render consistency).
   const totalEquity = deriveTotalEquity(byPeriod, periods);
 
-  // Derive total liabilities when not directly stored
+  // Derive total liabilities — direct → component sum → assets−equity (shared with ratios/audit).
   const totalLiabilities = deriveTotalLiabilities(byPeriod, periods);
 
-  const totalNonCurrentLiab = deriveValues(periods, (p) => {
-    const i = periods.indexOf(p);
-    const tl = totalLiabilities[i];
-    const tcl = totalCurrentLiab[i];
-    return tl != null && tcl != null ? tl - tcl : null;
-  });
+  // #5: non-current liabilities come from DIRECT components first, not TL − TCL (which would mask a
+  // blocked/unavailable TL when shareholder loans + other liabilities are present).
+  const totalNonCurrentLiab = deriveTotalNonCurrentLiabilities(byPeriod, periods);
 
   const workingCapital = sub(totalCurrentAssets, totalCurrentLiab);
   const tangNetWorth = deriveValues(periods, (p) => {
@@ -559,19 +552,37 @@ function buildCashFlowRows(
     });
   }
 
-  const dAR = delta("SL_AR_GROSS", false); // asset: decrease = cash in
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #7: the UCA AR delta must use the NET AR basis
+  // (gross − allowance), not raw gross — the same Net AR shown on the balance sheet. A delta on a
+  // net-of-allowance receivable that is computed from gross alone misstates the cash impact.
+  const netArByPeriod = (p: string): number | null => {
+    const g = getVal(byPeriod, p, "SL_AR_GROSS");
+    return g != null ? g - (getVal(byPeriod, p, "SL_AR_ALLOWANCE") ?? 0) : null;
+  };
+  const deltaFn = (valFn: (p: string) => number | null, invert: boolean): (number | null)[] =>
+    periods.map((p, i) => {
+      if (i === 0) return null;
+      const cur = valFn(p);
+      const prev = valFn(periods[i - 1]!);
+      if (cur == null || prev == null) return null;
+      return invert ? cur - prev : prev - cur;
+    });
+
+  const dAR = deltaFn(netArByPeriod, false); // asset: decrease = cash in (NET AR basis)
   const dInventory = delta("SL_INVENTORY", false);
   const dOtherCA = delta("SL_OTHER_CURRENT_ASSETS", false);
   const dAP = delta("SL_ACCOUNTS_PAYABLE", true); // liability: increase = cash in
   const dWagesPayable = delta("SL_WAGES_PAYABLE", true);
-  const dOtherCL = delta("SL_OTHER_LIABILITIES", true);
+  // #7: "other current liabilities" delta must use the CURRENT operating-liability field, not the
+  // NON-current SL_OTHER_LIABILITIES (which belongs to long-term liabilities, not working capital).
+  const dOtherCL = delta("SL_OPERATING_CURRENT_LIABILITIES", true);
 
   rows.push({ label: "(Inc) / Dec in Accounts Receivable", indent: 1, isBold: false, values: dAR });
   rows.push({ label: "(Inc) / Dec in Inventory", indent: 1, isBold: false, values: dInventory });
   rows.push({ label: "(Inc) / Dec in Other Current Assets", indent: 1, isBold: false, values: dOtherCA });
   rows.push({ label: "Inc / (Dec) in Accounts Payable", indent: 1, isBold: false, values: dAP });
   rows.push({ label: "Inc / (Dec) in Wages Payable", indent: 1, isBold: false, values: dWagesPayable });
-  rows.push({ label: "Inc / (Dec) in Other Liabilities", indent: 1, isBold: false, values: dOtherCL });
+  rows.push({ label: "Inc / (Dec) in Other Current Liabilities", indent: 1, isBold: false, values: dOtherCL });
 
   // Total working capital change
   const wcChange = periods.map((_, i) => {
@@ -727,15 +738,16 @@ function deriveAuditMethod(
 
 async function buildGlobalCashFlowSection(
   dealId: string,
-  bankId?: string | null,
+  bankId: string,
 ): Promise<GlobalCashFlowSection | null> {
   const sb = supabaseAdmin();
 
-  // Read GCF-related facts (exclude superseded/rejected)
+  // Read GCF-related facts (bank-scoped; exclude superseded/rejected)
   const { data: gcfFacts } = await (sb as any)
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
     .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
     .eq("is_superseded", false)
     .neq("resolution_status", "rejected")
     .in("fact_key", [
@@ -795,6 +807,7 @@ async function buildGlobalCashFlowSection(
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
       .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
       .eq("fact_type", "PERSONAL_INCOME")
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
@@ -931,14 +944,18 @@ async function buildGlobalCashFlowSection(
 // Main Loader
 // ---------------------------------------------------------------------------
 
-export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpreadInput> {
+export async function loadClassicSpreadData(dealId: string, bankId: string): Promise<ClassicSpreadInput> {
   const sb = supabaseAdmin();
 
-  const [factsRes, dealRes, bankRes] = await Promise.all([
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #1: bank-scope EVERY fact read. The caller passes
+  // the access-checked bankId; facts (and every downstream section) filter on it so a sibling-bank
+  // tenant's facts can never enter this spread.
+  const [factsRes, dealRes] = await Promise.all([
     sb
       .from("deal_financial_facts")
-      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id")
+      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id, owner_type, source_canonical_type")
       .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .not("fact_value_num", "is", null),
@@ -946,20 +963,19 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
       .from("deals")
       .select("id, name, borrower_name, bank_id")
       .eq("id", dealId)
+      .eq("bank_id", bankId)
       .maybeSingle(),
-    // We'll get the bank name after we have the bank_id
-    null as any,
   ]);
 
   if (factsRes.error) throw new Error(`facts_query_failed: ${factsRes.error.message}`);
   const deal = dealRes.data as { id: string; name: string | null; borrower_name: string | null; bank_id: string | null } | null;
 
   let bankName = "Bank";
-  if (deal?.bank_id) {
+  {
     const { data: bank } = await sb
       .from("banks")
       .select("name")
-      .eq("id", deal.bank_id)
+      .eq("id", bankId)
       .maybeSingle();
     bankName = (bank as { name: string } | null)?.name ?? "Bank";
   }
@@ -973,6 +989,9 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
       const year = parseInt(f.fact_period_end.slice(0, 4), 10);
       if (!isNaN(year) && year < 2000) return false;
     }
+    // #2: business statements consume business facts only; personal-return facts are excluded here
+    // and surface only on the Personal Income / GCF sponsor sections.
+    if (!isBusinessStatementFact(f)) return false;
     return true;
   });
   const currentYear = new Date().getFullYear();
@@ -982,9 +1001,9 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   // (audit method, statement type, months covered) — derived from the ACTUAL facts'
   // source_canonical_type per column, not inferred from dates/fact-key presence.
   const canonByPeriod = new Map<string, { auditMethod: string; statementType: string; monthsCovered: number | null }>();
-  if (deal?.bank_id) {
+  {
     try {
-      const vm = await buildCanonicalSpreadViewModel(dealId, deal.bank_id);
+      const vm = await buildCanonicalSpreadViewModel(dealId, bankId);
       for (const c of vm.columns) {
         canonByPeriod.set(c.periodEnd, { auditMethod: c.auditMethod, statementType: c.statementType, monthsCovered: c.monthsCovered });
       }
@@ -1058,12 +1077,10 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   const totalLiabilitiesForRatios = deriveTotalLiabilities(byPeriod, periods);
 
   // Global cash flow section (Phase 18 facts → Phase 19 PDF page)
-  const globalCashFlow = await buildGlobalCashFlowSection(dealId, deal?.bank_id);
+  const globalCashFlow = await buildGlobalCashFlowSection(dealId, bankId);
 
   // Personal income section — load PERSONAL_INCOME facts if any exist
-  const personalIncome = deal?.bank_id
-    ? await loadPersonalIncome(dealId, deal.bank_id)
-    : null;
+  const personalIncome = await loadPersonalIncome(dealId, bankId);
 
   const input: ClassicSpreadInput = {
     dealId,
@@ -1085,13 +1102,18 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
 
   // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6): pre-render certification gate.
   // Suppress blocked values and replace weak personal-income values with certified ones BEFORE the
-  // PDF is rendered, and persist the audit. Non-fatal — a gate failure leaves the input unchanged.
-  if (deal?.bank_id) {
-    const gate = await runClassicSpreadCertification(dealId, deal.bank_id, {
+  // PDF is rendered, and persist the audit.
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: FAIL CLOSED — if certification throws or
+  // returns null, the spread is NOT certified and the PDF must say so. Never silently render an
+  // apparently-certified spread.
+  input.certified = false;
+  {
+    const gate = await runClassicSpreadCertification(dealId, bankId, {
       periods,
       gcfTaxYear: globalCashFlow?.taxYear ?? null,
     });
     if (gate) {
+      input.certified = true;
       applyCertificationToInput(input, gate.decisions);
       input.certificationAudit = gate.audit;
 

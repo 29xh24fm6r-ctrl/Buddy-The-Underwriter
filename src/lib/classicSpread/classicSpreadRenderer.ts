@@ -53,7 +53,11 @@ const DOUBLE_RULE_LABELS = new Set([
 // ---------------------------------------------------------------------------
 
 function fmtNumber(val: number | null, isNegative?: boolean): string {
-  if (val == null || val === 0) return "\u2014"; // em dash
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #6: distinguish true zero from missing. `null`
+  // (missing/blocked) renders as an em dash; a genuine reported `0` renders as "0" \u2014 never collapse
+  // a real zero to a blank.
+  if (val == null) return "\u2014"; // em dash \u2014 missing
+  if (val === 0) return "0"; // true zero
   let n = isNegative ? -val : val;
   if (n < 0) {
     return `(${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })})`;
@@ -77,7 +81,7 @@ function fmtRatioValue(val: number | string | null, format: string, decimals: nu
 
   switch (format) {
     case "currency":
-      if (val === 0) return "\u2014";
+      if (val === 0) return "0"; // #6: true zero, not a blank
       if (val < 0) return `(${Math.abs(val).toLocaleString("en-US", { maximumFractionDigits: 0 })})`;
       return val.toLocaleString("en-US", { maximumFractionDigits: 0 });
     case "percent":
@@ -403,11 +407,32 @@ function drawNarrativeSections(s: DocState, narrative: SpreadNarrative) {
 
 function drawSpreadAuditSection(
   s: DocState,
-  audit: NonNullable<NonNullable<ClassicSpreadInput["certificationAudit"]>["spreadAccuracy"]>,
+  audit: NonNullable<NonNullable<ClassicSpreadInput["certificationAudit"]>["spreadAccuracy"]> | null,
+  notCertified: boolean = false,
 ) {
   const { doc } = s;
   const rightEdge = doc.page.width - PAGE_MARGIN;
   const textWidth = rightEdge - PAGE_MARGIN;
+
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: certification fail-closed banner. If the
+  // certification gate could not run/succeed, say so loudly — never present this as certified.
+  if (notCertified) {
+    doc.rect(PAGE_MARGIN, s.y, textWidth, 22).fill("#dc2626");
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor("#ffffff");
+    doc.text("NOT CERTIFIED — certification unavailable", PAGE_MARGIN + 8, s.y + 5, { width: textWidth - 16 });
+    doc.fillColor("#000000");
+    s.y += 30;
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text(
+      "The certification/accuracy gate did not complete for this spread. Values shown are uncertified and must not be relied upon until certification succeeds.",
+      PAGE_MARGIN,
+      s.y,
+      { width: textWidth },
+    );
+    s.y += 18;
+    if (!audit) return;
+  }
+  if (!audit) return;
 
   const statusColor =
     audit.status === "blocker" ? "#dc2626" : audit.status === "warning" ? "#d97706" : "#16a34a";
@@ -990,6 +1015,17 @@ export function renderClassicSpread(
 
     drawPageHeader(s);
 
+    // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: fail-closed banner on the first page banker
+    // sees — an uncertified spread must announce itself, not look certified.
+    if (input.certified === false) {
+      const bannerW = doc.page.width - 2 * PAGE_MARGIN;
+      doc.rect(PAGE_MARGIN, s.y, bannerW, 16).fill("#dc2626");
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#ffffff");
+      doc.text("NOT CERTIFIED — certification unavailable; values are uncertified", PAGE_MARGIN + 6, s.y + 3, { width: bannerW - 12, lineBreak: false });
+      doc.fillColor("#000000");
+      s.y += 22;
+    }
+
     if (input.balanceSheet.length > 0) {
       drawMetadataGrid(s);
       drawColumnHeaders(s);
@@ -1131,13 +1167,14 @@ export function renderClassicSpread(
 
     // ===== Spread Accuracy & Completion Audit (if computed) =====
     const spreadAudit = input.certificationAudit?.spreadAccuracy ?? null;
-    if (spreadAudit) {
+    const notCertified = input.certified === false;
+    if (spreadAudit || notCertified) {
       doc.addPage();
       s.pageNum++;
       s.pageTitle = "Spread Accuracy & Completion Audit";
       s.showPctColumns = false;
       drawPageHeader(s);
-      drawSpreadAuditSection(s, spreadAudit);
+      drawSpreadAuditSection(s, spreadAudit, notCertified);
       drawPageFooter(s);
     }
 

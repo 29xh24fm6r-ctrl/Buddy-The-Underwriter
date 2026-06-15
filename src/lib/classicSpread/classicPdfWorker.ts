@@ -62,8 +62,8 @@ export async function renderClassicPdfSpread(args: {
   const { dealId, bankId } = args;
   const sb = supabaseAdmin();
 
-  // 1. Load input data (same path as synchronous route)
-  const input = await loadClassicSpreadData(dealId);
+  // 1. Load input data (same path as synchronous route) — bank-scoped (#1).
+  const input = await loadClassicSpreadData(dealId, bankId);
 
   // 2. Preflight gate — if BS or IS rows are empty, don't generate
   const preflight = await preflightClassicSpread({

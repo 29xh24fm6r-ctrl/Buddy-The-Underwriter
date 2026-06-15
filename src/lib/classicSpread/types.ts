@@ -109,4 +109,9 @@ export type ClassicSpreadInput = {
   // applied to this input before render (suppression/replacement decisions + per-domain status).
   // Persisted into rendered_json; never rendered as a page.
   certificationAudit?: import("./certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit | null;
+
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: fail-closed certification flag. False when the
+  // certification gate threw or returned null — the PDF must visibly render NOT CERTIFIED rather
+  // than silently presenting an apparently-certified spread.
+  certified?: boolean;
 };

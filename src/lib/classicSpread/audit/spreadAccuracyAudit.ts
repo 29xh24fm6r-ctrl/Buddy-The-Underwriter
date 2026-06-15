@@ -471,19 +471,24 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
     // ── Cash Flow (UCA) — needs a prior period for deltas ──────────────────────
     if (i >= 1) {
       const prevIso = periods[i - 1]!.iso;
-      // Working-capital changes reconcile to BS deltas.
-      const wcChecks: { label: string; key: string; invert: boolean }[] = [
-        { label: "(Inc) / Dec in Accounts Receivable", key: "SL_AR_GROSS", invert: false },
-        { label: "(Inc) / Dec in Inventory", key: "SL_INVENTORY", invert: false },
-        { label: "Inc / (Dec) in Accounts Payable", key: "SL_ACCOUNTS_PAYABLE", invert: true },
+      // #7: the AR working-capital delta reconciles on the NET AR basis (gross − allowance), matching
+      // the balance sheet and the loader's UCA AR delta — not raw gross.
+      const netArAt = (p: string): number | null => {
+        const g = src(byPeriod, p, "SL_AR_GROSS");
+        return g != null ? g - (src(byPeriod, p, "SL_AR_ALLOWANCE") ?? 0) : null;
+      };
+      const wcChecks: { label: string; keys: string[]; valueAt: (p: string) => number | null; invert: boolean }[] = [
+        { label: "(Inc) / Dec in Accounts Receivable", keys: ["SL_AR_GROSS", "SL_AR_ALLOWANCE"], valueAt: netArAt, invert: false },
+        { label: "(Inc) / Dec in Inventory", keys: ["SL_INVENTORY"], valueAt: (p) => src(byPeriod, p, "SL_INVENTORY"), invert: false },
+        { label: "Inc / (Dec) in Accounts Payable", keys: ["SL_ACCOUNTS_PAYABLE"], valueAt: (p) => src(byPeriod, p, "SL_ACCOUNTS_PAYABLE"), invert: true },
       ];
       for (const c of wcChecks) {
-        const cur = src(byPeriod, iso, c.key);
-        const prev = src(byPeriod, prevIso, c.key);
+        const cur = c.valueAt(iso);
+        const prev = c.valueAt(prevIso);
         if (cur == null || prev == null) continue;
         const expected = c.invert ? cur - prev : prev - cur;
         checkFormula({
-          iso, keys: [c.key], period: label, label: c.label, statement: "cash_flow",
+          iso, keys: c.keys, period: label, label: c.label, statement: "cash_flow",
           expected, rendered: rowVal(cashFlow, c.label, i), base: totalAssets, blankWhenInputsExist: false,
         });
       }

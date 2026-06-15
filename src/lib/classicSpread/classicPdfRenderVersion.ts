@@ -28,5 +28,10 @@
  *        audit into certificationAudit.spreadAccuracy; the narrative leads with a data-reliability
  *        caveat when blocker findings exist (SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1).
  *        A v5 blob lacks the audit page and must be rejected.
+ *   v7 — system-hardening audit 2: bank-scoped loader, business-vs-personal fact separation,
+ *        Net AR normalization, liability derivation hierarchy (direct→component→balancing), UCA
+ *        net-AR/current-liability deltas, true-zero rendering (0 ≠ blank), and a fail-closed
+ *        "NOT CERTIFIED" banner (SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2). Output changes
+ *        materially, so a v6 blob must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 6;
+export const CLASSIC_PDF_RENDER_VERSION = 7;

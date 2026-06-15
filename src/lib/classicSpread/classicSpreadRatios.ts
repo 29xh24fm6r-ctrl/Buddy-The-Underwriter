@@ -36,17 +36,66 @@ export function deriveTotalEquity(byPeriod: PeriodMaps, periods: string[]): (num
   });
 }
 
+function sumPresent(components: (number | null)[]): number | null {
+  const present = components.filter((v): v is number => v != null);
+  return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null;
+}
+
+/** Total current liabilities — direct fact, else the sum of present current-liability components. */
+export function deriveTotalCurrentLiabilities(byPeriod: PeriodMaps, periods: string[]): (number | null)[] {
+  return deriveValues(periods, (p) => {
+    const direct = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
+    if (direct != null) return direct;
+    return sumPresent([
+      getVal(byPeriod, p, "SL_ACCOUNTS_PAYABLE"),
+      getVal(byPeriod, p, "SL_WAGES_PAYABLE"),
+      getVal(byPeriod, p, "SL_SHORT_TERM_DEBT"),
+      getVal(byPeriod, p, "SL_OPERATING_CURRENT_LIABILITIES"),
+    ]);
+  });
+}
+
 /**
- * Total liabilities — the SINGLE source/rule that populates the visible TOTAL LIABILITIES row.
- * Direct fact when stored, else assets − equity. Never falls back to zero.
+ * Total non-current liabilities — SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #5: derive from the
+ * DIRECT non-current components (mortgages + loans from shareholders + other liabilities) when any
+ * exist. Never `TL − TCL` when direct non-current components are present (that masks a blocked TL).
+ * Only when no direct components exist do we fall back to `TL − TCL`.
+ */
+export function deriveTotalNonCurrentLiabilities(byPeriod: PeriodMaps, periods: string[]): (number | null)[] {
+  const tcl = deriveTotalCurrentLiabilities(byPeriod, periods);
+  return deriveValues(periods, (p) => {
+    const components = sumPresent([
+      getVal(byPeriod, p, "SL_MORTGAGES_NOTES_BONDS"),
+      getVal(byPeriod, p, "SL_LOANS_FROM_SHAREHOLDERS"),
+      getVal(byPeriod, p, "SL_OTHER_LIABILITIES"),
+    ]);
+    if (components != null) return components;
+    // No direct non-current components — fall back to TL − TCL only if a direct TL exists.
+    const directTl = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
+    const i = periods.indexOf(p);
+    return directTl != null && tcl[i] != null ? directTl - tcl[i]! : null;
+  });
+}
+
+/**
+ * Total liabilities — SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #5 derivation hierarchy:
+ *   1. direct certified total (SL_TOTAL_LIABILITIES)
+ *   2. component sum (current + non-current components)
+ *   3. balancing fallback (assets − equity)
+ * A direct-vs-component material conflict is surfaced by the line-accuracy audit, not silently
+ * averaged. Never falls back to zero.
  */
 export function deriveTotalLiabilities(byPeriod: PeriodMaps, periods: string[]): (number | null)[] {
   const totalEquity = deriveTotalEquity(byPeriod, periods);
+  const tcl = deriveTotalCurrentLiabilities(byPeriod, periods);
+  const tncl = deriveTotalNonCurrentLiabilities(byPeriod, periods);
   return deriveValues(periods, (p) => {
     const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
     if (direct != null) return direct;
+    const i = periods.indexOf(p);
+    if (tcl[i] != null || tncl[i] != null) return (tcl[i] ?? 0) + (tncl[i] ?? 0);
     const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
-    const eq = totalEquity[periods.indexOf(p)];
+    const eq = totalEquity[i];
     return ta != null && eq != null ? ta - eq : null;
   });
 }
