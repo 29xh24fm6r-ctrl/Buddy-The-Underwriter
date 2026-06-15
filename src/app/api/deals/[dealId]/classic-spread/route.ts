@@ -113,6 +113,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         canonicalFactsTimestamp: latestFact?.updated_at ?? null,
         generatedAt,
         renderVersion: CLASSIC_PDF_RENDER_VERSION,
+        certificationAudit: input.certificationAudit ?? null,
       };
 
       await (sb as any)
