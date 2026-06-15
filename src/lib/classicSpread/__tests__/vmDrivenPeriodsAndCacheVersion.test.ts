@@ -27,12 +27,11 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.match(v, /CLASSIC_PDF_RENDER_VERSION\s*=\s*\d+/);
   });
 
-  // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 bumped this to 4 for the certification
-  // gate. v5 is the render-consistency fix (liability-derived ratios blank when Total Liabilities
-  // is unavailable; GCF band falls back to UNKNOWN when globalDscr is blank) — a code-only output
-  // change with NO fact edit, so the version MUST advance to bust the existing v4 blob.
-  it("render version is 5 (bumped for the render-consistency output change)", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 5);
+  // v4 = certification gate; v5 = render-consistency fix; v6 = line-accuracy/completion audit page
+  // + persisted spreadAccuracy. Each is an output change with no fact edit, so the version MUST
+  // advance to bust the prior blob.
+  it("render version is 6 (bumped for the spread accuracy/completion audit output change)", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 6);
   });
 
   it("the version comparison rejects every pre-fix blob and accepts only a current-version blob", () => {
@@ -42,8 +41,9 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.equal(isRejected(2), true); // pre-spine v2 blob rejected
     assert.equal(isRejected(3), true); // pre-gate v3 blob rejected
     assert.equal(isRejected(4), true); // pre-render-consistency-fix v4 blob rejected
+    assert.equal(isRejected(5), true); // pre-audit-page v5 blob rejected
     assert.equal(isRejected(undefined), true); // legacy unversioned blob rejected
-    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v5 blob is served
+    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v6 blob is served
   });
   it("worker + sync route stamp renderVersion into the cached payload", () => {
     assert.match(read("src/lib/classicSpread/classicPdfWorker.ts"), /renderVersion: CLASSIC_PDF_RENDER_VERSION/);

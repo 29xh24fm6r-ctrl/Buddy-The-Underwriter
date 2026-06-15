@@ -2,6 +2,7 @@ import "server-only";
 
 import type { ClassicSpreadInput } from "./types";
 import { MODEL_CLASSIC_SPREAD, isGemini3Model } from "@/lib/ai/models";
+import { spreadAuditGuardrailLines, withAuditCaveat } from "./narrativeGuardrail";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +66,11 @@ function buildNarrativePrompt(input: ClassicSpreadInput): string {
       lines.push(`${row.label}: ${vals.join(" | ")}`);
     }
   }
+
+  // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: feed the accuracy/completion audit into
+  // the prompt as a hard guardrail — the model must NOT draw strong conclusions about rows/periods
+  // that failed reconciliation.
+  lines.push(...spreadAuditGuardrailLines(input.certificationAudit?.spreadAccuracy ?? null));
 
   return lines.join("\n");
 }
@@ -153,8 +159,13 @@ export async function generateSpreadNarrative(
       sections.push({ title: "Financial Analysis", body: text.trim() });
     }
 
+    // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: when the spread audit found blocker-level
+    // exceptions, lead the narrative with a deterministic data-reliability caveat regardless of what
+    // the model produced — strong conclusions must not stand unqualified on unreconciled rows.
+    const finalSections = withAuditCaveat(sections, input.certificationAudit?.spreadAccuracy ?? null);
+
     return {
-      sections,
+      sections: finalSections,
       model: GEMINI_MODEL,
       generatedAt: new Date().toISOString(),
     };

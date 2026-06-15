@@ -23,5 +23,10 @@
  *        unavailable instead of rendering 0.00 / -100%, and the GCF coverage band falls back
  *        to UNKNOWN when globalDscr is blank (no false "TIGHT — DSCR 1.00x–1.25x"). A v4 blob
  *        predates these and must be rejected so the fixed renderer replaces it.
+ *   v6 — line-accuracy / completion audit: the render now includes a "Spread Accuracy &
+ *        Completion Audit" page (statement footing + missing-line detection) and persists the
+ *        audit into certificationAudit.spreadAccuracy; the narrative leads with a data-reliability
+ *        caveat when blocker findings exist (SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1).
+ *        A v5 blob lacks the audit page and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 5;
+export const CLASSIC_PDF_RENDER_VERSION = 6;

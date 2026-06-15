@@ -14,6 +14,7 @@ import {
   deriveTotalEquity,
   deriveTotalLiabilities,
 } from "./classicSpreadRatios";
+import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAudit";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import {
   runClassicSpreadCertification,
@@ -34,6 +35,8 @@ type RawFact = {
   fact_value_num: number | null;
   confidence: number | null;
   created_at: string;
+  id?: string | null;
+  source_document_id?: string | null;
 };
 
 /** Group facts by period_end, picking the highest-confidence value per key per period. */
@@ -934,7 +937,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   const [factsRes, dealRes, bankRes] = await Promise.all([
     sb
       .from("deal_financial_facts")
-      .select("fact_key, fact_period_end, fact_value_num, confidence, created_at")
+      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id")
       .eq("deal_id", dealId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
@@ -1091,6 +1094,30 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     if (gate) {
       applyCertificationToInput(input, gate.decisions);
       input.certificationAudit = gate.audit;
+
+      // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: run the line-accuracy / completion
+      // audit on the FINAL (post-suppression) rows vs the source facts, and attach it as a
+      // certification domain so it persists into rendered_json and reaches the PDF + narrative.
+      try {
+        const auditPeriods = periods.map((p, i) => ({ iso: p, label: statementPeriods[i]?.label ?? p }));
+        const renderedIso = new Set(periods);
+        const factRefs: AuditFactRef[] = [];
+        for (const f of facts) {
+          const pe = f.fact_period_end?.slice(0, 10);
+          if (!pe || !renderedIso.has(pe)) continue;
+          factRefs.push({ period: pe, factKey: f.fact_key, factId: f.id ?? null, documentId: f.source_document_id ?? null });
+        }
+        gate.audit.spreadAccuracy = auditClassicSpread({
+          periods: auditPeriods,
+          byPeriod,
+          balanceSheet: input.balanceSheet,
+          incomeStatement: input.incomeStatement,
+          cashFlow: input.cashFlow,
+          factRefs,
+        });
+      } catch {
+        // Non-fatal — the audit is supplemental; a failure must not block the PDF.
+      }
     }
   }
 

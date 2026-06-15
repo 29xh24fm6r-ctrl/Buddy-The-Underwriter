@@ -23,6 +23,7 @@ import { certifyPersonalIncome, type PersonalIncomeFact } from "./certifiedPerso
 import { certifyGlobalCashFlow, type GcfSourceFact, type GcfDependencyStatus } from "./certifiedGlobalCashFlow";
 import { certifyRatio, type RatioOperand } from "./certifiedRatios";
 import type { CertificationStatus } from "./certifiedSpreadAudit";
+import type { SpreadAuditResult } from "@/lib/classicSpread/audit/spreadAccuracyAudit";
 
 /** A fact loaded for certification — superset of every domain module's input. */
 export type GateFact = {
@@ -85,6 +86,12 @@ export type ClassicSpreadCertificationAudit = {
   };
   dependencyStatuses: { personalIncome: GcfDependencyStatus };
   suppressions: { page: string; row: string; period: string | null; action: "blank" | "replace"; reason: string }[];
+  /**
+   * SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: the line-accuracy / completion audit
+   * (statement footing + missing-line detection) run AFTER suppression. Attached by the loader,
+   * persisted into rendered_json, surfaced on the PDF, and consumed by the narrative guardrail.
+   */
+  spreadAccuracy?: SpreadAuditResult | null;
 };
 
 export type CertificationGateResult = {
