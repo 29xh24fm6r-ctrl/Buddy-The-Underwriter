@@ -10,6 +10,8 @@
  * can confirm before the spread is considered clean.
  */
 
+import type { PeriodMaps } from "../classicSpreadRatios";
+
 export type Facts = Record<string, number | null>;
 
 export type CellBasis =
@@ -336,4 +338,47 @@ export function resolveIncomeStatement1120(facts: Facts): ResolvedIncomeStatemen
   }
 
   return { revenue, grossProfit, findings };
+}
+
+// ── resolved render overlay (SPEC-CLASSIC-SPREAD-TRUTH-RESOLVER-RENDER-WIRING-1) ──────────────
+
+function factsRecord(m: ReadonlyMap<string, number | null> | undefined): Facts {
+  const out: Facts = {};
+  if (m) for (const [k, v] of m) out[k] = v;
+  return out;
+}
+
+/**
+ * Build a per-period overlay of `byPeriod` in which a wrong DIRECT total has been CORRECTED to the
+ * resolver's arbitrated value, so the rendered Detailed BS / Executive / Ratios / Cash Flow rows
+ * reflect resolved truth. Originals are never mutated (the audit keeps the original `byPeriod` to
+ * detect and report the rejection). Only a direct fact that the resolver actually overrode is
+ * corrected — when the resolver keeps the direct value, the overlay is byte-identical, so deals
+ * without conflicts render exactly as before.
+ */
+export function buildResolvedByPeriod(byPeriod: PeriodMaps, periods: string[]): PeriodMaps {
+  const out: PeriodMaps = new Map();
+  for (const p of periods) {
+    const orig = byPeriod.get(p);
+    const clone = new Map<string, number | null>(orig ?? []);
+    const facts = factsRecord(orig);
+    const bs = resolveBalanceSheet(facts);
+    const correct = (key: string, resolved: number | null) => {
+      if (resolved == null) return;
+      const o = facts[key];
+      if (o != null && Math.abs(o - resolved) > tol(resolved)) clone.set(key, resolved);
+    };
+    // Total equity (e.g. 2024: reject direct 6,800,000 → retained earnings 4,512,938).
+    correct("SL_TOTAL_EQUITY", bs.totalEquity.value);
+    // Total liabilities (component sum when a direct value conflicts).
+    correct("SL_TOTAL_LIABILITIES", bs.totalLiabilities.value);
+    // Total current assets (e.g. 2025: reject AR-only direct → 3,133,066). Both key spellings.
+    correct("SL_TOTAL_CURRENT_ASSETS", bs.totalCurrentAssets.value);
+    correct("TOTAL_CURRENT_ASSETS", bs.totalCurrentAssets.value);
+    // Total current liabilities (rare direct-vs-component conflict).
+    correct("SL_TOTAL_CURRENT_LIABILITIES", bs.totalCurrentLiabilities.value);
+    correct("TOTAL_CURRENT_LIABILITIES", bs.totalCurrentLiabilities.value);
+    out.set(p, clone);
+  }
+  return out;
 }

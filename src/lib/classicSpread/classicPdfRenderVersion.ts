@@ -41,5 +41,10 @@
  *        period (rejected/suspect source values like a wrong direct SL_TOTAL_EQUITY or a TCA that
  *        equals AR-only, implied missing components, 1120 gross-profit conflicts) and shows those
  *        findings (SPEC-CLASSIC-SPREAD-STATEMENT-TRUTH-RESOLVER-1). A v8 blob lacks them.
+ *   v10 — resolver render wiring: the rendered Detailed BS / Executive / Ratios / Cash Flow rows
+ *         now derive from the RESOLVED overlay (e.g. 2024 TOTAL NET WORTH = 4,512,938 not
+ *         6,800,000; 2025 TOTAL CURRENT ASSETS = 3,133,066 not 2,393,922), not just the audit
+ *         findings (SPEC-CLASSIC-SPREAD-TRUTH-RESOLVER-RENDER-WIRING-1). A v9 blob renders the
+ *         pre-resolver values and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 9;
+export const CLASSIC_PDF_RENDER_VERSION = 10;

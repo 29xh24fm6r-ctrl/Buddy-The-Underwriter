@@ -17,6 +17,7 @@ import {
   deriveTotalNonCurrentLiabilities,
 } from "./classicSpreadRatios";
 import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAudit";
+import { buildResolvedByPeriod } from "./audit/statementTruthResolver";
 import { isBusinessStatementFact } from "./businessFactScope";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import {
@@ -1057,14 +1058,19 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
     hour12: true,
   }) + ", " + now.toLocaleDateString("en-US");
 
-  const cashFlowRows = hasBsData && hasIsData ? buildCashFlowRows(byPeriod, periods) : [];
+  // SPEC-CLASSIC-SPREAD-TRUTH-RESOLVER-RENDER-WIRING-1: the rendered Detailed BS / Executive /
+  // Ratios / Cash Flow rows derive from the RESOLVED overlay — wrong direct totals (e.g. 2024
+  // direct equity, 2025 AR-only TCA) are corrected to the resolver's arbitrated value. The audit
+  // keeps the ORIGINAL `byPeriod` so it still detects and reports the rejected source (BLOCKER).
+  const resolvedByPeriod = buildResolvedByPeriod(byPeriod, periods);
+
+  const cashFlowRows = hasBsData && hasIsData ? buildCashFlowRows(resolvedByPeriod, periods) : [];
   // Cash flow periods exclude the first period (need prior for deltas)
   const cfPeriods = periods.length >= 2 ? statementPeriods : [];
 
   // Single source of truth for liability-derived ratios: the EXACT array that populates the
-  // visible TOTAL LIABILITIES row. A blank/unavailable period there blanks the dependent ratio
-  // cell (BUGFIX classic-spread render consistency, Patch A).
-  const totalLiabilitiesForRatios = deriveTotalLiabilities(byPeriod, periods);
+  // visible TOTAL LIABILITIES row, from the resolved overlay so ratios match the rendered rows.
+  const totalLiabilitiesForRatios = deriveTotalLiabilities(resolvedByPeriod, periods);
 
   // Global cash flow section (Phase 18 facts → Phase 19 PDF page)
   const globalCashFlow = await buildGlobalCashFlowSection(dealId, bankId);
@@ -1080,14 +1086,14 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
     naicsDescription: null,
     bankName,
     periods: statementPeriods,
-    balanceSheet: hasBsData ? buildBalanceSheetRows(byPeriod, periods) : [],
-    incomeStatement: hasIsData ? buildIncomeStatementRows(byPeriod, periods) : [],
+    balanceSheet: hasBsData ? buildBalanceSheetRows(resolvedByPeriod, periods) : [],
+    incomeStatement: hasIsData ? buildIncomeStatementRows(resolvedByPeriod, periods) : [],
     cashFlow: cashFlowRows,
     cashFlowPeriods: cfPeriods,
-    ratioSections: buildRatioSections(byPeriod, periods, cashFlowRows, totalLiabilitiesForRatios),
+    ratioSections: buildRatioSections(resolvedByPeriod, periods, cashFlowRows, totalLiabilitiesForRatios),
     globalCashFlow,
     personalIncome,
-    executiveSummary: buildExecutiveSummary(byPeriod, periods),
+    executiveSummary: buildExecutiveSummary(resolvedByPeriod, periods),
   };
 
   // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6): pre-render certification gate.
