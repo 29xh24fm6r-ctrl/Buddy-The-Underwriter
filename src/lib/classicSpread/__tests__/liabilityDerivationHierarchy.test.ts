@@ -31,11 +31,19 @@ describe("liability derivation hierarchy", () => {
     assert.deepEqual(deriveTotalLiabilities(byPeriod, periods), [2_287_062]);
   });
 
-  it("a direct certified Total Liabilities wins over the component sum", () => {
+  it("a direct certified Total Liabilities (>= current liabilities) wins over the component sum", () => {
     const byPeriod = pm({
-      "2024-12-31": { SL_TOTAL_LIABILITIES: 999, SL_ACCOUNTS_PAYABLE: 71_364, SL_LOANS_FROM_SHAREHOLDERS: 1_930_705 },
+      // direct TL above the component sum (71,364 + 1,930,705 = 2,002,069) → direct is used
+      "2024-12-31": { SL_TOTAL_LIABILITIES: 2_100_000, SL_ACCOUNTS_PAYABLE: 71_364, SL_LOANS_FROM_SHAREHOLDERS: 1_930_705 },
     });
-    assert.deepEqual(deriveTotalLiabilities(byPeriod, ["2024-12-31"]), [999]);
+    assert.deepEqual(deriveTotalLiabilities(byPeriod, ["2024-12-31"]), [2_100_000]);
+  });
+
+  it("a direct Total Liabilities BELOW current liabilities is clamped up (parity, #1)", () => {
+    const byPeriod = pm({
+      "2024-12-31": { SL_TOTAL_LIABILITIES: 999, SL_ACCOUNTS_PAYABLE: 71_364 }, // impossible: 999 < TCL 71,364
+    });
+    assert.deepEqual(deriveTotalLiabilities(byPeriod, ["2024-12-31"]), [71_364]);
   });
 
   it("Total Non-Current Liabilities uses direct components, never TL−TCL, when components exist", () => {

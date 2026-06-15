@@ -474,40 +474,46 @@ function drawSpreadAuditSection(
     return;
   }
 
-  // Findings — blockers first, then warnings, then info; cap to keep the page readable.
-  const order: Record<string, number> = { blocker: 0, warning: 1, info: 2 };
-  const sorted = [...audit.findings].sort((a, b) => (order[a.severity]! - order[b.severity]!));
-  const MAX_SHOWN = 18;
-  const shown = sorted.slice(0, MAX_SHOWN);
+  // SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1 #5: action-oriented, concise. Show the grouped
+  // action counts and the TOP BLOCKER actions (not every warning).
+  const as = audit.actionSummary;
+  const byAction = Object.entries(as.byAction).map(([a, n]) => `${a}: ${n}`).join(", ");
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+  doc.text(sanitizeForPdf(`Source-review actions: ${as.unresolvedActionCount} unresolved${byAction ? ` (${byAction})` : ""}.`), PAGE_MARGIN, s.y, { width: textWidth });
+  doc.fillColor("#000000");
+  s.y += 16;
+
+  const blockerActions = as.actions.filter((a) => a.severity === "blocker");
+  const warningCount = as.actions.filter((a) => a.severity === "warning").length;
+  const MAX_SHOWN = 12;
+  const shown = blockerActions.slice(0, MAX_SHOWN);
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#333333");
-  doc.text("Reconciliation findings", PAGE_MARGIN, s.y, { width: textWidth });
+  doc.text("Top blocker actions", PAGE_MARGIN, s.y, { width: textWidth });
   doc.fillColor("#000000");
   s.y += 14;
 
-  for (const f of shown) {
+  for (const a of shown) {
     checkPageBreak(s, 3);
-    const color = f.severity === "blocker" ? "#dc2626" : f.severity === "warning" ? "#d97706" : "#666666";
-    const head = sanitizeForPdf(`[${f.severity.toUpperCase()}] ${f.period} - ${f.statement.replace(/_/g, " ")} - ${f.rowLabel} - ${f.issueType}`);
-    doc.font(FONT_BOLD).fontSize(FONT_SIZE_META).fillColor(color);
+    const head = sanitizeForPdf(`[${a.action}] ${a.period} - ${a.statement.replace(/_/g, " ")} - ${a.rowLabel}`);
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_META).fillColor("#dc2626");
     const headHeight = doc.heightOfString(head, { width: textWidth });
     doc.text(head, PAGE_MARGIN, s.y, { width: textWidth });
     s.y += headHeight + 1;
 
-    const nums: string[] = [];
-    if (f.expectedValue != null) nums.push(`expected ${fmtCurrency(f.expectedValue)}`);
-    if (f.actualValue != null) nums.push(`actual ${fmtCurrency(f.actualValue)}`);
-    if (f.difference != null) nums.push(`diff ${fmtCurrency(f.difference)}`);
-    const body = sanitizeForPdf(nums.length > 0 ? `${f.detail} (${nums.join(", ")})` : f.detail);
+    const body = sanitizeForPdf(a.detail);
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#000000");
     const bodyHeight = doc.heightOfString(body, { width: textWidth - 8 });
     doc.text(body, PAGE_MARGIN + 8, s.y, { width: textWidth - 8 });
     s.y += bodyHeight + 5;
   }
 
-  if (sorted.length > MAX_SHOWN) {
+  const extra: string[] = [];
+  if (blockerActions.length > MAX_SHOWN) extra.push(`${blockerActions.length - MAX_SHOWN} more blocker action(s)`);
+  if (warningCount > 0) extra.push(`${warningCount} warning(s)`);
+  if (extra.length > 0) {
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
-    doc.text(sanitizeForPdf(`...and ${sorted.length - MAX_SHOWN} more finding(s). See certificationAudit.spreadAccuracy for the full list.`), PAGE_MARGIN, s.y, { width: textWidth });
+    doc.text(sanitizeForPdf(`Plus ${extra.join(" and ")}. See certificationAudit.spreadAccuracy for the full list.`), PAGE_MARGIN, s.y, { width: textWidth });
     doc.fillColor("#000000");
     s.y += 12;
   }

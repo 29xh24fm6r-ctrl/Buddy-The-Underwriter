@@ -50,5 +50,10 @@
  *         rows the resolver already corrected + flagged (e.g. 2024 TOTAL NET WORTH no longer shows
  *         both unreconciled_total and rejected_source_value); exact-duplicate findings collapse
  *         (SPEC-CLASSIC-SPREAD-AUDIT-RESOLVER-AWARE-DEDUP-1). The audit page content changes.
+ *   v12 — blocker batch resolution: liability-side parity (Total Liabilities is never below Total
+ *         Current Liabilities; no non-current liabilities → TNCL = 0), explicit 1120 income-line
+ *         model, finding→action classification, and a grouped action summary rendered as "top
+ *         blocker actions" instead of every finding (SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1).
+ *         The rendered liability rows + audit page content change; a v11 blob must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 11;
+export const CLASSIC_PDF_RENDER_VERSION = 12;

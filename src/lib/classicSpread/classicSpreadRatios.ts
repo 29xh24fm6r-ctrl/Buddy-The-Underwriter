@@ -70,10 +70,14 @@ export function deriveTotalNonCurrentLiabilities(byPeriod: PeriodMaps, periods: 
       getVal(byPeriod, p, "SL_OTHER_LIABILITIES"),
     ]);
     if (components != null) return components;
-    // No direct non-current components — fall back to TL − TCL only if a direct TL exists.
+    // SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1 #1: no direct non-current components.
     const directTl = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
     const i = periods.indexOf(p);
-    return directTl != null && tcl[i] != null ? directTl - tcl[i]! : null;
+    // Fall back to TL − TCL when a direct TL exists, never negative; otherwise, when TCL is known
+    // with no non-current evidence, Total Non-Current Liabilities is 0 (do not invent debt).
+    if (directTl != null && tcl[i] != null) return Math.max(0, directTl - tcl[i]!);
+    if (tcl[i] != null) return 0;
+    return null;
   });
 }
 
@@ -90,13 +94,19 @@ export function deriveTotalLiabilities(byPeriod: PeriodMaps, periods: string[]):
   const tcl = deriveTotalCurrentLiabilities(byPeriod, periods);
   const tncl = deriveTotalNonCurrentLiabilities(byPeriod, periods);
   return deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
-    if (direct != null) return direct;
     const i = periods.indexOf(p);
-    if (tcl[i] != null || tncl[i] != null) return (tcl[i] ?? 0) + (tncl[i] ?? 0);
-    const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
-    const eq = totalEquity[i];
-    return ta != null && eq != null ? ta - eq : null;
+    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
+    let v: number | null;
+    if (direct != null) v = direct;
+    else if (tcl[i] != null || tncl[i] != null) v = (tcl[i] ?? 0) + (tncl[i] ?? 0);
+    else {
+      const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
+      const eq = totalEquity[i];
+      v = ta != null && eq != null ? ta - eq : null;
+    }
+    // Parity guard (#1): Total Liabilities is never less than Total Current Liabilities.
+    if (v != null && tcl[i] != null && v < tcl[i]!) v = tcl[i]!;
+    return v;
   });
 }
 

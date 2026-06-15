@@ -11,6 +11,7 @@ import type { SpreadAuditResult } from "../audit/spreadAccuracyAudit";
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../..");
 const read = (rel: string) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
 
+const emptyActions = { byPeriod: {}, byDocument: {}, byAction: {}, unresolvedActionCount: 0, actions: [] };
 function blockerAudit(): SpreadAuditResult {
   return {
     status: "blocker",
@@ -20,10 +21,11 @@ function blockerAudit(): SpreadAuditResult {
       { period: "2024", statement: "balance_sheet", rowLabel: "TOTAL LIABILITIES" },
       { period: "2024", statement: "balance_sheet", rowLabel: "Net Accounts Receivable" },
     ],
+    actionSummary: emptyActions,
   };
 }
 function cleanAudit(): SpreadAuditResult {
-  return { status: "clean", findings: [], summary: { blockers: 0, warnings: 0, infos: 0, periodsAudited: ["2023"], footingsChecked: 6, mappedFactKeys: 4, unmappedFactKeys: 0 }, blockedCells: [] };
+  return { status: "clean", findings: [], summary: { blockers: 0, warnings: 0, infos: 0, periodsAudited: ["2023"], footingsChecked: 6, mappedFactKeys: 4, unmappedFactKeys: 0 }, blockedCells: [], actionSummary: emptyActions };
 }
 
 describe("narrative guardrail", () => {

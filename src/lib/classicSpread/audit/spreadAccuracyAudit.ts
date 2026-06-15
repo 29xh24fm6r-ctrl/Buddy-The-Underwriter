@@ -22,6 +22,12 @@ import {
   type Facts,
   type ResolverFinding,
 } from "./statementTruthResolver";
+import {
+  classifySpreadFindingAction,
+  isUnresolvedAction,
+  type SpreadFindingAction,
+  type SpreadFindingActionItem,
+} from "./spreadFindingActions";
 
 // ── finding schema ────────────────────────────────────────────────────────────
 
@@ -69,6 +75,17 @@ export type SpreadAuditResult = {
   };
   /** period/row cells carrying a blocker — narrative guardrail must not draw strong conclusions here. */
   blockedCells: { period: string; statement: SpreadAuditStatement; rowLabel: string }[];
+  /**
+   * SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1 #4: blockers grouped into operational source-review
+   * actions so they are actionable, not just diagnostic.
+   */
+  actionSummary: {
+    byPeriod: Record<string, number>;
+    byDocument: Record<string, number>;
+    byAction: Partial<Record<SpreadFindingAction, number>>;
+    unresolvedActionCount: number;
+    actions: SpreadFindingActionItem[];
+  };
 };
 
 export type AuditFactRef = {
@@ -641,6 +658,19 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
     }
   }
 
+  // ── Batch action summary (#4): group findings into operational source-review actions ────────
+  const actions = findings.map(classifySpreadFindingAction);
+  const byPeriodCount: Record<string, number> = {};
+  const byDocument: Record<string, number> = {};
+  const byAction: Partial<Record<SpreadFindingAction, number>> = {};
+  let unresolvedActionCount = 0;
+  for (const a of actions) {
+    byPeriodCount[a.period] = (byPeriodCount[a.period] ?? 0) + 1;
+    byAction[a.action] = (byAction[a.action] ?? 0) + 1;
+    for (const d of a.documentIds) byDocument[d] = (byDocument[d] ?? 0) + 1;
+    if (isUnresolvedAction(a)) unresolvedActionCount++;
+  }
+
   return {
     status,
     findings,
@@ -652,5 +682,12 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
       unmappedFactKeys: unmappedKeys.size,
     },
     blockedCells,
+    actionSummary: {
+      byPeriod: byPeriodCount,
+      byDocument,
+      byAction,
+      unresolvedActionCount,
+      actions,
+    },
   };
 }

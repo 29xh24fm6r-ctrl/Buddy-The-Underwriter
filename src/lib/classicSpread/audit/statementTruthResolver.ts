@@ -55,8 +55,15 @@ export type ResolvedBalanceSheet = {
 };
 
 export type ResolvedIncomeStatement = {
-  revenue: ResolvedCell;
+  // Explicit 1120 income lines (SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1 #2).
+  grossReceipts: ResolvedCell;
+  returnsAllowances: ResolvedCell;
+  netSales: ResolvedCell;
+  cogs: ResolvedCell;
   grossProfit: ResolvedCell;
+  totalIncome: ResolvedCell;
+  /** alias of netSales — the revenue basis used for gross profit (NEVER total income). */
+  revenue: ResolvedCell;
   findings: ResolverFinding[];
 };
 
@@ -176,28 +183,67 @@ export function resolveBalanceSheet(facts: Facts): ResolvedBalanceSheet {
         ? { value: totalCurrentAssets.value + totalNonCurrentAssets.value, basis: "component_sum" }
         : { value: null, basis: "unavailable" };
 
-  // --- Liabilities ---
+  // --- Liabilities (SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1 #1: liability-side parity) ---
   const componentTCL = sumPresent([
     g("SL_ACCOUNTS_PAYABLE"), g("SL_WAGES_PAYABLE"), g("SL_SHORT_TERM_DEBT"), g("SL_OPERATING_CURRENT_LIABILITIES"),
   ]);
   const directTCL = g("TOTAL_CURRENT_LIABILITIES") ?? g("SL_TOTAL_CURRENT_LIABILITIES");
-  const totalCurrentLiabilities: ResolvedCell =
-    directTCL != null ? { value: directTCL, basis: "direct" }
-      : componentTCL != null ? { value: componentTCL, basis: "component_sum" }
-        : { value: null, basis: "unavailable" };
+
+  // Rule 2: a direct Total Current Liabilities (which includes Other Current Liabilities) is the
+  // source of truth for TCL — never let an AP-only component sum replace it.
+  let totalCurrentLiabilities: ResolvedCell;
+  if (directTCL != null) {
+    totalCurrentLiabilities = { value: directTCL, basis: "direct" };
+    // Rule 5: a direct TCL above the visible components carries unmapped Other Current Liabilities —
+    // keep a confirmation finding (warning), but DO render the direct TCL.
+    if (componentTCL != null && directTCL > componentTCL + tol(componentTCL)) {
+      findings.push({
+        rowLabel: "TOTAL CURRENT LIABILITIES", issueType: "contradictory_components",
+        expectedValue: directTCL, actualValue: componentTCL, difference: directTCL - componentTCL,
+        severity: "warning",
+        detail: `Direct Total Current Liabilities (${directTCL}) exceeds the visible current-liability components (${componentTCL}); it includes unmapped Other Current Liabilities. Verify the source detail.`,
+      });
+    }
+  } else if (componentTCL != null) {
+    totalCurrentLiabilities = { value: componentTCL, basis: "component_sum" };
+  } else {
+    totalCurrentLiabilities = { value: null, basis: "unavailable" };
+  }
+  const tclV = totalCurrentLiabilities.value;
 
   const componentTNCL = sumPresent([
     g("SL_MORTGAGES_NOTES_BONDS"), g("SL_LOANS_FROM_SHAREHOLDERS"), g("SL_OTHER_LIABILITIES"),
   ]);
-  const totalNonCurrentLiabilities: ResolvedCell =
-    componentTNCL != null ? { value: componentTNCL, basis: "component_sum" } : { value: null, basis: "unavailable" };
+  // Rule 3 / Rule 6: non-current liabilities come from real non-current components; when none exist,
+  // Total Non-Current Liabilities is 0 (do NOT invent non-current debt).
+  let totalNonCurrentLiabilities: ResolvedCell;
+  if (componentTNCL != null) {
+    totalNonCurrentLiabilities = { value: componentTNCL, basis: "component_sum" };
+  } else if (tclV != null) {
+    totalNonCurrentLiabilities = { value: 0, basis: "derived" };
+  } else {
+    totalNonCurrentLiabilities = { value: null, basis: "unavailable" };
+  }
+  const tnclV = totalNonCurrentLiabilities.value;
 
   const directTL = g("SL_TOTAL_LIABILITIES");
-  const componentTL = componentTCL != null || componentTNCL != null ? (componentTCL ?? 0) + (componentTNCL ?? 0) : null;
+  const componentTL = tclV != null || tnclV != null ? (tclV ?? 0) + (tnclV ?? 0) : null;
 
   let totalLiabilities: ResolvedCell;
-  if (directTL != null && componentTL != null && !close(directTL, componentTL)) {
-    // Prefer the component sum; flag the conflict for confirmation.
+  if (directTL != null && tclV != null && directTL < tclV - tol(tclV)) {
+    // Rule 1 / Rule 4: a direct Total Liabilities below Total Current Liabilities is impossible
+    // (an AP-only / incomplete direct TL). Resolve to Current + Non-Current and request confirmation
+    // — but this is a CORRECTION, not a standalone blocker.
+    totalLiabilities = { value: componentTL ?? tclV, basis: "component_sum" };
+    findings.push({
+      rowLabel: "TOTAL LIABILITIES", issueType: "rejected_source_value",
+      expectedValue: componentTL ?? tclV, actualValue: directTL, difference: directTL - (componentTL ?? tclV ?? 0),
+      severity: "warning",
+      detail: `Direct Total Liabilities (${directTL}) is less than Total Current Liabilities (${tclV}), which is impossible; resolved to Current + Non-Current Liabilities (${componentTL ?? tclV}).`,
+      rejectedSource: { key: "SL_TOTAL_LIABILITIES", value: directTL },
+    });
+  } else if (directTL != null && componentTNCL != null && componentTL != null && !close(directTL, componentTL)) {
+    // Both a direct TL and real non-current components exist but disagree → prefer the component sum.
     totalLiabilities = { value: componentTL, basis: "component_sum" };
     findings.push({
       rowLabel: "TOTAL LIABILITIES", issueType: "contradictory_components",
@@ -212,6 +258,10 @@ export function resolveBalanceSheet(facts: Facts): ResolvedBalanceSheet {
     totalLiabilities = { value: componentTL, basis: "component_sum" };
   } else {
     totalLiabilities = { value: null, basis: "unavailable" };
+  }
+  // Hard guarantee (Rule 1): Total Liabilities is never less than Total Current Liabilities.
+  if (totalLiabilities.value != null && tclV != null && totalLiabilities.value < tclV) {
+    totalLiabilities = { value: tclV, basis: totalLiabilities.basis };
   }
 
   // --- Equity arbitration (the core 2024 rule) ---
@@ -337,7 +387,16 @@ export function resolveIncomeStatement1120(facts: Facts): ResolvedIncomeStatemen
     });
   }
 
-  return { revenue, grossProfit, findings };
+  return {
+    grossReceipts: grossReceipts != null ? { value: grossReceipts, basis: "direct" } : { value: null, basis: "unavailable" },
+    returnsAllowances: returnsAllowances != null ? { value: returnsAllowances, basis: "direct" } : { value: null, basis: "unavailable" },
+    netSales: revenue,
+    cogs: cogs != null ? { value: cogs, basis: "direct" } : { value: null, basis: "unavailable" },
+    grossProfit,
+    totalIncome: totalIncome != null ? { value: totalIncome, basis: "direct" } : { value: null, basis: "unavailable" },
+    revenue,
+    findings,
+  };
 }
 
 // ── resolved render overlay (SPEC-CLASSIC-SPREAD-TRUTH-RESOLVER-RENDER-WIRING-1) ──────────────
