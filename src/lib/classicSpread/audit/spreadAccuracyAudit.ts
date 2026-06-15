@@ -595,6 +595,34 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
     }
   }
 
+  // ── Resolver-aware de-duplication (SPEC-CLASSIC-SPREAD-AUDIT-RESOLVER-AWARE-DEDUP-1) ─────────
+  // The footing checks compare the RESOLVED rendered rows against the ORIGINAL source facts, so a
+  // row the resolver corrected (e.g. 2024 equity, 2025 TCA) produces a stale GENERIC blocker
+  // (unreconciled_total / missing_required_value / contradictory_components) that duplicates the
+  // resolver's specific rejected_source_value / missing_implied_component for the same period/row.
+  // Drop the stale generic on those rows (the specific finding is the actionable one), then collapse
+  // exact-duplicate findings. Real unresolved blockers on rows WITHOUT a resolver-specific finding
+  // (2023 Gross Profit, uncorrected liability gaps) are untouched.
+  {
+    const RESOLVER_SPECIFIC = new Set<SpreadAuditIssueType>(["rejected_source_value", "missing_implied_component"]);
+    const GENERIC_FOOTING = new Set<SpreadAuditIssueType>(["unreconciled_total", "missing_required_value", "contradictory_components"]);
+    const cellKey = (f: SpreadAuditFinding) => `${f.period}|${f.statement}|${f.rowLabel}`;
+    const resolverCells = new Set(findings.filter((f) => RESOLVER_SPECIFIC.has(f.issueType)).map(cellKey));
+
+    const afterSuppress = findings.filter(
+      (f) => !(GENERIC_FOOTING.has(f.issueType) && resolverCells.has(cellKey(f))),
+    );
+    const seen = new Set<string>();
+    const deduped = afterSuppress.filter((f) => {
+      const k = `${cellKey(f)}|${f.issueType}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    findings.length = 0;
+    findings.push(...deduped);
+  }
+
   // ── status + summary ──────────────────────────────────────────────────────
   const blockers = findings.filter((f) => f.severity === "blocker").length;
   const warnings = findings.filter((f) => f.severity === "warning").length;

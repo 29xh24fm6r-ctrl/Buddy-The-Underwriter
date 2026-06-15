@@ -46,5 +46,9 @@
  *         6,800,000; 2025 TOTAL CURRENT ASSETS = 3,133,066 not 2,393,922), not just the audit
  *         findings (SPEC-CLASSIC-SPREAD-TRUTH-RESOLVER-RENDER-WIRING-1). A v9 blob renders the
  *         pre-resolver values and must be rejected.
+ *   v11 — resolver-aware audit de-dup: the audit no longer emits stale generic footing blockers for
+ *         rows the resolver already corrected + flagged (e.g. 2024 TOTAL NET WORTH no longer shows
+ *         both unreconciled_total and rejected_source_value); exact-duplicate findings collapse
+ *         (SPEC-CLASSIC-SPREAD-AUDIT-RESOLVER-AWARE-DEDUP-1). The audit page content changes.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 10;
+export const CLASSIC_PDF_RENDER_VERSION = 11;
