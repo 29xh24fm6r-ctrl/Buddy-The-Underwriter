@@ -27,11 +27,11 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.match(v, /CLASSIC_PDF_RENDER_VERSION\s*=\s*\d+/);
   });
 
-  // v4 certification gate; v5 render-consistency; v6 line-accuracy audit page; v7 system-hardening;
-  // v8 v7-follow-up (exec liability parity, audit ASCII sanitization, blocker narrative clamp).
-  // Each is an output change with no fact edit, so the version MUST advance to bust the prior blob.
-  it("render version is 8 (bumped for the v7 follow-up output change)", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 8);
+  // v4 cert gate; v5 render-consistency; v6 line-accuracy audit page; v7 system-hardening; v8 v7
+  // follow-up; v9 statement truth resolver findings. Each is an output change with no fact edit, so
+  // the version MUST advance to bust the prior blob.
+  it("render version is 9 (bumped for the statement truth resolver output change)", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 9);
   });
 
   it("the version comparison rejects every pre-fix blob and accepts only a current-version blob", () => {
@@ -44,8 +44,9 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.equal(isRejected(5), true); // pre-audit-page v5 blob rejected
     assert.equal(isRejected(6), true); // pre-hardening v6 blob rejected
     assert.equal(isRejected(7), true); // pre-v7-followup v7 blob rejected
+    assert.equal(isRejected(8), true); // pre-resolver v8 blob rejected
     assert.equal(isRejected(undefined), true); // legacy unversioned blob rejected
-    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v8 blob is served
+    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v9 blob is served
   });
   it("worker + sync route stamp renderVersion into the cached payload", () => {
     assert.match(read("src/lib/classicSpread/classicPdfWorker.ts"), /renderVersion: CLASSIC_PDF_RENDER_VERSION/);

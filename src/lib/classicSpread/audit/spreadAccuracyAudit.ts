@@ -16,6 +16,12 @@
 
 import type { CashFlowRow, FinancialRow } from "../types";
 import type { PeriodMaps } from "../classicSpreadRatios";
+import {
+  resolveBalanceSheet,
+  resolveIncomeStatement1120,
+  type Facts,
+  type ResolverFinding,
+} from "./statementTruthResolver";
 
 // ── finding schema ────────────────────────────────────────────────────────────
 
@@ -27,7 +33,10 @@ export type SpreadAuditIssueType =
   | "formula_mismatch"
   | "derived_from_fallback"
   | "contradictory_components"
-  | "unreconciled_total";
+  | "unreconciled_total"
+  // SPEC-CLASSIC-SPREAD-STATEMENT-TRUTH-RESOLVER-1
+  | "missing_implied_component"
+  | "rejected_source_value";
 
 export type SpreadAuditSeverity = "blocker" | "warning" | "info";
 
@@ -76,6 +85,13 @@ export type AuditInput = {
   incomeStatement: FinancialRow[];
   cashFlow: CashFlowRow[];
   factRefs?: AuditFactRef[];
+  /**
+   * SPEC-CLASSIC-SPREAD-STATEMENT-TRUTH-RESOLVER-1: also run the statement truth resolvers over the
+   * candidate facts and append their arbitration findings (rejected/suspect source values, implied
+   * missing components, formula mismatches). Off by default so the footing-only checks are testable
+   * in isolation; the loader turns it ON.
+   */
+  resolve?: boolean;
 };
 
 // ── tolerance ───────────────────────────────────────────────────────────────
@@ -150,6 +166,24 @@ function srcAny(byPeriod: PeriodMaps, period: string, ...keys: string[]): number
 function rowVal(rows: { label: string; values: (number | null)[] }[], label: string, i: number): number | null {
   const r = rows.find((rr) => rr.label === label);
   return r ? (r.values[i] ?? null) : null;
+}
+
+/** Flatten one period's byPeriod map into the resolver's Facts record. */
+function factsForPeriod(byPeriod: PeriodMaps, iso: string): Facts {
+  const out: Facts = {};
+  const m = byPeriod.get(iso);
+  if (m) for (const [k, v] of m) out[k] = v;
+  return out;
+}
+
+/** Map a resolver finding into the audit's finding shape. */
+function toAuditFinding(rf: ResolverFinding, period: string, statement: SpreadAuditStatement): SpreadAuditFinding {
+  return {
+    period, statement, rowLabel: rf.rowLabel, issueType: rf.issueType,
+    expectedValue: rf.expectedValue, actualValue: rf.actualValue, difference: rf.difference,
+    tolerance: Math.max(1, Math.round(0.005 * Math.abs(rf.expectedValue ?? rf.actualValue ?? 0))),
+    sourceFactIds: [], documentIds: [], severity: rf.severity, detail: rf.detail,
+  };
 }
 /** Sum the present (non-null) components; null when NONE is present. */
 function sumPresent(components: (number | null)[]): number | null {
@@ -547,6 +581,17 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
         severity: "warning",
         detail: `Source line "${key}" (${value}) was extracted for ${lbl} but is not mapped to any spread row.`,
       });
+    }
+  }
+
+  // ── Statement truth resolver (SPEC-CLASSIC-SPREAD-STATEMENT-TRUTH-RESOLVER-1) ──────────────
+  // Append the per-period arbitration findings (rejected/suspect source values, implied missing
+  // components, formula mismatches) so the audit reflects the resolved truth, not just footing.
+  if (input.resolve) {
+    for (const { iso, label } of periods) {
+      const facts = factsForPeriod(byPeriod, iso);
+      for (const rf of resolveBalanceSheet(facts).findings) findings.push(toAuditFinding(rf, label, "balance_sheet"));
+      for (const rf of resolveIncomeStatement1120(facts).findings) findings.push(toAuditFinding(rf, label, "income_statement"));
     }
   }
 

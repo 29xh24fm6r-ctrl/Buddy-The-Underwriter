@@ -37,5 +37,9 @@
  *        TOTAL LIABILITIES matches the Detailed Balance Sheet), the audit page sanitizes finding
  *        text to plain ASCII (no Δ/≠/→ corrupted glyphs), and the narrative clamps strong-positive
  *        conclusions under a BLOCKER (SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1). A v7 blob must be rejected.
+ *   v9 — statement truth resolver: the Spread Accuracy Audit now arbitrates candidate facts per
+ *        period (rejected/suspect source values like a wrong direct SL_TOTAL_EQUITY or a TCA that
+ *        equals AR-only, implied missing components, 1120 gross-profit conflicts) and shows those
+ *        findings (SPEC-CLASSIC-SPREAD-STATEMENT-TRUTH-RESOLVER-1). A v8 blob lacks them.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 8;
+export const CLASSIC_PDF_RENDER_VERSION = 9;

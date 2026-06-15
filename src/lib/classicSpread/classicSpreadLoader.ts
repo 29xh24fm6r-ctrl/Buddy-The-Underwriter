@@ -1126,6 +1126,8 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
           incomeStatement: input.incomeStatement,
           cashFlow: input.cashFlow,
           factRefs,
+          // #6: arbitrate candidate facts via the statement truth resolver and surface its findings.
+          resolve: true,
         });
       } catch {
         // Non-fatal — the audit is supplemental; a failure must not block the PDF.
