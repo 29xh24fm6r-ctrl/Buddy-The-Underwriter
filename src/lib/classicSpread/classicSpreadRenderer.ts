@@ -612,9 +612,14 @@ function renderGlobalCashFlowPage(
   doc.text("Global DSCR", PAGE_MARGIN + 8, y + 2, { width: labelWidth });
 
   const dscrDisplay = gcf.globalDscr != null ? `${gcf.globalDscr.toFixed(2)}x` : "\u2014";
-  const dscrColor = gcf.coverageStatus === "ADEQUATE" ? "#16a34a"
-    : gcf.coverageStatus === "TIGHT" ? "#d97706"
-    : gcf.coverageStatus === "DEFICIT" ? "#dc2626"
+  // Patch B (BUGFIX classic-spread render consistency): a coverage band is only meaningful when the
+  // global DSCR is numeric. Certification can blank globalDscr while leaving coverageStatus set to
+  // ADEQUATE/TIGHT/DEFICIT \u2014 never present such a band (or "TIGHT \u2014 DSCR 1.00x\u20131.25x") without an
+  // actual number. Fall back to the UNKNOWN / insufficient-data band.
+  const coverageStatus = gcf.globalDscr != null ? gcf.coverageStatus : "UNKNOWN";
+  const dscrColor = coverageStatus === "ADEQUATE" ? "#16a34a"
+    : coverageStatus === "TIGHT" ? "#d97706"
+    : coverageStatus === "DEFICIT" ? "#dc2626"
     : "#666666";
   doc.fillColor(dscrColor);
   doc.text(dscrDisplay, valueX, y + 2, { width: valueWidth, align: "right" });
@@ -623,9 +628,9 @@ function renderGlobalCashFlowPage(
 
   // ── Coverage Signal Bar ─────────────────────────────────────────────────
   const barHeight = 28;
-  const accentColor = gcf.coverageStatus === "ADEQUATE" ? "#22c55e"
-    : gcf.coverageStatus === "TIGHT" ? "#f59e0b"
-    : gcf.coverageStatus === "DEFICIT" ? "#ef4444"
+  const accentColor = coverageStatus === "ADEQUATE" ? "#22c55e"
+    : coverageStatus === "TIGHT" ? "#f59e0b"
+    : coverageStatus === "DEFICIT" ? "#ef4444"
     : "#999999";
 
   // Left accent border
@@ -633,9 +638,9 @@ function renderGlobalCashFlowPage(
   // Light background
   doc.rect(PAGE_MARGIN + 4, y, contentWidth - 4, barHeight).fill("#f9fafb");
 
-  const statusLabel = gcf.coverageStatus === "ADEQUATE" ? "ADEQUATE \u2014 DSCR \u2265 1.25x"
-    : gcf.coverageStatus === "TIGHT" ? "TIGHT \u2014 DSCR 1.00x\u20131.25x"
-    : gcf.coverageStatus === "DEFICIT" ? "DEFICIT \u2014 DSCR < 1.00x"
+  const statusLabel = coverageStatus === "ADEQUATE" ? "ADEQUATE \u2014 DSCR \u2265 1.25x"
+    : coverageStatus === "TIGHT" ? "TIGHT \u2014 DSCR 1.00x\u20131.25x"
+    : coverageStatus === "DEFICIT" ? "DEFICIT \u2014 DSCR < 1.00x"
     : "UNKNOWN \u2014 Insufficient data to compute DSCR";
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor(accentColor);
