@@ -1182,6 +1182,7 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
           certified: true,
           audit: gate.audit,
           openReviewActionCount,
+          globalCashFlow: input.globalCashFlow ?? null,
         });
       } catch {
         // Non-fatal — the audit is supplemental; a failure must not block the PDF.
@@ -1194,6 +1195,7 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
     input.certificationSummary = buildClassicSpreadCertificationSummary({
       certified: input.certified === true,
       audit: input.certificationAudit ?? null,
+      globalCashFlow: input.globalCashFlow ?? null,
     });
   }
 

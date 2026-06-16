@@ -178,14 +178,37 @@ export function computeCertificationDecisions(
       suppressions.push({ page: "personal_income", row: `${c.semantic} ${c.year}`, period: `${c.year}-12-31`, action: c.value.status === "certified" ? "replace" : "blank", reason: c.reason });
     }
   }
-  const piBlocked = pi.certifications.some((c) => c.value.status === "blocked");
-  const piDependency: GcfDependencyStatus = piBlocked ? "blocked" : "ok";
+  // SPEC-CLASSIC-SPREAD-PERSONAL-INCOME-GCF-CERTIFICATION-1: honest per-domain status —
+  //  - BLOCKED:     a required line could not be certified (all candidates were contradicted stubs);
+  //  - CAVEATED:    the winning source is weak (PERSONAL_INCOME deterministic / low confidence);
+  //  - CLEAN:       backed by an accepted strong source (even if a weak stub was rejected).
+  const piDomainBlocked = pi.certifications.some(
+    (c) => c.value.status === "unavailable" || c.value.status === "blocked",
+  );
+  const piDomainCaveated =
+    !piDomainBlocked &&
+    pi.certifications.some(
+      (c) => c.value.status === "certified" && (c.sourceFamily === "PERSONAL_INCOME" || (c.value.confidence ?? 1) < 0.7),
+    );
+  const piDependency: GcfDependencyStatus = piDomainBlocked ? "blocked" : "ok";
 
   // ── Phase 4: global cash flow ─────────────────────────────────────────────
   const gcfSources = facts.filter((f) => GCF_SOURCE_KEYS.includes(f.fact_key));
   let gcfDecision: CertificationDecisions["gcf"] = null;
   const gcfBlocked: ClassicSpreadCertificationAudit["domains"]["global_cash_flow"]["blocked"] = [];
   let gcfPreliminary = false;
+  // SPEC-CLASSIC-SPREAD-PERSONAL-INCOME-GCF-CERTIFICATION-1: GCF is NOT certified when there is no
+  // entity cash flow to certify (no GCF source facts / no tax year). It must read blocked honestly,
+  // never default to "clean".
+  const gcfNotComputed = !(ctx.gcfTaxYear !== null && gcfSources.length > 0);
+  if (gcfNotComputed) {
+    gcfBlocked.push({
+      row: "Global Cash Flow",
+      labelPeriod: ctx.gcfTaxYear != null ? String(ctx.gcfTaxYear) : "n/a",
+      sourcePeriod: null,
+      reason: "entity cash flow not computed (re-run spread pipeline)",
+    });
+  }
   if (ctx.gcfTaxYear !== null && gcfSources.length > 0) {
     const gcf = certifyGlobalCashFlow(
       [{ row: "Global Cash Flow", labelPeriod: String(ctx.gcfTaxYear), labelKind: "tax_year", dependsOnPersonalIncome: true, sources: gcfSources.map(toGcfSource) }],
@@ -242,7 +265,7 @@ export function computeCertificationDecisions(
     certificationVersion: CLASSIC_PDF_RENDER_VERSION,
     domains: {
       balance_sheet: { status: statusOf(bsBlocked.length > 0, false), blocked: bsBlocked },
-      personal_income: { status: statusOf(piBlocked, piReplacements.some((r) => r.value !== null)), replacements: piAudit },
+      personal_income: { status: statusOf(piDomainBlocked, piDomainCaveated), replacements: piAudit },
       global_cash_flow: { status: statusOf(gcfBlocked.length > 0 && !gcfPreliminary, gcfPreliminary), preliminary: gcfPreliminary, blocked: gcfBlocked },
       ratios: { status: statusOf(false, ratioSuppress.length > 0), suppressed: ratioAudit },
     },
