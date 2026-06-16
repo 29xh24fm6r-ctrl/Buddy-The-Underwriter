@@ -60,12 +60,18 @@ describe("2025 OmniCare balance sheet resolver", () => {
   };
   const r = resolveBalanceSheet(facts);
 
-  it("rejects the direct TCA and resolves Total Current Assets to 3,133,066", () => {
+  // BUGFIX-CLASSIC-SPREAD-RESOLVED-VALUE-ACTIONS-1: the resolved value is a DETERMINISTIC, coherent
+  // component sum the rendered row already uses → preliminary/confirmation-needed WARNING, not an
+  // unresolved blocker.
+  it("rejects the direct TCA and resolves Total Current Assets to the coherent component sum 3,133,066 (preliminary, not a blocker)", () => {
     assert.equal(r.totalCurrentAssets.value, 3_133_066);
+    assert.equal(r.totalCurrentAssets.basis, "component_sum");
     const f = find(r.findings, "TOTAL CURRENT ASSETS", "rejected_source_value");
     assert.ok(f);
     assert.match(f!.detail, /excludes Cash/);
-    assert.equal(f!.severity, "blocker");
+    assert.equal(f!.severity, "warning");
+    // it must not be a hard blocker — the component sum is internally coherent.
+    assert.equal(r.findings.some((x) => x.rowLabel === "TOTAL CURRENT ASSETS" && x.severity === "blocker"), false);
   });
 
   it("resolves Total Non-Current Assets to 209,520 (not inflated by the bad TCA)", () => {

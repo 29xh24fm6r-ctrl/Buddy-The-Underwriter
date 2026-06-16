@@ -129,14 +129,20 @@ export function resolveBalanceSheet(facts: Facts): ResolvedBalanceSheet {
       const reconciled = totalAssets != null && componentTNCA != null ? totalAssets - componentTNCA : componentTCA;
       totalCurrentAssets = { value: reconciled, basis: "component_sum" };
       const equalsArExclCash = netAr != null && close(directTCA, netAr) && cash != null;
+      // BUGFIX-CLASSIC-SPREAD-RESOLVED-VALUE-ACTIONS-1: when the resolved value is a DETERMINISTIC,
+      // internally-coherent component sum (it reconciles with Total Assets − non-current components)
+      // and the rendered row already uses it, this is a resolved value pending source confirmation —
+      // a preliminary/confirmation-needed item, NOT an unresolved mathematical blocker that makes the
+      // spread unusable. Only a sum that does NOT reconcile stays a blocker.
+      const componentSumCoherent = reconciled != null && close(reconciled, componentTCA);
       findings.push({
         rowLabel: "TOTAL CURRENT ASSETS",
         issueType: "rejected_source_value",
         expectedValue: reconciled, actualValue: directTCA, difference: directTCA - (reconciled ?? 0),
-        severity: "blocker",
+        severity: componentSumCoherent ? "warning" : "blocker",
         detail: equalsArExclCash
-          ? `Direct Total Current Assets (${directTCA}) equals Accounts Receivable only and excludes Cash (${cash}); resolved to component sum ${reconciled}. Requires source confirmation.`
-          : `Direct Total Current Assets (${directTCA}) is below the sum of present current-asset components (${componentTCA}); it omits at least one current asset. Resolved to ${reconciled}.`,
+          ? `Direct Total Current Assets (${directTCA}) equals Accounts Receivable only and excludes Cash (${cash}); resolved to the component sum ${reconciled}${componentSumCoherent ? " (coherent — preliminary, confirm the source detail)" : ". Requires source confirmation"}.`
+          : `Direct Total Current Assets (${directTCA}) is below the sum of present current-asset components (${componentTCA}); it omits at least one current asset. Resolved to ${reconciled}${componentSumCoherent ? " (coherent — preliminary, confirm the source detail)" : ""}.`,
         rejectedSource: { key: "SL_TOTAL_CURRENT_ASSETS", value: directTCA },
       });
     } else {

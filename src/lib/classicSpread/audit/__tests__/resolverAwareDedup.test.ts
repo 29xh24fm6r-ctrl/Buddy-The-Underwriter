@@ -88,9 +88,11 @@ describe("YTD 2026 keeps the actionable missing implied AR finding", () => {
   });
 });
 
-// ── 2025: no stale TNCA blocker after resolved render; keep rejected direct TCA ────────────────
-describe("2025 shows no stale TNCA blocker after resolved render", () => {
-  it("TNCA has no finding; TCA keeps the rejected_source_value", () => {
+// ── 2025: no stale TNCA blocker after resolved render; TCA is a preliminary confirmation ─────────
+// BUGFIX-CLASSIC-SPREAD-RESOLVED-VALUE-ACTIONS-1: the coherent component-sum TCA is no longer a hard
+// blocker — it is a preliminary/confirmation-needed warning, so the spread is not "unusable".
+describe("2025 shows no stale TNCA blocker; the resolved TCA is a preliminary confirmation, not a blocker", () => {
+  it("TNCA has no finding; TCA keeps a WARNING-level rejected_source_value and overall status is warning", () => {
     const r = auditClassicSpread({
       periods: [{ iso: "2025-12-31", label: "2025" }],
       byPeriod: pm({ "2025-12-31": { SL_CASH: 739_144, SL_AR_GROSS: 2_393_922, SL_TOTAL_CURRENT_ASSETS: 2_393_922, SL_TOTAL_ASSETS: 3_342_586, SL_NET_FIXED_ASSETS: 209_520 } }),
@@ -103,7 +105,10 @@ describe("2025 shows no stale TNCA blocker after resolved render", () => {
       incomeStatement: [], cashFlow: [], resolve: true,
     });
     assert.equal(forRow(r, "TOTAL NON-CURRENT ASSETS").length, 0);
-    assert.ok(forRow(r, "TOTAL CURRENT ASSETS").some((f) => f.issueType === "rejected_source_value"));
-    assert.equal(r.status, "blocker");
+    const tca = forRow(r, "TOTAL CURRENT ASSETS").filter((f) => f.issueType === "rejected_source_value");
+    assert.equal(tca.length, 1);
+    assert.equal(tca[0]!.severity, "warning");
+    assert.equal(r.summary.blockers, 0);
+    assert.equal(r.status, "warning");
   });
 });
