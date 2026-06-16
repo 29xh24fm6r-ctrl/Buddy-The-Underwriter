@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS public.classic_spread_review_actions (
   source_document_id uuid,
   finding_key        text NOT NULL,
   finding_json       jsonb NOT NULL,
-  reviewer_user_id   uuid,
+  reviewer_user_id   text, -- app user id from auth (Clerk: "user_..."), NOT a UUID
+
   reviewer_note      text,
   decision_json      jsonb,
   reviewed_at        timestamptz,
