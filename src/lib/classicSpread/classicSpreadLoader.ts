@@ -18,6 +18,7 @@ import {
 } from "./classicSpreadRatios";
 import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAudit";
 import { buildResolvedByPeriod } from "./audit/statementTruthResolver";
+import { resolveBalanceSheetSourceLines } from "./audit/balanceSheetSourceLineResolver";
 import { isBusinessStatementFact } from "./businessFactScope";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import {
@@ -43,6 +44,9 @@ type RawFact = {
   source_document_id?: string | null;
   owner_type?: string | null;
   source_canonical_type?: string | null;
+  // SPEC-CLASSIC-SPREAD-BS-SOURCE-LINE-PARITY-2: provenance carries the source-line snippet used by
+  // the balance-sheet source-line resolver to reclassify/suppress misclassified facts.
+  provenance?: unknown;
 };
 
 /** Group facts by period_end, picking the highest-confidence value per key per period. */
@@ -948,7 +952,7 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
   const [factsRes, dealRes] = await Promise.all([
     sb
       .from("deal_financial_facts")
-      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id, owner_type, source_canonical_type")
+      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id, owner_type, source_canonical_type, provenance")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .eq("is_superseded", false)
@@ -978,7 +982,7 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
   // Exclude sentinel EXTRACTION_HEARTBEAT facts:
   // - fact_key starting with "document:" are OCR anchor facts (not financial data)
   // - fact_period_end year < 2000 is a sentinel date (1900-01-01 used for heartbeats)
-  const facts = ((factsRes.data ?? []) as RawFact[]).filter((f) => {
+  const businessFacts = ((factsRes.data ?? []) as RawFact[]).filter((f) => {
     if (f.fact_key?.startsWith("document:")) return false;
     if (f.fact_period_end) {
       const year = parseInt(f.fact_period_end.slice(0, 4), 10);
@@ -989,6 +993,19 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
     if (!isBusinessStatementFact(f)) return false;
     return true;
   });
+
+  // SPEC-CLASSIC-SPREAD-BS-SOURCE-LINE-PARITY-2: correct three balance-sheet source-line
+  // MISCLASSIFICATIONS using each fact's provenance/source line (never a blind numeric heuristic) —
+  // Schedule L "Other current liabilities" → current bucket, OCR line-number micro-stub suppression,
+  // and an interim "Accounts receivable" line mislabeled as Total Current Assets. Pure + non-fatal;
+  // it only re-keys/suppresses an in-memory copy and never mutates the underlying facts.
+  const { facts, audit: bsSourceLineAudit } = resolveBalanceSheetSourceLines(businessFacts);
+  if (bsSourceLineAudit.length > 0) {
+    console.info("[classic-spread] balance-sheet source-line corrections", {
+      dealId,
+      corrections: bsSourceLineAudit.map((a) => `${a.periodEnd} ${a.originalKey}→${a.resolvedKey ?? "(suppressed)"} [${a.code}]`),
+    });
+  }
   const currentYear = new Date().getFullYear();
 
   // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: the canonical reconciled view model is the
