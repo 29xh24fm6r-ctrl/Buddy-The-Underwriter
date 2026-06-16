@@ -66,5 +66,12 @@
  *         source-detail request reads "blocked, 1 remaining action" rather than stale 4-blocker
  *         language (SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1). A v13 blob lacks the
  *         certification status block and must be rejected.
+ *   v15 — per-domain certification lines on the audit page: the certification status block now
+ *         prints explicit "Personal income certification: <status>" and "GCF certification:
+ *         <status> - <reason>" lines (e.g. "GCF certification: blocked - entity cash flow not
+ *         computed") in addition to the aggregate domain counts (SPEC-CLASSIC-SPREAD-PERSONAL-
+ *         INCOME-GCF-CERTIFICATION-1 surfaced; BUGFIX-CLASSIC-SPREAD-PDF-DOMAIN-CERTIFICATION-LINES-1).
+ *         A v14 blob predates these per-domain lines and must be rejected so the fixed renderer
+ *         replaces it.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 14;
+export const CLASSIC_PDF_RENDER_VERSION = 15;

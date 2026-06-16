@@ -166,8 +166,8 @@ describe("final render input — OmniCare certification applied", () => {
 
   it("certification audit version tracks CLASSIC_PDF_RENDER_VERSION and records the suppressions", () => {
     const { audit } = applied();
-    assert.equal(audit.certificationVersion, 14);
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 14);
+    assert.equal(audit.certificationVersion, 15);
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 15);
     assert.equal(audit.domains.balance_sheet.status, "blocked");
     assert.ok(audit.suppressions.some((s) => s.page === "ratios" && /liability-derived/.test(s.reason)));
   });

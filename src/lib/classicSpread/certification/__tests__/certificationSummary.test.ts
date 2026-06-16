@@ -135,7 +135,7 @@ describe("certificationStatusLines (rendered PDF content)", () => {
 });
 
 describe("render version", () => {
-  it("CLASSIC_PDF_RENDER_VERSION is bumped to 14", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 14);
+  it("CLASSIC_PDF_RENDER_VERSION is bumped to 15", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 15);
   });
 });
