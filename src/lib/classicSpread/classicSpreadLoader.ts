@@ -356,7 +356,9 @@ function buildIncomeStatementRows(
   byPeriod: Map<string, Map<string, number | null>>,
   periods: string[],
 ): FinancialRow[] {
-  const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2 — NET sales (resolved net of returns/allowances),
+  // never gross receipts and NEVER TOTAL_INCOME. The resolved overlay injects NET_SALES_REVENUE.
+  const revenue = getValsFallback(byPeriod, periods, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
   const cogs = getVals(byPeriod, periods, "COST_OF_GOODS_SOLD");
   const grossProfit = getValsFallback(byPeriod, periods, "GROSS_PROFIT");
   const effectiveGrossProfit = grossProfit.map((v, i) => {
@@ -644,7 +646,9 @@ function buildExecutiveSummary(
   periods: string[],
 ): ClassicSpreadInput["executiveSummary"] {
   const totalAssets = getVals(byPeriod, periods, "SL_TOTAL_ASSETS");
-  const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2 — NET sales (resolved net of returns/allowances),
+  // never gross receipts and NEVER TOTAL_INCOME. The resolved overlay injects NET_SALES_REVENUE.
+  const revenue = getValsFallback(byPeriod, periods, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
 
   // SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1 #1: the Executive Financial Statement MUST use the IDENTICAL
   // liability hierarchy (direct → component sum → assets−equity) as the Detailed Balance Sheet, so
@@ -1047,6 +1051,7 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
   const hasBsData = periods.some((p) => getVal(byPeriod, p, "SL_TOTAL_ASSETS") != null);
   const hasIsData = periods.some((p) =>
     getVal(byPeriod, p, "GROSS_RECEIPTS") != null ||
+    getVal(byPeriod, p, "NET_SALES_REVENUE") != null ||
     getVal(byPeriod, p, "TOTAL_REVENUE") != null ||
     getVal(byPeriod, p, "NET_INCOME") != null,
   );

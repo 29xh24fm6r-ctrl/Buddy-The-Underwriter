@@ -91,13 +91,19 @@ describe("#2 1120 income-line model", () => {
     assert.equal(find(r.findings, "GROSS PROFIT", "formula_mismatch"), undefined);
   });
 
-  it("a missing-returns GP conflict stays a blocker; GP is sourced directly, not from total income", () => {
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #3 — the missing-returns GP gap is now inferred
+  // (VERIFY_SOURCE_LINE warning) rather than a hard GP blocker; GP is still sourced directly (never
+  // from TOTAL_INCOME).
+  it("infers the missing-returns GP gap as a VERIFY warning; GP is sourced directly, not from total income", () => {
     const r = resolveIncomeStatement1120({ GROSS_RECEIPTS: 1_000_000, COST_OF_GOODS_SOLD: 600_000, GROSS_PROFIT: 350_000, TOTAL_INCOME: 380_000 });
     assert.equal(r.grossProfit.basis, "direct"); // from GROSS_PROFIT line, never TOTAL_INCOME
     assert.notEqual(r.grossProfit.value, r.totalIncome.value);
-    const f = find(r.findings, "GROSS PROFIT", "formula_mismatch");
-    assert.ok(f);
-    assert.equal(f!.severity, "blocker");
+    assert.equal(r.returnsInferred, true);
+    assert.equal(r.netSales.value, 950_000);
+    assert.equal(find(r.findings, "GROSS PROFIT", "formula_mismatch"), undefined);
+    const v = find(r.findings, "Sales / Revenues", "formula_mismatch");
+    assert.ok(v);
+    assert.equal(v!.severity, "warning");
   });
 
   it("GROSS_PROFIT is never sourced from TOTAL_INCOME when no sales/COGS exist", () => {

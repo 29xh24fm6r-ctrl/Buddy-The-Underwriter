@@ -88,6 +88,9 @@ export type CanonicalFact = {
     | "NET_WORTH"
     // Tax return / global cash flow metrics
     | "GROSS_RECEIPTS"
+    // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #1 — Form 1120 line 1b / 1c source lines.
+    | "RETURNS_ALLOWANCES"
+    | "NET_SALES_REVENUE"
     | "DEPRECIATION_ADDBACK"
     | "GLOBAL_CASH_FLOW"
     // Personal income / PFS / GCF metrics
@@ -273,6 +276,18 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "GROSS_RECEIPTS",
     fact_type: "TAX_RETURN",
     fact_key: "GROSS_RECEIPTS",
+  },
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #1 — Form 1120 line 1b (returns & allowances) and
+  // line 1c (net sales/receipts). TOTAL_INCOME (line 11) must never be used as sales/revenue.
+  RETURNS_ALLOWANCES: {
+    canonical_key: "RETURNS_ALLOWANCES",
+    fact_type: "TAX_RETURN",
+    fact_key: "RETURNS_ALLOWANCES",
+  },
+  NET_SALES_REVENUE: {
+    canonical_key: "NET_SALES_REVENUE",
+    fact_type: "TAX_RETURN",
+    fact_key: "NET_SALES_REVENUE",
   },
   DEPRECIATION_ADDBACK: {
     canonical_key: "DEPRECIATION_ADDBACK",

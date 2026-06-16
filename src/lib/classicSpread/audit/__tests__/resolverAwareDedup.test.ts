@@ -54,17 +54,21 @@ describe("2024 TOTAL NET WORTH is not double-counted", () => {
   });
 });
 
-// ── 2023 Gross Profit conflict: one formula_mismatch, not two ──────────────────────────────────
-describe("2023 Gross Profit conflict is not double-counted but remains a blocker", () => {
-  it("collapses the footing + resolver formula_mismatch into a single blocker", () => {
+// ── 2023 Gross Profit gap: inferred returns/allowances → VERIFY warning, not a GP blocker ──────────
+// SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2/#3: gross + COGS + direct GP with no line 1b now
+// infers returns/allowances so net sales − COGS == GP (no GP blocker); the inference is surfaced as a
+// single VERIFY_SOURCE_LINE warning on Sales / Revenues until line 1b is sourced.
+describe("2023 Gross Profit gap is reconciled by inferred returns (VERIFY warning, no GP blocker)", () => {
+  it("renders no GROSS PROFIT formula_mismatch and one Sales / Revenues VERIFY warning", () => {
     const r = auditClassicSpread({
       periods: [{ iso: "2023-12-31", label: "2023" }],
       byPeriod: pm({ "2023-12-31": { GROSS_RECEIPTS: 1_000_000, COST_OF_GOODS_SOLD: 600_000, GROSS_PROFIT: 350_000 } }),
       balanceSheet: [], incomeStatement: [row("GROSS PROFIT", [350_000])], cashFlow: [], resolve: true,
     });
-    const gp = forRow(r, "GROSS PROFIT").filter((f) => f.issueType === "formula_mismatch");
-    assert.equal(gp.length, 1);
-    assert.equal(gp[0]!.severity, "blocker");
+    assert.equal(forRow(r, "GROSS PROFIT").filter((f) => f.issueType === "formula_mismatch").length, 0);
+    const v = forRow(r, "Sales / Revenues").filter((f) => f.issueType === "formula_mismatch");
+    assert.equal(v.length, 1);
+    assert.equal(v[0]!.severity, "warning");
   });
 });
 

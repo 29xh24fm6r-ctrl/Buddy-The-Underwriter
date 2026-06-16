@@ -38,7 +38,7 @@ import { writeK1BaseFacts } from "@/lib/financialFacts/writeK1BaseFacts";
 // ---------------------------------------------------------------------------
 
 const VALID_LINE_KEYS = new Set([
-  "GROSS_RECEIPTS", "COST_OF_GOODS_SOLD", "GROSS_PROFIT",
+  "GROSS_RECEIPTS", "RETURNS_ALLOWANCES", "NET_SALES_REVENUE", "COST_OF_GOODS_SOLD", "GROSS_PROFIT",
   "TOTAL_INCOME", "TOTAL_DEDUCTIONS", "TAXABLE_INCOME", "NET_INCOME", "TAX_LIABILITY",
   "DEPRECIATION", "AMORTIZATION", "DEPLETION",
   "OFFICER_COMPENSATION", "SALARIES_WAGES",
@@ -86,7 +86,10 @@ const FORM_1040_PATTERNS: LinePattern[] = [
 ];
 
 const FORM_1120_PATTERNS: LinePattern[] = [
-  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1[abc]?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  // Line 1b / 1c must be matched BEFORE the generic line-1 gross-receipts catch-all.
+  { key: "RETURNS_ALLOWANCES", pattern: /(?:line\s+1b|returns?\s+and\s+allowances?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "NET_SALES_REVENUE", pattern: /(?:line\s+1c|net\s+(?:sales|receipts)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1a?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "COST_OF_GOODS_SOLD", pattern: /(?:line\s+2|cost\s+of\s+goods\s+sold|COGS).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "GROSS_PROFIT", pattern: /(?:line\s+3|gross\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "OFFICER_COMPENSATION", pattern: /(?:line\s+12|officer\s+compensation|compensation\s+of\s+officer).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
@@ -141,6 +144,13 @@ const GENERIC_TAX_PATTERNS: LinePattern[] = [
 const ENTITY_MAP: Record<string, string> = {
   // Income statement
   gross_receipts: "GROSS_RECEIPTS",
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #1 — line 1b / 1c source lines.
+  returns_allowances: "RETURNS_ALLOWANCES",
+  returns_and_allowances: "RETURNS_ALLOWANCES",
+  net_sales: "NET_SALES_REVENUE",
+  net_receipts: "NET_SALES_REVENUE",
+  net_sales_revenue: "NET_SALES_REVENUE",
+  net_receipts_sales: "NET_SALES_REVENUE",
   cost_of_goods_sold: "COST_OF_GOODS_SOLD",
   gross_profit: "GROSS_PROFIT",
   total_income: "TOTAL_INCOME",
@@ -527,7 +537,7 @@ function truncateBeforeK1(text: string): string {
  * These map the actual IRS form line numbers to our canonical keys.
  */
 const IRS_LINE_MAP_1065: Record<string, string> = {
-  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1b": "RETURNS_ALLOWANCES", "1c": "NET_SALES_REVENUE",
   "2": "COST_OF_GOODS_SOLD",
   "3": "GROSS_PROFIT",
   "8": "TOTAL_INCOME",
@@ -543,7 +553,8 @@ const IRS_LINE_MAP_1065: Record<string, string> = {
 };
 
 const IRS_LINE_MAP_1120: Record<string, string> = {
-  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  // 1a gross receipts, 1b returns & allowances, 1c net sales/receipts (SPEC-...-SOURCE-LINE-MODEL-PARITY-1 #1).
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1b": "RETURNS_ALLOWANCES", "1c": "NET_SALES_REVENUE",
   "2": "COST_OF_GOODS_SOLD",
   "3": "GROSS_PROFIT",
   "11": "TOTAL_INCOME",

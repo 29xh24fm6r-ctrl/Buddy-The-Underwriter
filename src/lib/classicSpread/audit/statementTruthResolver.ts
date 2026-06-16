@@ -64,6 +64,13 @@ export type ResolvedIncomeStatement = {
   totalIncome: ResolvedCell;
   /** alias of netSales — the revenue basis used for gross profit (NEVER total income). */
   revenue: ResolvedCell;
+  /**
+   * SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #4 — net profit / EBITDA basis. For a business
+   * tax return, ordinary business income (OBI) is preferred over a zero/null NET_INCOME.
+   */
+  netProfit: ResolvedCell;
+  /** true when returns/allowances was INFERRED (gross − COGS − GP), not sourced from line 1b. */
+  returnsInferred: boolean;
   findings: ResolverFinding[];
 };
 
@@ -338,24 +345,67 @@ export function resolveIncomeStatement1120(facts: Facts): ResolvedIncomeStatemen
   const findings: ResolverFinding[] = [];
 
   // Revenue for gross profit is GROSS RECEIPTS / SALES — NEVER TOTAL_INCOME (line 11, which includes
-  // below-the-line income and must not satisfy gross profit).
-  const grossReceipts = g("GROSS_RECEIPTS") ?? g("SALES") ?? g("TOTAL_REVENUE");
-  const returnsAllowances = g("RETURNS_ALLOWANCES") ?? g("RETURNS_AND_ALLOWANCES");
+  // below-the-line income and must not satisfy gross profit). Form 1120 line 1a = gross receipts.
+  const grossReceipts = g("GROSS_RECEIPTS") ?? g("SALES");
+  // Line 1c — net receipts / sales, when extracted as its own source line.
+  const netSalesDirect = g("NET_SALES_REVENUE") ?? g("NET_RECEIPTS_SALES");
+  // Line 1b — returns and allowances, when extracted as its own source line.
+  const returnsDirect = g("RETURNS_ALLOWANCES") ?? g("RETURNS_AND_ALLOWANCES");
   const cogs = g("COST_OF_GOODS_SOLD");
   const directGP = g("GROSS_PROFIT");
   const totalIncome = g("TOTAL_INCOME");
 
-  const netReceipts = grossReceipts != null ? grossReceipts - (returnsAllowances ?? 0) : null;
-  const computedGP = netReceipts != null ? netReceipts - (cogs ?? 0) : null;
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #3 — backward-safe inference of returns/allowances.
+  // When gross receipts, COGS and a DIRECT gross profit are present but line 1b is missing, the
+  // unexplained gap (gross − COGS − GP) is the implied returns/allowances. Only infer when the gap is
+  // POSITIVE and MATERIAL (i.e. it would otherwise produce a gross-profit mismatch); a tiny/zero gap
+  // is rounding noise and is left alone. Inference is NEVER silently clean — it raises a
+  // VERIFY_SOURCE_LINE finding until line 1b is sourced.
+  let returnsInferred = false;
+  let returnsAllowances = returnsDirect;
+  if (returnsDirect == null && netSalesDirect == null && grossReceipts != null && cogs != null && directGP != null) {
+    const grossGP = grossReceipts - cogs;
+    const implied = grossReceipts - cogs - directGP;
+    if (implied > 0 && !close(directGP, grossGP)) {
+      returnsAllowances = implied;
+      returnsInferred = true;
+    }
+  }
 
-  const revenue: ResolvedCell = grossReceipts != null
-    ? { value: netReceipts, basis: returnsAllowances != null ? "derived" : "direct" }
-    : { value: null, basis: "unavailable" };
+  // Net sales: a directly-sourced line 1c wins; else gross receipts net of returns/allowances
+  // (sourced or inferred); else nothing. Net sales NEVER comes from TOTAL_INCOME.
+  const netReceipts =
+    netSalesDirect != null
+      ? netSalesDirect
+      : grossReceipts != null
+        ? grossReceipts - (returnsAllowances ?? 0)
+        : null;
+  const computedGP = netReceipts != null && cogs != null ? netReceipts - cogs : netReceipts;
+
+  const revenue: ResolvedCell =
+    netSalesDirect != null
+      ? { value: netSalesDirect, basis: "direct" }
+      : grossReceipts != null
+        ? { value: netReceipts, basis: returnsAllowances != null ? "derived" : "direct" }
+        : { value: null, basis: "unavailable" };
+
+  if (returnsInferred) {
+    // #3: an inferred returns/allowances line reconciles gross profit but must be source-verified.
+    findings.push({
+      rowLabel: "Sales / Revenues", issueType: "formula_mismatch",
+      expectedValue: netReceipts, actualValue: grossReceipts,
+      difference: returnsAllowances != null ? -returnsAllowances : null,
+      severity: "warning",
+      detail:
+        `Returns & allowances of ${returnsAllowances} were INFERRED from gross receipts (${grossReceipts}) − COGS (${cogs}) − gross profit (${directGP}) ` +
+        `to reconcile net sales (${netReceipts}); the return is not yet sourced from Form 1120 line 1b. Verify the source line before relying on it.`,
+    });
+  }
 
   let grossProfit: ResolvedCell;
   if (directGP != null) {
     if (computedGP != null && !close(directGP, computedGP)) {
-      // Conflict not explained by returns/allowances → keep direct but retain a blocker.
+      // Conflict not explained by returns/allowances (sourced or inferred) → keep direct, retain blocker.
       grossProfit = { value: directGP, basis: "direct" };
       findings.push({
         rowLabel: "GROSS PROFIT", issueType: "formula_mismatch",
@@ -387,14 +437,42 @@ export function resolveIncomeStatement1120(facts: Facts): ResolvedIncomeStatemen
     });
   }
 
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #4 — net profit / EBITDA basis. On a business tax
+  // return, NET_INCOME is frequently 0/blank while ordinary business income (line 21/28) carries the
+  // real bottom line. Prefer OBI when NET_INCOME is zero/null and OBI is non-zero; flag the bypass.
+  const directNetIncome = g("NET_INCOME");
+  const obi = g("ORDINARY_BUSINESS_INCOME");
+  let netProfit: ResolvedCell;
+  if ((directNetIncome == null || directNetIncome === 0) && obi != null && obi !== 0) {
+    netProfit = { value: obi, basis: "derived" };
+    findings.push({
+      rowLabel: "NET PROFIT", issueType: "rejected_source_value",
+      expectedValue: obi, actualValue: directNetIncome, difference: obi - (directNetIncome ?? 0),
+      severity: "warning",
+      detail: `Direct NET_INCOME (${directNetIncome ?? "blank"}) is zero/blank; net profit resolved to ordinary business income (${obi}). Verify the source bottom line.`,
+      rejectedSource: { key: "NET_INCOME", value: directNetIncome ?? 0 },
+    });
+  } else if (directNetIncome != null) {
+    netProfit = { value: directNetIncome, basis: "direct" };
+  } else if (obi != null) {
+    netProfit = { value: obi, basis: "derived" };
+  } else {
+    netProfit = { value: null, basis: "unavailable" };
+  }
+
   return {
     grossReceipts: grossReceipts != null ? { value: grossReceipts, basis: "direct" } : { value: null, basis: "unavailable" },
-    returnsAllowances: returnsAllowances != null ? { value: returnsAllowances, basis: "direct" } : { value: null, basis: "unavailable" },
+    returnsAllowances:
+      returnsAllowances != null
+        ? { value: returnsAllowances, basis: returnsInferred ? "derived" : "direct" }
+        : { value: null, basis: "unavailable" },
     netSales: revenue,
     cogs: cogs != null ? { value: cogs, basis: "direct" } : { value: null, basis: "unavailable" },
     grossProfit,
     totalIncome: totalIncome != null ? { value: totalIncome, basis: "direct" } : { value: null, basis: "unavailable" },
     revenue,
+    netProfit,
+    returnsInferred,
     findings,
   };
 }
@@ -422,10 +500,17 @@ export function buildResolvedByPeriod(byPeriod: PeriodMaps, periods: string[]): 
     const clone = new Map<string, number | null>(orig ?? []);
     const facts = factsRecord(orig);
     const bs = resolveBalanceSheet(facts);
+    const is = resolveIncomeStatement1120(facts);
     const correct = (key: string, resolved: number | null) => {
       if (resolved == null) return;
       const o = facts[key];
       if (o != null && Math.abs(o - resolved) > tol(resolved)) clone.set(key, resolved);
+    };
+    /** Inject a resolver-derived income line so the rendered IS/ratios use resolved truth even when
+     *  the underlying source line was never extracted (e.g. net sales when only gross + GP exist). */
+    const inject = (key: string, resolved: number | null) => {
+      if (resolved == null) return;
+      clone.set(key, resolved);
     };
     // Total equity (e.g. 2024: reject direct 6,800,000 → retained earnings 4,512,938).
     correct("SL_TOTAL_EQUITY", bs.totalEquity.value);
@@ -437,6 +522,15 @@ export function buildResolvedByPeriod(byPeriod: PeriodMaps, periods: string[]): 
     // Total current liabilities (rare direct-vs-component conflict).
     correct("SL_TOTAL_CURRENT_LIABILITIES", bs.totalCurrentLiabilities.value);
     correct("TOTAL_CURRENT_LIABILITIES", bs.totalCurrentLiabilities.value);
+
+    // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2 — income-statement overlay. Render Sales /
+    // Revenues from RESOLVED net sales (gross net of sourced/inferred returns), not raw gross receipts;
+    // and resolve the net-profit basis to OBI when NET_INCOME is zero/blank (#4).
+    inject("NET_SALES_REVENUE", is.netSales.value);
+    if (is.netProfit.basis === "derived" && is.netProfit.value != null) {
+      // NET_INCOME was zero/blank and OBI carries the bottom line — feed downstream rows/ratios.
+      clone.set("NET_INCOME", is.netProfit.value);
+    }
     out.set(p, clone);
   }
   return out;

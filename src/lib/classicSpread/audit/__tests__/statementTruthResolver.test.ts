@@ -98,13 +98,30 @@ describe("YTD 2026 OmniCare balance sheet resolver", () => {
 
 // ── Income statement (1120) resolver ───────────────────────────────────────────────────────────
 describe("income statement 1120 resolver", () => {
-  it("2023 Gross Profit conflict remains a formula_mismatch blocker without returns/allowances", () => {
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #3 — a Gross Profit gap explained by an implied,
+  // positive, material returns/allowances is INFERRED (no longer a hard GP blocker) but kept as a
+  // VERIFY_SOURCE_LINE warning until line 1b is sourced.
+  it("infers returns/allowances for a GP gap and keeps it a VERIFY_SOURCE_LINE warning (no GP blocker)", () => {
     const r = resolveIncomeStatement1120({ GROSS_RECEIPTS: 1_000_000, COST_OF_GOODS_SOLD: 600_000, GROSS_PROFIT: 350_000 });
+    assert.equal(r.returnsInferred, true);
+    assert.equal(r.returnsAllowances.value, 50_000); // 1,000,000 − 600,000 − 350,000
+    assert.equal(r.netSales.value, 950_000);
+    assert.equal(r.grossProfit.value, 350_000);
+    // GP itself is no longer a blocker — it reconciles against inferred net sales.
+    assert.equal(find(r.findings, "GROSS PROFIT", "formula_mismatch"), undefined);
+    // but the inferred return is surfaced as a warning on Sales / Revenues.
+    const v = find(r.findings, "Sales / Revenues", "formula_mismatch");
+    assert.ok(v);
+    assert.equal(v!.severity, "warning");
+  });
+
+  it("a NEGATIVE/immaterial implied return is NOT inferred — GP stays a blocker", () => {
+    // GP (700,000) exceeds gross − COGS (400,000): implied returns would be negative → no inference.
+    const r = resolveIncomeStatement1120({ GROSS_RECEIPTS: 1_000_000, COST_OF_GOODS_SOLD: 600_000, GROSS_PROFIT: 700_000 });
+    assert.equal(r.returnsInferred, false);
     const f = find(r.findings, "GROSS PROFIT", "formula_mismatch");
     assert.ok(f);
     assert.equal(f!.severity, "blocker");
-    assert.equal(f!.expectedValue, 400_000); // revenue − COGS
-    assert.equal(f!.actualValue, 350_000);
   });
 
   it("the Gross Profit conflict is resolved when a returns/allowances line explains it", () => {

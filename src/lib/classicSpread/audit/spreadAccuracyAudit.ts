@@ -144,7 +144,8 @@ const BS_KEYS = [
   "SL_TOTAL_LIABILITIES", "SL_CAPITAL_STOCK", "SL_RETAINED_EARNINGS", "SL_TOTAL_EQUITY",
 ];
 const IS_KEYS = [
-  "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME", "COST_OF_GOODS_SOLD", "GROSS_PROFIT",
+  "GROSS_RECEIPTS", "RETURNS_ALLOWANCES", "NET_SALES_REVENUE", "TOTAL_REVENUE", "TOTAL_INCOME",
+  "COST_OF_GOODS_SOLD", "GROSS_PROFIT",
   "OFFICER_COMPENSATION", "SALARIES_WAGES", "SALARIES_WAGES_IS", "RENT_EXPENSE", "RENT_EXPENSE_IS",
   "REPAIRS_MAINTENANCE", "REPAIRS_MAINTENANCE_IS", "BAD_DEBT_EXPENSE", "BAD_DEBT_EXPENSE_IS",
   "TAXES_LICENSES", "DEPRECIATION", "AMORTIZATION", "INTEREST_EXPENSE", "ADVERTISING",
@@ -451,13 +452,19 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
     }
 
     // ── Income Statement ──────────────────────────────────────────────────────
+    // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2: Gross Profit reconciles against NET sales
+    // (gross net of sourced/inferred returns/allowances), not raw gross receipts, and the net-profit
+    // formula uses the resolved OBI basis (#4). Reuse the resolver so the audit and renderer agree.
+    const isResolved = resolveIncomeStatement1120(factsForPeriod(byPeriod, iso));
     const revenue = srcAny(byPeriod, iso, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
     if (revenue != null) {
       const cogs = src(byPeriod, iso, "COST_OF_GOODS_SOLD");
+      // Net sales for the GP check: resolved net sales (handles returns/allowances) else gross − cogs.
+      const netRevenue = isResolved.netSales.value ?? revenue;
       checkFormula({
-        iso, keys: ["GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME", "COST_OF_GOODS_SOLD"], period: label,
+        iso, keys: ["GROSS_RECEIPTS", "NET_SALES_REVENUE", "RETURNS_ALLOWANCES", "COST_OF_GOODS_SOLD"], period: label,
         label: "GROSS PROFIT", statement: "income_statement",
-        expected: revenue - (cogs ?? 0), rendered: rowVal(incomeStatement, "GROSS PROFIT", i),
+        expected: netRevenue - (cogs ?? 0), rendered: rowVal(incomeStatement, "GROSS PROFIT", i),
         base: revenue, blankWhenInputsExist: true,
       });
 
@@ -476,7 +483,9 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
       // Net Profit = Net Operating Profit + Other Income/(Expense)
       const nop = rowVal(incomeStatement, "NET OPERATING PROFIT", i);
       const otherIncome = src(byPeriod, iso, "OTHER_INCOME") ?? 0;
-      const directNI = srcAny(byPeriod, iso, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
+      // #4: net-profit basis prefers OBI over a zero/blank NET_INCOME (resolver-arbitrated), so the
+      // rendered OBI-based Net Profit does not register as a spurious formula mismatch.
+      const directNI = isResolved.netProfit.value;
       const renderedNP = rowVal(incomeStatement, "NET PROFIT", i);
       if (renderedNP == null) {
         // Blank Net Profit: derivable from inputs → required-value blocker; else missing-source.
