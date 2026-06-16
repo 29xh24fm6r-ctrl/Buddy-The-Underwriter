@@ -40,40 +40,91 @@ export type ReviewActionRow = {
   updated_at: string;
 };
 
-/** Upsert the latest audit's review actions. Idempotent: status/reviewer columns are NOT sent, so
- *  existing rows keep their banker decision and only the audit-derived fields refresh. */
+/**
+ * Reconcile the persisted review actions to the latest emitted blocker/action set.
+ *
+ * BUGFIX-CLASSIC-SPREAD-REVIEW-ACTIONS-PRUNE-1: this is no longer upsert-only. After upserting the
+ * current actions it CLOSES stale OPEN rows whose finding_key is absent from the latest emitted set
+ * (e.g. a finding the resolver downgraded from blocker to warning, so it is no longer an action).
+ * Pruning runs even when the latest audit has zero actions. Guarantees:
+ *   - never deletes a row (audit trail kept);
+ *   - only OPEN rows are closed — any banker-decided/resolved/waived/closed row is preserved;
+ *   - scope is strictly (bank_id, deal_id);
+ *   - status/reviewer columns of CURRENT actions are still not overwritten on upsert.
+ * `client` is injectable for tests; production uses the service-role admin client.
+ */
 export async function syncReviewActions(args: {
   dealId: string;
   bankId: string;
   spreadId?: string | null;
   actions: ClassicSpreadReviewAction[];
-}): Promise<{ synced: number }> {
+  client?: any;
+}): Promise<{ synced: number; closed: number }> {
   const { dealId, bankId, spreadId = null, actions } = args;
-  if (actions.length === 0) return { synced: 0 };
-  const sb = supabaseAdmin();
-  const rows = actions.map((a) => ({
-    deal_id: dealId,
-    bank_id: bankId,
-    spread_id: spreadId,
-    period_label: a.periodLabel,
-    statement: a.statement,
-    row_label: a.rowLabel,
-    action_type: a.actionType,
-    issue_type: a.issueType,
-    severity: a.severity,
-    recommended_value: a.recommendedValue,
-    source_value: a.sourceValue,
-    diff_value: a.diffValue,
-    source_document_id: a.sourceDocumentId,
-    finding_key: a.findingKey,
-    finding_json: a.findingJson,
-    // status / reviewer_* / decision_json / reviewed_at intentionally omitted — preserved on conflict.
-  }));
-  const { error } = await (sb as any)
+  const sb = args.client ?? supabaseAdmin();
+
+  // (1) the latest emitted review-action/blocker set — the reconcile target.
+  const latestFindingKeys = new Set(actions.map((a) => a.findingKey));
+
+  // (2) upsert current actions (status/reviewer columns omitted → banker decisions preserved).
+  if (actions.length > 0) {
+    const rows = actions.map((a) => ({
+      deal_id: dealId,
+      bank_id: bankId,
+      spread_id: spreadId,
+      period_label: a.periodLabel,
+      statement: a.statement,
+      row_label: a.rowLabel,
+      action_type: a.actionType,
+      issue_type: a.issueType,
+      severity: a.severity,
+      recommended_value: a.recommendedValue,
+      source_value: a.sourceValue,
+      diff_value: a.diffValue,
+      source_document_id: a.sourceDocumentId,
+      finding_key: a.findingKey,
+      finding_json: a.findingJson,
+      // status / reviewer_* / decision_json / reviewed_at intentionally omitted — preserved on conflict.
+    }));
+    const { error } = await sb
+      .from(TABLE)
+      .upsert(rows, { onConflict: "bank_id,deal_id,finding_key", ignoreDuplicates: false });
+    if (error) throw new Error(`sync_review_actions_failed: ${error.message}`);
+  }
+
+  // (3) prune: close OPEN rows for this (bank_id, deal_id) that are absent from the latest set.
+  //     Runs regardless of actions.length so a now-clean audit still clears stale blockers.
+  const { data: openRows, error: selErr } = await sb
     .from(TABLE)
-    .upsert(rows, { onConflict: "bank_id,deal_id,finding_key", ignoreDuplicates: false });
-  if (error) throw new Error(`sync_review_actions_failed: ${error.message}`);
-  return { synced: rows.length };
+    .select("id, finding_key")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .eq("status", "open");
+  if (selErr) throw new Error(`sync_review_actions_prune_select_failed: ${selErr.message}`);
+
+  const staleIds = ((openRows ?? []) as Array<{ id: string; finding_key: string }>)
+    .filter((r) => !latestFindingKeys.has(r.finding_key))
+    .map((r) => r.id);
+
+  let closed = 0;
+  if (staleIds.length > 0) {
+    // System-close (no reviewer_user_id) — distinguishable from a banker decision. The status='open'
+    // re-guard avoids racing a concurrent banker decision; updated_at is maintained by the table trigger.
+    const { error: closeErr } = await sb
+      .from(TABLE)
+      .update({
+        status: "closed",
+        decision_json: { system_closed: true, reason: "absent_from_latest_audit", at: new Date().toISOString() },
+      })
+      .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
+      .eq("status", "open")
+      .in("id", staleIds);
+    if (closeErr) throw new Error(`sync_review_actions_prune_close_failed: ${closeErr.message}`);
+    closed = staleIds.length;
+  }
+
+  return { synced: actions.length, closed };
 }
 
 export async function listReviewActions(dealId: string, bankId: string): Promise<ReviewActionRow[]> {
