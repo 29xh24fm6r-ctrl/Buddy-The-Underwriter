@@ -10,6 +10,7 @@ import type {
 import type { PersonalIncomeSection, PersonalIncomeYear } from "./personalIncomeLoader";
 import type { SpreadNarrative } from "./narrativeEngine";
 import { sanitizeForPdf } from "./pdfText";
+import { certificationStatusLines, type ClassicSpreadCertificationSummary } from "./certification/certificationSummary";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -405,6 +406,38 @@ function drawNarrativeSections(s: DocState, narrative: SpreadNarrative) {
 // ---------------------------------------------------------------------------
 // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1 — Spread Accuracy & Completion Audit page
 // ---------------------------------------------------------------------------
+
+// SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1 — honest "Spread Certification" status block
+// at the top of the audit page (certified / preliminary / blocked + remaining open actions).
+function drawCertificationStatus(s: DocState, summary: ClassicSpreadCertificationSummary | null | undefined) {
+  if (!summary) return;
+  const { doc } = s;
+  const rightEdge = doc.page.width - PAGE_MARGIN;
+  const textWidth = rightEdge - PAGE_MARGIN;
+
+  const color =
+    summary.status === "blocked" ? "#dc2626" : summary.status === "preliminary" ? "#d97706" : "#16a34a";
+  const lines = certificationStatusLines(summary);
+
+  // Header (status) on a colored accent bar; the remaining lines as compact meta.
+  doc.rect(PAGE_MARGIN, s.y, 4, 18).fill(color);
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor(color);
+  const header = sanitizeForPdf(lines[0] ?? "Spread Certification");
+  doc.text(header, PAGE_MARGIN + 12, s.y + 4, { width: textWidth - 12 });
+  doc.fillColor("#000000");
+  s.y += 24;
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+  for (const line of lines.slice(1)) {
+    checkPageBreak(s, 2);
+    const txt = sanitizeForPdf(line);
+    const h = doc.heightOfString(txt, { width: textWidth });
+    doc.text(txt, PAGE_MARGIN, s.y, { width: textWidth });
+    s.y += h + 2;
+  }
+  doc.fillColor("#000000");
+  s.y += 8;
+}
 
 function drawSpreadAuditSection(
   s: DocState,
@@ -1177,12 +1210,15 @@ export function renderClassicSpread(
     // ===== Spread Accuracy & Completion Audit (if computed) =====
     const spreadAudit = input.certificationAudit?.spreadAccuracy ?? null;
     const notCertified = input.certified === false;
-    if (spreadAudit || notCertified) {
+    const certSummary = input.certificationSummary ?? null;
+    if (spreadAudit || notCertified || certSummary) {
       doc.addPage();
       s.pageNum++;
       s.pageTitle = "Spread Accuracy & Completion Audit";
       s.showPctColumns = false;
       drawPageHeader(s);
+      // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: lead with the honest certification status.
+      drawCertificationStatus(s, certSummary);
       drawSpreadAuditSection(s, spreadAudit, notCertified);
       drawPageFooter(s);
     }

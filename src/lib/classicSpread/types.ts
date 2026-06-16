@@ -114,4 +114,9 @@ export type ClassicSpreadInput = {
   // certification gate threw or returned null — the PDF must visibly render NOT CERTIFIED rather
   // than silently presenting an apparently-certified spread.
   certified?: boolean;
+
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: honest certified/preliminary/blocked
+  // roll-up of the certification domains + post-decision accuracy findings + open review actions.
+  // Serializable; surfaced on the PDF audit page and safe for memo consumers.
+  certificationSummary?: import("./certification/certificationSummary").ClassicSpreadCertificationSummary | null;
 };

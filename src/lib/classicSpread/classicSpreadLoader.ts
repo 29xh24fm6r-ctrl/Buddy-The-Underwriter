@@ -19,6 +19,7 @@ import {
 import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAudit";
 import { buildResolvedByPeriod } from "./audit/statementTruthResolver";
 import { resolveBalanceSheetSourceLines } from "./audit/balanceSheetSourceLineResolver";
+import { buildClassicSpreadCertificationSummary } from "./certification/certificationSummary";
 import { isBusinessStatementFact } from "./businessFactScope";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import {
@@ -1161,20 +1162,39 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
         // SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1 #5: consume reviewed banker decisions so the
         // rendered PDF + persisted audit reflect confirmations/waivers/verifications. Non-fatal and
         // never clears a blocker without a reviewer (enforced inside applyReviewDecisions).
+        let openReviewActionCount: number | undefined;
         try {
           const { loadReviewDecisions } = await import("./review/reviewActionsRepo");
           const { applyReviewDecisions } = await import("./review/applyReviewDecisions");
           const decisions = await loadReviewDecisions(dealId, bankId);
+          // Open = still-actionable review rows (pruned/closed rows are excluded by the repo).
+          openReviewActionCount = decisions.filter((d) => d.status === "open").length;
           if (decisions.length > 0 && gate.audit.spreadAccuracy) {
             gate.audit.spreadAccuracy = applyReviewDecisions(gate.audit.spreadAccuracy, decisions);
           }
         } catch {
           // Non-fatal — decisions are an overlay on top of the audit.
         }
+
+        // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: honest certified/preliminary/blocked
+        // roll-up over the post-decision audit, surfaced on the PDF and safe for memo consumers.
+        input.certificationSummary = buildClassicSpreadCertificationSummary({
+          certified: true,
+          audit: gate.audit,
+          openReviewActionCount,
+        });
       } catch {
         // Non-fatal — the audit is supplemental; a failure must not block the PDF.
       }
     }
+  }
+
+  // Fail closed: if the gate never produced a certification summary, the spread is NOT certified.
+  if (!input.certificationSummary) {
+    input.certificationSummary = buildClassicSpreadCertificationSummary({
+      certified: input.certified === true,
+      audit: input.certificationAudit ?? null,
+    });
   }
 
   return input;

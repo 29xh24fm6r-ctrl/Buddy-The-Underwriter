@@ -59,5 +59,12 @@
  *         warning when the SAME period has a TOTAL CURRENT ASSETS missing_implied_component (same
  *         incomplete asset detail), so the single actionable blocker is the implied-AR request
  *         (SPEC-CLASSIC-SPREAD-V12-FINAL-ACTION-DEDUPE-1). The audit page blocker list shrinks.
+ *   v14 — certification status surface: the render now leads the audit page with a "Spread
+ *         Certification" status block (certified / preliminary / blocked) derived from the
+ *         certification summary — honest roll-up of the certification domains, the post-decision
+ *         accuracy findings, and remaining open review actions — so a spread with only the YTD-2026
+ *         source-detail request reads "blocked, 1 remaining action" rather than stale 4-blocker
+ *         language (SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1). A v13 blob lacks the
+ *         certification status block and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 13;
+export const CLASSIC_PDF_RENDER_VERSION = 14;

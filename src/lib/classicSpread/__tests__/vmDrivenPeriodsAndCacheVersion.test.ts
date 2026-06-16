@@ -30,8 +30,8 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
   // v4 cert gate; …; v11 resolver-aware audit de-dup; v12 blocker batch resolution; v13 final action
   // de-dup (TNCA folds into the implied-AR blocker). Each is an output change with no fact edit, so
   // the version MUST advance.
-  it("render version is 13 (bumped for the final action de-dup output change)", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 13);
+  it("render version is 14 (bumped for the certification status surface output change)", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 14);
   });
 
   it("the version comparison rejects every pre-fix blob and accepts only a current-version blob", () => {
@@ -49,8 +49,9 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.equal(isRejected(10), true); // pre-dedup v10 blob rejected
     assert.equal(isRejected(11), true); // pre-batch v11 blob rejected
     assert.equal(isRejected(12), true); // pre-final-dedup v12 blob rejected
+    assert.equal(isRejected(13), true); // pre-certification-status v13 blob rejected
     assert.equal(isRejected(undefined), true); // legacy unversioned blob rejected
-    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v13 blob is served
+    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v14 blob is served
   });
   it("worker + sync route stamp renderVersion into the cached payload", () => {
     assert.match(read("src/lib/classicSpread/classicPdfWorker.ts"), /renderVersion: CLASSIC_PDF_RENDER_VERSION/);
