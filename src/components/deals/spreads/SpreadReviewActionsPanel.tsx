@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { isActiveReviewActionStatus } from "@/lib/classicSpread/review/reviewActionStatus";
 
 /**
  * SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1 #4 — compact "Spread Review Actions" panel.
@@ -115,8 +116,11 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
     [base, load],
   );
 
-  const open = actions.filter((a) => a.status === "open");
-  const reviewed = actions.filter((a) => a.status !== "open");
+  // BUGFIX-CLASSIC-SPREAD-BORROWER-REQUESTED-STILL-OPEN-1: `borrower_detail_requested` is still an
+  // ACTIVE/blocking action (request created, support not yet uploaded) — it belongs in the open list
+  // with warning styling, not the reviewed/green list.
+  const open = actions.filter((a) => isActiveReviewActionStatus(a.status));
+  const reviewed = actions.filter((a) => !isActiveReviewActionStatus(a.status));
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3">
@@ -165,6 +169,12 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
             <span>diff: <span className="text-white/80">{fmt(a.diff_value)}</span></span>
             {a.source_document_id && <span>doc: <span className="text-white/80">{a.source_document_id.slice(0, 8)}</span></span>}
           </div>
+          {a.status === "borrower_detail_requested" && (
+            <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-300">
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>hourglass_top</span>
+              Borrower detail requested — awaiting upload
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             <ActBtn label="Confirm Buddy resolved value" onClick={() => decide(a.id, "confirmed_resolved_value")} busy={busyId === a.id} />
             <ActBtn label="Verify source line" onClick={() => decide(a.id, "source_verified")} busy={busyId === a.id} />

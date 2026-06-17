@@ -129,4 +129,10 @@ export type ClassicSpreadInput = {
   // roll-up of the certification domains + post-decision accuracy findings + open review actions.
   // Serializable; surfaced on the PDF audit page and safe for memo consumers.
   certificationSummary?: import("./certification/certificationSummary").ClassicSpreadCertificationSummary | null;
+
+  // SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1: lender-grade Borrowing Base Certificate for AR-backed
+  // lines. Present only when the facility is borrowing-base monitored (an AR aging report exists);
+  // null/absent for ordinary lines of credit. Surfaced as a dedicated PDF page; never clears a
+  // classic-spread source-detail blocker.
+  borrowingBaseCertificate?: import("@/lib/borrowingBase/borrowingBaseCertificate").BorrowingBaseCertificate | null;
 };

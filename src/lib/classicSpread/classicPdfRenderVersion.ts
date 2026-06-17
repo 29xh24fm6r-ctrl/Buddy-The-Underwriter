@@ -88,5 +88,11 @@
  *         "EBITDA !' OBI !' NI"); the methodology heading/rationale and the "NOT CERTIFIED" banners
  *         are sanitized to printable ASCII (SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1). A v16 blob
  *         shows the garbled glyphs and must be rejected so the cleaned renderer replaces it.
+ *   v18 — Borrowing Base Certificate: AR-backed / borrowing-base-monitored facilities now render a
+ *         dedicated "Borrowing Base Certificate" page (eligible AR, advance, reserves, net borrowing
+ *         base, availability, ineligible breakdown, customer concentration, exceptions, borrower
+ *         certification + signature lines). Activated data-driven (an AR aging report exists); a date
+ *         mismatch vs the rendered balance-sheet period is flagged and never bridged
+ *         (SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1). A v17 blob lacks the BBC page and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 17;
+export const CLASSIC_PDF_RENDER_VERSION = 18;

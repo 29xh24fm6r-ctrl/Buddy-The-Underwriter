@@ -31,7 +31,7 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
   // de-dup (TNCA folds into the implied-AR blocker). Each is an output change with no fact edit, so
   // the version MUST advance.
   it("render version is 17 (bumped for the final audit copy/glyph polish)", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 17);
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 18);
   });
 
   it("the version comparison rejects every pre-fix blob and accepts only a current-version blob", () => {

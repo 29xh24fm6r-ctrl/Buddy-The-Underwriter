@@ -11,6 +11,7 @@ import type { PersonalIncomeSection, PersonalIncomeYear } from "./personalIncome
 import type { SpreadNarrative } from "./narrativeEngine";
 import { sanitizeForPdf } from "./pdfText";
 import { certificationStatusLines, type ClassicSpreadCertificationSummary } from "./certification/certificationSummary";
+import { borrowingBaseCertificateLines, type BorrowingBaseCertificate } from "@/lib/borrowingBase/borrowingBaseCertificate";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -431,6 +432,48 @@ function drawCertificationStatus(s: DocState, summary: ClassicSpreadCertificatio
   for (const line of lines.slice(1)) {
     checkPageBreak(s, 2);
     const txt = sanitizeForPdf(line);
+    const h = doc.heightOfString(txt, { width: textWidth });
+    doc.text(txt, PAGE_MARGIN, s.y, { width: textWidth });
+    s.y += h + 2;
+  }
+  doc.fillColor("#000000");
+  s.y += 8;
+}
+
+// SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1 (Phase 4): render the Borrowing Base Certificate as a
+// dedicated page. Header on a status-colored accent bar, then the pure certificate lines. Section
+// breaks (lines starting with "— ") render as small bold sub-headers.
+function drawBorrowingBaseCertificate(s: DocState, cert: BorrowingBaseCertificate) {
+  const { doc } = s;
+  const rightEdge = doc.page.width - PAGE_MARGIN;
+  const textWidth = rightEdge - PAGE_MARGIN;
+
+  const color =
+    cert.certificateStatus === "blocked"
+      ? "#dc2626"
+      : cert.certificateStatus === "ready_for_review"
+        ? "#d97706"
+        : cert.certificateStatus === "approved"
+          ? "#16a34a"
+          : "#6b7280";
+  const lines = borrowingBaseCertificateLines(cert);
+
+  doc.rect(PAGE_MARGIN, s.y, 4, 18).fill(color);
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor(color);
+  doc.text(sanitizeForPdf(lines[0] ?? "Borrowing Base Certificate"), PAGE_MARGIN + 12, s.y + 4, { width: textWidth - 12 });
+  doc.fillColor("#000000");
+  s.y += 24;
+
+  for (const line of lines.slice(1)) {
+    checkPageBreak(s, 2);
+    const txt = sanitizeForPdf(line);
+    const isSubHeader = line.startsWith("— ");
+    if (isSubHeader) {
+      s.y += 3;
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#111111");
+    } else {
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+    }
     const h = doc.heightOfString(txt, { width: textWidth });
     doc.text(txt, PAGE_MARGIN, s.y, { width: textWidth });
     s.y += h + 2;
@@ -1238,6 +1281,17 @@ export function renderClassicSpread(
       // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: lead with the honest certification status.
       drawCertificationStatus(s, certSummary);
       drawSpreadAuditSection(s, spreadAudit, notCertified);
+      drawPageFooter(s);
+    }
+
+    // ===== Borrowing Base Certificate (AR-backed facilities only) =====
+    if (input.borrowingBaseCertificate) {
+      doc.addPage();
+      s.pageNum++;
+      s.pageTitle = "Borrowing Base Certificate";
+      s.showPctColumns = false;
+      drawPageHeader(s);
+      drawBorrowingBaseCertificate(s, input.borrowingBaseCertificate);
       drawPageFooter(s);
     }
 

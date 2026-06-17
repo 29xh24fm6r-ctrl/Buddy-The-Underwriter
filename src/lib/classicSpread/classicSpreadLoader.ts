@@ -1181,9 +1181,12 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
         try {
           const { loadReviewDecisions } = await import("./review/reviewActionsRepo");
           const { applyReviewDecisions } = await import("./review/applyReviewDecisions");
+          const { isActiveReviewActionStatus } = await import("./review/reviewActionStatus");
           const decisions = await loadReviewDecisions(dealId, bankId);
-          // Open = still-actionable review rows (pruned/closed rows are excluded by the repo).
-          openReviewActionCount = decisions.filter((d) => d.status === "open").length;
+          // Open = still-actionable review rows. BUGFIX-CLASSIC-SPREAD-BORROWER-REQUESTED-STILL-OPEN-1:
+          // `borrower_detail_requested` is ACTIVE (request created, support not yet uploaded) — it must
+          // count as open and keep the spread blocked. Pruned/closed rows are excluded by the repo.
+          openReviewActionCount = decisions.filter((d) => isActiveReviewActionStatus(d.status)).length;
           if (decisions.length > 0 && gate.audit.spreadAccuracy) {
             gate.audit.spreadAccuracy = applyReviewDecisions(gate.audit.spreadAccuracy, decisions);
           }
@@ -1212,6 +1215,30 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
       audit: input.certificationAudit ?? null,
       globalCashFlow: input.globalCashFlow ?? null,
     });
+  }
+
+  // SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1: build the Borrowing Base Certificate when the facility
+  // is borrowing-base monitored (data-driven: an AR aging report exists). Non-fatal — a failure here
+  // must never block the spread PDF. Read-only: never clears a source-detail blocker. The date-
+  // mismatch check uses the most-recent rendered balance-sheet period end, so an AR aging of a
+  // different date (e.g. 4/28 vs a 3/31 balance sheet) is flagged, not silently bridged.
+  try {
+    const { loadBorrowingBaseCertificate } = await import("@/lib/borrowingBase/loadBorrowingBaseCertificate");
+    // Most-recent rendered period end is the last entry (periods are chronological). StatementPeriod.date
+    // is "MM/DD/YYYY"; convert to ISO for the date-mismatch comparison.
+    const latestDate = input.periods.length > 0 ? input.periods[input.periods.length - 1]?.date : null;
+    const m = latestDate ? /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(latestDate) : null;
+    const latestBsIso = m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
+    input.borrowingBaseCertificate = await loadBorrowingBaseCertificate({
+      dealId,
+      bankId,
+      borrowerName: input.companyName,
+      lenderName: input.bankName,
+      certificateDateIso: new Date().toISOString().slice(0, 10),
+      balanceSheetAsOfIso: latestBsIso,
+    });
+  } catch {
+    // Non-fatal — the BBC is a supplemental page; a failure must not block the PDF.
   }
 
   return input;
