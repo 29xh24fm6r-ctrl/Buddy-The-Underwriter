@@ -1,0 +1,91 @@
+/**
+ * SPEC-SPREAD-SOURCE-EVIDENCE-CLEARING-WORKFLOW-1 — server enrichment wiring (GET /review-actions).
+ *
+ * Proves the GET path attaches evidence ONLY to active source-detail/verify rows, fetches the deal's
+ * existing documents + draft requests, and is non-fatal. Uses an in-memory Supabase fake (injected via
+ * `client`) so no DB is touched.
+ */
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
+
+mockServerOnly();
+const require = createRequire(import.meta.url);
+const { attachSourceEvidence } = require("../attachSourceEvidence") as typeof import("../attachSourceEvidence");
+
+function makeFakeClient(tables: Record<string, any[]>) {
+  return {
+    from(table: string) {
+      const rows = tables[table] ?? [];
+      const filters: [string, any][] = [];
+      const builder: any = {
+        select() { return builder; },
+        eq(c: string, v: any) { filters.push([c, v]); return builder; },
+        then(resolve: (x: any) => void) {
+          const data = rows.filter((r) => filters.every(([c, v]) => r[c] === v));
+          resolve({ data, error: null });
+        },
+      };
+      return builder;
+    },
+  };
+}
+
+const DEAL = "dc52c626";
+const BANK = "bank-1";
+
+const reviewRow = (over: any = {}) => ({
+  id: "ra-tca", deal_id: DEAL, bank_id: BANK, finding_key: "ytd_2026|balance_sheet|total_current_assets|missing_implied_component",
+  action_type: "REQUEST_SOURCE_DETAIL", issue_type: "missing_implied_component", statement: "balance_sheet",
+  period_label: "YTD 2026", row_label: "TOTAL CURRENT ASSETS", status: "borrower_detail_requested",
+  source_value: 198_692.59, recommended_value: 2_898_652.37, diff_value: 2_898_652.37,
+  finding_json: { periodEndDate: "3/31/2026", periodIsInterim: true }, ...over,
+});
+
+const docs = [
+  { id: "bs-mar", deal_id: DEAL, bank_id: BANK, original_filename: "Omnicare 365 Balance Sheet March 2026.pdf", canonical_type: "BALANCE_SHEET", ai_tax_year: 2026, finalized_at: "2026-05-01", is_active: true },
+  { id: "ar-apr", deal_id: DEAL, bank_id: BANK, original_filename: "Omnicare 365 AR Aging 4-2026.pdf", canonical_type: "AR_AGING", ai_tax_year: 2026, checklist_key: "AR_AGING", finalized_at: "2026-05-01", is_active: true },
+];
+
+describe("attachSourceEvidence", () => {
+  it("attaches an evidence lifecycle to the active TCA action (needs bridge, still blocking)", async () => {
+    const client = makeFakeClient({ deal_documents: docs, draft_borrower_requests: [] });
+    const out = await attachSourceEvidence([reviewRow()], DEAL, BANK, client);
+    const ev = out[0].evidence;
+    assert.ok(ev, "active source action gets an evidence block");
+    assert.equal(ev.uploadStatus, "candidate_uploaded_needs_bridge");
+    assert.equal(ev.clearingStatus, "still_blocking");
+    assert.equal(ev.matchingDocuments.length, 2);
+    assert.match(ev.requiredEvidenceSummary, /Total Current Assets of \$3,097,345/);
+  });
+
+  it("does NOT attach evidence to settled (non-active) rows", async () => {
+    const client = makeFakeClient({ deal_documents: docs, draft_borrower_requests: [] });
+    const out = await attachSourceEvidence([reviewRow({ status: "confirmed_resolved_value" })], DEAL, BANK, client);
+    assert.equal(out[0].evidence, undefined);
+  });
+
+  it("does NOT attach evidence to non-source action types", async () => {
+    const client = makeFakeClient({ deal_documents: docs, draft_borrower_requests: [] });
+    const out = await attachSourceEvidence([reviewRow({ action_type: "ACCEPT_AS_REPORTED", status: "open" })], DEAL, BANK, client);
+    assert.equal(out[0].evidence, undefined);
+  });
+
+  it("links a draft request by finding_key (requestStatus = requested)", async () => {
+    const client = makeFakeClient({
+      deal_documents: docs,
+      draft_borrower_requests: [{ id: "d1", deal_id: DEAL, status: "pending_approval", evidence: [{ source_finding_key: reviewRow().finding_key }] }],
+    });
+    const out = await attachSourceEvidence([reviewRow({ status: "open" })], DEAL, BANK, client);
+    assert.equal(out[0].evidence.requestStatus, "requested");
+  });
+
+  it("is non-fatal: returns rows unchanged if the candidate fetch throws", async () => {
+    const throwingClient = { from() { throw new Error("boom"); } };
+    const rows = [reviewRow()];
+    const out = await attachSourceEvidence(rows, DEAL, BANK, throwingClient);
+    assert.equal(out[0].evidence, undefined);
+    assert.equal(out.length, 1);
+  });
+});

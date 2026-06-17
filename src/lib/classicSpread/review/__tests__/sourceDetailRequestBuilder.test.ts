@@ -180,6 +180,42 @@ describe("buildSourceDetailRequest — generic / future-deal robustness", () => 
     assert.match(r.borrowerMessage, /as of 6\/30\/2026/);
   });
 
+  it("VERIFY_SOURCE_LINE on TOTAL LIABILITIES & NET WORTH asks for Schedule L / liability+equity detail", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2022|balance_sheet|total_liabilities_&_net_worth|unreconciled_total",
+      reviewActionId: "ra-tlnw",
+      actionType: "VERIFY_SOURCE_LINE",
+      issueType: "unreconciled_total",
+      statement: "balance_sheet",
+      periodLabel: "2022",
+      periodEndDate: "12/31/2022",
+      periodIsInterim: false,
+      lineItem: "TOTAL LIABILITIES & NET WORTH",
+      sourceValue: 1_489_099, // L + NW extracted
+      recommendedValue: 3_268_740, // Total Assets target
+      diffValue: 1_779_641, // unexplained gap
+    });
+    assert.match(r.title, /Upload source detail for 12\/31\/2022 balance sheet liabilities and net worth/);
+    assert.match(r.borrowerMessage, /Schedule L/);
+    assert.match(r.borrowerMessage, /reconciles to Total Liabilities \+ Net Worth/);
+    assert.match(r.borrowerMessage, /\$1,489,099/);
+    assert.match(r.borrowerMessage, /\$1,779,641/);
+    assert.ok(r.acceptableDocuments.some((d) => /Schedule L showing mortgages\/notes/.test(d)));
+  });
+
+  it("generic VERIFY_SOURCE_LINE asks for source documentation + reconciliation", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2023|income_statement|gross_profit|formula_mismatch",
+      actionType: "VERIFY_SOURCE_LINE",
+      issueType: "formula_mismatch",
+      statement: "income_statement",
+      periodLabel: "2023",
+      lineItem: "GROSS PROFIT",
+    });
+    assert.match(r.borrowerMessage, /verify Gross Profit on the 2023 income statement/);
+    assert.match(r.borrowerMessage, /reconciliation/i);
+  });
+
   it("falls back to the period label when no end date is supplied", () => {
     const r = buildSourceDetailRequest({
       findingKey: "2024|balance_sheet|total_current_assets|missing_implied_component",

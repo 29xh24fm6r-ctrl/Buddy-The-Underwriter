@@ -8,6 +8,7 @@ import { buildClassicSpreadReviewActions, REVIEW_ACTION_STATUSES, type ReviewAct
 import { listReviewActions, syncReviewActions, decideReviewAction } from "@/lib/classicSpread/review/reviewActionsRepo";
 import { ensureBorrowerSourceDetailRequest } from "@/lib/classicSpread/review/ensureBorrowerSourceDetailRequest";
 import { emitBuddyEvent } from "@/lib/observability/emitEvent";
+import { attachSourceEvidence } from "@/lib/classicSpread/review/attachSourceEvidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +30,13 @@ export async function GET(_req: Request, ctx: Ctx) {
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) return NextResponse.json({ error: "Access denied" }, { status: 403 });
     const rows = await listReviewActions(dealId, access.bankId);
-    return NextResponse.json({ actions: rows }, { headers: { "cache-control": "no-store" } });
+
+    // SPEC-SPREAD-SOURCE-EVIDENCE-CLEARING-WORKFLOW-1: attach the evidence-clearing lifecycle to each
+    // ACTIVE source-detail / verify action (Needed -> Requested -> Uploaded -> Extracted -> Cleared).
+    // Pure computation over existing deal_documents + draft_borrower_requests; non-fatal (the list
+    // still returns if the candidate fetch fails). No new route, no schema change.
+    const enriched = await attachSourceEvidence(rows, dealId, access.bankId);
+    return NextResponse.json({ actions: enriched }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     rethrowNextErrors(err);
     console.error("[classic-spread/review-actions GET] error", err);

@@ -234,6 +234,59 @@ export function buildSourceDetailRequest(input: SourceDetailRequestInput): Borro
     };
   }
 
+  // ── VERIFY_SOURCE_LINE — two sources disagree / a total does not reconcile (e.g. 2022 TOTAL
+  //    LIABILITIES & NET WORTH unreconciled_total). Ask for the source detail that proves the line
+  //    and lets the statement reconcile; never auto-resolve. ───────────────────────────────────────
+  if (input.actionType === "VERIFY_SOURCE_LINE") {
+    if (isBalanceSheet && (input.issueType === "unreconciled_total" || /liabilit|net worth|equity/i.test(input.lineItem))) {
+      // For an unreconciled balance: recommendedValue = Total Assets (the target), sourceValue =
+      // Liabilities + Net Worth as currently extracted, diffValue = the unexplained gap.
+      const totalAssetsFmt = fmtUsd(input.recommendedValue);
+      const reconciledFmt = fmtUsd(input.sourceValue);
+      const gapFmt = fmtUsd(input.diffValue);
+      const detailClause =
+        totalAssetsFmt && reconciledFmt && gapFmt
+          ? ` The extracted liability/equity detail currently totals ${reconciledFmt}, leaving ${gapFmt} of Total Assets (${totalAssetsFmt}) unexplained.`
+          : "";
+      return {
+        ...common,
+        title: `Upload source detail for ${periodRef} balance sheet liabilities and net worth`,
+        shortDescription: `${periodRef} Schedule L / liability + equity detail reconciling to ${totalAssetsFmt ?? "Total Assets"}.`,
+        requestedDocuments: [
+          interim ? "Detailed interim balance sheet" : "Schedule L (Form 1120 / 1065)",
+          "Detailed balance sheet showing every liability and equity line",
+        ],
+        acceptableDocuments: [
+          `${periodRef} Schedule L showing mortgages/notes, other liabilities, capital stock, paid-in capital, and retained earnings`,
+          `${periodRef} detailed balance sheet itemizing every liability and equity line`,
+        ],
+        unacceptableDocuments: [`Summary ${statementType} that only repeats totals without the underlying liability/equity lines`],
+        borrowerMessage:
+          `Buddy needs source detail for the ${periodRef} balance sheet liability and equity lines.` +
+          detailClause +
+          ` Please upload the ${periodRef} Schedule L (or a detailed balance sheet) showing every liability and equity line so Total Assets reconciles to Total Liabilities + Net Worth.`,
+        missingDocumentType: "balance_sheet_detail",
+        tags: [...baseTags, "reconciliation"],
+      };
+    }
+    // Generic verify — ask for source documentation + reconciliation for the exact period/line.
+    return {
+      ...common,
+      title: `Upload source documentation supporting ${lineName} for ${periodRef}`,
+      shortDescription: `Source documentation + reconciliation for ${lineName} (${periodRef}).`,
+      requestedDocuments: [`Source documentation supporting ${lineName}`, `Reconciliation for ${lineName}`],
+      acceptableDocuments: [
+        `${periodRef} source schedule or statement detail supporting ${lineName}`,
+        `Reconciliation showing how ${lineName} ties to the source documents`,
+      ],
+      unacceptableDocuments: [],
+      borrowerMessage:
+        `Buddy needs to verify ${lineName} on the ${periodRef} ${statementType}. Please upload the source documentation and any reconciliation that supports ${lineName} for ${periodRef}.`,
+      missingDocumentType: "financial_statement_detail",
+      tags: [...baseTags, "verify"],
+    };
+  }
+
   // ── Conservative fail-safe (unknown statement / line, or non-source-detail action) ───────────────
   return {
     ...common,

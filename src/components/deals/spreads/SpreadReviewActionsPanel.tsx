@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isActiveReviewActionStatus } from "@/lib/classicSpread/review/reviewActionStatus";
+import type { SourceEvidenceStatus } from "@/lib/classicSpread/review/sourceEvidenceStatus";
 
 /**
  * SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1 #4 — compact "Spread Review Actions" panel.
@@ -25,6 +26,17 @@ type ReviewAction = {
   diff_value: number | null;
   source_document_id: string | null;
   reviewer_note: string | null;
+  // SPEC-SPREAD-SOURCE-EVIDENCE-CLEARING-WORKFLOW-1: evidence lifecycle for active source-detail/verify
+  // rows, computed server-side from existing documents + draft requests.
+  evidence?: SourceEvidenceStatus | null;
+};
+
+const UPLOAD_LABEL: Record<string, string> = {
+  no_candidate_uploaded: "No candidate uploaded",
+  candidate_uploaded: "Candidate uploaded",
+  candidate_uploaded_wrong_period: "Uploaded — wrong period",
+  candidate_uploaded_needs_bridge: "Uploaded — bridge required",
+  candidate_uploaded_extracted: "Uploaded & extracted",
 };
 
 const fmt = (n: number | null) =>
@@ -169,12 +181,14 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
             <span>diff: <span className="text-white/80">{fmt(a.diff_value)}</span></span>
             {a.source_document_id && <span>doc: <span className="text-white/80">{a.source_document_id.slice(0, 8)}</span></span>}
           </div>
-          {a.status === "borrower_detail_requested" && (
+          {a.evidence ? (
+            <EvidenceStrip ev={a.evidence} />
+          ) : a.status === "borrower_detail_requested" ? (
             <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-300">
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>hourglass_top</span>
               Borrower detail requested — awaiting upload
             </div>
-          )}
+          ) : null}
           <div className="flex flex-wrap gap-1.5">
             <ActBtn label="Confirm Buddy resolved value" onClick={() => decide(a.id, "confirmed_resolved_value")} busy={busyId === a.id} />
             <ActBtn label="Verify source line" onClick={() => decide(a.id, "source_verified")} busy={busyId === a.id} />
@@ -193,6 +207,48 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
           {a.reviewer_note && <span className="text-white/40 italic truncate">“{a.reviewer_note}”</span>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function EvidenceStrip({ ev }: { ev: SourceEvidenceStatus }) {
+  const toneBorder =
+    ev.statusTone === "success" ? "border-emerald-500/30 bg-emerald-950/10"
+      : ev.statusTone === "warning" ? "border-amber-500/30 bg-amber-950/10"
+        : "border-white/10 bg-white/[0.03]";
+  const reqLabel =
+    ev.requestStatus === "requested" ? "Requested" : ev.requestStatus === "not_requested" ? "Not requested" : "n/a";
+  return (
+    <div className={`rounded-md border ${toneBorder} p-2 space-y-1.5 text-[11px]`}>
+      <div className="text-white/80"><span className="text-white/45">Evidence needed:</span> {ev.requiredEvidenceSummary}</div>
+
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-white/60">
+        <span><span className="text-white/40">Request:</span> {reqLabel}</span>
+        <span><span className="text-white/40">Upload:</span> {UPLOAD_LABEL[ev.uploadStatus] ?? ev.uploadStatus}</span>
+        <span><span className="text-white/40">Extraction:</span> {ev.extractionStatus}</span>
+        <span className={ev.clearingStatus === "cleared_after_regenerate" ? "text-emerald-300" : ev.clearingStatus === "needs_regenerate" ? "text-amber-300" : "text-rose-300"}>
+          {ev.clearingStatus === "cleared_after_regenerate" ? "Cleared" : ev.clearingStatus === "needs_regenerate" ? "Needs regenerate" : "Still blocking"}
+        </span>
+      </div>
+
+      {ev.requestWarning && <div className="text-amber-300">{ev.requestWarning}</div>}
+
+      {ev.matchingDocuments.length > 0 && (
+        <div className="space-y-0.5">
+          {ev.matchingDocuments.map((d) => (
+            <div key={d.id} className="text-white/55">
+              <span className="text-white/75">{d.filename}</span>
+              {d.docType ? ` — ${d.docType.replace(/_/g, " ")}` : ""}
+              {d.periodLabel ? ` — ${d.periodLabel}` : ""}
+              {` — ${d.extractionStatus}`}
+              {d.note ? <span className="text-amber-300"> — {d.note}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {ev.blockingReason && <div className="text-white/55"><span className="text-white/40">Why still blocking:</span> {ev.blockingReason}</div>}
+      <div className="text-white/70"><span className="text-white/40">Next:</span> {ev.nextActionLabel}</div>
     </div>
   );
 }
