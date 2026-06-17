@@ -162,5 +162,26 @@ describe("income-statement + generic", () => {
     assert.equal(s.uploadStatus, "no_candidate_uploaded");
     assert.equal(s.extractionStatus, "not_started");
     assert.equal(s.clearingStatus, "still_blocking");
+    assert.equal(s.enrichmentWarning, null);
+  });
+});
+
+describe("documentsUnavailable fallback (BUGFIX-...-DATA-CONTRACT-1)", () => {
+  it("renders the base lifecycle with unknown upload/extraction + a safe warning", () => {
+    const s = buildSourceEvidenceStatus({ action: tcaAction(), documents: [], documentsUnavailable: true });
+    assert.ok(s.requiredEvidenceSummary.length > 0); // needed is always known
+    assert.equal(s.uploadStatus, "unknown");
+    assert.equal(s.extractionStatus, "unknown");
+    assert.equal(s.clearingStatus, "still_blocking");
+    assert.deepEqual(s.matchingDocuments, []);
+    assert.match(s.enrichmentWarning!, /could not be loaded/i);
+    assert.equal(s.statusTone, "blocker");
+    assert.equal(s.requestStatus, "requested"); // borrower_detail_requested resolves without docs
+    assert.ok(s.nextActionLabel.length > 0);
+  });
+
+  it("a settled action is still cleared even when documents are unavailable", () => {
+    const s = buildSourceEvidenceStatus({ action: tcaAction({ status: "closed" }), documents: [], documentsUnavailable: true });
+    assert.equal(s.clearingStatus, "cleared_after_regenerate");
   });
 });

@@ -64,6 +64,7 @@ export type EvidenceReviewAction = {
 // ── output ────────────────────────────────────────────────────────────────────────────────────
 export type EvidenceRequestStatus = "not_requested" | "requested" | "not_applicable";
 export type EvidenceUploadStatus =
+  | "unknown"
   | "no_candidate_uploaded"
   | "candidate_uploaded"
   | "candidate_uploaded_wrong_period"
@@ -95,6 +96,8 @@ export type SourceEvidenceStatus = {
   nextActionLabel: string;
   statusTone: EvidenceTone;
   requestWarning: string | null;
+  /** safe, non-technical note when candidate documents/requests could not be loaded (never a raw error). */
+  enrichmentWarning: string | null;
 };
 
 // ── period parsing / matching ───────────────────────────────────────────────────────────────────
@@ -256,9 +259,12 @@ export function buildSourceEvidenceStatus(args: {
   action: EvidenceReviewAction;
   documents: EvidenceCandidateDoc[];
   draftRequests?: EvidenceDraftRequest[];
+  /** true when candidate documents could not be loaded — the strip still renders, marked unknown. */
+  documentsUnavailable?: boolean;
 }): SourceEvidenceStatus {
   const { action } = args;
-  const documents = (args.documents ?? []).filter((d) => d.isActive !== false);
+  const documentsUnavailable = args.documentsUnavailable === true;
+  const documents = documentsUnavailable ? [] : (args.documents ?? []).filter((d) => d.isActive !== false);
   const draftRequests = args.draftRequests ?? [];
 
   const isSourceAction = action.actionType === "REQUEST_SOURCE_DETAIL" || action.actionType === "VERIFY_SOURCE_LINE";
@@ -326,6 +332,15 @@ export function buildSourceEvidenceStatus(args: {
   else if (extractionPool.some((m) => m.extractionStatus === "failed")) extractionStatus = "failed";
   else extractionStatus = "unknown";
 
+  // ── enrichment unavailable: candidate documents could not be loaded. The base lifecycle (needed /
+  //    request / blocking / next) still renders honestly; upload + extraction read "unknown". ──
+  let enrichmentWarning: string | null = null;
+  if (documentsUnavailable) {
+    uploadStatus = "unknown";
+    extractionStatus = "unknown";
+    enrichmentWarning = "Evidence candidates could not be loaded.";
+  }
+
   // ── clearing status (the authority — only a settled action means the finding is gone) ──
   let clearingStatus: EvidenceClearingStatus;
   if (!isActiveReviewActionStatus(action.status)) {
@@ -381,5 +396,6 @@ export function buildSourceEvidenceStatus(args: {
     nextActionLabel,
     statusTone,
     requestWarning,
+    enrichmentWarning,
   };
 }

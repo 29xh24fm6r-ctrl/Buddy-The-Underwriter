@@ -54,45 +54,89 @@ export function normalizeEvidenceDraft(d: any): EvidenceDraftRequest {
   };
 }
 
-export async function attachSourceEvidence(
-  rows: any[],
-  dealId: string,
-  bankId: string,
-  client?: any,
-): Promise<any[]> {
-  try {
-    const sb = client ?? supabaseAdmin();
-    const { data: docRows } = await sb
-      .from("deal_documents")
-      .select("id, original_filename, display_name, canonical_type, document_type, gatekeeper_doc_type, checklist_key, document_label, ai_period_end, ai_tax_year, gatekeeper_tax_year, doc_year, finalized_at, extraction_quality_status, status, is_active")
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId);
-    const { data: draftRows } = await sb
-      .from("draft_borrower_requests")
-      .select("id, status, evidence")
-      .eq("deal_id", dealId);
+/** True for rows whose blocker is a source-detail / source-line finding (always get an evidence strip). */
+export function isSourceEvidenceRow(r: any): boolean {
+  return r?.action_type === "REQUEST_SOURCE_DETAIL" || r?.action_type === "VERIFY_SOURCE_LINE";
+}
 
-    const documents = ((docRows ?? []) as any[]).map(normalizeEvidenceDoc);
-    const draftRequests = ((draftRows ?? []) as any[]).map(normalizeEvidenceDraft);
+function toEvidenceAction(r: any) {
+  const fj = (r.finding_json ?? {}) as { periodEndDate?: string | null; periodIsInterim?: boolean };
+  return {
+    id: r.id, findingKey: r.finding_key, actionType: r.action_type, issueType: r.issue_type,
+    statement: r.statement, periodLabel: r.period_label, rowLabel: r.row_label, status: r.status,
+    sourceValue: r.source_value, recommendedValue: r.recommended_value, diffValue: r.diff_value,
+    periodEndDate: fj.periodEndDate ?? null, periodIsInterim: fj.periodIsInterim,
+  };
+}
 
-    return rows.map((r) => {
-      const isSource = r.action_type === "REQUEST_SOURCE_DETAIL" || r.action_type === "VERIFY_SOURCE_LINE";
-      if (!isSource || !isActiveReviewActionStatus(r.status)) return r;
-      const fj = (r.finding_json ?? {}) as { periodEndDate?: string | null; periodIsInterim?: boolean };
+/**
+ * Layered enrichment — evidence is MANDATORY for every active source row:
+ *   1. build the base lifecycle from the review action alone (no DB) — the guaranteed fallback;
+ *   2. try to load candidate documents; on failure keep the fallback (uploadStatus/extraction = unknown);
+ *   3. try to load borrower draft requests; on failure rely on the action status for request state.
+ * Never returns an active source row without `evidence`. Non-source / settled rows are untouched.
+ * `client` is injectable for tests.
+ */
+export async function attachSourceEvidence(rows: any[], dealId: string, bankId: string, client?: any): Promise<any[]> {
+  const sb = (() => {
+    try { return client ?? supabaseAdmin(); } catch { return null; }
+  })();
+
+  // (2) candidate documents — independent failure does not drop the strip.
+  let documents: ReturnType<typeof normalizeEvidenceDoc>[] = [];
+  let documentsUnavailable = true;
+  if (sb) {
+    try {
+      const { data, error } = await sb
+        .from("deal_documents")
+        .select("id, original_filename, display_name, canonical_type, document_type, gatekeeper_doc_type, checklist_key, document_label, ai_period_end, ai_tax_year, gatekeeper_tax_year, doc_year, finalized_at, extraction_quality_status, status, is_active")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId);
+      if (!error) {
+        documents = ((data ?? []) as any[]).map(normalizeEvidenceDoc);
+        documentsUnavailable = false;
+      } else {
+        console.warn("[classic-spread/review-actions] document enrichment query error (non-fatal):", error.message);
+      }
+    } catch (e) {
+      console.warn("[classic-spread/review-actions] document enrichment failed (non-fatal):", (e as any)?.message);
+    }
+  }
+
+  // (3) borrower draft requests — independent failure just falls back to the action status.
+  let draftRequests: ReturnType<typeof normalizeEvidenceDraft>[] = [];
+  if (sb) {
+    try {
+      const { data, error } = await sb
+        .from("draft_borrower_requests")
+        .select("id, status, evidence")
+        .eq("deal_id", dealId);
+      if (!error) draftRequests = ((data ?? []) as any[]).map(normalizeEvidenceDraft);
+      else console.warn("[classic-spread/review-actions] draft-request enrichment query error (non-fatal):", error.message);
+    } catch (e) {
+      console.warn("[classic-spread/review-actions] draft-request enrichment failed (non-fatal):", (e as any)?.message);
+    }
+  }
+
+  return rows.map((r) => {
+    if (!isSourceEvidenceRow(r) || !isActiveReviewActionStatus(r.status)) return r;
+    try {
       const evidence = buildSourceEvidenceStatus({
-        action: {
-          id: r.id, findingKey: r.finding_key, actionType: r.action_type, issueType: r.issue_type,
-          statement: r.statement, periodLabel: r.period_label, rowLabel: r.row_label, status: r.status,
-          sourceValue: r.source_value, recommendedValue: r.recommended_value, diffValue: r.diff_value,
-          periodEndDate: fj.periodEndDate ?? null, periodIsInterim: fj.periodIsInterim,
-        },
+        action: toEvidenceAction(r),
         documents,
         draftRequests,
+        documentsUnavailable,
       });
       return { ...r, evidence };
-    });
-  } catch (e) {
-    console.warn("[classic-spread/review-actions] evidence enrichment failed (non-fatal):", (e as any)?.message);
-    return rows;
-  }
+    } catch (e) {
+      // Last-resort guarantee: never return an active source row without an evidence strip.
+      console.warn("[classic-spread/review-actions] evidence build failed (non-fatal):", (e as any)?.message);
+      try {
+        const evidence = buildSourceEvidenceStatus({ action: toEvidenceAction(r), documents: [], draftRequests: [], documentsUnavailable: true });
+        return { ...r, evidence };
+      } catch {
+        return r;
+      }
+    }
+  });
 }

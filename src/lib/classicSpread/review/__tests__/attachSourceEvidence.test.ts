@@ -81,11 +81,47 @@ describe("attachSourceEvidence", () => {
     assert.equal(out[0].evidence.requestStatus, "requested");
   });
 
-  it("is non-fatal: returns rows unchanged if the candidate fetch throws", async () => {
+  it("MANDATORY evidence: a fetch failure still attaches fallback evidence (unknown + warning)", async () => {
     const throwingClient = { from() { throw new Error("boom"); } };
-    const rows = [reviewRow()];
-    const out = await attachSourceEvidence(rows, DEAL, BANK, throwingClient);
-    assert.equal(out[0].evidence, undefined);
-    assert.equal(out.length, 1);
+    const out = await attachSourceEvidence([reviewRow()], DEAL, BANK, throwingClient);
+    const ev = out[0].evidence;
+    assert.ok(ev, "active source row must ALWAYS receive evidence, even when enrichment fails");
+    assert.equal(ev.uploadStatus, "unknown");
+    assert.equal(ev.extractionStatus, "unknown");
+    assert.equal(ev.clearingStatus, "still_blocking");
+    assert.deepEqual(ev.matchingDocuments, []);
+    assert.match(ev.enrichmentWarning, /could not be loaded/i);
+    // borrower_detail_requested status still resolves the request state without the DB
+    assert.equal(ev.requestStatus, "requested");
+    assert.ok(ev.requiredEvidenceSummary.length > 0);
+    // never leaks a raw error
+    assert.ok(!/boom/.test(JSON.stringify(ev)));
+  });
+
+  it("a document-query ERROR (not a throw) also falls back to unknown evidence", async () => {
+    const errClient = {
+      from(t: string) {
+        return {
+          select() { return this; }, eq() { return this; },
+          then(resolve: any) {
+            if (t === "deal_documents") resolve({ data: null, error: { message: "column does not exist" } });
+            else resolve({ data: [], error: null });
+          },
+        };
+      },
+    };
+    const out = await attachSourceEvidence([reviewRow()], DEAL, BANK, errClient);
+    assert.ok(out[0].evidence);
+    assert.equal(out[0].evidence.uploadStatus, "unknown");
+    assert.match(out[0].evidence.enrichmentWarning, /could not be loaded/i);
+  });
+
+  it("every active source row receives evidence; matchingDocuments may be empty", async () => {
+    const client = makeFakeClient({ deal_documents: [], draft_borrower_requests: [] });
+    const rows = [reviewRow({ id: "a", status: "open" }), reviewRow({ id: "b", action_type: "VERIFY_SOURCE_LINE", status: "borrower_detail_requested" })];
+    const out = await attachSourceEvidence(rows, DEAL, BANK, client);
+    assert.ok(out[0].evidence && out[1].evidence);
+    assert.deepEqual(out[0].evidence.matchingDocuments, []);
+    assert.equal(out[0].evidence.uploadStatus, "no_candidate_uploaded"); // loaded, none found (not "unknown")
   });
 });

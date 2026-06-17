@@ -16,8 +16,16 @@ const read = (rel: string) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
 
 describe("panel renders the evidence-clearing strip", () => {
   const panel = read("src/components/deals/spreads/SpreadReviewActionsPanel.tsx");
-  it("renders EvidenceStrip for active rows carrying an evidence block", () => {
-    assert.match(panel, /a\.evidence \?\s*\(\s*<EvidenceStrip ev=\{a\.evidence\}/);
+  it("MANDATORY strip: renders for active source rows even without server evidence (client fallback)", () => {
+    // The strip is driven by rowEvidence(a), which falls back to a client-built lifecycle when the
+    // API did not attach one — so the strip never silently disappears for an active source blocker.
+    assert.match(panel, /function rowEvidence\(/);
+    assert.match(panel, /const ev = rowEvidence\(a\);/);
+    assert.match(panel, /<EvidenceStrip ev=\{ev\}/);
+    assert.match(panel, /buildSourceEvidenceStatus\(/); // client-side fallback derivation
+    assert.match(panel, /documentsUnavailable: true/);
+    // fallback only for active source action types
+    assert.match(panel, /SOURCE_ACTION_TYPES\.includes\(a\.action_type\) .*isActiveReviewActionStatus\(a\.status\)/s);
   });
   it("the strip shows needed / request / upload / extraction / why-blocking / next-action", () => {
     assert.match(panel, /Evidence needed:/);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isActiveReviewActionStatus } from "@/lib/classicSpread/review/reviewActionStatus";
-import type { SourceEvidenceStatus } from "@/lib/classicSpread/review/sourceEvidenceStatus";
+import { buildSourceEvidenceStatus, type SourceEvidenceStatus } from "@/lib/classicSpread/review/sourceEvidenceStatus";
 
 /**
  * SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1 #4 — compact "Spread Review Actions" panel.
@@ -26,10 +26,38 @@ type ReviewAction = {
   diff_value: number | null;
   source_document_id: string | null;
   reviewer_note: string | null;
+  finding_json?: { periodEndDate?: string | null; periodIsInterim?: boolean } | null;
   // SPEC-SPREAD-SOURCE-EVIDENCE-CLEARING-WORKFLOW-1: evidence lifecycle for active source-detail/verify
   // rows, computed server-side from existing documents + draft requests.
   evidence?: SourceEvidenceStatus | null;
 };
+
+const SOURCE_ACTION_TYPES = ["REQUEST_SOURCE_DETAIL", "VERIFY_SOURCE_LINE"];
+
+/**
+ * BUGFIX-SPREAD-EVIDENCE-STRIP-DATA-CONTRACT-1: the Evidence Strip is MANDATORY for active source
+ * blockers. Prefer the server-computed lifecycle; if the API did not attach one (older blob / failed
+ * enrichment), derive a client-side fallback from the row fields alone so the strip never disappears.
+ */
+function rowEvidence(a: ReviewAction): SourceEvidenceStatus | null {
+  if (a.evidence) return a.evidence;
+  if (!SOURCE_ACTION_TYPES.includes(a.action_type) || !isActiveReviewActionStatus(a.status)) return null;
+  try {
+    return buildSourceEvidenceStatus({
+      action: {
+        id: a.id, findingKey: "", actionType: a.action_type, issueType: a.issue_type,
+        statement: a.statement, periodLabel: a.period_label, rowLabel: a.row_label, status: a.status,
+        sourceValue: a.source_value, recommendedValue: a.recommended_value, diffValue: a.diff_value,
+        periodEndDate: a.finding_json?.periodEndDate ?? null, periodIsInterim: a.finding_json?.periodIsInterim,
+      },
+      documents: [],
+      draftRequests: [],
+      documentsUnavailable: true,
+    });
+  } catch {
+    return null;
+  }
+}
 
 const UPLOAD_LABEL: Record<string, string> = {
   no_candidate_uploaded: "No candidate uploaded",
@@ -181,14 +209,19 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
             <span>diff: <span className="text-white/80">{fmt(a.diff_value)}</span></span>
             {a.source_document_id && <span>doc: <span className="text-white/80">{a.source_document_id.slice(0, 8)}</span></span>}
           </div>
-          {a.evidence ? (
-            <EvidenceStrip ev={a.evidence} />
-          ) : a.status === "borrower_detail_requested" ? (
-            <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-300">
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>hourglass_top</span>
-              Borrower detail requested — awaiting upload
-            </div>
-          ) : null}
+          {(() => {
+            const ev = rowEvidence(a);
+            if (ev) return <EvidenceStrip ev={ev} />;
+            if (a.status === "borrower_detail_requested") {
+              return (
+                <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-300">
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>hourglass_top</span>
+                  Borrower detail requested — awaiting upload
+                </div>
+              );
+            }
+            return null;
+          })()}
           <div className="flex flex-wrap gap-1.5">
             <ActBtn label="Confirm Buddy resolved value" onClick={() => decide(a.id, "confirmed_resolved_value")} busy={busyId === a.id} />
             <ActBtn label="Verify source line" onClick={() => decide(a.id, "source_verified")} busy={busyId === a.id} />
@@ -232,6 +265,7 @@ function EvidenceStrip({ ev }: { ev: SourceEvidenceStatus }) {
       </div>
 
       {ev.requestWarning && <div className="text-amber-300">{ev.requestWarning}</div>}
+      {ev.enrichmentWarning && <div className="text-white/45 italic">{ev.enrichmentWarning}</div>}
 
       {ev.matchingDocuments.length > 0 && (
         <div className="space-y-0.5">
