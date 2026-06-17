@@ -82,5 +82,11 @@
  *         the overall spread stays BLOCKED while the YTD-2026 TCA source-detail action remains
  *         (SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1). A v15 blob lacks the computed entity
  *         cash flow / DSCR lines and must be rejected.
+ *   v17 — final audit copy polish (PDF copy only, no math/cert change): the Global Cash Flow page's
+ *         coverage band + methodology block + computed-entity-cash-flow note now render plain ASCII
+ *         (">=", "->", "-") instead of raw Unicode the core PDF font garbled ("DSCR \"e 1.25x",
+ *         "EBITDA !' OBI !' NI"); the methodology heading/rationale and the "NOT CERTIFIED" banners
+ *         are sanitized to printable ASCII (SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1). A v16 blob
+ *         shows the garbled glyphs and must be rejected so the cleaned renderer replaces it.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 16;
+export const CLASSIC_PDF_RENDER_VERSION = 17;

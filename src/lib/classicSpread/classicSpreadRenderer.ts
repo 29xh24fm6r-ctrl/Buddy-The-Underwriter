@@ -453,7 +453,7 @@ function drawSpreadAuditSection(
   if (notCertified) {
     doc.rect(PAGE_MARGIN, s.y, textWidth, 22).fill("#dc2626");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor("#ffffff");
-    doc.text("NOT CERTIFIED — certification unavailable", PAGE_MARGIN + 8, s.y + 5, { width: textWidth - 16 });
+    doc.text("NOT CERTIFIED - certification unavailable", PAGE_MARGIN + 8, s.y + 5, { width: textWidth - 16 });
     doc.fillColor("#000000");
     s.y += 30;
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
@@ -634,13 +634,17 @@ function renderMethodologyBlock(
   doc.fillColor("#000000");
   for (const entry of visibleEntries) {
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-    const heading = `${entry.axisLabel}: ${entry.chosenVariantLabel}`;
+    // SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1: methodology labels/rationale carry Unicode the
+    // core PDF font cannot render (e.g. "EBITDA -> OBI -> NI" arrows, Section-sign). Run them through
+    // the shared PDF sanitizer so they print plain ASCII instead of garbled glyphs ("EBITDA !' OBI !' NI").
+    const heading = sanitizeForPdf(`${entry.axisLabel}: ${entry.chosenVariantLabel}`);
     doc.text(heading, PAGE_MARGIN + 8, y + 2, { width: contentWidth - 8 });
     y += ROW_HEIGHT;
 
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
-    const rationaleHeight = doc.heightOfString(entry.rationale, { width: contentWidth - 16 });
-    doc.text(entry.rationale, PAGE_MARGIN + 16, y + 1, { width: contentWidth - 16 });
+    const rationale = sanitizeForPdf(entry.rationale);
+    const rationaleHeight = doc.heightOfString(rationale, { width: contentWidth - 16 });
+    doc.text(rationale, PAGE_MARGIN + 16, y + 1, { width: contentWidth - 16 });
     y += rationaleHeight + 4;
     doc.fillColor("#000000");
   }
@@ -706,7 +710,7 @@ function renderGlobalCashFlowPage(
       const basisLabel = gcf.entityCashFlowBasis === "EBITDA" ? "EBITDA" : "ordinary business income";
       const periodLabel = gcf.entityCashFlowSourcePeriod ? ` ${gcf.entityCashFlowSourcePeriod}` : "";
       doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
-      doc.text(`Computed from${periodLabel} ${basisLabel} (preliminary — not a materialized GCF fact)`, PAGE_MARGIN + 20, y + 1, { width: contentWidth - 28 });
+      doc.text(`Computed from${periodLabel} ${basisLabel} (preliminary - not a materialized GCF fact)`, PAGE_MARGIN + 20, y + 1, { width: contentWidth - 28 });
       doc.fillColor("#000000");
       y += ROW_HEIGHT;
     }
@@ -805,10 +809,12 @@ function renderGlobalCashFlowPage(
   // Light background
   doc.rect(PAGE_MARGIN + 4, y, contentWidth - 4, barHeight).fill("#f9fafb");
 
-  const statusLabel = coverageStatus === "ADEQUATE" ? "ADEQUATE \u2014 DSCR \u2265 1.25x"
-    : coverageStatus === "TIGHT" ? "TIGHT \u2014 DSCR 1.00x\u20131.25x"
-    : coverageStatus === "DEFICIT" ? "DEFICIT \u2014 DSCR < 1.00x"
-    : "UNKNOWN \u2014 Insufficient data to compute DSCR";
+  // SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1: write the coverage band in plain ASCII (>=, -)
+  // so the core PDF font does not garble the comparison/dash glyphs (e.g. 'DSCR "e 1.25x').
+  const statusLabel = coverageStatus === "ADEQUATE" ? "ADEQUATE - DSCR >= 1.25x"
+    : coverageStatus === "TIGHT" ? "TIGHT - DSCR 1.00x-1.25x"
+    : coverageStatus === "DEFICIT" ? "DEFICIT - DSCR < 1.00x"
+    : "UNKNOWN - Insufficient data to compute DSCR";
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor(accentColor);
   doc.text(statusLabel, PAGE_MARGIN + 14, y + 9, { width: contentWidth - 24, lineBreak: false });
@@ -1075,7 +1081,7 @@ export function renderClassicSpread(
       const bannerW = doc.page.width - 2 * PAGE_MARGIN;
       doc.rect(PAGE_MARGIN, s.y, bannerW, 16).fill("#dc2626");
       doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#ffffff");
-      doc.text("NOT CERTIFIED — certification unavailable; values are uncertified", PAGE_MARGIN + 6, s.y + 3, { width: bannerW - 12, lineBreak: false });
+      doc.text("NOT CERTIFIED - certification unavailable; values are uncertified", PAGE_MARGIN + 6, s.y + 3, { width: bannerW - 12, lineBreak: false });
       doc.fillColor("#000000");
       s.y += 22;
     }

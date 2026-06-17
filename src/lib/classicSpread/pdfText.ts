@@ -17,5 +17,9 @@ export function sanitizeForPdf(s: string): string {
     .replace(/…/g, "...")
     .replace(/[‒–—―−]/g, "-")
     .replace(/·/g, "-")
+    // SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1: spell out the section sign so methodology
+    // rationale (e.g. "§179 and bonus depreciation") doesn't degrade to a bare "179" once the
+    // blanket non-ASCII strip below runs.
+    .replace(/§/g, "Section ")
     .replace(/[^\x20-\x7E]/g, ""); // strip any remaining non-printable-ASCII / corrupted bytes
 }
