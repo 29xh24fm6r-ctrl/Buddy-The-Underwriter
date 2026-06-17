@@ -116,3 +116,25 @@ describe("applyReviewDecisions", () => {
     assert.equal(out.summary.blockers, 4); // unchanged
   });
 });
+
+describe("buildClassicSpreadReviewActions — period enrichment (SOURCE-DETAIL-REQUEST-1)", () => {
+  const periods = [
+    { label: "2025", date: "12/31/2025", stmtType: "Annual" },
+    { label: "2026", date: "3/31/2026", stmtType: "Interim" },
+  ];
+
+  it("carries the resolved period end date + interim flag into finding_json when periods are supplied", () => {
+    const byPeriod = Object.fromEntries(
+      buildClassicSpreadReviewActions(omniCareAudit(), periods).map((a) => [a.periodLabel, a]),
+    );
+    assert.equal(byPeriod["2026"]!.findingJson.periodEndDate, "3/31/2026");
+    assert.equal(byPeriod["2026"]!.findingJson.periodIsInterim, true);
+    assert.equal(byPeriod["2025"]!.findingJson.periodEndDate, "12/31/2025");
+    assert.equal(byPeriod["2025"]!.findingJson.periodIsInterim, false);
+  });
+
+  it("is back-compatible: omitting periods yields a null end date (no crash)", () => {
+    const a = buildClassicSpreadReviewActions(omniCareAudit());
+    assert.equal(a[0]!.findingJson.periodEndDate, null);
+  });
+});

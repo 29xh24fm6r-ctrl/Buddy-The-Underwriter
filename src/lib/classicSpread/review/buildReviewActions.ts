@@ -35,8 +35,19 @@ export type ClassicSpreadReviewAction = {
   sourceValue: number | null; // the rejected/reported source value
   diffValue: number | null;
   sourceDocumentId: string | null;
-  findingJson: { finding: SpreadAuditFinding; action: ReturnType<typeof classifySpreadFindingAction> };
+  // SPEC-CLASSIC-SPREAD-BORROWER-SOURCE-DETAIL-REQUEST-1: persist the resolved period end date +
+  // interim flag inside finding_json so a borrower source-detail request can be built from the row
+  // alone (no spread reload). Optional/back-compat — absent when periods are not supplied.
+  findingJson: {
+    finding: SpreadAuditFinding;
+    action: ReturnType<typeof classifySpreadFindingAction>;
+    periodEndDate?: string | null;
+    periodIsInterim?: boolean;
+  };
 };
+
+/** Minimal period shape (matches StatementPeriod) for resolving a finding's label -> end date. */
+export type ReviewActionPeriod = { label: string; date: string; stmtType?: string };
 
 /** Deterministic, stable key for a finding — the natural upsert key per (bank, deal). */
 export function reviewFindingKey(f: { period: string; statement: string; rowLabel: string; issueType: string }): string {
@@ -51,8 +62,13 @@ export function reviewFindingKey(f: { period: string; statement: string; rowLabe
  */
 export function buildClassicSpreadReviewActions(
   audit: SpreadAuditResult | null | undefined,
+  periods?: ReviewActionPeriod[] | null,
 ): ClassicSpreadReviewAction[] {
   if (!audit) return [];
+  // Resolve a finding's period label -> { end date, interim } from the rendered statement periods.
+  const periodByLabel = new Map<string, ReviewActionPeriod>();
+  for (const p of periods ?? []) periodByLabel.set(p.label, p);
+
   const seen = new Set<string>();
   const out: ClassicSpreadReviewAction[] = [];
   for (const f of audit.findings) {
@@ -61,6 +77,7 @@ export function buildClassicSpreadReviewActions(
     if (seen.has(findingKey)) continue;
     seen.add(findingKey);
     const action = classifySpreadFindingAction(f);
+    const period = periodByLabel.get(f.period);
     out.push({
       findingKey,
       periodLabel: f.period,
@@ -73,7 +90,12 @@ export function buildClassicSpreadReviewActions(
       sourceValue: f.actualValue,
       diffValue: f.difference,
       sourceDocumentId: f.documentIds[0] ?? null,
-      findingJson: { finding: f, action },
+      findingJson: {
+        finding: f,
+        action,
+        periodEndDate: period?.date ?? null,
+        periodIsInterim: period ? period.stmtType === "Interim" : undefined,
+      },
     });
   }
   return out.sort((a, b) => a.findingKey.localeCompare(b.findingKey));

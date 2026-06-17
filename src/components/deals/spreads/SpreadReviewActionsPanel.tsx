@@ -44,6 +44,7 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const base = `/api/deals/${dealId}/classic-spread/review-actions`;
 
@@ -81,6 +82,7 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
     async (id: string, status: string) => {
       setBusyId(id);
       setError(null);
+      setNotice(null);
       try {
         let note: string | null = null;
         if (status === "waived") {
@@ -93,6 +95,16 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
           body: JSON.stringify({ id, status, note }),
         });
         if (!res.ok) throw new Error(`Decision failed (${res.status})`);
+        if (status === "borrower_detail_requested") {
+          const json = (await res.json().catch(() => ({}))) as {
+            borrowerRequest?: { created?: boolean; alreadyRequested?: boolean } | null;
+          };
+          const br = json.borrowerRequest;
+          const lead = br?.alreadyRequested ? "Borrower request already created" : "Borrower request created";
+          setNotice(
+            `${lead} — this does not resolve the review action until supporting source documentation is uploaded and the spread is regenerated.`,
+          );
+        }
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -127,6 +139,10 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
 
       {error && (
         <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-3 py-2 text-xs text-rose-300">{error}</div>
+      )}
+
+      {notice && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200">{notice}</div>
       )}
 
       {open.length === 0 && reviewed.length === 0 && (
