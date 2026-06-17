@@ -287,6 +287,18 @@ function buildBalanceSheetRows(
   // blocked/unavailable TL when shareholder loans + other liabilities are present).
   const totalNonCurrentLiab = deriveTotalNonCurrentLiabilities(byPeriod, periods);
 
+  // SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1: TOTAL LIABILITIES & NET WORTH is the SUM of
+  // the rendered Total Liabilities + Total Net Worth — the SAME value the line-accuracy audit
+  // reconciles against Total Assets. It must NEVER mirror Total Assets (which fakes a balance when the
+  // Schedule L liability/equity detail is incomplete, e.g. OmniCare 2022 where only mortgages + a
+  // negative retained-earnings line were extracted). Blank when either side is unavailable.
+  const liabilitiesPlusNetWorth = deriveValues(periods, (p) => {
+    const i = periods.indexOf(p);
+    const tl = totalLiabilities[i];
+    const eq = totalEquity[i];
+    return tl != null && eq != null ? tl + eq : null;
+  });
+
   const workingCapital = sub(totalCurrentAssets, totalCurrentLiab);
   const tangNetWorth = deriveValues(periods, (p) => {
     const eq = totalEquity[periods.indexOf(p)];
@@ -348,7 +360,7 @@ function buildBalanceSheetRows(
     { label: "Retained Earnings", indent: 1, isBold: false, values: retainedEarnings, showPct: true, pctBase: totalAssets },
     { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
-    { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
+    { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: liabilitiesPlusNetWorth, showPct: true, pctBase: totalAssets },
     // Memo items
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "Working Capital", indent: 1, isBold: false, values: workingCapital, showPct: false },
@@ -701,7 +713,14 @@ function buildExecutiveSummary(
       { label: "Long-Term Debt", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_MORTGAGES_NOTES_BONDS"), showPct: true, pctBase: totalAssets },
       { label: "TOTAL LIABILITIES", indent: 0, isBold: true, values: totalLiabilities, showPct: true, pctBase: totalAssets },
       { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
-      { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
+      // SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1: SUM of Total Liabilities + Net Worth,
+      // never a mirror of Total Assets — so an incomplete L&E side (e.g. 2022) shows the real imbalance.
+      { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: deriveValues(periods, (p) => {
+        const i = periods.indexOf(p);
+        const tl = totalLiabilities[i];
+        const eq = totalEquity[i];
+        return tl != null && eq != null ? tl + eq : null;
+      }), showPct: true, pctBase: totalAssets },
     ],
     incomeStatement: [
       { label: "Sales / Revenues", indent: 0, isBold: true, values: revenue, showPct: true, pctBase: revenue },

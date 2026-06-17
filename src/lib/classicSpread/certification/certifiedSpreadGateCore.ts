@@ -158,7 +158,10 @@ export function computeCertificationDecisions(
   ctx.periods.forEach((period, periodIndex) => {
     const bs = certifyBalanceSheet(selection, period, { ownerType: "DEAL" });
     if (bs.totalLiabilities.status === "blocked") {
-      bsDecisions.push({ periodIndex, rowLabels: ["TOTAL LIABILITIES", "TOTAL NON-CURRENT LIABILITIES"] });
+      // SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1: TOTAL LIABILITIES & NET WORTH now renders
+      // Total Liabilities + Net Worth (no longer a Total Assets mirror), so when Total Liabilities is
+      // suppressed its dependent rollup must be blanked too — never leave a balanced-looking total.
+      bsDecisions.push({ periodIndex, rowLabels: ["TOTAL LIABILITIES", "TOTAL NON-CURRENT LIABILITIES", "TOTAL LIABILITIES & NET WORTH"] });
       bsBlocked.push({ period, row: "TOTAL LIABILITIES", reason: bs.totalLiabilities.failureReason });
       suppressions.push({ page: "balance_sheet", row: "TOTAL LIABILITIES", period, action: "blank", reason: bs.totalLiabilities.failureReason ?? "blocked" });
     }

@@ -94,5 +94,13 @@
  *         certification + signature lines). Activated data-driven (an AR aging report exists); a date
  *         mismatch vs the rendered balance-sheet period is flagged and never bridged
  *         (SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1). A v17 blob lacks the BBC page and must be rejected.
+ *   v19 — Schedule L balance parity: the TOTAL LIABILITIES & NET WORTH row (Detailed Balance Sheet +
+ *         Executive Financial Statement) now renders Total Liabilities + Total Net Worth — the same
+ *         value the line-accuracy audit reconciles against Total Assets — instead of silently
+ *         mirroring Total Assets. When the Schedule L liability/equity detail is incomplete (e.g.
+ *         OmniCare 2022: only mortgages + negative retained earnings extracted) the row now shows the
+ *         real, lower total and the sheet visibly does NOT balance; when Total Liabilities is
+ *         suppressed the rollup is blanked too (SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1).
+ *         A v18 blob shows the fake-balanced (Total Assets) value and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 18;
+export const CLASSIC_PDF_RENDER_VERSION = 19;

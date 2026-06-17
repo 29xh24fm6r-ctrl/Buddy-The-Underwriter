@@ -141,6 +141,21 @@ export async function GET(_req: Request, ctx: Ctx) {
       console.warn("[classic-spread] cache shim failed (non-fatal):", cacheErr?.message);
     }
 
+    // BUGFIX-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1 (review-action sync requirement): keep the
+    // review-actions table in lock-step with the PDF the SAME regenerate cycle produced — so a fresh
+    // blocker (e.g. the 2022 balance imbalance) shows in the panel immediately and the panel can never
+    // read fewer open blockers than the PDF audit. Idempotent upsert + stale-prune; never auto-decides.
+    try {
+      const { buildClassicSpreadReviewActions } = await import("@/lib/classicSpread/review/buildReviewActions");
+      const { syncReviewActions } = await import("@/lib/classicSpread/review/reviewActionsRepo");
+      const audit = input.certificationAudit?.spreadAccuracy ?? null;
+      const actions = buildClassicSpreadReviewActions(audit, input.periods);
+      await syncReviewActions({ dealId, bankId, actions });
+    } catch (syncErr: any) {
+      // Non-fatal — the PDF + cache already succeeded; the panel's manual "Sync" remains a fallback.
+      console.warn("[classic-spread] review-action sync failed (non-fatal):", syncErr?.message);
+    }
+
     return new NextResponse(new Uint8Array(pdf), {
       status: 200,
       headers: {
