@@ -20,6 +20,7 @@ import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAud
 import { buildResolvedByPeriod } from "./audit/statementTruthResolver";
 import { resolveBalanceSheetSourceLines } from "./audit/balanceSheetSourceLineResolver";
 import { buildClassicSpreadCertificationSummary } from "./certification/certificationSummary";
+import { applyComputedEntityCashFlow } from "./entityCashFlowFromSpread";
 import { isBusinessStatementFact } from "./businessFactScope";
 import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
 import {
@@ -1135,6 +1136,20 @@ export async function loadClassicSpreadData(dealId: string, bankId: string): Pro
       input.certified = true;
       applyCertificationToInput(input, gate.decisions);
       input.certificationAudit = gate.audit;
+
+      // SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1: AFTER the gate has suppressed any
+      // sentinel-backed GCF source, compute entity cash flow + global DSCR from the already-rendered
+      // annual income-statement rows (NCADS Standard: EBITDA -> OBI/NI). Pure — never invents source
+      // data, never touches the canonical VM / reconcileFinancialFacts, and only fills in entity cash
+      // flow when the pipeline did not materialize one (a real fact is left untouched). The derived
+      // value is marked computed/preliminary so certification + PDF present it honestly.
+      if (input.globalCashFlow) {
+        input.globalCashFlow = applyComputedEntityCashFlow(
+          input.globalCashFlow,
+          input.incomeStatement,
+          input.periods,
+        );
+      }
 
       // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: run the line-accuracy / completion
       // audit on the FINAL (post-suppression) rows vs the source facts, and attach it as a

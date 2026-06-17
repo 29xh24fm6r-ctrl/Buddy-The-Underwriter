@@ -104,7 +104,15 @@ function gcfStatusFromSection(
   if (section && section.proposedAnnualDebtService == null) reasons.push("missing proposed debt service");
   if (section && section.globalDscr == null) reasons.push("global DSCR unavailable");
   if (reasons.length > 0) return { status: "blocked", reasons };
-  // Inputs all present — defer to the gate's GCF domain status (clean/caveated).
+  // SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1: when entity cash flow was DERIVED from the
+  // rendered annual spread rows (not a materialized GCF fact), GCF is PRELIMINARY — the figure is a
+  // supportable derivation but the underlying spread is not itself certified. It overrides the gate's
+  // "entity cash flow not computed" block (we have now computed it) but never reads "certified".
+  if (section && section.entityCashFlowComputed) {
+    const period = section.entityCashFlowSourcePeriod ?? "latest annual period";
+    return { status: "preliminary", reasons: [`entity cash flow derived from ${period} spread rows (preliminary)`] };
+  }
+  // Inputs all present from a materialized fact — defer to the gate's GCF domain status (clean/caveated).
   return { status: gateStatus, reasons: [] };
 }
 

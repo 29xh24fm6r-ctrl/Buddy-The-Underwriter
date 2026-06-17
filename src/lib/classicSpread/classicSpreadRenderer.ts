@@ -698,6 +698,18 @@ function renderGlobalCashFlowPage(
     doc.text(`(from ${gcf.entityCount} operating ${gcf.entityCount === 1 ? "entity" : "entities"})`, PAGE_MARGIN + 20, y + 1, { width: labelWidth });
     doc.fillColor("#000000");
     y += ROW_HEIGHT;
+
+    // SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1: when entity cash flow was derived from the
+    // rendered annual income-statement rows (no materialized GCF fact), label its provenance + basis so
+    // the banker sees it is a PRELIMINARY computation, not a certified pipeline figure.
+    if (gcf.entityCashFlowComputed) {
+      const basisLabel = gcf.entityCashFlowBasis === "EBITDA" ? "EBITDA" : "ordinary business income";
+      const periodLabel = gcf.entityCashFlowSourcePeriod ? ` ${gcf.entityCashFlowSourcePeriod}` : "";
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
+      doc.text(`Computed from${periodLabel} ${basisLabel} (preliminary — not a materialized GCF fact)`, PAGE_MARGIN + 20, y + 1, { width: contentWidth - 28 });
+      doc.fillColor("#000000");
+      y += ROW_HEIGHT;
+    }
   } else {
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#999999");
     doc.text("Entity data not yet computed \u2014 re-run spread pipeline", PAGE_MARGIN + 8, y + 2, { width: contentWidth });

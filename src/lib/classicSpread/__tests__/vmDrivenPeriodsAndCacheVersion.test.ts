@@ -30,8 +30,8 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
   // v4 cert gate; …; v11 resolver-aware audit de-dup; v12 blocker batch resolution; v13 final action
   // de-dup (TNCA folds into the implied-AR blocker). Each is an output change with no fact edit, so
   // the version MUST advance.
-  it("render version is 15 (bumped for the per-domain certification lines on the audit page)", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 15);
+  it("render version is 16 (bumped for the computed GCF entity cash flow + DSCR lines)", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 16);
   });
 
   it("the version comparison rejects every pre-fix blob and accepts only a current-version blob", () => {
@@ -51,8 +51,9 @@ describe("CLASSIC_PDF cache is code-version invalidated", () => {
     assert.equal(isRejected(12), true); // pre-final-dedup v12 blob rejected
     assert.equal(isRejected(13), true); // pre-certification-status v13 blob rejected
     assert.equal(isRejected(14), true); // pre-per-domain-lines v14 blob rejected
+    assert.equal(isRejected(15), true); // pre-computed-GCF v15 blob rejected
     assert.equal(isRejected(undefined), true); // legacy unversioned blob rejected
-    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v15 blob is served
+    assert.equal(isRejected(CLASSIC_PDF_RENDER_VERSION), false); // fresh v16 blob is served
   });
   // BUGFIX-CLASSIC-SPREAD-PDF-DOMAIN-CERTIFICATION-LINES-1: the audit page must render the FULL
   // certification status block (header + every line incl. the per-domain Personal income / GCF

@@ -55,6 +55,16 @@ export type GlobalCashFlowSection = {
   globalDscr: number | null;
   coverageStatus: "ADEQUATE" | "TIGHT" | "DEFICIT" | "UNKNOWN";
   /**
+   * SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1 — when entity cash flow was not materialized
+   * by the pipeline, it is computed from the already-rendered annual income-statement rows (NCADS
+   * Standard: EBITDA -> OBI/NI). These fields record that derivation so the PDF + certification can
+   * present it honestly as PRELIMINARY (a derived figure, not a materialized GCF fact). Absent /
+   * false means the value came straight from a fact.
+   */
+  entityCashFlowComputed?: boolean;
+  entityCashFlowBasis?: "EBITDA" | "NET_PROFIT" | null;
+  entityCashFlowSourcePeriod?: string | null;
+  /**
    * SPEC-B4 — Methodology slate decisions used to compute this GCF.
    * One entry per axis, including defaults. PDF renderer skips Axis 5
    * (living_expense) to keep the methodology block compact.

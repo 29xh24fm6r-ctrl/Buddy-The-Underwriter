@@ -73,5 +73,14 @@
  *         INCOME-GCF-CERTIFICATION-1 surfaced; BUGFIX-CLASSIC-SPREAD-PDF-DOMAIN-CERTIFICATION-LINES-1).
  *         A v14 blob predates these per-domain lines and must be rejected so the fixed renderer
  *         replaces it.
+ *   v16 — GCF entity cash flow compute: when the pipeline did not materialize an entity cash flow
+ *         fact, the Global Cash Flow page now COMPUTES entity cash flow from the already-rendered
+ *         latest annual income-statement rows (NCADS Standard: EBITDA -> OBI/NI), derives Global Cash
+ *         Flow Available + Global DSCR (only when proposed annual debt service is a valid positive
+ *         denominator), and labels the figure "Computed from <period> ... (preliminary)". GCF
+ *         certification reads "preliminary" instead of "blocked - entity cash flow not computed";
+ *         the overall spread stays BLOCKED while the YTD-2026 TCA source-detail action remains
+ *         (SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1). A v15 blob lacks the computed entity
+ *         cash flow / DSCR lines and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 15;
+export const CLASSIC_PDF_RENDER_VERSION = 16;
