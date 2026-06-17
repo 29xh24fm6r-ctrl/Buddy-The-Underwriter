@@ -102,5 +102,11 @@
  *         real, lower total and the sheet visibly does NOT balance; when Total Liabilities is
  *         suppressed the rollup is blanked too (SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1).
  *         A v18 blob shows the fake-balanced (Total Assets) value and must be rejected.
+ *   v20 — certification open-action count parity (no math change): the audit-page "open review
+ *         action(s)" count is reconciled up to the live unresolved blocker actions so it can no longer
+ *         lag the Review Actions panel / "unresolved blocker action(s)" (e.g. a freshly-surfaced 2022
+ *         blocker made the PDF read "1 open review action(s)" while the panel showed 2)
+ *         (BUGFIX-CLASSIC-SPREAD-CERTIFICATION-OPEN-ACTION-COUNT-PARITY-1). A v19 blob shows the
+ *         under-counted value and must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 19;
+export const CLASSIC_PDF_RENDER_VERSION = 20;

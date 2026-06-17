@@ -114,6 +114,35 @@ describe("buildClassicSpreadCertificationSummary", () => {
     });
     assert.match(s.notes.join(" "), /Source detail still required for: 2026 TOTAL CURRENT ASSETS/);
   });
+
+  // ── BUGFIX-CLASSIC-SPREAD-CERTIFICATION-OPEN-ACTION-COUNT-PARITY-1 ───────────────────────────────
+  it("open review action count never understates live unresolved blockers (stale persisted count)", () => {
+    // The persisted-table count (1) lags the live audit, which has 2 blocker actions (2022 + YTD-2026).
+    const s = buildClassicSpreadCertificationSummary({
+      certified: true,
+      audit: audit([
+        finding("TOTAL LIABILITIES & NET WORTH", "unreconciled_total", "blocker", "2022"),
+        finding("TOTAL CURRENT ASSETS", "missing_implied_component", "blocker", "2026"),
+      ]),
+      openReviewActionCount: 1, // stale (pre-resync) persisted count
+    });
+    assert.equal(s.blockerCount, 2);
+    assert.equal(s.remainingRequiredActions.length, 2);
+    assert.equal(s.openReviewActionCount, 2); // reconciled up to the live blocker actions, not 1
+    // the rendered PDF line now reports 2 open review actions, matching "2 unresolved blocker action(s)"
+    const line = certificationStatusLines(s).find((l) => /open review action/.test(l))!;
+    assert.match(line, /2 blocker\(s\)/);
+    assert.match(line, /2 open review action\(s\)/);
+  });
+
+  it("does not over-report when the persisted count already matches the live blockers", () => {
+    const s = buildClassicSpreadCertificationSummary({
+      certified: true,
+      audit: audit([finding("TOTAL CURRENT ASSETS", "missing_implied_component", "blocker", "2026")]),
+      openReviewActionCount: 1,
+    });
+    assert.equal(s.openReviewActionCount, 1);
+  });
 });
 
 describe("certificationStatusLines (rendered PDF content)", () => {
@@ -135,7 +164,7 @@ describe("certificationStatusLines (rendered PDF content)", () => {
 });
 
 describe("render version", () => {
-  it("CLASSIC_PDF_RENDER_VERSION is bumped to 19", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 19);
+  it("CLASSIC_PDF_RENDER_VERSION is bumped to 20", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 20);
   });
 });

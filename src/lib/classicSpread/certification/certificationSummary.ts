@@ -155,7 +155,15 @@ export function buildClassicSpreadCertificationSummary(args: {
   const blockerCount = findings.filter((f) => f.severity === "blocker").length;
   const warningCount = findings.filter((f) => f.severity === "warning").length;
   const remainingRequiredActions = remainingActionsFromFindings(findings);
-  const openReviewActionCount = args.openReviewActionCount ?? remainingRequiredActions.length;
+  // BUGFIX-CLASSIC-SPREAD-CERTIFICATION-OPEN-ACTION-COUNT-PARITY-1: the "open review action(s)" count
+  // must never UNDERSTATE the unresolved blocker actions. The persisted-table count passed in by the
+  // loader is computed BEFORE the regenerate-cycle re-sync, so it can lag the live post-decision audit
+  // (e.g. a freshly-surfaced 2022 blocker the table hasn't recorded yet). Reconcile by taking the max
+  // of the persisted active-action count and the live unresolved blocker actions — so the PDF reads the
+  // same count as the Review Actions panel (which counts active rows) and as "unresolved blocker
+  // action(s)". `remainingRequiredActions` already reflects banker decisions (applyReviewDecisions
+  // downgraded reviewed blockers), so this never over-reports genuinely-resolved work.
+  const openReviewActionCount = Math.max(args.openReviewActionCount ?? 0, remainingRequiredActions.length);
 
   const piGate = GATE_TO_STATUS[audit.domains.personal_income.status];
   const gcfGate = GATE_TO_STATUS[audit.domains.global_cash_flow.status];
