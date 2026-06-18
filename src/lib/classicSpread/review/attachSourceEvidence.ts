@@ -98,7 +98,10 @@ export async function attachSourceEvidence(rows: any[], dealId: string, bankId: 
     try {
       const { data, error } = await sb
         .from("deal_documents")
-        .select("id, original_filename, display_name, canonical_type, document_type, gatekeeper_doc_type, checklist_key, document_label, ai_period_end, ai_tax_year, gatekeeper_tax_year, doc_year, finalized_at, extraction_quality_status, status, is_active, metadata, created_at, received_at")
+        // NOTE: deal_documents has no document_label / is_active / received_at columns — selecting them
+        // errors at runtime (and trips the schema-select gate). normalizeEvidenceDoc reads them
+        // defensively (?? null / !== false / created_at fallback), so omitting them is behavior-safe.
+        .select("id, original_filename, display_name, canonical_type, document_type, gatekeeper_doc_type, checklist_key, ai_period_end, ai_tax_year, gatekeeper_tax_year, doc_year, finalized_at, extraction_quality_status, status, metadata, created_at")
         .eq("deal_id", dealId)
         .eq("bank_id", bankId);
       if (!error) {
