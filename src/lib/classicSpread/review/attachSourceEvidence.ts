@@ -29,6 +29,9 @@ export function normalizeEvidenceDoc(d: any): EvidenceCandidateDoc {
         : ["pending", "processing", "extracting", "classified_pending_review"].includes(status)
           ? "pending"
           : "unknown";
+  // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: linkage stashed in deal_documents.metadata
+  // when a borrower uploads in response to a spread source-detail request.
+  const meta = (d.metadata ?? {}) as Record<string, any>;
   return {
     id: d.id,
     filename: d.original_filename ?? d.display_name ?? "",
@@ -39,6 +42,12 @@ export function normalizeEvidenceDoc(d: any): EvidenceCandidateDoc {
     taxYear: d.ai_tax_year ?? d.gatekeeper_tax_year ?? d.doc_year ?? null,
     extractionStatus,
     isActive: d.is_active !== false,
+    linkedReviewActionId: meta.spread_review_action_id ?? null,
+    linkedFindingKey: meta.spread_finding_key ?? null,
+    linkedDraftRequestId: meta.draft_borrower_request_id ?? null,
+    requestedEvidenceKind: meta.requested_evidence_kind ?? null,
+    receivedAt: d.received_at ?? d.created_at ?? null,
+    finalizedAt: d.finalized_at ?? null,
   };
 }
 
@@ -89,7 +98,7 @@ export async function attachSourceEvidence(rows: any[], dealId: string, bankId: 
     try {
       const { data, error } = await sb
         .from("deal_documents")
-        .select("id, original_filename, display_name, canonical_type, document_type, gatekeeper_doc_type, checklist_key, document_label, ai_period_end, ai_tax_year, gatekeeper_tax_year, doc_year, finalized_at, extraction_quality_status, status, is_active")
+        .select("id, original_filename, display_name, canonical_type, document_type, gatekeeper_doc_type, checklist_key, document_label, ai_period_end, ai_tax_year, gatekeeper_tax_year, doc_year, finalized_at, extraction_quality_status, status, is_active, metadata, created_at, received_at")
         .eq("deal_id", dealId)
         .eq("bank_id", bankId);
       if (!error) {

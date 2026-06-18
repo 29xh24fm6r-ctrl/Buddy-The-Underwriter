@@ -38,6 +38,11 @@ function evidenceFor(req: BorrowerSourceDetailRequest, dealId: string) {
     statement_type: req.statementType,
     line_item: req.lineItem,
     requested_period_end: req.requestedPeriodEnd,
+    // SPEC-BORROWER-EVIDENCE-REQUEST-PACKAGE-POLISH-1: structured fields the upload form forwards so the
+    // upload becomes LINKED evidence (round-trips through deal_documents.metadata).
+    requested_evidence_kind: req.requestedEvidenceKind,
+    requested_period: req.uploadContext.requestedPeriod,
+    clearing_target: req.clearingTarget,
     tie_out_target_amount: req.tieOutTargetAmount,
     missing_amount: req.missingAmount,
     requested_documents: req.requestedDocuments,

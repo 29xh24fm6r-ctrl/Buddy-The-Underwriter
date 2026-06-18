@@ -21,15 +21,15 @@ const { syncReviewActions } = require("../reviewActionsRepo") as typeof import("
 function makeFakeClient(initialRows: any[]) {
   const store = { rows: initialRows.map((r) => ({ ...r })), deleteCalls: 0, upsertCalls: 0, updateCalls: 0 };
 
-  const matches = (row: any, filters: [string, any][], inFilter: [string, Set<any>] | null) => {
+  const matches = (row: any, filters: [string, any][], inFilters: [string, Set<any>][]) => {
     for (const [c, v] of filters) if (row[c] !== v) return false;
-    if (inFilter) { const [c, set] = inFilter; if (!set.has(row[c])) return false; }
+    for (const [c, set] of inFilters) if (!set.has(row[c])) return false;
     return true;
   };
 
   const makeBuilder = () => {
-    const state: { op: string | null; filters: [string, any][]; inFilter: [string, Set<any>] | null; payload: any; upsertRows: any[] | null } = {
-      op: null, filters: [], inFilter: null, payload: null, upsertRows: null,
+    const state: { op: string | null; filters: [string, any][]; inFilters: [string, Set<any>][]; payload: any; upsertRows: any[] | null } = {
+      op: null, filters: [], inFilters: [], payload: null, upsertRows: null,
     };
     const exec = () => {
       if (state.op === "upsert") {
@@ -42,11 +42,11 @@ function makeFakeClient(initialRows: any[]) {
         return { data: null, error: null };
       }
       if (state.op === "select") {
-        return { data: store.rows.filter((r) => matches(r, state.filters, state.inFilter)).map((r) => ({ ...r })), error: null };
+        return { data: store.rows.filter((r) => matches(r, state.filters, state.inFilters)).map((r) => ({ ...r })), error: null };
       }
       if (state.op === "update") {
         store.updateCalls++;
-        for (const row of store.rows) if (matches(row, state.filters, state.inFilter)) Object.assign(row, state.payload);
+        for (const row of store.rows) if (matches(row, state.filters, state.inFilters)) Object.assign(row, state.payload);
         return { data: null, error: null };
       }
       if (state.op === "delete") { store.deleteCalls++; return { data: null, error: null }; }
@@ -58,7 +58,7 @@ function makeFakeClient(initialRows: any[]) {
       update(payload: any) { state.op = "update"; state.payload = payload; return builder; },
       delete() { state.op = "delete"; return builder; },
       eq(c: string, v: any) { state.filters.push([c, v]); return builder; },
-      in(c: string, vals: any[]) { state.inFilter = [c, new Set(vals)]; return builder; },
+      in(c: string, vals: any[]) { state.inFilters.push([c, new Set(vals)]); return builder; },
       then(resolve: (v: any) => void, reject?: (e: any) => void) {
         try { resolve(exec()); } catch (e) { if (reject) reject(e); else throw e; }
       },
@@ -121,6 +121,27 @@ describe("syncReviewActions reconcile/prune", () => {
     assert.deepEqual(rowByFinding(store, "DECIDED_C").decision_json, { by: "user_x" }); // untouched
     assert.equal(rowByFinding(store, "WAIVED_D").status, "waived");
     assert.equal(rowByFinding(store, "CLOSED_E").status, "closed");
+  });
+
+  it("SPEC-LINKED-EVIDENCE-REGENERATE-CLOSE-LOOP-1: closes a stale borrower_detail_requested row (request fulfilled, finding gone)", async () => {
+    const { client, store } = makeFakeClient([
+      openRow("TCA_2026", { status: "borrower_detail_requested", reviewer_user_id: "user_banker" }),
+    ]);
+    // latest audit no longer emits TCA_2026 → the regenerate consumed the borrower's linked evidence
+    const res = await syncReviewActions({ dealId: "deal-1", bankId: "bank-1", actions: [], client });
+    assert.equal(res.closed, 1);
+    assert.equal(rowByFinding(store, "TCA_2026").status, "closed");
+    assert.equal(rowByFinding(store, "TCA_2026").decision_json.system_closed, true);
+    assert.equal(rowByFinding(store, "TCA_2026").reviewer_user_id, "user_banker"); // requesting banker kept on record
+  });
+
+  it("does NOT close a borrower_detail_requested row while its finding is still emitted (upload != cleared)", async () => {
+    const { client, store } = makeFakeClient([
+      openRow("TCA_2026", { status: "borrower_detail_requested", reviewer_user_id: "user_banker" }),
+    ]);
+    const res = await syncReviewActions({ dealId: "deal-1", bankId: "bank-1", actions: [action("TCA_2026")], client });
+    assert.equal(res.closed, 0);
+    assert.equal(rowByFinding(store, "TCA_2026").status, "borrower_detail_requested"); // still blocking
   });
 
   it("still closes stale OPEN rows when the latest audit has ZERO actions", async () => {

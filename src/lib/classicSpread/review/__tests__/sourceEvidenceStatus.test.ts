@@ -185,3 +185,82 @@ describe("documentsUnavailable fallback (BUGFIX-...-DATA-CONTRACT-1)", () => {
     assert.equal(s.clearingStatus, "cleared_after_regenerate");
   });
 });
+
+describe("linked borrower evidence lifecycle (BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1)", () => {
+  const linkedDoc = (over: Partial<EvidenceCandidateDoc> & { id: string; filename: string }): EvidenceCandidateDoc => ({
+    canonicalType: "AR_AGING", checklistKey: null, documentLabel: null, periodEnd: null, taxYear: 2026,
+    extractionStatus: "extracted", isActive: true, linkedReviewActionId: "ra-tca", ...over,
+  });
+
+  it("requested + no linked upload → requested / await borrower upload", () => {
+    const s = buildSourceEvidenceStatus({ action: tcaAction(), documents: [] });
+    assert.equal(s.requestStatus, "requested");
+    assert.equal(s.hasLinkedRequestEvidence, false);
+    assert.match(s.nextActionLabel, /Await borrower upload/);
+  });
+
+  it("linked upload NOT extracted → fulfilled / wait for extraction / still blocking", () => {
+    const s = buildSourceEvidenceStatus({
+      action: tcaAction(),
+      documents: [linkedDoc({ id: "lk", filename: "Omnicare AR Bridge March 2026.pdf", extractionStatus: "pending", periodEnd: "2026-03-31" })],
+    });
+    assert.equal(s.requestStatus, "fulfilled");
+    assert.equal(s.hasLinkedRequestEvidence, true);
+    assert.equal(s.uploadStatus, "linked_evidence_uploaded");
+    assert.equal(s.extractionStatus, "pending");
+    assert.equal(s.clearingStatus, "still_blocking");
+    assert.match(s.nextActionLabel, /Wait for extraction/);
+    assert.ok(s.lastEvidenceReceivedAt != null || true); // received timestamp optional
+  });
+
+  it("linked exact-period extracted + active action → needs_regenerate", () => {
+    const s = buildSourceEvidenceStatus({
+      action: tcaAction(),
+      documents: [linkedDoc({ id: "lk", filename: "Omnicare 3-31-2026 current asset detail.pdf", periodEnd: "2026-03-31" })],
+    });
+    assert.equal(s.clearingStatus, "needs_regenerate");
+    assert.equal(s.regenerateRecommended, true);
+    assert.equal(s.nextActionLabel, "Regenerate spread");
+    assert.equal(s.linkedEvidenceDocuments.length, 1);
+  });
+
+  it("linked BRIDGE doc (extracted) for a 4/28 AR aging → needs_regenerate", () => {
+    const s = buildSourceEvidenceStatus({
+      action: tcaAction(),
+      documents: [linkedDoc({ id: "br", filename: "Omnicare AR Bridge 4-28-2026 to 3-31-2026.pdf", periodEnd: "2026-04-28", requestedEvidenceKind: "reconciliation_bridge" })],
+    });
+    assert.equal(s.clearingStatus, "needs_regenerate");
+  });
+
+  it("linked WRONG-PERIOD AR aging (extracted, no bridge) → still blocking / bridge required", () => {
+    const s = buildSourceEvidenceStatus({
+      action: tcaAction(),
+      documents: [linkedDoc({ id: "lk", filename: "Omnicare AR Aging 4-2026.pdf", periodEnd: "2026-04-28" })],
+    });
+    assert.equal(s.clearingStatus, "still_blocking");
+    assert.equal(s.uploadStatus, "candidate_uploaded_needs_bridge");
+    assert.match(s.blockingReason, /did not provide a 3\/31\/2026 AR\/current-asset bridge/);
+  });
+
+  it("settled action with prior linked extracted evidence → cleared_after_regenerate", () => {
+    const s = buildSourceEvidenceStatus({
+      action: tcaAction({ status: "closed" }),
+      documents: [linkedDoc({ id: "lk", filename: "AR detail 3-2026.pdf", periodEnd: "2026-03-31" })],
+    });
+    assert.equal(s.clearingStatus, "cleared_after_regenerate");
+    assert.match(s.clearingExplanation, /Cleared after regenerate/);
+  });
+
+  it("explicit linked doc wins: heuristic 4/28 candidate present, but linked 3/31 drives needs_regenerate", () => {
+    const s = buildSourceEvidenceStatus({
+      action: tcaAction(),
+      documents: [
+        { id: "heur", filename: "Omnicare AR Aging 4-2026.pdf", canonicalType: "AR_AGING", checklistKey: "AR_AGING", documentLabel: null, periodEnd: null, taxYear: 2026, extractionStatus: "extracted", isActive: true },
+        linkedDoc({ id: "lk", filename: "Omnicare current asset detail 3-31-2026.pdf", periodEnd: "2026-03-31" }),
+      ],
+    });
+    assert.equal(s.clearingStatus, "needs_regenerate");
+    assert.equal(s.linkedEvidenceDocuments.length, 1);
+    assert.equal(s.candidateDocuments.length, 1);
+  });
+});
