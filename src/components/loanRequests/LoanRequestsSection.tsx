@@ -15,6 +15,7 @@ import {
   getProductShape,
   type ProductShapeConfig,
 } from "@/lib/loanRequests/productShapeConfig";
+import { invalidateJourneyState } from "@/hooks/useJourneyState";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1231,6 +1232,9 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       setShowForm(false);
       setEditingRequest(null);
       await load();
+      // SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: a created/updated request can change lifecycle
+      // blockers — signal the Journey Rail to refetch now instead of waiting for its 30s poll.
+      invalidateJourneyState(dealId);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
@@ -1250,6 +1254,8 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Delete failed");
       await load();
+      // Deleting the last request may legitimately restore the "Add Loan Request" CTA — refresh the rail.
+      invalidateJourneyState(dealId);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
@@ -1272,6 +1278,8 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Submit failed");
       await load();
+      // Submitting a request clears loan_request_missing — refresh the rail immediately.
+      invalidateJourneyState(dealId);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
