@@ -16,8 +16,33 @@ type PortalPayload = {
     progress?: { satisfied: number; required: number } | null;
   }>;
   requests: any[];
+  // SPEC-BORROWER-PORTAL-SPREAD-REQUEST-TILES-1: classic-spread source-detail requests rendered as
+  // upload tiles. Optional so older session payloads (no spreadRequests) still parse.
+  spreadRequests?: Array<{
+    id: string;
+    draftBorrowerRequestId: string;
+    title: string;
+    description: string;
+    requestedEvidenceKind: string | null;
+    requestedPeriod: string | null;
+    clearingTarget: string | null;
+    statementType: string | null;
+    lineItem: string | null;
+    acceptableDocuments: string[];
+    unacceptableDocuments: string[];
+    spreadReviewActionId: string | null;
+    spreadFindingKey: string | null;
+    hasUploadContext: boolean;
+  }>;
   messages: any[];
 };
+
+/** "current_asset_detail" -> "Current Asset Detail" (borrower-facing chip label). */
+function formatEvidenceKind(kind: string): string {
+  return String(kind || "")
+    .replace(/_/g, " ")
+    .replace(/\b[a-z]/g, (c) => c.toUpperCase());
+}
 
 export default function BorrowerPortalClient({ token }: { token: string }) {
   const [data, setData] = useState<PortalPayload | null>(null);
@@ -33,6 +58,7 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
   }>>({});
 
   const tasks = useMemo(() => data?.tasks || [], [data?.tasks]);
+  const spreadRequests = useMemo(() => data?.spreadRequests || [], [data?.spreadRequests]);
   const groupedTasks = useMemo(() => {
     const groups: Record<string, typeof tasks> = {};
     tasks.forEach((t) => {
@@ -93,7 +119,15 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
     };
   }
 
-  async function doUpload(requestId: string | null, file: File, taskKey?: string | null) {
+  // SPEC-BORROWER-EVIDENCE-REQUEST-PACKAGE-POLISH-1: optional spread source-detail linkage carried
+  // forward to the commit route so the upload becomes LINKED evidence for the exact review action.
+  type SpreadUploadLinkage = {
+    spreadReviewActionId?: string | null;
+    spreadFindingKey?: string | null;
+    draftBorrowerRequestId?: string | null;
+    requestedEvidenceKind?: string | null;
+  };
+  async function doUpload(requestId: string | null, file: File, taskKey?: string | null, spreadLinkage?: SpreadUploadLinkage | null) {
     const statusId = `${taskKey || "extra"}:${file.name}:${Date.now()}`;
     setUploadStatuses((prev) => ({
       ...prev,
@@ -134,6 +168,15 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
         sizeBytes: file.size,
         uploadSessionId: prep.uploadSessionId,
         fileId: prep.fileId,
+        // Spread source-detail linkage (only present when answering a spread review action).
+        ...(spreadLinkage
+          ? {
+              spreadReviewActionId: spreadLinkage.spreadReviewActionId ?? null,
+              spreadFindingKey: spreadLinkage.spreadFindingKey ?? null,
+              draftBorrowerRequestId: spreadLinkage.draftBorrowerRequestId ?? null,
+              requestedEvidenceKind: spreadLinkage.requestedEvidenceKind ?? null,
+            }
+          : {}),
       }),
     });
     const cj = await commit.json();
@@ -272,6 +315,84 @@ export default function BorrowerPortalClient({ token }: { token: string }) {
                 ))
               )}
             </div>
+
+            {/* SPEC-BORROWER-PORTAL-SPREAD-REQUEST-TILES-1: classic-spread source-detail requests as
+                upload tiles. Rendering a tile does not clear the blocker — it only invites the upload;
+                the linkage forwarded here makes the upload LINKED evidence for the exact review action. */}
+            {spreadRequests.length > 0 ? (
+              <div className="mt-6 space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Additional evidence requested
+                </div>
+                <div className="text-xs text-slate-600">
+                  Your lending team needs source detail to finish your financial spread. Upload the document for each item below.
+                </div>
+                {spreadRequests.map((r) => (
+                  <div key={r.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900">{r.title}</div>
+                        {r.description ? (
+                          <div className="text-xs text-slate-600 mt-1">{r.description}</div>
+                        ) : null}
+                        {(r.requestedEvidenceKind || r.requestedPeriod) ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {r.requestedEvidenceKind ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                                {formatEvidenceKind(r.requestedEvidenceKind)}
+                              </span>
+                            ) : null}
+                            {r.requestedPeriod ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                                As of {r.requestedPeriod}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {r.clearingTarget ? (
+                          <div className="mt-2 text-[11px] text-slate-500">
+                            Needs to show: {r.clearingTarget}
+                          </div>
+                        ) : null}
+                        {r.acceptableDocuments.length > 0 ? (
+                          <details className="mt-2 text-[11px] text-slate-500">
+                            <summary className="cursor-pointer">What counts</summary>
+                            <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                              {r.acceptableDocuments.map((d, i) => (
+                                <li key={i}>{d}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
+                      </div>
+                      <label className="text-xs font-semibold text-slate-700 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 whitespace-nowrap">
+                        Upload
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              await doUpload(null, file, null, {
+                                spreadReviewActionId: r.spreadReviewActionId,
+                                spreadFindingKey: r.spreadFindingKey,
+                                draftBorrowerRequestId: r.draftBorrowerRequestId,
+                                requestedEvidenceKind: r.requestedEvidenceKind,
+                              });
+                            } catch (err: any) {
+                              alert(err?.message || "Upload failed");
+                            } finally {
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
               Tip: You can also upload extra documents if you&apos;re not sure where they go.

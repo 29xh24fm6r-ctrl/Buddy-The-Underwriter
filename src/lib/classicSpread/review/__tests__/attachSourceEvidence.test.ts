@@ -116,6 +116,23 @@ describe("attachSourceEvidence", () => {
     assert.match(out[0].evidence.enrichmentWarning, /could not be loaded/i);
   });
 
+  it("normalizes deal_documents.metadata linkage → linked evidence drives fulfilled + needs_regenerate", async () => {
+    const linkedDocs = [
+      { id: "lk", deal_id: DEAL, bank_id: BANK, original_filename: "Omnicare current asset detail 3-31-2026.pdf",
+        canonical_type: "AR_AGING", ai_period_end: "2026-03-31", finalized_at: "2026-05-02", is_active: true,
+        created_at: "2026-05-01",
+        metadata: { spread_review_action_id: "ra-tca", uploaded_for: "classic_spread_review_action", requested_evidence_kind: "current_asset_detail" } },
+    ];
+    const client = makeFakeClient({ deal_documents: linkedDocs, draft_borrower_requests: [] });
+    const out = await attachSourceEvidence([reviewRow({ status: "open" })], DEAL, BANK, client);
+    const ev = out[0].evidence;
+    assert.equal(ev.requestStatus, "fulfilled");
+    assert.equal(ev.hasLinkedRequestEvidence, true);
+    assert.equal(ev.clearingStatus, "needs_regenerate");
+    assert.equal(ev.linkedEvidenceDocuments.length, 1);
+    assert.equal(ev.linkedEvidenceDocuments[0].id, "lk");
+  });
+
   it("every active source row receives evidence; matchingDocuments may be empty", async () => {
     const client = makeFakeClient({ deal_documents: [], draft_borrower_requests: [] });
     const rows = [reviewRow({ id: "a", status: "open" }), reviewRow({ id: "b", action_type: "VERIFY_SOURCE_LINE", status: "borrower_detail_requested" })];

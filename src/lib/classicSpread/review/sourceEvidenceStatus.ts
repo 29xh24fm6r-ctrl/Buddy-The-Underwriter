@@ -20,6 +20,7 @@
  */
 
 import { isActiveReviewActionStatus } from "./reviewActionStatus";
+import { linkEvidenceUploads } from "./evidenceUploadLinker";
 
 // ── inputs ────────────────────────────────────────────────────────────────────────────────────
 export type EvidenceCandidateDoc = {
@@ -35,6 +36,14 @@ export type EvidenceCandidateDoc = {
   taxYear: number | null;
   extractionStatus: "extracted" | "pending" | "failed" | "unknown";
   isActive: boolean;
+  // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: explicit linkage stashed in
+  // deal_documents.metadata when a borrower uploads in response to a spread source-detail request.
+  linkedReviewActionId?: string | null; // metadata.spread_review_action_id
+  linkedFindingKey?: string | null; // metadata.spread_finding_key
+  linkedDraftRequestId?: string | null; // metadata.draft_borrower_request_id
+  requestedEvidenceKind?: string | null; // metadata.requested_evidence_kind
+  receivedAt?: string | null; // created_at / received_at — when the upload arrived
+  finalizedAt?: string | null; // finalized_at — when extraction completed
 };
 
 export type EvidenceDraftRequest = {
@@ -62,10 +71,11 @@ export type EvidenceReviewAction = {
 };
 
 // ── output ────────────────────────────────────────────────────────────────────────────────────
-export type EvidenceRequestStatus = "not_requested" | "requested" | "not_applicable";
+export type EvidenceRequestStatus = "not_requested" | "requested" | "fulfilled" | "not_applicable";
 export type EvidenceUploadStatus =
   | "unknown"
   | "no_candidate_uploaded"
+  | "linked_evidence_uploaded"
   | "candidate_uploaded"
   | "candidate_uploaded_wrong_period"
   | "candidate_uploaded_needs_bridge"
@@ -92,6 +102,15 @@ export type SourceEvidenceStatus = {
   extractionStatus: EvidenceExtractionStatus;
   clearingStatus: EvidenceClearingStatus;
   matchingDocuments: EvidenceMatchingDocument[];
+  /** documents explicitly linked to THIS request/action (drive fulfilled / regenerate). */
+  linkedEvidenceDocuments: EvidenceMatchingDocument[];
+  /** relevant-but-not-linked documents (heuristic candidates; never fulfill the request). */
+  candidateDocuments: EvidenceMatchingDocument[];
+  hasLinkedRequestEvidence: boolean;
+  regenerateRecommended: boolean;
+  lastEvidenceReceivedAt: string | null;
+  lastExtractedAt: string | null;
+  clearingExplanation: string | null;
   blockingReason: string | null;
   nextActionLabel: string;
   statusTone: EvidenceTone;
@@ -192,6 +211,11 @@ function isArDetailDoc(doc: EvidenceCandidateDoc): boolean {
   );
 }
 
+/** A reconciliation/bridge document — reconciles a nearby-date schedule TO the target period. */
+export function isBridgeDoc(doc: EvidenceCandidateDoc): boolean {
+  return /bridge|reconcil/i.test(`${doc.requestedEvidenceKind ?? ""} ${doc.checklistKey ?? ""} ${doc.documentLabel ?? ""} ${doc.filename}`);
+}
+
 /** Whether a doc is a relevant candidate for the blocker, and whether it is "clearing/augmenting"
  * (provides the missing detail → an exact-period extracted one can clear after regenerate) vs
  * "context" (the already-consumed base statement that produced the finding). */
@@ -271,22 +295,36 @@ export function buildSourceEvidenceStatus(args: {
   const kind = classifyBlocker(action);
   const periodRef = (action.periodEndDate && action.periodEndDate.trim()) || action.periodLabel;
 
-  // ── matching documents ──
+  // ── borrower upload → action linkage (explicit/request/finding-key vs heuristic candidate) ──
+  const link = linkEvidenceUploads({ action, documents, draftRequests });
+  const linkedIds = new Set(link.linkedDocIds);
+  const bridgeIds = new Set(documents.filter((d) => isBridgeDoc(d)).map((d) => d.id));
+
+  // ── matching documents (force linked docs relevant — a borrower's tagged answer always shows) ──
   const matching: EvidenceMatchingDocument[] = [];
   for (const doc of documents) {
     const c = classifyDoc(kind, action, doc);
-    if (!c.relevant) continue;
+    const isLinked = linkedIds.has(doc.id);
+    if (!c.relevant && !isLinked) continue;
     const match = periodMatch(action, doc);
+    const role: "clearing" | "context" = isLinked ? "clearing" : c.role;
     let note: string | null = null;
-    if (c.augmenting && match === "same_year") note = `does not clear ${periodRef} without a reconciliation bridge`;
+    if (isLinked && match === "same_year" && !bridgeIds.has(doc.id)) note = `linked evidence is ${docPeriodLabel(doc) ?? "a different period"} — needs a reconciliation bridge to ${periodRef}`;
+    else if (isLinked && bridgeIds.has(doc.id)) note = `reconciliation bridge to ${periodRef}`;
+    else if (isLinked) note = "linked evidence for this request";
+    else if (c.augmenting && match === "same_year") note = `does not clear ${periodRef} without a reconciliation bridge`;
     else if (match === "other") note = "different period";
     else if (c.role === "context" && match === "exact") note = "already consumed source — lacks the missing detail";
     matching.push({
       id: doc.id, filename: doc.filename, docType: doc.canonicalType,
-      periodLabel: docPeriodLabel(doc), periodMatch: match, role: c.role,
+      periodLabel: docPeriodLabel(doc), periodMatch: match, role,
       extractionStatus: doc.extractionStatus, note,
     });
   }
+
+  const linkedMatching = matching.filter((m) => linkedIds.has(m.id));
+  const candidateMatching = matching.filter((m) => !linkedIds.has(m.id));
+  const hasLinkedRequestEvidence = linkedMatching.length > 0;
 
   // ── request status ──
   let requestStatus: EvidenceRequestStatus = isSourceAction ? "not_requested" : "not_applicable";
@@ -301,39 +339,47 @@ export function buildSourceEvidenceStatus(args: {
       requestStatus = "requested";
       requestWarning = "Request status says requested, but no linked borrower request was found.";
     }
+    // Linked evidence uploaded for this request → the borrower has FULFILLED it (regardless of extraction).
+    if (hasLinkedRequestEvidence) requestStatus = "fulfilled";
   }
 
-  // ── upload status (driven by the clearing/augmenting docs; context BS does not elevate it) ──
-  const clearing = matching.filter((m) => m.role === "clearing");
+  // ── upload + extraction (linked evidence drives the lifecycle; heuristic candidates are context) ──
+  const clearing = candidateMatching.filter((m) => m.role === "clearing");
   const augmenting = clearing.filter((m) => {
-    const c = classifyDoc(kind, action, documents.find((d) => d.id === m.id)!);
-    return c.augmenting;
+    const src = documents.find((d) => d.id === m.id);
+    return src ? classifyDoc(kind, action, src).augmenting : false;
   });
   const best = (arr: EvidenceMatchingDocument[], match: EvidenceMatchingDocument["periodMatch"]) =>
     arr.find((m) => m.periodMatch === match);
 
-  let uploadStatus: EvidenceUploadStatus = "no_candidate_uploaded";
-  // Augmenting (AR aging etc.) takes priority for the bridge/extracted signals.
-  if (best(augmenting, "exact") && best(augmenting, "exact")!.extractionStatus === "extracted") uploadStatus = "candidate_uploaded_extracted";
+  const linkedExtracted = linkedMatching.some((m) => m.extractionStatus === "extracted");
+  const linkedClearingReady = linkedMatching.some((m) => m.periodMatch === "exact" || bridgeIds.has(m.id));
+
+  let uploadStatus: EvidenceUploadStatus;
+  if (hasLinkedRequestEvidence) {
+    if (!linkedExtracted) uploadStatus = "linked_evidence_uploaded";
+    else if (linkedClearingReady) uploadStatus = "candidate_uploaded_extracted";
+    else uploadStatus = "candidate_uploaded_needs_bridge"; // linked but wrong period, no bridge
+  } else if (best(augmenting, "exact") && best(augmenting, "exact")!.extractionStatus === "extracted") uploadStatus = "candidate_uploaded_extracted";
   else if (best(augmenting, "exact")) uploadStatus = "candidate_uploaded";
   else if (best(augmenting, "same_year")) uploadStatus = "candidate_uploaded_needs_bridge";
   else if (best(clearing, "exact") && best(clearing, "exact")!.extractionStatus === "extracted") uploadStatus = "candidate_uploaded_extracted";
   else if (best(clearing, "exact")) uploadStatus = "candidate_uploaded";
   else if (clearing.some((m) => m.periodMatch === "same_year")) uploadStatus = "candidate_uploaded_needs_bridge";
   else if (augmenting.length > 0 || clearing.length > 0) uploadStatus = "candidate_uploaded_wrong_period";
-  else if (matching.length > 0) uploadStatus = "candidate_uploaded"; // only context docs (already-consumed source)
+  else if (candidateMatching.length > 0) uploadStatus = "candidate_uploaded"; // only context docs (already-consumed source)
+  else uploadStatus = "no_candidate_uploaded";
 
-  // ── extraction status (the best relevant clearing doc, else any matching doc) ──
-  const extractionPool = (clearing.length > 0 ? clearing : matching);
+  const extractionPool = linkedMatching.length > 0 ? linkedMatching : clearing.length > 0 ? clearing : candidateMatching;
   let extractionStatus: EvidenceExtractionStatus = "not_started";
-  if (matching.length === 0) extractionStatus = "not_started";
+  if (extractionPool.length === 0) extractionStatus = "not_started";
   else if (extractionPool.some((m) => m.extractionStatus === "extracted")) extractionStatus = "extracted";
   else if (extractionPool.some((m) => m.extractionStatus === "pending")) extractionStatus = "pending";
   else if (extractionPool.some((m) => m.extractionStatus === "failed")) extractionStatus = "failed";
   else extractionStatus = "unknown";
 
-  // ── enrichment unavailable: candidate documents could not be loaded. The base lifecycle (needed /
-  //    request / blocking / next) still renders honestly; upload + extraction read "unknown". ──
+  // ── enrichment unavailable: candidate documents could not be loaded. The base lifecycle still
+  //    renders honestly; upload + extraction read "unknown". ──
   let enrichmentWarning: string | null = null;
   if (documentsUnavailable) {
     uploadStatus = "unknown";
@@ -342,16 +388,22 @@ export function buildSourceEvidenceStatus(args: {
   }
 
   // ── clearing status (the authority — only a settled action means the finding is gone) ──
+  const settled = !isActiveReviewActionStatus(action.status);
   let clearingStatus: EvidenceClearingStatus;
-  if (!isActiveReviewActionStatus(action.status)) {
+  if (settled) {
     clearingStatus = "cleared_after_regenerate";
-  } else if (uploadStatus === "candidate_uploaded_extracted" && augmenting.length > 0) {
-    // New augmenting detail (e.g. exact-period AR aging) is uploaded + extracted but the finding is
-    // still active → a regenerate/sync should consume it and re-check.
+  } else if (documentsUnavailable) {
+    clearingStatus = "still_blocking";
+  } else if (hasLinkedRequestEvidence && linkedExtracted && linkedClearingReady) {
+    // Linked, extracted, correct period/bridge — regenerate/sync should consume it and re-check.
+    clearingStatus = "needs_regenerate";
+  } else if (!hasLinkedRequestEvidence && uploadStatus === "candidate_uploaded_extracted" && augmenting.length > 0) {
+    // Heuristic exact augmenting detail present + extracted → regenerate to consume it.
     clearingStatus = "needs_regenerate";
   } else {
     clearingStatus = "still_blocking";
   }
+  const regenerateRecommended = clearingStatus === "needs_regenerate";
 
   // ── blocking reason ──
   let blockingReason: string | null = null;
@@ -359,6 +411,10 @@ export function buildSourceEvidenceStatus(args: {
     blockingReason = null;
   } else if (clearingStatus === "needs_regenerate") {
     blockingReason = `Required ${periodRef} detail is uploaded and extracted — regenerate/sync the spread to consume it and re-check this finding.`;
+  } else if (hasLinkedRequestEvidence && !linkedExtracted) {
+    blockingReason = `Linked evidence received — waiting for classification/extraction before the spread can be regenerated.`;
+  } else if (hasLinkedRequestEvidence && linkedExtracted && !linkedClearingReady) {
+    blockingReason = `Uploaded document did not provide a ${periodRef} ${kind === "tca_ar" ? "AR/current-asset" : "source"} bridge tying to ${kind === "tca_ar" ? "Total Current Assets" : displayLineName(action.rowLabel)}.`;
   } else if (kind === "tca_ar") {
     const bridge = augmenting.find((m) => m.periodMatch === "same_year");
     blockingReason = bridge
@@ -373,10 +429,11 @@ export function buildSourceEvidenceStatus(args: {
   // ── next action ──
   let nextActionLabel: string;
   if (clearingStatus === "cleared_after_regenerate") nextActionLabel = "Cleared";
-  else if (clearingStatus === "needs_regenerate") nextActionLabel = "Regenerate the spread to consume the uploaded detail";
+  else if (clearingStatus === "needs_regenerate") nextActionLabel = "Regenerate spread";
+  else if (hasLinkedRequestEvidence && !linkedExtracted) nextActionLabel = "Wait for extraction";
   else if (uploadStatus === "candidate_uploaded_needs_bridge") nextActionLabel = `Provide ${periodRef} detail or a reconciliation bridge`;
   else if (requestStatus === "not_requested") nextActionLabel = "Request borrower detail";
-  else if (requestStatus === "requested" && uploadStatus === "no_candidate_uploaded") nextActionLabel = "Awaiting borrower upload";
+  else if ((requestStatus === "requested") && (uploadStatus === "no_candidate_uploaded" || uploadStatus === "candidate_uploaded")) nextActionLabel = "Await borrower upload";
   else nextActionLabel = "Upload the missing source detail";
 
   const statusTone: EvidenceTone =
@@ -385,6 +442,20 @@ export function buildSourceEvidenceStatus(args: {
         : !isSourceAction ? "neutral"
           : "blocker";
 
+  // ── evidence timestamps (linked first) ──
+  const linkedDocs = documents.filter((d) => linkedIds.has(d.id));
+  const maxIso = (vals: (string | null | undefined)[]): string | null => {
+    const present = vals.filter((v): v is string => typeof v === "string" && v.length > 0).sort();
+    return present.length > 0 ? present[present.length - 1] : null;
+  };
+  const lastEvidenceReceivedAt = maxIso(linkedDocs.map((d) => d.receivedAt ?? d.finalizedAt ?? null));
+  const lastExtractedAt = maxIso(linkedDocs.filter((d) => d.extractionStatus === "extracted").map((d) => d.finalizedAt ?? null));
+
+  const clearingExplanation =
+    clearingStatus === "cleared_after_regenerate"
+      ? "Cleared after regenerate — the latest audit no longer emits this finding."
+      : blockingReason;
+
   return {
     requiredEvidenceSummary: requiredEvidence(kind, action),
     requestStatus,
@@ -392,6 +463,13 @@ export function buildSourceEvidenceStatus(args: {
     extractionStatus,
     clearingStatus,
     matchingDocuments: matching,
+    linkedEvidenceDocuments: linkedMatching,
+    candidateDocuments: candidateMatching,
+    hasLinkedRequestEvidence,
+    regenerateRecommended,
+    lastEvidenceReceivedAt,
+    lastExtractedAt,
+    clearingExplanation,
     blockingReason,
     nextActionLabel,
     statusTone,

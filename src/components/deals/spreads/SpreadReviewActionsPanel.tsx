@@ -119,6 +119,26 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
     }
   }, [base]);
 
+  // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: reuse the EXISTING regenerate route (no new
+  // route) — enqueue a fresh classic-spread render, then re-sync review actions so cleared blockers
+  // drop out and still-blocking reasons update. Never auto-clears; clearing is the audit's job.
+  const [regenBusy, setRegenBusy] = useState(false);
+  const regenerate = useCallback(async () => {
+    setRegenBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/classic-spread/ensure`, { method: "POST" });
+      if (!res.ok) throw new Error(`Regenerate failed (${res.status})`);
+      setNotice("Spread regeneration requested — re-checking blockers. Sync from latest audit once it finishes.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRegenBusy(false);
+    }
+  }, [dealId, load]);
+
   const decide = useCallback(
     async (id: string, status: string) => {
       setBusyId(id);
@@ -211,7 +231,7 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
           </div>
           {(() => {
             const ev = rowEvidence(a);
-            if (ev) return <EvidenceStrip ev={ev} />;
+            if (ev) return <EvidenceStrip ev={ev} onRegenerate={regenerate} regenBusy={regenBusy} />;
             if (a.status === "borrower_detail_requested") {
               return (
                 <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-300">
@@ -244,45 +264,77 @@ export default function SpreadReviewActionsPanel({ dealId }: { dealId: string })
   );
 }
 
-function EvidenceStrip({ ev }: { ev: SourceEvidenceStatus }) {
+const REQUEST_LABEL: Record<string, string> = {
+  requested: "Borrower detail requested",
+  not_requested: "Not requested",
+  fulfilled: "Fulfilled (borrower responded)",
+  not_applicable: "n/a",
+};
+
+function DocLine({ d }: { d: SourceEvidenceStatus["matchingDocuments"][number] }) {
+  return (
+    <div className="text-white/55">
+      <span className="text-white/75">{d.filename}</span>
+      {d.docType ? ` — ${d.docType.replace(/_/g, " ")}` : ""}
+      {d.periodLabel ? ` — ${d.periodLabel}` : ""}
+      {` — ${d.extractionStatus}`}
+      {d.note ? <span className="text-amber-300"> — {d.note}</span> : null}
+    </div>
+  );
+}
+
+function EvidenceStrip({ ev, onRegenerate, regenBusy }: { ev: SourceEvidenceStatus; onRegenerate?: () => void; regenBusy?: boolean }) {
   const toneBorder =
     ev.statusTone === "success" ? "border-emerald-500/30 bg-emerald-950/10"
       : ev.statusTone === "warning" ? "border-amber-500/30 bg-amber-950/10"
         : "border-white/10 bg-white/[0.03]";
-  const reqLabel =
-    ev.requestStatus === "requested" ? "Requested" : ev.requestStatus === "not_requested" ? "Not requested" : "n/a";
   return (
     <div className={`rounded-md border ${toneBorder} p-2 space-y-1.5 text-[11px]`}>
       <div className="text-white/80"><span className="text-white/45">Evidence needed:</span> {ev.requiredEvidenceSummary}</div>
 
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-white/60">
-        <span><span className="text-white/40">Request:</span> {reqLabel}</span>
+        <span><span className="text-white/40">Request:</span> {REQUEST_LABEL[ev.requestStatus] ?? ev.requestStatus}</span>
         <span><span className="text-white/40">Upload:</span> {UPLOAD_LABEL[ev.uploadStatus] ?? ev.uploadStatus}</span>
         <span><span className="text-white/40">Extraction:</span> {ev.extractionStatus}</span>
+        <span><span className="text-white/40">Regenerate:</span> {ev.regenerateRecommended ? "required" : "—"}</span>
         <span className={ev.clearingStatus === "cleared_after_regenerate" ? "text-emerald-300" : ev.clearingStatus === "needs_regenerate" ? "text-amber-300" : "text-rose-300"}>
-          {ev.clearingStatus === "cleared_after_regenerate" ? "Cleared" : ev.clearingStatus === "needs_regenerate" ? "Needs regenerate" : "Still blocking"}
+          {ev.clearingStatus === "cleared_after_regenerate" ? "Cleared after regenerate" : ev.clearingStatus === "needs_regenerate" ? "Needs regenerate" : "Still blocking"}
         </span>
       </div>
 
       {ev.requestWarning && <div className="text-amber-300">{ev.requestWarning}</div>}
       {ev.enrichmentWarning && <div className="text-white/45 italic">{ev.enrichmentWarning}</div>}
 
-      {ev.matchingDocuments.length > 0 && (
+      {ev.linkedEvidenceDocuments.length > 0 && (
         <div className="space-y-0.5">
-          {ev.matchingDocuments.map((d) => (
-            <div key={d.id} className="text-white/55">
-              <span className="text-white/75">{d.filename}</span>
-              {d.docType ? ` — ${d.docType.replace(/_/g, " ")}` : ""}
-              {d.periodLabel ? ` — ${d.periodLabel}` : ""}
-              {` — ${d.extractionStatus}`}
-              {d.note ? <span className="text-amber-300"> — {d.note}</span> : null}
-            </div>
-          ))}
+          <div className="text-white/45">Linked evidence:</div>
+          {ev.linkedEvidenceDocuments.map((d) => <DocLine key={d.id} d={d} />)}
         </div>
       )}
 
-      {ev.blockingReason && <div className="text-white/55"><span className="text-white/40">Why still blocking:</span> {ev.blockingReason}</div>}
-      <div className="text-white/70"><span className="text-white/40">Next:</span> {ev.nextActionLabel}</div>
+      {ev.candidateDocuments.length > 0 && (
+        <div className="space-y-0.5">
+          <div className="text-white/45">Candidate documents:</div>
+          {ev.candidateDocuments.map((d) => <DocLine key={d.id} d={d} />)}
+        </div>
+      )}
+
+      {ev.clearingStatus === "cleared_after_regenerate"
+        ? <div className="text-emerald-300">{ev.clearingExplanation}</div>
+        : ev.blockingReason && <div className="text-white/55"><span className="text-white/40">Why still blocking:</span> {ev.blockingReason}</div>}
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-white/70"><span className="text-white/40">Next:</span> {ev.nextActionLabel}</div>
+        {ev.regenerateRecommended && onRegenerate && (
+          <button
+            onClick={onRegenerate}
+            disabled={regenBusy}
+            className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50"
+          >
+            {regenBusy ? "Regenerating…" : "Regenerate spread"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

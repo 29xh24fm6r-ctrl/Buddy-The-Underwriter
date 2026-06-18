@@ -11,6 +11,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { ClassicSpreadReviewAction, ReviewActionStatus } from "./buildReviewActions";
 import type { ReviewDecision } from "./applyReviewDecisions";
+import { ACTIVE_REVIEW_ACTION_STATUSES } from "./reviewActionStatus";
 
 const TABLE = "classic_spread_review_actions";
 
@@ -92,24 +93,32 @@ export async function syncReviewActions(args: {
     if (error) throw new Error(`sync_review_actions_failed: ${error.message}`);
   }
 
-  // (3) prune: close OPEN rows for this (bank_id, deal_id) that are absent from the latest set.
+  // (3) prune: close stale ACTIVE rows for this (bank_id, deal_id) that are absent from the latest set.
+  //     SPEC-LINKED-EVIDENCE-REGENERATE-CLOSE-LOOP-1: "active" = open OR borrower_detail_requested.
+  //     The borrower_detail_requested state is still a blocker (request created, awaiting upload); once
+  //     the borrower's linked evidence is consumed by a regenerate and the finding disappears from the
+  //     latest audit, that row must close too — otherwise a fulfilled request would block forever.
+  //     Banker-settled rows (confirmed/rejected/source_verified/waived/closed) are never touched.
   //     Runs regardless of actions.length so a now-clean audit still clears stale blockers.
-  const { data: openRows, error: selErr } = await sb
+  const activeStatuses = [...ACTIVE_REVIEW_ACTION_STATUSES];
+  const { data: activeRows, error: selErr } = await sb
     .from(TABLE)
     .select("id, finding_key")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
-    .eq("status", "open");
+    .in("status", activeStatuses);
   if (selErr) throw new Error(`sync_review_actions_prune_select_failed: ${selErr.message}`);
 
-  const staleIds = ((openRows ?? []) as Array<{ id: string; finding_key: string }>)
+  const staleIds = ((activeRows ?? []) as Array<{ id: string; finding_key: string }>)
     .filter((r) => !latestFindingKeys.has(r.finding_key))
     .map((r) => r.id);
 
   let closed = 0;
   if (staleIds.length > 0) {
-    // System-close (no reviewer_user_id) — distinguishable from a banker decision. The status='open'
-    // re-guard avoids racing a concurrent banker decision; updated_at is maintained by the table trigger.
+    // System-close. The active-status re-guard avoids racing a concurrent banker decision (a row a
+    // banker just confirmed/waived must not be re-closed); updated_at is maintained by the table
+    // trigger. reviewer_user_id is left untouched so a borrower_detail_requested closure keeps the
+    // requesting banker on record while decision_json records the system closure.
     const { error: closeErr } = await sb
       .from(TABLE)
       .update({
@@ -118,7 +127,7 @@ export async function syncReviewActions(args: {
       })
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
-      .eq("status", "open")
+      .in("status", activeStatuses)
       .in("id", staleIds);
     if (closeErr) throw new Error(`sync_review_actions_prune_close_failed: ${closeErr.message}`);
     closed = staleIds.length;

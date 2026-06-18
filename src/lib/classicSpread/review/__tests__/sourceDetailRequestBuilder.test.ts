@@ -9,6 +9,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildSourceDetailRequest, type SourceDetailRequestInput } from "../sourceDetailRequestBuilder";
+import { linkEvidenceUploads } from "../evidenceUploadLinker";
+import type { EvidenceCandidateDoc } from "../sourceEvidenceStatus";
 
 const NON_ASCII = /[^\x00-\x7F]/;
 
@@ -57,6 +59,39 @@ describe("buildSourceDetailRequest — OmniCare YTD 2026 TCA", () => {
     assert.ok(r.acceptableDocuments.some((d) => /Reconciliation from any nearby AR aging date back to 3\/31\/2026/.test(d)));
     assert.ok(r.unacceptableDocuments.some((d) => /different date with no reconciliation/i.test(d)));
     assert.ok(r.unacceptableDocuments.some((d) => /Borrowing-base AR as of a different date without a bridge to 3\/31\/2026/.test(d)));
+  });
+
+  it("carries an evidence-kind + clearing target + structured uploadContext (REQUEST-PACKAGE-POLISH-1)", () => {
+    assert.equal(r.requestedEvidenceKind, "current_asset_detail");
+    assert.match(r.clearingTarget, /Total Current Assets of \$3,097,345 as of 3\/31\/2026/);
+    assert.equal(r.uploadContext.spreadReviewActionId, "ra-1");
+    assert.equal(r.uploadContext.spreadFindingKey, omniCare.findingKey);
+    assert.equal(r.uploadContext.requestedEvidenceKind, "current_asset_detail");
+    assert.equal(r.uploadContext.requestedPeriod, "3/31/2026");
+    assert.match(r.uploadContext.clearingTarget, /Total Current Assets/);
+  });
+
+  it("round-trips: an upload tagged with the uploadContext metadata becomes LINKED evidence", () => {
+    // Simulate the borrower upload writing the package's uploadContext into deal_documents.metadata.
+    const uploaded: EvidenceCandidateDoc = {
+      id: "doc-1", filename: "Omnicare current asset detail 3-31-2026.pdf", canonicalType: "AR_AGING",
+      checklistKey: null, documentLabel: null, periodEnd: "2026-03-31", taxYear: 2026, extractionStatus: "extracted",
+      isActive: true, linkedReviewActionId: r.uploadContext.spreadReviewActionId,
+    };
+    const unrelated: EvidenceCandidateDoc = {
+      id: "doc-2", filename: "Some other statement.pdf", canonicalType: "BALANCE_SHEET",
+      checklistKey: null, documentLabel: null, periodEnd: "2025-12-31", taxYear: 2025, extractionStatus: "extracted", isActive: true,
+    };
+    const action = {
+      id: "ra-1", findingKey: omniCare.findingKey ?? "", actionType: "REQUEST_SOURCE_DETAIL", issueType: "missing_implied_component",
+      statement: "balance_sheet", periodLabel: "YTD 2026", rowLabel: "TOTAL CURRENT ASSETS", status: "borrower_detail_requested",
+      sourceValue: 198_692.59, recommendedValue: 2_898_652.37, diffValue: 2_898_652.37, periodEndDate: "3/31/2026", periodIsInterim: true,
+    };
+    const link = linkEvidenceUploads({ action, documents: [uploaded, unrelated] });
+    assert.deepEqual(link.linkedDocIds, ["doc-1"]); // exact request metadata → LINKED
+    assert.equal(link.candidateDocuments.length, 1); // unrelated stays candidate
+    assert.equal(link.candidateDocuments[0].id, "doc-2");
+    assert.equal(link.linkageConfidence, "explicit");
   });
 
   it("links back to the source review action / finding_key and is all ASCII", () => {
@@ -201,6 +236,10 @@ describe("buildSourceDetailRequest — generic / future-deal robustness", () => 
     assert.match(r.borrowerMessage, /\$1,489,099/);
     assert.match(r.borrowerMessage, /\$1,779,641/);
     assert.ok(r.acceptableDocuments.some((d) => /Schedule L showing mortgages\/notes/.test(d)));
+    // evidence-kind + clearing target for the 2022 Schedule L reconciliation
+    assert.equal(r.requestedEvidenceKind, "schedule_l_detail");
+    assert.match(r.clearingTarget, /Total Liabilities \+ Net Worth reconciling to Total Assets of \$3,268,740 as of 12\/31\/2022/);
+    assert.equal(r.uploadContext.requestedEvidenceKind, "schedule_l_detail");
   });
 
   it("generic VERIFY_SOURCE_LINE asks for source documentation + reconciliation", () => {

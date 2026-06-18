@@ -40,6 +40,30 @@ export type SourceDetailRequestInput = {
   reason?: string | null;
 };
 
+// SPEC-BORROWER-EVIDENCE-REQUEST-PACKAGE-POLISH-1: a stable evidence-kind token, evidence-kind-aware
+// so the borrower knows precisely what class of document satisfies the request, and the linker/metadata
+// round-trip is unambiguous.
+export type RequestedEvidenceKind =
+  | "current_asset_detail"
+  | "schedule_l_detail"
+  | "balance_sheet_detail"
+  | "income_statement_detail"
+  | "source_documentation";
+
+/**
+ * The structured linkage an upload form must carry so the uploaded document becomes LINKED evidence
+ * for the exact review action (round-trips through deal_documents.metadata → evidenceUploadLinker).
+ * `draftBorrowerRequestId` is filled in by the persistence layer after the draft row is created.
+ */
+export type EvidenceUploadContext = {
+  spreadReviewActionId: string | null;
+  spreadFindingKey: string | null;
+  draftBorrowerRequestId?: string | null;
+  requestedEvidenceKind: RequestedEvidenceKind;
+  requestedPeriod: string;
+  clearingTarget: string;
+};
+
 export type BorrowerSourceDetailRequest = {
   title: string;
   shortDescription: string;
@@ -61,6 +85,12 @@ export type BorrowerSourceDetailRequest = {
   findingKey: string | null;
   /** a stable doc-type token for the borrower request surface */
   missingDocumentType: string;
+  /** stable evidence-kind token (what class of document satisfies this request) */
+  requestedEvidenceKind: RequestedEvidenceKind;
+  /** plain-English statement of exactly what the upload must let Buddy reconcile/clear */
+  clearingTarget: string;
+  /** structured linkage the upload form must send so the upload becomes LINKED evidence */
+  uploadContext: EvidenceUploadContext;
   tags: string[];
 };
 
@@ -113,11 +143,36 @@ export function buildSourceDetailRequest(input: SourceDetailRequestInput): Borro
   const isCurrentAssetContext = isBalanceSheet && arContext;
   const isRequestSourceDetail = input.actionType === "REQUEST_SOURCE_DETAIL";
 
+  const isVerify = input.actionType === "VERIFY_SOURCE_LINE";
+  const isUnreconciledBalance = isBalanceSheet && (input.issueType === "unreconciled_total" || /liabilit|net worth|equity/i.test(input.lineItem));
+
   const baseTags = ["classic_spread", "source_detail", input.statement, input.issueType];
   if (arContext) baseTags.push("accounts_receivable");
 
+  // ── evidence-kind + clearing target (the precise "what to upload and why") ──
+  const requestedEvidenceKind: RequestedEvidenceKind =
+    isVerify && isUnreconciledBalance ? "schedule_l_detail"
+      : isCurrentAssetContext ? "current_asset_detail"
+        : isBalanceSheet ? "balance_sheet_detail"
+          : isIncomeStatement ? "income_statement_detail"
+            : "source_documentation";
+  const taFmt = fmtUsd(input.recommendedValue);
+  const clearingTarget =
+    requestedEvidenceKind === "current_asset_detail"
+      ? `${lineName}${tieOutFmt ? ` of ${tieOutFmt}` : ""} as of ${periodRef}`
+      : requestedEvidenceKind === "schedule_l_detail"
+        ? `Total Liabilities + Net Worth reconciling to Total Assets${taFmt ? ` of ${taFmt}` : ""} as of ${periodRef}`
+        : `${lineName} for ${periodRef}`;
+  const uploadContext: EvidenceUploadContext = {
+    spreadReviewActionId: input.reviewActionId ?? null,
+    spreadFindingKey: input.findingKey ?? null,
+    requestedEvidenceKind,
+    requestedPeriod: periodRef,
+    clearingTarget,
+  };
+
   const bankerInternalNote =
-    `REQUEST_SOURCE_DETAIL on ${input.periodLabel} ${input.statement} / ${input.lineItem}: ` +
+    `${input.actionType} on ${input.periodLabel} ${input.statement} / ${input.lineItem}: ` +
     `reported ${tieOutFmt ?? "n/a"}, identified ${presentFmt ?? "n/a"}, missing ${missingFmt ?? "n/a"}.` +
     (input.reason ? ` ${input.reason}` : "");
 
@@ -131,6 +186,9 @@ export function buildSourceDetailRequest(input: SourceDetailRequestInput): Borro
     sourceReviewActionId: input.reviewActionId ?? null,
     findingKey: input.findingKey ?? null,
     requestedPeriodEnd: periodRef,
+    requestedEvidenceKind,
+    clearingTarget,
+    uploadContext,
   };
 
   // ── Current-asset / receivable balance-sheet detail (the primary OmniCare case) ────────────────

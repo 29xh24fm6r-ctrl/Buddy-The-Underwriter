@@ -106,6 +106,10 @@ describe("ensureBorrowerSourceDetailRequest", () => {
     assert.equal(ev.source_finding_key, tcaInput().findingKey);
     assert.equal(ev.source_review_action_id, "ra-1");
     assert.equal(ev.tie_out_target_amount, 198_692.59 + 2_898_652.37);
+    // SPEC-BORROWER-EVIDENCE-REQUEST-PACKAGE-POLISH-1: structured fields persisted for upload linkage
+    assert.equal(ev.requested_evidence_kind, "current_asset_detail");
+    assert.equal(ev.requested_period, "3/31/2026");
+    assert.match(ev.clearing_target, /Total Current Assets/);
   });
 
   it("is idempotent: a second request for the same finding_key reuses the draft (no duplicate)", async () => {

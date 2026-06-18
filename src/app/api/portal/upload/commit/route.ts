@@ -70,6 +70,13 @@ export async function POST(req: Request) {
     const token = body?.token;
     const requestId = body?.requestId || null;
     const taskKey = typeof body?.taskKey === "string" ? body.taskKey : null;
+    // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: when a borrower uploads in response to a
+    // classic-spread source-detail request, carry the linkage forward so the upload becomes LINKED
+    // evidence for the exact review action. Optional + additive — absent for ordinary uploads.
+    const spreadReviewActionId = typeof body?.spreadReviewActionId === "string" ? body.spreadReviewActionId : null;
+    const spreadFindingKey = typeof body?.spreadFindingKey === "string" ? body.spreadFindingKey : null;
+    const draftBorrowerRequestId = typeof body?.draftBorrowerRequestId === "string" ? body.draftBorrowerRequestId : null;
+    const requestedEvidenceKind = typeof body?.requestedEvidenceKind === "string" ? body.requestedEvidenceKind : null;
     const path = body?.path;
     const filename = body?.filename;
     const mimeType = body?.mimeType || null;
@@ -305,8 +312,41 @@ export async function POST(req: Request) {
         task_checklist_key: taskKey,
         skip_filename_match: true,
         request_id: requestId,
+        // Spread source-detail linkage (only present when the upload answers a spread review action).
+        ...(spreadReviewActionId || spreadFindingKey || draftBorrowerRequestId
+          ? {
+              uploaded_for: "classic_spread_review_action",
+              spread_review_action_id: spreadReviewActionId,
+              spread_finding_key: spreadFindingKey,
+              draft_borrower_request_id: draftBorrowerRequestId,
+              requested_evidence_kind: requestedEvidenceKind,
+            }
+          : {}),
       },
     });
+
+    // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: non-invasive ledger event when a borrower
+    // upload is linked to a spread review action (status only — never clears the blocker).
+    if (spreadReviewActionId || spreadFindingKey) {
+      try {
+        const { emitBuddyEvent } = await import("@/lib/observability/emitEvent");
+        await emitBuddyEvent({
+          event_type: "spread_evidence_uploaded",
+          event_category: "flow",
+          severity: "info",
+          deal_id: invite.deal_id,
+          bank_id: invite.bank_id,
+          payload: {
+            document_id: ingest.documentId ?? null,
+            review_action_id: spreadReviewActionId,
+            finding_key: spreadFindingKey,
+            draft_request_id: draftBorrowerRequestId,
+            requested_evidence_kind: requestedEvidenceKind,
+            status: "uploaded",
+          },
+        }).catch(() => {});
+      } catch { /* non-fatal */ }
+    }
 
     // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
     {

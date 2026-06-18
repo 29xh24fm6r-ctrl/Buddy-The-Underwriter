@@ -4,6 +4,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireValidInvite } from "@/lib/portal/auth";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { buildBorrowerTasksFromChecklist } from "@/lib/portal/tasks";
+import {
+  buildBorrowerSpreadRequestTiles,
+  type BorrowerSpreadRequestTile,
+} from "@/lib/classicSpread/review/borrowerPortalSpreadRequestTiles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,6 +95,31 @@ export async function POST(req: Request) {
     .eq("deal_id", invite.deal_id)
     .order("created_at", { ascending: true });
 
+  // SPEC-BORROWER-PORTAL-SPREAD-REQUEST-TILES-1: surface classic-spread source-detail requests as
+  // borrower upload tiles. Reads existing tables only (draft_borrower_requests + the live review-action
+  // status); a tile renders ONLY while its review action is still active. Non-fatal — a failure here
+  // must never break the portal session.
+  let spreadRequests: BorrowerSpreadRequestTile[] = [];
+  try {
+    const [{ data: drafts }, { data: spreadActions }] = await Promise.all([
+      sb
+        .from("draft_borrower_requests")
+        .select("id, status, missing_document_type, draft_subject, draft_message, evidence")
+        .eq("deal_id", invite.deal_id),
+      sb
+        .from("classic_spread_review_actions")
+        .select("id, finding_key, status")
+        .eq("deal_id", invite.deal_id)
+        .eq("bank_id", invite.bank_id),
+    ]);
+    spreadRequests = buildBorrowerSpreadRequestTiles({
+      drafts: (drafts ?? []) as any[],
+      actions: (spreadActions ?? []) as any[],
+    });
+  } catch {
+    spreadRequests = [];
+  }
+
   return NextResponse.json({
     invite: {
       id: invite.id,
@@ -102,6 +131,7 @@ export async function POST(req: Request) {
     deal,
     tasks: buildBorrowerTasksFromChecklist(checklistItems ?? []),
     requests: requests || [],
+    spreadRequests,
     messages: messages || [],
   });
 }
