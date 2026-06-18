@@ -130,7 +130,7 @@ describe("linked exact evidence → regenerate → close (cleared only after aud
   it("step 3: with the row now closed, the Evidence Strip reads cleared_after_regenerate", () => {
     const ev = buildSourceEvidenceStatus({ action: tcaAction({ status: "closed" }), documents: [linkedExactDoc] });
     assert.equal(ev.clearingStatus, "cleared_after_regenerate");
-    assert.match(ev.clearingExplanation, /Cleared after regenerate/);
+    assert.match(ev.clearingExplanation ?? "", /Cleared after regenerate/);
   });
 
   it("step 4: certificationSummary stops counting the closed action and can certify", () => {
@@ -173,7 +173,7 @@ describe("wrong-period linked upload stays blocking unless the audit removes the
     const ev = buildSourceEvidenceStatus({ action: tcaAction(), documents: [wrongPeriodLinked] });
     assert.equal(ev.clearingStatus, "still_blocking");
     assert.equal(ev.uploadStatus, "candidate_uploaded_needs_bridge");
-    assert.match(ev.blockingReason, /bridge/i);
+    assert.match(ev.blockingReason ?? "", /bridge/i);
   });
 
   it("regenerate that still emits the finding keeps it open; only audit absence closes it", async () => {
@@ -206,6 +206,6 @@ describe("2022 TLNW candidate stays blocking (tax return is candidate, not linke
     const ev = buildSourceEvidenceStatus({ action: tlnwAction, documents: [tr2022] });
     assert.equal(ev.hasLinkedRequestEvidence, false);
     assert.equal(ev.clearingStatus, "still_blocking");
-    assert.match(ev.blockingReason, /Schedule L liability\/equity side does not reconcile/);
+    assert.match(ev.blockingReason ?? "", /Schedule L liability\/equity side does not reconcile/);
   });
 });

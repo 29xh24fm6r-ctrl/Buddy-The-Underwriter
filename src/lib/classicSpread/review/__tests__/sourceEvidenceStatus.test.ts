@@ -239,7 +239,7 @@ describe("linked borrower evidence lifecycle (BORROWER-EVIDENCE-UPLOAD-TO-BLOCKE
     });
     assert.equal(s.clearingStatus, "still_blocking");
     assert.equal(s.uploadStatus, "candidate_uploaded_needs_bridge");
-    assert.match(s.blockingReason, /did not provide a 3\/31\/2026 AR\/current-asset bridge/);
+    assert.match(s.blockingReason ?? "", /did not provide a 3\/31\/2026 AR\/current-asset bridge/);
   });
 
   it("settled action with prior linked extracted evidence → cleared_after_regenerate", () => {
@@ -248,7 +248,7 @@ describe("linked borrower evidence lifecycle (BORROWER-EVIDENCE-UPLOAD-TO-BLOCKE
       documents: [linkedDoc({ id: "lk", filename: "AR detail 3-2026.pdf", periodEnd: "2026-03-31" })],
     });
     assert.equal(s.clearingStatus, "cleared_after_regenerate");
-    assert.match(s.clearingExplanation, /Cleared after regenerate/);
+    assert.match(s.clearingExplanation ?? "", /Cleared after regenerate/);
   });
 
   it("explicit linked doc wins: heuristic 4/28 candidate present, but linked 3/31 drives needs_regenerate", () => {

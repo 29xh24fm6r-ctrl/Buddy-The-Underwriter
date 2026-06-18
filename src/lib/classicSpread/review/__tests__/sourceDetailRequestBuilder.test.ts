@@ -83,7 +83,7 @@ describe("buildSourceDetailRequest — OmniCare YTD 2026 TCA", () => {
       checklistKey: null, documentLabel: null, periodEnd: "2025-12-31", taxYear: 2025, extractionStatus: "extracted", isActive: true,
     };
     const action = {
-      id: "ra-1", findingKey: omniCare.findingKey, actionType: "REQUEST_SOURCE_DETAIL", issueType: "missing_implied_component",
+      id: "ra-1", findingKey: omniCare.findingKey ?? "", actionType: "REQUEST_SOURCE_DETAIL", issueType: "missing_implied_component",
       statement: "balance_sheet", periodLabel: "YTD 2026", rowLabel: "TOTAL CURRENT ASSETS", status: "borrower_detail_requested",
       sourceValue: 198_692.59, recommendedValue: 2_898_652.37, diffValue: 2_898_652.37, periodEndDate: "3/31/2026", periodIsInterim: true,
     };
