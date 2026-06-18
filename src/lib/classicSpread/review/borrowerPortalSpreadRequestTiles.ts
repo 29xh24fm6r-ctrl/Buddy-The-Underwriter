@@ -75,6 +75,28 @@ const cleanStr = (v: unknown): string | null => {
   return s.length > 0 ? s : null;
 };
 
+/**
+ * SPEC-BORROWER-SPREAD-EVIDENCE-LAUNCH-HARDENING-1: a borrower must never see a blank tile. When the
+ * draft carries no plain-English message (legacy/partial draft), synthesize a conservative, borrower-
+ * safe instruction from the structured request fields. Never references banker-internal copy.
+ */
+function safeBorrowerInstruction(args: {
+  evidenceKind: string | null;
+  period: string | null;
+  clearingTarget: string | null;
+  acceptable: string[];
+}): string {
+  const { evidenceKind, period, clearingTarget, acceptable } = args;
+  if (clearingTarget) {
+    return `Your lending team needs supporting documentation${period ? ` as of ${period}` : ""} showing ${clearingTarget}.`;
+  }
+  if (acceptable.length > 0) {
+    return `Please upload supporting documentation${period ? ` as of ${period}` : ""}. Examples that work: ${acceptable.slice(0, 3).join("; ")}.`;
+  }
+  const kindLabel = evidenceKind ? evidenceKind.replace(/_/g, " ") : "supporting documentation";
+  return `Your lending team requested ${kindLabel}${period ? ` as of ${period}` : ""} to finish your financial spread.`;
+}
+
 /** True when the draft is a classic-spread source-detail request (others are unrelated → never a tile). */
 export function isSpreadSourceDetailDraft(row: SpreadRequestDraftRow): boolean {
   return spreadEvidenceOf(row.evidence) != null;
@@ -106,6 +128,12 @@ export function buildBorrowerSpreadRequestTiles(args: {
     const reviewActionId = cleanStr(ev.source_review_action_id);
     const findingKey = cleanStr(ev.source_finding_key);
 
+    // SPEC-BORROWER-SPREAD-EVIDENCE-LAUNCH-HARDENING-1: a tile is only fulfillable if the upload it
+    // invites can be tied back to a review action — i.e. the draft carries at least one forwardable
+    // linkage key (review-action id or finding key). A malformed/partial draft with neither must never
+    // render a broken upload tile (the upload could not become LINKED evidence). Degrade silently.
+    if (!reviewActionId && !findingKey) continue;
+
     // The review action governs whether the request is still unresolved. Match by id first (stable row
     // id) then by finding_key (stable across re-sync). No active match ⇒ the blocker is gone ⇒ no tile.
     const action =
@@ -117,18 +145,22 @@ export function buildBorrowerSpreadRequestTiles(args: {
     const requestedEvidenceKind = cleanStr(ev.requested_evidence_kind);
     const requestedPeriod = cleanStr(ev.requested_period) ?? cleanStr(ev.requested_period_end);
     const clearingTarget = cleanStr(ev.clearing_target);
+    const acceptableDocuments = strArray(ev.acceptable_documents);
 
     tiles.push({
       id: draft.id,
       draftBorrowerRequestId: draft.id,
       title: cleanStr(draft.draft_subject) ?? "Additional document requested",
-      description: cleanStr(draft.draft_message) ?? "",
+      // Never blank: fall back to a conservative, borrower-safe instruction built from structured fields.
+      description:
+        cleanStr(draft.draft_message) ??
+        safeBorrowerInstruction({ evidenceKind: requestedEvidenceKind, period: requestedPeriod, clearingTarget, acceptable: acceptableDocuments }),
       requestedEvidenceKind,
       requestedPeriod,
       clearingTarget,
       statementType: cleanStr(ev.statement_type),
       lineItem: cleanStr(ev.line_item),
-      acceptableDocuments: strArray(ev.acceptable_documents),
+      acceptableDocuments,
       unacceptableDocuments: strArray(ev.unacceptable_documents),
       spreadReviewActionId: reviewActionId,
       spreadFindingKey: findingKey,

@@ -60,7 +60,13 @@ function rowEvidence(a: ReviewAction): SourceEvidenceStatus | null {
 }
 
 const UPLOAD_LABEL: Record<string, string> = {
+  // SPEC-BORROWER-SPREAD-EVIDENCE-LAUNCH-HARDENING-1: every EvidenceUploadStatus must have a banker-
+  // readable label so the panel never leaks a raw machine token. `linked_evidence_uploaded` and
+  // `unknown` were previously missing — the linked-but-not-yet-extracted state is the heart of the
+  // borrower loop and must read clearly ("Linked evidence — awaiting extraction").
+  unknown: "Status unknown",
   no_candidate_uploaded: "No candidate uploaded",
+  linked_evidence_uploaded: "Linked evidence — awaiting extraction",
   candidate_uploaded: "Candidate uploaded",
   candidate_uploaded_wrong_period: "Uploaded — wrong period",
   candidate_uploaded_needs_bridge: "Uploaded — bridge required",
