@@ -40,15 +40,15 @@ import { isGatekeeperReadinessEnabled } from "@/lib/flags/openaiGatekeeper";
 import type { ReadinessMode } from "./model";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { computeBlockers } from "./computeBlockers";
+import { getCachedLifecycleState, setCachedLifecycleState } from "./lifecycleCache";
 import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
 import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
 
-// Short-lived cache to prevent redundant lifecycle queries on rapid re-renders
-const lifecycleCache = new Map<string, { expiresAt: number; value: LifecycleState }>();
-const LIFECYCLE_CACHE_TTL_MS = 30_000; // 30 seconds
+// Short-lived lifecycle memoization now lives in ./lifecycleCache so mutations (e.g. loan request
+// create/update/delete) can invalidate it — see SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1.
 
 // Type for the internal lifecycle stage from deals table
 type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready" | "decision_made" | "closing" | "closed";
@@ -97,8 +97,8 @@ export async function deriveLifecycleState(dealId: string): Promise<LifecycleSta
  * Uses safeFetch wrapper for consistent error handling.
  */
 async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleState> {
-  const cached = lifecycleCache.get(dealId);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const cached = getCachedLifecycleState(dealId);
+  if (cached) return cached;
 
   const sb = supabaseAdmin();
   const ctx: SafeFetchContext = { dealId };
@@ -767,7 +767,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   const result = { stage, lastAdvancedAt, blockers, derived };
-  lifecycleCache.set(dealId, { expiresAt: Date.now() + LIFECYCLE_CACHE_TTL_MS, value: result });
+  setCachedLifecycleState(dealId, result);
   return result;
 }
 

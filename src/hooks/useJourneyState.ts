@@ -12,6 +12,24 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
+/**
+ * SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: a client-side invalidation signal. After a mutation
+ * that can change lifecycle blockers (e.g. creating/submitting/deleting a loan request), the mutating
+ * component calls invalidateJourneyState(dealId). useJourneyState listens for this event and refetches
+ * immediately instead of waiting up to revalidateMs (30s) for the next poll. Pairs with the server-side
+ * invalidateLifecycleCache so the immediate refetch returns freshly derived (not server-cached) state.
+ */
+export const LIFECYCLE_INVALIDATE_EVENT = "buddy:lifecycle-invalidate";
+
+/** Dispatch a lifecycle-invalidation signal for a deal (drops the client cache + notifies subscribers). */
+export function invalidateJourneyState(dealId: string): void {
+  if (!dealId || typeof window === "undefined") return;
+  cache.delete(dealId);
+  window.dispatchEvent(
+    new CustomEvent(LIFECYCLE_INVALIDATE_EVENT, { detail: { dealId } }),
+  );
+}
+
 export type UseJourneyStateResult = {
   state: LifecycleState | null;
   loading: boolean;
@@ -120,11 +138,23 @@ export function useJourneyState(
       void refetch();
     };
 
+    // SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: refetch immediately when a mutation signals that
+    // this deal's lifecycle changed (e.g. a loan request was created/submitted/deleted). A missing/empty
+    // detail.dealId is treated as "any deal" so a broad signal still refreshes.
+    const onInvalidate = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { dealId?: string } | undefined;
+      if (!detail?.dealId || detail.dealId === dealId) {
+        cache.delete(dealId);
+        void refetch();
+      }
+    };
+
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisibility);
     }
     if (typeof window !== "undefined") {
       window.addEventListener("focus", onFocus);
+      window.addEventListener(LIFECYCLE_INVALIDATE_EVENT, onInvalidate);
     }
 
     return () => {
@@ -135,6 +165,7 @@ export function useJourneyState(
       }
       if (typeof window !== "undefined") {
         window.removeEventListener("focus", onFocus);
+        window.removeEventListener(LIFECYCLE_INVALIDATE_EVENT, onInvalidate);
       }
     };
   }, [dealId, refetch, revalidateMs]);
@@ -145,4 +176,14 @@ export function useJourneyState(
 /** Test-only: clear the module-level cache. */
 export function __resetJourneyStateCacheForTests() {
   cache.clear();
+}
+
+/** Test-only: seed a cache entry (to prove invalidation drops it). */
+export function __seedJourneyStateCacheForTests(dealId: string, state: LifecycleState | null) {
+  cache.set(dealId, { state, fetchedAt: Date.now() });
+}
+
+/** Test-only: read whether a cache entry exists for a deal. */
+export function __hasJourneyStateCacheEntryForTests(dealId: string): boolean {
+  return cache.has(dealId);
 }
