@@ -18,6 +18,14 @@ export type StageRowProps = {
   blockers?: LifecycleBlocker[];
   /** Next action for the current stage only. */
   action?: NextAction | null;
+  /**
+   * SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: when the current stage already has
+   * a primary action, downstream locked-stage blocker chips would surface stale,
+   * out-of-order guidance (e.g. "Finalize Pricing" while earlier items remain).
+   * When true, a locked row with blockers shows a single neutral "locked" line
+   * instead of rendering every downstream blocker fix action.
+   */
+  suppressBlockerActions?: boolean;
   variant?: "vertical" | "horizontal";
 };
 
@@ -118,6 +126,7 @@ export function StageRow({
   dealId,
   blockers,
   action,
+  suppressBlockerActions = false,
   variant = "vertical",
 }: StageRowProps) {
   const label = STAGE_LABELS[stage] ?? stage;
@@ -200,11 +209,17 @@ export function StageRow({
           <ActionButton action={action} dealId={dealId} />
         ) : null}
         {status === "locked" && blockers && blockers.length > 0 ? (
-          <div className="mt-1 space-y-1">
-            {blockers.map((b) => (
-              <BlockerChip key={b.code} blocker={b} dealId={dealId} />
-            ))}
-          </div>
+          suppressBlockerActions ? (
+            <div className="mt-1 block w-full rounded-md border border-white/10 bg-white/5 px-2 py-1 text-left text-[11px] text-white/40">
+              Locked until current underwriting items are complete
+            </div>
+          ) : (
+            <div className="mt-1 space-y-1">
+              {blockers.map((b) => (
+                <BlockerChip key={b.code} blocker={b} dealId={dealId} />
+              ))}
+            </div>
+          )
         ) : null}
       </span>
     </>

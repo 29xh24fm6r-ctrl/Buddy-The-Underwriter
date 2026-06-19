@@ -46,7 +46,9 @@ export default function NextStepCard({ dealId }: { dealId: string }) {
     if (next.key === "complete_intake") {
       const missing = next.missing ?? [];
       if (missing.includes("deal_name")) return "Name this deal";
-      if (missing.includes("borrower")) return "Attach borrower";
+      // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: "borrower" missing means the
+      // LEGAL borrower entity is unidentified (not a missing sponsor profile).
+      if (missing.includes("borrower")) return "Confirm borrower identity";
       return "Complete intake";
     }
     return "Next step";

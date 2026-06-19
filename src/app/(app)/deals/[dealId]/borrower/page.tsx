@@ -1,7 +1,13 @@
 import "server-only";
 
 /**
- * /deals/[dealId]/borrower — Borrower & Sponsor Profile
+ * /deals/[dealId]/borrower — Management, Sponsor & Guarantor Profiles
+ *
+ * SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: this page documents the people and
+ * entities that SUPPORT the borrower (deal_management_profiles) — it does NOT
+ * attach the legal borrower entity. Legal borrower identity (borrower_id /
+ * borrower_name / deal_borrower_story.legal_name) is a separate credit concept;
+ * see src/lib/borrower/borrowerIdentity.ts.
  *
  * BUG-BORROWER-PROFILE-STITCH-LIVE-1:
  * This route was previously backed by an empty 0-byte Stitch export
@@ -48,12 +54,15 @@ export default async function BorrowerProfilePage(props: {
       <div className="mx-auto max-w-[1100px] p-8 space-y-6">
         <header className="space-y-1">
           <h1 className="text-xl font-semibold text-gray-900">
-            Borrower &amp; Sponsor Profile
+            Management, Sponsor &amp; Guarantor Profiles
           </h1>
           <p className="text-sm text-gray-600">
-            Document each borrower principal, sponsor, and guarantor. Committee
-            evaluates sponsor strength individually — at least one profile is
-            required before the credit memo can be submitted.
+            Document the people and entities that <strong>support</strong> the
+            borrower — principals, officers, sponsors, and guarantors. This page
+            does <strong>not</strong> attach the legal borrower entity itself;
+            it captures the supporting profiles committee evaluates individually.
+            At least one profile is required before the credit memo can be
+            submitted.
           </p>
           <p className="text-xs text-gray-500">
             Saved profiles flow into{" "}

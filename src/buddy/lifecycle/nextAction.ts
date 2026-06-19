@@ -480,9 +480,15 @@ export function getBlockerFixAction(
       };
 
     case "borrower_not_attached":
+      // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: this blocker means the LEGAL
+      // borrower entity is unidentified — NOT that a management/sponsor/guarantor
+      // profile is missing. The /borrower page edits deal_management_profiles, so
+      // it is not a legal-borrower attach surface. Route to the borrower-story
+      // section of memo inputs (where legal_name is edited) and label it as
+      // confirming identity rather than "Attach borrower".
       return {
-        label: "Attach borrower",
-        href: `/deals/${dealId}/borrower`,
+        label: "Confirm borrower identity",
+        href: `/deals/${dealId}/memo-inputs#borrower-story`,
       };
 
     // Infrastructure/fetch errors - no direct fix

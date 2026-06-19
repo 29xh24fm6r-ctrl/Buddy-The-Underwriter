@@ -13,22 +13,26 @@ type FakeTables = {
   deal_checklist_items: Row[];
   financial_snapshot_decisions: Row[];
   deal_pricing_inputs: Row[];
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: legal borrower identity falls back
+  // to deal_borrower_story.legal_name, so the fake must serve this table too.
+  deal_borrower_story?: Row[];
 };
 
 function createFakeSupabase(seed: FakeTables) {
-  const tables: FakeTables = {
+  const tables: Record<string, Row[]> = {
     deals: [...seed.deals],
     deal_checklist_items: [...seed.deal_checklist_items],
     financial_snapshot_decisions: [...seed.financial_snapshot_decisions],
     deal_pricing_inputs: [...seed.deal_pricing_inputs],
+    deal_borrower_story: [...(seed.deal_borrower_story ?? [])],
   };
 
   function applyFilters(rows: Row[], filters: Array<{ key: string; value: any }>) {
-    return rows.filter((row) => filters.every((f) => row[f.key] === f.value));
+    return (rows ?? []).filter((row) => filters.every((f) => row[f.key] === f.value));
   }
 
   return {
-    from(tableName: keyof FakeTables) {
+    from(tableName: string) {
       const filters: Array<{ key: string; value: any }> = [];
       let countMode = false;
       const builder: any = {
@@ -114,12 +118,45 @@ test("missing deal returns deal_not_found with diagnostics", async () => {
 });
 
 test("missing borrower blocks complete_intake", async () => {
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: legal borrower identity is now
+  // satisfied by borrower_id OR any deal-level name field OR the story legal_name.
+  // To exercise the borrower gate, the deal must have NO legal identity at all —
+  // a management/sponsor profile would NOT satisfy it (it's a different concept).
   const result = await runVerify({
     deals: [
       {
         id: "deal-1",
         bank_id: "bank-1",
-        display_name: "Acme",
+        display_name: null,
+        name: null,
+        borrower_name: null,
+        nickname: null,
+        borrower_id: null,
+        stage: "collecting",
+      },
+    ],
+    deal_checklist_items: [],
+    financial_snapshot_decisions: [{ id: "snap-1", deal_id: "deal-1" }],
+    deal_pricing_inputs: [{ deal_id: "deal-1" }],
+    deal_borrower_story: [{ id: "story-1", deal_id: "deal-1", legal_name: null }],
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.recommendedNextAction, "complete_intake");
+  assert.ok(result.diagnostics.missing?.includes("borrower"));
+});
+
+test("deal-level name satisfies legal borrower identity (no borrower_id)", async () => {
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1 acceptance: an existing deal with a
+  // borrower/display name but no borrower_id must NOT report a missing borrower.
+  const result = await runVerify({
+    deals: [
+      {
+        id: "deal-1",
+        bank_id: "bank-1",
+        display_name: "Omnicare 6-18-2026",
+        name: "Omnicare 6-18-2026",
+        borrower_name: "Omnicare 6-18-2026",
         nickname: null,
         borrower_id: null,
         stage: "collecting",
@@ -130,9 +167,17 @@ test("missing borrower blocks complete_intake", async () => {
     deal_pricing_inputs: [{ deal_id: "deal-1" }],
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.recommendedNextAction, "complete_intake");
-  assert.ok(result.diagnostics.missing?.includes("borrower"));
+  // VerifyUnderwriteResult is a union discriminated by `ok`; only the blocked
+  // (ok: false) variant carries `diagnostics`. This deal still fails other intake
+  // gates, so narrow to the blocked variant, then prove borrower identity is NOT
+  // among the missing reasons (a deal-level name satisfies legal identity).
+  if (result.ok) {
+    throw new Error(`Expected blocked result, got ok=${result.ok}`);
+  }
+  assert.ok(
+    !result.diagnostics.missing?.includes("borrower"),
+    "a deal with a name must not emit a missing-borrower",
+  );
 });
 
 test("partial lifecycle blocks complete_intake", async () => {

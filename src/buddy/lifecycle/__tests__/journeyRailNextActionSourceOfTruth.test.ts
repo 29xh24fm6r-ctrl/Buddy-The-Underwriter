@@ -52,27 +52,39 @@ test("[b] management complete + missing_research_quality_gate → research actio
   );
 });
 
-test("[c] true borrower_not_attached → Attach borrower remains valid", () => {
+test("[c] true borrower_not_attached → Confirm borrower identity (not Attach borrower)", () => {
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: when the legal borrower entity is
+  // genuinely unidentified, the CTA confirms legal identity (routed to the
+  // borrower-story memo-input surface) — never the old "Attach borrower" label
+  // that pointed at the management/sponsor /borrower page.
   const action = getNextAction(
     stateWith([{ code: "borrower_not_attached", message: "x" }]),
     DEAL,
   );
-  assert.equal(action.label, "Attach borrower");
+  assert.equal(action.label, "Confirm borrower identity");
+  assert.notEqual(action.label, "Attach borrower");
+  assert.ok(
+    typeof (action as any).href === "string" &&
+      !/\/borrower\b/.test((action as any).href),
+    "borrower_not_attached must not route to the management/sponsor /borrower page",
+  );
 });
 
-test("deriveLifecycleState gates borrower_not_attached on real borrower representation", () => {
+test("deriveLifecycleState gates borrower_not_attached on legal borrower identity", () => {
   const src = fs.readFileSync(
     path.resolve(process.cwd(), "src/buddy/lifecycle/deriveLifecycleState.ts"),
     "utf8",
   );
-  // Must no longer fire purely on !borrower_id.
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: must gate on legal borrower
+  // identity (borrower_id / display fields / story legal_name), NOT on the broad
+  // representation check that counted management/sponsor profiles.
   assert.ok(
-    /hasBorrowerRepresentation/.test(src),
-    "borrower_not_attached must be gated on borrower representation, not bare borrower_id",
+    /hasLegalBorrowerIdentityForDeal/.test(src),
+    "borrower_not_attached must be gated on legal borrower identity",
   );
   assert.ok(
-    /deal_management_profiles/.test(src) && /deal_borrower_story/.test(src),
-    "representation check must consider the borrower-profile flow's tables",
+    !/hasBorrowerRepresentation/.test(src),
+    "must no longer use the broad representation check (management profile must not satisfy legal identity)",
   );
   // Must surface the authoritative memo-input blockers so the rail advances.
   assert.ok(

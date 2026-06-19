@@ -45,7 +45,7 @@ import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement"
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
-import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
+import { hasLegalBorrowerIdentityForDeal } from "@/lib/borrower/borrowerIdentity";
 
 // Short-lived lifecycle memoization now lives in ./lifecycleCache so mutations (e.g. loan request
 // create/update/delete) can invalidate it — see SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1.
@@ -71,6 +71,10 @@ type DealData = {
   stage: string | null;
   ready_at: string | null;
   deal_mode: string | null;
+  borrower_id: string | null;
+  borrower_name: string | null;
+  name: string | null;
+  display_name: string | null;
 };
 
 /**
@@ -112,7 +116,9 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     () =>
       sb
         .from("deals")
-        .select("id, bank_id, stage, ready_at, deal_mode, borrower_id")
+        .select(
+          "id, bank_id, stage, ready_at, deal_mode, borrower_id, borrower_name, name, display_name",
+        )
         .eq("id", dealId)
         .maybeSingle(),
     ctx
@@ -629,22 +635,23 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
-  // SYSTEM INVARIANT: Every deal MUST have a borrower.
-  // SPEC-JOURNEY-RAIL-NEXT-ACTION-SOURCE-OF-TRUTH-1: the "Attach Borrower" page
-  // writes deal_borrower_story / deal_management_profiles — NOT deals.borrower_id
-  // (a legacy FK the borrower flow never sets). Gating purely on borrower_id made
-  // the rail show "Attach borrower" forever even after the borrower/sponsor
-  // profile was completed. Treat a deal as having a borrower attached when it has
-  // a borrower story OR a management profile, so the rail advances to the real
-  // next task. Only fire borrower_not_attached when there is NO borrower
-  // representation at all (preserving the genuine "attach a borrower" entry).
-  // Shared contract with verifyUnderwriteCore — see borrowerRepresentation.ts.
-  const borrowerRepresented = await hasBorrowerRepresentation(
+  // SYSTEM INVARIANT: Every deal MUST identify its legal borrower entity.
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: legal borrower IDENTITY is a
+  // different credit concept from the management/sponsor/guarantor PROFILE. The
+  // /borrower page writes deal_management_profiles (people supporting the deal) —
+  // that must NOT satisfy legal borrower identity. Legal identity is satisfied by
+  // deals.borrower_id OR a deal-level legal-borrower display field
+  // (borrower_name / name / display_name) OR deal_borrower_story.legal_name. Only
+  // when none of those exist is the borrower genuinely unidentified — and the
+  // missing management profile is gated separately via memo-input readiness
+  // (missing_management_profile). Shared contract with verifyUnderwriteCore and
+  // computeNextStep — see borrowerIdentity.ts.
+  const legalBorrowerIdentified = await hasLegalBorrowerIdentityForDeal(
     sb,
     dealId,
-    (deal as any).borrower_id,
+    deal,
   );
-  if (!borrowerRepresented) {
+  if (!legalBorrowerIdentified) {
     blockers.push({
       code: "borrower_not_attached",
       message: "A borrower must be attached to this deal before it can progress",

@@ -55,15 +55,17 @@ export async function UnderwriteBlockedPanel({
   const deepLink = isDealMissing ? "/deals" : nextAction.deepLink;
   const actionKey = isDealMissing ? "deal_not_found" : nextAction.key;
   const missing = verify.diagnostics?.missing ?? [];
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: "borrower" missing means the LEGAL
+  // borrower entity is unidentified — not a missing management/sponsor profile.
   const completeIntakeLabel = missing.includes("deal_name")
     ? "Name this deal"
     : missing.includes("borrower")
-      ? "Attach borrower"
+      ? "Confirm borrower identity"
       : labelForAction.complete_intake;
   const completeIntakeReason = missing.includes("deal_name")
     ? "Name the deal to unlock underwriting."
     : missing.includes("borrower")
-      ? "Attach a borrower to continue."
+      ? "Confirm the legal borrower entity to continue."
       : reasonForAction.complete_intake;
 
   const verifyHint = verifyLedger?.details?.html
