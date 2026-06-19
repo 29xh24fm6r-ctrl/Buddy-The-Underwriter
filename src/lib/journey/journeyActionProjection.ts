@@ -1,5 +1,6 @@
 /**
  * SPEC-JOURNEY-RAIL-UNDERWRITING-FLOW-PRIORITY-1 — stage-aware primary-action projection.
+ * SPEC-JOURNEY-NEXT-BEST-ACTION-PERFECT-GUIDANCE-1 — always a specific, fixable next-best action.
  *
  * The Journey Rail used to render getNextAction(state) directly, which surfaces the FIRST lifecycle
  * blocker. In underwrite_in_progress computeBlockers emits `risk_pricing_not_finalized` before the
@@ -8,11 +9,12 @@
  * still incomplete.
  *
  * This pure projection answers "what should the banker do next IN this stage?". For underwrite_in_
- * progress it reorders the present blockers by banker workflow priority and:
- *   - shows a SPECIFIC action only when a single workstream remains (e.g. "Finalize Pricing" once every
- *     earlier prerequisite is complete);
- *   - shows a neutral "Continue Underwriting" (with subtext naming the most important blocker) when
- *     multiple prerequisite workstreams are still incomplete.
+ * progress it picks the highest-priority present blocker by banker workflow order (pricing/committee
+ * LAST) and renders that blocker's PRECISE fix action (e.g. "Finalize required documents", "Add
+ * management profile", "Generate financial snapshot"). The pricing label only surfaces once every
+ * earlier prerequisite workstream is clear. When more than one workstream is open the description notes
+ * that work remains after this step. "Continue Underwriting" is a true last resort — only when the top
+ * blocker has no fix action at all.
  *
  * For every other stage it defers to getNextAction unchanged. It never advances the lifecycle, never
  * changes pricing/financial math, and never hides blockers — it only reorders the primary CTA. Pure:
@@ -47,20 +49,6 @@ export const UNDERWRITING_WORKSTREAM_ORDER: UnderwritingWorkstream[] = [
   "risk_pricing",
   "committee",
 ];
-
-/**
- * Prerequisite workstreams — everything that must be in hand BEFORE pricing finalization is the right
- * human next step. While any of these is the top remaining workstream we never present "Finalize
- * Pricing" as the primary CTA.
- */
-const PREREQUISITE_WORKSTREAMS = new Set<UnderwritingWorkstream>([
-  "loan_request",
-  "documents",
-  "financial_computation",
-  "spread_evidence",
-  "memo_inputs",
-  "financial_validation",
-]);
 
 /** Map each lifecycle blocker code to its banker workstream. Unmapped codes are ignored here and the
  *  projection falls back to getNextAction (preserves existing behavior for infra/error blockers). */
@@ -128,10 +116,30 @@ export function workstreamForBlocker(code: LifecycleBlockerCode): UnderwritingWo
   return CODE_TO_WORKSTREAM[code] ?? null;
 }
 
-function hrefForBlocker(blocker: LifecycleBlocker, dealId: string): string {
-  const fix = getBlockerFixAction(blocker, dealId);
+function hrefForFix(
+  fix: ReturnType<typeof getBlockerFixAction>,
+  dealId: string,
+): string {
   if (fix && "href" in fix && typeof fix.href === "string" && fix.href.length > 0) return fix.href;
   return `/deals/${dealId}/underwrite`;
+}
+
+/**
+ * SPEC-JOURNEY-NEXT-BEST-ACTION-PERFECT-GUIDANCE-1 — banker-readable description for the primary CTA.
+ *
+ * The first sentence is always the top blocker's own message (we never hide what's wrong). When more
+ * than one underwriting workstream is open we append a note that work remains after this step, so the
+ * banker knows the CTA is the next step, not the last one. Blocker visibility is unchanged.
+ */
+export function getWorkstreamSummary(
+  topWorkstream: UnderwritingWorkstream,
+  topBlocker: LifecycleBlocker,
+  multipleWorkstreams: boolean,
+): string {
+  const base = (topBlocker.message ?? "").trim() || "Continue the next underwriting step.";
+  if (!multipleWorkstreams) return base;
+  const sep = /[.!?]$/.test(base) ? " " : ". ";
+  return `${base}${sep}Other underwriting items remain open after this step.`;
 }
 
 /**
@@ -157,27 +165,19 @@ export function buildJourneyPrimaryAction(state: LifecycleState, dealId: string)
 
   const topWorkstream = UNDERWRITING_WORKSTREAM_ORDER.find((ws) => firstByWorkstream.has(ws))!;
   const topBlocker = firstByWorkstream.get(topWorkstream)!;
-  const href = hrefForBlocker(topBlocker, dealId);
   const multipleWorkstreams = firstByWorkstream.size > 1;
+  const description = getWorkstreamSummary(topWorkstream, topBlocker, multipleWorkstreams);
 
-  // While a prerequisite workstream is the top remaining work AND more than one workstream is open,
-  // present a neutral in-progress CTA naming the most important blocker — not a finalization gate.
-  if (PREREQUISITE_WORKSTREAMS.has(topWorkstream) && multipleWorkstreams) {
-    return {
-      label: "Continue Underwriting",
-      href,
-      intent: "navigate",
-      description: topBlocker.message,
-    };
-  }
-
-  // Otherwise show the specific action for the top workstream. When the top (and only relevant)
-  // workstream is risk_pricing, this is precisely "Finalize Pricing" — earlier prerequisites are done.
+  // Always derive the CTA from the highest-priority blocker's precise fix action so the rail tells the
+  // banker exactly what to do — e.g. "Finalize required documents", "Add management profile",
+  // "Generate financial snapshot". Because risk_pricing/committee are LAST in the workstream order, the
+  // pricing label only surfaces once every earlier prerequisite workstream is clear. "Continue
+  // Underwriting" is a true last resort — only when the top blocker has no fix action at all.
   const fix = getBlockerFixAction(topBlocker, dealId);
   return {
     label: fix?.label ?? "Continue Underwriting",
-    href,
+    href: hrefForFix(fix, dealId),
     intent: "navigate",
-    description: topBlocker.message,
+    description,
   };
 }
