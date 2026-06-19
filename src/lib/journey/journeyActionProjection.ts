@@ -1,5 +1,6 @@
 /**
  * SPEC-JOURNEY-RAIL-UNDERWRITING-FLOW-PRIORITY-1 — stage-aware primary-action projection.
+ * SPEC-JOURNEY-NEXT-BEST-ACTION-PERFECT-GUIDANCE-1 — always a specific, fixable next-best action.
  *
  * The Journey Rail used to render getNextAction(state) directly, which surfaces the FIRST lifecycle
  * blocker. In underwrite_in_progress computeBlockers emits `risk_pricing_not_finalized` before the
@@ -8,11 +9,12 @@
  * still incomplete.
  *
  * This pure projection answers "what should the banker do next IN this stage?". For underwrite_in_
- * progress it reorders the present blockers by banker workflow priority and:
- *   - shows a SPECIFIC action only when a single workstream remains (e.g. "Finalize Pricing" once every
- *     earlier prerequisite is complete);
- *   - shows a neutral "Continue Underwriting" (with subtext naming the most important blocker) when
- *     multiple prerequisite workstreams are still incomplete.
+ * progress it picks the highest-priority present blocker by banker workflow order (pricing/committee
+ * LAST) and renders that blocker's PRECISE fix action (e.g. "Finalize required documents", "Add
+ * management profile", "Generate financial snapshot"). The pricing label only surfaces once every
+ * earlier prerequisite workstream is clear. When more than one workstream is open the description notes
+ * that work remains after this step. "Continue Underwriting" is a true last resort — only when the top
+ * blocker has no fix action at all.
  *
  * For every other stage it defers to getNextAction unchanged. It never advances the lifecycle, never
  * changes pricing/financial math, and never hides blockers — it only reorders the primary CTA. Pure:
