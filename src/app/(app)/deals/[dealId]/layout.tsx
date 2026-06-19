@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
 import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";
+import { resolveDealLoanAmount } from "@/lib/loanRequests/resolveDealLoanAmount";
 
 const getDealShellContext = cache(async (dealId: string) => {
   try {
@@ -36,6 +37,24 @@ const getDealShellContext = cache(async (dealId: string) => {
       dealIds: [dealId],
     });
 
+    // SPEC-JOURNEY-RAIL-UNDERWRITING-FLOW-PRIORITY-1: the header "Loan" stat reads deals.amount, but
+    // that column is often null until a banker fills it in. Fall back to the active submitted loan
+    // request amount so the header reflects the borrower's actual ask. Only queried when amount is null.
+    const rawAmount =
+      typeof (data as any).amount === "number"
+        ? (data as any).amount
+        : (data as any).amount
+          ? Number((data as any).amount)
+          : null;
+    let resolvedAmount = rawAmount;
+    if (resolvedAmount == null) {
+      const { data: loanRequests } = await sb
+        .from("deal_loan_requests")
+        .select("status, requested_amount, request_number")
+        .eq("deal_id", dealId);
+      resolvedAmount = resolveDealLoanAmount(null, (loanRequests ?? []) as any[]);
+    }
+
     return {
       deal: {
         id: String(data.id),
@@ -44,7 +63,7 @@ const getDealShellContext = cache(async (dealId: string) => {
         borrower_name: (data as any).borrower_name ?? intakeBorrowerName ?? null,
         name: (data as any).name ?? null,
         legal_name: (data as any).legal_name ?? null,
-        amount: typeof (data as any).amount === "number" ? (data as any).amount : (data as any).amount ? Number((data as any).amount) : null,
+        amount: resolvedAmount,
         stage: (data as any).stage ?? null,
         risk_score: (data as any).risk_score ?? null,
         deal_type: (data as any).deal_type ?? null,

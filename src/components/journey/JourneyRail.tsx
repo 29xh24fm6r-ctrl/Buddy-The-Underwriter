@@ -1,7 +1,7 @@
 "use client";
 
 import type { LifecycleBlocker, LifecycleStage, LifecycleState } from "@/buddy/lifecycle/model";
-import { getNextAction } from "@/buddy/lifecycle/nextAction";
+import { buildJourneyPrimaryAction } from "@/lib/journey/journeyActionProjection";
 import { blockerGatesStage } from "@/buddy/lifecycle/blockerToStage";
 import { useJourneyState } from "@/hooks/useJourneyState";
 import { stageCanonicalRoute } from "./stageRoutes";
@@ -127,8 +127,11 @@ export function JourneyRail({
   }
 
   const { perStage, infrastructure } = partitionBlockers(state);
+  // SPEC-JOURNEY-RAIL-UNDERWRITING-FLOW-PRIORITY-1: the primary CTA is a stage-aware projection so the
+  // rail reflects the banker's actual underwriting workflow (not the first raw blocker). Blocker
+  // visibility per stage is unchanged — only the primary CTA priority differs.
   const action =
-    state && currentStage ? getNextAction(state, dealId) : null;
+    state && currentStage ? buildJourneyPrimaryAction(state, dealId) : null;
   const hasAnyBlocker = (state?.blockers.length ?? 0) > 0;
 
   const stagesToRender = CANONICAL_STAGES;
