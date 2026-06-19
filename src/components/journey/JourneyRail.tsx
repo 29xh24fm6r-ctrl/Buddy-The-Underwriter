@@ -230,6 +230,7 @@ export function JourneyRail({
               dealId={dealId}
               blockers={stageBlockers}
               action={status === "current" ? action : null}
+              suppressBlockerActions={!!action}
             />
           );
         })}

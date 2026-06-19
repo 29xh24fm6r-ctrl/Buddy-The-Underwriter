@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { intakeDeepLinkForMissing } from "@/lib/deepLinks/intakeDeepLinks";
-import { hasBorrowerRepresentation } from "@/lib/borrower/borrowerRepresentation";
+import { hasLegalBorrowerIdentityForDeal } from "@/lib/borrower/borrowerIdentity";
 import type { NextAction } from "@/core/nextStep/types";
 
 export type ComputeNextStepDeps = {
@@ -31,7 +31,7 @@ export async function computeNextStep(args: {
 
   const { data: deal } = await sb
     .from("deals")
-    .select("id, display_name, nickname, borrower_id")
+    .select("id, display_name, nickname, borrower_id, borrower_name, name")
     .eq("id", dealId)
     .maybeSingle();
 
@@ -50,10 +50,12 @@ export async function computeNextStep(args: {
     };
   }
 
-  // SPEC-UNDERWRITE-GUARD-BORROWER-REPRESENTATION-PARITY-1: shared borrower
-  // representation contract — attached if borrower_id OR borrower story OR
-  // management profile exists (not the legacy borrower_id-only check).
-  if (!(await hasBorrowerRepresentation(sb, dealId, (deal as any)?.borrower_id))) {
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: shared legal-borrower-identity
+  // contract — identified if borrower_id OR a deal-level legal-borrower display
+  // field (borrower_name / name / display_name) OR deal_borrower_story.legal_name.
+  // A management/sponsor/guarantor profile does NOT satisfy this (separate concept
+  // gated by memo readiness as missing_management_profile). See borrowerIdentity.ts.
+  if (!(await hasLegalBorrowerIdentityForDeal(sb, dealId, deal as any))) {
     return {
       key: "complete_intake",
       missing: ["borrower"],
