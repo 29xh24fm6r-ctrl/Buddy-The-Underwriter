@@ -1,11 +1,52 @@
 "use client";
 
-import Link from "next/link";
 import type { MemoInputReadiness } from "@/lib/creditMemo/inputs/types";
 
 type Props = {
   readiness: MemoInputReadiness;
 };
+
+function goToFixPath(fixPath: string) {
+  const hashIndex = fixPath.indexOf("#");
+  if (hashIndex < 0) {
+    window.location.assign(fixPath);
+    return;
+  }
+
+  const path = fixPath.slice(0, hashIndex);
+  const hash = fixPath.slice(hashIndex + 1);
+  const currentPath = window.location.pathname;
+
+  if (path && path !== currentPath) {
+    window.location.assign(fixPath);
+    return;
+  }
+
+  const target = document.getElementById(hash);
+  if (!target) {
+    window.location.hash = hash;
+    return;
+  }
+
+  window.history.replaceState(null, "", `${currentPath}#${hash}`);
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function FixButton({ fixPath, children, primary = false }: { fixPath: string; children: React.ReactNode; primary?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => goToFixPath(fixPath)}
+      className={
+        primary
+          ? "rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700"
+          : "rounded border border-gray-300 px-2 py-0.5 text-xs font-semibold text-gray-800 hover:bg-white"
+      }
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function MemoInputReadinessPanel({ readiness }: Props) {
   const score = Math.round(readiness.readiness_score);
@@ -43,12 +84,9 @@ export default function MemoInputReadinessPanel({ readiness }: Props) {
             <div className="text-sm font-semibold text-gray-900">
               {readiness.blockers[0].label}
             </div>
-            <Link
-              href={readiness.blockers[0].fixPath}
-              className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700"
-            >
+            <FixButton fixPath={readiness.blockers[0].fixPath} primary>
               Fix now
-            </Link>
+            </FixButton>
           </div>
         </div>
       ) : null}
@@ -75,12 +113,7 @@ export default function MemoInputReadinessPanel({ readiness }: Props) {
                   {b.label}{" "}
                   <span className="text-xs text-gray-600">[owner: {b.owner}]</span>
                 </span>
-                <Link
-                  href={b.fixPath}
-                  className="rounded border border-gray-300 px-2 py-0.5 text-xs font-semibold text-gray-800 hover:bg-white"
-                >
-                  Fix
-                </Link>
+                <FixButton fixPath={b.fixPath}>Fix</FixButton>
               </li>
             ))}
           </ul>
