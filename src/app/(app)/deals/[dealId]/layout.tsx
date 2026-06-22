@@ -15,7 +15,7 @@ const getDealShellContext = cache(async (dealId: string) => {
     const sb = supabaseAdmin();
     const { data } = await sb
       .from("deals")
-      .select("id, display_name, nickname, borrower_name, name, legal_name, amount, stage, risk_score, deal_type")
+      .select("id, display_name, nickname, borrower_name, name, amount, stage, risk_score, deal_type")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
@@ -62,7 +62,7 @@ const getDealShellContext = cache(async (dealId: string) => {
         nickname: (data as any).nickname ?? null,
         borrower_name: (data as any).borrower_name ?? intakeBorrowerName ?? null,
         name: (data as any).name ?? null,
-        legal_name: (data as any).legal_name ?? null,
+        legal_name: null,
         amount: resolvedAmount,
         stage: (data as any).stage ?? null,
         risk_score: (data as any).risk_score ?? null,
