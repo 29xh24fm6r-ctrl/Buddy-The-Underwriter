@@ -105,7 +105,12 @@ describe("deal-name single source of truth — source guards", () => {
     );
   });
 
-  it("the shell and the name route derive labels from the shared builder", () => {
+  it("the deal shell loads the name via the schema-safe projection loader", () => {
+    // SPEC-DEAL-SHELL-ACTUALLY-USES-NAME-PROJECTION-1: the layout must get the
+    // deal name ONLY from loadDealNameProjection (which has its own minimal-
+    // select retry). It must not select naming columns itself, nor reach for
+    // the raw builder / column constant — otherwise a missing optional column
+    // can collapse the shell to "Deal <short-id>" on a hard refresh.
     const layout = readFileSync(
       join(SRC, "app/(app)/deals/[dealId]/layout.tsx"),
       "utf8",
@@ -114,15 +119,51 @@ describe("deal-name single source of truth — source guards", () => {
       join(SRC, "app/api/deals/[dealId]/name/route.ts"),
       "utf8",
     );
+
     assert.ok(
-      layout.includes("buildDealNameProjection"),
-      "deal shell layout must derive the name via buildDealNameProjection",
+      layout.includes("loadDealNameProjection"),
+      "deal shell layout must load the name via loadDealNameProjection",
     );
+    assert.ok(
+      !layout.includes("buildDealNameProjection"),
+      "layout must not call the raw builder directly — that is the loader's job",
+    );
+    assert.ok(
+      !/\bDEAL_NAME_SELECT\b/.test(layout),
+      "layout must not select deal-name columns directly via DEAL_NAME_SELECT",
+    );
+    assert.ok(!/\blegal_name\b/.test(layout), "layout must not reference legal_name");
+
+    // No naming column may appear in ANY `.from("deals").select(...)` inside the
+    // layout — only non-name stat columns (amount/stage/risk_score/deal_type).
+    const NAMING_COLS = [
+      /\bdisplay_name\b/,
+      /\bnickname\b/,
+      /\bborrower_name\b/,
+      /\bname_locked\b/,
+      /\bnaming_method\b/,
+      /\bnaming_source\b/,
+      /\bnamed_at\b/,
+      /(^|,|\s)name(\s|,|$)/, // bare `name` column
+    ];
+    const fromDeals = /\.from\(\s*["'`]deals["'`]\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = fromDeals.exec(layout))) {
+      const cols = dealsSelectTopLevelColumns(layout, m.index);
+      if (cols == null) continue;
+      for (const re of NAMING_COLS) {
+        assert.ok(
+          !re.test(cols),
+          `layout selects a naming column (${re}) directly from deals: "${cols.trim()}"`,
+        );
+      }
+    }
+
+    // The name route still derives its label from the shared builder, so route
+    // and shell labels cannot diverge.
     assert.ok(
       nameRoute.includes("buildDealNameProjection"),
       "name route must derive the name via buildDealNameProjection",
     );
-    // And neither may reintroduce a legal_name select.
-    assert.ok(!/\blegal_name\b/.test(layout), "layout must not reference legal_name");
   });
 });
