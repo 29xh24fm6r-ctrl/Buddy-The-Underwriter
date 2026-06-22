@@ -10,6 +10,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+const DEAL_NAME_SELECT =
+  "id, name, display_name, nickname, borrower_name, borrower_id, name_locked, naming_method, naming_source, named_at";
+
 function normalizeName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -20,9 +23,7 @@ async function loadDealName(dealId: string, bankId: string) {
   const sb = supabaseAdmin();
   return sb
     .from("deals")
-    .select(
-      "id, name, display_name, nickname, borrower_name, legal_name, borrower_id, name_locked, naming_method, naming_source, named_at",
-    )
+    .select(DEAL_NAME_SELECT)
     .eq("id", dealId)
     .eq("bank_id", bankId)
     .maybeSingle();
@@ -89,9 +90,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
       } as any)
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
-      .select(
-        "id, name, display_name, nickname, borrower_name, legal_name, borrower_id, name_locked, naming_method, naming_source, named_at",
-      )
+      .select(DEAL_NAME_SELECT)
       .maybeSingle();
 
     if (error || !data) {
