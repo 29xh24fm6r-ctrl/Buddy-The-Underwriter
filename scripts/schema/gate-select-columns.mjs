@@ -220,6 +220,10 @@ function parseSelectCols(selectStr) {
   return parts
     .filter(Boolean)
     .map((s) => {
+      // Template-literal interpolation, e.g. `${DEAL_NAME_SELECT}` — an opaque
+      // runtime value the static scanner can't resolve. Skip the interpolated
+      // token; the literal columns around it are still validated.
+      if (s.includes("${")) return null;
       // Handle PostgREST relation expansions: "relation(col1, col2)" → skip
       if (s.includes("(")) return null;
       if (s.includes(")")) return null;
