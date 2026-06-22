@@ -20,7 +20,9 @@ export function useDealMeta(dealId: string) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`/api/deals/${dealId}`);
+      // SPEC-DEAL-NAME-SINGLE-SOURCE-OF-TRUTH-1: read the canonical name endpoint
+      // (shared projection), never the bare /api/deals/[id] endpoint.
+      const res = await fetch(`/api/deals/${dealId}/name`);
       const json = await res.json();
       if (json.ok && json.deal) {
         setDeal({

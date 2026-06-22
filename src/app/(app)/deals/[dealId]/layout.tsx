@@ -4,6 +4,10 @@ import type { Metadata } from "next";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { dealLabel } from "@/lib/deals/dealLabel";
+import {
+  buildDealNameProjection,
+  DEAL_NAME_SELECT,
+} from "@/lib/deals/dealNameProjection";
 import { getCanonicalMemoStatusForDeals } from "@/lib/creditMemo/canonical/getCanonicalMemoStatusForDeals";
 import { resolveDealLoanAmount } from "@/lib/loanRequests/resolveDealLoanAmount";
 
@@ -13,9 +17,12 @@ const getDealShellContext = cache(async (dealId: string) => {
     if (!access.ok) return null;
 
     const sb = supabaseAdmin();
+    // Name columns come from the canonical DEAL_NAME_SELECT (the deals table has
+    // no legal-name column); amount/stage/risk_score/deal_type are appended for
+    // the header stats.
     const { data } = await sb
       .from("deals")
-      .select("id, display_name, nickname, borrower_name, name, legal_name, amount, stage, risk_score, deal_type")
+      .select(`${DEAL_NAME_SELECT}, amount, stage, risk_score, deal_type`)
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
@@ -31,6 +38,11 @@ const getDealShellContext = cache(async (dealId: string) => {
         .maybeSingle();
       intakeBorrowerName = intake?.borrower_name ?? null;
     }
+
+    // Single source of truth for the name fields handed to the shell.
+    const nameProjection = buildDealNameProjection(dealId, data, {
+      intakeBorrowerName,
+    });
 
     const statusByDeal = await getCanonicalMemoStatusForDeals({
       bankId: access.bankId,
@@ -57,12 +69,11 @@ const getDealShellContext = cache(async (dealId: string) => {
 
     return {
       deal: {
-        id: String(data.id),
-        display_name: (data as any).display_name ?? null,
-        nickname: (data as any).nickname ?? null,
-        borrower_name: (data as any).borrower_name ?? intakeBorrowerName ?? null,
-        name: (data as any).name ?? null,
-        legal_name: (data as any).legal_name ?? null,
+        id: nameProjection.id,
+        display_name: nameProjection.display_name,
+        nickname: nameProjection.nickname,
+        borrower_name: nameProjection.borrower_name,
+        name: nameProjection.name,
         amount: resolvedAmount,
         stage: (data as any).stage ?? null,
         risk_score: (data as any).risk_score ?? null,
