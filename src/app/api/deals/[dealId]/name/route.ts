@@ -64,7 +64,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
 
     const body = await req.json().catch(() => ({}));
     const displayName = normalizeName(body?.display_name);
-    // Canonical name storage: only use display_name (nickname is deprecated for persistence)
+    if (!displayName) {
+      return NextResponse.json({ ok: false, error: "name_required" }, { status: 400 });
+    }
 
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) {
@@ -112,6 +114,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
       meta: {
         deal_id: dealId,
         display_name: projection.display_name,
+        name: projection.name,
       },
     });
 
@@ -121,12 +124,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ dealId: s
       label: projection.label,
       deal: projection,
       display_name: projection.display_name,
+      name: projection.name,
       nickname: null, // Deprecated - always null for backwards compat
     });
   } catch (error) {
     rethrowNextErrors(error);
 
-    console.error("[/api/deals/[dealId]/name]", error);
+    console.error("[/api/deals/[dealId]/name PATCH]", error);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
 }

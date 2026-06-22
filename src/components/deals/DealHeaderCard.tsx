@@ -9,10 +9,10 @@ interface Deal {
   borrower_name?: string | null;
   name?: string | null;
   display_name?: string | null;
-  borrower_entity_type?: string;
-  status?: string;
-  created_at?: string;
-  updated_at?: string;
+  borrower_entity_type?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface DealHeaderCardProps {
@@ -36,7 +36,7 @@ export default function DealHeaderCard({ dealId, dealName }: DealHeaderCardProps
         const text = await res.text();
 
         if (!res.ok) {
-          throw new Error(`GET /api/deals/${dealId} → ${res.status} ${res.statusText}: ${text}`);
+          throw new Error(`GET /api/deals/${dealId}/name → ${res.status} ${res.statusText}: ${text}`);
         }
 
         const data = JSON.parse(text);
