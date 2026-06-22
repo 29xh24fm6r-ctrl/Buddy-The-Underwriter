@@ -167,7 +167,6 @@ type DealShellDeal = {
   nickname: string | null;
   borrower_name: string | null;
   name: string | null;
-  legal_name?: string | null;
   amount: number | null;
   stage: string | null;
   risk_score: number | null;
@@ -287,7 +286,6 @@ export default function DealShell({
         nickname,
         borrower_name: borrowerName,
         name: deal.name ?? null,
-        legal_name: deal.legal_name ?? null,
       })
     : null;
 

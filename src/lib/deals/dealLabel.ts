@@ -4,7 +4,9 @@ export type DealNameFields = {
   nickname?: string | null;
   borrower_name?: string | null;
   name?: string | null;
-  legal_name?: string | null;
+  // NOTE: deliberately no `legal_name`. The `deals` table has no such column;
+  // it was never read here and selecting it elsewhere broke the deal shell.
+  // See SPEC-DEAL-NAME-SINGLE-SOURCE-OF-TRUTH-1.
 };
 
 export type DealLabelResult = {

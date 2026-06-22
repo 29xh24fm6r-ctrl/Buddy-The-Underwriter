@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 
 interface Deal {
   id: string;
-  display_name?: string | null;
+  // Canonical name fields from the shared projection (/api/deals/[id]/name).
+  label?: string;
   borrower_name?: string | null;
   name?: string | null;
+  display_name?: string | null;
   borrower_entity_type?: string | null;
   status?: string | null;
   created_at?: string | null;
@@ -29,6 +31,7 @@ export default function DealHeaderCard({ dealId, dealName }: DealHeaderCardProps
     const fetchDeal = async () => {
       setErr(null);
       try {
+        // SPEC-DEAL-NAME-SINGLE-SOURCE-OF-TRUTH-1: canonical name endpoint only.
         const res = await fetch(`/api/deals/${dealId}/name`, { cache: "no-store" });
         const text = await res.text();
 
@@ -82,7 +85,8 @@ export default function DealHeaderCard({ dealId, dealName }: DealHeaderCardProps
     );
   }
 
-  const displayName = deal.display_name || deal.name || deal.borrower_name || dealName || "Untitled Deal";
+  const displayName =
+    deal.label || deal.display_name || deal.name || deal.borrower_name || dealName || "Untitled Deal";
 
   const timeSinceUpdate = () => {
     if (!deal.updated_at) return "Unknown";

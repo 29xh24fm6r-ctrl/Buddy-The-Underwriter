@@ -30,7 +30,6 @@ type CommitteeRawDeal = {
   nickname: string | null;
   borrower_name: string | null;
   name: string | null;
-  legal_name: string | null;
   stage: string | null;
   deal_type: string | null;
 };
@@ -45,7 +44,7 @@ export default async function Page() {
     .from("deals")
     .select(
       `
-        id, display_name, nickname, borrower_name, name, legal_name,
+        id, display_name, nickname, borrower_name, name,
         stage, deal_type,
         deal_loan_requests(requested_amount, product_type),
         financial_snapshots(snapshot_json, created_at)
@@ -66,7 +65,6 @@ export default async function Page() {
         nickname: d.nickname,
         borrower_name: d.borrower_name,
         name: d.name,
-        legal_name: d.legal_name,
       }) || "",
     borrower: d.borrower_name ?? d.name ?? "—",
     stageLabel: STAGE_LABELS[d.stage ?? ""] ?? d.stage ?? "—",
