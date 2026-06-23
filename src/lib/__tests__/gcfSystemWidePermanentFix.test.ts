@@ -43,24 +43,32 @@ test("missing_global_cash_flow fixPath resolves to the GCF compute page", () => 
   assert.equal((action as any).href, `/deals/${DEAL_ID}/spreads/global-cash-flow`);
 });
 
-test("missing_dscr fixPath is NOT the generic /spreads page", () => {
+// SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1 superseded the #551 cockpit routing:
+// the cockpit getBlockerFixAction now routes missing_dscr to the financial
+// analysis hub (earliest upstream), never the generic /spreads nor a GCF
+// dead-end. (Precise fact-aware routing lives on the memo-input blocker.)
+test("missing_dscr cockpit fixPath is the upstream financial hub, not /spreads or GCF dead-end", () => {
   const action = getBlockerFixAction({ code: "missing_dscr" } as any, DEAL_ID);
   assert.ok(action);
-  assert.equal((action as any).href, `/deals/${DEAL_ID}/spreads/global-cash-flow`);
+  assert.equal((action as any).href, `/deals/${DEAL_ID}/financials`);
   assert.notEqual((action as any).href, `/deals/${DEAL_ID}/spreads`);
 });
 
-test("memo readiness emits the actionable GCF fixPaths for missing DSCR/GCF", () => {
+test("memo readiness (no prereq context) falls back to the GCF page for missing DSCR/GCF", () => {
   const r = evaluateMemoInputReadiness({
     dealId: DEAL_ID,
     borrowerStory: null,
     management: [],
     collateral: [],
+    // cashFlowAvailable present so business-cash-flow is satisfied and the GCF/DSCR
+    // fallback fixPath is isolated. No gcfPrerequisites passed → backward-compatible
+    // fallback to the GCF page.
     financialFacts: {
       dscr: null,
       annualDebtService: 200_000,
       globalCashFlow: null,
       loanAmount: 1_000_000,
+      cashFlowAvailable: 500_000,
     },
     research: { gate_passed: true, trust_grade: "committee_grade", quality_score: 0.9 },
     conflicts: [],
@@ -168,7 +176,12 @@ test("GCF page shows a 'Computing…' state and never reads in-flight as missing
 test("GCF page renders canonical diagnostics in missing + error states", () => {
   const src = read(GCF_PAGE);
   assert.ok(/diagnostics/.test(src), "page reads canonical diagnostics");
-  assert.ok(/Missing prerequisites/.test(src), "missing state lists prerequisites");
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: the missing state now lists the
+  // dependency-ordered upstream prerequisites as actionable links.
+  assert.ok(
+    /Upstream steps to complete/.test(src) || /Missing prerequisites/.test(src),
+    "missing state lists upstream prerequisites",
+  );
 });
 
 // ── 4. Canonical read endpoint exists and uses the selector ────────────────

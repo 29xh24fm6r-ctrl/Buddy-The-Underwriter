@@ -33,7 +33,45 @@ export type CanonicalGcfResult = {
   spreadStatus: string | null;
   diagnostics: string[];
   warnings: string[];
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a downstream AGGREGATE. These
+  // expose the dependency-ordered upstream prerequisites so consumers (memo
+  // readiness routing, the GCF page compute gate, the recompute API) can decide
+  // whether GCF can be computed yet and, if not, where to send the banker first.
+  prerequisites: GcfPrerequisite[];
+  prerequisitesReady: boolean;
+  earliestMissingPrerequisite: GcfPrerequisite | null;
 };
+
+/**
+ * Dependency-ordered upstream prerequisites for Global Cash Flow. GCF cannot be
+ * computed until these are produced (or, for personal/PFS, supplied). Order is
+ * authoritative: business cash flow → annual debt service → personal/PFS.
+ */
+export type GcfPrereqKey =
+  | "business_cash_flow"
+  | "annual_debt_service"
+  | "personal_pfs";
+
+export type GcfPrerequisite = {
+  key: GcfPrereqKey;
+  label: string;
+  satisfied: boolean;
+  /** Banker-facing reason when unsatisfied. */
+  diagnostic: string;
+  /**
+   * Route SUFFIX (caller prepends `/deals/[dealId]`) to the surface where the
+   * banker produces/supplies this upstream input. Kept dealId-free so the core
+   * stays pure.
+   */
+  fixPathSuffix: string;
+};
+
+/** Authoritative dependency order — earliest-upstream first. */
+export const GCF_PREREQ_ORDER: GcfPrereqKey[] = [
+  "business_cash_flow",
+  "annual_debt_service",
+  "personal_pfs",
+];
 
 export type GcfFactRow = {
   fact_key: string;
@@ -111,14 +149,7 @@ export function resolveGcfFactValue(rows: GcfFactRow[]): {
 
 /** Specific missing-input diagnostics — never just "upload docs". */
 function missingInputDiagnostics(factRows: GcfFactRow[]): string[] {
-  const has = (key: string, ownerType?: string) =>
-    factRows.some(
-      (r) =>
-        r.fact_key === key &&
-        r.is_superseded !== true &&
-        typeof r.fact_value_num === "number" &&
-        (ownerType == null || r.owner_type === ownerType),
-    );
+  const has = makeHas(factRows);
   const diags: string[] = [];
   if (!has("CASH_FLOW_AVAILABLE")) diags.push("Missing business cash flow (CASH_FLOW_AVAILABLE).");
   if (!has("ANNUAL_DEBT_SERVICE")) diags.push("Missing annual debt service (ANNUAL_DEBT_SERVICE).");
@@ -131,6 +162,86 @@ function missingInputDiagnostics(factRows: GcfFactRow[]): string[] {
   if (!has("PFS_LIVING_EXPENSES", "PERSONAL"))
     diags.push("Missing personal living expenses from PFS (PFS_LIVING_EXPENSES).");
   return diags;
+}
+
+function makeHas(factRows: GcfFactRow[]) {
+  return (key: string, ownerType?: string) =>
+    factRows.some(
+      (r) =>
+        r.fact_key === key &&
+        r.is_superseded !== true &&
+        typeof r.fact_value_num === "number" &&
+        (ownerType == null || r.owner_type === ownerType),
+    );
+}
+
+/**
+ * SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: evaluate GCF's dependency-ordered
+ * upstream prerequisites from the deal's facts. Pure — shared by memo readiness
+ * routing, the GCF page compute gate, and the recompute API guard so all three
+ * agree on "can GCF compute yet, and if not, what's the earliest missing step".
+ */
+export function evaluateGcfPrerequisites(factRows: GcfFactRow[]): {
+  prerequisites: GcfPrerequisite[];
+  ready: boolean;
+  earliestMissing: GcfPrerequisite | null;
+} {
+  const has = makeHas(factRows);
+
+  const businessCashFlow = has("CASH_FLOW_AVAILABLE");
+  const annualDebtService = has("ANNUAL_DEBT_SERVICE");
+
+  const hasPersonalOwner = factRows.some((r) => r.owner_type === "PERSONAL" && r.owner_entity_id);
+  const personalIncome =
+    has("WAGES_W2", "PERSONAL") || has("SCH_E_RENTAL_TOTAL", "PERSONAL");
+  const pfsAds = has("PFS_ANNUAL_DEBT_SERVICE", "PERSONAL");
+  const pfsLiving = has("PFS_LIVING_EXPENSES", "PERSONAL");
+  const personalPfs = hasPersonalOwner && personalIncome && pfsAds && pfsLiving;
+
+  const personalDiag = !hasPersonalOwner
+    ? "No personal owner / sponsor mapped for personal income."
+    : !personalIncome
+    ? "Missing personal income components (e.g. WAGES_W2 / SCH_E_RENTAL_TOTAL)."
+    : !pfsAds
+    ? "Missing personal debt service from PFS (PFS_ANNUAL_DEBT_SERVICE)."
+    : !pfsLiving
+    ? "Missing personal living expenses from PFS (PFS_LIVING_EXPENSES)."
+    : "";
+
+  const prerequisites: GcfPrerequisite[] = [
+    {
+      key: "business_cash_flow",
+      label: "Business cash flow",
+      satisfied: businessCashFlow,
+      diagnostic: "Missing business cash flow (CASH_FLOW_AVAILABLE).",
+      fixPathSuffix: "/financials",
+    },
+    {
+      key: "annual_debt_service",
+      label: "Annual debt service",
+      satisfied: annualDebtService,
+      diagnostic: "Missing annual debt service (ANNUAL_DEBT_SERVICE).",
+      fixPathSuffix: "/financials",
+    },
+    {
+      key: "personal_pfs",
+      label: "Personal / PFS support",
+      satisfied: personalPfs,
+      diagnostic: personalDiag,
+      fixPathSuffix: "/memo-inputs#management",
+    },
+  ];
+
+  // Preserve the authoritative dependency order regardless of array order.
+  const ordered = GCF_PREREQ_ORDER.map(
+    (k) => prerequisites.find((p) => p.key === k)!,
+  );
+  const earliestMissing = ordered.find((p) => !p.satisfied) ?? null;
+  return {
+    prerequisites: ordered,
+    ready: earliestMissing === null,
+    earliestMissing,
+  };
 }
 
 /**
@@ -157,6 +268,7 @@ export function resolveCanonicalGcf(input: {
 
   const fact = resolveGcfFactValue(factRows);
   const dscr = latestFact(factRows, GCF_DSCR_FACT_KEY)?.fact_value_num ?? null;
+  const prereq = evaluateGcfPrerequisites(factRows);
 
   const base: CanonicalGcfResult = {
     state: "missing",
@@ -169,6 +281,9 @@ export function resolveCanonicalGcf(input: {
     spreadStatus: sortedSpreads[0]?.status ?? null,
     diagnostics: [],
     warnings: [],
+    prerequisites: prereq.prerequisites,
+    prerequisitesReady: prereq.ready,
+    earliestMissingPrerequisite: prereq.earliestMissing,
   };
 
   // A compute in flight always reports computing — never "missing" — even if a

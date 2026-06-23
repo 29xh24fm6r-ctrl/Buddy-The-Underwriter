@@ -104,6 +104,7 @@ function passingFacts(): RequiredFinancialFacts {
     annualDebtService: 200_000,
     globalCashFlow: 350_000,
     loanAmount: 1_000_000,
+    cashFlowAvailable: 550_000,
   };
 }
 
@@ -276,7 +277,7 @@ test("[input-12] readiness score is bounded [0, 100]", () => {
     borrowerStory: null,
     management: [],
     collateral: [],
-    financialFacts: { dscr: null, annualDebtService: null, globalCashFlow: null, loanAmount: null },
+    financialFacts: { dscr: null, annualDebtService: null, globalCashFlow: null, loanAmount: null, cashFlowAvailable: null },
     research: null,
     conflicts: [],
     unfinalizedDocCount: 5,

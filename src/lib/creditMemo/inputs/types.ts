@@ -1,7 +1,10 @@
 // Memo Input Completeness Layer — pure types.
 //
 // No imports of server-only modules. This file is safe to import from CI
-// guard tests and pure evaluators alike.
+// guard tests and pure evaluators alike. (canonicalGcfCore is pure — no
+// "server-only" — so importing its types here is allowed.)
+
+import type { GcfPrerequisite } from "@/lib/financialFacts/canonicalGcfCore";
 
 export type MemoInputBlockerCode =
   | "missing_business_description"
@@ -12,6 +15,10 @@ export type MemoInputBlockerCode =
   | "missing_research_quality_gate"
   | "open_fact_conflicts"
   | "unfinalized_required_documents"
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+  // upstream financial prerequisite — it must be presentable as its own step,
+  // ahead of the downstream GCF / DSCR blockers.
+  | "missing_business_cash_flow"
   | "missing_dscr"
   | "missing_global_cash_flow"
   | "missing_policy_exception_review"
@@ -165,6 +172,9 @@ export type RequiredFinancialFacts = {
   annualDebtService: number | null;
   globalCashFlow: number | null;
   loanAmount: number | null;
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow (CASH_FLOW_AVAILABLE)
+  // is the earliest upstream prerequisite GCF aggregates. Gated as its own step.
+  cashFlowAvailable: number | null;
 };
 
 // ── Research gate snapshot ───────────────────────────────────────────────────
@@ -201,6 +211,15 @@ export type EvaluateMemoInputReadinessArgs = {
   hasSnapshotCollateral?: boolean;
   /** ACTIVATION: DSCR source — "authoritative" (snapshot/spread), "proxy" (T12/structural), or null. */
   dscrSource?: "authoritative" | "proxy" | null;
+  /**
+   * SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: dependency-ordered GCF prerequisites
+   * (from the canonical selector). When provided, missing_dscr / missing_global_cash_flow
+   * route to the earliest unresolved upstream step instead of a GCF dead-end.
+   */
+  gcfPrerequisites?: {
+    ready: boolean;
+    earliestMissing: GcfPrerequisite | null;
+  };
 };
 
 // ── Memo Input Package — assembled before snapshot freeze ────────────────────

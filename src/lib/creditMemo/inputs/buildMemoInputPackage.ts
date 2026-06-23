@@ -24,6 +24,7 @@ import {
   GCF_LEGACY_FACT_KEY,
   type GcfFactRow,
 } from "@/lib/financialFacts/canonicalGcfCore";
+import { getCanonicalGlobalCashFlow } from "@/lib/financialFacts/getCanonicalGlobalCashFlow";
 import type {
   DealBorrowerStory,
   DealCollateralItem,
@@ -151,6 +152,7 @@ export async function buildMemoInputPackage(
     overrides,
     unfinalizedDocCount,
     policyExceptionsReviewed,
+    canonicalGcf,
   ] = await Promise.all([
     loadManagementProfiles(sb, args.dealId, bankId),
     loadCollateralItems(sb, args.dealId, bankId),
@@ -161,6 +163,10 @@ export async function buildMemoInputPackage(
     loadBankerOverrides(sb, args.dealId, bankId),
     loadUnfinalizedRequiredDocCount(sb, args.dealId, bankId),
     loadPolicyExceptionsReviewed(sb, args.dealId, bankId),
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: canonical GCF prerequisite state
+    // so memo readiness routes missing GCF/DSCR to the earliest unresolved
+    // upstream step rather than a premature GCF compute.
+    getCanonicalGlobalCashFlow(args.dealId, bankId),
   ]);
 
   const readiness = evaluateMemoInputReadiness({
@@ -175,6 +181,10 @@ export async function buildMemoInputPackage(
     ),
     unfinalizedDocCount,
     policyExceptionsReviewed,
+    gcfPrerequisites: {
+      ready: canonicalGcf.prerequisitesReady,
+      earliestMissing: canonicalGcf.earliestMissingPrerequisite,
+    },
   });
 
   // Cache readiness for the Memo Inputs UI. Best-effort — never blocks the
@@ -280,6 +290,9 @@ async function loadCollateralItems(
 const REQUIRED_FACT_KEYS = {
   dscr: CANONICAL_FACTS.DSCR.fact_key,
   annualDebtService: CANONICAL_FACTS.ANNUAL_DEBT_SERVICE.fact_key,
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+  // upstream financial prerequisite GCF aggregates — gated as its own step.
+  cashFlowAvailable: CANONICAL_FACTS.CASH_FLOW_AVAILABLE.fact_key,
   // SPEC-GCF-SOURCE-OF-TRUTH-1: readiness now prefers the canonical
   // GCF_GLOBAL_CASH_FLOW key (what the credit memo / snapshot read), falling
   // back to the legacy GLOBAL_CASH_FLOW alias. Previously this read ONLY the
@@ -329,6 +342,7 @@ async function loadRequiredFinancialFacts(
     annualDebtService: latest.get(REQUIRED_FACT_KEYS.annualDebtService)?.value ?? null,
     globalCashFlow: gcf.value,
     loanAmount: latest.get(REQUIRED_FACT_KEYS.loanAmount)?.value ?? null,
+    cashFlowAvailable: latest.get(REQUIRED_FACT_KEYS.cashFlowAvailable)?.value ?? null,
   };
 }
 

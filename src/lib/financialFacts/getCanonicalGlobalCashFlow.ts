@@ -22,14 +22,18 @@ export {
   GCF_CANONICAL_FACT_KEY,
   GCF_LEGACY_FACT_KEY,
   GCF_DSCR_FACT_KEY,
+  GCF_PREREQ_ORDER,
   resolveCanonicalGcf,
   resolveGcfFactValue,
+  evaluateGcfPrerequisites,
 } from "./canonicalGcfCore";
 export type {
   CanonicalGcfState,
   CanonicalGcfResult,
   GcfFactRow,
   GcfSpreadRow,
+  GcfPrereqKey,
+  GcfPrerequisite,
 } from "./canonicalGcfCore";
 
 /**

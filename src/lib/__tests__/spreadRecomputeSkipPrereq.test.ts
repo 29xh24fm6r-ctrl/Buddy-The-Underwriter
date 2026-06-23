@@ -4,18 +4,18 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * SPEC-SPREAD-WORKER-NOT-CLAIMING-GCF-JOBS-1 regression guard.
+ * SPEC-SPREAD-WORKER-NOT-CLAIMING-GCF-JOBS-1 + SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1.
  *
- * Symptom: banker clicks Compute Global Cash Flow, the UI shows "Computing…",
- * but no worker ever claims the job and the canonical GLOBAL placeholder is
- * later marked ORPHANED_BY_FAILED_ORCHESTRATION.
+ * Original symptom (claiming spec): banker clicks Compute Global Cash Flow, the UI
+ * shows "Computing…", but no worker ever claims the job and the canonical GLOBAL
+ * placeholder is later marked ORPHANED_BY_FAILED_ORCHESTRATION.
  *
- * Root cause: the recompute route unconditionally creates "generating"
- * placeholders for every requested type, then called enqueueSpreadRecompute on
- * the DEFAULT (prereq-gated) path. When a type's prereqs aren't met at that
- * instant, the gate drops it — creating NO backing job — so the placeholder is
- * orphaned and the pipeline never runs. A banker-initiated Compute must always
- * produce a job for what it shows; enforcement is deferred to the processor.
+ * Sequencing spec refinement: GCF is a DOWNSTREAM aggregate. Re-running the GCF
+ * spread cannot produce its upstream prerequisite facts (business cash flow, ADS,
+ * personal/PFS), so the recompute route must make the prerequisite decision FIRST
+ * and refuse to enqueue/placeholder GCF when those are missing — that is exactly
+ * what created the orphan rows. Enforcement for OTHER (document-derived) spreads
+ * still defers to the processor via skipPrereqCheck.
  */
 
 const root = process.cwd();
@@ -26,34 +26,62 @@ function read(rel: string): string {
 const ROUTE = "src/app/api/deals/[dealId]/spreads/recompute/route.ts";
 const ENQUEUE = "src/lib/financialSpreads/enqueueSpreadRecompute.ts";
 
-test("recompute route creates placeholders for requested types", () => {
+test("recompute route makes the GCF prerequisite decision BEFORE enqueue/placeholder", () => {
   const src = read(ROUTE);
-  // It writes a "generating" placeholder up front — which is exactly why it MUST
-  // guarantee a backing job (next test), or those placeholders orphan.
+  // Gate GCF on canonical prerequisites.
   assert.ok(
-    /status:\s*"generating"/.test(src) && /from\("deal_spreads"\)/.test(src),
-    "route should create generating placeholders for immediate UI feedback",
+    /getCanonicalGlobalCashFlow/.test(src),
+    "route must check GCF prerequisites via the canonical selector",
+  );
+  assert.ok(
+    /prerequisitesReady/.test(src),
+    "route must branch on canonical.prerequisitesReady",
+  );
+  // The prereq decision must come before the enqueue call.
+  const prereqIdx = src.indexOf("prerequisitesReady");
+  const enqueueIdx = src.indexOf("enqueueSpreadRecompute({");
+  assert.ok(prereqIdx !== -1 && enqueueIdx !== -1);
+  assert.ok(
+    prereqIdx < enqueueIdx,
+    "GCF prerequisite decision must precede enqueueSpreadRecompute",
   );
 });
 
-test("banker-initiated recompute enqueues with skipPrereqCheck (always creates a job)", () => {
+test("recompute route does NOT pre-create placeholders before a job is confirmed", () => {
+  const src = read(ROUTE);
+  // The old orphan-prone pattern was an up-front "generating" placeholder upsert
+  // for every requested type, ahead of any job decision. That must be gone —
+  // placeholders are now created by enqueueSpreadRecompute AFTER the job exists.
+  assert.ok(
+    !/status:\s*"generating"/.test(src),
+    "route must not pre-create 'generating' placeholders ahead of job confirmation",
+  );
+});
+
+test("recompute route returns prerequisite diagnostics without placeholder when GCF is gated", () => {
+  const src = read(ROUTE);
+  assert.ok(
+    /gcf_prerequisites_missing/.test(src),
+    "route must return explicit gcf_prerequisites_missing diagnostics",
+  );
+  assert.ok(
+    /enqueueableTypes/.test(src),
+    "route must drop gated GCF from the enqueueable set",
+  );
+});
+
+test("banker-initiated recompute still enqueues NON-GCF types with skipPrereqCheck", () => {
   const src = read(ROUTE);
   assert.ok(
     /enqueueSpreadRecompute\(\{[\s\S]*?skipPrereqCheck:\s*true[\s\S]*?\}\)/.test(src),
-    "recompute route must pass skipPrereqCheck:true so a job is always enqueued for the placeholders it shows",
+    "document-derived spreads still enqueue via the processor (skipPrereqCheck:true)",
   );
 });
 
-test("skipPrereqCheck bypasses the prereq drop that creates orphan placeholders", () => {
+test("enqueueSpreadRecompute creates placeholders only AFTER a job is confirmed", () => {
   const src = read(ENQUEUE);
-  // When skipPrereqCheck is set, all valid types are treated as ready (no drop).
-  assert.ok(
-    /if\s*\(args\.skipPrereqCheck\)\s*\{[\s\S]{0,120}readyTypes\s*=\s*\[\.\.\.validTypes\]/.test(src),
-    "skipPrereqCheck must treat all valid types as ready (enforcement moves to the processor)",
-  );
-  // The default path is the one that drops not-ready types with no job/placeholder.
-  assert.ok(
-    /SPREAD_WAITING_ON_FACTS/.test(src) && /waitingOnFacts:\s*true/.test(src),
-    "default path drops not-ready types (waitingOnFacts) — must not be used by banker Compute",
-  );
+  const jobIdx = src.indexOf("Resolve target job");
+  const placeholderIdx = src.indexOf("Upsert placeholders (only after job is confirmed)");
+  assert.ok(jobIdx !== -1 && placeholderIdx !== -1, "both steps must be present");
+  assert.ok(jobIdx < placeholderIdx, "job resolution must precede placeholder upsert");
 });

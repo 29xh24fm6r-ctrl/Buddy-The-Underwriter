@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import {
@@ -305,6 +306,19 @@ export default function GlobalCashFlowPage() {
   const diagnostics = canonical?.diagnostics ?? [];
   const warnings = canonical?.warnings ?? [];
 
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a DOWNSTREAM aggregate. When
+  // its upstream prerequisites (business cash flow → annual debt service →
+  // personal/PFS) are not ready, Compute is de-emphasized — clicking it would
+  // only enqueue a job that orphans/errors — and the banker is sent upstream.
+  const prerequisites = canonical?.prerequisites ?? [];
+  const missingPrereqs = prerequisites.filter((p) => !p.satisfied);
+  // Default ready=true when canonical is absent so we never block a legit compute.
+  const computeBlocked = canonical ? canonical.prerequisitesReady === false : false;
+
+  function prereqHref(suffix: string): string {
+    return `/deals/${dealId}${suffix}`;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -408,6 +422,30 @@ export default function GlobalCashFlowPage() {
                     ))}
                   </ul>
                 )}
+                {/* SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: if the failure is due to
+                    missing upstream prerequisites, send the banker upstream — retrying
+                    GCF cannot succeed until those are produced. */}
+                {computeBlocked && missingPrereqs.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-red-200/70">
+                      Resolve upstream first
+                    </div>
+                    <ul className="mt-1 space-y-1">
+                      {missingPrereqs.map((p) => (
+                        <li key={p.key} className="text-[11px] leading-relaxed">
+                          <Link
+                            href={prereqHref(p.fixPathSuffix)}
+                            className="inline-flex items-center gap-1 font-semibold text-red-100 underline decoration-red-400/50 underline-offset-2 hover:text-white"
+                          >
+                            <Icon name="arrow_forward_ios" className="h-3 w-3" />
+                            {p.label}
+                          </Link>
+                          <span className="ml-1 text-red-200/70">— {p.diagnostic}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {errorSpread?.error_details_json ? (
                   <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-black/30 p-2 text-[10px] leading-relaxed text-red-200/70">
                     {JSON.stringify(errorSpread.error_details_json, null, 2)}
@@ -418,8 +456,20 @@ export default function GlobalCashFlowPage() {
             <button
               type="button"
               onClick={() => void compute()}
-              disabled={recomputing || isComputing}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
+              // Block retry while upstream prerequisites are missing — it can only
+              // re-fail until they're produced (recompute API also refuses GCF).
+              disabled={recomputing || isComputing || computeBlocked}
+              title={
+                computeBlocked
+                  ? "Resolve the upstream financial steps before retrying Global Cash Flow"
+                  : undefined
+              }
+              className={cn(
+                "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50",
+                computeBlocked
+                  ? "border border-white/15 bg-white/5 text-white/60"
+                  : "bg-amber-500 text-amber-950 hover:bg-amber-400 disabled:opacity-60",
+              )}
             >
               <Icon name="sync" className="h-4 w-4" />
               {recomputing ? "Starting…" : "Retry Compute"}
@@ -435,36 +485,79 @@ export default function GlobalCashFlowPage() {
               <Icon name="error" className="mt-0.5 h-5 w-5 text-amber-300" />
               <div>
                 <h3 className="text-sm font-semibold text-amber-100">
-                  Global Cash Flow required
+                  {computeBlocked
+                    ? "Run upstream financial analysis first"
+                    : "Global Cash Flow required"}
                 </h3>
                 <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-                  Memo readiness is blocked until global cash flow is computed. GCF
-                  aggregates personal income + property NOI − obligations across all
-                  entities. Compute to materialize the global figure; if any upstream
-                  facts are missing, the specific gaps are listed below.
+                  {computeBlocked ? (
+                    <>
+                      Global cash flow is a downstream aggregate. It can be computed
+                      once business cash flow, annual debt service, and the required
+                      personal/PFS facts exist. Resolve the upstream steps below — GCF
+                      then runs automatically as part of the financial pipeline, or you
+                      can compute it here.
+                    </>
+                  ) : (
+                    <>
+                      Memo readiness is blocked until global cash flow is computed. GCF
+                      aggregates personal income + property NOI − obligations across all
+                      entities. Compute to materialize the global figure.
+                    </>
+                  )}
                 </p>
-                {/* SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: precise missing-prerequisite
-                    diagnostics from the canonical selector instead of a vague
-                    "upload documents". */}
-                {diagnostics.length > 0 && (
+                {/* SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: render the dependency-ordered
+                    upstream prerequisites as ACTIONABLE links to where each is produced,
+                    instead of a dead-end Compute or a vague "upload documents". */}
+                {missingPrereqs.length > 0 && (
                   <div className="mt-2">
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-200/70">
-                      Missing prerequisites
+                      Upstream steps to complete
                     </div>
-                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-200/80">
-                      {diagnostics.map((d, i) => (
-                        <li key={i}>{d}</li>
+                    <ul className="mt-1 space-y-1">
+                      {missingPrereqs.map((p) => (
+                        <li key={p.key} className="text-[11px] leading-relaxed">
+                          <Link
+                            href={prereqHref(p.fixPathSuffix)}
+                            className="inline-flex items-center gap-1 font-semibold text-amber-100 underline decoration-amber-400/50 underline-offset-2 hover:text-white"
+                          >
+                            <Icon name="arrow_forward_ios" className="h-3 w-3" />
+                            {p.label}
+                          </Link>
+                          <span className="ml-1 text-amber-200/70">— {p.diagnostic}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
+                )}
+                {/* Fallback detail diagnostics (granular fact strings) when prereqs are
+                    satisfied but GCF still hasn't materialized. */}
+                {missingPrereqs.length === 0 && diagnostics.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-200/80">
+                    {diagnostics.map((d, i) => (
+                      <li key={i}>{d}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </div>
             <button
               type="button"
               onClick={() => void compute()}
-              disabled={recomputing || isComputing}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
+              // De-emphasize + disable Compute while upstream prerequisites are missing —
+              // enqueuing GCF now can only orphan/error (recompute API also refuses it).
+              disabled={recomputing || isComputing || computeBlocked}
+              title={
+                computeBlocked
+                  ? "Resolve the upstream financial steps before computing Global Cash Flow"
+                  : undefined
+              }
+              className={cn(
+                "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50",
+                computeBlocked
+                  ? "border border-white/15 bg-white/5 text-white/60"
+                  : "bg-amber-500 text-amber-950 hover:bg-amber-400 disabled:opacity-60",
+              )}
             >
               <Icon name="sync" className="h-4 w-4" />
               {recomputing ? "Starting…" : "Compute Global Cash Flow"}
