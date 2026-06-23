@@ -360,7 +360,16 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/spreads/global-cash-flow`,
       };
 
+    // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: global DSCR is derived by the Global
+    // Cash Flow computation, so missing_dscr must route to the GCF compute page —
+    // which has a real Compute/Retry action — not the read-only /spreads
+    // Executive Summary tab, which cannot clear DSCR.
     case "missing_dscr":
+      return {
+        label: "Compute Global Cash Flow",
+        href: `/deals/${dealId}/spreads/global-cash-flow`,
+      };
+
     case "missing_debt_service_facts":
       return {
         label: "Generate financial snapshot",

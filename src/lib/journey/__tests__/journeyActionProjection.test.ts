@@ -87,14 +87,17 @@ describe("buildJourneyPrimaryAction — underwrite_in_progress priority", () => 
     assert.match(a.href ?? "", /documents/);
   });
 
-  it("financial-computation readiness outranks pricing → Generate financial snapshot", () => {
+  it("financial-computation readiness outranks pricing → Compute Global Cash Flow", () => {
     const s = state("underwrite_in_progress", [
       b("risk_pricing_not_finalized"),
       b("missing_dscr", "DSCR not computed"),
     ]);
     const a = buildJourneyPrimaryAction(s, DEAL);
     assert.notEqual(a.label, "Finalize Pricing");
-    assert.equal(a.label, "Generate financial snapshot");
+    // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: missing_dscr now routes to the GCF
+    // compute page (DSCR is derived by the GCF computation).
+    assert.equal(a.label, "Compute Global Cash Flow");
+    assert.match(a.href ?? "", /spreads\/global-cash-flow/);
     assert.match(a.description ?? "", /^DSCR not computed/);
   });
 

@@ -41,16 +41,31 @@ test("cockpit nextAction deep-links missing_global_cash_flow to the GCF sub-page
   );
 });
 
-test("sibling financial blockers still route to /spreads (scope contained)", () => {
-  for (const code of ["missing_dscr", "missing_debt_service_facts"]) {
-    const action = getBlockerFixAction({ code } as any, DEAL_ID);
-    assert.ok(action, `must return a fix action for ${code}`);
-    assert.equal(
-      (action as any).href,
-      `/deals/${DEAL_ID}/spreads`,
-      `${code} must be unchanged`,
-    );
-  }
+// SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: global DSCR is materialized by the GCF
+// computation, so missing_dscr now deep-links to the GCF compute page (which has
+// a real Compute/Retry action), NOT the generic /spreads Executive Summary which
+// cannot clear it. missing_debt_service_facts stays on /spreads.
+test("missing_dscr routes to the GCF compute page, not generic /spreads", () => {
+  const action = getBlockerFixAction({ code: "missing_dscr" } as any, DEAL_ID);
+  assert.ok(action, "must return a fix action for missing_dscr");
+  assert.equal(
+    (action as any).href,
+    `/deals/${DEAL_ID}/spreads/global-cash-flow`,
+  );
+  assert.notEqual(
+    (action as any).href,
+    `/deals/${DEAL_ID}/spreads`,
+    "missing_dscr must NOT route to the generic /spreads page",
+  );
+});
+
+test("missing_debt_service_facts still routes to /spreads (scope contained)", () => {
+  const action = getBlockerFixAction(
+    { code: "missing_debt_service_facts" } as any,
+    DEAL_ID,
+  );
+  assert.ok(action, "must return a fix action for missing_debt_service_facts");
+  assert.equal((action as any).href, `/deals/${DEAL_ID}/spreads`);
 });
 
 test("GCF page shows a prominent 'required' banner when GCF is missing", () => {

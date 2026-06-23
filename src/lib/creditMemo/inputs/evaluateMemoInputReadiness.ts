@@ -161,7 +161,10 @@ export function evaluateMemoInputReadiness(
       code: "missing_dscr",
       label: "DSCR has not been computed",
       owner: "buddy",
-      fixPath: `/deals/${dealId}/spreads`,
+      // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: DSCR is materialized by the Global
+      // Cash Flow computation. Route to the GCF compute page (real Compute/Retry
+      // action), not the generic /spreads Executive Summary which cannot clear it.
+      fixPath: `/deals/${dealId}/spreads/global-cash-flow`,
     });
   } else if (args.dscrSource === "proxy") {
     // ACTIVATION: DSCR exists but from proxy/fallback — warn, don't block
