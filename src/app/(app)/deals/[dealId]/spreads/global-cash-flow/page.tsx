@@ -5,12 +5,12 @@ import { useParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import {
   SpreadTable,
-  classifyRowKind,
   extractCellValue,
   type SpreadTableColumn,
   type SpreadTableRow,
 } from "@/components/deals/spreads/SpreadTable";
 import { cn } from "@/lib/utils";
+import type { CanonicalGcfResult } from "@/lib/financialFacts/canonicalGcfCore";
 
 type SpreadData = {
   spread_type: string;
@@ -80,6 +80,27 @@ function extractGcfKpis(spread: SpreadData): KpiValue[] {
     }
   }
 
+  return kpis;
+}
+
+/** KPIs from the canonical selector — used when no full ready spread row exists
+ *  but the canonical fact is materialized (state current/legacy_fallback). */
+function kpisFromCanonical(c: CanonicalGcfResult): KpiValue[] {
+  const kpis: KpiValue[] = [];
+  if (typeof c.value === "number") {
+    kpis.push({
+      label: "Global Cash Flow",
+      value: formatCompact(c.value),
+      color: c.value >= 0 ? "text-emerald-400" : "text-red-400",
+    });
+  }
+  if (typeof c.gcfDscr === "number") {
+    kpis.push({
+      label: "Global DSCR",
+      value: c.gcfDscr.toFixed(2) + "x",
+      color: c.gcfDscr >= 1.25 ? "text-emerald-400" : c.gcfDscr >= 1.0 ? "text-amber-400" : "text-red-400",
+    });
+  }
   return kpis;
 }
 
@@ -157,9 +178,12 @@ function classifyGcfRowKind(row: any): import("@/components/deals/spreads/Spread
   return "source";
 }
 
+type View = "loading" | "computing" | "ready" | "error" | "missing";
+
 export default function GlobalCashFlowPage() {
   const params = useParams<{ dealId: string }>();
   const dealId = params?.dealId ?? "";
+  const [canonical, setCanonical] = React.useState<CanonicalGcfResult | null>(null);
   const [spreads, setSpreads] = React.useState<SpreadData[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -172,15 +196,18 @@ export default function GlobalCashFlowPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/deals/${dealId}/spreads?types=GLOBAL_CASH_FLOW`,
-        { cache: "no-store" },
-      );
+      // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: read the CANONICAL GCF contract as
+      // the page's state source (state/value/diagnostics) — not only raw
+      // deal_spreads rows — so page state can never disagree with memo readiness
+      // or the credit memo. The raw spread rows are still returned for rendering
+      // the full ready table.
+      const res = await fetch(`/api/deals/${dealId}/spreads?canonical=gcf`, {
+        cache: "no-store",
+      });
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load spreads");
-      // Pick the latest version (v3 preferred)
-      const all = Array.isArray(json.spreads) ? json.spreads as SpreadData[] : [];
-      setSpreads(all);
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load global cash flow");
+      setCanonical((json.canonical ?? null) as CanonicalGcfResult | null);
+      setSpreads(Array.isArray(json.spreads) ? (json.spreads as SpreadData[]) : []);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load");
     } finally {
@@ -201,8 +228,8 @@ export default function GlobalCashFlowPage() {
       if (!res.ok || !json?.ok) {
         throw new Error(json?.error ?? "Failed to start global cash flow computation");
       }
-      // Reload picks up the "queued" row immediately; the poll effect below
-      // keeps refreshing through queued → generating → ready.
+      // Reload picks up the "queued" state immediately; the poll effect below
+      // keeps refreshing through queued → generating → current/error.
       await load();
     } catch (e: any) {
       setError(e?.message ?? "Failed to start computation");
@@ -215,26 +242,26 @@ export default function GlobalCashFlowPage() {
     void load();
   }, [load]);
 
+  // The canonical state is authoritative for "is a compute in flight". We also
+  // OR in the raw spread rows (spreads.some(isActiveSpread)) so a freshly-queued
+  // row that hasn't yet propagated into the canonical state still polls.
+  const computingState =
+    canonical?.state === "queued" || canonical?.state === "generating";
+  const isComputing = computingState || spreads.some(isActiveSpread);
+
   React.useEffect(() => {
-    // Poll while ANY GCF row is queued or generating — not just generating.
-    if (!spreads.some(isActiveSpread)) return;
+    if (!isComputing) return;
     const id = window.setInterval(() => void load(), 6_000);
     return () => window.clearInterval(id);
-  }, [spreads, load]);
+  }, [isComputing, load]);
 
   const columns: SpreadTableColumn[] = [
     { key: "label", label: "Line Item", align: "left" },
     { key: "value", label: "Amount", align: "right" },
   ];
 
-  // SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: select the canonical GCF row
-  // deterministically rather than blindly taking the newest row by updated_at,
-  // which could be a freshly-queued GLOBAL row with no value OR a stale legacy
-  // DEAL-owned ready row — either of which produced a misleading empty screen.
-  const isComputing = spreads.some(isActiveSpread);
-
-  // The displayable result: a row that actually carries the GCF figure. Prefer
-  // the canonical GLOBAL owner_type, then the most recently updated.
+  // The displayable result: a spread row that actually carries the GCF figure.
+  // Prefer the canonical GLOBAL owner_type, then most recently updated.
   const readySpread =
     [...spreads]
       .filter(hasGcfValue)
@@ -247,19 +274,36 @@ export default function GlobalCashFlowPage() {
 
   const errorSpread = spreads.find((s) => s.status === "error") ?? null;
 
-  const gcfSpread = readySpread;
-  const kpis = readySpread ? extractGcfKpis(readySpread) : [];
+  // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: VIEW is derived from the canonical
+  // selector state — the single source of truth — not re-derived from raw rows.
+  // A canonical "current"/"legacy_fallback" is ready even if the original spread
+  // row was superseded; "queued"/"generating" can NEVER read as missing.
+  const hasReadyValue =
+    canonical?.state === "current" ||
+    canonical?.state === "legacy_fallback" ||
+    !!readySpread;
 
-  // What to show, in priority order: computing → ready → error → missing.
-  const view: "loading" | "computing" | "ready" | "error" | "missing" = loading
+  const view: View = loading
     ? "loading"
     : isComputing
     ? "computing"
-    : readySpread
+    : hasReadyValue
     ? "ready"
-    : errorSpread
+    : canonical?.state === "error" || errorSpread
     ? "error"
     : "missing";
+
+  const kpis =
+    view === "ready"
+      ? readySpread
+        ? extractGcfKpis(readySpread)
+        : canonical
+        ? kpisFromCanonical(canonical)
+        : []
+      : [];
+
+  const diagnostics = canonical?.diagnostics ?? [];
+  const warnings = canonical?.warnings ?? [];
 
   return (
     <div className="space-y-6">
@@ -307,6 +351,16 @@ export default function GlobalCashFlowPage() {
         </div>
       )}
 
+      {/* Legacy-fallback warning: canonical value resolved from the deprecated
+          GLOBAL_CASH_FLOW alias rather than GCF_GLOBAL_CASH_FLOW. */}
+      {view === "ready" && warnings.length > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+          {warnings.map((w, i) => (
+            <div key={i}>{w}</div>
+          ))}
+        </div>
+      )}
+
       {/* SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: explicit state machine so
           a queued/generating row never falls back to "No analysis yet". */}
       {view === "loading" && (
@@ -340,11 +394,20 @@ export default function GlobalCashFlowPage() {
                   Global Cash Flow computation failed
                 </h3>
                 <p className="mt-1 text-xs leading-relaxed text-red-200/80">
-                  {errorSpread?.error_code
-                    ? `${errorSpread.error_code}: `
-                    : ""}
-                  {errorSpread?.error ?? "The computation did not complete. Retry below."}
+                  {errorSpread?.error_code ? `${errorSpread.error_code}: ` : ""}
+                  {errorSpread?.error ??
+                    diagnostics[0] ??
+                    "The computation did not complete. Retry below."}
                 </p>
+                {/* Precise upstream diagnostics from the canonical selector — never
+                    a generic "upload docs". */}
+                {diagnostics.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-red-200/80">
+                    {diagnostics.map((d, i) => (
+                      <li key={i}>{d}</li>
+                    ))}
+                  </ul>
+                )}
                 {errorSpread?.error_details_json ? (
                   <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-black/30 p-2 text-[10px] leading-relaxed text-red-200/70">
                     {JSON.stringify(errorSpread.error_details_json, null, 2)}
@@ -377,10 +440,24 @@ export default function GlobalCashFlowPage() {
                 <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
                   Memo readiness is blocked until global cash flow is computed. GCF
                   aggregates personal income + property NOI − obligations across all
-                  entities. It is built from the business and personal financial
-                  spreads — if those exist, compute to materialize the global figure;
-                  if not, upload the underlying financial documents first.
+                  entities. Compute to materialize the global figure; if any upstream
+                  facts are missing, the specific gaps are listed below.
                 </p>
+                {/* SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: precise missing-prerequisite
+                    diagnostics from the canonical selector instead of a vague
+                    "upload documents". */}
+                {diagnostics.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-200/70">
+                      Missing prerequisites
+                    </div>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-200/80">
+                      {diagnostics.map((d, i) => (
+                        <li key={i}>{d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -396,7 +473,7 @@ export default function GlobalCashFlowPage() {
         </div>
       )}
 
-      {view === "ready" && gcfSpread && (
+      {view === "ready" && (
         <>
           {/* KPI cards */}
           {kpis.length > 0 && (
@@ -417,20 +494,22 @@ export default function GlobalCashFlowPage() {
             </div>
           )}
 
-          {/* Full GCF table */}
-          <SpreadTable
-            title={gcfSpread.rendered_json?.title ?? "Global Cash Flow"}
-            subtitle={
-              [
-                gcfSpread.rendered_json?.asOf ? `As of ${gcfSpread.rendered_json.asOf}` : null,
-                `v${gcfSpread.rendered_json?.meta?.version ?? gcfSpread.spread_version}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            }
-            columns={columns}
-            rows={buildGcfRows(gcfSpread)}
-          />
+          {/* Full GCF table — only when a ready spread row carries the detail. */}
+          {readySpread && (
+            <SpreadTable
+              title={readySpread.rendered_json?.title ?? "Global Cash Flow"}
+              subtitle={
+                [
+                  readySpread.rendered_json?.asOf ? `As of ${readySpread.rendered_json.asOf}` : null,
+                  `v${readySpread.rendered_json?.meta?.version ?? readySpread.spread_version}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+              columns={columns}
+              rows={buildGcfRows(readySpread)}
+            />
+          )}
         </>
       )}
     </div>
