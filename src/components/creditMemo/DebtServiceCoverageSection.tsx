@@ -50,10 +50,13 @@ export default async function DebtServiceCoverageSection({
 }) {
   const sb = supabaseAdmin();
 
+  // ACTIVATION Fix #5: Filter superseded/rejected facts to align with canonical memo
   const { data: facts } = await (sb as any)
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, fact_type, fact_period_end")
     .eq("deal_id", dealId)
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
     .in("fact_key", [...DSCR_FACT_KEYS])
     .order("fact_period_end", { ascending: false });
 

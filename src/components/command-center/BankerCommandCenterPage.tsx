@@ -11,7 +11,7 @@
  * This component only renders and dispatches.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   BankerQueueItem,
   CommandCenterSummary,
@@ -22,6 +22,8 @@ import BankerQueueFilters from "./BankerQueueFilters";
 import BankerQueueTable from "./BankerQueueTable";
 import CommandCenterFocusRail from "./CommandCenterFocusRail";
 import CommandCenterActivityDrawer from "./CommandCenterActivityDrawer";
+import { BankerCommandCenter } from "./BankerCommandCenter";
+import { buildBankerCommandCenterFromDeals } from "@/lib/banker/buildBankerCommandCenterFromDeals";
 
 const EMPTY_SUMMARY: CommandCenterSummary = {
   totalDeals: 0,
@@ -127,6 +129,17 @@ export default function BankerCommandCenterPage() {
     setActivityDealName(item?.dealName ?? "Deal");
   }
 
+  // ── Intelligence overview (15O/15P) ─────────────────────────────────
+  // Adapter is pure and deterministic. It maps the existing queue rows
+  // into operational continuity items; deals without borrower intelligence
+  // degrade to safe "Borrower intelligence not available yet" copy.
+
+  const commandCenterVm = useMemo(
+    () => buildBankerCommandCenterFromDeals({ deals: items }),
+    [items],
+  );
+  const intelligenceUnavailable = !loading && items.length > 0 && commandCenterVm.summary.totalDeals === 0;
+
   return (
     <div className="flex flex-col gap-4 p-6 min-h-screen">
       {/* Header */}
@@ -139,30 +152,72 @@ export default function BankerCommandCenterPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <CommandCenterSummaryCards summary={summary} />
-
-      {/* Filters */}
-      <BankerQueueFilters
-        filters={filters}
-        onChange={setFilters}
-        onRefresh={() => fetchSurface(true)}
-        loading={loading}
-      />
-
-      {/* Main content: Queue table + Focus rail */}
-      <div className="flex gap-4 flex-1 min-h-0">
-        <div className="flex-1 min-w-0">
-          <BankerQueueTable
-            items={items}
-            onExecute={handleExecute}
-            onAcknowledge={handleAcknowledge}
-            onViewActivity={handleViewActivity}
-            executingDealId={executingDealId}
-          />
+      {/* Intelligence overview — sits above the operational queue */}
+      {loading ? (
+        <div
+          role="status"
+          aria-label="Loading command center intelligence"
+          className="rounded-2xl border border-white/10 bg-white/[0.03] p-6"
+        >
+          <div className="h-3 w-40 rounded bg-white/10" />
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-16 rounded-2xl border border-white/5 bg-white/[0.04]"
+              />
+            ))}
+          </div>
         </div>
-        <CommandCenterFocusRail items={items} />
-      </div>
+      ) : intelligenceUnavailable ? (
+        <div
+          role="region"
+          aria-label="Command center intelligence unavailable"
+          className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/60"
+        >
+          Command center intelligence is unavailable right now. The full deal
+          queue is still below.
+        </div>
+      ) : (
+        <BankerCommandCenter viewModel={commandCenterVm} />
+      )}
+
+      {/* All Deals — existing operational queue */}
+      <section aria-label="All deals" className="flex flex-col gap-4">
+        <header className="flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-white/60">
+            All Deals
+          </h2>
+          <span className="text-xs text-white/40">
+            Full queue · {items.length} row{items.length === 1 ? "" : "s"}
+          </span>
+        </header>
+
+        {/* Summary cards */}
+        <CommandCenterSummaryCards summary={summary} />
+
+        {/* Filters */}
+        <BankerQueueFilters
+          filters={filters}
+          onChange={setFilters}
+          onRefresh={() => fetchSurface(true)}
+          loading={loading}
+        />
+
+        {/* Main content: Queue table + Focus rail */}
+        <div className="flex gap-4 flex-1 min-h-0">
+          <div className="flex-1 min-w-0">
+            <BankerQueueTable
+              items={items}
+              onExecute={handleExecute}
+              onAcknowledge={handleAcknowledge}
+              onViewActivity={handleViewActivity}
+              executingDealId={executingDealId}
+            />
+          </div>
+          <CommandCenterFocusRail items={items} />
+        </div>
+      </section>
 
       {/* Activity drawer */}
       <CommandCenterActivityDrawer

@@ -8,6 +8,8 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
+import { buildMemoPeopleFromRows, sanitizeBorrowerStoryPatch } from "@/lib/creditMemo/trust/memoNarrativeTrust";
+import type { NarrativeTrustWarning } from "@/lib/creditMemo/trust/memoNarrativeTrust";
 import type { DealBorrowerStory } from "./types";
 
 export type UpsertBorrowerStoryArgs = {
@@ -27,6 +29,20 @@ export type UpsertBorrowerStoryArgs = {
       | "seasonality"
       | "key_risks"
       | "banker_notes"
+      // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1
+      | "industry_classification"
+      | "naics_code"
+      | "naics_description"
+      // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1
+      | "naics_source"
+      | "naics_confidence"
+      // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+      | "legal_name"
+      | "dba"
+      | "website"
+      | "hq_city"
+      | "hq_state"
+      | "banker_identity_summary"
     >
   >;
   source?: DealBorrowerStory["source"];
@@ -42,7 +58,7 @@ export type UpsertBorrowerStoryArgs = {
 };
 
 export type UpsertBorrowerStoryResult =
-  | { ok: true; story: DealBorrowerStory }
+  | { ok: true; story: DealBorrowerStory; narrativeTrustWarnings?: NarrativeTrustWarning[] }
   | { ok: false; reason: "tenant_mismatch" | "persist_failed"; error?: string };
 
 export async function upsertBorrowerStory(
@@ -61,20 +77,45 @@ export async function upsertBorrowerStory(
 
   const sb = supabaseAdmin();
 
-  const { data: existing } = await (sb as any)
-    .from("deal_borrower_story")
-    .select("*")
-    .eq("deal_id", args.dealId)
-    .eq("bank_id", bankId)
-    .maybeSingle();
+  // Load known people for narrative trust sanitization
+  const [existingRes, ownersRes, mgmtRes] = await Promise.all([
+    (sb as any)
+      .from("deal_borrower_story")
+      .select("*")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", bankId)
+      .maybeSingle(),
+    (sb as any)
+      .from("ownership_entities")
+      .select("display_name, name, ownership_pct")
+      .eq("deal_id", args.dealId)
+      .limit(10),
+    (sb as any)
+      .from("deal_management_profiles")
+      .select("person_name, ownership_pct")
+      .eq("deal_id", args.dealId)
+      .eq("bank_id", bankId)
+      .limit(20),
+  ]);
+
+  const existing = existingRes.data;
+  const people = buildMemoPeopleFromRows({
+    ownerEntities: (ownersRes.data ?? []) as Array<{ display_name?: string | null; name?: string | null; ownership_pct?: number | null }>,
+    managementProfiles: (mgmtRes.data ?? []) as Array<{ person_name?: string | null; ownership_pct?: number | null }>,
+  });
 
   const now = new Date().toISOString();
 
   // Strip undefined keys so they don't overwrite existing values.
-  const patch: Record<string, unknown> = {};
+  const rawPatch: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args.patch)) {
-    if (typeof v !== "undefined") patch[k] = v === "" ? null : v;
+    if (typeof v !== "undefined") rawPatch[k] = v === "" ? null : v;
   }
+
+  // Sanitize narrative text fields before persistence
+  const { patch: sanitizedPatch, warnings: narrativeTrustWarnings } =
+    sanitizeBorrowerStoryPatch(rawPatch, people);
+  const patch = sanitizedPatch;
   if (typeof args.source !== "undefined") patch.source = args.source;
   if (typeof args.confidence !== "undefined") patch.confidence = args.confidence;
 
@@ -99,7 +140,7 @@ export async function upsertBorrowerStory(
       dealId: args.dealId,
       trigger: "borrower_story_updated",
     });
-    return { ok: true, story: data as DealBorrowerStory };
+    return { ok: true, story: data as DealBorrowerStory, narrativeTrustWarnings };
   }
 
   const { data, error } = await (sb as any)
@@ -114,5 +155,5 @@ export async function upsertBorrowerStory(
     dealId: args.dealId,
     trigger: "borrower_story_updated",
   });
-  return { ok: true, story: data as DealBorrowerStory };
+  return { ok: true, story: data as DealBorrowerStory, narrativeTrustWarnings };
 }

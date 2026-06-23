@@ -59,19 +59,13 @@ export type BorrowerPortalData = {
   recentlyReceived: string[];
 };
 
-async function fetchUploadStatus(dealId: string, token: string | null): Promise<number> {
-  if (!token) return 0;
-  try {
-    const res = await fetch(`/api/portal/deals/${dealId}/uploads/status`, {
-      headers: { authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return 0;
-    const json = await res.json();
-    return json.processing || 0;
-  } catch {
-    return 0;
-  }
+async function fetchUploadStatus(_dealId: string, _token: string | null): Promise<number> {
+  // SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1 #4:
+  // /api/portal/deals/<id>/uploads/status was removed in the route-cap
+  // cleanup. Borrower-portal toast UX still works without the live count
+  // (progress is computed from the checklist endpoint elsewhere in this
+  // hook). Returning 0 here keeps the hook from polling a 404 forever.
+  return 0;
 }
 
 export function useBorrowerPortalData(dealId: string | null): BorrowerPortalData {

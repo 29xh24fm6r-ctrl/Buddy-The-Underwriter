@@ -59,8 +59,8 @@ test("ensureCoreDocumentSlots defines 11 baseline slots with correct structure",
     "Must create PFS_CURRENT slot",
   );
   assert.ok(
-    src.includes('"PERSONAL_FINANCIAL_STATEMENT"'),
-    "PFS slot requires PERSONAL_FINANCIAL_STATEMENT doc type",
+    src.includes('"PFS"'),
+    "PFS slot requires PFS doc type",
   );
 
   // Income statement slot

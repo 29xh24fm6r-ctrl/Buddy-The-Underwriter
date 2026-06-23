@@ -18,6 +18,13 @@ import { writeMemoInputReadinessRow } from "./writeMemoInputReadiness";
 import { migrateLegacyOverridesToCanonical } from "./migrateLegacyOverridesAsync";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
+import {
+  resolveGcfFactValue,
+  GCF_CANONICAL_FACT_KEY,
+  GCF_LEGACY_FACT_KEY,
+  type GcfFactRow,
+} from "@/lib/financialFacts/canonicalGcfCore";
+import { getCanonicalGlobalCashFlow } from "@/lib/financialFacts/getCanonicalGlobalCashFlow";
 import type {
   DealBorrowerStory,
   DealCollateralItem,
@@ -145,6 +152,7 @@ export async function buildMemoInputPackage(
     overrides,
     unfinalizedDocCount,
     policyExceptionsReviewed,
+    canonicalGcf,
   ] = await Promise.all([
     loadManagementProfiles(sb, args.dealId, bankId),
     loadCollateralItems(sb, args.dealId, bankId),
@@ -155,6 +163,10 @@ export async function buildMemoInputPackage(
     loadBankerOverrides(sb, args.dealId, bankId),
     loadUnfinalizedRequiredDocCount(sb, args.dealId, bankId),
     loadPolicyExceptionsReviewed(sb, args.dealId, bankId),
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: canonical GCF prerequisite state
+    // so memo readiness routes missing GCF/DSCR to the earliest unresolved
+    // upstream step rather than a premature GCF compute.
+    getCanonicalGlobalCashFlow(args.dealId, bankId),
   ]);
 
   const readiness = evaluateMemoInputReadiness({
@@ -169,6 +181,10 @@ export async function buildMemoInputPackage(
     ),
     unfinalizedDocCount,
     policyExceptionsReviewed,
+    gcfPrerequisites: {
+      ready: canonicalGcf.prerequisitesReady,
+      earliestMissing: canonicalGcf.earliestMissingPrerequisite,
+    },
   });
 
   // Cache readiness for the Memo Inputs UI. Best-effort — never blocks the
@@ -274,7 +290,15 @@ async function loadCollateralItems(
 const REQUIRED_FACT_KEYS = {
   dscr: CANONICAL_FACTS.DSCR.fact_key,
   annualDebtService: CANONICAL_FACTS.ANNUAL_DEBT_SERVICE.fact_key,
-  globalCashFlow: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key,
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+  // upstream financial prerequisite GCF aggregates — gated as its own step.
+  cashFlowAvailable: CANONICAL_FACTS.CASH_FLOW_AVAILABLE.fact_key,
+  // SPEC-GCF-SOURCE-OF-TRUTH-1: readiness now prefers the canonical
+  // GCF_GLOBAL_CASH_FLOW key (what the credit memo / snapshot read), falling
+  // back to the legacy GLOBAL_CASH_FLOW alias. Previously this read ONLY the
+  // legacy key, which the render path never refreshes — so readiness could
+  // diverge from the credit memo. Resolution goes through resolveGcfFactValue.
+  globalCashFlow: GCF_CANONICAL_FACT_KEY,
   loanAmount: CANONICAL_FACTS.BANK_LOAN_TOTAL.fact_key,
 } as const;
 
@@ -283,23 +307,26 @@ async function loadRequiredFinancialFacts(
   dealId: string,
   bankId: string,
 ): Promise<RequiredFinancialFacts> {
-  const queryKeys = Object.values(REQUIRED_FACT_KEYS);
+  const queryKeys = [...Object.values(REQUIRED_FACT_KEYS), GCF_LEGACY_FACT_KEY];
 
   const { data } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end, created_at")
+    .select("fact_key, fact_value_num, owner_type, fact_period_end, created_at")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("is_superseded", false)
     .in("fact_key", queryKeys);
 
-  // Pick the most recent value per fact_key.
-  const latest = new Map<string, { value: number | null; recorded: string }>();
-  for (const r of (data ?? []) as Array<{
+  const rows = (data ?? []) as Array<{
     fact_key: string;
     fact_value_num: number | null;
+    owner_type: string | null;
     created_at: string | null;
-  }>) {
+  }>;
+
+  // Pick the most recent value per fact_key (used for the non-GCF facts).
+  const latest = new Map<string, { value: number | null; recorded: string }>();
+  for (const r of rows) {
     const recorded = r.created_at ?? "";
     const cur = latest.get(r.fact_key);
     if (!cur || recorded > cur.recorded) {
@@ -307,11 +334,15 @@ async function loadRequiredFinancialFacts(
     }
   }
 
+  // GCF: canonical-key-preferred resolution with legacy fallback (single contract).
+  const gcf = resolveGcfFactValue(rows as GcfFactRow[]);
+
   return {
     dscr: latest.get(REQUIRED_FACT_KEYS.dscr)?.value ?? null,
     annualDebtService: latest.get(REQUIRED_FACT_KEYS.annualDebtService)?.value ?? null,
-    globalCashFlow: latest.get(REQUIRED_FACT_KEYS.globalCashFlow)?.value ?? null,
+    globalCashFlow: gcf.value,
     loanAmount: latest.get(REQUIRED_FACT_KEYS.loanAmount)?.value ?? null,
+    cashFlowAvailable: latest.get(REQUIRED_FACT_KEYS.cashFlowAvailable)?.value ?? null,
   };
 }
 
@@ -350,7 +381,21 @@ async function loadResearchGateSnapshot(
     .eq("mission_id", missionId)
     .maybeSingle();
 
-  if (!gate) return { gate_passed: false, trust_grade: null, quality_score: null };
+  if (!gate) {
+    // Fallback: check completion_gate_status on the mission itself.
+    // Many deals have a completed mission but no explicit quality gate row.
+    const { data: mission } = await (sb as any)
+      .from("buddy_research_missions")
+      .select("completion_gate_status, trust_grade")
+      .eq("id", missionId)
+      .maybeSingle();
+    const passed = (mission as any)?.completion_gate_status === "pass";
+    return {
+      gate_passed: passed,
+      trust_grade: ((mission as any)?.trust_grade as ResearchGateSnapshot["trust_grade"]) ?? null,
+      quality_score: null,
+    };
+  }
 
   return {
     gate_passed: (gate as any).gate_passed === true,
@@ -391,7 +436,7 @@ async function loadUnfinalizedRequiredDocCount(
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .eq("required", true)
-      .neq("status", "complete");
+      .not("status", "in", '("received","waived")');
     return count ?? 0;
   } catch {
     return 0;

@@ -33,6 +33,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             <NavLink href="/admin/merge-fields" label="Merge Fields" />
             <NavLink href="/admin/email-routing" label="Email" />
             <NavLink href="/admin/roles" label="Roles" />
+            <NavLink href="/admin/brokerage-owner" label="Owner Command Center" />
           </div>
           <AdminBankPicker />
         </div>

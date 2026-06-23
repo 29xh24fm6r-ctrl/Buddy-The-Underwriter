@@ -40,17 +40,18 @@ import { isGatekeeperReadinessEnabled } from "@/lib/flags/openaiGatekeeper";
 import type { ReadinessMode } from "./model";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { computeBlockers } from "./computeBlockers";
+import { getCachedLifecycleState, setCachedLifecycleState } from "./lifecycleCache";
 import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
 import type { IntakeHealthInput } from "@/lib/intake/slo/computeIntakeHealthScore";
+import { hasLegalBorrowerIdentityForDeal } from "@/lib/borrower/borrowerIdentity";
 
-// Short-lived cache to prevent redundant lifecycle queries on rapid re-renders
-const lifecycleCache = new Map<string, { expiresAt: number; value: LifecycleState }>();
-const LIFECYCLE_CACHE_TTL_MS = 30_000; // 30 seconds
+// Short-lived lifecycle memoization now lives in ./lifecycleCache so mutations (e.g. loan request
+// create/update/delete) can invalidate it — see SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1.
 
 // Type for the internal lifecycle stage from deals table
-type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready";
+type DealLifecycleStage = "created" | "intake" | "collecting" | "underwriting" | "ready" | "decision_made" | "closing" | "closed";
 
 // Type for the borrower-facing stage from deal_status table
 type DealStatusStage =
@@ -70,6 +71,10 @@ type DealData = {
   stage: string | null;
   ready_at: string | null;
   deal_mode: string | null;
+  borrower_id: string | null;
+  borrower_name: string | null;
+  name: string | null;
+  display_name: string | null;
 };
 
 /**
@@ -96,8 +101,8 @@ export async function deriveLifecycleState(dealId: string): Promise<LifecycleSta
  * Uses safeFetch wrapper for consistent error handling.
  */
 async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleState> {
-  const cached = lifecycleCache.get(dealId);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const cached = getCachedLifecycleState(dealId);
+  if (cached) return cached;
 
   const sb = supabaseAdmin();
   const ctx: SafeFetchContext = { dealId };
@@ -111,7 +116,9 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     () =>
       sb
         .from("deals")
-        .select("id, bank_id, stage, ready_at, deal_mode, borrower_id")
+        .select(
+          "id, bank_id, stage, ready_at, deal_mode, borrower_id, borrower_name, name, display_name",
+        )
         .eq("id", dealId)
         .maybeSingle(),
     ctx
@@ -262,7 +269,10 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .in("status", ["queued", "processing", "failed"]),
       ctx
     ),
-    // Spread pipeline completeness — count jobs still QUEUED/RUNNING/FAILED
+    // Spread pipeline completeness — only count fresh QUEUED/RUNNING jobs.
+    // Jobs older than 30 min are stale (worker missed them) and must not
+    // permanently block pricing. FAILED is excluded entirely — surfaced as
+    // a warning elsewhere, never as a hard gate.
     safeSupabaseCount(
       "spreads",
       () =>
@@ -270,7 +280,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           .from("deal_spread_jobs")
           .select("id", { count: "exact", head: true })
           .eq("deal_id", dealId)
-          .in("status", ["QUEUED", "RUNNING", "FAILED"]),
+          .in("status", ["QUEUED", "RUNNING"])
+          .gte(
+            "created_at",
+            new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+          ),
       ctx
     ),
     // Risk pricing finalization check
@@ -497,6 +511,11 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   // /api/deals/[dealId]/readiness route.
   let memoInputsReady: boolean | undefined;
   let memoInputReadinessScore: number | null | undefined;
+  // SPEC-JOURNEY-RAIL-NEXT-ACTION-SOURCE-OF-TRUTH-1: retain the authoritative
+  // memo-input blockers (the gate evaluateMemoInputReadiness produced) so the
+  // rail's next action can reflect the real remaining task (e.g. research) —
+  // the lifecycle's own derived flags use different signals and miss it.
+  let memoInputBlockers: LifecycleBlocker[] = [];
   try {
     const { data: readinessRow } = await (sb as any)
       .from("deal_memo_input_readiness")
@@ -509,10 +528,19 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
           ? (readinessRow as any).readiness_score
           : null;
       memoInputReadinessScore = score;
-      const blockers = Array.isArray((readinessRow as any).blockers)
+      const rawBlockers = Array.isArray((readinessRow as any).blockers)
         ? ((readinessRow as any).blockers as unknown[])
         : [];
-      memoInputsReady = score === 100 && blockers.length === 0;
+      memoInputsReady = score === 100 && rawBlockers.length === 0;
+      memoInputBlockers = rawBlockers
+        .filter(
+          (b): b is { code: string; label?: string } =>
+            !!b && typeof (b as any).code === "string",
+        )
+        .map((b) => ({
+          code: (b as any).code as LifecycleBlockerCode,
+          message: (b as any).label ?? (b as any).code,
+        }));
     } else {
       memoInputReadinessScore = null;
       memoInputsReady = false;
@@ -607,13 +635,50 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
-  // SYSTEM INVARIANT: Every deal MUST have a borrower.
-  // borrower_not_attached blocks advancement from intake stages.
-  if (!(deal as any).borrower_id) {
+  // SYSTEM INVARIANT: Every deal MUST identify its legal borrower entity.
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: legal borrower IDENTITY is a
+  // different credit concept from the management/sponsor/guarantor PROFILE. The
+  // /borrower page writes deal_management_profiles (people supporting the deal) —
+  // that must NOT satisfy legal borrower identity. Legal identity is satisfied by
+  // deals.borrower_id OR a deal-level legal-borrower display field
+  // (borrower_name / name / display_name) OR deal_borrower_story.legal_name. Only
+  // when none of those exist is the borrower genuinely unidentified — and the
+  // missing management profile is gated separately via memo-input readiness
+  // (missing_management_profile). Shared contract with verifyUnderwriteCore and
+  // computeNextStep — see borrowerIdentity.ts.
+  const legalBorrowerIdentified = await hasLegalBorrowerIdentityForDeal(
+    sb,
+    dealId,
+    deal,
+  );
+  if (!legalBorrowerIdentified) {
     blockers.push({
       code: "borrower_not_attached",
       message: "A borrower must be attached to this deal before it can progress",
     });
+  }
+
+  // SPEC-JOURNEY-RAIL-NEXT-ACTION-SOURCE-OF-TRUTH-1: surface the authoritative
+  // memo-input blockers so the rail's next action reflects the real remaining
+  // task (e.g. missing_research_quality_gate) once the deal is at/past memo
+  // inputs — instead of stalling on lifecycle-only blockers or a stage default.
+  // Pushed AFTER existing lifecycle blockers so earlier-stage gates keep priority;
+  // deduped by code so we never double-count.
+  const MEMO_BLOCKER_STAGES = new Set<string>([
+    "memo_inputs_required",
+    "underwrite_ready",
+    "underwrite_in_progress",
+    "committee_ready",
+    "committee_decisioned",
+  ]);
+  if (MEMO_BLOCKER_STAGES.has(stage) && memoInputBlockers.length > 0) {
+    const seen = new Set(blockers.map((b) => b.code));
+    for (const mb of memoInputBlockers) {
+      if (!seen.has(mb.code)) {
+        blockers.push(mb);
+        seen.add(mb.code);
+      }
+    }
   }
 
   // Intake health gate — only active in docs_requested / docs_in_progress stages
@@ -664,6 +729,27 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     }
   }
 
+  // Financial statement period review gate — an unresolved reporting period
+  // (generic/missing checklist_key on a BS/P&L) means the statement cannot be
+  // reliably spread, so it gates underwrite readiness. Cheap indexed count;
+  // emitted whenever an OPEN review exists. Never throws.
+  try {
+    const { count: openPeriodReviews } = await (sb as any)
+      .from("financial_statement_period_reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("status", "OPEN");
+    if ((openPeriodReviews ?? 0) > 0) {
+      blockers.push({
+        code: "financial_period_review_open",
+        message: `${openPeriodReviews} financial statement period review(s) require period confirmation (CURRENT/HISTORICAL or YTD/ANNUAL) before underwriting`,
+        evidence: { openPeriodReviewCount: openPeriodReviews },
+      });
+    }
+  } catch {
+    // Non-fatal — period review gate failure must never block lifecycle derivation
+  }
+
   // Gatekeeper blocker telemetry — fire-and-forget, always emit when present
   if (deal.bank_id) {
     const gkBlockers = blockers.filter(
@@ -688,7 +774,7 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
   }
 
   const result = { stage, lastAdvancedAt, blockers, derived };
-  lifecycleCache.set(dealId, { expiresAt: Date.now() + LIFECYCLE_CACHE_TTL_MS, value: result });
+  setCachedLifecycleState(dealId, result);
   return result;
 }
 
@@ -756,6 +842,15 @@ function mapToUnifiedStage(
         return "committee_decisioned";
       }
       return "committee_ready";
+
+    case "decision_made":
+      return "committee_decisioned";
+
+    case "closing":
+      return "closing_in_progress";
+
+    case "closed":
+      return "closed";
 
     default:
       return "intake_created";

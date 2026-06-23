@@ -24,9 +24,12 @@ function memoStub(opts: Partial<{
   principalIds: string[];
   narrative: string | null;
   hasResearch: boolean;
+  businessDescription: string;
+  principalBios: Record<string, string>;
+  arBorrowingBase: unknown;
+  bankerContext: { banker_notes: string } | undefined;
 }> = {}): CanonicalCreditMemoV1 {
-  // Use 'in opts' checks so callers can pass null explicitly without
-  // falling back to the default via ??.
+  const pids = opts.principalIds ?? ["p1"];
   const m = {
     deal_id: "deal-test",
     bank_id: "bank-test",
@@ -40,9 +43,19 @@ function memoStub(opts: Partial<{
     },
     collateral: {
       gross_value: { value: "collateralGross" in opts ? opts.collateralGross : 1_500_000 },
+      ar_borrowing_base: opts.arBorrowingBase ?? null,
+      line_items: [],
     },
+    business_summary: {
+      business_description: opts.businessDescription ?? "Pending",
+    },
+    banker_context: opts.bankerContext,
     management_qualifications: {
-      principals: (opts.principalIds ?? ["p1"]).map((id) => ({ id, name: id })),
+      principals: pids.map((id) => ({
+        id,
+        name: id,
+        bio: opts.principalBios?.[id] ?? "Pending — complete interview.",
+      })),
     },
     executive_summary: {
       narrative: "narrative" in opts
@@ -229,4 +242,133 @@ test("[guard-5] contract version is memo_readiness_v1", () => {
     overrides: PASSING_OVERRIDES(),
   });
   assert.equal(c.contractVersion, "memo_readiness_v1");
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Guard 6: Canonical-first readiness (no overrides required)
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("[guard-6a] canonical memo data satisfies all required items without overrides", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: memoStub({
+      businessDescription: "OmniCare365 provides comprehensive home healthcare staffing services to hospitals and facilities across the southeast.",
+      principalBios: { p1: "Founded OmniCare 365 in 2018. 25+ years in healthcare staffing. Prior: VP of Operations. Credit: Strong personal credit." },
+      arBorrowingBase: { total_ar: 3_000_000, eligible_ar: 2_800_000, advance_rate: 0.80 },
+    }),
+    overrides: {}, // No legacy overrides at all
+  });
+  assert.equal(c.passed, true, `Expected pass, got blockers: ${c.blockers.map((b) => b.code).join(", ")}`);
+  assert.equal(c.required.business_description, true);
+  assert.equal(c.required.management_bio, true);
+  assert.equal(c.required.collateral_value, true);
+});
+
+test("[guard-6b] canonical business description missing + no override = blocker", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: memoStub({
+      principalBios: { p1: "Founded company. 25+ years in industry. Credit: Strong." },
+    }),
+    overrides: {},
+  });
+  assert.equal(c.required.business_description, false);
+  assert.equal(c.passed, false);
+  assert.ok(c.blockers.some((b) => b.code === "business_description"));
+});
+
+test("[guard-6c] canonical management bio missing + no override = blocker", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: memoStub({
+      businessDescription: "This is a real business description longer than twenty characters.",
+    }),
+    overrides: {},
+  });
+  assert.equal(c.required.management_bio, false);
+  assert.equal(c.passed, false);
+  assert.ok(c.blockers.some((b) => b.code === "management_bio"));
+});
+
+test("[guard-6d] AR borrowing-base satisfies collateral without gross_value", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: memoStub({
+      collateralGross: null,
+      arBorrowingBase: { total_ar: 3_000_000, eligible_ar: 2_800_000 },
+      businessDescription: "Real business description here with enough length.",
+      principalBios: { p1: "Real management bio with enough length to satisfy the check." },
+    }),
+    overrides: {},
+  });
+  assert.equal(c.required.collateral_value, true, "AR BB must satisfy collateral");
+  assert.equal(c.passed, true);
+});
+
+test("[guard-6e] legacy overrides still work for older deals", () => {
+  // Memo has no canonical business desc or bio, but overrides have them
+  const c = evaluateMemoReadinessContract({
+    memo: memoStub(),
+    overrides: PASSING_OVERRIDES(),
+  });
+  assert.equal(c.passed, true, "Legacy overrides must still pass");
+  assert.equal(c.required.business_description, true);
+  assert.equal(c.required.management_bio, true);
+});
+
+test("[guard-6f] blocker labels use canonical wording", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: memoStub({ collateralGross: null }),
+    overrides: {},
+  });
+  const collatBlocker = c.blockers.find((b) => b.code === "collateral_value");
+  assert.ok(collatBlocker);
+  assert.equal(collatBlocker!.label, "Collateral is not available");
+
+  const bizBlocker = c.blockers.find((b) => b.code === "business_description");
+  assert.ok(bizBlocker);
+  assert.equal(bizBlocker!.label, "Business profile is not available");
+
+  const mgmtBlocker = c.blockers.find((b) => b.code === "management_bio");
+  assert.ok(mgmtBlocker);
+  assert.equal(mgmtBlocker!.label, "Management profile is not available");
+});
+
+// ─── SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee readiness gate ───
+function withCommittee(memo: CanonicalCreditMemoV1, committee_ready: boolean, remaining: string[] = []) {
+  (memo as any).committee_readiness = { committee_ready, status_line: "", remaining_blockers: remaining, decision_support: [], sources: [], markdown: "" };
+  return memo;
+}
+
+test("[committee] not ready → blocks submission with a committee_ready blocker", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: withCommittee(memoStub(), false, ["Management support missing", "Analyst conclusion missing"]),
+    overrides: PASSING_OVERRIDES(),
+  });
+  assert.equal(c.passed, false);
+  assert.equal(c.required.committee_ready, false);
+  const b = c.blockers.find((x) => x.code === "committee_ready");
+  assert.ok(b, "committee blocker present");
+  assert.match(b!.label, /Management support missing; Analyst conclusion missing/);
+});
+
+test("[committee] overridable — a banker reason clears the block + records an audited warning", () => {
+  const c = evaluateMemoReadinessContract({
+    memo: withCommittee(memoStub(), false, ["Analyst conclusion missing"]),
+    overrides: { ...PASSING_OVERRIDES(), committee_not_ready_override: "Chair approved verbal; minutes to follow" },
+  });
+  assert.equal(c.passed, true);
+  assert.equal(c.required.committee_ready, true);
+  assert.equal(c.blockers.some((x) => x.code === "committee_ready"), false);
+  const w = c.warningList.find((x) => x.code === "committee_not_ready_overridden");
+  assert.ok(w, "override warning recorded");
+  assert.match(w!.label, /Chair approved verbal/);
+});
+
+test("[committee] ready → no committee blocker", () => {
+  const c = evaluateMemoReadinessContract({ memo: withCommittee(memoStub(), true), overrides: PASSING_OVERRIDES() });
+  assert.equal(c.passed, true);
+  assert.equal(c.required.committee_ready, true);
+});
+
+test("[committee] no committee model → gate is satisfied (back-compat)", () => {
+  const c = evaluateMemoReadinessContract({ memo: memoStub(), overrides: PASSING_OVERRIDES() });
+  assert.equal(c.required.committee_ready, true);
+  assert.equal(c.blockers.some((x) => x.code === "committee_ready"), false);
 });

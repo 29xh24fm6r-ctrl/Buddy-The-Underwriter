@@ -49,12 +49,18 @@ export async function loadPersonalIncome(
 ): Promise<PersonalIncomeSection> {
   const sb = supabaseAdmin();
 
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #3 (safe slice): exclude superseded/rejected facts
+  // and prefer the HIGHEST-confidence value per (key, year) so a strong fact wins over a weak
+  // deterministic microfact. (Full re-architecture to consume the certified cross-owner selector
+  // directly is deferred — the certification gate still substitutes certified values pre-render.)
   let query = (sb as ReturnType<typeof supabaseAdmin>)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end, owner_entity_id")
+    .select("fact_key, fact_value_num, fact_period_end, owner_entity_id, confidence")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("fact_type", "PERSONAL_INCOME")
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
     .not("fact_value_num", "is", null)
     .order("fact_period_end", { ascending: true });
 
@@ -67,15 +73,21 @@ export async function loadPersonalIncome(
     return { ownerName: null, years: [] };
   }
 
-  // Group facts by tax year (derived from fact_period_end)
+  // Group facts by tax year; keep the highest-confidence value per key.
   const byYear = new Map<number, Record<string, number>>();
+  const bestConf = new Map<number, Record<string, number>>();
 
-  for (const row of data as Array<{ fact_key: string; fact_value_num: number; fact_period_end: string }>) {
+  for (const row of data as Array<{ fact_key: string; fact_value_num: number; fact_period_end: string; confidence: number | null }>) {
     if (!row.fact_period_end) continue;
     const year = new Date(row.fact_period_end).getFullYear();
-    if (!byYear.has(year)) byYear.set(year, {});
+    if (!byYear.has(year)) { byYear.set(year, {}); bestConf.set(year, {}); }
     const bucket = byYear.get(year)!;
-    bucket[row.fact_key] = row.fact_value_num;
+    const conf = bestConf.get(year)!;
+    const c = row.confidence ?? 0;
+    if (bucket[row.fact_key] === undefined || c >= (conf[row.fact_key] ?? -1)) {
+      bucket[row.fact_key] = row.fact_value_num;
+      conf[row.fact_key] = c;
+    }
   }
 
   const helper = (bucket: Record<string, number>, ...keys: string[]): number | null => {

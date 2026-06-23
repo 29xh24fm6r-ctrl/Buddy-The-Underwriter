@@ -10,7 +10,11 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
+import { sumGcfPersonalIncome } from "@/lib/financialSpreads/gcfPersonalIncome";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
+import { reconcileFinancialFacts, type ReconcileFact } from "@/lib/financialFacts/reconcileFinancialFacts";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 import {
   computeGlobalCashFlow,
   type GcfEntityInput,
@@ -58,46 +62,52 @@ export async function persistGlobalCashFlow(args: {
     const { data: factRows, error: factErr } = await (sb as any)
       .from("deal_financial_facts")
       .select(
-        "fact_type, fact_key, fact_value_num, owner_type, owner_entity_id",
+        "id, fact_type, fact_key, fact_value_num, fact_value_text, fact_period_start, fact_period_end, confidence, provenance, created_at, owner_type, owner_entity_id, source_canonical_type",
       )
       .eq("deal_id", args.dealId)
-      .eq("bank_id", args.bankId);
+      .eq("bank_id", args.bankId)
+      .eq("is_superseded", false);
 
     if (factErr) {
       return { ok: false, error: `fact_load_failed: ${factErr.message}` };
     }
 
-    const facts = (factRows ?? []) as Array<{
-      fact_type: string;
-      fact_key: string;
-      fact_value_num: number | null;
-      owner_type: string | null;
-      owner_entity_id: string | null;
-    }>;
+    const facts = (factRows ?? []) as any[];
 
-    // Helper: find fact value
+    // SPEC-FACT-DISAMBIGUATION-1: use selectBestFact for priority-based selection
     function findFact(opts: {
       factType: string;
       factKey: string;
       ownerType?: string;
       ownerEntityId?: string;
+      sourceCanonicalType?: string;
     }): number | null {
-      const match = facts.find((f) => {
+      let candidates = facts.filter((f: any) => {
         if (f.fact_type !== opts.factType) return false;
         if (f.fact_key !== opts.factKey) return false;
         if (opts.ownerType && f.owner_type !== opts.ownerType) return false;
-        if (opts.ownerEntityId && f.owner_entity_id !== opts.ownerEntityId)
-          return false;
+        if (opts.ownerEntityId && f.owner_entity_id !== opts.ownerEntityId) return false;
+        if (opts.sourceCanonicalType && f.source_canonical_type !== opts.sourceCanonicalType) return false;
         return true;
       });
-      return match?.fact_value_num ?? null;
+      const { chosen } = selectBestFact(candidates);
+      return chosen?.fact_value_num ?? null;
     }
 
     // ── 3. Build entity inputs ─────────────────────────────────────────────
     const entities: GcfEntityInput[] = [];
     const operatingKinds = new Set(["OPCO", "PROPCO", "HOLDCO"]);
 
-    for (const ent of entityRows ?? []) {
+    // Filter out unnamed placeholders (auto-seeded rows with no real data)
+    const usableEntityRows = (entityRows ?? []).filter(
+      (e: any) =>
+        e.name &&
+        e.name !== "Unassigned Business" &&
+        e.name !== "Unassigned Owner" &&
+        e.ownership_percent !== null,
+    );
+
+    for (const ent of usableEntityRows) {
       if (!operatingKinds.has(ent.entity_kind)) continue;
 
       const entityId = ent.id as string;
@@ -107,7 +117,6 @@ export async function persistGlobalCashFlow(args: {
           ? ent.ownership_percent / 100
           : null;
 
-      // Try entity-level NOI/income from tax return or IS facts
       const netIncome =
         findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "NOI_TTM" }) ??
         findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
@@ -121,7 +130,7 @@ export async function persistGlobalCashFlow(args: {
         factKey: "DEPRECIATION",
       });
 
-      const interestExpense = null; // Not separately captured yet
+      const interestExpense = null;
 
       const debtService = findFact({
         factType: "FINANCIAL_ANALYSIS",
@@ -140,11 +149,123 @@ export async function persistGlobalCashFlow(args: {
       });
     }
 
+    // ── 3a. Fallback: ownership_entities when deal_entities is empty ──────
+    if (entities.length === 0) {
+      const { data: ownershipRowsRaw } = await (sb as any)
+        .from("ownership_entities")
+        .select("id, display_name, entity_type, ownership_pct")
+        .eq("deal_id", args.dealId)
+        .eq("entity_type", "company");
+
+      // Filter out placeholder entities (same logic as usableEntityRows)
+      const ownershipRows = (ownershipRowsRaw ?? []).filter((e: any) => {
+        if (!e.display_name) return false;
+        const name = String(e.display_name).trim().toLowerCase();
+        if (name === "borrower" || name === "pending autofill" || name === "") return false;
+        return true;
+      });
+
+      for (const ent of ownershipRows) {
+        const entityId = ent.id as string;
+        const entityName = (ent.display_name ?? "Borrower Entity") as string;
+        const ownershipPct =
+          typeof ent.ownership_pct === "number" ? ent.ownership_pct / 100 : 1.0;
+
+        const netIncome =
+          findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
+          findFact({ factType: "TAX_RETURN", factKey: "NET_INCOME" }) ??
+          findFact({ factType: "TAX_RETURN", factKey: "GROSS_RECEIPTS" });
+
+        const depreciation = findFact({
+          factType: "TAX_RETURN",
+          factKey: "DEPRECIATION",
+        });
+
+        const debtService = findFact({
+          factType: "FINANCIAL_ANALYSIS",
+          factKey: "ANNUAL_DEBT_SERVICE",
+        });
+
+        entities.push({
+          entityId,
+          entityName,
+          entityType: "OPERATING",
+          ownershipPct,
+          netIncome,
+          depreciation,
+          interestExpense: null,
+          debtService,
+        });
+      }
+
+      if (entities.length > 0) {
+        notes.push(
+          `deal_entities empty — fell back to ${entities.length} ownership_entities row(s) for GCF computation`,
+        );
+      }
+    }
+
     if (entities.length === 0) {
       notes.push("No operating entities found — entity cash flow will be null");
     }
 
     // ── 4. Build sponsor inputs ────────────────────────────────────────────
+    // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: reconcile PERSONAL facts
+    // before they feed global cash flow. Impossible / duplicate personal-income facts
+    // (e.g. WAGES_W2=3 beside 310,134, AGI=0 with material wages, TOTAL_INCOME below
+    // wages) are EXCLUDED from the personal-income sum, and an unresolved (blocked)
+    // result marks global cash flow PRELIMINARY rather than letting broken facts inflate
+    // it. This also catches Form 1040 "partial"-quality personal returns deterministically.
+    const personalReconInput: ReconcileFact[] = facts
+      .filter((f: any) => f.owner_type === "PERSONAL")
+      .map((f: any) => ({
+        id: f.id ?? null,
+        fact_key: f.fact_key,
+        fact_period_end: f.fact_period_end ?? null,
+        owner_type: f.owner_type,
+        owner_entity_id: f.owner_entity_id ?? null,
+        source_document_id: null,
+        source_canonical_type: f.source_canonical_type ?? null,
+        confidence: f.confidence ?? null,
+        extractor: f.provenance?.extractor ?? null,
+        fact_value_num: f.fact_value_num !== null && f.fact_value_num !== undefined ? Number(f.fact_value_num) : null,
+      }));
+    const personalRecon = reconcileFinancialFacts(personalReconInput);
+    const personalRejectedIds = new Set(
+      personalRecon.rejected.map((r) => r.fact.id).filter((id): id is string => !!id),
+    );
+    const personalFactsBlocked = personalRecon.blocked;
+    // Facts used for the personal-income sum exclude reconciliation-rejected personal facts.
+    const reconciledFacts = facts.filter(
+      (f: any) => !(f.owner_type === "PERSONAL" && f.id && personalRejectedIds.has(f.id)),
+    );
+    if (personalRecon.rejected.length > 0) {
+      void writeEvent({
+        dealId: args.dealId,
+        kind: "deal.compute.fact_reconciliation",
+        meta: {
+          severity: personalFactsBlocked ? "warning" : "info",
+          scope: "personal_income_gcf",
+          confidence_tier: personalRecon.confidenceTier,
+          blocked: personalFactsBlocked,
+          rejected: personalRecon.rejected.slice(0, 20).map((x) => ({
+            fact_key: x.fact.fact_key,
+            value: x.fact.fact_value_num,
+            period: x.fact.fact_period_end,
+            extractor: x.fact.extractor,
+            conflict_class: x.conflictClass,
+            reason: x.reason,
+          })),
+        },
+      }).catch(() => {});
+    }
+    if (personalFactsBlocked) {
+      notes.push(
+        "Personal income facts are unresolved or impossible — global cash flow is PRELIMINARY until reconciled.",
+      );
+    }
+    for (const c of personalRecon.caveats) notes.push(c);
+
     const sponsors: GcfSponsorInput[] = [];
     const personalEntityIds = new Set<string>();
 
@@ -156,23 +277,38 @@ export async function persistGlobalCashFlow(args: {
     }
 
     // Also include PERSON entities from deal_entities
-    for (const ent of entityRows ?? []) {
+    for (const ent of usableEntityRows) {
       if (ent.entity_kind === "PERSON") {
         personalEntityIds.add(ent.id as string);
       }
     }
 
+    // Fallback: ownership_entities individuals when no PERSONAL facts
+    if (personalEntityIds.size === 0) {
+      const { data: personRows } = await (sb as any)
+        .from("ownership_entities")
+        .select("id, display_name, ownership_pct")
+        .eq("deal_id", args.dealId)
+        .eq("entity_type", "individual");
+
+      for (const p of personRows ?? []) {
+        personalEntityIds.add(p.id as string);
+      }
+    }
+
     for (const ownerId of personalEntityIds) {
       const ownerName =
-        (entityRows ?? []).find((e: any) => e.id === ownerId)?.name ??
+        usableEntityRows.find((e: any) => e.id === ownerId)?.name ??
         "Sponsor";
 
-      const totalPersonalIncome = findFact({
-        factType: "PERSONAL_INCOME",
-        factKey: "TOTAL_PERSONAL_INCOME",
-        ownerType: "PERSONAL",
+      // SPEC-GCF-SOURCE-OF-TRUTH-1: derive personal income from the SAME
+      // K-1-excluded component build-up the GCF spread template uses, instead of
+      // the AGI aggregate TOTAL_PERSONAL_INCOME which double-counts business
+      // pass-through/K-1 income. Shared list guarantees the pure-function value
+      // matches the rendered spread.
+      const totalPersonalIncome = sumGcfPersonalIncome(reconciledFacts, {
         ownerEntityId: ownerId,
-      });
+      }).value;
 
       // Personal obligations from PFS
       const personalObligations = findFact({
@@ -278,6 +414,12 @@ export async function persistGlobalCashFlow(args: {
           calc: "entity_cash_flow + personal_cash_flow",
           confidence: result.globalCashFlowAvailable === null ? null : 0.85,
           methodology: methodologyProvenance,
+          // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: preliminary when
+          // personal income facts are unresolved/impossible.
+          preliminary: personalFactsBlocked,
+          note: personalFactsBlocked
+            ? "PRELIMINARY — personal income facts unresolved/impossible; reconcile before committee."
+            : undefined,
         },
       }),
     );
@@ -300,6 +442,10 @@ export async function persistGlobalCashFlow(args: {
           calc: "global_cash_flow_available / total_debt_service",
           confidence: result.globalDscr === null ? null : 0.85,
           methodology: methodologyProvenance,
+          preliminary: personalFactsBlocked,
+          note: personalFactsBlocked
+            ? "PRELIMINARY — personal income facts unresolved/impossible; reconcile before committee."
+            : undefined,
         },
       }),
     );

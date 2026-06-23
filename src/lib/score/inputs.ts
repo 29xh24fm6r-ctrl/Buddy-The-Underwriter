@@ -180,12 +180,12 @@ export async function loadScoreInputs(params: {
   // ─── Facts (for yearsInBusiness, revenue, employees) ─────────────────
   const { data: factRows } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, value_numeric, value_text")
+    .select("fact_key, fact_value_num, fact_value_text")
     .eq("deal_id", dealId);
 
   function factNum(key: string): number | null {
     const row = factRows?.find((r: any) => r.fact_key === key);
-    return tryNumber(row?.value_numeric);
+    return tryNumber(row?.fact_value_num);
   }
 
   const yearsInBusiness = factNum("YEARS_IN_BUSINESS");
@@ -285,8 +285,8 @@ export async function loadScoreInputs(params: {
   // logic from Sprint 0's perspective. No duplication lives in /score/.
   const facts = (factRows ?? []).map((r: any) => ({
     fact_key: r.fact_key as string,
-    value_numeric: tryNumber(r.value_numeric),
-    value_text: (r.value_text as string | null) ?? null,
+    value_numeric: tryNumber(r.fact_value_num),
+    value_text: (r.fact_value_text as string | null) ?? null,
   }));
 
   const riskProfile = await buildSBARiskProfile({

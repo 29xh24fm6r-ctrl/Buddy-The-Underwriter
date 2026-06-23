@@ -62,7 +62,7 @@ function mgmt(): DealManagementProfile[] {
   ];
 }
 function facts(): RequiredFinancialFacts {
-  return { dscr: 1.3, annualDebtService: 100_000, globalCashFlow: 200_000, loanAmount: 500_000 };
+  return { dscr: 1.3, annualDebtService: 100_000, globalCashFlow: 200_000, loanAmount: 500_000, cashFlowAvailable: 350_000 };
 }
 function research(): ResearchGateSnapshot {
   return { gate_passed: true, trust_grade: "committee_grade", quality_score: 0.9 };

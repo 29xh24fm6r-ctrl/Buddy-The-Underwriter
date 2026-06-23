@@ -1,14 +1,12 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
-import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { ALL_SPREAD_TYPES, type SpreadType } from "@/lib/financialSpreads/types";
-import { resolveOwnerType } from "@/lib/financialSpreads/resolveOwnerType";
+import { getCanonicalGlobalCashFlow } from "@/lib/financialFacts/getCanonicalGlobalCashFlow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,63 +61,66 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       ? spreadTypes
       : ALL_SPREAD_TYPES;
 
-    // Best-effort: create placeholder spreads so UI shows "generating" immediately.
-    try {
-      const sb = supabaseAdmin();
-      await Promise.all(
-        requestedTypes.map((t) =>
-          (sb as any)
-            .from("deal_spreads")
-            .upsert(
-              {
-                deal_id: dealId,
-                bank_id: access.bankId,
-                spread_type: t,
-                spread_version: getSpreadTemplate(t)?.version ?? 1,
-                owner_type: resolveOwnerType(t, ownerType),
-                owner_entity_id: ownerEntityId,
-                status: "generating",
-                inputs_hash: null,
-                rendered_json: {
-                  title: t,
-                  spread_type: t,
-                  status: "generating",
-                  generatedAt: new Date().toISOString(),
-                  asOf: null,
-                  columns: ["Line Item", "Value"],
-                  rows: [
-                    {
-                      key: "status",
-                      label: "Generating\u2026",
-                      values: [null, null],
-                      notes: "Queued for background processing.",
-                    },
-                  ],
-                  meta: {
-                    status: "generating",
-                    enqueued_at: new Date().toISOString(),
-                  },
-                },
-                rendered_html: null,
-                rendered_csv: null,
-                error: null,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "deal_id,bank_id,spread_type,spread_version,owner_type,owner_entity_id" } as any,
-            ),
-        ),
-      );
-    } catch (placeholderErr) {
-      console.warn("[spreads/recompute] placeholder upsert failed:", placeholderErr);
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a DOWNSTREAM aggregate of
+    // facts produced by OTHER spreads (business cash flow, ADS) + personal/PFS.
+    // Re-running the GCF spread cannot produce those upstream facts, so enqueuing
+    // it before they exist only creates a placeholder/job that orphans or errors
+    // (ORPHANED_BY_FAILED_ORCHESTRATION). Make the prerequisite decision FIRST and
+    // drop GLOBAL_CASH_FLOW from this request when its prerequisites aren't ready \u2014
+    // no placeholder, no job \u2014 returning explicit diagnostics instead.
+    let gcfGated = false;
+    let gcfPrerequisites:
+      | Awaited<ReturnType<typeof getCanonicalGlobalCashFlow>>["prerequisites"]
+      | null = null;
+    let enqueueableTypes: SpreadType[] = requestedTypes;
+
+    if (requestedTypes.includes("GLOBAL_CASH_FLOW" as SpreadType)) {
+      const canonical = await getCanonicalGlobalCashFlow(dealId, access.bankId);
+      if (!canonical.prerequisitesReady) {
+        gcfGated = true;
+        gcfPrerequisites = canonical.prerequisites;
+        enqueueableTypes = requestedTypes.filter(
+          (t) => t !== ("GLOBAL_CASH_FLOW" as SpreadType),
+        );
+      }
     }
 
+    // If the only requested work was GCF and it is gated, return prerequisite
+    // diagnostics WITHOUT creating any placeholder or job.
+    if (enqueueableTypes.length === 0 && gcfGated) {
+      return NextResponse.json({
+        ok: false,
+        error: "gcf_prerequisites_missing",
+        dealId,
+        enqueued: false,
+        gcfGated: true,
+        prerequisites: gcfPrerequisites,
+        message:
+          "Global Cash Flow prerequisites are not ready. Run the upstream financial analysis first.",
+      });
+    }
+
+    // Placeholders are created by enqueueSpreadRecompute ONLY AFTER a backing job
+    // is confirmed (its Step 1 \u2192 Step 2 ordering), so a banker-initiated Compute
+    // never leaves an orphan "generating" row with no job to process it. The route
+    // no longer pre-creates placeholders ahead of that decision.
     const res = await enqueueSpreadRecompute({
       dealId,
       bankId: access.bankId,
       sourceDocumentId,
-      spreadTypes: requestedTypes,
+      spreadTypes: enqueueableTypes,
       ownerType,
       ownerEntityId,
+      // SPEC-SPREAD-WORKER-NOT-CLAIMING-GCF-JOBS-1 + SPEC-FINANCIALS-BEFORE-GCF-
+      // SEQUENCING-1: for DOCUMENT-DERIVED spreads (business cash flow, balance
+      // sheet, PFS, …) the processor extracts facts + evaluates prereqs with
+      // bounded retry, so skipPrereqCheck:true is correct — a banker Compute must
+      // produce a job for what it shows, and enqueue creates the "queued"
+      // placeholder only AFTER the job is confirmed (no orphan). The one spread
+      // whose prereqs are UPSTREAM AGGREGATES the processor cannot extract — GCF —
+      // was already gated out above when its prerequisites are not ready, so it is
+      // never enqueued into an orphan/error here.
+      skipPrereqCheck: true,
       meta: {
         source: "api",
         requested_at: new Date().toISOString(),
@@ -146,7 +147,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       // Canonical recompute trigger is best-effort.
     }
 
-    return NextResponse.json({ ok: true, dealId, enqueued: res.enqueued, jobId: res.jobId ?? null });
+    return NextResponse.json({
+      ok: true,
+      dealId,
+      enqueued: res.enqueued,
+      jobId: res.jobId ?? null,
+      // When GCF was dropped for missing prerequisites but other types still
+      // enqueued, surface that so the caller can show upstream diagnostics.
+      ...(gcfGated ? { gcfGated: true, prerequisites: gcfPrerequisites } : {}),
+    });
   } catch (e: any) {
     rethrowNextErrors(e);
 

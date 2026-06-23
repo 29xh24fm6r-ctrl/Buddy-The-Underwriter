@@ -5,39 +5,40 @@ import { StatusListPanel } from "../_shared/StatusListPanel";
 
 type UploadStatusApi = {
   ok?: boolean;
-  processing?: number;
-  queued?: number;
-  failed?: number;
-  recent?: Array<{ id?: string; filename?: string; status?: string }>;
+  expected?: number;
+  persisted?: number;
+  remaining?: number;
+  ready?: boolean;
 };
 
 /**
  * SPEC-06 — stage-owned summary of borrower upload activity.
  *
- * Reads /api/deals/[dealId]/uploads/status (scope: "documents"). The full
+ * Reads /api/deals/[dealId]/uploads/readiness (scope: "documents"). The full
  * upload-request composer / link manager remains in BorrowerRequestComposerCard
  * + BorrowerUploadLinksCard inside the Intake stage; this surface is a
  * lightweight progress chip for the Documents stage view.
  */
 export function UploadRequestSurface({ dealId }: { dealId: string }) {
   const { data, loading, error } = useStageJsonResource<UploadStatusApi>(
-    `/api/deals/${dealId}/uploads/status`,
+    `/api/deals/${dealId}/uploads/readiness`,
     { id: "documents:uploads", scope: "documents" },
   );
 
-  const processing = data?.processing ?? 0;
-  const queued = data?.queued ?? 0;
-  const failed = data?.failed ?? 0;
-  const inFlight = processing + queued;
+  const expected = data?.expected ?? 0;
+  const persisted = data?.persisted ?? 0;
+  const remaining = data?.remaining ?? 0;
+  const ready = data?.ready ?? false;
 
-  const tone =
-    failed > 0 ? "danger" : inFlight > 0 ? "warn" : "success";
+  const tone = ready ? "success" : remaining > 0 ? "warn" : "neutral";
 
   const summary = loading && !data
     ? "Loading upload status…"
-    : inFlight === 0 && failed === 0
-      ? "No pending uploads."
-      : `${inFlight} in flight · ${failed} failed.`;
+    : ready
+      ? `All ${persisted} documents received.`
+      : expected > 0
+        ? `${persisted} of ${expected} received · ${remaining} remaining.`
+        : "No pending uploads.";
 
   return (
     <StatusListPanel
@@ -47,10 +48,10 @@ export function UploadRequestSurface({ dealId }: { dealId: string }) {
       badge={
         loading && !data
           ? null
-          : failed > 0
-            ? `${failed} FAILED`
-            : inFlight > 0
-              ? `${inFlight} IN FLIGHT`
+          : ready
+            ? "READY"
+            : remaining > 0
+              ? `${remaining} REMAINING`
               : "QUIET"
       }
       badgeTone={tone}

@@ -20,15 +20,15 @@ test("intakeDeepLinkForMissing routes cockpit anchors", () => {
   assert.ok(!intake.includes("/command"));
 });
 
-test("intakeDeepLinkForMissing routes loan terms anchors", () => {
+test("intakeDeepLinkForMissing routes loan terms to canonical /loan-request", () => {
   const dealId = "deal-123";
   const loanAmount = intakeDeepLinkForMissing("loan_amount", dealId).href;
   const loanTerms = intakeDeepLinkForMissing("loan_terms", dealId).href;
 
-  assert.ok(loanAmount.includes(`/deals/${dealId}/loan-terms#loan-request`));
-  assert.ok(loanTerms.includes(`/deals/${dealId}/loan-terms#loan-request`));
-  assert.ok(!loanAmount.includes("/command"));
-  assert.ok(!loanTerms.includes("/command"));
+  assert.ok(loanAmount.includes(`/deals/${dealId}/loan-request`));
+  assert.ok(loanTerms.includes(`/deals/${dealId}/loan-request`));
+  assert.ok(!loanAmount.includes("/loan-terms"));
+  assert.ok(!loanTerms.includes("/loan-terms"));
 });
 
 test("intakeDeepLinkForMissing defaults to intake cockpit", () => {

@@ -128,7 +128,9 @@ test("never fabricates numbers when inputs are null", async () => {
     year1Dscr: null,
     breakEvenMonth: null,
   });
-  assert.equal(s.match(/\$\d/g), null, "must not render any $-amount");
+  // Match formatted money patterns ($X.XXM, $XK, $X,XXX) — not bare $0
+  // from PDF internal binary content appended by renderText.
+  assert.equal(s.match(/\$\d[\d,.]+[KM]?\b/g), null, "must not render any $-amount");
   assert.equal(s.match(/\d\.\d{2}x/g), null, "must not render any ratio");
   assert.equal(s.includes("Month "), false, "must not render any month label");
 });

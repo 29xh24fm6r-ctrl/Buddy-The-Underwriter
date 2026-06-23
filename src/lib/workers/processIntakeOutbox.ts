@@ -2,8 +2,12 @@
  * Durable outbox consumer for intake processing triggers.
  *
  * Claims `intake.process` rows from buddy_outbox_events via the
- * `claim_intake_outbox_batch` RPC (FOR UPDATE SKIP LOCKED), then
- * executes `runIntakeProcessing()` for each claimed row.
+ * `claim_intake_outbox_with_xact_lock` wrapper RPC, which acquires a
+ * pg_try_advisory_xact_lock(42001003) and then delegates to the existing
+ * `claim_intake_outbox_batch` (FOR UPDATE SKIP LOCKED). The advisory lock
+ * is released at function COMMIT, eliminating the pool-routing lock leak
+ * that plagued the legacy session-scoped pattern. After the claim
+ * returns, runIntakeProcessing() runs for each claimed row.
  *
  * Delivery semantics:
  *   - Success: row marked delivered (delivered_at + delivered_to)
@@ -18,6 +22,13 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runIntakeProcessing } from "@/lib/intake/processing/runIntakeProcessing";
 import { hasOutboxWork } from "@/lib/workers/idleProbe";
+import {
+  claimWithXactLock,
+  isClaimRpcFailure,
+  isClaimSkip,
+  isZeroWork,
+} from "@/lib/workers/workerLock";
+import { writeEvent } from "@/lib/ledger/writeEvent";
 
 const DEAD_LETTER_THRESHOLD = 5;
 const BACKOFF_BASE_SECONDS = 30;
@@ -30,6 +41,11 @@ export type OutboxResult = {
   failed: number;
   dead_lettered: number;
   idle?: boolean;
+  /** Set when the claim RPC errored (schema drift, missing function). */
+  claim_rpc_failed?: {
+    rpcName: string;
+    errorMessage: string;
+  };
 };
 
 interface ClaimedRow {
@@ -50,6 +66,11 @@ function backoffSeconds(attempts: number): number {
   );
 }
 
+/**
+ * Cron-tick entrypoint. Acquires the xact-lock + claims a batch in one
+ * round-trip via claimWithXactLock, then delegates per-row work to
+ * processClaimedIntakeRows.
+ */
 export async function processIntakeOutbox(
   maxRows?: number,
 ): Promise<OutboxResult> {
@@ -66,22 +87,76 @@ export async function processIntakeOutbox(
 
   const claimOwner = `vercel-intake-${Date.now()}`;
 
-  // ── Claim batch via RPC ────────────────────────────────────────────────
-  const { data: rows, error: claimErr } = await sb.rpc(
-    "claim_intake_outbox_batch",
-    {
-      p_claim_owner: claimOwner,
-      p_claim_ttl_seconds: 300,
-      p_limit: maxRows ?? 5,
-    },
-  );
+  const claim = await claimWithXactLock({
+    sb,
+    workerName: "intake-outbox",
+    claimOwner,
+    claimTtlSeconds: 300,
+    limit: maxRows ?? 5,
+  });
 
-  if (claimErr) {
-    console.error("[intake-outbox] claim RPC failed:", claimErr.message);
+  if (isClaimRpcFailure(claim)) {
+    // Schema drift between code and DB is the most common cause here
+    // (e.g., wrapper function not yet applied to remote). Surface it as
+    // its own ledger event so future drift is visible instead of looking
+    // like benign lock contention.
+    console.error(
+      "[intake-outbox] claim_rpc_failed — schema_drift_or_missing_function",
+      JSON.stringify({
+        rpcName: claim.rpcName,
+        errorMessage: claim.errorMessage,
+      }),
+    );
+    try {
+      await writeEvent({
+        dealId: "00000000-0000-0000-0000-000000000000",
+        kind: "intake.processing_claim_rpc_failed",
+        scope: "intake",
+        meta: {
+          worker: "intake-outbox",
+          rpc_name: claim.rpcName,
+          error_message: claim.errorMessage.slice(0, 500),
+          claim_path_broken_or_cron_not_running: true,
+        },
+      });
+    } catch {
+      // Non-fatal — log already emitted.
+    }
+    return {
+      claimed: 0,
+      processed: 0,
+      failed: 0,
+      dead_lettered: 0,
+      claim_rpc_failed: {
+        rpcName: claim.rpcName,
+        errorMessage: claim.errorMessage,
+      },
+    };
+  }
+
+  if (isClaimSkip(claim)) {
     return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
   }
 
-  const claimed = (rows as ClaimedRow[] | null) ?? [];
+  if (isZeroWork(claim)) {
+    return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
+  }
+
+  return processClaimedIntakeRows(claim.rows);
+}
+
+/**
+ * Processes already-claimed intake rows. Pure per-row processing loop — no
+ * claim logic, no advisory locks. Separated from the cron entrypoint so the
+ * route layer (or other callers) can claim via claimWithXactLock and hand
+ * rows directly to this function.
+ */
+export async function processClaimedIntakeRows(
+  rows: Array<ClaimedRow & { lock_acquired?: boolean }>,
+): Promise<OutboxResult> {
+  const sb = supabaseAdmin();
+  const claimed = rows as ClaimedRow[];
+
   if (claimed.length === 0) {
     return { claimed: 0, processed: 0, failed: 0, dead_lettered: 0 };
   }

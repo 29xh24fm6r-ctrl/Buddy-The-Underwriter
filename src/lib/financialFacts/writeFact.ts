@@ -34,6 +34,9 @@ export function computeFactIdentityHash(args: {
   return createHash("sha256").update(input).digest("hex");
 }
 
+/** Minimum valid financial period date — no real financial document predates this. */
+export const MIN_VALID_PERIOD_DATE = "1990-01-01";
+
 export async function upsertDealFinancialFact(args: {
   dealId: string;
   bankId: string;
@@ -55,15 +58,50 @@ export async function upsertDealFinancialFact(args: {
 
   ownerType?: string;
   ownerEntityId?: string | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+  sourceCanonicalType?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string; skipped?: boolean }> {
   try {
     const sb = supabaseAdmin();
 
     const sourceDocId = args.sourceDocumentId ?? SENTINEL_UUID;
-    const periodStart = args.factPeriodStart ?? SENTINEL_DATE;
     const periodEnd = args.factPeriodEnd ?? SENTINEL_DATE;
     const ownerType = args.ownerType ?? "DEAL";
     const ownerEntityId = args.ownerEntityId ?? SENTINEL_UUID;
+
+    // SPEC-EXTRACTION-PERIOD-INTEGRITY-1 Fix 1:
+    // Reject sentinel and invalid period dates — a fact with no valid period
+    // is worse than no fact. Sentinel 1900-01-01 means the extractor couldn't
+    // determine the period; writing it pollutes spreads with phantom columns.
+    if (!periodEnd || periodEnd <= MIN_VALID_PERIOD_DATE) {
+      console.warn("[upsertDealFinancialFact] Skipping fact with invalid period date", {
+        factKey: args.factKey,
+        factType: args.factType,
+        factPeriodEnd: args.factPeriodEnd,
+        dealId: args.dealId,
+      });
+      return { ok: false, error: "invalid_period_date", skipped: true };
+    }
+
+    const periodStart = args.factPeriodStart ?? SENTINEL_DATE;
+
+    // SPEC-FACT-DISAMBIGUATION-1: Resolve source_canonical_type.
+    // If caller provided it, use it. Otherwise auto-resolve from deal_documents
+    // when we have a real (non-sentinel) source document ID.
+    let sourceCanonicalType = args.sourceCanonicalType ?? null;
+    if (!sourceCanonicalType && sourceDocId !== SENTINEL_UUID) {
+      try {
+        const { data: docRow } = await (sb as any)
+          .from("deal_documents")
+          .select("canonical_type")
+          .eq("id", sourceDocId)
+          .maybeSingle();
+        if (docRow?.canonical_type) {
+          sourceCanonicalType = docRow.canonical_type as string;
+        }
+      } catch {
+        // Non-fatal — fact still writes without the denormalized type
+      }
+    }
 
     // Phase 1A: Compute deterministic identity hash
     const identityHash = computeFactIdentityHash({
@@ -116,6 +154,7 @@ export async function upsertDealFinancialFact(args: {
       owner_entity_id: ownerEntityId,
       fact_identity_hash: identityHash,
       is_superseded: false,
+      source_canonical_type: sourceCanonicalType,
     };
 
     // Phase 6: Include drift data if detected

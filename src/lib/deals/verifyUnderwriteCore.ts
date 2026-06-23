@@ -7,6 +7,7 @@ import {
   type UnderwriteVerifySource,
 } from "@/lib/deals/underwriteVerifyLedger";
 import { getMissingRequired } from "@/lib/deals/checklistSatisfaction";
+import { hasLegalBorrowerIdentityForDeal } from "@/lib/borrower/borrowerIdentity";
 
 export type VerifyUnderwriteRecommendedNextAction =
   | "complete_intake"
@@ -226,7 +227,14 @@ export async function verifyUnderwriteCore(
     missing.push("deal_name");
   }
 
-  if (!deal.borrower_id) {
+  // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: "borrower" here means the LEGAL
+  // borrower entity is identified — deals.borrower_id OR a deal-level
+  // legal-borrower display field (borrower_name / name / display_name) OR
+  // deal_borrower_story.legal_name. A management/sponsor/guarantor profile does
+  // NOT satisfy this (it is a different credit concept gated separately by memo
+  // readiness as missing_management_profile). Same contract deriveLifecycleState
+  // uses for borrower_not_attached — see borrowerIdentity.ts.
+  if (!(await hasLegalBorrowerIdentityForDeal(sb, dealId, deal as any))) {
     missing.push("borrower");
   }
 

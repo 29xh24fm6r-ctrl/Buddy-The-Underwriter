@@ -26,6 +26,11 @@ import "server-only";
 
 import type { NarrativeSection } from "./types";
 import { MODEL_RESEARCH, isGemini3Model } from "@/lib/ai/models";
+import {
+  repairManagementJson,
+  buildManagementFallback,
+  MANAGEMENT_REPAIR_STRATEGY,
+} from "./managementRepair";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -39,20 +44,161 @@ type GroundingSegment = {
   confidences: number[]; // per-source confidence scores
 };
 
+// SPEC-BIE-PRIVATE-COMPANY-RESEARCH-ENGINE-MEGA-1 — Phase 1: thread diagnostics.
+// Every BIE thread must be auditable; null may never be opaque.
+export type BIEThreadName =
+  | "entity_lock"
+  | "borrower"
+  | "management"
+  | "competitive"
+  | "market"
+  | "industry"
+  | "transaction"
+  | "synthesis";
+
+export type BIEThreadErrorType =
+  | "none"
+  | "http_error"
+  | "empty_candidate"
+  | "empty_text"
+  | "json_parse_error"
+  | "safety_block"
+  | "finish_reason"
+  | "network_error"
+  | "fallback_used"
+  | "thread_threw"
+  | "skipped"
+  | "unknown_error";
+
+export type BIEThreadDiagnostic = {
+  thread: BIEThreadName;
+  ok: boolean;
+  error_type: BIEThreadErrorType;
+  http_status?: number | null;
+  finish_reason?: string | null;
+  prompt_block_reason?: string | null;
+  safety_ratings?: unknown;
+  json_parse_error?: string | null;
+  raw_text_preview?: string | null;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: when a malformed
+  // thread output is salvaged by a repair pass, the ORIGINAL parse diagnostic is
+  // preserved (error_type=json_parse_error, raw_text_preview, json_parse_error)
+  // and these two flags record that a repair (or deterministic fallback) ran.
+  repaired?: boolean;
+  repair_strategy?: string | null;
+  prompt_chars: number;
+  response_chars?: number | null;
+  source_count: number;
+  model: string;
+  created_at: string;
+};
+
+/** Synthesize a diagnostic for non-Gemini outcomes (skip, thread threw, fallback). */
+function synthDiagnostic(
+  thread: BIEThreadName,
+  error_type: BIEThreadErrorType,
+  over: Partial<BIEThreadDiagnostic> = {},
+): BIEThreadDiagnostic {
+  return {
+    thread,
+    ok: error_type === "none",
+    error_type,
+    http_status: null,
+    finish_reason: null,
+    prompt_block_reason: null,
+    safety_ratings: null,
+    json_parse_error: null,
+    raw_text_preview: null,
+    response_chars: null,
+    prompt_chars: 0,
+    source_count: 0,
+    model: GEMINI_MODEL,
+    created_at: new Date().toISOString(),
+    ...over,
+  };
+}
+
+/** Human-readable one-liner for the flight deck. */
+export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const t = cap(d.thread.replace(/_/g, " "));
+  if (d.ok) {
+    return d.repaired
+      ? `${t}: ok (recovered via ${d.repair_strategy ?? "repair"}; original output was invalid JSON)`
+      : `${t}: ok`;
+  }
+  switch (d.error_type) {
+    case "http_error":
+      return `${t} failed: HTTP ${d.http_status ?? "error"}${d.raw_text_preview ? ` — ${d.raw_text_preview}` : ""}`;
+    case "empty_candidate":
+      return `${t} failed: empty model response (no candidate).`;
+    case "empty_text":
+      return `${t} failed: empty model text${d.finish_reason ? ` (finishReason=${d.finish_reason})` : ""}${d.prompt_block_reason ? ` (blockReason=${d.prompt_block_reason})` : ""}.`;
+    case "safety_block":
+      return `${t} failed: safety block (finishReason=${d.finish_reason ?? "n/a"}, blockReason=${d.prompt_block_reason ?? "n/a"}).`;
+    case "finish_reason":
+      return `${t} failed: model stopped early (finishReason=${d.finish_reason ?? "n/a"}).`;
+    case "json_parse_error":
+      return `${t} failed: invalid JSON${d.json_parse_error ? ` (${d.json_parse_error})` : ""}. Preview: ${d.raw_text_preview ?? "n/a"}`;
+    case "network_error":
+      return `${t} failed: network error${d.json_parse_error ? ` (${d.json_parse_error})` : ""}.`;
+    case "fallback_used":
+      return `${t}: model output unusable — deterministic fallback generated.`;
+    case "thread_threw":
+      return `${t} failed: thread threw before completion${d.json_parse_error ? ` (${d.json_parse_error})` : ""}.`;
+    case "skipped":
+      return `${t}: skipped — ${d.raw_text_preview ?? "not applicable for this subject"}.`;
+    default:
+      return `${t} failed: ${d.error_type}.`;
+  }
+}
+
 type GeminiGroundedResult<T> = {
   result: T | null;
   sourceUrls: string[];           // all URLs from groundingChunks
   segments: GroundingSegment[];   // text segment → source URL mappings
+  diagnostic: BIEThreadDiagnostic; // Phase 1: never-silent failure record
 };
 
-async function callGeminiGrounded<T>(args: {
+// Exported for Phase 1 diagnostic tests (mock global.fetch). Internal otherwise.
+export async function callGeminiGrounded<T>(args: {
   prompt: string;
   apiKey: string;
   sources: string[];   // accumulated source list across all threads
   logTag: string;
+  thread: BIEThreadName;
   useGrounding: boolean;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: optional ONE-shot
+  // repair pass invoked only on JSON.parse failure. Receives the cleaned model
+  // text; returns a salvaged value or null. The original parse diagnostic is
+  // preserved either way.
+  repair?: { strategy: string; fn: (clean: string) => T | null };
 }): Promise<GeminiGroundedResult<T>> {
-  const empty: GeminiGroundedResult<T> = { result: null, sourceUrls: [], segments: [] };
+  const promptChars = args.prompt.length;
+  // SPEC-BIE-...-MEGA-1 Phase 1: build a diagnostic for EVERY return path.
+  const baseDiag = (
+    over: Partial<BIEThreadDiagnostic> & { ok: boolean; error_type: BIEThreadErrorType },
+  ): BIEThreadDiagnostic => ({
+    thread: args.thread,
+    http_status: null,
+    finish_reason: null,
+    prompt_block_reason: null,
+    safety_ratings: null,
+    json_parse_error: null,
+    raw_text_preview: null,
+    response_chars: null,
+    source_count: 0,
+    prompt_chars: promptChars,
+    model: GEMINI_MODEL,
+    created_at: new Date().toISOString(),
+    ...over,
+  });
+  const emptyWith = (diagnostic: BIEThreadDiagnostic): GeminiGroundedResult<T> => ({
+    result: null,
+    sourceUrls: [],
+    segments: [],
+    diagnostic,
+  });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${args.apiKey}`;
 
   // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
@@ -82,12 +228,31 @@ async function callGeminiGrounded<T>(args: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
-      return empty;
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "http_error",
+        http_status: res.status,
+        raw_text_preview: errText.slice(0, 300) || null,
+      }));
     }
 
     const data = await res.json();
     const candidate = data?.candidates?.[0];
     const groundingMeta = candidate?.groundingMetadata ?? {};
+    const promptBlockReason: string | null = data?.promptFeedback?.blockReason ?? null;
+    const finishReason: string | null = candidate?.finishReason ?? null;
+    const safetyRatings = candidate?.safetyRatings ?? data?.promptFeedback?.safetyRatings ?? null;
+
+    // No candidate at all (e.g., prompt blocked).
+    if (!candidate) {
+      const blocked = !!promptBlockReason;
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: blocked ? "safety_block" : "empty_candidate",
+        prompt_block_reason: promptBlockReason,
+        safety_ratings: safetyRatings,
+      }));
+    }
 
     // Extract all grounding chunk URLs
     const chunks: Array<{ web?: { uri?: string; title?: string } }> =
@@ -112,16 +277,92 @@ async function callGeminiGrounded<T>(args: {
         confidences: s.confidenceScores ?? [],
       }));
 
-    const text: string = candidate?.content?.parts?.[0]?.text ?? "";
-    if (!text) return empty;
+    const text: string = candidate?.content?.parts?.map((p: { text?: string }) => p?.text ?? "").join("") ?? "";
+    if (!text) {
+      // Distinguish a safety/early-stop empty text from a benign empty.
+      const stopped = !!finishReason && finishReason !== "STOP";
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: stopped ? (finishReason === "SAFETY" ? "safety_block" : "finish_reason") : "empty_text",
+        http_status: res.status,
+        finish_reason: finishReason,
+        prompt_block_reason: promptBlockReason,
+        safety_ratings: safetyRatings,
+        source_count: chunkUrls.length,
+        response_chars: 0,
+      }));
+    }
 
     const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-    const result = JSON.parse(clean) as T;
+    let result: T;
+    try {
+      result = JSON.parse(clean) as T;
+    } catch (pe: any) {
+      console.warn(`[BIE:${args.logTag}] JSON parse error:`, pe?.message);
+      // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: one safe
+      // repair attempt. On success the ORIGINAL parse diagnostic is preserved
+      // (error_type=json_parse_error, raw_text_preview, json_parse_error) and
+      // marked repaired=true so the failure remains auditable.
+      if (args.repair) {
+        let salvaged: T | null = null;
+        try {
+          salvaged = args.repair.fn(clean);
+        } catch {
+          salvaged = null;
+        }
+        if (salvaged !== null) {
+          console.warn(`[BIE:${args.logTag}] JSON repaired via ${args.repair.strategy}`);
+          return {
+            result: salvaged,
+            sourceUrls: chunkUrls,
+            segments,
+            diagnostic: baseDiag({
+              ok: true,
+              error_type: "json_parse_error",
+              http_status: res.status,
+              finish_reason: finishReason,
+              json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+              raw_text_preview: clean.slice(0, 300),
+              response_chars: text.length,
+              source_count: chunkUrls.length,
+              repaired: true,
+              repair_strategy: args.repair.strategy,
+            }),
+          };
+        }
+      }
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "json_parse_error",
+        http_status: res.status,
+        finish_reason: finishReason,
+        json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+        raw_text_preview: clean.slice(0, 300),
+        response_chars: text.length,
+        source_count: chunkUrls.length,
+      }));
+    }
 
-    return { result, sourceUrls: chunkUrls, segments };
+    return {
+      result,
+      sourceUrls: chunkUrls,
+      segments,
+      diagnostic: baseDiag({
+        ok: true,
+        error_type: "none",
+        http_status: res.status,
+        finish_reason: finishReason,
+        response_chars: text.length,
+        source_count: chunkUrls.length,
+      }),
+    };
   } catch (e: any) {
     console.warn(`[BIE:${args.logTag}] failed:`, e?.message);
-    return empty;
+    return emptyWith(baseDiag({
+      ok: false,
+      error_type: "network_error",
+      json_parse_error: String(e?.message ?? e).slice(0, 200),
+    }));
   }
 }
 
@@ -140,7 +381,30 @@ export type BIEInput = {
   annual_revenue?: number | null;
   loan_amount?: number | null;
   loan_purpose?: string | null;
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: identity + private mode.
+  legal_name?: string | null;
+  dba?: string | null;
+  website?: string | null;
+  business_description?: string | null;
+  banker_summary?: string | null;
+  customer_anchors?: string | null;
+  // Null when only a placeholder deal label is available — entity-lock must NOT
+  // web-search it; it returns unconfirmed_needs_banker_identity instead.
+  company_search_name?: string | null;
+  private_company_mode?: boolean;
+  has_banker_certified_anchor?: boolean;
 };
+
+// SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+export type EntityClassification =
+  | "confirmed_public_entity"
+  | "probable_private_entity"
+  | "unconfirmed_needs_banker_identity"
+  | "conflicting_public_entity"
+  | "wrong_entity_risk";
+
+/** Confidence floored for a banker-certified private entity with limited public footprint. */
+export const PRIVATE_ENTITY_CONFIDENCE_FLOOR = 0.55;
 
 // Thread 0 — Entity Lock
 export type EntityLock = {
@@ -151,6 +415,8 @@ export type EntityLock = {
   disambiguation_notes: string;
   alternative_entities_found: string[];
   research_scope: string;
+  /** Deterministic disposition computed in code (not by the model). */
+  entity_classification?: EntityClassification;
 };
 
 // Thread 1 — Borrower
@@ -169,6 +435,8 @@ export type BorrowerIntelligence = {
 // Thread 2 — Management
 export type PrincipalProfile = {
   name: string;
+  /** Known title from the loan file (optional; populated by the file-based fallback). */
+  title?: string | null;
   identity_confirmed: boolean;
   identity_confidence: number;     // 0.0–1.0: confidence this is the right person
   identity_notes: string;          // "Confirmed via [source]" or "No records found"
@@ -277,9 +545,19 @@ type ThreadSources = {
 export type BIEResult = {
   entity_lock: EntityLock | null;        // Thread 0 entity confirmation
   entity_confirmed: boolean;             // did entity lock succeed?
-  entity_confidence: number;             // 0.0–1.0
+  entity_confidence: number;             // 0.0–1.0 (may be floored for private entities)
+  entity_classification: EntityClassification;  // deterministic disposition
   borrower: BorrowerIntelligence | null;
   management: ManagementIntelligence | null;
+  /**
+   * SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: provenance of the
+   * management thread so the gate + UI can distinguish public verification from
+   * file-based evidence.
+   *   "public_web" — produced by the management thread (incl. repaired JSON)
+   *   "fallback"   — deterministic banker-certified/file-based profile
+   *   null         — no management produced
+   */
+  management_basis: "public_web" | "fallback" | null;
   competitive: CompetitiveIntelligence | null;
   market: MarketIntelligence | null;
   industry: IndustryIntelligence | null;
@@ -288,6 +566,7 @@ export type BIEResult = {
   research_quality: "deep" | "partial" | "minimal";
   sources_used: string[];
   thread_sources: ThreadSources;          // per-thread source URLs for citation threading
+  thread_diagnostics: Record<BIEThreadName, BIEThreadDiagnostic>; // Phase 1: never-silent failures
   compiled_at: string;
 };
 
@@ -295,29 +574,134 @@ export type BIEResult = {
 // Thread 0 — Entity Identity Lock
 // ============================================================================
 
+/**
+ * SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+ *
+ * Deterministic entity disposition — computed in CODE (not trusted from the
+ * model) so the institutional gate stays deterministic. Returns the
+ * classification and the (possibly floored) confidence the gate consumes.
+ *
+ * Rules:
+ *  - no company_search_name (placeholder only)        → unconfirmed_needs_banker_identity
+ *  - model conf ≥ 0.70                                 → confirmed_public_entity (keep)
+ *  - model conf ≥ 0.50 AND confirmed_name mismatches   → wrong_entity_risk (keep low → research_failed)
+ *  - banker-certified anchor AND no conflict           → probable_private_entity (floor 0.55)
+ *  - otherwise                                         → unconfirmed_needs_banker_identity
+ */
+export function classifyEntity(args: {
+  companySearchName: string | null | undefined;
+  hasBankerCertifiedAnchor: boolean;
+  modelConfidence: number;
+  confirmedName: string | null | undefined;
+  alternativeEntitiesFound: string[];
+}): { classification: EntityClassification; confidence: number } {
+  const { companySearchName, hasBankerCertifiedAnchor, modelConfidence, confirmedName } = args;
+
+  if (!companySearchName || companySearchName.trim().length < 2) {
+    return { classification: "unconfirmed_needs_banker_identity", confidence: 0 };
+  }
+
+  if (modelConfidence >= 0.7) {
+    return { classification: "confirmed_public_entity", confidence: modelConfidence };
+  }
+
+  // The model locked onto a real but DIFFERENT entity than our search target.
+  const confirmed = (confirmedName ?? "").trim();
+  const lockedOntoSomething = confirmed.length > 0 && confirmed.toUpperCase() !== "UNCONFIRMED";
+  const nameMismatch = lockedOntoSomething && !tokensOverlap(confirmed, companySearchName);
+  if (modelConfidence >= 0.5 && nameMismatch) {
+    return { classification: "wrong_entity_risk", confidence: modelConfidence };
+  }
+
+  if (hasBankerCertifiedAnchor) {
+    return {
+      classification: "probable_private_entity",
+      confidence: Math.max(modelConfidence, PRIVATE_ENTITY_CONFIDENCE_FLOOR),
+    };
+  }
+
+  return { classification: "unconfirmed_needs_banker_identity", confidence: modelConfidence };
+}
+
+/**
+ * Banker-certified context block injected into research prompts so threads
+ * disambiguate against the borrower's actual business — critical for private
+ * borrowers with limited public footprint.
+ */
+function bankerContextBlock(input: BIEInput): string {
+  const lines = [
+    input.business_description ? `Business (banker-certified): ${input.business_description}` : null,
+    input.customer_anchors ? `Known customers/anchors: ${input.customer_anchors}` : null,
+    input.banker_summary ? `Banker summary: ${input.banker_summary}` : null,
+  ].filter(Boolean);
+  return lines.length > 0 ? `\nBANKER-CERTIFIED CONTEXT:\n${lines.join("\n")}\n` : "";
+}
+
+/** Shared significant-token overlap (ignores common corporate suffixes). */
+function tokensOverlap(a: string, b: string): boolean {
+  const stop = new Set(["llc", "inc", "corp", "co", "ltd", "lp", "the", "company", "group", "holdings", "review", "deal"]);
+  const toks = (s: string) =>
+    new Set(
+      s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 2 && !stop.has(t)),
+    );
+  const ta = toks(a);
+  const tb = toks(b);
+  for (const t of ta) if (tb.has(t)) return true;
+  return false;
+}
+
 async function runEntityLock(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ lock: EntityLock | null; sourceUrls: string[] }> {
+): Promise<{ lock: EntityLock | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const revenueStr = input.annual_revenue
     ? `approximately $${(input.annual_revenue / 1_000_000).toFixed(1)}M annual revenue`
     : "revenue unknown";
 
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: never web-search a
+  // placeholder deal label. When there is no real legal/DBA/website search name,
+  // skip the external lock entirely — the disposition becomes
+  // unconfirmed_needs_banker_identity (computed by the caller).
+  const searchName = (input.company_search_name ?? "").trim();
+  if (searchName.length < 2) {
+    console.warn("[BIE] Entity lock skipped — no legal/DBA/website search name (placeholder deal label)");
+    return {
+      lock: null,
+      sourceUrls: [],
+      diagnostic: synthDiagnostic("entity_lock", "skipped", {
+        raw_text_preview: "no legal/DBA/website search name (placeholder deal label)",
+      }),
+    };
+  }
+
+  const identityLines = [
+    `- Legal/search name: ${searchName}`,
+    input.dba ? `- DBA / trade name: ${input.dba}` : null,
+    input.website ? `- Website: ${input.website}` : null,
+    `- Location: ${location}`,
+    `- Industry: ${input.naics_description || `NAICS ${input.naics_code}`}`,
+    `- Scale: ${revenueStr}`,
+    input.business_description ? `- What the business does (banker-certified): ${input.business_description}` : null,
+    input.customer_anchors ? `- Known customers/anchors: ${input.customer_anchors}` : null,
+    input.banker_summary ? `- Banker summary: ${input.banker_summary}` : null,
+  ].filter(Boolean).join("\n");
+
+  const privateClause = input.private_company_mode
+    ? `\n\nIMPORTANT — PRIVATE/RELATIONSHIP BORROWER: This is a banker-certified private company. Do NOT conclude the entity is nonexistent solely because its public web presence is limited. If you find no CONFLICTING public entity (a different real company that matches this name/location/industry), treat limited footprint as expected for a private firm and report private_company_limited_public_footprint in disambiguation_notes. Only flag a conflict if you find a DIFFERENT real entity that could be mistaken for this one.`
+    : "";
+
   const prompt = `You are a commercial bank's due diligence officer. Before any research can begin, you must confirm the exact legal entity being analyzed to prevent misidentification.
 
 TARGET ENTITY:
-- Name: ${input.company_name || "Unknown"}
-- Location: ${location}
-- Industry: ${input.naics_description || `NAICS ${input.naics_code}`}
-- Scale: ${revenueStr}
+${identityLines}
 
 TASK: Use web search to confirm which exact legal entity matches this description. Specifically:
-1. Search for "${input.company_name}" in "${location}" in the "${input.naics_description || "specified"}" industry
-2. If you find multiple entities with similar names (e.g., "Samaritus Management LLC" vs "Samaritan Companies" vs "Samaritas"), explicitly list EACH entity found, its location, industry, and revenue scale, and identify which one best matches the target
+1. Search for "${searchName}"${input.dba ? ` (DBA "${input.dba}")` : ""}${input.website ? ` / ${input.website}` : ""} in "${location}" in the "${input.naics_description || "specified"}" industry. Use the business description and known customers above as disambiguators.
+2. If you find multiple entities with similar names, explicitly list EACH entity found, its location, industry, and revenue scale, and identify which one best matches the target
 3. Note any entities that are SIMILAR IN NAME but DIFFERENT in identity — these must be excluded from subsequent research
-4. Assess how confident you are that you've correctly identified the target entity (0.0 = no match found, 1.0 = definitive match with multiple confirming sources)
+4. Assess how confident you are that you've correctly identified the target entity (0.0 = no match found, 1.0 = definitive match with multiple confirming sources)${privateClause}
 
 Return ONLY valid JSON:
 {
@@ -325,7 +709,7 @@ Return ONLY valid JSON:
   "confirmed_location": "confirmed city, state or 'Unknown'",
   "confirmed_industry": "confirmed industry description or 'Unknown'",
   "entity_confidence": 0.0-1.0,
-  "disambiguation_notes": "explain any similarly-named entities found and why they were excluded, or 'No similarly-named entities found'",
+  "disambiguation_notes": "explain any similarly-named entities found and why they were excluded; for a private borrower with limited footprint say 'private_company_limited_public_footprint'",
   "alternative_entities_found": ["Entity A at Location X (different from target)", "Entity B at Location Y"],
   "research_scope": "one sentence: confirm what specific entity all subsequent research should focus on"
 }`;
@@ -335,10 +719,11 @@ Return ONLY valid JSON:
     apiKey,
     sources,
     logTag: "entity-lock",
+    thread: "entity_lock",
     useGrounding: true,
   });
 
-  return { lock: gr.result, sourceUrls: gr.sourceUrls };
+  return { lock: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -350,11 +735,13 @@ async function runBorrowerIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: BorrowerIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: BorrowerIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const scopeClause = entityLock?.research_scope
     ? `\nRESEARCH SCOPE (confirmed by entity lock): ${entityLock.research_scope}\nDo NOT include findings about: ${entityLock.alternative_entities_found.join("; ") || "N/A"}`
     : "";
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: banker-certified context.
+  const bankerContext = bankerContextBlock(input);
 
   const prompt = `You are a senior commercial credit analyst conducting pre-loan due diligence.
 
@@ -363,7 +750,7 @@ Industry: ${input.naics_description || input.naics_code || "Unknown"}
 Location: ${location}
 ${input.loan_purpose ? `Loan Purpose: ${input.loan_purpose}` : ""}
 ${input.annual_revenue ? `Annual Revenue: approximately $${(input.annual_revenue / 1_000_000).toFixed(1)}M` : ""}
-${scopeClause}
+${bankerContext}${scopeClause}
 
 ENTITY DISAMBIGUATION REQUIREMENT: You MUST research only the specific entity described above at the specified location. If your web search returns results for a similarly-named company at a different location or in a different industry, explicitly exclude it and note the disambiguation in your output.
 
@@ -398,9 +785,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<BorrowerIntelligence>({
-    prompt, apiKey, sources, logTag: "borrower", useGrounding: true,
+    prompt, apiKey, sources, logTag: "borrower", thread: "borrower", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -412,7 +799,7 @@ async function runManagementIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: ManagementIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: ManagementIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const principalsList = input.principals
     .map((p, i) => `${i + 1}. ${p.name}${p.title ? ` (${p.title})` : ""}`)
@@ -488,9 +875,13 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<ManagementIntelligence>({
-    prompt, apiKey, sources, logTag: "management", useGrounding: true,
+    prompt, apiKey, sources, logTag: "management", thread: "management", useGrounding: true,
+    // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1A: management-only
+    // JSON repair. On unrecoverable malformation this returns null and the
+    // deterministic file-based fallback (Phase 1B) takes over in the orchestrator.
+    repair: { strategy: MANAGEMENT_REPAIR_STRATEGY, fn: repairManagementJson },
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -502,7 +893,7 @@ async function runCompetitiveIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: CompetitiveIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: CompetitiveIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
 
   const prompt = `You are a senior commercial credit analyst assessing competitive positioning for a lending decision.
@@ -547,9 +938,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<CompetitiveIntelligence>({
-    prompt, apiKey, sources, logTag: "competitive", useGrounding: true,
+    prompt, apiKey, sources, logTag: "competitive", thread: "competitive", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -560,7 +951,7 @@ async function runMarketIntelligence(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ result: MarketIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: MarketIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
 
   const prompt = `You are a senior commercial credit analyst conducting local market research for a loan.
@@ -597,9 +988,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<MarketIntelligence>({
-    prompt, apiKey, sources, logTag: "market", useGrounding: true,
+    prompt, apiKey, sources, logTag: "market", thread: "market", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -610,7 +1001,7 @@ async function runIndustryIntelligence(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ result: IndustryIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: IndustryIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const prompt = `You are a senior institutional credit analyst writing an industry analysis for a credit committee.
 
 Industry: ${input.naics_description || input.naics_code || "Unknown"} (NAICS ${input.naics_code || "Unknown"})
@@ -646,9 +1037,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<IndustryIntelligence>({
-    prompt, apiKey, sources, logTag: "industry", useGrounding: true,
+    prompt, apiKey, sources, logTag: "industry", thread: "industry", useGrounding: true,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -664,7 +1055,7 @@ async function runTransactionRepaymentIntelligence(
   industry: IndustryIntelligence | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: TransactionRepaymentIntelligence | null; sourceUrls: string[] }> {
+): Promise<{ result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ");
 
   const prompt = `You are a senior credit officer analyzing the repayment viability of a proposed commercial loan.
@@ -715,9 +1106,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<TransactionRepaymentIntelligence>({
-    prompt, apiKey, sources, logTag: "transaction", useGrounding: false,
+    prompt, apiKey, sources, logTag: "transaction", thread: "transaction", useGrounding: false,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -735,7 +1126,7 @@ async function runCreditSynthesis(
   transaction: TransactionRepaymentIntelligence | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: CreditSynthesis | null; sourceUrls: string[] }> {
+): Promise<{ result: CreditSynthesis | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ");
   const principalNames = input.principals.map((p) => p.name).join(", ") || "None on file";
   const confirmedPrincipals = management?.principal_profiles
@@ -747,8 +1138,8 @@ async function runCreditSynthesis(
 
 COMPANY: ${input.company_name || "Unknown"} | ${input.naics_description || input.naics_code || "Unknown"} | ${location || "Unknown"}
 LOAN: ${input.loan_amount ? `$${(input.loan_amount / 1_000_000).toFixed(2)}M` : "Unknown"} | ${input.loan_purpose || "Unknown purpose"}
-ENTITY LOCK: ${entityLock ? `${entityLock.confirmed_name} (confidence: ${entityLock.entity_confidence}) — ${entityLock.disambiguation_notes}` : "Entity lock not performed"}
-KNOWN PRINCIPALS: ${principalNames}
+ENTITY LOCK: ${entityLock ? `${entityLock.confirmed_name} (confidence: ${entityLock.entity_confidence}, classification: ${entityLock.entity_classification ?? "n/a"}) — ${entityLock.disambiguation_notes}` : "Entity lock not performed"}
+${bankerContextBlock(input)}KNOWN PRINCIPALS: ${principalNames}
 CONFIRMED PRINCIPALS IN RESEARCH: ${confirmedPrincipals}
 
 RESEARCH FINDINGS:
@@ -828,9 +1219,9 @@ Return ONLY valid JSON:
 }`;
 
   const gr = await callGeminiGrounded<CreditSynthesis>({
-    prompt, apiKey, sources, logTag: "synthesis", useGrounding: false,
+    prompt, apiKey, sources, logTag: "synthesis", thread: "synthesis", useGrounding: false,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -842,8 +1233,10 @@ function emptyBIEResult(): BIEResult {
     entity_lock: null,
     entity_confirmed: false,
     entity_confidence: 0,
+    entity_classification: "unconfirmed_needs_banker_identity",
     borrower: null,
     management: null,
+    management_basis: null,
     competitive: null,
     market: null,
     industry: null,
@@ -854,6 +1247,16 @@ function emptyBIEResult(): BIEResult {
     thread_sources: {
       borrower: [], management: [], competitive: [],
       market: [], industry: [], transaction: [], entity_lock: [],
+    },
+    thread_diagnostics: {
+      entity_lock: synthDiagnostic("entity_lock", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      borrower: synthDiagnostic("borrower", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      management: synthDiagnostic("management", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      competitive: synthDiagnostic("competitive", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      market: synthDiagnostic("market", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      industry: synthDiagnostic("industry", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      transaction: synthDiagnostic("transaction", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
+      synthesis: synthDiagnostic("synthesis", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
     },
     compiled_at: new Date().toISOString(),
   };
@@ -871,10 +1274,12 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   // ── Thread 0: Entity Lock (sequential first — all other threads depend on it) ──
   let entityLock: EntityLock | null = null;
   let entityLockSources: string[] = [];
+  let entityLockDiag: BIEThreadDiagnostic = synthDiagnostic("entity_lock", "thread_threw");
   try {
     const r = await runEntityLock(input, apiKey, allSources);
     entityLock = r.lock;
     entityLockSources = r.sourceUrls;
+    entityLockDiag = r.diagnostic;
     if (entityLock) {
       console.log(
         `[BIE] Entity lock: "${entityLock.confirmed_name}" confidence=${entityLock.entity_confidence}`,
@@ -885,6 +1290,9 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     }
   } catch (e: any) {
     console.warn("[BIE] Entity lock failed (non-fatal):", e?.message);
+    entityLockDiag = synthDiagnostic("entity_lock", "thread_threw", {
+      json_parse_error: String(e?.message ?? e).slice(0, 200),
+    });
   }
 
   // ── Threads 1–5: Run in parallel ──
@@ -896,33 +1304,80 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     runIndustryIntelligence(input, apiKey, allSources),
   ]);
 
-  const borrowerR = t1.status === "fulfilled" ? t1.value : { result: null, sourceUrls: [] };
-  const managementR = t2.status === "fulfilled" ? t2.value : { result: null, sourceUrls: [] };
-  const competitiveR = t3.status === "fulfilled" ? t3.value : { result: null, sourceUrls: [] };
-  const marketR = t4.status === "fulfilled" ? t4.value : { result: null, sourceUrls: [] };
-  const industryR = t5.status === "fulfilled" ? t5.value : { result: null, sourceUrls: [] };
+  // SPEC-BIE-...-MEGA-1 Phase 1: a rejected thread gets a thread_threw diagnostic
+  // (never a silent null).
+  const settled = <T>(
+    s: PromiseSettledResult<{ result: T | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }>,
+    thread: BIEThreadName,
+  ): { result: T | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =>
+    s.status === "fulfilled"
+      ? s.value
+      : {
+          result: null,
+          sourceUrls: [],
+          diagnostic: synthDiagnostic(thread, "thread_threw", {
+            json_parse_error: String((s as PromiseRejectedResult).reason?.message ?? (s as PromiseRejectedResult).reason).slice(0, 200),
+          }),
+        };
+
+  const borrowerR = settled(t1, "borrower");
+  const managementR = settled(t2, "management");
+  const competitiveR = settled(t3, "competitive");
+  const marketR = settled(t4, "market");
+  const industryR = settled(t5, "industry");
 
   const borrower = borrowerR.result;
-  const management = managementR.result;
+  // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1B: deterministic
+  // file-based fallback. If the management thread produced nothing usable (even
+  // after the repair pass) but we have banker-certified principals on file,
+  // synthesize a clearly-labelled file-based ManagementIntelligence. This keeps
+  // management non-null (no "management not possible" message) while never
+  // setting identity_confirmed=true or reaching committee-grade.
+  let management = managementR.result;
+  let managementBasis: "public_web" | "fallback" | null = management ? "public_web" : null;
+  let managementDiag = managementR.diagnostic;
+  if (!management) {
+    const fallback = buildManagementFallback(input);
+    if (fallback) {
+      management = fallback;
+      managementBasis = "fallback";
+      managementDiag = synthDiagnostic("management", "fallback_used", {
+        raw_text_preview: `${fallback.principal_profiles.length} banker-certified principal(s) on file — file-based fallback (public confirmation limited)`,
+        // Preserve the original failure mode for audit when one was recorded.
+        json_parse_error: managementR.diagnostic?.json_parse_error ?? null,
+      });
+      console.warn(
+        `[BIE] Management deterministic fallback used for "${input.company_name}": ` +
+        `${fallback.principal_profiles.length} file-based profile(s).`,
+      );
+    }
+  }
   const competitive = competitiveR.result;
   const market = marketR.result;
   const industry = industryR.result;
 
   // ── Thread 6: Transaction (sequential — needs 1–5) ──
-  let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[] } =
-    { result: null, sourceUrls: [] };
+  let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =
+    { result: null, sourceUrls: [], diagnostic: synthDiagnostic("transaction", "thread_threw") };
   try {
     transactionR = await runTransactionRepaymentIntelligence(
       input, borrower, management, competitive, market, industry, apiKey, allSources,
     );
   } catch (e: any) {
     console.warn("[BIE] Transaction thread failed:", e?.message);
+    transactionR = {
+      result: null,
+      sourceUrls: [],
+      diagnostic: synthDiagnostic("transaction", "thread_threw", {
+        json_parse_error: String(e?.message ?? e).slice(0, 200),
+      }),
+    };
   }
   const transaction = transactionR.result;
 
   // ── Thread 7: Synthesis + Validation Pass (sequential) ──
-  let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[] } =
-    { result: null, sourceUrls: [] };
+  let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =
+    { result: null, sourceUrls: [], diagnostic: synthDiagnostic("synthesis", "thread_threw") };
   try {
     synthesisR = await runCreditSynthesis(
       input, entityLock, borrower, management, competitive, market, industry, transaction,
@@ -930,6 +1385,13 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
     );
   } catch (e: any) {
     console.warn("[BIE] Synthesis thread failed:", e?.message);
+    synthesisR = {
+      result: null,
+      sourceUrls: [],
+      diagnostic: synthDiagnostic("synthesis", "thread_threw", {
+        json_parse_error: String(e?.message ?? e).slice(0, 200),
+      }),
+    };
   }
   const synthesis = synthesisR.result;
 
@@ -944,14 +1406,47 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   }
 
   const successCount = [borrower, management, competitive, market, industry, transaction].filter(Boolean).length;
-  const entityConfidence = entityLock?.entity_confidence ?? 0;
+
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: deterministic
+  // disposition. Floors confidence for a banker-certified private entity so a
+  // legitimate relationship borrower with limited public footprint is not auto-
+  // failed; preserves wrong-entity/placeholder protection.
+  const { classification, confidence: entityConfidence } = classifyEntity({
+    companySearchName: input.company_search_name,
+    hasBankerCertifiedAnchor: !!input.has_banker_certified_anchor,
+    modelConfidence: entityLock?.entity_confidence ?? 0,
+    confirmedName: entityLock?.confirmed_name,
+    alternativeEntitiesFound: entityLock?.alternative_entities_found ?? [],
+  });
+  if (entityLock) {
+    entityLock.entity_classification = classification;
+    entityLock.entity_confidence = entityConfidence;
+  }
+  console.log(`[BIE] Entity classification: ${classification} (confidence=${entityConfidence})`);
+
+  // SPEC-BIE-...-MEGA-1 Phase 1: every thread carries an auditable diagnostic.
+  const thread_diagnostics: Record<BIEThreadName, BIEThreadDiagnostic> = {
+    entity_lock: entityLockDiag,
+    borrower: borrowerR.diagnostic,
+    management: managementDiag,
+    competitive: competitiveR.diagnostic,
+    market: marketR.diagnostic,
+    industry: industryR.diagnostic,
+    transaction: transactionR.diagnostic,
+    synthesis: synthesisR.diagnostic,
+  };
+  for (const d of Object.values(thread_diagnostics)) {
+    if (!d.ok) console.warn(`[BIE] ${describeThreadDiagnostic(d)}`);
+  }
 
   return {
     entity_lock: entityLock,
     entity_confirmed: entityConfidence >= 0.6,
     entity_confidence: entityConfidence,
+    entity_classification: classification,
     borrower,
     management,
+    management_basis: managementBasis,
     competitive,
     market,
     industry,
@@ -968,6 +1463,7 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
       industry: industryR.sourceUrls,
       transaction: transactionR.sourceUrls,
     },
+    thread_diagnostics,
     compiled_at: new Date().toISOString(),
   };
 }

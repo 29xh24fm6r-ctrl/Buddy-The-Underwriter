@@ -26,6 +26,7 @@ import { mapCanonicalTypeToEntityType } from "./mapCanonicalTypeToEntityType";
 const ENTITY_SCOPED_DOC_TYPES = new Set([
   "PERSONAL_TAX_RETURN",
   "PERSONAL_FINANCIAL_STATEMENT",
+  "PFS",
   "BUSINESS_TAX_RETURN",
 ]);
 

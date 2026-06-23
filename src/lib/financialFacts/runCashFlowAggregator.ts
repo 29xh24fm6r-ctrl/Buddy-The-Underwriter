@@ -32,6 +32,8 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
+import { classifyEntityTaxForm, ownerCompTreatment } from "@/lib/financialIntelligence/entityTaxForm";
 import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
 import { computeSlateHash } from "@/lib/methodology/slateHash";
 import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
@@ -54,11 +56,12 @@ export type RunCashFlowAggregatorResult =
       bankId: string;
       proposedAds: number;
       ncads: number | null;
-      ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null;
+      ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | "WATERFALL" | null;
       latestPeriod: string;
       dscr: number | null;
       factsWritten: number;
       factsAttempted: number;
+      ncadsWarnings: string[];
     }
   | {
       ok: false;
@@ -132,23 +135,99 @@ export async function runCashFlowAggregator(args: {
         (sum: number, r: any) => sum + Number(r.fact_value_num),
         0,
       );
+    } else {
+      // SPEC-ENTITY-MODEL-RECONCILIATION-1: Fallback to deal-scoped EBITDA
+      const { data: dealScopedEbitda } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_value_num, fact_period_end")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("owner_type", "DEAL")
+        .eq("fact_key", "EBITDA")
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
+        .not("fact_value_num", "is", null)
+        .order("fact_period_end", { ascending: false })
+        .limit(1);
+
+      if (dealScopedEbitda && dealScopedEbitda.length > 0) {
+        entityEbitdaSum = Number(dealScopedEbitda[0].fact_value_num);
+      }
     }
   }
 
-  // 2. Read NCADS candidates
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: prefer the institutional waterfall NCADS
+  // (CF_NCADS, written by computeCashFlowWaterfallFacts which runs before this writer).
+  // When present it WINS; the crude C-corp / tax-return fallbacks below are demoted to
+  // cold-start diagnostics that cannot fire while the waterfall NCADS exists.
+  const { data: cfNcadsRow } = await (sb as any)
+    .from("deal_financial_facts")
+    .select("fact_value_num, fact_period_end")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .eq("fact_key", "CF_NCADS")
+    .eq("is_superseded", false)
+    .neq("resolution_status", "rejected")
+    .not("fact_value_num", "is", null)
+    .order("confidence", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const waterfallNcads = cfNcadsRow?.fact_value_num != null ? Number(cfNcadsRow.fact_value_num) : null;
+
+  // 2. Read NCADS candidates — prefer active (tax return) over inferred (spread)
   const { data: factRows } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end")
+    .select("fact_key, fact_value_num, fact_period_end, resolution_status")
     .eq("deal_id", dealId)
     .eq("is_superseded", false)
     .neq("resolution_status", "rejected")
     .in("fact_key", ["EBITDA", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"])
     .not("fact_value_num", "is", null)
+    .order("resolution_status", { ascending: true })  // 'active' before 'inferred'
     .order("fact_period_end", { ascending: false })
     .limit(10);
 
   if (!factRows || factRows.length === 0) {
-    return { ok: false, reason: "no_ncads_candidates" };
+    // TAX_RETURN fallback as last resort
+    const { data: taxFallback } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, fact_period_end")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .eq("fact_type", "TAX_RETURN")
+      .in("fact_key", ["GROSS_RECEIPTS", "NET_INCOME", "ORDINARY_INCOME"])
+      .not("fact_value_num", "is", null)
+      .order("fact_period_end", { ascending: false })
+      .limit(10);
+
+    if (!taxFallback || taxFallback.length === 0) {
+      // Waterfall NCADS can still carry the deal even with no income-base facts here.
+      if (waterfallNcads !== null) {
+        (factRows as any) = [{
+          fact_key: "NET_INCOME",
+          fact_value_num: waterfallNcads,
+          fact_period_end: cfNcadsRow?.fact_period_end ?? SENTINEL_DATE,
+          resolution_status: "active",
+        }];
+      } else {
+        return { ok: false, reason: "no_ncads_candidates" };
+      }
+    } else {
+
+    const niRow = (taxFallback as any[]).find((r: any) => r.fact_key === "NET_INCOME");
+    const oiRow = (taxFallback as any[]).find((r: any) => r.fact_key === "ORDINARY_INCOME");
+    const grRow = (taxFallback as any[]).find((r: any) => r.fact_key === "GROSS_RECEIPTS");
+    const useRow = niRow ?? oiRow ?? grRow;
+    if (!useRow && waterfallNcads === null) return { ok: false, reason: "no_ncads_candidates" };
+
+    (factRows as any) = [{
+      fact_key: niRow ? "NET_INCOME" : oiRow ? "ORDINARY_BUSINESS_INCOME" : "NET_INCOME",
+      fact_value_num: useRow ? useRow.fact_value_num : waterfallNcads,
+      fact_period_end: useRow ? useRow.fact_period_end : (cfNcadsRow?.fact_period_end ?? SENTINEL_DATE),
+      resolution_status: "active",
+    }];
+    }
   }
 
   // 3. Apply fallback logic — match route exactly
@@ -164,7 +243,7 @@ export async function runCashFlowAggregator(args: {
   const ncadsVariant = methodologySlate.ncads_source;
 
   let ncads: number | null = null;
-  let ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | null = null;
+  let ncadsSource: "EBITDA" | "ORDINARY_BUSINESS_INCOME" | "NET_INCOME" | "WATERFALL" | null = null;
 
   if (ncadsVariant === "conservative") {
     const niRow = periodFacts.find((r: any) => r.fact_key === "NET_INCOME");
@@ -205,8 +284,157 @@ export async function runCashFlowAggregator(args: {
     }
   }
 
-  // 4. Compute DSCR
-  const dscrValue =
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: the institutional waterfall NCADS WINS.
+  // When CF_NCADS exists, it overrides any fact-derived candidate and the crude
+  // fallbacks below are skipped (they remain only for cold-start, when CF_NCADS is null).
+  if (waterfallNcads !== null) {
+    ncads = waterfallNcads;
+    ncadsSource = "WATERFALL";
+  }
+
+  // SPEC-FACT-DISAMBIGUATION-1: C-Corp addback using source_canonical_type
+  // column — single-step filter, no two-step deal_documents lookup needed.
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: demoted to a cold-start diagnostic —
+  // it cannot fire while the waterfall NCADS exists.
+  let ccorpTaxableUsed: number | null = null;
+  let ccorpOfficerUsed: number | null = null;
+  let ccorpDeprUsed: number | null = null;
+  let ccorpOfficerAddback = 0;
+  const ncadsIsInferred = ncads !== null && ncadsSource === "NET_INCOME";
+  if (ncadsSource !== "WATERFALL" && (ncads === null || ncads === 0 || ncadsIsInferred) && ncadsVariant === "standard") {
+    const { data: ccorpFacts } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("id, fact_key, fact_value_num, fact_period_start, fact_period_end, fact_value_text, confidence, provenance, created_at, resolution_status, source_canonical_type")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .eq("source_canonical_type", "BUSINESS_TAX_RETURN")
+      .in("fact_key", ["TAXABLE_INCOME", "OFFICER_COMPENSATION", "DEPRECIATION", "GROSS_RECEIPTS"])
+      .not("fact_value_num", "is", null)
+      .limit(20);
+
+    if (ccorpFacts && (ccorpFacts as any[]).length > 0) {
+      const allFacts = ccorpFacts as any[];
+      const latestPeriod = allFacts
+        .map((r: any) => r.fact_period_end as string)
+        .filter(Boolean)
+        .sort()
+        .reverse()[0];
+      const periodFacts = allFacts.filter((r: any) => r.fact_period_end === latestPeriod);
+
+      const taxableFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "TAXABLE_INCOME" && Number(r.fact_value_num) > 0,
+      );
+      const officerFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "OFFICER_COMPENSATION",
+      );
+      const deprFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "DEPRECIATION",
+      );
+      const grossFacts = periodFacts.filter(
+        (r: any) => r.fact_key === "GROSS_RECEIPTS",
+      );
+
+      const { chosen: bestTaxable } = selectBestFact(taxableFacts);
+      const { chosen: bestOfficer } = selectBestFact(officerFacts);
+      const { chosen: bestDepr } = selectBestFact(deprFacts);
+      const { chosen: bestGross } = selectBestFact(grossFacts);
+
+      if (bestTaxable && bestOfficer) {
+        ccorpTaxableUsed = Number(bestTaxable.fact_value_num);
+        ccorpOfficerUsed = Number(bestOfficer.fact_value_num);
+        ccorpDeprUsed = Number(bestDepr?.fact_value_num ?? 0);
+        // SPEC-CANONICAL-DSCR-NCADS-PERFECTION-PROGRAM-1 Phase 2: normalize owner comp
+        // against replacement compensation — add back ONLY the excess, never 100% of
+        // officer comp (reasonable owner comp is a real operating expense).
+        const compFactMap = {
+          TAXABLE_INCOME: ccorpTaxableUsed,
+          OFFICER_COMPENSATION: ccorpOfficerUsed,
+          DEPRECIATION: ccorpDeprUsed,
+          GROSS_RECEIPTS: bestGross ? Number(bestGross.fact_value_num) : null,
+        };
+        const treatment = ownerCompTreatment(compFactMap, classifyEntityTaxForm(compFactMap), methodologySlate);
+        ccorpOfficerAddback = treatment.addback;
+        ncads = ccorpTaxableUsed + ccorpOfficerAddback + ccorpDeprUsed;
+        ncadsSource = "EBITDA"; // C-Corp normalized addback method
+      }
+    }
+  }
+
+  // Diagnostic warnings
+  const ncadsWarnings: string[] = [];
+
+  // C-Corp addback annotation — uses in-memory values from addback computation
+  if (ncadsIsInferred && ncadsSource === "EBITDA" && ncads !== null && ncads > 0
+      && ccorpTaxableUsed !== null && ccorpOfficerUsed !== null) {
+    ncadsWarnings.push(
+      `C-Corp normalized addback: taxable_income($${ccorpTaxableUsed.toLocaleString()}) ` +
+      `+ normalized_officer_comp_excess($${ccorpOfficerAddback.toLocaleString()} of reported $${ccorpOfficerUsed.toLocaleString()}) ` +
+      `+ depreciation($${(ccorpDeprUsed ?? 0).toLocaleString()}) = $${ncads.toLocaleString()} ` +
+      `(owner comp normalized against replacement — excess only, not 100%)`,
+    );
+  }
+
+  if (ncads === 0 && ncadsSource === "NET_INCOME") {
+    ncadsWarnings.push(
+      "NET_INCOME extracted as $0 — verify taxable income on the tax return. " +
+      "DSCR may be understated if this is an extraction error.",
+    );
+  }
+
+  if (ncads !== null && ncads < 0) {
+    ncadsWarnings.push(
+      `NCADS is negative ($${ncads.toLocaleString()}) — entity cash flow does not ` +
+      "cover operating expenses. Deal requires collateral or guarantor support.",
+    );
+  }
+
+  // 3b. Apply banker-approved OD addbacks/non-recurring adjustments
+  // SPEC-TAX-RETURN-OTHER-DEDUCTIONS-STATEMENT-SPREADING-5
+  // Only items explicitly marked by banker as addback or non-recurring are included.
+  if (ncads !== null) {
+    try {
+      const { buildOdNormalizedEarningsAdjustments } = await import(
+        "@/lib/financialFacts/buildOdNormalizedEarningsAdjustments"
+      );
+      const { data: odFacts } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("id, fact_key, fact_value_num, fact_period_end, resolution_status")
+        .eq("deal_id", dealId)
+        .eq("is_superseded", false)
+        .like("fact_key", "OD_DETAIL_%")
+        .in("resolution_status", ["banker_addback", "banker_non_recurring"]);
+
+      if (odFacts && odFacts.length > 0) {
+        // Use latest year with available facts
+        const years = [...new Set(
+          (odFacts as any[]).filter((f: any) => f.fact_period_end)
+            .map((f: any) => new Date(f.fact_period_end).getFullYear()),
+        )].sort((a, b) => b - a);
+        const latestYear = years[0];
+        if (latestYear) {
+          const result = buildOdNormalizedEarningsAdjustments(odFacts as any[], latestYear);
+          if (result.totalAdjustment > 0) {
+            ncads += result.totalAdjustment;
+            ncadsWarnings.push(
+              `OD addback: $${result.totalAdjustment.toLocaleString()} in banker-approved ` +
+              `adjustments (${result.adjustments.length} items) added to NCADS.`,
+            );
+          }
+        }
+      }
+    } catch (odErr: any) {
+      // Non-fatal — OD adjustments are supplemental
+      console.warn("[runCashFlowAggregator] OD adjustment failed (non-fatal)", odErr?.message);
+    }
+  }
+
+  // 4. Compute PROPOSED-LOAN coverage (NCADS / proposed ADS).
+  // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1 (PR-519): this is proposed-loan-only
+  // coverage, NOT DSCR. The canonical DSCR uses the TOTAL/business denominator
+  // (proposed + existing) and is owned solely by computeTotalDebtService, which runs
+  // after this writer. We must never let proposed-only coverage masquerade as DSCR.
+  const proposedLoanCoverage =
     ncads !== null && isFinite(Number(ncads))
       ? Math.round((Number(ncads) / proposedAds) * 100) / 100
       : null;
@@ -222,11 +450,17 @@ export async function runCashFlowAggregator(args: {
   const persistDate = new Date().toISOString().slice(0, 10);
 
   const factsToWrite = [
-    { key: "ANNUAL_DEBT_SERVICE", value: proposedAds },
-    { key: "DSCR", value: dscrValue },
+    // Proposed-loan-only ADS + coverage — explicitly NOT total ANNUAL_DEBT_SERVICE / DSCR.
+    { key: "ANNUAL_DEBT_SERVICE_PROPOSED", value: proposedAds },
+    { key: "PROPOSED_LOAN_COVERAGE", value: proposedLoanCoverage },
     ...(ncads !== null && Number(ncads) > 0
       ? [
-          { key: "CASH_FLOW_AVAILABLE", value: Number(ncads) },
+          // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: when NCADS came from the waterfall,
+          // computeCashFlowWaterfallFacts already owns CASH_FLOW_AVAILABLE (higher
+          // confidence) — don't write a competing copy. EXCESS_CASH_FLOW still derives here.
+          ...(ncadsSource === "WATERFALL"
+            ? []
+            : [{ key: "CASH_FLOW_AVAILABLE", value: Number(ncads) }]),
           { key: "EXCESS_CASH_FLOW", value: Number(ncads) - proposedAds },
         ]
       : []),
@@ -293,6 +527,8 @@ export async function runCashFlowAggregator(args: {
             as_of_date: persistDate,
             extractor: "runCashFlowAggregator:v2",
             methodology: methodologyProvenance,
+            // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: which NCADS path produced this.
+            ncads_path: ncadsSource === "WATERFALL" ? "waterfall" : "cold_start_fallback",
           },
           owner_type: "DEAL",
           owner_entity_id: SENTINEL_UUID,
@@ -321,8 +557,11 @@ export async function runCashFlowAggregator(args: {
     ncads: ncads !== null ? Number(ncads) : null,
     ncadsSource,
     latestPeriod,
-    dscr: dscrValue,
+    // In-memory proposed-loan coverage (NCADS / proposed ADS) — same value as before;
+    // persisted as PROPOSED_LOAN_COVERAGE, NOT the canonical DSCR (which uses total ADS).
+    dscr: proposedLoanCoverage,
     factsWritten,
     factsAttempted: factsToWrite.length,
+    ncadsWarnings,
   };
 }

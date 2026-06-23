@@ -89,20 +89,39 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         loadTrendReport(sb, dealId),
       ]);
 
-    // Inject ADS from pricing into facts for all years
-    const annualDebtService = pricingRow ? toNumSafe(pricingRow.annual_debt_service_est) : null;
-    if (annualDebtService !== null) {
-      for (const year of factsResult.years) {
-        const adsKey = `cf_annual_debt_service_${year}`;
-        if ((factsResult.facts as Record<string, unknown>)[adsKey] == null) {
-          (factsResult.facts as Record<string, unknown>)[adsKey] = annualDebtService;
-        }
-      }
-    }
+    // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: do NOT inject the proposed-loan
+    // annual_debt_service_est into every historical year — that made each year's DSCR
+    // a proposed-loan-coverage figure masquerading as historical debt-service coverage.
+    // Historical debt service must come from actual statement facts
+    // (cf_annual_debt_service_{year}); the canonical/authoritative DSCR (computeTotalDebtService
+    // → snapshot, read below) governs the deal-level ratio. (Defect removed; pricingRow
+    // retained for the pricing gate above.)
 
     // --- Ratios: derived inline as safety net, V2 authoritative wins ---
     const derivedRatios = deriveInlineRatios(factsResult.facts, factsResult.years);
     const ratiosResult: Record<string, number | null> = { ...derivedRatios };
+
+    // Fallback: if inline DSCR is null/0, read from latest financial snapshot
+    // (aggregator writes DSCR to deal_financial_facts, snapshot builder picks it up)
+    if (ratiosResult["ratio_dscr_final"] == null || ratiosResult["ratio_dscr_final"] === 0) {
+      try {
+        const { data: snapRow } = await sb
+          .from("financial_snapshots")
+          .select("snapshot_json")
+          .eq("deal_id", dealId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const snapDscr = (snapRow as any)?.snapshot_json?.dscr?.value_num;
+        if (typeof snapDscr === "number" && snapDscr > 0) {
+          ratiosResult["DSCR"] = snapDscr;
+          ratiosResult["ratio_dscr_final"] = snapDscr;
+        }
+      } catch {
+        // Non-fatal — inline DSCR stays null
+      }
+    }
+
     if (authResult) {
       for (const [k, v] of Object.entries(authResult.computedMetrics)) {
         if (v !== null) ratiosResult[k] = v;
@@ -158,10 +177,45 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const report = composeSpreadOutput(input);
 
+    // ── Ensure canonical financial_snapshots row exists ──────────
+    // Without this, /pricing blocks on financialSnapshotExists even though
+    // /spreads renders a complete report. fire-and-forget: response is not
+    // delayed, but snapshot persistence failure is surfaced as a warning.
+    let snapshotWarning: string | null = null;
+    try {
+      const { buildDealFinancialSnapshotForBank, persistCashFlowAvailableFromSnapshot } =
+        await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } =
+        await import("@/lib/deals/financialSnapshotPersistence");
+
+      const snapshot = await buildDealFinancialSnapshotForBank({
+        dealId,
+        bankId: access.bankId,
+      });
+      await persistCashFlowAvailableFromSnapshot({
+        dealId,
+        bankId: access.bankId,
+        snapshot,
+      });
+      await persistFinancialSnapshot({
+        dealId,
+        bankId: access.bankId,
+        snapshot,
+      });
+    } catch (snapErr: unknown) {
+      const msg = snapErr instanceof Error ? snapErr.message : String(snapErr);
+      // Hash-duplicate inserts (same snapshot already persisted) are expected — not a real error
+      if (!msg.includes("duplicate") && !msg.includes("snapshot_hash")) {
+        console.warn("[spread-output] snapshot persistence failed (non-fatal):", msg);
+        snapshotWarning = `Spread report generated but financial snapshot could not be persisted: ${msg}`;
+      }
+    }
+
     // Pass through canonical_facts, ratios, years, flags, and
     // map story_panel → narrative_report so IntelligenceClient can read them.
     return NextResponse.json({
       ok: true,
+      ...(snapshotWarning ? { snapshotWarning } : {}),
       report: {
         ...report,
         canonical_facts: input.canonical_facts,

@@ -6,13 +6,17 @@ export type ReadinessRequiredKey =
   | "loan_amount"
   | "collateral_value"
   | "business_description"
-  | "management_bio";
+  | "management_bio"
+  // SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee readiness gate.
+  | "committee_ready";
 
 export type ReadinessWarningKey =
   | "ai_narrative_missing"
   | "research_missing"
   | "covenant_review_missing"
-  | "qualitative_review_missing";
+  | "qualitative_review_missing"
+  // Banker overrode the committee-readiness gate (audited).
+  | "committee_not_ready_overridden";
 
 export type ReadinessBlocker = {
   code: ReadinessRequiredKey;

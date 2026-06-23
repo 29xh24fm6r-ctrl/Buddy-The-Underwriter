@@ -8,6 +8,7 @@ import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
+import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { ClassicPdfCachedPayload } from "@/lib/classicSpread/classicPdfWorker";
@@ -26,8 +27,36 @@ export async function GET(_req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const input = await loadClassicSpreadData(dealId);
     const bankId = (access as any).bankId as string;
+
+    // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #8: run the cash-flow aggregator + snapshot
+    // rebuild BEFORE loading the spread, so the rendered/cached PDF reflects the post-bridge facts.
+    // (Previously these mutated facts AFTER render but before cache → a cached PDF that did not
+    // reflect the very facts the bridge produced.) Non-fatal: the PDF still renders on bridge error.
+    try {
+      const { runCashFlowAggregator } = await import(
+        "@/lib/financialFacts/runCashFlowAggregator"
+      );
+      const aggregatorResult = await runCashFlowAggregator({ dealId, bankId });
+      if (!aggregatorResult.ok) {
+        console.warn(
+          "[classic-spread] aggregator returned non-ok (non-fatal):",
+          aggregatorResult.reason,
+          aggregatorResult.detail ?? "",
+        );
+      }
+
+      // Always build + persist snapshot from whatever facts exist — not gated on ADS
+      const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
+      const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+      await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
+    } catch (bridgeErr: any) {
+      console.warn("[classic-spread] bridge persist failed (non-fatal):", bridgeErr?.message);
+    }
+
+    // Load AFTER the bridge so the spread reflects the just-written aggregator facts (#8), bank-scoped (#1).
+    const input = await loadClassicSpreadData(dealId, bankId);
 
     // P0b preflight gate: if balance-sheet or income-statement rows are empty,
     // the renderer would emit "data not available" placeholders ("PENDING
@@ -57,39 +86,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     const narrative = await generateSpreadNarrative(input).catch(() => null);
     const pdf = await renderClassicSpread(input, narrative);
 
-    // Bridge: persist computed debt service metrics → facts → snapshot.
-    // Awaited before response — Vercel kills background promises on response send.
-    // Non-fatal: PDF always returns regardless of bridge outcome.
-    //
-    // SPEC-FOUNDATION-V1-PR4-EXTRACT: the embedded compute logic that was
-    // inline here is now extracted to runCashFlowAggregator. The route calls
-    // the standalone module, then rebuilds the snapshot. Behavioral parity
-    // with the pre-extraction code verified via PRECHECK on Samaritus
-    // (DSCR 2.94, four facts written, commit ce262f37).
-    try {
-      const { runCashFlowAggregator } = await import(
-        "@/lib/financialFacts/runCashFlowAggregator"
-      );
-      const aggregatorResult = await runCashFlowAggregator({ dealId, bankId });
-      if (!aggregatorResult.ok) {
-        console.warn(
-          "[classic-spread] aggregator returned non-ok (non-fatal):",
-          aggregatorResult.reason,
-          aggregatorResult.detail ?? "",
-        );
-      }
-
-      // Always build + persist snapshot from whatever facts exist — not gated on ADS
-      const { buildDealFinancialSnapshotForBank } = await import("@/lib/deals/financialSnapshot");
-      const { persistFinancialSnapshot } = await import("@/lib/deals/financialSnapshotPersistence");
-      const freshSnapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
-      await persistFinancialSnapshot({ dealId, bankId, snapshot: freshSnapshot });
-    } catch (bridgeErr: any) {
-      console.warn("[classic-spread] bridge persist failed (non-fatal):", bridgeErr?.message);
-    }
-
     // SPEC-B3 cache shim: persist the just-generated PDF to deal_spreads so
-    // the /cached endpoint can serve it without re-rendering. Fire-and-forget.
+    // the /cached endpoint can serve it without re-rendering. The bridge that mutates facts ran
+    // BEFORE the load above (#8), so this cached blob reflects post-bridge facts.
     try {
       const pdfSha256 = createHash("sha256").update(pdf).digest("hex");
       const generatedAt = new Date().toISOString();
@@ -111,6 +110,8 @@ export async function GET(_req: Request, ctx: Ctx) {
         pdf_size_bytes: pdf.length,
         canonicalFactsTimestamp: latestFact?.updated_at ?? null,
         generatedAt,
+        renderVersion: CLASSIC_PDF_RENDER_VERSION,
+        certificationAudit: input.certificationAudit ?? null,
       };
 
       await (sb as any)
@@ -138,6 +139,21 @@ export async function GET(_req: Request, ctx: Ctx) {
     } catch (cacheErr: any) {
       // Non-fatal — the PDF is already generated, cache is supplemental
       console.warn("[classic-spread] cache shim failed (non-fatal):", cacheErr?.message);
+    }
+
+    // BUGFIX-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1 (review-action sync requirement): keep the
+    // review-actions table in lock-step with the PDF the SAME regenerate cycle produced — so a fresh
+    // blocker (e.g. the 2022 balance imbalance) shows in the panel immediately and the panel can never
+    // read fewer open blockers than the PDF audit. Idempotent upsert + stale-prune; never auto-decides.
+    try {
+      const { buildClassicSpreadReviewActions } = await import("@/lib/classicSpread/review/buildReviewActions");
+      const { syncReviewActions } = await import("@/lib/classicSpread/review/reviewActionsRepo");
+      const audit = input.certificationAudit?.spreadAccuracy ?? null;
+      const actions = buildClassicSpreadReviewActions(audit, input.periods);
+      await syncReviewActions({ dealId, bankId, actions });
+    } catch (syncErr: any) {
+      // Non-fatal — the PDF + cache already succeeded; the panel's manual "Sync" remains a fallback.
+      console.warn("[classic-spread] review-action sync failed (non-fatal):", syncErr?.message);
     }
 
     return new NextResponse(new Uint8Array(pdf), {

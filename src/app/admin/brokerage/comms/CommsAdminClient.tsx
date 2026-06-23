@@ -6,6 +6,8 @@ type OutboxCounts = { pending: number; sending: number; sent: number; failed: nu
 type OrchResult = { dealId: string; borrowerNudges: { planned: number; enqueued: number; skipped: number }; bankerAlerts: { planned: number; enqueued: number; skipped: number }; outbox: { processed: number; sent: number; failed: number }; warnings: string[] };
 type BatchResult = { dealsProcessed: number; totalEnqueued: number; totalSkipped: number; warnings: string[] };
 type LedgerEvent = { event_type: string; channel: string; recipient_masked: string; created_at: string };
+type LifecycleEvent = { event_type: string; outcome: string; deal_id: string | null; channel: string; purpose: string | null; recipient_masked: string; reason: string | null; created_at: string };
+type LifecycleSummary = { totalHookEvents: number; byHookType: Record<string, { received: number; enqueued: number; skipped: number; failed: number }>; latestTimestamp: string | null; latestSkipReasons: string[]; relatedOutbox: { pending: number; sent: number; failed: number; exhausted: number }; relatedNudges: number; relatedAlerts: number; warnings: string[] };
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
@@ -63,6 +65,35 @@ function CommsLedgerTimeline({ events }: { events: LedgerEvent[] }) {
   );
 }
 
+function LifecycleOutcomeBadge({ outcome }: { outcome: string }) {
+  const colors: Record<string, string> = { received: "bg-blue-700", enqueued: "bg-emerald-700", skipped: "bg-amber-700", failed: "bg-red-700" };
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium text-white ${colors[outcome] ?? "bg-neutral-600"}`}>{outcome}</span>;
+}
+
+function LifecycleHooksTable({ events }: { events: LifecycleEvent[] }) {
+  if (events.length === 0) return <div className="text-sm text-neutral-500 py-4" data-testid="lifecycle-empty">No lifecycle hook events recorded yet.</div>;
+  return (
+    <table className="w-full text-sm text-left" data-testid="lifecycle-hooks-table">
+      <thead className="text-xs text-neutral-400 uppercase border-b border-neutral-800">
+        <tr><th className="py-2 pr-3">Event</th><th className="py-2 pr-3">Outcome</th><th className="py-2 pr-3">Channel</th><th className="py-2 pr-3">Purpose</th><th className="py-2 pr-3">Recipient</th><th className="py-2 pr-3">Reason</th><th className="py-2 pr-3">Time</th></tr>
+      </thead>
+      <tbody>
+        {events.map((e, i) => (
+          <tr key={i} className="border-b border-neutral-800/50">
+            <td className="py-2 pr-3 text-xs">{e.event_type.replace("comms_lifecycle_hook_", "")}</td>
+            <td className="py-2 pr-3"><LifecycleOutcomeBadge outcome={e.outcome} /></td>
+            <td className="py-2 pr-3">{e.channel}</td>
+            <td className="py-2 pr-3 text-xs">{e.purpose ?? "-"}</td>
+            <td className="py-2 pr-3 text-xs font-mono">{e.recipient_masked}</td>
+            <td className="py-2 pr-3 text-xs text-neutral-400">{e.reason ?? "-"}</td>
+            <td className="py-2 pr-3 text-xs text-neutral-500">{e.created_at}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ── Main client ─────────────────────────────────────────────────────────────
 
 export default function CommsAdminClient() {
@@ -73,6 +104,9 @@ export default function CommsAdminClient() {
   const [limit, setLimit] = useState(25);
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lifecycleEvents, setLifecycleEvents] = useState<LifecycleEvent[]>([]);
+  const [lifecycleSummary, setLifecycleSummary] = useState<LifecycleSummary | null>(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
 
   async function runDealComms(processOutbox = false) {
     if (!dealId.trim()) return;
@@ -95,6 +129,19 @@ export default function CommsAdminClient() {
       if (!json.ok) throw new Error(json.error ?? "Failed");
       setResult(json);
     } catch (e: any) { setError(e?.message ?? "Failed"); } finally { setBusy(null); }
+  }
+
+  async function loadLifecycleHooks() {
+    setLifecycleBusy(true); setError(null);
+    try {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (dealId.trim()) params.set("dealId", dealId.trim());
+      const res = await fetch(`/api/brokerage/comms/lifecycle?${params}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error ?? "Failed");
+      setLifecycleEvents(json.events ?? []);
+      setLifecycleSummary(json.summary ?? null);
+    } catch (e: any) { setError(e?.message ?? "Failed"); } finally { setLifecycleBusy(false); }
   }
 
   async function runBatch(processOutbox = false) {
@@ -179,6 +226,26 @@ export default function CommsAdminClient() {
             {batchResult.warnings?.length > 0 && <div className="text-amber-400 mt-1">{batchResult.warnings.slice(0, 5).join("; ")}</div>}
           </div>
         )}
+      </section>
+
+      {/* Lifecycle hooks */}
+      <section className="rounded-md border border-neutral-800 bg-neutral-900 p-4" data-testid="lifecycle-hooks-section">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-400 mb-3">Lifecycle Hooks</h3>
+        <div className="flex gap-3 items-end mb-4">
+          <button type="button" onClick={loadLifecycleHooks} disabled={lifecycleBusy} className="rounded bg-neutral-700 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-600 disabled:opacity-50" data-testid="load-lifecycle">
+            {lifecycleBusy ? "Loading..." : dealId.trim() ? `Load for ${dealId.slice(0, 8)}...` : "Load Recent (Global)"}
+          </button>
+        </div>
+        {lifecycleSummary && (
+          <div className="rounded bg-neutral-800 p-3 text-sm mb-3">
+            <div>Total hook events: {lifecycleSummary.totalHookEvents}</div>
+            <div>Outbox: {lifecycleSummary.relatedOutbox.pending} pending, {lifecycleSummary.relatedOutbox.sent} sent, {lifecycleSummary.relatedOutbox.failed} failed</div>
+            <div>Nudges: {lifecycleSummary.relatedNudges} | Alerts: {lifecycleSummary.relatedAlerts}</div>
+            {lifecycleSummary.latestSkipReasons.length > 0 && <div className="text-amber-400 mt-1">Skip reasons: {lifecycleSummary.latestSkipReasons.join(", ")}</div>}
+            {lifecycleSummary.warnings.length > 0 && <div className="text-amber-400 mt-1">{lifecycleSummary.warnings.join("; ")}</div>}
+          </div>
+        )}
+        <LifecycleHooksTable events={lifecycleEvents} />
       </section>
 
       {error && <div className="rounded border border-red-700 bg-red-900/30 p-3 text-sm text-red-200">{error}</div>}

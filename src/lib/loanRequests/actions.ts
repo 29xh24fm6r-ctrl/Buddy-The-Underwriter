@@ -3,6 +3,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { invalidateLifecycleCache } from "@/buddy/lifecycle/lifecycleCache";
 import type { LoanRequest, LoanRequestInput, ProductTypeConfig } from "./types";
 
 export async function createLoanRequest(
@@ -45,6 +46,9 @@ export async function createLoanRequest(
       requested_term_months: input.requested_term_months ?? null,
       requested_amort_months: input.requested_amort_months ?? null,
       rate_type_preference: input.rate_type_preference ?? null,
+      requested_rate_index: input.requested_rate_index ?? null,
+      requested_spread_bps: input.requested_spread_bps ?? null,
+      requested_interest_only_months: input.requested_interest_only_months ?? null,
       request_details: input.request_details ?? {},
       property_type: input.property_type ?? null,
       occupancy_type: input.occupancy_type ?? null,
@@ -92,6 +96,10 @@ export async function createLoanRequest(
     ({ materializeLoanRequestFacts }) =>
       materializeLoanRequestFacts(data as unknown as LoanRequest),
   ).catch(() => {});
+
+  // SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: drop the memoized lifecycle state so the Journey
+  // Rail re-derives immediately (and no longer shows "Add Loan Request"). Never advances the stage.
+  invalidateLifecycleCache(dealId);
 
   return { ok: true, loanRequest: data as unknown as LoanRequest };
 }
@@ -144,6 +152,10 @@ export async function updateLoanRequest(
       materializeLoanRequestFacts(data as unknown as LoanRequest),
   ).catch(() => {});
 
+  // SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: invalidate cached lifecycle after a mutation so the
+  // rail reflects the updated/submitted request immediately (e.g. draft → submitted with amount).
+  invalidateLifecycleCache((data as any).deal_id);
+
   return { ok: true, loanRequest: data as unknown as LoanRequest };
 }
 
@@ -182,6 +194,10 @@ export async function deleteLoanRequest(
       product_type: (existing as any).product_type,
     },
   });
+
+  // SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: deleting the last request must re-derive the rail
+  // (it may legitimately return to "Add Loan Request") — drop the memoized state so the next read is fresh.
+  invalidateLifecycleCache((existing as any).deal_id);
 
   return { ok: true };
 }

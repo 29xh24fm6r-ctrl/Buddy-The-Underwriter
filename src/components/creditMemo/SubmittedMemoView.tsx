@@ -7,6 +7,7 @@
 import React from "react";
 import UnderwriterDecisionForm from "./UnderwriterDecisionForm";
 import CreditMemoIntelligencePanels from "./CreditMemoIntelligencePanels";
+import CanonicalMemoTemplate from "./CanonicalMemoTemplate";
 import type { FloridaArmoryMemoSnapshot, FloridaArmorySection } from "@/lib/creditMemo/snapshot/types";
 
 type Props = {
@@ -107,7 +108,7 @@ export default function SubmittedMemoView({
           )}
         </div>
 
-        {/* ── Intelligence panels (above sections) ───────────────── */}
+        {/* ── Intelligence panels ───────────────────────────────── */}
         <div className="mb-6">
           <div className="text-[11px] font-semibold text-gray-600 uppercase mb-2">
             Credit Memo Intelligence
@@ -115,12 +116,20 @@ export default function SubmittedMemoView({
           <CreditMemoIntelligencePanels dealId={dealId} />
         </div>
 
-        {/* ── Sections ──────────────────────────────────────────── */}
-        <div className="space-y-6">
-          {Object.entries(snapshot.sections).map(([key, section]) => (
-            <SectionBlock key={key} section={section} />
-          ))}
-        </div>
+        {/* ── Full canonical memo from frozen snapshot ────────────── */}
+        {snapshot.canonical_memo ? (
+          <CanonicalMemoTemplate
+            memo={snapshot.canonical_memo}
+            renderingSource={{ type: "frozen", memoVersion }}
+          />
+        ) : (
+          /* Fallback: render generic Florida Armory sections if canonical_memo is missing (legacy snapshots) */
+          <div className="space-y-6">
+            {Object.entries(snapshot.sections).map(([key, section]) => (
+              <SectionBlock key={key} section={section} />
+            ))}
+          </div>
+        )}
 
         {/* ── Underwriter feedback (if any) ──────────────────────── */}
         {underwriterFeedback && Object.keys(underwriterFeedback).length > 0 && (

@@ -1,4 +1,10 @@
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
+import {
+  selectBestFact,
+  factAsOfDate as _factAsOfDate,
+  factSourceType as _factSourceType,
+  type SelectableFact,
+} from "@/lib/financialFacts/selectBestFact";
 
 export type SnapshotSourceType = "MANUAL" | "SPREAD" | "DOC_EXTRACT" | "STRUCTURAL" | "UNKNOWN";
 
@@ -148,65 +154,14 @@ export type DealFinancialSnapshotV1 = {
   sources_summary: SnapshotSourceSummary[];
 };
 
-export type MinimalFact = {
-  id: string;
-  fact_type: string;
-  fact_key: string;
-  fact_period_start: string | null;
-  fact_period_end: string | null;
-  fact_value_num: number | null;
-  fact_value_text: string | null;
-  confidence: number | null;
-  provenance: any;
-  created_at: string;
+export type MinimalFact = SelectableFact & {
+  source_canonical_type?: string | null;
 };
 
-function toIsoDatePrefix(s: unknown): string | null {
-  if (!s) return null;
-  const str = String(s);
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-  return null;
-}
-
-export function factAsOfDate(f: MinimalFact): string | null {
-  const provAsOf = toIsoDatePrefix(f.provenance?.as_of_date);
-  if (provAsOf) return provAsOf;
-
-  const pe = toIsoDatePrefix(f.fact_period_end);
-  if (pe) return pe;
-
-  const ps = toIsoDatePrefix(f.fact_period_start);
-  if (ps) return ps;
-
-  const created = toIsoDatePrefix(f.created_at);
-  if (created) return created;
-
-  return null;
-}
-
-export function factSourceType(f: MinimalFact): SnapshotSourceType {
-  const raw = String(f.provenance?.source_type ?? "").toUpperCase();
-  if (raw === "MANUAL") return "MANUAL";
-  if (raw === "SPREAD") return "SPREAD";
-  if (raw === "STRUCTURAL") return "STRUCTURAL";
-  if (raw === "DOC_EXTRACT") return "DOC_EXTRACT";
-  return "UNKNOWN";
-}
-
-function sourcePriority(st: SnapshotSourceType): number {
-  switch (st) {
-    case "MANUAL":
-      return 4;
-    case "STRUCTURAL":
-      return 3;
-    case "SPREAD":
-      return 2;
-    case "DOC_EXTRACT":
-      return 1;
-    default:
-      return 0;
-  }
-}
+// Re-export from shared module for backwards compat
+export const factAsOfDate = _factAsOfDate;
+export const factSourceType = _factSourceType;
+export { selectBestFact };
 
 function toSourceDetail(f: MinimalFact): SnapshotSourceDetail {
   return {
@@ -223,33 +178,7 @@ function toSourceDetail(f: MinimalFact): SnapshotSourceDetail {
   };
 }
 
-export function selectBestFact(facts: MinimalFact[]): { chosen: MinimalFact | null; rejected: MinimalFact[] } {
-  const sorted = facts
-    .slice()
-    .sort((a, b) => {
-      const pa = sourcePriority(factSourceType(a));
-      const pb = sourcePriority(factSourceType(b));
-      if (pa !== pb) return pb - pa;
-
-      const da = factAsOfDate(a);
-      const db = factAsOfDate(b);
-      if (da !== db) return (db ?? "") < (da ?? "") ? -1 : (db ?? "") > (da ?? "") ? 1 : 0;
-
-      const ca = typeof a.confidence === "number" ? a.confidence : -1;
-      const cb = typeof b.confidence === "number" ? b.confidence : -1;
-      if (ca !== cb) return cb - ca;
-
-      const ta = a.created_at ?? "";
-      const tb = b.created_at ?? "";
-      if (ta !== tb) return tb < ta ? -1 : tb > ta ? 1 : 0;
-
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-
-  const chosen = sorted[0] ?? null;
-  const rejected = chosen ? sorted.slice(1) : [];
-  return { chosen, rejected };
-}
+// selectBestFact is re-exported from shared module above
 
 export type MetricSpec = {
   metric: SnapshotMetricName;

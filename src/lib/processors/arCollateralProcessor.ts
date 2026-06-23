@@ -52,8 +52,6 @@ export async function processArCollateral(args: {
   const { dealId, bankId, documentId } = args;
   const sb = supabaseAdmin();
 
-  console.log("[AR] start", { dealId, documentId }); // TEMP — remove after validation
-
   const { data: extract, error: extractErr } = await (sb as any)
     .from("document_extracts")
     .select("tables_json, fields_json")
@@ -127,11 +125,7 @@ export async function processArCollateral(args: {
       throw new Error("no AR aging rows could be parsed from tables_json");
     }
 
-    console.log("[AR] parsed_rows", { count: rows.length }); // TEMP — remove after validation
-
     const totals = computeTotals(rows);
-
-    console.log("[AR] totals", totals); // TEMP — remove after validation
 
     // Sanity bounds — protect against OCR hallucinations, parsing bugs, garbage uploads.
     // Upper bound is intentionally generous; anything beyond $1B AR for a single
@@ -198,12 +192,6 @@ export async function processArCollateral(args: {
       dealId,
       bankId,
       policy,
-    });
-
-    console.log("[AR] borrowing_base", { // TEMP — remove after validation
-      gross: bb.grossAr,
-      eligible: bb.eligibleAr,
-      net: bb.netAvailability,
     });
 
     await writeSummaryFacts({
@@ -357,8 +345,20 @@ async function calculateBorrowingBase(args: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Summary facts
-// ─────────────────────────────────────────────────────────────────────────────
+// ── AR Fact Namespace Boundary ──────────────────────────────────────────────
+//
+// AR_AGING facts (TOTAL_AR, OVER_90_AR, ELIGIBLE_AR) are extraction
+// summary/supporting facts written by this processor. They are NOT the
+// canonical memo-facing borrowing base values.
+//
+// AR_BORROWING_BASE facts (AR_TOTAL, AR_ELIGIBLE, AR_INELIGIBLE,
+// AR_ADVANCE_RATE, AR_BORROWING_BASE_VALUE, AR_BORROWING_BASE_AVAILABILITY)
+// are the canonical memo/underwriting facts written by
+// runCanonicalUnderwritingSynthesis / computePure.
+//
+// buildCanonicalCreditMemo reads from borrowing_base_calculations and
+// AR_BORROWING_BASE facts for memo rendering — NOT from these AR_AGING facts.
+// ────────────────────────────────────────────────────────────────────────────
 
 async function writeSummaryFacts(args: {
   dealId: string;

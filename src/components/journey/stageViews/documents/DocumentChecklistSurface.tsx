@@ -6,10 +6,9 @@ import { StatusListPanel } from "../_shared/StatusListPanel";
 type ChecklistApi = {
   ok?: boolean;
   state?: "empty" | "processing" | "ready";
-  total?: number;
-  received?: number;
-  pending?: unknown[];
-  optional?: number;
+  received?: Array<{ checklist_key?: string; label?: string; status?: string }>;
+  pending?: Array<{ checklist_key?: string; label?: string; status?: string }>;
+  optional?: Array<{ checklist_key?: string; label?: string; status?: string }>;
 };
 
 /**
@@ -27,9 +26,10 @@ export function DocumentChecklistSurface({ dealId }: { dealId: string }) {
     { id: "documents:checklist", scope: "documents" },
   );
 
-  const total = data?.total ?? 0;
-  const received = data?.received ?? 0;
-  const pending = (data?.pending?.length ?? 0) as number;
+  const receivedCount = Array.isArray(data?.received) ? data.received.length : 0;
+  const pendingCount = Array.isArray(data?.pending) ? data.pending.length : 0;
+  const optionalCount = Array.isArray(data?.optional) ? data.optional.length : 0;
+  const total = receivedCount + pendingCount;
   const state = data?.state ?? "empty";
   const tone =
     state === "ready"
@@ -40,7 +40,7 @@ export function DocumentChecklistSurface({ dealId }: { dealId: string }) {
 
   const summary = loading && !data
     ? "Loading checklist…"
-    : `${received} of ${total} required documents received · ${pending} pending.`;
+    : `${receivedCount} of ${total} required documents received · ${pendingCount} pending.`;
 
   return (
     <StatusListPanel

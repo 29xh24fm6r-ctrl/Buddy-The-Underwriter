@@ -954,12 +954,13 @@ test("[guard-57] resolveOwnerType: PI→PERSONAL, PFS→PERSONAL, GCF→GLOBAL, 
 
 // ── Guard 58: spreadsForDocType canonical routing ─────────────────────
 
-test("[guard-58] spreadsForDocType: T12→[T12], RENT_ROLL→[RENT_ROLL], PTR→[PI,GCF]", async () => {
+test("[guard-58] spreadsForDocType: INCOME_STATEMENT→[], RENT_ROLL→[RENT_ROLL], PTR→[PI,GCF]", async () => {
   const { spreadsForDocType } = await import(
     "@/lib/financialSpreads/docTypeToSpreadTypes"
   );
-  // T12 is a spread type, not a document type — INCOME_STATEMENT maps to T12
-  assert.deepStrictEqual(spreadsForDocType("INCOME_STATEMENT"), ["T12"]);
+  // SPEC-CREDIT-MEMO-NON-T12-FINANCIAL-PATH-INTEGRITY-1: income statements no longer
+  // enqueue T12 — annual figures come from extraction.
+  assert.deepStrictEqual(spreadsForDocType("INCOME_STATEMENT"), []);
   assert.deepStrictEqual(spreadsForDocType("RENT_ROLL"), ["RENT_ROLL"]);
   assert.deepStrictEqual(spreadsForDocType("PERSONAL_TAX_RETURN"), ["PERSONAL_INCOME", "GLOBAL_CASH_FLOW"]);
   assert.deepStrictEqual(spreadsForDocType("BALANCE_SHEET"), ["BALANCE_SHEET"]);
@@ -1088,11 +1089,11 @@ test("[guard-67] Error-path cleanup pins spread_version", () => {
 
 // ── Guard 68: ALL_SPREAD_TYPES has 7 members, no duplicates ───────────
 
-test("[guard-68] ALL_SPREAD_TYPES has 7 members, no duplicates", async () => {
+test("[guard-68] ALL_SPREAD_TYPES has 8 members, no duplicates", async () => {
   const { ALL_SPREAD_TYPES } = await import("@/lib/financialSpreads/types");
-  assert.strictEqual(ALL_SPREAD_TYPES.length, 7, "Must have 7 spread types");
+  assert.strictEqual(ALL_SPREAD_TYPES.length, 8, "Must have 8 spread types");
   const unique = new Set(ALL_SPREAD_TYPES);
-  assert.strictEqual(unique.size, 7, "Must have no duplicates");
+  assert.strictEqual(unique.size, 8, "Must have no duplicates");
 });
 
 // ── Guard 69: Observer auto-heals stuck generating spreads ────────────
@@ -1108,8 +1109,8 @@ test("[guard-69] Observer auto-heals stuck generating spreads", () => {
     "Observer must reference auto-heal behavior",
   );
   assert.ok(
-    src.includes('status: "error"'),
-    "Observer must set stuck spreads to error status",
+    src.includes('status: "queued"'),
+    "Observer must reset stuck spreads to queued status",
   );
 });
 
@@ -1374,7 +1375,7 @@ test("[guard-85] Per-doc confirm emits classification.manual_override on type ch
 
 test("[guard-86] Shared extractFilenamePattern imported in both override surfaces", () => {
   const checklistKey = readSource(
-    "src/app/api/deals/[dealId]/documents/[attachmentId]/checklist-key/route.ts",
+    "src/app/api/deals/[dealId]/documents/[documentId]/checklist-key/route.ts",
   );
   const intakeConfirm = readSource(
     "src/app/api/deals/[dealId]/intake/documents/[documentId]/confirm/route.ts",

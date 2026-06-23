@@ -232,12 +232,12 @@ describe("Phase 12 — hashSnapshot purity", () => {
 
 describe("Phase 12 — Replay route", () => {
   it("replay route file exists", () => {
-    const routePath = "src/app/api/deals/[dealId]/model-v2/replay/route.ts";
+    const routePath = "src/app/api/deals/[dealId]/model-v2/[action]/_handlers/replay.ts";
     assert.ok(fs.existsSync(path.resolve(routePath)), `${routePath} must exist`);
   });
 
   it("replay route contains version mismatch guards", () => {
-    const src = readSource("src/app/api/deals/[dealId]/model-v2/replay/route.ts");
+    const src = readSource("src/app/api/deals/[dealId]/model-v2/[action]/_handlers/replay.ts");
     assert.ok(
       src.includes("MODEL_SNAPSHOT_LEGACY_VERSION"),
       "replay route must handle legacy schema_version rejection",
@@ -253,7 +253,7 @@ describe("Phase 12 — Replay route", () => {
   });
 
   it("replay route computes snapshot hash for comparison", () => {
-    const src = readSource("src/app/api/deals/[dealId]/model-v2/replay/route.ts");
+    const src = readSource("src/app/api/deals/[dealId]/model-v2/[action]/_handlers/replay.ts");
     assert.ok(
       src.includes("computeSnapshotHash"),
       "replay route must use computeSnapshotHash for replay",

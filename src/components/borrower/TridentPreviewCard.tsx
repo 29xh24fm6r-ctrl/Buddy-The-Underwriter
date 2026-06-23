@@ -10,8 +10,8 @@
  *   D. Preview failed     → friendly error + Try Again + gaps checklist
  *
  * Auth: the parent passes the URL token. All requests go through the
- * portal-scoped /api/portal/[token]/trident/* routes — never the
- * cookie-scoped /api/brokerage/* routes — because /portal/[token] does
+ * portal-scoped /api/portal/[token]/trident/* routes - never the
+ * cookie-scoped /api/brokerage/* routes - because /portal/[token] does
  * not get the buddy_borrower_session cookie.
  */
 
@@ -125,7 +125,7 @@ export function TridentPreviewCard({ token }: { token: string }) {
         phase: "failed",
         bundle: null,
         message:
-          e instanceof Error ? e.message : "Network error — try again.",
+          e instanceof Error ? e.message : "Network error - try again.",
       });
     }
   }, [token]);
@@ -194,7 +194,7 @@ export function TridentPreviewCard({ token }: { token: string }) {
       {state.phase === "blocked" && (
         <div>
           <p className="text-sm font-medium text-amber-900">
-            I can build your preview — I just need a couple more things first:
+            I can build your preview - I just need a couple more things first:
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
             {state.gaps.map((g, i) => (
@@ -216,14 +216,9 @@ export function TridentPreviewCard({ token }: { token: string }) {
           <p className="text-sm font-medium text-red-700">
             Buddy couldn&apos;t finish your preview this time.
           </p>
-          {state.message && (
-            <p className="mt-1 text-xs text-red-700/80">{state.message}</p>
-          )}
-          {state.bundle?.generationError && (
-            <p className="mt-1 text-xs text-red-700/80">
-              {state.bundle.generationError}
-            </p>
-          )}
+          <p className="mt-1 text-xs text-red-700/80">
+            The secure preview service needs another try. Your documents are still safe and your package has not been changed.
+          </p>
           <button
             type="button"
             onClick={onGenerate}

@@ -64,6 +64,10 @@ export function useStageJsonResource<T>(
         setError(msg || `HTTP ${res.status}`);
         return;
       }
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        throw new Error(`Expected JSON but got HTML — route may not exist (${url})`);
+      }
       const json = (await res.json()) as T | typeof NULL_RESPONSE;
       if (json !== NULL_RESPONSE) setData(json);
     } catch (err) {

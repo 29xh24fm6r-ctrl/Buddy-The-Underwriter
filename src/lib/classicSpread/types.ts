@@ -55,6 +55,16 @@ export type GlobalCashFlowSection = {
   globalDscr: number | null;
   coverageStatus: "ADEQUATE" | "TIGHT" | "DEFICIT" | "UNKNOWN";
   /**
+   * SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1 — when entity cash flow was not materialized
+   * by the pipeline, it is computed from the already-rendered annual income-statement rows (NCADS
+   * Standard: EBITDA -> OBI/NI). These fields record that derivation so the PDF + certification can
+   * present it honestly as PRELIMINARY (a derived figure, not a materialized GCF fact). Absent /
+   * false means the value came straight from a fact.
+   */
+  entityCashFlowComputed?: boolean;
+  entityCashFlowBasis?: "EBITDA" | "NET_PROFIT" | null;
+  entityCashFlowSourcePeriod?: string | null;
+  /**
    * SPEC-B4 — Methodology slate decisions used to compute this GCF.
    * One entry per axis, including defaults. PDF renderer skips Axis 5
    * (living_expense) to keep the methodology block compact.
@@ -104,4 +114,25 @@ export type ClassicSpreadInput = {
     liabilitiesAndNetWorth: FinancialRow[];
     incomeStatement: FinancialRow[];
   };
+
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6): the certification audit
+  // applied to this input before render (suppression/replacement decisions + per-domain status).
+  // Persisted into rendered_json; never rendered as a page.
+  certificationAudit?: import("./certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit | null;
+
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: fail-closed certification flag. False when the
+  // certification gate threw or returned null — the PDF must visibly render NOT CERTIFIED rather
+  // than silently presenting an apparently-certified spread.
+  certified?: boolean;
+
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: honest certified/preliminary/blocked
+  // roll-up of the certification domains + post-decision accuracy findings + open review actions.
+  // Serializable; surfaced on the PDF audit page and safe for memo consumers.
+  certificationSummary?: import("./certification/certificationSummary").ClassicSpreadCertificationSummary | null;
+
+  // SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1: lender-grade Borrowing Base Certificate for AR-backed
+  // lines. Present only when the facility is borrowing-base monitored (an AR aging report exists);
+  // null/absent for ordinary lines of credit. Surfaced as a dedicated PDF page; never clears a
+  // classic-spread source-detail blocker.
+  borrowingBaseCertificate?: import("@/lib/borrowingBase/borrowingBaseCertificate").BorrowingBaseCertificate | null;
 };

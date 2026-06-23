@@ -32,10 +32,14 @@ describe("flagComposer", () => {
   });
 
   it("collects flags from reconciliation module", () => {
+    // Reconciliation compares year-keyed facts (same-period only) to avoid
+    // cross-period false positives — keys must carry the year suffix that
+    // matches years_available.
     const result = composeFlagReport(makeInput({
+      years_available: [2023],
       canonical_facts: {
-        GROSS_RECEIPTS: 1_100_000,
-        TOTAL_REVENUE: 1_000_000,
+        GROSS_RECEIPTS_2023: 1_100_000,
+        TOTAL_REVENUE_2023: 1_000_000,
       },
     }));
     assert.ok(result.flags.some((f) => f.trigger_type === "revenue_variance_3pct"));

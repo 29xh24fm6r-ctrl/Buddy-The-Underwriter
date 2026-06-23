@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireRoleApi } from "@/lib/auth/requireRole";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
@@ -23,6 +24,7 @@ const VALID_SCOPES = new Set(["ALL", "DOCS", "EXTRACT", "SPREADS"]);
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
+    await requireRoleApi(["super_admin"]);
 
     const { dealId } = await ctx.params;
     const access = await ensureDealBankAccess(dealId);

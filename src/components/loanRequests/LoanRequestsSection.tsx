@@ -9,7 +9,13 @@ import type {
   ProductCategory,
   LoanRequestStatus,
   PropertyAddress,
+  RateIndex,
 } from "@/lib/loanRequests/types";
+import {
+  getProductShape,
+  type ProductShapeConfig,
+} from "@/lib/loanRequests/productShapeConfig";
+import { invalidateJourneyState } from "@/hooks/useJourneyState";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,16 +31,16 @@ function fmtCurrency(n: number | null | undefined): string {
 }
 
 const STATUS_COLORS: Record<LoanRequestStatus, string> = {
-  draft: "bg-slate-100 text-slate-700",
-  submitted: "bg-blue-100 text-blue-700",
-  under_review: "bg-yellow-100 text-yellow-800",
-  pricing_requested: "bg-purple-100 text-purple-700",
-  terms_proposed: "bg-indigo-100 text-indigo-700",
-  terms_accepted: "bg-green-100 text-green-700",
-  approved: "bg-green-200 text-green-800",
-  declined: "bg-red-100 text-red-700",
-  withdrawn: "bg-slate-200 text-slate-600",
-  funded: "bg-emerald-200 text-emerald-800",
+  draft: "bg-white/10 text-white/70",
+  submitted: "bg-blue-500/15 text-blue-300",
+  under_review: "bg-yellow-500/15 text-yellow-300",
+  pricing_requested: "bg-purple-500/15 text-purple-300",
+  terms_proposed: "bg-indigo-500/15 text-indigo-300",
+  terms_accepted: "bg-green-500/15 text-green-300",
+  approved: "bg-green-500/20 text-green-200",
+  declined: "bg-red-500/15 text-red-300",
+  withdrawn: "bg-white/10 text-white/50",
+  funded: "bg-emerald-500/20 text-emerald-200",
 };
 
 function statusLabel(s: LoanRequestStatus): string {
@@ -53,7 +59,6 @@ function fmtAddress(addr: PropertyAddress | null | undefined): string | null {
   if (!addr) return null;
   const parts = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean);
   if (!parts.length) return null;
-  // "123 Main St, Denver, CO 80202"
   let line = addr.street ?? "";
   if (addr.city) line += (line ? ", " : "") + addr.city;
   if (addr.state) line += (line ? ", " : "") + addr.state;
@@ -61,6 +66,19 @@ function fmtAddress(addr: PropertyAddress | null | undefined): string | null {
   if (addr.county) line += ` (${addr.county} County)`;
   return line || null;
 }
+
+const RATE_INDEX_LABELS: Record<RateIndex, string> = {
+  SOFR: "SOFR",
+  UST_5Y: "5Y Treasury",
+  PRIME: "Prime",
+};
+
+// ---------------------------------------------------------------------------
+// Live rates type
+// ---------------------------------------------------------------------------
+
+type IndexRateValue = { ratePct: number; asOf: string };
+type LiveRates = Record<RateIndex, IndexRateValue> | null;
 
 // ---------------------------------------------------------------------------
 // LoanRequestCard
@@ -87,25 +105,25 @@ function LoanRequestCard({
     : null;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-slate-900">{label}</span>
+            <span className="text-sm font-semibold text-white">{label}</span>
             {category && (
-              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-white/40">
                 {category}
               </span>
             )}
             <span
-              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[lr.status] ?? "bg-slate-100 text-slate-600"}`}
+              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[lr.status] ?? "bg-white/10 text-white/60"}`}
             >
               {statusLabel(lr.status)}
             </span>
           </div>
 
-          <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+          <div className="mt-1 flex items-center gap-3 text-xs text-white/50">
             {lr.requested_amount != null && (
               <span>{fmtCurrency(lr.requested_amount)}</span>
             )}
@@ -115,10 +133,16 @@ function LoanRequestCard({
             {lr.rate_type_preference && (
               <span>{lr.rate_type_preference}</span>
             )}
+            {lr.requested_rate_index && (
+              <span>
+                {RATE_INDEX_LABELS[lr.requested_rate_index as RateIndex] ?? lr.requested_rate_index}
+                {lr.requested_spread_bps != null && ` +${lr.requested_spread_bps}bps`}
+              </span>
+            )}
           </div>
 
           {(lr.loan_purpose || lr.purpose) && (
-            <div className="mt-1 text-xs text-slate-600 line-clamp-2">
+            <div className="mt-1 text-xs text-white/60 line-clamp-2">
               {lr.loan_purpose || lr.purpose}
             </div>
           )}
@@ -135,19 +159,19 @@ function LoanRequestCard({
           )}
           <button
             onClick={onEdit}
-            className="rounded-md border px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="rounded-md border px-2 py-1 text-xs font-medium text-white/60 hover:bg-white/10"
           >
             Edit
           </button>
           <button
             onClick={onDelete}
-            className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+            className="rounded-md border border-red-500/30 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10"
           >
             Delete
           </button>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="rounded-md border px-2 py-1 text-xs font-medium text-slate-400 hover:bg-slate-50"
+            className="rounded-md border px-2 py-1 text-xs font-medium text-white/40 hover:bg-white/10"
           >
             {expanded ? "Less" : "More"}
           </button>
@@ -156,9 +180,12 @@ function LoanRequestCard({
 
       {/* Expanded details */}
       {expanded && (
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+        <div className="mt-3 space-y-2 border-t border-white/10 pt-3 text-xs text-white/60">
           {lr.requested_amort_months != null && (
             <div>Amortization: {lr.requested_amort_months} months</div>
+          )}
+          {lr.requested_interest_only_months != null && (
+            <div>Interest-Only: {lr.requested_interest_only_months} months</div>
           )}
           {lr.property_type && <div>Property Type: {lr.property_type}</div>}
           {lr.occupancy_type && <div>Occupancy: {lr.occupancy_type.replace(/_/g, " ")}</div>}
@@ -198,29 +225,47 @@ function LoanRequestCard({
 }
 
 // ---------------------------------------------------------------------------
-// LoanRequestForm — Canonical structured state mirroring LoanRequestInput
+// LoanRequestForm — Product-shape-aware, with live rates
 // ---------------------------------------------------------------------------
+
+type FormState = Partial<LoanRequestInput> & {
+  // Extra fields stored via request_details JSONB
+  draw_period_months?: number | null;
+  review_frequency_months?: number | null;
+  equipment_make?: string | null;
+  equipment_model?: string | null;
+  equipment_year?: number | null;
+};
 
 function LoanRequestForm({
   productTypes,
   existingRequest,
   saving,
+  liveRates,
+  ratesLoading,
   onSave,
   onCancel,
 }: {
   productTypes: ProductTypeConfig[];
   existingRequest?: LoanRequest | null;
   saving: boolean;
+  liveRates: LiveRates;
+  ratesLoading: boolean;
   onSave: (input: LoanRequestInput) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [form, setForm] = useState<Partial<LoanRequestInput>>(() => ({
+  const existingDetails = (existingRequest?.request_details ?? {}) as Record<string, unknown>;
+
+  const [form, setForm] = useState<FormState>(() => ({
     product_type: existingRequest?.product_type ?? ("" as any),
     requested_amount: existingRequest?.requested_amount ?? null,
     loan_purpose: existingRequest?.loan_purpose ?? existingRequest?.purpose ?? null,
     requested_term_months: existingRequest?.requested_term_months ?? null,
     requested_amort_months: existingRequest?.requested_amort_months ?? null,
     rate_type_preference: existingRequest?.rate_type_preference ?? null,
+    requested_rate_index: (existingRequest?.requested_rate_index as RateIndex) ?? null,
+    requested_spread_bps: existingRequest?.requested_spread_bps ?? null,
+    requested_interest_only_months: existingRequest?.requested_interest_only_months ?? null,
     property_type: existingRequest?.property_type ?? null,
     occupancy_type: existingRequest?.occupancy_type ?? null,
     property_value: existingRequest?.property_value ?? null,
@@ -234,16 +279,42 @@ function LoanRequestForm({
     collateral_summary: existingRequest?.collateral_summary ?? null,
     guarantors_summary: existingRequest?.guarantors_summary ?? null,
     notes: existingRequest?.notes ?? null,
+    // request_details extras
+    draw_period_months: (existingDetails.draw_period_months as number) ?? null,
+    review_frequency_months: (existingDetails.review_frequency_months as number) ?? null,
+    equipment_make: (existingDetails.equipment_make as string) ?? null,
+    equipment_model: (existingDetails.equipment_model as string) ?? null,
+    equipment_year: (existingDetails.equipment_year as number) ?? null,
   }));
 
-  // Separate string state for amount field (accepts comma-formatted input)
+  const [evergreenEnabled, setEvergreenEnabled] = useState(
+    existingDetails.has_evergreen_feature === true,
+  );
+
   const [amountRaw, setAmountRaw] = useState(
     existingRequest?.requested_amount?.toString() ?? "",
   );
 
+  // --- Shape derivation ---
   const selectedConfig = productTypes.find((p) => p.code === form.product_type);
-  const showRE = selectedConfig?.requires_real_estate ?? false;
-  const showSBA = selectedConfig?.requires_sba_fields ?? false;
+  const shape: ProductShapeConfig = getProductShape(
+    selectedConfig?.category as ProductCategory | undefined,
+    form.product_type as string | undefined,
+  );
+
+  const showTermAmort =
+    shape.showTerm === "show" ||
+    (shape.showEvergreen && evergreenEnabled) ||
+    shape.showTerm === "optional";
+
+  // Product-aware placeholders for AR LOC vs generic
+  const isArLoc = form.product_type === "ACCOUNTS_RECEIVABLE" || form.product_type === "LOC_SECURED";
+  const purposePlaceholder = isArLoc
+    ? "e.g. Working capital / AR financing — fund payroll and operations against eligible receivables"
+    : "e.g. Purchase building";
+  const collateralPlaceholder = isArLoc
+    ? "e.g. AR borrowing base — eligible receivables per aging report, blanket UCC lien on business assets"
+    : "e.g. First lien on property";
 
   // Group products by category
   const byCategory = productTypes.reduce(
@@ -283,15 +354,11 @@ function LoanRequestForm({
     return Object.keys(norm).length > 0 ? norm : null;
   }
 
-  function parseNumeric(raw: string): number | null {
-    return parseNumberOrNull(raw);
-  }
-
-  function setStr<K extends keyof LoanRequestInput>(key: K, val: string) {
+  function setStr<K extends keyof FormState>(key: K, val: string) {
     setForm((prev) => ({ ...prev, [key]: val || null }));
   }
 
-  function setNum<K extends keyof LoanRequestInput>(key: K, val: string) {
+  function setNum<K extends keyof FormState>(key: K, val: string) {
     setForm((prev) => ({ ...prev, [key]: val === "" ? null : Number(val) }));
   }
 
@@ -305,17 +372,80 @@ function LoanRequestForm({
     }));
   }
 
+  function handleProductTypeChange(newCode: string) {
+    const newConfig = productTypes.find((p) => p.code === newCode);
+    const newShape = getProductShape(
+      newConfig?.category as ProductCategory | undefined,
+      newCode,
+    );
+    setForm((prev) => ({
+      ...prev,
+      product_type: newCode as ProductType,
+      // Clear term/amort if new shape hides them
+      requested_term_months: newShape.showTerm === "hide" ? null : prev.requested_term_months,
+      requested_amort_months: newShape.showAmort === "hide" ? null : prev.requested_amort_months,
+      requested_interest_only_months: newShape.showInterestOnly ? prev.requested_interest_only_months : null,
+      // Clear RE fields if switching away from RE
+      property_type: newShape.showRealEstate ? prev.property_type : null,
+      property_value: newShape.showRealEstate ? prev.property_value : null,
+      purchase_price: newShape.showRealEstate ? prev.purchase_price : null,
+      down_payment: newShape.showRealEstate ? prev.down_payment : null,
+      property_noi: newShape.showRealEstate ? prev.property_noi : null,
+      property_address_json: newShape.showRealEstate ? prev.property_address_json : null,
+      // AR LOC defaults: pre-fill draw period and review frequency
+      draw_period_months: newCode === "ACCOUNTS_RECEIVABLE" || newCode === "LOC_SECURED"
+        ? (prev.draw_period_months ?? 12)
+        : prev.draw_period_months,
+      review_frequency_months: newCode === "ACCOUNTS_RECEIVABLE" || newCode === "LOC_SECURED"
+        ? (prev.review_frequency_months ?? 12)
+        : prev.review_frequency_months,
+      // Clear SBA if switching away
+      sba_program: newShape.showSba ? prev.sba_program : null,
+      injection_amount: newShape.showSba ? prev.injection_amount : null,
+      injection_source: newShape.showSba ? prev.injection_source : null,
+      // Clear spread if SBA (formula-driven)
+      requested_spread_bps: newShape.showSpread ? prev.requested_spread_bps : null,
+    }));
+    setEvergreenEnabled(false);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.product_type) return;
+
+    // Build request_details JSONB
+    const requestDetails: Record<string, unknown> = {
+      ...(existingDetails ?? {}),
+    };
+    if (shape.showEvergreen) {
+      requestDetails.has_evergreen_feature = evergreenEnabled;
+      if (evergreenEnabled) {
+        requestDetails.evergreen_term_months = parseNumberOrNull(form.requested_term_months);
+      }
+    }
+    if (shape.showLineDetails) {
+      requestDetails.draw_period_months = form.draw_period_months ?? null;
+      requestDetails.review_frequency_months = form.review_frequency_months ?? null;
+    }
+    if (shape.showEquipmentDetails) {
+      requestDetails.equipment_make = trimToNull(form.equipment_make);
+      requestDetails.equipment_model = trimToNull(form.equipment_model);
+      requestDetails.equipment_year = form.equipment_year ?? null;
+    }
 
     const input: LoanRequestInput = {
       product_type: form.product_type as ProductType,
       requested_amount: parseNumberOrNull(amountRaw),
       loan_purpose: trimToNull(form.loan_purpose),
-      requested_term_months: parseNumberOrNull(form.requested_term_months),
-      requested_amort_months: parseNumberOrNull(form.requested_amort_months),
+      requested_term_months: showTermAmort ? parseNumberOrNull(form.requested_term_months) : null,
+      requested_amort_months: showTermAmort ? parseNumberOrNull(form.requested_amort_months) : null,
       rate_type_preference: form.rate_type_preference ?? null,
+      requested_rate_index: form.requested_rate_index ?? null,
+      requested_spread_bps: shape.showSpread ? (form.requested_spread_bps ?? null) : null,
+      requested_interest_only_months: shape.showInterestOnly
+        ? parseNumberOrNull(form.requested_interest_only_months)
+        : null,
+      request_details: requestDetails,
       property_type: trimToNull(form.property_type),
       occupancy_type: form.occupancy_type ?? null,
       property_value: parseNumberOrNull(form.property_value),
@@ -335,26 +465,32 @@ function LoanRequestForm({
   }
 
   const inputCls =
-    "mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
+    "mt-1 h-9 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white placeholder:text-white/30 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400";
+
+  // Native <select> dropdowns need explicit dark background + light text on
+  // both the trigger and the OS-rendered option list. color-scheme:dark tells
+  // the browser to use dark chrome for the dropdown popup.
+  const selectCls =
+    "mt-1 h-9 w-full rounded-md border border-white/15 bg-[#1a1d23] px-3 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 [color-scheme:dark]";
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-blue-200 bg-blue-50/30 p-4 space-y-4"
+      className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-4"
     >
-      <div className="text-sm font-semibold text-slate-800">
+      <div className="text-sm font-semibold text-white/90">
         {existingRequest ? "Edit Loan Request" : "New Loan Request"}
       </div>
 
       {/* Product type */}
       <div>
-        <label className="text-xs font-medium text-slate-600">
+        <label className="text-xs font-medium text-white/60">
           Product Type *
         </label>
         <select
-          className={inputCls}
+          className={selectCls}
           value={form.product_type ?? ""}
-          onChange={(e) => setForm((prev) => ({ ...prev, product_type: e.target.value as ProductType }))}
+          onChange={(e) => handleProductTypeChange(e.target.value)}
           required
           disabled={saving}
         >
@@ -374,7 +510,7 @@ function LoanRequestForm({
       {/* Amount & Purpose */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="text-xs font-medium text-slate-600">
+          <label className="text-xs font-medium text-white/60">
             Requested Amount
           </label>
           <input
@@ -388,11 +524,11 @@ function LoanRequestForm({
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-slate-600">Purpose</label>
+          <label className="text-xs font-medium text-white/60">Purpose</label>
           <textarea
             className={inputCls + " h-auto py-2 resize-none"}
             rows={2}
-            placeholder="e.g. Purchase building"
+            placeholder={purposePlaceholder}
             value={form.loan_purpose ?? ""}
             onChange={(e) => setStr("loan_purpose", e.target.value)}
             disabled={saving}
@@ -400,40 +536,70 @@ function LoanRequestForm({
         </div>
       </div>
 
-      {/* Term preferences */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div>
-          <label className="text-xs font-medium text-slate-600">
-            Term (months)
-          </label>
-          <input
-            className={inputCls}
-            type="number"
-            placeholder="e.g. 120"
-            value={form.requested_term_months ?? ""}
-            onChange={(e) => setNum("requested_term_months", e.target.value)}
-            disabled={saving}
-          />
+      {/* Term / Amort — conditional on shape (non-LOC products) */}
+      {showTermAmort && !shape.showLineDetails && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <label className="text-xs font-medium text-white/60">
+              Term (months)
+              {shape.showTerm === "optional" && (
+                <span className="ml-1 text-white/40">(optional)</span>
+              )}
+            </label>
+            <input
+              className={inputCls}
+              type="number"
+              placeholder="e.g. 120"
+              value={form.requested_term_months ?? ""}
+              onChange={(e) => setNum("requested_term_months", e.target.value)}
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-white/60">
+              Amort (months)
+              {shape.showAmort === "optional" && (
+                <span className="ml-1 text-white/40">(optional)</span>
+              )}
+            </label>
+            <input
+              className={inputCls}
+              type="number"
+              placeholder="e.g. 300"
+              value={form.requested_amort_months ?? ""}
+              onChange={(e) => setNum("requested_amort_months", e.target.value)}
+              disabled={saving}
+            />
+          </div>
+          {/* Rate preference in same row */}
+          {shape.showRatePreference && (
+            <div>
+              <label className="text-xs font-medium text-white/60">
+                Rate Preference
+              </label>
+              <select
+                className={selectCls}
+                value={form.rate_type_preference ?? ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, rate_type_preference: (e.target.value || null) as any }))}
+                disabled={saving}
+              >
+                <option value="">No preference</option>
+                <option value="FIXED">Fixed</option>
+                <option value="VARIABLE">Variable</option>
+              </select>
+            </div>
+          )}
         </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">
-            Amort (months)
-          </label>
-          <input
-            className={inputCls}
-            type="number"
-            placeholder="e.g. 300"
-            value={form.requested_amort_months ?? ""}
-            onChange={(e) => setNum("requested_amort_months", e.target.value)}
-            disabled={saving}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">
+      )}
+
+      {/* Rate preference standalone for LOC / line products */}
+      {shape.showRatePreference && (shape.showLineDetails || (!showTermAmort && !shape.showLineDetails)) && (
+        <div className="max-w-xs">
+          <label className="text-xs font-medium text-white/60">
             Rate Preference
           </label>
           <select
-            className={inputCls}
+            className={selectCls}
             value={form.rate_type_preference ?? ""}
             onChange={(e) => setForm((prev) => ({ ...prev, rate_type_preference: (e.target.value || null) as any }))}
             disabled={saving}
@@ -441,20 +607,267 @@ function LoanRequestForm({
             <option value="">No preference</option>
             <option value="FIXED">Fixed</option>
             <option value="VARIABLE">Variable</option>
-            <option value="NO_PREFERENCE">No Preference</option>
           </select>
         </div>
-      </div>
+      )}
 
-      {/* Real Estate fields */}
-      {showRE && (
-        <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-          <div className="text-xs font-semibold text-slate-700">
-            Real Estate Details
+      {/* Interest-Only period */}
+      {shape.showInterestOnly && (
+        <div className="max-w-xs">
+          <label className="text-xs font-medium text-white/60">
+            Interest-Only Period (months)
+          </label>
+          <input
+            className={inputCls}
+            type="number"
+            placeholder="e.g. 24"
+            value={form.requested_interest_only_months ?? ""}
+            onChange={(e) => setNum("requested_interest_only_months", e.target.value)}
+            disabled={saving}
+          />
+        </div>
+      )}
+
+      {/* Rate index chips + spread */}
+      {shape.showRateIndex && (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-white/60">
+              Rate Index
+              {ratesLoading && (
+                <span className="ml-2 text-[10px] text-white/40">fetching rates…</span>
+              )}
+            </label>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {(["SOFR", "UST_5Y", "PRIME"] as const).map((code) => {
+                const rate = liveRates?.[code];
+                const selected = form.requested_rate_index === code;
+                return (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        requested_rate_index: selected ? null : code,
+                      }))
+                    }
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      selected
+                        ? "border-blue-500 bg-blue-500/15 text-blue-300"
+                        : "border-white/15 bg-white/5 text-white/60 hover:bg-white/10"
+                    }`}
+                    disabled={saving}
+                  >
+                    <span className="font-semibold">{RATE_INDEX_LABELS[code]}</span>
+                    {rate ? (
+                      <span className="ml-1.5 text-[10px] text-white/40">
+                        {rate.ratePct.toFixed(2)}%
+                      </span>
+                    ) : (
+                      <span className="ml-1.5 text-[10px] text-white/30">&mdash;</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {liveRates && form.requested_rate_index && liveRates[form.requested_rate_index] && (
+              <p className="mt-1 text-[10px] text-white/40">
+                as of {liveRates[form.requested_rate_index]!.asOf}
+              </p>
+            )}
           </div>
+
+          {/* Spread + estimated all-in */}
+          {shape.showSpread && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-white/60">
+                  Spread (bps)
+                </label>
+                <input
+                  className={inputCls}
+                  type="number"
+                  step="25"
+                  placeholder="e.g. 300"
+                  value={form.requested_spread_bps ?? ""}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      requested_spread_bps: e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+              {form.requested_rate_index && form.requested_spread_bps != null && liveRates?.[form.requested_rate_index] && (() => {
+                const base = liveRates[form.requested_rate_index!]!.ratePct;
+                const allIn = base + form.requested_spread_bps / 100;
+                return (
+                  <div className="flex flex-col justify-end">
+                    <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2">
+                      <div className="text-[10px] text-white/40 uppercase tracking-wide">Est. All-In Rate</div>
+                      <div className="text-lg font-bold text-white">{allIn.toFixed(2)}%</div>
+                      <div className="text-[10px] text-white/40">
+                        {base.toFixed(2)}% + {form.requested_spread_bps}bps
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* LOC-specific section */}
+      {shape.showLineDetails && (
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          <div className="text-xs font-semibold text-white/70">Line of Credit Details</div>
+
+          {shape.showEvergreen && (
+            <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={evergreenEnabled}
+                onChange={(e) => setEvergreenEnabled(e.target.checked)}
+                disabled={saving}
+                className="rounded border-white/20"
+              />
+              This line has a term-out / evergreen feature
+            </label>
+          )}
+
+          {evergreenEnabled && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-white/60">
+                  Term-Out Period (months)
+                </label>
+                <input
+                  className={inputCls}
+                  type="number"
+                  placeholder="e.g. 12"
+                  value={form.requested_term_months ?? ""}
+                  onChange={(e) => setNum("requested_term_months", e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-white/60">
+                  Amortization (months)
+                </label>
+                <input
+                  className={inputCls}
+                  type="number"
+                  placeholder="e.g. 60"
+                  value={form.requested_amort_months ?? ""}
+                  onChange={(e) => setNum("requested_amort_months", e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
+                Draw Period (months)
+              </label>
+              <input
+                className={inputCls}
+                type="number"
+                placeholder="e.g. 12"
+                value={form.draw_period_months ?? ""}
+                onChange={(e) => setNum("draw_period_months", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-white/60">
+                Annual Review Frequency
+              </label>
+              <select
+                className={selectCls}
+                value={form.review_frequency_months ?? ""}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    review_frequency_months: e.target.value === "" ? null : Number(e.target.value),
+                  }))
+                }
+                disabled={saving}
+              >
+                <option value="">Select…</option>
+                <option value="12">Annual (12 mo)</option>
+                <option value="6">Semi-Annual (6 mo)</option>
+                <option value="3">Quarterly (3 mo)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Equipment details */}
+      {shape.showEquipmentDetails && (
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          <div className="text-xs font-semibold text-white/70">Equipment Details</div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-xs font-medium text-white/60">Make</label>
+              <input
+                className={inputCls}
+                placeholder="e.g. Caterpillar"
+                value={form.equipment_make ?? ""}
+                onChange={(e) => setStr("equipment_make", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-white/60">Model</label>
+              <input
+                className={inputCls}
+                placeholder="e.g. 320 Excavator"
+                value={form.equipment_model ?? ""}
+                onChange={(e) => setStr("equipment_model", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-white/60">Year</label>
+              <input
+                className={inputCls}
+                type="number"
+                placeholder="e.g. 2023"
+                value={form.equipment_year ?? ""}
+                onChange={(e) => setNum("equipment_year", e.target.value)}
+                disabled={saving}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real Estate fields */}
+      {shape.showRealEstate && (
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 space-y-3">
+          <div className="text-xs font-semibold text-white/70">
+            Real Estate Details
+          </div>
+
+          {/* LTV computed display */}
+          {shape.showLtv && parseNumberOrNull(amountRaw) && form.property_value && (
+            <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs">
+              <span className="font-medium text-blue-300">Est. LTV: </span>
+              <span className="text-blue-200 font-bold">
+                {((parseNumberOrNull(amountRaw)! / (form.property_value as number)) * 100).toFixed(1)}%
+              </span>
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-white/60">
                 Property Type
               </label>
               <input
@@ -466,11 +879,11 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Occupancy
               </label>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={form.occupancy_type ?? ""}
                 onChange={(e) => setForm((prev) => ({ ...prev, occupancy_type: (e.target.value || null) as any }))}
                 disabled={saving}
@@ -482,7 +895,7 @@ function LoanRequestForm({
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Property Value
               </label>
               <input
@@ -495,7 +908,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Purchase Price
               </label>
               <input
@@ -508,7 +921,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Down Payment
               </label>
               <input
@@ -521,7 +934,7 @@ function LoanRequestForm({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Property NOI
               </label>
               <input
@@ -536,7 +949,7 @@ function LoanRequestForm({
           </div>
 
           {/* Property Address */}
-          <div className="text-xs font-medium text-slate-600 mt-2">
+          <div className="text-xs font-medium text-white/60 mt-2">
             Property Address
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -588,18 +1001,18 @@ function LoanRequestForm({
       )}
 
       {/* SBA fields */}
-      {showSBA && (
-        <div className="rounded-md border border-slate-200 bg-white p-3">
-          <div className="text-xs font-semibold text-slate-700 mb-2">
+      {shape.showSba && (
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div className="text-xs font-semibold text-white/70 mb-2">
             SBA Details
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 SBA Program
               </label>
               <select
-                className={inputCls}
+                className={selectCls}
                 value={form.sba_program ?? ""}
                 onChange={(e) => setForm((prev) => ({ ...prev, sba_program: (e.target.value || null) as any }))}
                 disabled={saving}
@@ -612,7 +1025,7 @@ function LoanRequestForm({
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Injection Amount
               </label>
               <input
@@ -625,7 +1038,7 @@ function LoanRequestForm({
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-slate-600">
+              <label className="text-xs font-medium text-white/60">
                 Injection Source
               </label>
               <input
@@ -641,26 +1054,26 @@ function LoanRequestForm({
       )}
 
       {/* Collateral & Guarantors */}
-      <div className="rounded-md border border-slate-200 bg-white p-3">
-        <div className="text-xs font-semibold text-slate-700 mb-2">
+      <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+        <div className="text-xs font-semibold text-white/70 mb-2">
           Collateral & Guarantors
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Collateral Summary
             </label>
             <textarea
               className={inputCls + " h-auto py-2 resize-none"}
               rows={2}
-              placeholder="e.g. Commercial building at 123 Main St, valued at $1.2M"
+              placeholder={collateralPlaceholder}
               value={form.collateral_summary ?? ""}
               onChange={(e) => setStr("collateral_summary", e.target.value)}
               disabled={saving}
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-600">
+            <label className="text-xs font-medium text-white/60">
               Guarantors Summary
             </label>
             <textarea
@@ -677,7 +1090,7 @@ function LoanRequestForm({
 
       {/* Notes */}
       <div>
-        <label className="text-xs font-medium text-slate-600">Notes</label>
+        <label className="text-xs font-medium text-white/60">Notes</label>
         <textarea
           className={inputCls + " h-auto py-2 resize-none"}
           rows={2}
@@ -705,7 +1118,7 @@ function LoanRequestForm({
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="rounded-md border px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-md border px-4 py-2 text-sm font-medium text-white/60 hover:bg-white/10 disabled:opacity-50"
         >
           Cancel
         </button>
@@ -726,16 +1139,24 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [productTypesError, setProductTypesError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [editingRequest, setEditingRequest] = useState<LoanRequest | null>(
-    null,
-  );
+  const [editingRequest, setEditingRequest] = useState<LoanRequest | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Loan requests and product-types are fetched independently. Previously they
-  // were chained through a single Promise.all + single `loading` flag — if the
-  // product-types endpoint hung (cold start, slow auth lookup), the entire
-  // section was stuck at "Loading loan requests..." with no recourse, even
-  // though the empty-state and CTA only need the requests list.
+  // Live rates — fetched once on mount, non-blocking
+  const [liveRates, setLiveRates] = useState<LiveRates>(null);
+  const [ratesLoading, setRatesLoading] = useState(false);
+
+  useEffect(() => {
+    setRatesLoading(true);
+    fetch("/api/rates/latest", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok) setLiveRates(j.rates);
+      })
+      .catch(() => {})
+      .finally(() => setRatesLoading(false));
+  }, []);
+
   const loadRequests = useCallback(async () => {
     setError(null);
     setRequestsLoading(true);
@@ -757,7 +1178,6 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
   const loadProductTypes = useCallback(async () => {
     setProductTypesError(null);
     setProductTypesLoading(true);
-    // 15s ceiling so a stalled endpoint can't pin the form forever.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
@@ -812,6 +1232,9 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       setShowForm(false);
       setEditingRequest(null);
       await load();
+      // SPEC-LOAN-REQUEST-JOURNEY-RAIL-STALE-CTA-FIX-1: a created/updated request can change lifecycle
+      // blockers — signal the Journey Rail to refetch now instead of waiting for its 30s poll.
+      invalidateJourneyState(dealId);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
@@ -831,6 +1254,8 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Delete failed");
       await load();
+      // Deleting the last request may legitimately restore the "Add Loan Request" CTA — refresh the rail.
+      invalidateJourneyState(dealId);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
@@ -853,6 +1278,8 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Submit failed");
       await load();
+      // Submitting a request clears loan_request_missing — refresh the rail immediately.
+      invalidateJourneyState(dealId);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
     } finally {
@@ -860,11 +1287,9 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
     }
   }
 
-  // Block the section only while the loan-requests list itself is in flight.
-  // Product-types load independently — see comment on loadProductTypes.
   if (requestsLoading) {
     return (
-      <div className="rounded-xl border bg-white p-4 text-sm text-slate-500">
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/50">
         Loading loan requests...
       </div>
     );
@@ -874,13 +1299,13 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
   const productTypesEmpty = !productTypesLoading && productTypes.length === 0 && !productTypesError;
 
   return (
-    <div className="rounded-xl border bg-white p-4">
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
       <div className="flex items-baseline justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-slate-900">
+          <div className="text-sm font-semibold text-white">
             Loan Requests
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-white/50">
             What the borrower is asking for
           </div>
         </div>
@@ -898,7 +1323,7 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
                   ? "Loan products unavailable — refresh to retry"
                   : undefined
             }
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-md border px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/10 disabled:opacity-50"
           >
             + Add Request
           </button>
@@ -906,36 +1331,67 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
       </div>
 
       {error && (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
           {error}
         </div>
       )}
 
-      {/* Product-types fetch failed/timed out — banker can still see the
-          section but cannot create until refreshed. */}
+      {/*
+        SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1 #2: product catalog
+        unavailable must never silently disable Add Request. Surface
+        the reason inline with an explicit Retry button + admin link
+        instead of relying on a tooltip below the disabled button.
+      */}
       {productTypesError && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          {productTypesError}
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-300"
+          role="alert"
+          data-testid="loan-products-error"
+        >
+          <span>{productTypesError}</span>
+          <button
+            type="button"
+            onClick={() => loadProductTypes()}
+            className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+          >
+            Retry
+          </button>
         </div>
       )}
 
-      {/* No products configured for this bank (clean empty result, not a fetch error) */}
       {productTypesEmpty && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          No loan products configured for this bank. Contact an administrator to set up available loan products.
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-300"
+          role="alert"
+          data-testid="loan-products-empty"
+        >
+          <span>
+            No loan products configured for this bank. An administrator must enable at least one product before loan requests can be added.
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => loadProductTypes()}
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+            >
+              Retry
+            </button>
+            <a
+              href="/admin/loan-products"
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+            >
+              Configure Loan Products
+            </a>
+          </span>
         </div>
       )}
 
-      {/* Empty state — render whenever the requests list is known to be empty,
-          even if product-types is still loading. Previously this was gated on
-          productTypes.length > 0 which made the CTA invisible during slow
-          loads of /api/loan-product-types. */}
       {requests.length === 0 && !showForm && !editingRequest && (
-        <div className="mt-4 rounded-lg border-2 border-dashed border-slate-200 p-6 text-center">
-          <div className="text-sm font-medium text-slate-600">
+        <div className="mt-4 rounded-lg border-2 border-dashed border-white/15 p-6 text-center">
+          <div className="text-sm font-medium text-white/60">
             No loan requests yet
           </div>
-          <div className="mt-1 text-xs text-slate-400">
+          <div className="mt-1 text-xs text-white/40">
             Add at least one loan request to capture what the borrower needs.
           </div>
           <button
@@ -955,7 +1411,6 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
         </div>
       )}
 
-      {/* Request cards */}
       {requests.length > 0 && (
         <div className="mt-3 space-y-2">
           {requests.map((lr) => (
@@ -974,13 +1429,14 @@ export function LoanRequestsSection({ dealId }: { dealId: string }) {
         </div>
       )}
 
-      {/* Form (create or edit) */}
       {(showForm || editingRequest) && (
         <div className="mt-3">
           <LoanRequestForm
             productTypes={productTypes}
             existingRequest={editingRequest}
             saving={saving}
+            liveRates={liveRates}
+            ratesLoading={ratesLoading}
             onSave={handleSave}
             onCancel={() => {
               setShowForm(false);

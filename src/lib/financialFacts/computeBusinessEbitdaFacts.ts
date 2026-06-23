@@ -51,6 +51,13 @@ const EBITDA_INPUT_KEYS = [
   // SPEC-B4.1.4 — officer-comp inputs needed by analyzeOfficerComp for conditional fold-in
   "OFFICER_COMPENSATION",
   "GROSS_RECEIPTS",
+  // SPEC-CANONICAL-DSCR-NCADS-PERFECTION-PROGRAM-1 Phase 1 — C-corp (Form 1120) EBITDA
+  // base inputs (no ORDINARY_BUSINESS_INCOME): pre-tax TAXABLE_INCOME, else NET_INCOME
+  // reconstructed via the tax provision.
+  "TAXABLE_INCOME",
+  "NET_INCOME",
+  "TOTAL_TAX",
+  "M1_FEDERAL_TAX_BOOK",
 ];
 
 export type ComputeBusinessEbitdaResult =

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import SnapshotBanner from "./SnapshotBanner";
 import DriftBanner from "./DriftBanner";
 import WorkstreamCard from "./WorkstreamCard";
@@ -11,6 +11,12 @@ import type { TrustLayerState } from "./UnderwriteTrustLayer";
 import UnderwritingPipelineRail from "./UnderwritingPipelineRail";
 import { QuickLookBanner } from "@/components/deals/quickLook/QuickLookBanner";
 import { QuickLookQuestionsPanel } from "@/components/deals/quickLook/QuickLookQuestionsPanel";
+import ResearchGateActionPanel, {
+  CommitteeReadinessPanel,
+  shouldShowCommitteeReadiness,
+} from "./ResearchGateActionPanel";
+import type { ResearchGateSnapshot, ResearchGatePending } from "./researchGateTypes";
+import { fetchResearchGateSnapshot } from "./fetchResearchGateSnapshot";
 
 interface WorkbenchState {
   deal: { id: string; dealName: string; borrowerLegalName: string; bankName: string; lifecycleStage: string; dealMode: "quick_look" | "full_underwrite"; isQuickLook: boolean };
@@ -38,6 +44,12 @@ export default function AnalystWorkbench({ dealId }: Props) {
   const [driftModalOpen, setDriftModalOpen] = useState(false);
   const [omegaState, setOmegaState] = useState<OmegaAdvisoryState | null>(null);
 
+  // Research quality gate state (SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
+  const [research, setResearch] = useState<ResearchGateSnapshot | null>(null);
+  const [pending, setPending] = useState<ResearchGatePending>(null);
+  const pendingRef = useRef<ResearchGatePending>(null);
+  pendingRef.current = pending;
+
   useEffect(() => {
     fetch(`/api/deals/${dealId}/state`)
       .then(r => r.json())
@@ -46,19 +58,115 @@ export default function AnalystWorkbench({ dealId }: Props) {
   }, [dealId]);
 
   const fetchState = useCallback(async () => {
-    setLoading(true);
     try {
       const resp = await fetch(`/api/deals/${dealId}/underwrite/state`);
       const data = await resp.json();
       if (data.ok) setState(data);
     } catch {
       // silent
-    } finally {
-      setLoading(false);
     }
   }, [dealId]);
 
-  useEffect(() => { fetchState(); }, [fetchState]);
+  const fetchResearch = useCallback(async () => {
+    const snap = await fetchResearchGateSnapshot(dealId);
+    setResearch(snap);
+  }, [dealId]);
+
+  // Initial load: settle both workbench state and research gate before rendering
+  // so the empty state can be blocker-aware on first paint (no generic flash).
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.allSettled([fetchState(), fetchResearch()]).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [fetchState, fetchResearch]);
+
+  // Poll while a mission initiated elsewhere is queued/running. When the run is
+  // driven by this client (pending === "run"), the awaited POST handles refresh.
+  const missionStatus = research?.missionStatus ?? null;
+  const gatePassed = research?.gatePassed ?? false;
+  useEffect(() => {
+    if (gatePassed) return;
+    if (pendingRef.current === "run") return;
+    if (missionStatus !== "queued" && missionStatus !== "running") return;
+    const id = setInterval(() => { fetchResearch(); }, 8000);
+    return () => clearInterval(id);
+  }, [missionStatus, gatePassed, fetchResearch]);
+
+  const initializeWorkbench = useCallback(async () => {
+    setPending("init");
+    try {
+      await fetch(`/api/deals/${dealId}/underwrite/launch`, { method: "POST" });
+    } catch {
+      // surfaced via refreshed state below
+    } finally {
+      await Promise.allSettled([fetchState(), fetchResearch()]);
+      setPending(null);
+    }
+  }, [dealId, fetchState, fetchResearch]);
+
+  const runResearch = useCallback(async () => {
+    setPending("run");
+    try {
+      // runMission completes synchronously server-side (up to ~5 min).
+      await fetch(`/api/deals/${dealId}/research/run`, { method: "POST" });
+    } catch {
+      // surfaced via refreshed research snapshot below
+    } finally {
+      await Promise.allSettled([fetchResearch(), fetchState()]);
+      setPending(null);
+    }
+  }, [dealId, fetchState, fetchResearch]);
+
+  // SPEC-BIE-COMMITTEE-EVIDENCE-REVIEW-ACTIONS-1: apply a banker/analyst review
+  // action to a committee evidence task, then refresh the research snapshot so
+  // the persisted review state surfaces. Never changes gate/committee state.
+  const reviewTask = useCallback(
+    async (
+      taskId: string,
+      action: string,
+      opts?: { note?: string; reason?: string; result?: string },
+    ) => {
+      try {
+        await fetch(`/api/deals/${dealId}/research/committee-task-review`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, action, ...opts }),
+        });
+      } catch {
+        // surfaced via refreshed research snapshot below
+      } finally {
+        await fetchResearch();
+      }
+    },
+    [dealId, fetchResearch],
+  );
+
+  // SPEC-COMMITTEE-ACTION-CENTER-WORKFLOW-RESOLUTION-1: attach a banker-supplied
+  // source URL to a committee task via the existing source-snapshot connector
+  // (route-0), then refresh so the official-capture provenance + collected state
+  // surface. Never changes gate/committee state.
+  const attachSource = useCallback(
+    async (
+      taskId: string,
+      payload: { connector_kind: string; source_url: string; source_type: string; note?: string },
+    ) => {
+      try {
+        await fetch(`/api/deals/${dealId}/research/source-snapshot`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, ...payload }),
+        });
+      } catch {
+        // surfaced via refreshed research snapshot below
+      } finally {
+        await fetchResearch();
+      }
+    },
+    [dealId, fetchResearch],
+  );
 
   const updateWorkstream = async (field: string, status: string) => {
     await fetch(`/api/deals/${dealId}/underwrite/workspace`, {
@@ -72,30 +180,44 @@ export default function AnalystWorkbench({ dealId }: Props) {
 
   if (loading) return <div className="animate-pulse h-64 bg-white/5 rounded-xl" />;
 
-  if (!state?.workspace || !state.activeSnapshot) {
+  const workspaceReady = !!(state?.workspace && state?.activeSnapshot);
+  const researchGateActive = !!research && !research.gatePassed;
+
+  if (!workspaceReady) {
+    // Blocker-aware empty state: when the active memo blocker is the research
+    // quality gate, explain the dependency chain (workbench → research mission)
+    // instead of dead-ending at a bare "workspace not initialized" prompt.
+    if (researchGateActive && research) {
+      return (
+        <ResearchGateActionPanel
+          snapshot={research}
+          workspaceReady={false}
+          pending={pending}
+          onInitialize={initializeWorkbench}
+          onRunResearch={runResearch}
+          onReviewTask={reviewTask}
+        />
+      );
+    }
+
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center space-y-4">
         <p className="text-sm text-white/60">
           Underwriting workspace not yet initialized for this deal.
         </p>
         <button
-          onClick={async () => {
-            setLoading(true);
-            try {
-              await fetch(`/api/deals/${dealId}/underwrite/launch`, { method: "POST" });
-              await fetchState();
-            } catch {
-              setLoading(false);
-            }
-          }}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+          onClick={initializeWorkbench}
+          disabled={pending === "init"}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
         >
-          Initialize Underwriting Workbench
+          {pending === "init" ? "Initializing…" : "Initialize Underwriting Workbench"}
         </button>
       </div>
     );
   }
 
+  // workspaceReady guarantees both are present; re-narrow for the type checker.
+  if (!state?.workspace || !state.activeSnapshot) return null;
   const { deal, workspace, activeSnapshot, drift, spreadSeed, memoSeed } = state;
   const isQuickLook = deal.isQuickLook ?? false;
   const snapshotLabel = `Snapshot ${activeSnapshot.launchSequence}`;
@@ -121,6 +243,25 @@ export default function AnalystWorkbench({ dealId }: Props) {
         </div>
         {omegaState && <OmegaAdvisoryBadge omega={omegaState} compact />}
       </div>
+
+      {/* Research Quality Gate — active memo blocker (SPEC-…-RESEARCH-GATE-…-1) */}
+      {researchGateActive && research && (
+        <ResearchGateActionPanel
+          snapshot={research}
+          workspaceReady
+          pending={pending}
+          onInitialize={initializeWorkbench}
+          onRunResearch={runResearch}
+          onReviewTask={reviewTask}
+        />
+      )}
+
+      {/* SPEC-BIE-EVIDENCE-GRAPH-AND-COMMITTEE-BLOCKER-RESOLUTION-1:
+          gate passed (preliminary cleared) but committee still blocked — show the
+          non-blocking committee path so the banker can act on the blockers. */}
+      {!researchGateActive && research && shouldShowCommitteeReadiness(research) && (
+        <CommitteeReadinessPanel snapshot={research} onReviewTask={reviewTask} onAttachSource={attachSource} />
+      )}
 
       {/* Snapshot Banner */}
       <SnapshotBanner

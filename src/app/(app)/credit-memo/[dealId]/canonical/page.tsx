@@ -118,17 +118,32 @@ export default async function CanonicalCreditMemoPage(props: {
 
   const res = await buildCanonicalCreditMemo({ dealId, bankId, renderMode: "committee" });
   if (res.ok) {
-    // Check for cached narratives and overlay them
+    // ACTIVATION: Only overlay cached narratives when input_hash matches current memo state.
+    // Stale narratives (generated before AR/pricing/fact corrections) must not be applied.
     const { data: cachedNarrative } = await sb
       .from("canonical_memo_narratives")
-      .select("narratives")
+      .select("narratives, input_hash")
       .eq("deal_id", dealId)
       .eq("bank_id", bankId)
       .order("generated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (cachedNarrative?.narratives) {
+    // Compute current memo's input hash for freshness comparison
+    let currentInputHash: string | null = null;
+    try {
+      const { computeInputHash } = await import("@/lib/creditMemo/submission/computeInputHash");
+      currentInputHash = computeInputHash({ memo: res.memo, overrides: {}, bankerId: bankId });
+    } catch {
+      // Non-fatal — if hash computation fails, skip narrative overlay entirely
+    }
+
+    const narrativeIsFresh =
+      cachedNarrative?.input_hash &&
+      currentInputHash &&
+      cachedNarrative.input_hash === currentInputHash;
+
+    if (cachedNarrative?.narratives && narrativeIsFresh) {
       const n = cachedNarrative.narratives as any;
 
       // Phase 80: Support both legacy flat format and new sections[] format
@@ -172,6 +187,12 @@ export default async function CanonicalCreditMemoPage(props: {
           }
         }
       }
+    } else if (cachedNarrative?.narratives && !narrativeIsFresh) {
+      // Stale narrative — log and skip
+      console.warn(
+        `[canonical/page] Skipped stale narrative overlay for deal=${dealId}. ` +
+        `Cached hash=${cachedNarrative.input_hash ?? "none"}, current hash=${currentInputHash ?? "none"}`,
+      );
     }
   }
   if (!res.ok) {
@@ -243,7 +264,7 @@ export default async function CanonicalCreditMemoPage(props: {
             and pre-submission checklist. */}
         <BankerReviewPanel dealId={dealId} memo={res.memo} />
 
-        <CanonicalMemoTemplate memo={res.memo} />
+        <CanonicalMemoTemplate memo={res.memo} renderingSource={{ type: "live" }} />
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
 

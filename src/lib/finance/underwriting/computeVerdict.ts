@@ -103,12 +103,27 @@ export function computeUnderwritingVerdict(r: UnderwritingResults): Underwriting
     level = "caution";
   }
 
-  const headline =
-    level === "approve"
-      ? "Conclusion: Approve — coverage meets policy under current assumptions."
-      : level === "decline_risk"
-      ? "Conclusion: Decline-Risk — coverage fails policy or stress/trend profile is adverse."
-      : "Conclusion: Caution — coverage is borderline or assumptions/data quality require conservatism.";
+  // Context-specific headline — avoid "coverage is borderline" when DSCR is strong
+  let headline: string;
+  if (level === "approve") {
+    headline = "Conclusion: Approve — coverage meets policy under current assumptions.";
+  } else if (level === "decline_risk") {
+    headline = "Conclusion: Decline-Risk — coverage fails policy or stress/trend profile is adverse.";
+  } else {
+    // Caution — distinguish borderline coverage from other conservatism reasons
+    const strongCoverage = worst >= 2.0;
+    if (strongCoverage && !materiallyBelowPolicy) {
+      // Coverage is strong, caution is from other factors
+      const reasons: string[] = [];
+      if (stressBelowPolicy) reasons.push("stress sensitivity");
+      if (negativeTrend) reasons.push("trend concerns");
+      if (r.low_confidence_years.length > 0) reasons.push("data quality");
+      if (reasons.length === 0) reasons.push("non-coverage risk factors");
+      headline = `Conclusion: Conditional approval — repayment capacity is strong; conservatism reflects ${reasons.join(", ")}.`;
+    } else {
+      headline = "Conclusion: Caution — coverage is borderline or assumptions/data quality require conservatism.";
+    }
+  }
 
   // Suggested mitigants (deterministic)
   if (level !== "approve") {

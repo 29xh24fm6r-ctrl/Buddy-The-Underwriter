@@ -1,16 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import MemoInputSuggestionsPanel from "./MemoInputSuggestionsPanel";
 
 /**
  * Wraps MemoInputSuggestionsPanel with API-write behavior. When the banker
  * accepts a suggestion, the bridge calls the matching upsert endpoint and
- * refreshes the page so the newly persisted value flows into the form.
+ * reloads the page so the newly persisted value flows into the form.
  */
 export default function MemoInputSuggestionsBridge({ dealId }: { dealId: string }) {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +40,7 @@ export default function MemoInputSuggestionsBridge({ dealId }: { dealId: string 
           }),
         });
       }
-      router.refresh();
+      window.location.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

@@ -24,6 +24,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
     }
 
+    // Use canonical resolver — it detects stale/invalid pricing inputs,
+    // repairs them, persists the repair, and returns consistent data.
+    const { resolveCanonicalPricingContext } = await import(
+      "@/lib/pricing/resolveCanonicalPricingContext"
+    );
+    const canonical = await resolveCanonicalPricingContext(dealId, auth.bankId);
+
+    // After resolution (which may have persisted repairs), read the current row
     const sb = supabaseAdmin();
     const { data, error } = await sb
       .from("deal_pricing_inputs")
@@ -35,7 +43,40 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, pricingAssumptions: data ?? null });
+    // If DB row is missing or still stale after resolver ran (e.g. upsert failed
+    // due to CHECK constraint), synthesize pricingAssumptions from canonical context
+    // so the card renders correctly instead of falling back to live-rate defaults.
+    const row = data as Record<string, any> | null;
+    const dbStillStale = !row
+      || (row.rate_type === "fixed" && row.fixed_rate_pct == null && canonical.rate_type === "floating")
+      || (row.index_rate_pct == null && canonical.index_rate_pct != null)
+      // Floating loan has stale structural index_rate_pct that should be null (live source)
+      || (canonical.index_rate_source === "live" && row.index_rate_pct != null);
+
+    const effectiveAssumptions = dbStillStale ? {
+      ...(row ?? {}),
+      deal_id: dealId,
+      rate_type: canonical.rate_type,
+      index_code: canonical.index_code,
+      index_rate_pct: canonical.index_rate_pct,
+      spread_override_bps: canonical.spread_bps,
+      loan_amount: canonical.loan_amount,
+      term_months: canonical.term_months,
+      amort_months: canonical.amort_months,
+      interest_only_months: canonical.interest_only_months,
+      fixed_rate_pct: canonical.fixed_rate_pct,
+    } : row;
+
+    return NextResponse.json({
+      ok: true,
+      pricingAssumptions: effectiveAssumptions,
+      ...(canonical.repair_applied || dbStillStale ? {
+        repaired: true,
+        repairReason: dbStillStale && !canonical.repair_applied
+          ? "DB row stale after resolver; returning canonical context"
+          : canonical.repair_reason,
+      } : {}),
+    });
   } catch (e: any) {
     rethrowNextErrors(e);
     console.error("[pricing-assumptions GET]", e);
@@ -68,29 +109,50 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: true, pricingAssumptions: existing });
     }
 
-    // Pull sane defaults from most recent loan request
-    const { data: lr } = await sb
-      .from("deal_loan_requests")
-      .select(
-        "requested_amount, requested_term_months, requested_amort_months, requested_rate_type, requested_spread_bps, requested_interest_only_months",
-      )
-      .eq("deal_id", dealId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Pull sane defaults: structural pricing > loan request > hardcoded defaults.
+    // Precedence ensures the banker sees values consistent with what /spreads already uses.
+    const [{ data: sp }, { data: lr }] = await Promise.all([
+      sb
+        .from("deal_structural_pricing")
+        .select("loan_amount, rate_type, rate_index, index_rate_pct, requested_spread_bps, annual_debt_service_est")
+        .eq("deal_id", dealId)
+        .order("computed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      sb
+        .from("deal_loan_requests")
+        .select(
+          "requested_amount, requested_term_months, requested_amort_months, requested_rate_type, requested_rate_index, requested_spread_bps, requested_interest_only_months",
+        )
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    const rateType =
-      lr?.requested_rate_type === "VARIABLE" ? "floating" : "fixed";
+    // Rate type: structural pricing > loan request > default
+    const spRateType = sp?.rate_type === "variable" ? "floating" : sp?.rate_type === "fixed" ? "fixed" : null;
+    const lrRateType = lr?.requested_rate_type === "VARIABLE" ? "floating" : lr?.requested_rate_type === "FIXED" ? "fixed" : null;
+    const rateType = spRateType ?? lrRateType ?? "floating";
+
+    // Index code: structural pricing > loan request > default
+    const VALID_INDEX_CODES = new Set(["SOFR", "UST_5Y", "PRIME"]);
+    const spIndex = sp?.rate_index && VALID_INDEX_CODES.has(sp.rate_index) ? sp.rate_index : null;
+    const lrIndex = lr?.requested_rate_index && VALID_INDEX_CODES.has(lr.requested_rate_index) ? lr.requested_rate_index : null;
+    const indexCode = spIndex ?? lrIndex ?? "SOFR";
+
+    // Index rate: structural pricing > null (populated by live rates on client)
+    const indexRatePct = sp?.index_rate_pct != null ? Number(sp.index_rate_pct) : null;
 
     const defaults = {
       deal_id: dealId,
       rate_type: rateType,
-      index_code: "SOFR" as const,
-      index_rate_pct: null,
+      index_code: indexCode,
+      index_rate_pct: Number.isFinite(indexRatePct) ? indexRatePct : null,
       fixed_rate_pct: null,
       floor_rate_pct: null,
-      spread_override_bps: lr?.requested_spread_bps ?? null,
-      loan_amount: lr?.requested_amount ?? null,
+      spread_override_bps: sp?.requested_spread_bps ?? lr?.requested_spread_bps ?? null,
+      loan_amount: sp?.loan_amount ?? lr?.requested_amount ?? null,
       term_months: lr?.requested_term_months ?? 120,
       amort_months: lr?.requested_amort_months ?? 300,
       interest_only_months: lr?.requested_interest_only_months ?? 0,
@@ -165,10 +227,18 @@ function validateBody(body: Record<string, unknown>): ValidationError[] {
   }
 
   if (rateType === "floating") {
-    if (body.spread_override_bps == null) {
+    // Spread can be 0 (Prime flat), negative (Prime - 25bps), or positive.
+    // Reject only null/undefined/blank/non-finite — not zero.
+    const spreadBps = Number(body.spread_override_bps);
+    if (body.spread_override_bps == null || !Number.isFinite(spreadBps)) {
       errors.push({
         field: "spread_override_bps",
         message: "Spread (bps) is required for floating-rate loans",
+      });
+    } else if (spreadBps < -500 || spreadBps > 2000) {
+      errors.push({
+        field: "spread_override_bps",
+        message: "Spread must be between -500 and 2000 bps",
       });
     }
   }

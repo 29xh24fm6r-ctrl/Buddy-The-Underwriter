@@ -70,6 +70,22 @@ export async function POST(req: Request) {
     const token = body?.token;
     const requestId = body?.requestId || null;
     const taskKey = typeof body?.taskKey === "string" ? body.taskKey : null;
+    // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: when a borrower uploads in response to a
+    // classic-spread source-detail request, carry the linkage forward so the upload becomes LINKED
+    // evidence for the exact review action. Optional + additive — absent for ordinary uploads.
+    // SPEC-BORROWER-SPREAD-EVIDENCE-LAUNCH-HARDENING-1: normalize to a trimmed non-empty string or null
+    // so empty/whitespace-only values never pollute deal_documents.metadata (the linker treats them as
+    // "no linkage" → candidate, never linked; we keep the stored metadata equally clean).
+    const linkStr = (v: unknown): string | null => {
+      const s = typeof v === "string" ? v.trim() : "";
+      return s.length > 0 ? s : null;
+    };
+    const spreadReviewActionId = linkStr(body?.spreadReviewActionId);
+    const spreadFindingKey = linkStr(body?.spreadFindingKey);
+    const draftBorrowerRequestId = linkStr(body?.draftBorrowerRequestId);
+    const requestedEvidenceKind = linkStr(body?.requestedEvidenceKind);
+    // A linked spread upload carries AT LEAST one tie-back key (action id, finding key, or draft id).
+    const hasSpreadLinkage = Boolean(spreadReviewActionId || spreadFindingKey || draftBorrowerRequestId);
     const path = body?.path;
     const filename = body?.filename;
     const mimeType = body?.mimeType || null;
@@ -305,8 +321,50 @@ export async function POST(req: Request) {
         task_checklist_key: taskKey,
         skip_filename_match: true,
         request_id: requestId,
+        // Spread source-detail linkage (only present when the upload answers a spread review action).
+        ...(hasSpreadLinkage
+          ? {
+              uploaded_for: "classic_spread_review_action",
+              spread_review_action_id: spreadReviewActionId,
+              spread_finding_key: spreadFindingKey,
+              draft_borrower_request_id: draftBorrowerRequestId,
+              requested_evidence_kind: requestedEvidenceKind,
+            }
+          : {}),
       },
     });
+
+    // SPEC-BORROWER-EVIDENCE-UPLOAD-TO-BLOCKER-CLEARING-1: non-invasive ledger event when a borrower
+    // upload is linked to a spread review action (status only — never clears the blocker).
+    // SPEC-BORROWER-SPREAD-EVIDENCE-LAUNCH-HARDENING-1: fire for ANY tie-back (including draft-only
+    // linkage, which still round-trips to LINKED evidence) and record which linkage keys were present
+    // so a production "why didn't my upload link?" question is debuggable from the event alone.
+    if (hasSpreadLinkage) {
+      try {
+        const { emitBuddyEvent } = await import("@/lib/observability/emitEvent");
+        await emitBuddyEvent({
+          event_type: "spread_evidence_uploaded",
+          event_category: "flow",
+          severity: "info",
+          deal_id: invite.deal_id,
+          bank_id: invite.bank_id,
+          payload: {
+            document_id: ingest.documentId ?? null,
+            review_action_id: spreadReviewActionId,
+            finding_key: spreadFindingKey,
+            draft_request_id: draftBorrowerRequestId,
+            requested_evidence_kind: requestedEvidenceKind,
+            // Debug aid: the exact linkage keys carried (a draft-only upload still links via the draft).
+            linkage: {
+              has_review_action_id: Boolean(spreadReviewActionId),
+              has_finding_key: Boolean(spreadFindingKey),
+              has_draft_request_id: Boolean(draftBorrowerRequestId),
+            },
+            status: "uploaded",
+          },
+        }).catch(() => {});
+      } catch { /* non-fatal */ }
+    }
 
     // Phase E1: Invalidate snapshot if deal was already confirmed — but NEVER unseal a frozen deal.
     {

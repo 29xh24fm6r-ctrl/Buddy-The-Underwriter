@@ -20,6 +20,7 @@ import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,10 @@ export type ClassicPdfCachedPayload = {
   pdf_size_bytes: number;
   canonicalFactsTimestamp: string | null;
   generatedAt: string;
+  /** SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: code-version stamp — a mismatch busts the blob. */
+  renderVersion?: number;
+  /** SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1: pre-render certification audit. */
+  certificationAudit?: import("@/lib/classicSpread/certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit | null;
 };
 
 // ── Main worker function ──────────────────────────────────────────────────────
@@ -57,8 +62,8 @@ export async function renderClassicPdfSpread(args: {
   const { dealId, bankId } = args;
   const sb = supabaseAdmin();
 
-  // 1. Load input data (same path as synchronous route)
-  const input = await loadClassicSpreadData(dealId);
+  // 1. Load input data (same path as synchronous route) — bank-scoped (#1).
+  const input = await loadClassicSpreadData(dealId, bankId);
 
   // 2. Preflight gate — if BS or IS rows are empty, don't generate
   const preflight = await preflightClassicSpread({
@@ -105,6 +110,8 @@ export async function renderClassicPdfSpread(args: {
     pdf_size_bytes: pdfBuffer.length,
     canonicalFactsTimestamp,
     generatedAt,
+    renderVersion: CLASSIC_PDF_RENDER_VERSION,
+    certificationAudit: input.certificationAudit ?? null,
   };
 
   // 8. Upsert to deal_spreads — the row IS the cache

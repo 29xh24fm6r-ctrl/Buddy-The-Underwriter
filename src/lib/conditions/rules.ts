@@ -42,8 +42,8 @@ export const EXPECTED_DOCS: ExpectedDoc[] = [
   { key: "IRS_PERSONAL_TAX_RETURN_2", label: "Personal tax return (prior year)", severity: "medium", appliesWhen: () => true },
   { key: "IRS_PERSONAL_TAX_RETURN_3", label: "Personal tax return (2 years prior)", severity: "low", appliesWhen: () => true },
 
-  { key: "AR_AGING", label: "Accounts receivable aging", severity: "low", appliesWhen: () => true },
-  { key: "AP_AGING", label: "Accounts payable aging", severity: "low", appliesWhen: () => true },
+  { key: "AR_AGING", label: "Accounts receivable aging", severity: "high", appliesWhen: (c) => c.product === "LOC" },
+  { key: "AP_AGING", label: "Accounts payable aging", severity: "low", appliesWhen: (c) => c.product === "LOC" },
 
   { key: "RENT_ROLL", label: "Rent roll", severity: "high", appliesWhen: (c) => c.hasRealEstateCollateral || c.product === "CRE" },
   { key: "LEASES", label: "Leases (major tenants)", severity: "medium", appliesWhen: (c) => c.hasRealEstateCollateral || c.product === "CRE" },

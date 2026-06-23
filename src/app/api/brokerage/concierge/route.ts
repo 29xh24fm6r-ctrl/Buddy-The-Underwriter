@@ -39,6 +39,10 @@ import {
 } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import {
+  propagateConciergeFacts,
+  type ConciergeFacts,
+} from "@/lib/brokerage/propagateConciergeFacts";
+import {
   ensureAssumptionsForPreview,
   persistAssumptionsDraft,
 } from "@/lib/sba/sbaAssumptionsBootstrap";
@@ -102,8 +106,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // singleton fails fast with a clear errorCode (instead of bubbling
     // up from inside getOrCreateBorrowerSession on first cookie-less
     // request).
+    let brokerageBankId: string;
     try {
-      await getBrokerageBankId();
+      brokerageBankId = await getBrokerageBankId();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[brokerage-concierge] brokerage_tenant_missing:", msg);
@@ -338,6 +343,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       const existingFacts =
         (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+
+      // Confirmation is the strongest signal we get — write the
+      // confirmed facts through to the canonical tables now.
+      propagateConciergeFacts({
+        dealId: session.deal_id,
+        bankId: brokerageBankId,
+        facts: existingFacts as ConciergeFacts,
+        sb,
+      }).catch((e) => {
+        console.warn(
+          "[brokerage-concierge] confirm-path propagation failed (non-fatal):",
+          e?.message ?? String(e),
+        );
+      });
+
       const updatedHistory = [
         ...(conciergeRow.conversation_history ?? []),
         { role: "user", content: body.userMessage },
@@ -441,6 +461,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     await updateDealNames(sb, session.deal_id, mergedFacts);
+
+    // Write-through: push extracted facts to the canonical tables the
+    // score engine and packaging pipeline actually read. Non-fatal —
+    // the conversation never breaks because a propagation write failed.
+    propagateConciergeFacts({
+      dealId: session.deal_id,
+      bankId: brokerageBankId,
+      facts: mergedFacts as ConciergeFacts,
+      sb,
+    })
+      .then((r) => {
+        if (!r.ok) {
+          console.warn(
+            "[brokerage-concierge] fact propagation partial failure:",
+            r.errors.join("; "),
+          );
+        }
+      })
+      .catch((e) => {
+        console.warn(
+          "[brokerage-concierge] fact propagation failed (non-fatal):",
+          e?.message ?? String(e),
+        );
+      });
 
     // Generate the warm response (Gemini Pro — tone + next-question judgment).
     const responsePrompt = buildResponsePrompt(
@@ -600,6 +644,8 @@ Extract facts in this JSON structure. Use null for unknown values. Return ONLY t
     "naics": string | null,
     "is_startup": boolean | null,
     "years_in_business": number | null,
+    "annual_revenue": number | null,
+    "employee_count": number | null,
     "state": string | null,
     "is_franchise": boolean | null,
     "franchise_brand": string | null
@@ -645,6 +691,7 @@ Priorities for what to ask next, in order:
 4. If we don't know loan amount, ask how much they're looking to borrow.
 5. If we don't know use of proceeds, ask what the money is for.
 6. If we don't know if they're buying a franchise, ask.
+7. If we don't know their most recent annual revenue, ask for a rough figure.
 
 Return ONLY the JSON.`;
 }

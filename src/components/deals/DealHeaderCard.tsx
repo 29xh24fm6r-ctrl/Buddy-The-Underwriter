@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 
 interface Deal {
   id: string;
-  borrower_name?: string;
-  name?: string;
-  borrower_entity_type?: string;
-  status?: string;
-  created_at?: string;
-  updated_at?: string;
+  // Canonical name fields from the shared projection (/api/deals/[id]/name).
+  label?: string;
+  borrower_name?: string | null;
+  name?: string | null;
+  display_name?: string | null;
+  borrower_entity_type?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface DealHeaderCardProps {
@@ -28,11 +31,12 @@ export default function DealHeaderCard({ dealId, dealName }: DealHeaderCardProps
     const fetchDeal = async () => {
       setErr(null);
       try {
-        const res = await fetch(`/api/deals/${dealId}`, { cache: "no-store" });
+        // SPEC-DEAL-NAME-SINGLE-SOURCE-OF-TRUTH-1: canonical name endpoint only.
+        const res = await fetch(`/api/deals/${dealId}/name`, { cache: "no-store" });
         const text = await res.text();
 
         if (!res.ok) {
-          throw new Error(`GET /api/deals/${dealId} → ${res.status} ${res.statusText}: ${text}`);
+          throw new Error(`GET /api/deals/${dealId}/name → ${res.status} ${res.statusText}: ${text}`);
         }
 
         const data = JSON.parse(text);
@@ -81,7 +85,8 @@ export default function DealHeaderCard({ dealId, dealName }: DealHeaderCardProps
     );
   }
 
-  const displayName = deal.name || deal.borrower_name || dealName || "Untitled Deal";
+  const displayName =
+    deal.label || deal.display_name || deal.name || deal.borrower_name || dealName || "Untitled Deal";
 
   const timeSinceUpdate = () => {
     if (!deal.updated_at) return "Unknown";

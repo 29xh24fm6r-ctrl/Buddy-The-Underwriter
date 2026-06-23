@@ -125,60 +125,73 @@ export async function POST(req: Request) {
     }
   }
 
-  // 1. Always log inbound message to deal_events (with resolved deal context)
-  const { error: inboundErr } = await sb.from("deal_events").insert({
-    deal_id,
-    bank_id,
-    kind: "sms_inbound",
-    description: dealContext
-      ? `SMS from borrower (${dealContext.deal_name || "Unknown"}): ${bodyRaw.substring(0, 100)}`
-      : `SMS received (no deal match): ${bodyRaw.substring(0, 100)}`,
-    metadata: {
-      from,
-      to,
-      body: bodyRaw,
-      body_norm: bodyNorm,
-      messageSid,
-      messagingServiceSid: serviceSid,
-      resolved_deal: dealContext
-        ? {
-            deal_id: dealContext.deal_id,
-            deal_name: dealContext.deal_name,
-            bank_id: dealContext.bank_id,
-          }
-        : null,
-    },
-  });
-
-  if (inboundErr) {
-    console.error("deal_events insert sms_inbound failed:", inboundErr);
-  }
-
-  // 2. STOP handling (opt-out)
-  if (isStop(bodyNorm)) {
-    const { error: optOutErr } = await sb.from("deal_events").insert({
+  // 1. Log inbound message to deal_events when we have a resolved deal_id.
+  //    Schema is (deal_id NOT NULL, kind, payload) — bank_id, description,
+  //    metadata are not columns. Bank context + description text move into
+  //    payload. Without a deal_id we skip the deal_events write entirely
+  //    (the message is still captured by the unresolved-SMS audit downstream).
+  if (deal_id) {
+    const { error: inboundErr } = await sb.from("deal_events").insert({
       deal_id,
-      bank_id,
-      kind: "sms_opt_out",
-      description: dealContext
-        ? `Borrower opted out (${dealContext.deal_name})`
-        : "Borrower opted out (no deal match)",
-      metadata: {
-        phone: from,
+      kind: "sms_inbound",
+      payload: {
+        bank_id,
+        description: dealContext
+          ? `SMS from borrower (${dealContext.deal_name || "Unknown"}): ${bodyRaw.substring(0, 100)}`
+          : `SMS received (no deal match): ${bodyRaw.substring(0, 100)}`,
         from,
-        reason: bodyNorm,
+        to,
+        body: bodyRaw,
+        body_norm: bodyNorm,
         messageSid,
+        messagingServiceSid: serviceSid,
         resolved_deal: dealContext
           ? {
               deal_id: dealContext.deal_id,
               deal_name: dealContext.deal_name,
+              bank_id: dealContext.bank_id,
             }
           : null,
       },
     });
 
-    if (optOutErr) {
-      console.error("deal_events insert sms_opt_out failed:", optOutErr);
+    if (inboundErr) {
+      console.error("deal_events insert sms_inbound failed:", inboundErr);
+    }
+  } else {
+    console.warn("[twilio/inbound] no deal_id resolved — skipping deal_events insert", {
+      from,
+      messageSid,
+    });
+  }
+
+  // 2. STOP handling (opt-out)
+  if (isStop(bodyNorm)) {
+    if (deal_id) {
+      const { error: optOutErr } = await sb.from("deal_events").insert({
+        deal_id,
+        kind: "sms_opt_out",
+        payload: {
+          bank_id,
+          description: dealContext
+            ? `Borrower opted out (${dealContext.deal_name})`
+            : "Borrower opted out (no deal match)",
+          phone: from,
+          from,
+          reason: bodyNorm,
+          messageSid,
+          resolved_deal: dealContext
+            ? {
+                deal_id: dealContext.deal_id,
+                deal_name: dealContext.deal_name,
+              }
+            : null,
+        },
+      });
+
+      if (optOutErr) {
+        console.error("deal_events insert sms_opt_out failed:", optOutErr);
+      }
     }
 
     return new NextResponse(twiml(stopReply()), {
@@ -188,29 +201,31 @@ export async function POST(req: Request) {
 
   // 3. START handling (opt-in / resubscribe)
   if (isStart(bodyNorm)) {
-    const { error: optInErr } = await sb.from("deal_events").insert({
-      deal_id,
-      bank_id,
-      kind: "sms_opt_in",
-      description: dealContext
-        ? `Borrower opted in (${dealContext.deal_name})`
-        : "Borrower opted in (no deal match)",
-      metadata: {
-        phone: from,
-        from,
-        reason: bodyNorm,
-        messageSid,
-        resolved_deal: dealContext
-          ? {
-              deal_id: dealContext.deal_id,
-              deal_name: dealContext.deal_name,
-            }
-          : null,
-      },
-    });
+    if (deal_id) {
+      const { error: optInErr } = await sb.from("deal_events").insert({
+        deal_id,
+        kind: "sms_opt_in",
+        payload: {
+          bank_id,
+          description: dealContext
+            ? `Borrower opted in (${dealContext.deal_name})`
+            : "Borrower opted in (no deal match)",
+          phone: from,
+          from,
+          reason: bodyNorm,
+          messageSid,
+          resolved_deal: dealContext
+            ? {
+                deal_id: dealContext.deal_id,
+                deal_name: dealContext.deal_name,
+              }
+            : null,
+        },
+      });
 
-    if (optInErr) {
-      console.error("deal_events insert sms_opt_in failed:", optInErr);
+      if (optInErr) {
+        console.error("deal_events insert sms_opt_in failed:", optInErr);
+      }
     }
 
     return new NextResponse(twiml(startReply()), {
@@ -220,28 +235,30 @@ export async function POST(req: Request) {
 
   // 4. HELP handling
   if (isHelp(bodyNorm)) {
-    const { error: helpErr } = await sb.from("deal_events").insert({
-      deal_id,
-      bank_id,
-      kind: "sms_help",
-      description: dealContext
-        ? `Help request from borrower (${dealContext.deal_name})`
-        : "Help request (no deal match)",
-      metadata: {
-        phone: from,
-        from,
-        messageSid,
-        resolved_deal: dealContext
-          ? {
-              deal_id: dealContext.deal_id,
-              deal_name: dealContext.deal_name,
-            }
-          : null,
-      },
-    });
+    if (deal_id) {
+      const { error: helpErr } = await sb.from("deal_events").insert({
+        deal_id,
+        kind: "sms_help",
+        payload: {
+          bank_id,
+          description: dealContext
+            ? `Help request from borrower (${dealContext.deal_name})`
+            : "Help request (no deal match)",
+          phone: from,
+          from,
+          messageSid,
+          resolved_deal: dealContext
+            ? {
+                deal_id: dealContext.deal_id,
+                deal_name: dealContext.deal_name,
+              }
+            : null,
+        },
+      });
 
-    if (helpErr) {
-      console.error("deal_events insert sms_help failed:", helpErr);
+      if (helpErr) {
+        console.error("deal_events insert sms_help failed:", helpErr);
+      }
     }
 
     return new NextResponse(twiml(helpReply()), {

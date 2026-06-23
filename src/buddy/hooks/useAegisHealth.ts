@@ -92,8 +92,10 @@ export function useAegisHealth({
       setError(null);
 
       const qs = dealId ? `?deal_id=${dealId}` : "";
+      // /api/aegis/health was removed in route-cap cleanup — skip it.
+      // Findings endpoint still exists; health severity is derived from findings.
       const [healthRes, findingsRes] = await Promise.all([
-        fetch(`/api/aegis/health${qs}`).catch(() => null),
+        Promise.resolve(null),
         dealId
           ? fetch(`/api/aegis/findings?deal_id=${dealId}`).catch(() => null)
           : Promise.resolve(null),
@@ -101,18 +103,9 @@ export function useAegisHealth({
 
       if (!mounted.current) return;
 
-      // Parse health
-      if (healthRes && healthRes.ok) {
-        const hData = await healthRes.json().catch(() => null);
-        if (hData?.ok) {
-          setSeverity(hData.severity ?? "ok");
-          setCounts(hData.counts ?? null);
-          setStale(false);
-        }
-      } else {
-        // Mark stale but keep last-known values
-        setStale(true);
-      }
+      // /api/aegis/health removed — severity derived from findings only.
+      // Mark health as stale; findings parsing below still updates state.
+      setStale(true);
 
       // Parse findings
       if (findingsRes && findingsRes.ok) {

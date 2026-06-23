@@ -1,16 +1,17 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import {
   SpreadTable,
-  classifyRowKind,
   extractCellValue,
   type SpreadTableColumn,
   type SpreadTableRow,
 } from "@/components/deals/spreads/SpreadTable";
 import { cn } from "@/lib/utils";
+import type { CanonicalGcfResult } from "@/lib/financialFacts/canonicalGcfCore";
 
 type SpreadData = {
   spread_type: string;
@@ -19,9 +20,25 @@ type SpreadData = {
   rendered_json: any;
   updated_at: string;
   error: string | null;
+  error_code?: string | null;
+  error_details_json?: any;
   owner_type?: string;
   owner_entity_id?: string | null;
 };
+
+// SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: deal_spreads status lifecycle is
+// queued → generating → ready | error. Both "queued" and "generating" are active
+// compute states; the page used to treat only "generating" as work-in-progress,
+// so a freshly-enqueued "queued" GLOBAL_CASH_FLOW row showed no progress.
+const ACTIVE_STATUSES = new Set(["queued", "generating"]);
+
+function isActiveSpread(s: SpreadData): boolean {
+  return ACTIVE_STATUSES.has(s.status);
+}
+
+function hasGcfValue(s: SpreadData): boolean {
+  return extractGcfKpis(s).some((k) => k.label === "Global Cash Flow");
+}
 
 type KpiValue = { label: string; value: string; color?: string };
 
@@ -64,6 +81,27 @@ function extractGcfKpis(spread: SpreadData): KpiValue[] {
     }
   }
 
+  return kpis;
+}
+
+/** KPIs from the canonical selector — used when no full ready spread row exists
+ *  but the canonical fact is materialized (state current/legacy_fallback). */
+function kpisFromCanonical(c: CanonicalGcfResult): KpiValue[] {
+  const kpis: KpiValue[] = [];
+  if (typeof c.value === "number") {
+    kpis.push({
+      label: "Global Cash Flow",
+      value: formatCompact(c.value),
+      color: c.value >= 0 ? "text-emerald-400" : "text-red-400",
+    });
+  }
+  if (typeof c.gcfDscr === "number") {
+    kpis.push({
+      label: "Global DSCR",
+      value: c.gcfDscr.toFixed(2) + "x",
+      color: c.gcfDscr >= 1.25 ? "text-emerald-400" : c.gcfDscr >= 1.0 ? "text-amber-400" : "text-red-400",
+    });
+  }
   return kpis;
 }
 
@@ -141,26 +179,36 @@ function classifyGcfRowKind(row: any): import("@/components/deals/spreads/Spread
   return "source";
 }
 
+type View = "loading" | "computing" | "ready" | "error" | "missing";
+
 export default function GlobalCashFlowPage() {
   const params = useParams<{ dealId: string }>();
   const dealId = params?.dealId ?? "";
+  const [canonical, setCanonical] = React.useState<CanonicalGcfResult | null>(null);
   const [spreads, setSpreads] = React.useState<SpreadData[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  // SPEC-GCF-FIXPATH-DEEP-LINK-1: banker-initiated GCF computation, so the
+  // missing_global_cash_flow Fix Now path lands on a page with a real resolving
+  // action rather than a read-only dead-end.
+  const [recomputing, setRecomputing] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/deals/${dealId}/spreads?types=GLOBAL_CASH_FLOW`,
-        { cache: "no-store" },
-      );
+      // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: read the CANONICAL GCF contract as
+      // the page's state source (state/value/diagnostics) — not only raw
+      // deal_spreads rows — so page state can never disagree with memo readiness
+      // or the credit memo. The raw spread rows are still returned for rendering
+      // the full ready table.
+      const res = await fetch(`/api/deals/${dealId}/spreads?canonical=gcf`, {
+        cache: "no-store",
+      });
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load spreads");
-      // Pick the latest version (v3 preferred)
-      const all = Array.isArray(json.spreads) ? json.spreads as SpreadData[] : [];
-      setSpreads(all);
+      if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load global cash flow");
+      setCanonical((json.canonical ?? null) as CanonicalGcfResult | null);
+      setSpreads(Array.isArray(json.spreads) ? (json.spreads as SpreadData[]) : []);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load");
     } finally {
@@ -168,26 +216,108 @@ export default function GlobalCashFlowPage() {
     }
   }, [dealId]);
 
+  const compute = React.useCallback(async () => {
+    setRecomputing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/spreads/recompute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ types: ["GLOBAL_CASH_FLOW"] }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? "Failed to start global cash flow computation");
+      }
+      // Reload picks up the "queued" state immediately; the poll effect below
+      // keeps refreshing through queued → generating → current/error.
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to start computation");
+    } finally {
+      setRecomputing(false);
+    }
+  }, [dealId, load]);
+
   React.useEffect(() => {
     void load();
   }, [load]);
 
-  React.useEffect(() => {
-    const hasGenerating = spreads.some((s) => s.status === "generating");
-    if (!hasGenerating) return;
-    const id = window.setInterval(() => void load(), 12_000);
-    return () => window.clearInterval(id);
-  }, [spreads, load]);
+  // The canonical state is authoritative for "is a compute in flight". We also
+  // OR in the raw spread rows (spreads.some(isActiveSpread)) so a freshly-queued
+  // row that hasn't yet propagated into the canonical state still polls.
+  const computingState =
+    canonical?.state === "queued" || canonical?.state === "generating";
+  const isComputing = computingState || spreads.some(isActiveSpread);
 
-  // Use latest version
-  const gcfSpread = spreads.length > 0 ? spreads[0] : null;
+  React.useEffect(() => {
+    if (!isComputing) return;
+    const id = window.setInterval(() => void load(), 6_000);
+    return () => window.clearInterval(id);
+  }, [isComputing, load]);
 
   const columns: SpreadTableColumn[] = [
     { key: "label", label: "Line Item", align: "left" },
     { key: "value", label: "Amount", align: "right" },
   ];
 
-  const kpis = gcfSpread ? extractGcfKpis(gcfSpread) : [];
+  // The displayable result: a spread row that actually carries the GCF figure.
+  // Prefer the canonical GLOBAL owner_type, then most recently updated.
+  const readySpread =
+    [...spreads]
+      .filter(hasGcfValue)
+      .sort((a, b) => {
+        const ag = a.owner_type === "GLOBAL" ? 0 : 1;
+        const bg = b.owner_type === "GLOBAL" ? 0 : 1;
+        if (ag !== bg) return ag - bg;
+        return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+      })[0] ?? null;
+
+  const errorSpread = spreads.find((s) => s.status === "error") ?? null;
+
+  // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: VIEW is derived from the canonical
+  // selector state — the single source of truth — not re-derived from raw rows.
+  // A canonical "current"/"legacy_fallback" is ready even if the original spread
+  // row was superseded; "queued"/"generating" can NEVER read as missing.
+  const hasReadyValue =
+    canonical?.state === "current" ||
+    canonical?.state === "legacy_fallback" ||
+    !!readySpread;
+
+  const view: View = loading
+    ? "loading"
+    : isComputing
+    ? "computing"
+    : hasReadyValue
+    ? "ready"
+    : canonical?.state === "error" || errorSpread
+    ? "error"
+    : "missing";
+
+  const kpis =
+    view === "ready"
+      ? readySpread
+        ? extractGcfKpis(readySpread)
+        : canonical
+        ? kpisFromCanonical(canonical)
+        : []
+      : [];
+
+  const diagnostics = canonical?.diagnostics ?? [];
+  const warnings = canonical?.warnings ?? [];
+
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a DOWNSTREAM aggregate. When
+  // its upstream prerequisites (business cash flow → annual debt service →
+  // personal/PFS) are not ready, Compute is de-emphasized — clicking it would
+  // only enqueue a job that orphans/errors — and the banker is sent upstream.
+  const prerequisites = canonical?.prerequisites ?? [];
+  const missingPrereqs = prerequisites.filter((p) => !p.satisfied);
+  // Default ready=true when canonical is absent so we never block a legit compute.
+  const computeBlocked = canonical ? canonical.prerequisitesReady === false : false;
+
+  function prereqHref(suffix: string): string {
+    return `/deals/${dealId}${suffix}`;
+  }
 
   return (
     <div className="space-y-6">
@@ -198,34 +328,245 @@ export default function GlobalCashFlowPage() {
             Cross-entity aggregation: personal income + property NOI - obligations = global cash flow.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
-        >
-          <Icon name="refresh" className="h-4 w-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {/* SPEC-GCF-READY-STATE-RECOMPUTE-CTA-1: in the ready state the compute
+              action otherwise disappears (it only lived in the missing/error
+              banners), so the banker couldn't intentionally recompute GCF after
+              fixes/new docs. Refresh stays a data reload only; this recomputes the
+              underwriting calculation (enqueues a job → Computing… → ready/error). */}
+          {view === "ready" && (
+            <button
+              type="button"
+              onClick={() => void compute()}
+              disabled={recomputing || isComputing}
+              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-60"
+            >
+              <Icon name="sync" className="h-4 w-4" />
+              {recomputing ? "Starting…" : "Recompute Global Cash Flow"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-60"
+          >
+            <Icon name="refresh" className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
+      {/* Transient fetch/compute error (network-level), distinct from a failed
+          spread row which is rendered as the "error" view below. */}
       {error && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
           {error}
         </div>
       )}
 
-      {loading ? (
-        <div className="py-12 text-center text-xs text-white/50">Loading global cash flow...</div>
-      ) : !gcfSpread ? (
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
-          <Icon name="public" className="mx-auto h-8 w-8 text-white/20" />
-          <p className="mt-3 text-sm text-white/50">No global cash flow analysis yet.</p>
-          <p className="mt-1 text-xs text-white/30">
-            Upload business and personal financial documents to generate the global cash flow analysis.
-          </p>
+      {/* Legacy-fallback warning: canonical value resolved from the deprecated
+          GLOBAL_CASH_FLOW alias rather than GCF_GLOBAL_CASH_FLOW. */}
+      {view === "ready" && warnings.length > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+          {warnings.map((w, i) => (
+            <div key={i}>{w}</div>
+          ))}
         </div>
-      ) : (
+      )}
+
+      {/* SPEC-GCF-COMPUTE-QUEUED-POLLING-AND-STATUS-1: explicit state machine so
+          a queued/generating row never falls back to "No analysis yet". */}
+      {view === "loading" && (
+        <div className="py-12 text-center text-xs text-white/50">Loading global cash flow...</div>
+      )}
+
+      {view === "computing" && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <Icon name="sync" className="mt-0.5 h-5 w-5 animate-spin text-amber-300" />
+            <div>
+              <h3 className="text-sm font-semibold text-amber-100">
+                Computing Global Cash Flow…
+              </h3>
+              <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                The global cash flow analysis is queued and being generated. This
+                page refreshes automatically — no action needed.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === "error" && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Icon name="error" className="mt-0.5 h-5 w-5 text-red-300" />
+              <div>
+                <h3 className="text-sm font-semibold text-red-100">
+                  Global Cash Flow computation failed
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-red-200/80">
+                  {errorSpread?.error_code ? `${errorSpread.error_code}: ` : ""}
+                  {errorSpread?.error ??
+                    diagnostics[0] ??
+                    "The computation did not complete. Retry below."}
+                </p>
+                {/* Precise upstream diagnostics from the canonical selector — never
+                    a generic "upload docs". */}
+                {diagnostics.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-red-200/80">
+                    {diagnostics.map((d, i) => (
+                      <li key={i}>{d}</li>
+                    ))}
+                  </ul>
+                )}
+                {/* SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: if the failure is due to
+                    missing upstream prerequisites, send the banker upstream — retrying
+                    GCF cannot succeed until those are produced. */}
+                {computeBlocked && missingPrereqs.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-red-200/70">
+                      Resolve upstream first
+                    </div>
+                    <ul className="mt-1 space-y-1">
+                      {missingPrereqs.map((p) => (
+                        <li key={p.key} className="text-[11px] leading-relaxed">
+                          <Link
+                            href={prereqHref(p.fixPathSuffix)}
+                            className="inline-flex items-center gap-1 font-semibold text-red-100 underline decoration-red-400/50 underline-offset-2 hover:text-white"
+                          >
+                            <Icon name="arrow_forward_ios" className="h-3 w-3" />
+                            {p.label}
+                          </Link>
+                          <span className="ml-1 text-red-200/70">— {p.diagnostic}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {errorSpread?.error_details_json ? (
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-black/30 p-2 text-[10px] leading-relaxed text-red-200/70">
+                    {JSON.stringify(errorSpread.error_details_json, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void compute()}
+              // Block retry while upstream prerequisites are missing — it can only
+              // re-fail until they're produced (recompute API also refuses GCF).
+              disabled={recomputing || isComputing || computeBlocked}
+              title={
+                computeBlocked
+                  ? "Resolve the upstream financial steps before retrying Global Cash Flow"
+                  : undefined
+              }
+              className={cn(
+                "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50",
+                computeBlocked
+                  ? "border border-white/15 bg-white/5 text-white/60"
+                  : "bg-amber-500 text-amber-950 hover:bg-amber-400 disabled:opacity-60",
+              )}
+            >
+              <Icon name="sync" className="h-4 w-4" />
+              {recomputing ? "Starting…" : "Retry Compute"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view === "missing" && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Icon name="error" className="mt-0.5 h-5 w-5 text-amber-300" />
+              <div>
+                <h3 className="text-sm font-semibold text-amber-100">
+                  {computeBlocked
+                    ? "Run upstream financial analysis first"
+                    : "Global Cash Flow required"}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                  {computeBlocked ? (
+                    <>
+                      Global cash flow is a downstream aggregate. It can be computed
+                      once business cash flow, annual debt service, and the required
+                      personal/PFS facts exist. Resolve the upstream steps below — GCF
+                      then runs automatically as part of the financial pipeline, or you
+                      can compute it here.
+                    </>
+                  ) : (
+                    <>
+                      Memo readiness is blocked until global cash flow is computed. GCF
+                      aggregates personal income + property NOI − obligations across all
+                      entities. Compute to materialize the global figure.
+                    </>
+                  )}
+                </p>
+                {/* SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: render the dependency-ordered
+                    upstream prerequisites as ACTIONABLE links to where each is produced,
+                    instead of a dead-end Compute or a vague "upload documents". */}
+                {missingPrereqs.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-200/70">
+                      Upstream steps to complete
+                    </div>
+                    <ul className="mt-1 space-y-1">
+                      {missingPrereqs.map((p) => (
+                        <li key={p.key} className="text-[11px] leading-relaxed">
+                          <Link
+                            href={prereqHref(p.fixPathSuffix)}
+                            className="inline-flex items-center gap-1 font-semibold text-amber-100 underline decoration-amber-400/50 underline-offset-2 hover:text-white"
+                          >
+                            <Icon name="arrow_forward_ios" className="h-3 w-3" />
+                            {p.label}
+                          </Link>
+                          <span className="ml-1 text-amber-200/70">— {p.diagnostic}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* Fallback detail diagnostics (granular fact strings) when prereqs are
+                    satisfied but GCF still hasn't materialized. */}
+                {missingPrereqs.length === 0 && diagnostics.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-amber-200/80">
+                    {diagnostics.map((d, i) => (
+                      <li key={i}>{d}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void compute()}
+              // De-emphasize + disable Compute while upstream prerequisites are missing —
+              // enqueuing GCF now can only orphan/error (recompute API also refuses it).
+              disabled={recomputing || isComputing || computeBlocked}
+              title={
+                computeBlocked
+                  ? "Resolve the upstream financial steps before computing Global Cash Flow"
+                  : undefined
+              }
+              className={cn(
+                "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50",
+                computeBlocked
+                  ? "border border-white/15 bg-white/5 text-white/60"
+                  : "bg-amber-500 text-amber-950 hover:bg-amber-400 disabled:opacity-60",
+              )}
+            >
+              <Icon name="sync" className="h-4 w-4" />
+              {recomputing ? "Starting…" : "Compute Global Cash Flow"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view === "ready" && (
         <>
           {/* KPI cards */}
           {kpis.length > 0 && (
@@ -246,20 +587,22 @@ export default function GlobalCashFlowPage() {
             </div>
           )}
 
-          {/* Full GCF table */}
-          <SpreadTable
-            title={gcfSpread.rendered_json?.title ?? "Global Cash Flow"}
-            subtitle={
-              [
-                gcfSpread.rendered_json?.asOf ? `As of ${gcfSpread.rendered_json.asOf}` : null,
-                `v${gcfSpread.rendered_json?.meta?.version ?? gcfSpread.spread_version}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            }
-            columns={columns}
-            rows={buildGcfRows(gcfSpread)}
-          />
+          {/* Full GCF table — only when a ready spread row carries the detail. */}
+          {readySpread && (
+            <SpreadTable
+              title={readySpread.rendered_json?.title ?? "Global Cash Flow"}
+              subtitle={
+                [
+                  readySpread.rendered_json?.asOf ? `As of ${readySpread.rendered_json.asOf}` : null,
+                  `v${readySpread.rendered_json?.meta?.version ?? readySpread.spread_version}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+              columns={columns}
+              rows={buildGcfRows(readySpread)}
+            />
+          )}
         </>
       )}
     </div>

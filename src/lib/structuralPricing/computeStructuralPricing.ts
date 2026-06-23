@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { LoanRequest } from "@/lib/loanRequests/types";
 import { computeDebtService } from "./debtServiceMath";
+import { productTypeToCategory } from "@/lib/loanRequests/productShapeConfig";
 
 export type StructuralPricingResult = {
   id: string;
@@ -38,9 +39,13 @@ export async function computeStructuralPricing(
       return { ok: false, error: "Loan request has no requested_amount" };
     }
 
-    const termMonths = loanRequest.requested_term_months ?? 120;
-    const amortMonths = loanRequest.requested_amort_months ?? 300;
-    const ioMonths = loanRequest.requested_interest_only_months ?? 0;
+    // LOC products use interest-only math — no fixed term/amort.
+    const category = productTypeToCategory(loanRequest.product_type);
+    const isLoc = category === "LINES_OF_CREDIT";
+
+    const termMonths = isLoc ? 12 : (loanRequest.requested_term_months ?? 120);
+    const amortMonths = isLoc ? 0 : (loanRequest.requested_amort_months ?? 300);
+    const ioMonths = isLoc ? 1 : (loanRequest.requested_interest_only_months ?? 0);
     const rateIndex = loanRequest.requested_rate_index ?? null;
     const spreadBps = loanRequest.requested_spread_bps ?? null;
 
@@ -88,7 +93,7 @@ export async function computeStructuralPricing(
       annual_debt_service_est: annualDebtService,
       index_rate_pct: baseRatePct,
       floor_rate_pct: 0,
-      rate_type: rateIndex ? "variable" : "fixed",
+      rate_type: isLoc ? "variable" : (rateIndex ? "variable" : "fixed"),
       source: "auto",
       computed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

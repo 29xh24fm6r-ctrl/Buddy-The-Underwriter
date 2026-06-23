@@ -1,0 +1,274 @@
+/**
+ * SPEC-CLASSIC-SPREAD-BORROWER-SOURCE-DETAIL-REQUEST-1 — pure source-detail request builder.
+ *
+ * Proves the OmniCare YTD-2026 TCA request is exact + useful, that the builder hard-codes NO deal /
+ * year / line / amount (it reads only the finding's own metadata), and that generic future cases
+ * (other deals/periods/lines, missing amounts, unknown statements) produce correct period/line copy.
+ */
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
+import { buildSourceDetailRequest, type SourceDetailRequestInput } from "../sourceDetailRequestBuilder";
+import { linkEvidenceUploads } from "../evidenceUploadLinker";
+import type { EvidenceCandidateDoc } from "../sourceEvidenceStatus";
+
+const NON_ASCII = /[^\x00-\x7F]/;
+
+// OmniCare-shaped fixture (values are fixtures, NOT hard-coded in the builder).
+const omniCare: SourceDetailRequestInput = {
+  reviewActionId: "ra-1",
+  findingKey: "ytd_2026|balance_sheet|total_current_assets|missing_implied_component",
+  actionType: "REQUEST_SOURCE_DETAIL",
+  issueType: "missing_implied_component",
+  statement: "balance_sheet",
+  periodLabel: "YTD 2026",
+  periodEndDate: "3/31/2026",
+  periodIsInterim: true,
+  lineItem: "TOTAL CURRENT ASSETS",
+  sourceValue: 198_692.59, // present components
+  recommendedValue: 2_898_652.37, // implied gap
+  diffValue: 2_898_652.37,
+  reason: "Direct Total Current Assets exceeds the sum of present components.",
+};
+
+describe("buildSourceDetailRequest — OmniCare YTD 2026 TCA", () => {
+  const r = buildSourceDetailRequest(omniCare);
+
+  it("produces the exact, useful title + tie-out + present + missing amounts", () => {
+    assert.equal(r.title, "Upload 3/31/2026 current asset detail supporting Total Current Assets");
+    assert.equal(r.tieOutTargetAmount, 198_692.59 + 2_898_652.37); // 3,097,344.96
+    assert.equal(r.missingAmount, 2_898_652.37);
+    assert.equal(r.priority, "high");
+    assert.equal(r.requestedPeriodEnd, "3/31/2026");
+    assert.equal(r.statementType, "balance sheet");
+  });
+
+  it("borrower message names the period, reported total, present total, and the unsupported gap", () => {
+    const m = r.borrowerMessage;
+    assert.match(m, /3\/31\/2026 interim balance sheet/);
+    assert.match(m, /Total Current Assets of \$3,097,345/);
+    assert.match(m, /only total \$198,693/);
+    assert.match(m, /leaving \$2,898,652 unsupported/);
+    assert.match(m, /AR aging, AR detail/);
+    assert.match(m, /ties to Total Current Assets of \$3,097,345/);
+  });
+
+  it("lists acceptable docs (dated, tie-out) and unacceptable different-date AR / borrowing-base", () => {
+    assert.ok(r.acceptableDocuments.some((d) => /3\/31\/2026 AR aging or AR detail/.test(d)));
+    assert.ok(r.acceptableDocuments.some((d) => /detailed interim balance sheet/.test(d)));
+    assert.ok(r.acceptableDocuments.some((d) => /Reconciliation from any nearby AR aging date back to 3\/31\/2026/.test(d)));
+    assert.ok(r.unacceptableDocuments.some((d) => /different date with no reconciliation/i.test(d)));
+    assert.ok(r.unacceptableDocuments.some((d) => /Borrowing-base AR as of a different date without a bridge to 3\/31\/2026/.test(d)));
+  });
+
+  it("carries an evidence-kind + clearing target + structured uploadContext (REQUEST-PACKAGE-POLISH-1)", () => {
+    assert.equal(r.requestedEvidenceKind, "current_asset_detail");
+    assert.match(r.clearingTarget, /Total Current Assets of \$3,097,345 as of 3\/31\/2026/);
+    assert.equal(r.uploadContext.spreadReviewActionId, "ra-1");
+    assert.equal(r.uploadContext.spreadFindingKey, omniCare.findingKey);
+    assert.equal(r.uploadContext.requestedEvidenceKind, "current_asset_detail");
+    assert.equal(r.uploadContext.requestedPeriod, "3/31/2026");
+    assert.match(r.uploadContext.clearingTarget, /Total Current Assets/);
+  });
+
+  it("round-trips: an upload tagged with the uploadContext metadata becomes LINKED evidence", () => {
+    // Simulate the borrower upload writing the package's uploadContext into deal_documents.metadata.
+    const uploaded: EvidenceCandidateDoc = {
+      id: "doc-1", filename: "Omnicare current asset detail 3-31-2026.pdf", canonicalType: "AR_AGING",
+      checklistKey: null, documentLabel: null, periodEnd: "2026-03-31", taxYear: 2026, extractionStatus: "extracted",
+      isActive: true, linkedReviewActionId: r.uploadContext.spreadReviewActionId,
+    };
+    const unrelated: EvidenceCandidateDoc = {
+      id: "doc-2", filename: "Some other statement.pdf", canonicalType: "BALANCE_SHEET",
+      checklistKey: null, documentLabel: null, periodEnd: "2025-12-31", taxYear: 2025, extractionStatus: "extracted", isActive: true,
+    };
+    const action = {
+      id: "ra-1", findingKey: omniCare.findingKey ?? "", actionType: "REQUEST_SOURCE_DETAIL", issueType: "missing_implied_component",
+      statement: "balance_sheet", periodLabel: "YTD 2026", rowLabel: "TOTAL CURRENT ASSETS", status: "borrower_detail_requested",
+      sourceValue: 198_692.59, recommendedValue: 2_898_652.37, diffValue: 2_898_652.37, periodEndDate: "3/31/2026", periodIsInterim: true,
+    };
+    const link = linkEvidenceUploads({ action, documents: [uploaded, unrelated] });
+    assert.deepEqual(link.linkedDocIds, ["doc-1"]); // exact request metadata → LINKED
+    assert.equal(link.candidateDocuments.length, 1); // unrelated stays candidate
+    assert.equal(link.candidateDocuments[0].id, "doc-2");
+    assert.equal(link.linkageConfidence, "explicit");
+  });
+
+  it("links back to the source review action / finding_key and is all ASCII", () => {
+    assert.equal(r.sourceReviewActionId, "ra-1");
+    assert.equal(r.findingKey, omniCare.findingKey);
+    assert.ok(r.tags.includes("current_assets") && r.tags.includes("accounts_receivable"));
+    for (const s of [r.title, r.borrowerMessage, ...r.acceptableDocuments, ...r.unacceptableDocuments])
+      assert.ok(!NON_ASCII.test(s), `ASCII: ${JSON.stringify(s)}`);
+  });
+});
+
+describe("buildSourceDetailRequest — generic / future-deal robustness", () => {
+  it("does NOT hard-code OmniCare: a different deal/period/line/amount flows through verbatim", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2027|balance_sheet|total_current_assets|missing_implied_component",
+      reviewActionId: "ra-x",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "missing_implied_component",
+      statement: "balance_sheet",
+      periodLabel: "2027",
+      periodEndDate: "12/31/2027",
+      periodIsInterim: false,
+      lineItem: "TOTAL CURRENT ASSETS",
+      sourceValue: 10_000,
+      recommendedValue: 90_000,
+      diffValue: 90_000,
+    });
+    assert.equal(r.tieOutTargetAmount, 100_000);
+    assert.equal(r.missingAmount, 90_000);
+    assert.match(r.borrowerMessage, /12\/31\/2027 balance sheet/); // not "interim", different date
+    assert.match(r.borrowerMessage, /Total Current Assets of \$100,000/);
+    assert.ok(!/3,097,345|2,898,652|3\/31\/2026/.test(JSON.stringify(r)), "no OmniCare values leak in");
+  });
+
+  it("generic balance-sheet line (non-current-asset): asks for that line's schedule + period", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2025|balance_sheet|other_liabilities|missing_required_value",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "missing_required_value",
+      statement: "balance_sheet",
+      periodLabel: "2025",
+      periodEndDate: "12/31/2025",
+      lineItem: "OTHER LIABILITIES",
+      sourceValue: null,
+      recommendedValue: 250_000,
+      diffValue: 250_000,
+    });
+    assert.match(r.title, /Upload 12\/31\/2025 detail supporting Other Liabilities/);
+    assert.match(r.borrowerMessage, /source detail for Other Liabilities on the 12\/31\/2025 balance sheet/);
+    assert.equal(r.missingDocumentType, "balance_sheet_detail");
+    // non-AR line → no borrowing-base warning
+    assert.ok(!r.unacceptableDocuments.some((d) => /Borrowing-base/.test(d)));
+  });
+
+  it("AR-implicating balance-sheet line still gets the different-date / borrowing-base warning", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2025|balance_sheet|accounts_receivable|missing_required_value",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "missing_required_value",
+      statement: "balance_sheet",
+      periodLabel: "2025",
+      periodEndDate: "12/31/2025",
+      lineItem: "ACCOUNTS RECEIVABLE",
+      recommendedValue: 500_000,
+      diffValue: 500_000,
+    });
+    assert.ok(r.unacceptableDocuments.some((d) => /Borrowing-base AR as of a different date without a bridge to 12\/31\/2025/.test(d)));
+  });
+
+  it("income-statement line: asks for the statement-line detail for that period", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2025|income_statement|other_deductions|missing_required_value",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "missing_required_value",
+      statement: "income_statement",
+      periodLabel: "2025",
+      periodEndDate: null,
+      lineItem: "OTHER DEDUCTIONS",
+      sourceValue: null,
+      recommendedValue: 120_000,
+      diffValue: 120_000,
+    });
+    assert.match(r.title, /Upload 2025 detail supporting Other Deductions/);
+    assert.match(r.borrowerMessage, /income statement/);
+    assert.equal(r.statementType, "income statement");
+    assert.equal(r.missingDocumentType, "income_statement_detail");
+  });
+
+  it("unknown statement/line fails safe with a conservative generic request", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2025|cash_flow|mystery_line|formula_mismatch",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "formula_mismatch",
+      statement: "cash_flow",
+      periodLabel: "2025",
+      lineItem: "MYSTERY LINE",
+    });
+    assert.match(r.borrowerMessage, /Please provide source documentation supporting Mystery Line for 2025\./);
+    assert.equal(r.missingDocumentType, "financial_statement_detail");
+    assert.equal(r.tieOutTargetAmount, null);
+  });
+
+  it("handles a missing amount gracefully (no gap clause, still asks for tie-out detail)", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2026|balance_sheet|total_current_assets|missing_implied_component",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "missing_implied_component",
+      statement: "balance_sheet",
+      periodLabel: "YTD 2026",
+      periodEndDate: "6/30/2026",
+      periodIsInterim: true,
+      lineItem: "TOTAL CURRENT ASSETS",
+      sourceValue: null,
+      recommendedValue: null,
+      diffValue: null,
+    });
+    assert.equal(r.tieOutTargetAmount, null);
+    assert.equal(r.missingAmount, null);
+    assert.ok(!/unsupported/.test(r.borrowerMessage), "no fabricated unsupported amount");
+    assert.match(r.borrowerMessage, /detailed current-asset schedule, AR aging, AR detail/);
+    assert.match(r.borrowerMessage, /as of 6\/30\/2026/);
+  });
+
+  it("VERIFY_SOURCE_LINE on TOTAL LIABILITIES & NET WORTH asks for Schedule L / liability+equity detail", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2022|balance_sheet|total_liabilities_&_net_worth|unreconciled_total",
+      reviewActionId: "ra-tlnw",
+      actionType: "VERIFY_SOURCE_LINE",
+      issueType: "unreconciled_total",
+      statement: "balance_sheet",
+      periodLabel: "2022",
+      periodEndDate: "12/31/2022",
+      periodIsInterim: false,
+      lineItem: "TOTAL LIABILITIES & NET WORTH",
+      sourceValue: 1_489_099, // L + NW extracted
+      recommendedValue: 3_268_740, // Total Assets target
+      diffValue: 1_779_641, // unexplained gap
+    });
+    assert.match(r.title, /Upload source detail for 12\/31\/2022 balance sheet liabilities and net worth/);
+    assert.match(r.borrowerMessage, /Schedule L/);
+    assert.match(r.borrowerMessage, /reconciles to Total Liabilities \+ Net Worth/);
+    assert.match(r.borrowerMessage, /\$1,489,099/);
+    assert.match(r.borrowerMessage, /\$1,779,641/);
+    assert.ok(r.acceptableDocuments.some((d) => /Schedule L showing mortgages\/notes/.test(d)));
+    // evidence-kind + clearing target for the 2022 Schedule L reconciliation
+    assert.equal(r.requestedEvidenceKind, "schedule_l_detail");
+    assert.match(r.clearingTarget, /Total Liabilities \+ Net Worth reconciling to Total Assets of \$3,268,740 as of 12\/31\/2022/);
+    assert.equal(r.uploadContext.requestedEvidenceKind, "schedule_l_detail");
+  });
+
+  it("generic VERIFY_SOURCE_LINE asks for source documentation + reconciliation", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2023|income_statement|gross_profit|formula_mismatch",
+      actionType: "VERIFY_SOURCE_LINE",
+      issueType: "formula_mismatch",
+      statement: "income_statement",
+      periodLabel: "2023",
+      lineItem: "GROSS PROFIT",
+    });
+    assert.match(r.borrowerMessage, /verify Gross Profit on the 2023 income statement/);
+    assert.match(r.borrowerMessage, /reconciliation/i);
+  });
+
+  it("falls back to the period label when no end date is supplied", () => {
+    const r = buildSourceDetailRequest({
+      findingKey: "2024|balance_sheet|total_current_assets|missing_implied_component",
+      actionType: "REQUEST_SOURCE_DETAIL",
+      issueType: "missing_implied_component",
+      statement: "balance_sheet",
+      periodLabel: "2024",
+      periodEndDate: null,
+      lineItem: "TOTAL CURRENT ASSETS",
+      sourceValue: 5_000,
+      diffValue: 95_000,
+      recommendedValue: 95_000,
+    });
+    assert.equal(r.requestedPeriodEnd, "2024");
+    assert.match(r.title, /Upload 2024 current asset detail/);
+  });
+});

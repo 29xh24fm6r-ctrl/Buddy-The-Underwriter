@@ -1,8 +1,9 @@
 import React from "react";
-import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, RatioAnalysisRow, RatioCategory } from "@/lib/creditMemo/canonical/types";
+import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow, RatioAnalysisRow, RatioCategory } from "@/lib/creditMemo/canonical/types";
 import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
 import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
+import type { MemoCommitteeReadinessSection } from "@/lib/creditMemo/committee/buildMemoCommitteeReadinessSection";
 
 // ── Phase 82: Research Trace types ────────────────────────────────────────
 
@@ -138,6 +139,43 @@ function MetricRow({ label, value, src }: { label: string; value: React.ReactNod
   );
 }
 
+// ── Key-metric KPI card ───────────────────────────────────────────────────
+// SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: surfaces a "Preliminary" badge + caveat
+// when a metric's denominator is not yet committee-final (e.g. global obligations
+// unconfirmed). Exported for label/caveat render tests.
+
+export function MetricKpiCard({
+  label,
+  val,
+  src,
+  preliminary,
+  caveat,
+}: {
+  label: string;
+  val: React.ReactNode;
+  src?: string;
+  preliminary?: boolean;
+  caveat?: string | null;
+}) {
+  return (
+    <div data-testid={`kpi-${label}`} className="border border-gray-200 bg-white rounded p-2 text-center">
+      <div className="text-[10px] text-gray-500 uppercase">{label}</div>
+      <div className="text-base font-bold mt-0.5">
+        {val}
+        {preliminary && (
+          <span className="ml-1 align-middle text-[8px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100 rounded px-1 py-0.5">
+            Preliminary
+          </span>
+        )}
+      </div>
+      {preliminary && caveat && (
+        <div className="text-[8px] text-amber-700 mt-0.5 leading-tight">{caveat}</div>
+      )}
+      {src && <div className="text-[9px] text-gray-400 truncate">{src}</div>}
+    </div>
+  );
+}
+
 // ── Debt Coverage Table ───────────────────────────────────────────────────
 
 function DebtCoverageTable({ rows }: { rows: DebtCoverageRow[] }) {
@@ -269,7 +307,12 @@ function RatioSuiteSection({ rows }: { rows: RatioAnalysisRow[] }) {
                       </Td>
                       <Td>
                         <div className="text-gray-700">{r.interpretation ?? ""}</div>
-                        {r.benchmark_note && (
+                        {r.industry_avg !== null && r.industry_source && (
+                          <div className="text-[10px] text-blue-600 mt-0.5">
+                            Peer median: {formatRatioValue(r.industry_avg, r.unit)} — {r.industry_source}
+                          </div>
+                        )}
+                        {r.benchmark_note && !(r.industry_avg !== null && r.benchmark_note.startsWith("Peer median")) && (
                           <div className="text-[10px] text-gray-500 mt-0.5">{r.benchmark_note}</div>
                         )}
                       </Td>
@@ -537,6 +580,85 @@ function ScoreStars({ score }: { score: number }) {
   );
 }
 
+// BUGFIX-CANONICAL-MEMO-RENDER-COMMITTEE-READINESS-SECTION-1: render the committee
+// readiness intelligence the memo already carries (built + serialized upstream) so
+// the memo no longer states a separate, weaker truth than the Committee Readiness
+// panel. Read-only projection — never approves sources or clears blockers.
+export function CommitteeReadinessSection({ section }: { section: MemoCommitteeReadinessSection | null }) {
+  if (!section) return null;
+  return (
+    <div className="border border-gray-300 p-4 mb-6 bg-white" data-testid="memo-committee-readiness">
+      <div className="text-xs font-bold uppercase tracking-wide text-gray-600 mb-2">
+        Committee Readiness and Evidence Status
+      </div>
+
+      <div className={`text-sm font-semibold mb-3 ${section.committee_ready ? "text-emerald-700" : "text-amber-700"}`}>
+        {section.status_line}
+      </div>
+
+      {section.remaining_blockers.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Remaining blockers</div>
+          <ul className="text-sm text-gray-800 list-disc ml-4 space-y-0.5">
+            {section.remaining_blockers.map((b, i) => (
+              <li key={`crb-${i}`}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {section.decision_support.length > 0 && (
+        <div className="mb-3 space-y-2">
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Decision support</div>
+          {section.decision_support.map((d, i) => (
+            <div key={`crd-${i}`} className="border-l-2 border-gray-300 pl-3">
+              <div className="text-sm font-semibold text-gray-800">
+                {d.domain} — {d.recommendation}{" "}
+                <span className="text-[11px] font-normal text-gray-500">(confidence: {d.confidence})</span>
+              </div>
+              {d.conclusion ? <div className="text-xs text-gray-700">{d.conclusion}</div> : null}
+              {d.evidence.length > 0 && (
+                <ul className="text-[11px] text-gray-600 list-disc ml-4 mt-0.5 space-y-0.5">
+                  {d.evidence.map((e, j) => (
+                    <li key={`cre-${i}-${j}`}>{e}</li>
+                  ))}
+                </ul>
+              )}
+              {d.caveats.length > 0 && (
+                <ul className="text-[11px] text-amber-700 list-disc ml-4 mt-0.5 space-y-0.5">
+                  {d.caveats.map((c, j) => (
+                    <li key={`crc-${i}-${j}`}>{c}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {section.sources.length > 0 && (
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Supporting sources</div>
+          <ul className="text-xs text-gray-700 list-disc ml-4 space-y-0.5">
+            {section.sources.map((s, i) => (
+              <li key={`crs-${i}`}>
+                {s.url ? (
+                  <a href={s.url} target="_blank" rel="noreferrer" className="underline">{s.label}</a>
+                ) : (
+                  s.label
+                )}
+                {s.evidence_label ? ` — ${s.evidence_label}` : ""}
+                {s.review_state ? ` · ${s.review_state}` : ""}
+                {!s.committee_approved ? " (not committee-approved)" : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QualitativeAssessmentSection({ qa }: { qa: QualitativeAssessment | null }) {
   if (!qa) return null;
 
@@ -617,6 +739,76 @@ function QualitativeAssessmentSection({ qa }: { qa: QualitativeAssessment | null
 
 // ── Income Statement Table (transposed: metrics as rows, periods as columns) ──
 
+function BalanceSheetTable({ rows }: { rows: BalanceSheetRow[] }) {
+  if (!rows.length) {
+    return <div className="text-xs text-gray-400 italic mt-1">Pending — balance sheet data required.</div>;
+  }
+
+  const metrics: Array<{ label: string; key: keyof BalanceSheetRow; isBold?: boolean; isSection?: boolean }> = [
+    { label: "ASSETS", key: "period_end", isSection: true },
+    { label: "Cash & Equivalents", key: "cash_and_equivalents" },
+    { label: "Accounts Receivable", key: "accounts_receivable" },
+    { label: "Inventory", key: "inventory" },
+    { label: "Other Current Assets", key: "other_current_assets" },
+    { label: "Total Current Assets", key: "total_current_assets", isBold: true },
+    { label: "PP&E (Gross)", key: "ppe_gross" },
+    { label: "Accum. Depreciation", key: "accumulated_depreciation" },
+    { label: "PP&E (Net)", key: "ppe_net" },
+    { label: "Other Assets", key: "other_assets" },
+    { label: "Total Assets", key: "total_assets", isBold: true },
+    { label: "LIABILITIES", key: "period_end", isSection: true },
+    { label: "Accounts Payable", key: "accounts_payable" },
+    { label: "Other Current Liabilities", key: "other_current_liabilities" },
+    { label: "Total Current Liabilities", key: "total_current_liabilities", isBold: true },
+    { label: "Mortgages / Notes / Bonds", key: "mortgages_notes_bonds" },
+    { label: "Other Long-Term Liabilities", key: "other_long_term_liabilities" },
+    { label: "Total Liabilities", key: "total_liabilities", isBold: true },
+    { label: "EQUITY", key: "period_end", isSection: true },
+    { label: "Retained Earnings", key: "retained_earnings" },
+    { label: "Total Equity", key: "total_equity", isBold: true },
+    { label: "Liabilities + Equity", key: "liabilities_plus_equity", isBold: true },
+  ];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-xs mt-1">
+        <thead>
+          <tr>
+            <Th>Item</Th>
+            {rows.map((r) => (
+              <Th key={r.period_end} right>{r.period_end}</Th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {metrics.map((m, mi) => {
+            if (m.isSection) {
+              return (
+                <tr key={`section-${m.label}`} className="bg-gray-100">
+                  <td colSpan={rows.length + 1} className="text-xs border border-gray-200 px-2 py-1 font-semibold">{m.label}</td>
+                </tr>
+              );
+            }
+            return (
+              <tr key={m.key} className={mi % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <Td bold={m.isBold}>{m.label}</Td>
+                {rows.map((r) => {
+                  const val = r[m.key] as number | null;
+                  return (
+                    <Td key={r.period_end} right bold={m.isBold}>
+                      {fmt$(val)}
+                    </Td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
   if (!rows.length) {
     return <div className="text-xs text-gray-400 italic mt-1">Pending — spread financial data required.</div>;
@@ -675,15 +867,30 @@ function IncomeStatementTable({ rows }: { rows: IncomeStatementRow[] }) {
 export default function CanonicalMemoTemplate({
   memo,
   trace,
+  renderingSource,
 }: {
   memo: CanonicalCreditMemoV1;
   /** Phase 82: research_trace_json (optionally merged with section inference stats) */
   trace?: ResearchTrace | null;
+  /** Rendering source badge — "live" or snapshot info */
+  renderingSource?: { type: "live" } | { type: "frozen"; memoVersion: number } | null;
 }) {
   const km = memo.key_metrics;
 
   return (
     <div className="text-gray-900 font-sans max-w-[900px] mx-auto bg-white">
+
+      {/* ── RENDERING SOURCE BADGE ── */}
+      {renderingSource && (
+        <div className="mb-2 flex items-center gap-2 text-[10px] text-gray-400 font-mono print:hidden">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: renderingSource.type === "live" ? "#6366f1" : "#059669" }} />
+          {renderingSource.type === "live"
+            ? "Rendering source: live canonical builder"
+            : `Rendering source: frozen submitted snapshot v${renderingSource.memoVersion}`}
+          <span className="text-gray-300">|</span>
+          <span>Schema: florida_armory_v1</span>
+        </div>
+      )}
 
       {/* ── Phase 81: COMMITTEE CERTIFICATION BANNER ── */}
       {memo.certification && (
@@ -702,7 +909,7 @@ export default function CanonicalMemoTemplate({
               memo.certification.isCommitteeEligible ? "text-emerald-800" : memo.certification.trustGrade === "research_failed" ? "text-red-800" : "text-amber-800"
             }`}>
               {memo.certification.isCommitteeEligible
-                ? "Committee Certified"
+                ? (renderingSource?.type === "live" ? "Committee-Grade Draft — Ready for Banker Certification" : "Committee Certified")
                 : memo.certification.trustGrade === "research_failed"
                 ? "Blocked — Action Required"
                 : "Preliminary — Not Committee Eligible"}
@@ -764,11 +971,27 @@ export default function CanonicalMemoTemplate({
           <div>
             <div className="text-xs text-gray-500 uppercase tracking-wide">Borrower / Applicant</div>
             <div className="font-semibold">{memo.header.borrower_name}</div>
-            {memo.header.guarantors.length > 0 && (
+            {/* Elite: structured guarantor display */}
+            {memo.header.guarantor_details && memo.header.guarantor_details.length > 0 ? (
+              <div className="mt-1">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Guarantor(s)</div>
+                {memo.header.guarantor_details.map((g, i) => (
+                  <div key={i} className="text-xs text-gray-700">
+                    {g.name} — {g.role}{g.ownership_pct !== null ? `, ${g.ownership_pct}% Owner` : ""}
+                    {g.verification_status === "pending_verification" && (
+                      <span className="text-amber-600 text-[10px] ml-1">(verification pending)</span>
+                    )}
+                  </div>
+                ))}
+                {memo.header.pending_guarantor_items?.map((item, i) => (
+                  <div key={`pg-${i}`} className="text-[10px] text-amber-600 mt-0.5">{item}</div>
+                ))}
+              </div>
+            ) : memo.header.guarantors.length > 0 ? (
               <div className="text-xs text-gray-600 mt-0.5">
                 Guarantors: {memo.header.guarantors.join(", ")}
               </div>
-            )}
+            ) : null}
           </div>
           <div>
             <div className="text-xs text-gray-500 uppercase tracking-wide">Request</div>
@@ -776,6 +999,23 @@ export default function CanonicalMemoTemplate({
           </div>
         </div>
       </div>
+
+      {/* ── CREDIT OFFICER EXECUTIVE TAKEAWAY ── */}
+      {memo.executive_takeaway && memo.executive_takeaway.length > 0 && (
+        <div className="border-l-4 border-sky-600 bg-sky-50 p-4 mb-6">
+          <div className="text-xs font-bold uppercase tracking-wide text-sky-800 mb-2">Credit Officer Executive Takeaway</div>
+          <ul className="text-sm text-gray-800 space-y-1 list-disc ml-4">
+            {memo.executive_takeaway.map((bullet, i) => (
+              <li key={`et-${i}`}>{bullet}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── COMMITTEE READINESS AND EVIDENCE STATUS ──
+          BUGFIX-CANONICAL-MEMO-RENDER-COMMITTEE-READINESS-SECTION-1: render the
+          committee_readiness the memo already carries (null-guarded). */}
+      <CommitteeReadinessSection section={memo.committee_readiness} />
 
       {/* ── FINANCING REQUEST BOX ── */}
       <div className="border border-gray-300 p-4 mb-6 bg-gray-50">
@@ -797,19 +1037,35 @@ export default function CanonicalMemoTemplate({
 
         <div className="mt-3 grid grid-cols-4 gap-3">
           {[
-            { label: "DSCR (UW)", val: fmtRatio(km.dscr_uw.value), src: km.dscr_uw.source },
-            { label: "DSCR (Stressed)", val: fmtRatio(km.dscr_stressed.value), src: km.dscr_stressed.source },
-            { label: "LTV Gross", val: km.ltv_gross.value !== null ? fmtPct01(km.ltv_gross.value) : "—", src: km.ltv_gross.source },
-            { label: "Discounted Cov.", val: fmtRatio(km.discounted_coverage.value), src: km.discounted_coverage.source },
+            // SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: surface a preliminary caveat when
+            // the DSCR denominator is not yet committee-final.
+            {
+              label: "DSCR (UW)",
+              val: fmtRatio(km.dscr_uw.value),
+              src: km.dscr_uw.source,
+              preliminary: km.dscr_uw.preliminary === true,
+              caveat: km.dscr_uw.caveat ?? null,
+            },
+            { label: "DSCR (Stressed)", val: fmtRatio(km.dscr_stressed.value), src: km.dscr_stressed.source, preliminary: false, caveat: null },
+            { label: "LTV Gross", val: km.ltv_gross.value !== null ? fmtPct(km.ltv_gross.value) : "—", src: km.ltv_gross.source, preliminary: false, caveat: null },
+            { label: "Discounted Cov.", val: fmtRatio(km.discounted_coverage.value), src: km.discounted_coverage.source, preliminary: false, caveat: null },
           ].map((kpi) => (
-            <div key={kpi.label} className="border border-gray-200 bg-white rounded p-2 text-center">
-              <div className="text-[10px] text-gray-500 uppercase">{kpi.label}</div>
-              <div className="text-base font-bold mt-0.5">{kpi.val}</div>
-              <div className="text-[9px] text-gray-400 truncate">{kpi.src}</div>
-            </div>
+            <MetricKpiCard key={kpi.label} {...kpi} />
           ))}
         </div>
       </div>
+
+      {/* ── BANKER CONTEXT (ACTIVATION) ── */}
+      {memo.banker_context?.banker_notes && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 mb-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">
+            Banker Context
+          </div>
+          <div className="text-sm text-gray-800 whitespace-pre-wrap">
+            {memo.banker_context.banker_notes}
+          </div>
+        </div>
+      )}
 
       {/* ── DEAL SUMMARY / PURPOSE ── */}
       <SectionHeader>Deal Summary / Purpose</SectionHeader>
@@ -856,7 +1112,7 @@ export default function CanonicalMemoTemplate({
         </table>
         <div className="text-xs text-gray-500 mt-1">
           Equity Source: {memo.sources_uses.equity_source_description} &nbsp;|&nbsp;
-          Borrower Equity: {memo.sources_uses.borrower_equity_pct.value !== null ? fmtPct01(memo.sources_uses.borrower_equity_pct.value) : "—"}
+          Borrower Equity: {memo.sources_uses.borrower_equity_pct.value !== null ? fmtPct(memo.sources_uses.borrower_equity_pct.value) : "—"}
         </div>
       </div>
 
@@ -915,8 +1171,8 @@ export default function CanonicalMemoTemplate({
       <div className="mt-2 grid grid-cols-3 gap-4 text-xs">
         <div><span className="text-gray-500">Loan Amount:</span> <span className="font-medium">{fmt$(memo.collateral.loan_amount)}</span></div>
         <div><span className="text-gray-500">Discounted Coverage:</span> <span className="font-medium">{fmtRatio(memo.collateral.discounted_coverage.value)}</span></div>
-        <div><span className="text-gray-500">LTV Gross:</span> <span className="font-medium">{memo.collateral.ltv_gross.value !== null ? fmtPct01(memo.collateral.ltv_gross.value) : "—"}</span></div>
-        <div><span className="text-gray-500">LTV Net:</span> <span className="font-medium">{memo.collateral.ltv_net.value !== null ? fmtPct01(memo.collateral.ltv_net.value) : "—"}</span></div>
+        <div><span className="text-gray-500">LTV Gross:</span> <span className="font-medium">{memo.collateral.ltv_gross.value !== null ? fmtPct(memo.collateral.ltv_gross.value) : "—"}</span></div>
+        <div><span className="text-gray-500">LTV Net:</span> <span className="font-medium">{memo.collateral.ltv_net.value !== null ? fmtPct(memo.collateral.ltv_net.value) : "—"}</span></div>
         <div><span className="text-gray-500">As-Is Value:</span> <span className="font-medium">{fmt$(memo.collateral.valuation.as_is.value)}</span></div>
         <div><span className="text-gray-500">Stabilized Value:</span> <span className="font-medium">{fmt$(memo.collateral.valuation.stabilized.value)}</span></div>
       </div>
@@ -926,6 +1182,56 @@ export default function CanonicalMemoTemplate({
           <span className="font-semibold">Life Insurance Required:</span>{" "}
           {memo.collateral.life_insurance_amount !== null ? fmt$(memo.collateral.life_insurance_amount) : "Required"} on{" "}
           {memo.collateral.life_insurance_insured ?? "principal guarantor"}
+        </div>
+      )}
+
+      {/* ── AR / BORROWING BASE ── */}
+      {memo.collateral.ar_borrowing_base && (
+        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-800 mb-2">
+            AR Borrowing Base Analysis
+            {memo.collateral.ar_borrowing_base.as_of_date && (
+              <span className="ml-1 font-normal text-blue-600">
+                {" — "}as of {memo.collateral.ar_borrowing_base.as_of_date}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+            <div><span className="text-gray-500">Total AR:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.total_ar)}</span></div>
+            <div><span className="text-gray-500">Eligible AR:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.eligible_ar)}</span></div>
+            <div><span className="text-gray-500">Ineligible AR:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.ineligible_ar)}</span></div>
+            <div><span className="text-gray-500">Advance Rate:</span> <span className="font-medium">{memo.collateral.ar_borrowing_base.advance_rate !== null ? `${(memo.collateral.ar_borrowing_base.advance_rate * 100).toFixed(0)}%` : "—"}</span></div>
+            <div><span className="text-gray-500">Borrowing Base Value:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.borrowing_base_value)}</span></div>
+            <div><span className="text-gray-500">Net Availability:</span> <span className="font-medium">{fmt$(memo.collateral.ar_borrowing_base.borrowing_base_availability)}</span></div>
+          </div>
+
+          {memo.collateral.ar_borrowing_base.aging_buckets.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr className="bg-blue-100">
+                    <th className="border border-blue-200 px-2 py-1 text-left font-semibold">Aging Bucket</th>
+                    <th className="border border-blue-200 px-2 py-1 text-right font-semibold">Amount</th>
+                    <th className="border border-blue-200 px-2 py-1 text-right font-semibold">% of Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {memo.collateral.ar_borrowing_base.aging_buckets.map((b, i) => (
+                    <tr key={`ar-${i}`} className={i % 2 === 0 ? "bg-white" : "bg-blue-50/50"}>
+                      <td className="border border-blue-200 px-2 py-1">{b.bucket}</td>
+                      <td className="border border-blue-200 px-2 py-1 text-right">{fmt$(b.amount)}</td>
+                      <td className="border border-blue-200 px-2 py-1 text-right">{b.pct_of_total !== null ? `${b.pct_of_total.toFixed(1)}%` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-2 text-xs text-gray-700">
+            {memo.collateral.ar_borrowing_base.collateral_coverage_narrative}
+          </div>
         </div>
       )}
 
@@ -1155,6 +1461,18 @@ export default function CanonicalMemoTemplate({
               <> — compiled {memo.business_industry_analysis.research_coverage.compiled_at.slice(0, 10)}</>
             )}
           </div>
+
+          {/* Elite: Industry Risk & Borrower Positioning */}
+          {memo.business_industry_analysis.industry_risk_positioning && (
+            <div className="mt-4 border-l-4 border-indigo-400 pl-3 py-1">
+              <div className="text-xs font-semibold text-indigo-700 mb-1 uppercase tracking-wide">
+                Industry Risk & Borrower Positioning
+              </div>
+              <div className="text-sm text-gray-800 leading-5 whitespace-pre-wrap">
+                {memo.business_industry_analysis.industry_risk_positioning}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-xs text-gray-400 italic mt-2">Industry analysis pending — click Run Research to populate.</div>
@@ -1201,7 +1519,11 @@ export default function CanonicalMemoTemplate({
         <div><span className="font-semibold">Exhibit A</span> — Debt Coverage Analysis (DSCR)</div>
         <div><span className="font-semibold">Exhibit B</span> — Income Statement Summary</div>
         <div><span className="font-semibold">Exhibit C</span> — Balance Sheet</div>
-        <div><span className="font-semibold">Exhibit D</span> — Global Cash Flow</div>
+        <div><span className="font-semibold">Exhibit D</span> — {
+          memo.global_cash_flow.gcf_status === "formal_complete" ? "Global Cash Flow"
+          : memo.global_cash_flow.gcf_status === "pending_pfs" ? "Global Cash Flow & Guarantor Support — Pending PFS"
+          : "Global Cash Flow & Guarantor Support"
+        }</div>
         {(memo.personal_financial_statements?.length ?? 0) > 0 && (
           <div><span className="font-semibold">Exhibit E</span> — Personal Financial Statements</div>
         )}
@@ -1243,9 +1565,10 @@ export default function CanonicalMemoTemplate({
         </table>
       </div>
 
-      {/* Global CF Table */}
-      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Global Cash Flow Summary</div>
+      {/* ── GLOBAL CASH FLOW & GUARANTOR SUPPORT ── */}
       {memo.global_cash_flow.global_cf_table.length > 0 ? (
+        <>
+        <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Global Cash Flow Summary</div>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs">
             <thead>
@@ -1281,25 +1604,115 @@ export default function CanonicalMemoTemplate({
             </tbody>
           </table>
         </div>
+        </>
+      ) : memo.global_cash_flow.gcf_status === "pending_pfs" ? (
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-gray-700 mb-1">Global Cash Flow & Guarantor Support — Pending</div>
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+            Guarantor PFS / personal income information required to complete global cash flow analysis.
+          </div>
+        </div>
       ) : (
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          {[
-            { label: "Global Cash Flow", val: fmtRatio(memo.global_cash_flow.global_dscr.value), sub: "DSCR" },
-            { label: "Cash Available", val: fmt$(memo.global_cash_flow.cash_available.value), sub: memo.global_cash_flow.cash_available.source },
-            { label: "Total Obligations", val: fmt$(memo.global_cash_flow.total_obligations.value), sub: memo.global_cash_flow.total_obligations.source },
-          ].map((kpi) => (
-            <div key={kpi.label} className="border border-gray-200 rounded p-2 text-center">
-              <div className="text-[10px] text-gray-500 uppercase">{kpi.label}</div>
-              <div className="text-sm font-semibold mt-0.5">{kpi.val}</div>
-              <div className="text-[9px] text-gray-400 truncate">{kpi.sub}</div>
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-gray-700 mb-2">Global Cash Flow & Guarantor Support</div>
+
+          {/* Explanatory intro */}
+          <div className="text-sm text-gray-700 mb-3">
+            Formal global cash flow exhibit is incomplete because recurring personal obligations, living expenses, and contingent liabilities are not fully populated. Buddy evaluates repayment using verified borrower cash flow together with available guarantor PFS support.
+          </div>
+
+          {/* Business Repayment Capacity */}
+          <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Business Repayment Capacity</div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-sm mb-3 ml-2">
+            {memo.financial_analysis.cash_flow_available.value !== null && (
+              <div><span className="text-gray-500">Borrower CFADS:</span> <span className="font-medium">{fmt$(memo.financial_analysis.cash_flow_available.value)}</span></div>
+            )}
+            {memo.financial_analysis.debt_service.value !== null && (
+              <div><span className="text-gray-500">Proposed ADS:</span> <span className="font-medium">{fmt$(memo.financial_analysis.debt_service.value)}</span></div>
+            )}
+            {memo.financial_analysis.dscr.value !== null && (
+              <div><span className="text-gray-500">UW DSCR:</span> <span className="font-medium">{memo.financial_analysis.dscr.value.toFixed(2)}x</span></div>
+            )}
+            {memo.financial_analysis.dscr_stressed.value !== null && (
+              <div><span className="text-gray-500">Stressed DSCR:</span> <span className="font-medium">{memo.financial_analysis.dscr_stressed.value.toFixed(2)}x</span></div>
+            )}
+          </div>
+
+          {/* Guarantor Support */}
+          {memo.global_cash_flow.guarantor_support && (
+            <>
+            <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Guarantor Support</div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-sm mb-3 ml-2">
+              {memo.global_cash_flow.guarantor_support.guarantor_name && (
+                <div><span className="text-gray-500">Guarantor:</span> <span className="font-medium">{memo.global_cash_flow.guarantor_support.guarantor_name}</span></div>
+              )}
+              {/* Income — show reconciliation when multiple sources exist */}
+              {memo.global_cash_flow.guarantor_support.income_reconciliation?.alternate_income_values?.length
+                ? memo.global_cash_flow.guarantor_support.income_reconciliation.alternate_income_values.map((iv, idx) => (
+                    <div key={`inc-${idx}`}>
+                      <span className="text-gray-500">{iv.label}:</span>{" "}
+                      <span className="font-medium">{fmt$(iv.value)}</span>
+                      {memo.global_cash_flow.guarantor_support!.income_reconciliation!.warning_level === "warning" && idx === 0 && (
+                        <span className="text-amber-600 text-[10px] ml-1">{" "}(material difference — reconcile)</span>
+                      )}
+                    </div>
+                  ))
+                : memo.global_cash_flow.guarantor_support.annual_personal_income !== null && (
+                    <div><span className="text-gray-500">Annual personal income:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.annual_personal_income)}</span></div>
+                  )
+              }
+              {memo.global_cash_flow.guarantor_support.total_assets !== null && (
+                <div><span className="text-gray-500">Total assets:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.total_assets)}</span></div>
+              )}
+              {memo.global_cash_flow.guarantor_support.total_liabilities !== null && (
+                <div><span className="text-gray-500">Total liabilities:</span> <span className="font-medium">{fmt$(memo.global_cash_flow.guarantor_support.total_liabilities)}</span></div>
+              )}
+              {memo.global_cash_flow.guarantor_support.net_worth !== null && (
+                <div><span className="text-gray-500">Net worth:</span> <span className="font-semibold">{fmt$(memo.global_cash_flow.guarantor_support.net_worth)}</span></div>
+              )}
             </div>
-          ))}
+
+            {/* Known Limitations */}
+            {memo.global_cash_flow.guarantor_support.known_limitations.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Known Limitations</div>
+                <ul className="text-sm text-gray-700 list-disc ml-6 space-y-0.5">
+                  {memo.global_cash_flow.guarantor_support.known_limitations.map((lim, i) => (
+                    <li key={`lim-${i}`}>{lim}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Credit View */}
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Credit View</div>
+              <div className="text-sm text-gray-700">{memo.global_cash_flow.guarantor_support.credit_view}</div>
+            </div>
+
+            {/* Required Follow-up */}
+            {memo.global_cash_flow.guarantor_support.required_follow_up.length > 0 && (
+              <div className="bg-gray-50 border border-gray-200 rounded p-2">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Required Follow-up / Condition</div>
+                <ul className="text-sm text-gray-700 list-disc ml-6 space-y-0.5">
+                  {memo.global_cash_flow.guarantor_support.required_follow_up.map((fu, i) => (
+                    <li key={`fu-${i}`}>{fu}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            </>
+          )}
         </div>
       )}
 
       {/* Income Statement Table */}
       <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Exhibit B — Income Statement (Multi-Period)</div>
       <IncomeStatementTable rows={memo.financial_analysis.income_statement_table} />
+
+      {/* Balance Sheet Table */}
+      <div className="mt-4 text-xs font-semibold text-gray-700 mb-1">Exhibit C — Balance Sheet (Multi-Period)</div>
+      <BalanceSheetTable rows={memo.financial_analysis.balance_sheet_table} />
 
       {/* Phase 88: Institutional Ratio Suite — categorized with interpretation */}
       <RatioSuiteSection rows={memo.financial_analysis.ratio_analysis} />

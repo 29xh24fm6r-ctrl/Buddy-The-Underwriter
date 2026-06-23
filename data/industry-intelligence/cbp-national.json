@@ -1,0 +1,6799 @@
+{
+  "source_name": "Census County Business Patterns",
+  "source_url": "https://www2.census.gov/programs-surveys/cbp/datasets/2021/cbp21us.zip",
+  "source_vintage": "2021",
+  "ingested_at": "2026-05-22T19:34:16.055Z",
+  "row_count": 970,
+  "entries": [
+    {
+      "naics": "113110",
+      "establishments": 482,
+      "employment": 3583,
+      "annual_payroll_thousands": 237211,
+      "avg_payroll_per_employee": 66205
+    },
+    {
+      "naics": "113210",
+      "establishments": 195,
+      "employment": 920,
+      "annual_payroll_thousands": 48103,
+      "avg_payroll_per_employee": 52286
+    },
+    {
+      "naics": "113310",
+      "establishments": 7572,
+      "employment": 45129,
+      "annual_payroll_thousands": 2356534,
+      "avg_payroll_per_employee": 52218
+    },
+    {
+      "naics": "114111",
+      "establishments": 1516,
+      "employment": 3105,
+      "annual_payroll_thousands": 274188,
+      "avg_payroll_per_employee": 88305
+    },
+    {
+      "naics": "114112",
+      "establishments": 1008,
+      "employment": 1698,
+      "annual_payroll_thousands": 107914,
+      "avg_payroll_per_employee": 63554
+    },
+    {
+      "naics": "114119",
+      "establishments": 105,
+      "employment": 257,
+      "annual_payroll_thousands": 24903,
+      "avg_payroll_per_employee": 96899
+    },
+    {
+      "naics": "114210",
+      "establishments": 398,
+      "employment": 1851,
+      "annual_payroll_thousands": 77175,
+      "avg_payroll_per_employee": 41694
+    },
+    {
+      "naics": "115111",
+      "establishments": 200,
+      "employment": 2456,
+      "annual_payroll_thousands": 127447,
+      "avg_payroll_per_employee": 51892
+    },
+    {
+      "naics": "115112",
+      "establishments": 2242,
+      "employment": 11963,
+      "annual_payroll_thousands": 673883,
+      "avg_payroll_per_employee": 56331
+    },
+    {
+      "naics": "115113",
+      "establishments": 353,
+      "employment": 3238,
+      "annual_payroll_thousands": 169516,
+      "avg_payroll_per_employee": 52352
+    },
+    {
+      "naics": "115114",
+      "establishments": 1157,
+      "employment": 33279,
+      "annual_payroll_thousands": 1607110,
+      "avg_payroll_per_employee": 48292
+    },
+    {
+      "naics": "115115",
+      "establishments": 604,
+      "employment": 16566,
+      "annual_payroll_thousands": 682175,
+      "avg_payroll_per_employee": 41179
+    },
+    {
+      "naics": "115116",
+      "establishments": 705,
+      "employment": 6020,
+      "annual_payroll_thousands": 361819,
+      "avg_payroll_per_employee": 60103
+    },
+    {
+      "naics": "115210",
+      "establishments": 4851,
+      "employment": 21334,
+      "annual_payroll_thousands": 888769,
+      "avg_payroll_per_employee": 41660
+    },
+    {
+      "naics": "115310",
+      "establishments": 1920,
+      "employment": 14289,
+      "annual_payroll_thousands": 882899,
+      "avg_payroll_per_employee": 61789
+    },
+    {
+      "naics": "211120",
+      "establishments": 4127,
+      "employment": 59985,
+      "annual_payroll_thousands": 9293187,
+      "avg_payroll_per_employee": 154925
+    },
+    {
+      "naics": "211130",
+      "establishments": 1317,
+      "employment": 28547,
+      "annual_payroll_thousands": 3871360,
+      "avg_payroll_per_employee": 135614
+    },
+    {
+      "naics": "212111",
+      "establishments": 257,
+      "employment": 14821,
+      "annual_payroll_thousands": 1343313,
+      "avg_payroll_per_employee": 90636
+    },
+    {
+      "naics": "212112",
+      "establishments": 192,
+      "employment": 21421,
+      "annual_payroll_thousands": 1859330,
+      "avg_payroll_per_employee": 86799
+    },
+    {
+      "naics": "212113",
+      "establishments": 59,
+      "employment": 916,
+      "annual_payroll_thousands": 58767,
+      "avg_payroll_per_employee": 64156
+    },
+    {
+      "naics": "212210",
+      "establishments": 26,
+      "employment": 4793,
+      "annual_payroll_thousands": 489654,
+      "avg_payroll_per_employee": 102160
+    },
+    {
+      "naics": "212221",
+      "establishments": 175,
+      "employment": 14797,
+      "annual_payroll_thousands": 1583532,
+      "avg_payroll_per_employee": 107017
+    },
+    {
+      "naics": "212222",
+      "establishments": 9,
+      "employment": 1202,
+      "annual_payroll_thousands": 136571,
+      "avg_payroll_per_employee": 113620
+    },
+    {
+      "naics": "212230",
+      "establishments": 59,
+      "employment": 16469,
+      "annual_payroll_thousands": 1340423,
+      "avg_payroll_per_employee": 81391
+    },
+    {
+      "naics": "212291",
+      "establishments": 18,
+      "employment": 211,
+      "annual_payroll_thousands": 25273,
+      "avg_payroll_per_employee": 119777
+    },
+    {
+      "naics": "212299",
+      "establishments": 32,
+      "employment": 3068,
+      "annual_payroll_thousands": 345510,
+      "avg_payroll_per_employee": 112617
+    },
+    {
+      "naics": "212311",
+      "establishments": 294,
+      "employment": 3351,
+      "annual_payroll_thousands": 183140,
+      "avg_payroll_per_employee": 54652
+    },
+    {
+      "naics": "212312",
+      "establishments": 1422,
+      "employment": 25527,
+      "annual_payroll_thousands": 1801453,
+      "avg_payroll_per_employee": 70570
+    },
+    {
+      "naics": "212313",
+      "establishments": 282,
+      "employment": 5621,
+      "annual_payroll_thousands": 444117,
+      "avg_payroll_per_employee": 79010
+    },
+    {
+      "naics": "212319",
+      "establishments": 380,
+      "employment": 6911,
+      "annual_payroll_thousands": 534042,
+      "avg_payroll_per_employee": 77274
+    },
+    {
+      "naics": "212321",
+      "establishments": 2086,
+      "employment": 22575,
+      "annual_payroll_thousands": 1607105,
+      "avg_payroll_per_employee": 71190
+    },
+    {
+      "naics": "212322",
+      "establishments": 188,
+      "employment": 5376,
+      "annual_payroll_thousands": 388690,
+      "avg_payroll_per_employee": 72301
+    },
+    {
+      "naics": "212324",
+      "establishments": 25,
+      "employment": 1848,
+      "annual_payroll_thousands": 142980,
+      "avg_payroll_per_employee": 77370
+    },
+    {
+      "naics": "212325",
+      "establishments": 95,
+      "employment": 2238,
+      "annual_payroll_thousands": 128946,
+      "avg_payroll_per_employee": 57617
+    },
+    {
+      "naics": "212391",
+      "establishments": 20,
+      "employment": 3077,
+      "annual_payroll_thousands": 339403,
+      "avg_payroll_per_employee": 110303
+    },
+    {
+      "naics": "212392",
+      "establishments": 8,
+      "employment": 1249,
+      "annual_payroll_thousands": 115383,
+      "avg_payroll_per_employee": 92380
+    },
+    {
+      "naics": "212393",
+      "establishments": 45,
+      "employment": 2618,
+      "annual_payroll_thousands": 229210,
+      "avg_payroll_per_employee": 87552
+    },
+    {
+      "naics": "212399",
+      "establishments": 159,
+      "employment": 2712,
+      "annual_payroll_thousands": 184535,
+      "avg_payroll_per_employee": 68044
+    },
+    {
+      "naics": "213111",
+      "establishments": 1987,
+      "employment": 46027,
+      "annual_payroll_thousands": 4374856,
+      "avg_payroll_per_employee": 95050
+    },
+    {
+      "naics": "213112",
+      "establishments": 9185,
+      "employment": 169902,
+      "annual_payroll_thousands": 15795466,
+      "avg_payroll_per_employee": 92968
+    },
+    {
+      "naics": "213113",
+      "establishments": 184,
+      "employment": 3292,
+      "annual_payroll_thousands": 279760,
+      "avg_payroll_per_employee": 84982
+    },
+    {
+      "naics": "213114",
+      "establishments": 216,
+      "employment": 3934,
+      "annual_payroll_thousands": 457340,
+      "avg_payroll_per_employee": 116253
+    },
+    {
+      "naics": "213115",
+      "establishments": 201,
+      "employment": 2389,
+      "annual_payroll_thousands": 177322,
+      "avg_payroll_per_employee": 74224
+    },
+    {
+      "naics": "221111",
+      "establishments": 555,
+      "employment": 4582,
+      "annual_payroll_thousands": 483955,
+      "avg_payroll_per_employee": 105621
+    },
+    {
+      "naics": "221112",
+      "establishments": 1783,
+      "employment": 63653,
+      "annual_payroll_thousands": 8076030,
+      "avg_payroll_per_employee": 126876
+    },
+    {
+      "naics": "221113",
+      "establishments": 175,
+      "employment": 40144,
+      "annual_payroll_thousands": 5352173,
+      "avg_payroll_per_employee": 133324
+    },
+    {
+      "naics": "221114",
+      "establishments": 460,
+      "employment": 4811,
+      "annual_payroll_thousands": 619749,
+      "avg_payroll_per_employee": 128819
+    },
+    {
+      "naics": "221115",
+      "establishments": 611,
+      "employment": 7644,
+      "annual_payroll_thousands": 1014344,
+      "avg_payroll_per_employee": 132698
+    },
+    {
+      "naics": "221116",
+      "establishments": 36,
+      "employment": 1310,
+      "annual_payroll_thousands": 154770,
+      "avg_payroll_per_employee": 118145
+    },
+    {
+      "naics": "221117",
+      "establishments": 110,
+      "employment": 1942,
+      "annual_payroll_thousands": 189354,
+      "avg_payroll_per_employee": 97505
+    },
+    {
+      "naics": "221118",
+      "establishments": 126,
+      "employment": 446,
+      "annual_payroll_thousands": 52348,
+      "avg_payroll_per_employee": 117372
+    },
+    {
+      "naics": "221121",
+      "establishments": 335,
+      "employment": 16205,
+      "annual_payroll_thousands": 2220198,
+      "avg_payroll_per_employee": 137007
+    },
+    {
+      "naics": "221122",
+      "establishments": 8290,
+      "employment": 356638,
+      "annual_payroll_thousands": 43725750,
+      "avg_payroll_per_employee": 122605
+    },
+    {
+      "naics": "221210",
+      "establishments": 2441,
+      "employment": 89775,
+      "annual_payroll_thousands": 9682205,
+      "avg_payroll_per_employee": 107850
+    },
+    {
+      "naics": "221310",
+      "establishments": 4338,
+      "employment": 39514,
+      "annual_payroll_thousands": 2745311,
+      "avg_payroll_per_employee": 69477
+    },
+    {
+      "naics": "221320",
+      "establishments": 545,
+      "employment": 5775,
+      "annual_payroll_thousands": 352926,
+      "avg_payroll_per_employee": 61113
+    },
+    {
+      "naics": "221330",
+      "establishments": 91,
+      "employment": 1299,
+      "annual_payroll_thousands": 131894,
+      "avg_payroll_per_employee": 101535
+    },
+    {
+      "naics": "236115",
+      "establishments": 58031,
+      "employment": 220809,
+      "annual_payroll_thousands": 13275933,
+      "avg_payroll_per_employee": 60124
+    },
+    {
+      "naics": "236116",
+      "establishments": 3662,
+      "employment": 47582,
+      "annual_payroll_thousands": 4581851,
+      "avg_payroll_per_employee": 96294
+    },
+    {
+      "naics": "236117",
+      "establishments": 12535,
+      "employment": 122057,
+      "annual_payroll_thousands": 13166600,
+      "avg_payroll_per_employee": 107873
+    },
+    {
+      "naics": "236118",
+      "establishments": 127824,
+      "employment": 424819,
+      "annual_payroll_thousands": 22222166,
+      "avg_payroll_per_employee": 52310
+    },
+    {
+      "naics": "236210",
+      "establishments": 3172,
+      "employment": 69225,
+      "annual_payroll_thousands": 5749581,
+      "avg_payroll_per_employee": 83056
+    },
+    {
+      "naics": "236220",
+      "establishments": 39003,
+      "employment": 602241,
+      "annual_payroll_thousands": 52187994,
+      "avg_payroll_per_employee": 86656
+    },
+    {
+      "naics": "237110",
+      "establishments": 10742,
+      "employment": 157066,
+      "annual_payroll_thousands": 11674372,
+      "avg_payroll_per_employee": 74328
+    },
+    {
+      "naics": "237120",
+      "establishments": 2172,
+      "employment": 173515,
+      "annual_payroll_thousands": 14139080,
+      "avg_payroll_per_employee": 81486
+    },
+    {
+      "naics": "237130",
+      "establishments": 6608,
+      "employment": 252342,
+      "annual_payroll_thousands": 21515625,
+      "avg_payroll_per_employee": 85264
+    },
+    {
+      "naics": "237210",
+      "establishments": 4655,
+      "employment": 21736,
+      "annual_payroll_thousands": 2004922,
+      "avg_payroll_per_employee": 92240
+    },
+    {
+      "naics": "237310",
+      "establishments": 9465,
+      "employment": 302777,
+      "annual_payroll_thousands": 26647638,
+      "avg_payroll_per_employee": 88011
+    },
+    {
+      "naics": "237990",
+      "establishments": 4513,
+      "employment": 78991,
+      "annual_payroll_thousands": 6580286,
+      "avg_payroll_per_employee": 83304
+    },
+    {
+      "naics": "238110",
+      "establishments": 22237,
+      "employment": 245572,
+      "annual_payroll_thousands": 15668726,
+      "avg_payroll_per_employee": 63805
+    },
+    {
+      "naics": "238120",
+      "establishments": 3839,
+      "employment": 78255,
+      "annual_payroll_thousands": 5300806,
+      "avg_payroll_per_employee": 67738
+    },
+    {
+      "naics": "238130",
+      "establishments": 12224,
+      "employment": 86648,
+      "annual_payroll_thousands": 4392609,
+      "avg_payroll_per_employee": 50695
+    },
+    {
+      "naics": "238140",
+      "establishments": 18457,
+      "employment": 138767,
+      "annual_payroll_thousands": 7818658,
+      "avg_payroll_per_employee": 56344
+    },
+    {
+      "naics": "238150",
+      "establishments": 6630,
+      "employment": 65913,
+      "annual_payroll_thousands": 4165093,
+      "avg_payroll_per_employee": 63191
+    },
+    {
+      "naics": "238160",
+      "establishments": 23690,
+      "employment": 201727,
+      "annual_payroll_thousands": 12086469,
+      "avg_payroll_per_employee": 59915
+    },
+    {
+      "naics": "238170",
+      "establishments": 8954,
+      "employment": 40031,
+      "annual_payroll_thousands": 2162250,
+      "avg_payroll_per_employee": 54014
+    },
+    {
+      "naics": "238190",
+      "establishments": 6106,
+      "employment": 48569,
+      "annual_payroll_thousands": 3024474,
+      "avg_payroll_per_employee": 62272
+    },
+    {
+      "naics": "238210",
+      "establishments": 79292,
+      "employment": 909447,
+      "annual_payroll_thousands": 62736043,
+      "avg_payroll_per_employee": 68983
+    },
+    {
+      "naics": "238220",
+      "establishments": 106854,
+      "employment": 1124239,
+      "annual_payroll_thousands": 75281825,
+      "avg_payroll_per_employee": 66962
+    },
+    {
+      "naics": "238290",
+      "establishments": 7848,
+      "employment": 139415,
+      "annual_payroll_thousands": 11551767,
+      "avg_payroll_per_employee": 82859
+    },
+    {
+      "naics": "238310",
+      "establishments": 19986,
+      "employment": 256691,
+      "annual_payroll_thousands": 15174814,
+      "avg_payroll_per_employee": 59117
+    },
+    {
+      "naics": "238320",
+      "establishments": 37210,
+      "employment": 190949,
+      "annual_payroll_thousands": 9606598,
+      "avg_payroll_per_employee": 50310
+    },
+    {
+      "naics": "238330",
+      "establishments": 17640,
+      "employment": 82715,
+      "annual_payroll_thousands": 4580903,
+      "avg_payroll_per_employee": 55382
+    },
+    {
+      "naics": "238340",
+      "establishments": 10502,
+      "employment": 58366,
+      "annual_payroll_thousands": 3147756,
+      "avg_payroll_per_employee": 53931
+    },
+    {
+      "naics": "238350",
+      "establishments": 31866,
+      "employment": 161844,
+      "annual_payroll_thousands": 8868773,
+      "avg_payroll_per_employee": 54798
+    },
+    {
+      "naics": "238390",
+      "establishments": 7749,
+      "employment": 70943,
+      "annual_payroll_thousands": 4230263,
+      "avg_payroll_per_employee": 59629
+    },
+    {
+      "naics": "238910",
+      "establishments": 38839,
+      "employment": 413063,
+      "annual_payroll_thousands": 28518720,
+      "avg_payroll_per_employee": 69042
+    },
+    {
+      "naics": "238990",
+      "establishments": 37952,
+      "employment": 275708,
+      "annual_payroll_thousands": 17452249,
+      "avg_payroll_per_employee": 63300
+    },
+    {
+      "naics": "311111",
+      "establishments": 421,
+      "employment": 26316,
+      "annual_payroll_thousands": 1789414,
+      "avg_payroll_per_employee": 67997
+    },
+    {
+      "naics": "311119",
+      "establishments": 1421,
+      "employment": 31099,
+      "annual_payroll_thousands": 1849432,
+      "avg_payroll_per_employee": 59469
+    },
+    {
+      "naics": "311211",
+      "establishments": 338,
+      "employment": 13887,
+      "annual_payroll_thousands": 900621,
+      "avg_payroll_per_employee": 64854
+    },
+    {
+      "naics": "311212",
+      "establishments": 85,
+      "employment": 5334,
+      "annual_payroll_thousands": 287909,
+      "avg_payroll_per_employee": 53976
+    },
+    {
+      "naics": "311213",
+      "establishments": 38,
+      "employment": 833,
+      "annual_payroll_thousands": 60854,
+      "avg_payroll_per_employee": 73054
+    },
+    {
+      "naics": "311221",
+      "establishments": 71,
+      "employment": 7390,
+      "annual_payroll_thousands": 749003,
+      "avg_payroll_per_employee": 101354
+    },
+    {
+      "naics": "311224",
+      "establishments": 185,
+      "employment": 9166,
+      "annual_payroll_thousands": 693506,
+      "avg_payroll_per_employee": 75661
+    },
+    {
+      "naics": "311225",
+      "establishments": 110,
+      "employment": 9075,
+      "annual_payroll_thousands": 448251,
+      "avg_payroll_per_employee": 49394
+    },
+    {
+      "naics": "311230",
+      "establishments": 94,
+      "employment": 11920,
+      "annual_payroll_thousands": 863736,
+      "avg_payroll_per_employee": 72461
+    },
+    {
+      "naics": "311313",
+      "establishments": 33,
+      "employment": 7243,
+      "annual_payroll_thousands": 431356,
+      "avg_payroll_per_employee": 59555
+    },
+    {
+      "naics": "311314",
+      "establishments": 56,
+      "employment": 6774,
+      "annual_payroll_thousands": 549171,
+      "avg_payroll_per_employee": 81070
+    },
+    {
+      "naics": "311340",
+      "establishments": 526,
+      "employment": 25288,
+      "annual_payroll_thousands": 1494653,
+      "avg_payroll_per_employee": 59105
+    },
+    {
+      "naics": "311351",
+      "establishments": 255,
+      "employment": 11664,
+      "annual_payroll_thousands": 715244,
+      "avg_payroll_per_employee": 61321
+    },
+    {
+      "naics": "311352",
+      "establishments": 992,
+      "employment": 31185,
+      "annual_payroll_thousands": 1466944,
+      "avg_payroll_per_employee": 47040
+    },
+    {
+      "naics": "311411",
+      "establishments": 207,
+      "employment": 28457,
+      "annual_payroll_thousands": 1457996,
+      "avg_payroll_per_employee": 51235
+    },
+    {
+      "naics": "311412",
+      "establishments": 520,
+      "employment": 61496,
+      "annual_payroll_thousands": 3086193,
+      "avg_payroll_per_employee": 50185
+    },
+    {
+      "naics": "311421",
+      "establishments": 819,
+      "employment": 46853,
+      "annual_payroll_thousands": 2826234,
+      "avg_payroll_per_employee": 60321
+    },
+    {
+      "naics": "311422",
+      "establishments": 125,
+      "employment": 9784,
+      "annual_payroll_thousands": 622697,
+      "avg_payroll_per_employee": 63644
+    },
+    {
+      "naics": "311423",
+      "establishments": 252,
+      "employment": 16609,
+      "annual_payroll_thousands": 884113,
+      "avg_payroll_per_employee": 53231
+    },
+    {
+      "naics": "311511",
+      "establishments": 420,
+      "employment": 55279,
+      "annual_payroll_thousands": 3609139,
+      "avg_payroll_per_employee": 65290
+    },
+    {
+      "naics": "311512",
+      "establishments": 57,
+      "employment": 3858,
+      "annual_payroll_thousands": 250341,
+      "avg_payroll_per_employee": 64889
+    },
+    {
+      "naics": "311513",
+      "establishments": 573,
+      "employment": 57964,
+      "annual_payroll_thousands": 3368734,
+      "avg_payroll_per_employee": 58118
+    },
+    {
+      "naics": "311514",
+      "establishments": 172,
+      "employment": 16123,
+      "annual_payroll_thousands": 1111207,
+      "avg_payroll_per_employee": 68921
+    },
+    {
+      "naics": "311520",
+      "establishments": 442,
+      "employment": 22767,
+      "annual_payroll_thousands": 1193358,
+      "avg_payroll_per_employee": 52416
+    },
+    {
+      "naics": "311611",
+      "establishments": 1339,
+      "employment": 170523,
+      "annual_payroll_thousands": 8912038,
+      "avg_payroll_per_employee": 52263
+    },
+    {
+      "naics": "311612",
+      "establishments": 1495,
+      "employment": 127015,
+      "annual_payroll_thousands": 6371450,
+      "avg_payroll_per_employee": 50163
+    },
+    {
+      "naics": "311613",
+      "establishments": 213,
+      "employment": 10591,
+      "annual_payroll_thousands": 634741,
+      "avg_payroll_per_employee": 59932
+    },
+    {
+      "naics": "311615",
+      "establishments": 526,
+      "employment": 238200,
+      "annual_payroll_thousands": 9450520,
+      "avg_payroll_per_employee": 39675
+    },
+    {
+      "naics": "311710",
+      "establishments": 544,
+      "employment": 28091,
+      "annual_payroll_thousands": 1545552,
+      "avg_payroll_per_employee": 55019
+    },
+    {
+      "naics": "311811",
+      "establishments": 8632,
+      "employment": 88182,
+      "annual_payroll_thousands": 2729095,
+      "avg_payroll_per_employee": 30948
+    },
+    {
+      "naics": "311812",
+      "establishments": 2728,
+      "employment": 106559,
+      "annual_payroll_thousands": 5176440,
+      "avg_payroll_per_employee": 48578
+    },
+    {
+      "naics": "311813",
+      "establishments": 223,
+      "employment": 18759,
+      "annual_payroll_thousands": 971770,
+      "avg_payroll_per_employee": 51803
+    },
+    {
+      "naics": "311821",
+      "establishments": 387,
+      "employment": 29902,
+      "annual_payroll_thousands": 1523929,
+      "avg_payroll_per_employee": 50964
+    },
+    {
+      "naics": "311824",
+      "establishments": 399,
+      "employment": 22534,
+      "annual_payroll_thousands": 1301956,
+      "avg_payroll_per_employee": 57777
+    },
+    {
+      "naics": "311830",
+      "establishments": 398,
+      "employment": 20574,
+      "annual_payroll_thousands": 897042,
+      "avg_payroll_per_employee": 43601
+    },
+    {
+      "naics": "311911",
+      "establishments": 263,
+      "employment": 18938,
+      "annual_payroll_thousands": 1025719,
+      "avg_payroll_per_employee": 54162
+    },
+    {
+      "naics": "311919",
+      "establishments": 441,
+      "employment": 41474,
+      "annual_payroll_thousands": 2177217,
+      "avg_payroll_per_employee": 52496
+    },
+    {
+      "naics": "311920",
+      "establishments": 968,
+      "employment": 20218,
+      "annual_payroll_thousands": 1136964,
+      "avg_payroll_per_employee": 56235
+    },
+    {
+      "naics": "311930",
+      "establishments": 164,
+      "employment": 8250,
+      "annual_payroll_thousands": 640733,
+      "avg_payroll_per_employee": 77665
+    },
+    {
+      "naics": "311941",
+      "establishments": 402,
+      "employment": 21892,
+      "annual_payroll_thousands": 1331484,
+      "avg_payroll_per_employee": 60821
+    },
+    {
+      "naics": "311942",
+      "establishments": 464,
+      "employment": 21448,
+      "annual_payroll_thousands": 1578848,
+      "avg_payroll_per_employee": 73613
+    },
+    {
+      "naics": "311991",
+      "establishments": 908,
+      "employment": 66551,
+      "annual_payroll_thousands": 3089359,
+      "avg_payroll_per_employee": 46421
+    },
+    {
+      "naics": "311999",
+      "establishments": 806,
+      "employment": 28450,
+      "annual_payroll_thousands": 1582028,
+      "avg_payroll_per_employee": 55607
+    },
+    {
+      "naics": "312111",
+      "establishments": 597,
+      "employment": 64276,
+      "annual_payroll_thousands": 4057207,
+      "avg_payroll_per_employee": 63122
+    },
+    {
+      "naics": "312112",
+      "establishments": 304,
+      "employment": 11249,
+      "annual_payroll_thousands": 663967,
+      "avg_payroll_per_employee": 59025
+    },
+    {
+      "naics": "312113",
+      "establishments": 387,
+      "employment": 4496,
+      "annual_payroll_thousands": 247147,
+      "avg_payroll_per_employee": 54970
+    },
+    {
+      "naics": "312120",
+      "establishments": 4825,
+      "employment": 81483,
+      "annual_payroll_thousands": 3953235,
+      "avg_payroll_per_employee": 48516
+    },
+    {
+      "naics": "312130",
+      "establishments": 4284,
+      "employment": 57939,
+      "annual_payroll_thousands": 3323203,
+      "avg_payroll_per_employee": 57357
+    },
+    {
+      "naics": "312140",
+      "establishments": 1171,
+      "employment": 19068,
+      "annual_payroll_thousands": 1282515,
+      "avg_payroll_per_employee": 67260
+    },
+    {
+      "naics": "312230",
+      "establishments": 136,
+      "employment": 11701,
+      "annual_payroll_thousands": 961637,
+      "avg_payroll_per_employee": 82184
+    },
+    {
+      "naics": "313110",
+      "establishments": 264,
+      "employment": 18824,
+      "annual_payroll_thousands": 814142,
+      "avg_payroll_per_employee": 43250
+    },
+    {
+      "naics": "313210",
+      "establishments": 270,
+      "employment": 13703,
+      "annual_payroll_thousands": 625618,
+      "avg_payroll_per_employee": 45656
+    },
+    {
+      "naics": "313220",
+      "establishments": 168,
+      "employment": 5223,
+      "annual_payroll_thousands": 229162,
+      "avg_payroll_per_employee": 43876
+    },
+    {
+      "naics": "313230",
+      "establishments": 229,
+      "employment": 16822,
+      "annual_payroll_thousands": 1018335,
+      "avg_payroll_per_employee": 60536
+    },
+    {
+      "naics": "313240",
+      "establishments": 113,
+      "employment": 5606,
+      "annual_payroll_thousands": 254527,
+      "avg_payroll_per_employee": 45403
+    },
+    {
+      "naics": "313310",
+      "establishments": 612,
+      "employment": 15585,
+      "annual_payroll_thousands": 723155,
+      "avg_payroll_per_employee": 46401
+    },
+    {
+      "naics": "313320",
+      "establishments": 160,
+      "employment": 6762,
+      "annual_payroll_thousands": 427900,
+      "avg_payroll_per_employee": 63280
+    },
+    {
+      "naics": "314110",
+      "establishments": 212,
+      "employment": 26650,
+      "annual_payroll_thousands": 1297509,
+      "avg_payroll_per_employee": 48687
+    },
+    {
+      "naics": "314120",
+      "establishments": 1153,
+      "employment": 20716,
+      "annual_payroll_thousands": 799215,
+      "avg_payroll_per_employee": 38580
+    },
+    {
+      "naics": "314910",
+      "establishments": 1396,
+      "employment": 21953,
+      "annual_payroll_thousands": 1037712,
+      "avg_payroll_per_employee": 47270
+    },
+    {
+      "naics": "314994",
+      "establishments": 127,
+      "employment": 6059,
+      "annual_payroll_thousands": 337111,
+      "avg_payroll_per_employee": 55638
+    },
+    {
+      "naics": "314999",
+      "establishments": 2331,
+      "employment": 28066,
+      "annual_payroll_thousands": 1125284,
+      "avg_payroll_per_employee": 40094
+    },
+    {
+      "naics": "315110",
+      "establishments": 100,
+      "employment": 6164,
+      "annual_payroll_thousands": 215994,
+      "avg_payroll_per_employee": 35041
+    },
+    {
+      "naics": "315190",
+      "establishments": 93,
+      "employment": 2026,
+      "annual_payroll_thousands": 70028,
+      "avg_payroll_per_employee": 34565
+    },
+    {
+      "naics": "315210",
+      "establishments": 2454,
+      "employment": 21785,
+      "annual_payroll_thousands": 721410,
+      "avg_payroll_per_employee": 33115
+    },
+    {
+      "naics": "315220",
+      "establishments": 420,
+      "employment": 12759,
+      "annual_payroll_thousands": 425782,
+      "avg_payroll_per_employee": 33371
+    },
+    {
+      "naics": "315240",
+      "establishments": 754,
+      "employment": 8173,
+      "annual_payroll_thousands": 458758,
+      "avg_payroll_per_employee": 56131
+    },
+    {
+      "naics": "315280",
+      "establishments": 432,
+      "employment": 6061,
+      "annual_payroll_thousands": 246931,
+      "avg_payroll_per_employee": 40741
+    },
+    {
+      "naics": "315990",
+      "establishments": 619,
+      "employment": 7799,
+      "annual_payroll_thousands": 313008,
+      "avg_payroll_per_employee": 40134
+    },
+    {
+      "naics": "316110",
+      "establishments": 168,
+      "employment": 3042,
+      "annual_payroll_thousands": 166421,
+      "avg_payroll_per_employee": 54708
+    },
+    {
+      "naics": "316210",
+      "establishments": 208,
+      "employment": 9240,
+      "annual_payroll_thousands": 384205,
+      "avg_payroll_per_employee": 41581
+    },
+    {
+      "naics": "316992",
+      "establishments": 83,
+      "employment": 1830,
+      "annual_payroll_thousands": 89996,
+      "avg_payroll_per_employee": 49178
+    },
+    {
+      "naics": "316998",
+      "establishments": 627,
+      "employment": 10010,
+      "annual_payroll_thousands": 391025,
+      "avg_payroll_per_employee": 39063
+    },
+    {
+      "naics": "321113",
+      "establishments": 2693,
+      "employment": 76397,
+      "annual_payroll_thousands": 4399467,
+      "avg_payroll_per_employee": 57587
+    },
+    {
+      "naics": "321114",
+      "establishments": 376,
+      "employment": 11253,
+      "annual_payroll_thousands": 591182,
+      "avg_payroll_per_employee": 52536
+    },
+    {
+      "naics": "321211",
+      "establishments": 211,
+      "employment": 11297,
+      "annual_payroll_thousands": 568279,
+      "avg_payroll_per_employee": 50304
+    },
+    {
+      "naics": "321212",
+      "establishments": 76,
+      "employment": 12543,
+      "annual_payroll_thousands": 781174,
+      "avg_payroll_per_employee": 62280
+    },
+    {
+      "naics": "321213",
+      "establishments": 120,
+      "employment": 6238,
+      "annual_payroll_thousands": 400844,
+      "avg_payroll_per_employee": 64258
+    },
+    {
+      "naics": "321214",
+      "establishments": 827,
+      "employment": 35542,
+      "annual_payroll_thousands": 1941275,
+      "avg_payroll_per_employee": 54619
+    },
+    {
+      "naics": "321219",
+      "establishments": 186,
+      "employment": 14435,
+      "annual_payroll_thousands": 938385,
+      "avg_payroll_per_employee": 65008
+    },
+    {
+      "naics": "321911",
+      "establishments": 1099,
+      "employment": 57715,
+      "annual_payroll_thousands": 3111322,
+      "avg_payroll_per_employee": 53908
+    },
+    {
+      "naics": "321912",
+      "establishments": 755,
+      "employment": 20968,
+      "annual_payroll_thousands": 1041692,
+      "avg_payroll_per_employee": 49680
+    },
+    {
+      "naics": "321918",
+      "establishments": 1533,
+      "employment": 32652,
+      "annual_payroll_thousands": 1496100,
+      "avg_payroll_per_employee": 45820
+    },
+    {
+      "naics": "321920",
+      "establishments": 2737,
+      "employment": 57063,
+      "annual_payroll_thousands": 2505034,
+      "avg_payroll_per_employee": 43899
+    },
+    {
+      "naics": "321991",
+      "establishments": 242,
+      "employment": 25773,
+      "annual_payroll_thousands": 1200773,
+      "avg_payroll_per_employee": 46590
+    },
+    {
+      "naics": "321992",
+      "establishments": 701,
+      "employment": 21944,
+      "annual_payroll_thousands": 1074725,
+      "avg_payroll_per_employee": 48976
+    },
+    {
+      "naics": "321999",
+      "establishments": 2331,
+      "employment": 36169,
+      "annual_payroll_thousands": 1671062,
+      "avg_payroll_per_employee": 46201
+    },
+    {
+      "naics": "322110",
+      "establishments": 43,
+      "employment": 9592,
+      "annual_payroll_thousands": 921105,
+      "avg_payroll_per_employee": 96028
+    },
+    {
+      "naics": "322121",
+      "establishments": 195,
+      "employment": 41803,
+      "annual_payroll_thousands": 3332445,
+      "avg_payroll_per_employee": 79718
+    },
+    {
+      "naics": "322122",
+      "establishments": 15,
+      "employment": 1411,
+      "annual_payroll_thousands": 125209,
+      "avg_payroll_per_employee": 88738
+    },
+    {
+      "naics": "322130",
+      "establishments": 176,
+      "employment": 36888,
+      "annual_payroll_thousands": 3532749,
+      "avg_payroll_per_employee": 95770
+    },
+    {
+      "naics": "322211",
+      "establishments": 1041,
+      "employment": 74221,
+      "annual_payroll_thousands": 5056804,
+      "avg_payroll_per_employee": 68132
+    },
+    {
+      "naics": "322212",
+      "establishments": 578,
+      "employment": 54814,
+      "annual_payroll_thousands": 3420816,
+      "avg_payroll_per_employee": 62408
+    },
+    {
+      "naics": "322219",
+      "establishments": 276,
+      "employment": 18372,
+      "annual_payroll_thousands": 983864,
+      "avg_payroll_per_employee": 53552
+    },
+    {
+      "naics": "322220",
+      "establishments": 716,
+      "employment": 55913,
+      "annual_payroll_thousands": 3651434,
+      "avg_payroll_per_employee": 65306
+    },
+    {
+      "naics": "322230",
+      "establishments": 318,
+      "employment": 14480,
+      "annual_payroll_thousands": 736795,
+      "avg_payroll_per_employee": 50884
+    },
+    {
+      "naics": "322291",
+      "establishments": 126,
+      "employment": 18551,
+      "annual_payroll_thousands": 1199646,
+      "avg_payroll_per_employee": 64667
+    },
+    {
+      "naics": "322299",
+      "establishments": 358,
+      "employment": 13949,
+      "annual_payroll_thousands": 768437,
+      "avg_payroll_per_employee": 55089
+    },
+    {
+      "naics": "323111",
+      "establishments": 15592,
+      "employment": 274807,
+      "annual_payroll_thousands": 15157883,
+      "avg_payroll_per_employee": 55158
+    },
+    {
+      "naics": "323113",
+      "establishments": 5559,
+      "employment": 59377,
+      "annual_payroll_thousands": 2498968,
+      "avg_payroll_per_employee": 42086
+    },
+    {
+      "naics": "323117",
+      "establishments": 370,
+      "employment": 17828,
+      "annual_payroll_thousands": 939236,
+      "avg_payroll_per_employee": 52683
+    },
+    {
+      "naics": "323120",
+      "establishments": 1059,
+      "employment": 17620,
+      "annual_payroll_thousands": 935248,
+      "avg_payroll_per_employee": 53079
+    },
+    {
+      "naics": "324110",
+      "establishments": 162,
+      "employment": 56748,
+      "annual_payroll_thousands": 8043985,
+      "avg_payroll_per_employee": 141749
+    },
+    {
+      "naics": "324121",
+      "establishments": 1372,
+      "employment": 16106,
+      "annual_payroll_thousands": 1215141,
+      "avg_payroll_per_employee": 75446
+    },
+    {
+      "naics": "324122",
+      "establishments": 205,
+      "employment": 10842,
+      "annual_payroll_thousands": 817647,
+      "avg_payroll_per_employee": 75415
+    },
+    {
+      "naics": "324191",
+      "establishments": 271,
+      "employment": 12798,
+      "annual_payroll_thousands": 1111583,
+      "avg_payroll_per_employee": 86856
+    },
+    {
+      "naics": "324199",
+      "establishments": 87,
+      "employment": 3655,
+      "annual_payroll_thousands": 293006,
+      "avg_payroll_per_employee": 80166
+    },
+    {
+      "naics": "325110",
+      "establishments": 52,
+      "employment": 9505,
+      "annual_payroll_thousands": 1326032,
+      "avg_payroll_per_employee": 139509
+    },
+    {
+      "naics": "325120",
+      "establishments": 500,
+      "employment": 11955,
+      "annual_payroll_thousands": 1021036,
+      "avg_payroll_per_employee": 85407
+    },
+    {
+      "naics": "325130",
+      "establishments": 135,
+      "employment": 8205,
+      "annual_payroll_thousands": 802872,
+      "avg_payroll_per_employee": 97852
+    },
+    {
+      "naics": "325180",
+      "establishments": 644,
+      "employment": 39560,
+      "annual_payroll_thousands": 3972914,
+      "avg_payroll_per_employee": 100428
+    },
+    {
+      "naics": "325193",
+      "establishments": 205,
+      "employment": 9789,
+      "annual_payroll_thousands": 801732,
+      "avg_payroll_per_employee": 81901
+    },
+    {
+      "naics": "325194",
+      "establishments": 75,
+      "employment": 5729,
+      "annual_payroll_thousands": 502952,
+      "avg_payroll_per_employee": 87791
+    },
+    {
+      "naics": "325199",
+      "establishments": 827,
+      "employment": 69748,
+      "annual_payroll_thousands": 7494870,
+      "avg_payroll_per_employee": 107456
+    },
+    {
+      "naics": "325211",
+      "establishments": 1202,
+      "employment": 79021,
+      "annual_payroll_thousands": 7418312,
+      "avg_payroll_per_employee": 93878
+    },
+    {
+      "naics": "325212",
+      "establishments": 141,
+      "employment": 11112,
+      "annual_payroll_thousands": 915653,
+      "avg_payroll_per_employee": 82402
+    },
+    {
+      "naics": "325220",
+      "establishments": 114,
+      "employment": 13582,
+      "annual_payroll_thousands": 783260,
+      "avg_payroll_per_employee": 57669
+    },
+    {
+      "naics": "325311",
+      "establishments": 218,
+      "employment": 6994,
+      "annual_payroll_thousands": 721524,
+      "avg_payroll_per_employee": 103163
+    },
+    {
+      "naics": "325312",
+      "establishments": 75,
+      "employment": 5790,
+      "annual_payroll_thousands": 574992,
+      "avg_payroll_per_employee": 99308
+    },
+    {
+      "naics": "325314",
+      "establishments": 488,
+      "employment": 9458,
+      "annual_payroll_thousands": 609606,
+      "avg_payroll_per_employee": 64454
+    },
+    {
+      "naics": "325320",
+      "establishments": 232,
+      "employment": 11004,
+      "annual_payroll_thousands": 852066,
+      "avg_payroll_per_employee": 77432
+    },
+    {
+      "naics": "325411",
+      "establishments": 767,
+      "employment": 33938,
+      "annual_payroll_thousands": 2722975,
+      "avg_payroll_per_employee": 80234
+    },
+    {
+      "naics": "325412",
+      "establishments": 1431,
+      "employment": 164345,
+      "annual_payroll_thousands": 18494465,
+      "avg_payroll_per_employee": 112534
+    },
+    {
+      "naics": "325413",
+      "establishments": 260,
+      "employment": 37699,
+      "annual_payroll_thousands": 3928472,
+      "avg_payroll_per_employee": 104206
+    },
+    {
+      "naics": "325414",
+      "establishments": 409,
+      "employment": 65264,
+      "annual_payroll_thousands": 7367188,
+      "avg_payroll_per_employee": 112883
+    },
+    {
+      "naics": "325510",
+      "establishments": 1131,
+      "employment": 39473,
+      "annual_payroll_thousands": 2720004,
+      "avg_payroll_per_employee": 68908
+    },
+    {
+      "naics": "325520",
+      "establishments": 546,
+      "employment": 27915,
+      "annual_payroll_thousands": 2035503,
+      "avg_payroll_per_employee": 72918
+    },
+    {
+      "naics": "325611",
+      "establishments": 825,
+      "employment": 34060,
+      "annual_payroll_thousands": 2072843,
+      "avg_payroll_per_employee": 60859
+    },
+    {
+      "naics": "325612",
+      "establishments": 472,
+      "employment": 18193,
+      "annual_payroll_thousands": 1282978,
+      "avg_payroll_per_employee": 70520
+    },
+    {
+      "naics": "325613",
+      "establishments": 122,
+      "employment": 6125,
+      "annual_payroll_thousands": 548433,
+      "avg_payroll_per_employee": 89540
+    },
+    {
+      "naics": "325620",
+      "establishments": 1112,
+      "employment": 52019,
+      "annual_payroll_thousands": 3241716,
+      "avg_payroll_per_employee": 62318
+    },
+    {
+      "naics": "325910",
+      "establishments": 298,
+      "employment": 8876,
+      "annual_payroll_thousands": 632479,
+      "avg_payroll_per_employee": 71257
+    },
+    {
+      "naics": "325920",
+      "establishments": 92,
+      "employment": 7881,
+      "annual_payroll_thousands": 546443,
+      "avg_payroll_per_employee": 69337
+    },
+    {
+      "naics": "325991",
+      "establishments": 418,
+      "employment": 19356,
+      "annual_payroll_thousands": 1306961,
+      "avg_payroll_per_employee": 67522
+    },
+    {
+      "naics": "325992",
+      "establishments": 153,
+      "employment": 6732,
+      "annual_payroll_thousands": 419300,
+      "avg_payroll_per_employee": 62285
+    },
+    {
+      "naics": "325998",
+      "establishments": 1242,
+      "employment": 40402,
+      "annual_payroll_thousands": 3116000,
+      "avg_payroll_per_employee": 77125
+    },
+    {
+      "naics": "326111",
+      "establishments": 353,
+      "employment": 35506,
+      "annual_payroll_thousands": 2090649,
+      "avg_payroll_per_employee": 58882
+    },
+    {
+      "naics": "326112",
+      "establishments": 407,
+      "employment": 32978,
+      "annual_payroll_thousands": 2097580,
+      "avg_payroll_per_employee": 63605
+    },
+    {
+      "naics": "326113",
+      "establishments": 451,
+      "employment": 31427,
+      "annual_payroll_thousands": 2183538,
+      "avg_payroll_per_employee": 69480
+    },
+    {
+      "naics": "326121",
+      "establishments": 347,
+      "employment": 18106,
+      "annual_payroll_thousands": 1170991,
+      "avg_payroll_per_employee": 64674
+    },
+    {
+      "naics": "326122",
+      "establishments": 446,
+      "employment": 22431,
+      "annual_payroll_thousands": 1397643,
+      "avg_payroll_per_employee": 62309
+    },
+    {
+      "naics": "326130",
+      "establishments": 225,
+      "employment": 11564,
+      "annual_payroll_thousands": 715403,
+      "avg_payroll_per_employee": 61865
+    },
+    {
+      "naics": "326140",
+      "establishments": 419,
+      "employment": 27672,
+      "annual_payroll_thousands": 1594084,
+      "avg_payroll_per_employee": 57606
+    },
+    {
+      "naics": "326150",
+      "establishments": 678,
+      "employment": 31809,
+      "annual_payroll_thousands": 1663004,
+      "avg_payroll_per_employee": 52281
+    },
+    {
+      "naics": "326160",
+      "establishments": 472,
+      "employment": 35707,
+      "annual_payroll_thousands": 2026639,
+      "avg_payroll_per_employee": 56757
+    },
+    {
+      "naics": "326191",
+      "establishments": 311,
+      "employment": 20769,
+      "annual_payroll_thousands": 1000008,
+      "avg_payroll_per_employee": 48149
+    },
+    {
+      "naics": "326199",
+      "establishments": 5647,
+      "employment": 382764,
+      "annual_payroll_thousands": 20236054,
+      "avg_payroll_per_employee": 52868
+    },
+    {
+      "naics": "326211",
+      "establishments": 126,
+      "employment": 48499,
+      "annual_payroll_thousands": 3397597,
+      "avg_payroll_per_employee": 70055
+    },
+    {
+      "naics": "326212",
+      "establishments": 347,
+      "employment": 7016,
+      "annual_payroll_thousands": 317534,
+      "avg_payroll_per_employee": 45259
+    },
+    {
+      "naics": "326220",
+      "establishments": 260,
+      "employment": 18566,
+      "annual_payroll_thousands": 1047159,
+      "avg_payroll_per_employee": 56402
+    },
+    {
+      "naics": "326291",
+      "establishments": 380,
+      "employment": 28158,
+      "annual_payroll_thousands": 1411010,
+      "avg_payroll_per_employee": 50110
+    },
+    {
+      "naics": "326299",
+      "establishments": 649,
+      "employment": 33532,
+      "annual_payroll_thousands": 1937099,
+      "avg_payroll_per_employee": 57769
+    },
+    {
+      "naics": "327110",
+      "establishments": 557,
+      "employment": 11657,
+      "annual_payroll_thousands": 595300,
+      "avg_payroll_per_employee": 51068
+    },
+    {
+      "naics": "327120",
+      "establishments": 473,
+      "employment": 22533,
+      "annual_payroll_thousands": 1242304,
+      "avg_payroll_per_employee": 55133
+    },
+    {
+      "naics": "327211",
+      "establishments": 131,
+      "employment": 11005,
+      "annual_payroll_thousands": 665407,
+      "avg_payroll_per_employee": 60464
+    },
+    {
+      "naics": "327212",
+      "establishments": 394,
+      "employment": 11464,
+      "annual_payroll_thousands": 693376,
+      "avg_payroll_per_employee": 60483
+    },
+    {
+      "naics": "327213",
+      "establishments": 83,
+      "employment": 14726,
+      "annual_payroll_thousands": 1028374,
+      "avg_payroll_per_employee": 69834
+    },
+    {
+      "naics": "327215",
+      "establishments": 954,
+      "employment": 49479,
+      "annual_payroll_thousands": 2755781,
+      "avg_payroll_per_employee": 55696
+    },
+    {
+      "naics": "327310",
+      "establishments": 189,
+      "employment": 11883,
+      "annual_payroll_thousands": 1068094,
+      "avg_payroll_per_employee": 89884
+    },
+    {
+      "naics": "327320",
+      "establishments": 5972,
+      "employment": 88434,
+      "annual_payroll_thousands": 5775962,
+      "avg_payroll_per_employee": 65314
+    },
+    {
+      "naics": "327331",
+      "establishments": 632,
+      "employment": 15837,
+      "annual_payroll_thousands": 935313,
+      "avg_payroll_per_employee": 59059
+    },
+    {
+      "naics": "327332",
+      "establishments": 158,
+      "employment": 5112,
+      "annual_payroll_thousands": 301190,
+      "avg_payroll_per_employee": 58918
+    },
+    {
+      "naics": "327390",
+      "establishments": 1889,
+      "employment": 58936,
+      "annual_payroll_thousands": 3237881,
+      "avg_payroll_per_employee": 54939
+    },
+    {
+      "naics": "327410",
+      "establishments": 101,
+      "employment": 4065,
+      "annual_payroll_thousands": 301024,
+      "avg_payroll_per_employee": 74053
+    },
+    {
+      "naics": "327420",
+      "establishments": 187,
+      "employment": 10791,
+      "annual_payroll_thousands": 865151,
+      "avg_payroll_per_employee": 80173
+    },
+    {
+      "naics": "327910",
+      "establishments": 264,
+      "employment": 11421,
+      "annual_payroll_thousands": 740528,
+      "avg_payroll_per_employee": 64839
+    },
+    {
+      "naics": "327991",
+      "establishments": 2066,
+      "employment": 37154,
+      "annual_payroll_thousands": 2082877,
+      "avg_payroll_per_employee": 56061
+    },
+    {
+      "naics": "327992",
+      "establishments": 252,
+      "employment": 7754,
+      "annual_payroll_thousands": 564078,
+      "avg_payroll_per_employee": 72747
+    },
+    {
+      "naics": "327993",
+      "establishments": 251,
+      "employment": 14531,
+      "annual_payroll_thousands": 957302,
+      "avg_payroll_per_employee": 65880
+    },
+    {
+      "naics": "327999",
+      "establishments": 405,
+      "employment": 12255,
+      "annual_payroll_thousands": 696688,
+      "avg_payroll_per_employee": 56849
+    },
+    {
+      "naics": "331110",
+      "establishments": 398,
+      "employment": 81394,
+      "annual_payroll_thousands": 7766127,
+      "avg_payroll_per_employee": 95414
+    },
+    {
+      "naics": "331210",
+      "establishments": 254,
+      "employment": 22213,
+      "annual_payroll_thousands": 1643781,
+      "avg_payroll_per_employee": 74001
+    },
+    {
+      "naics": "331221",
+      "establishments": 188,
+      "employment": 9148,
+      "annual_payroll_thousands": 728296,
+      "avg_payroll_per_employee": 79613
+    },
+    {
+      "naics": "331222",
+      "establishments": 211,
+      "employment": 14031,
+      "annual_payroll_thousands": 797570,
+      "avg_payroll_per_employee": 56843
+    },
+    {
+      "naics": "331313",
+      "establishments": 45,
+      "employment": 3957,
+      "annual_payroll_thousands": 339547,
+      "avg_payroll_per_employee": 85809
+    },
+    {
+      "naics": "331314",
+      "establishments": 89,
+      "employment": 5774,
+      "annual_payroll_thousands": 391541,
+      "avg_payroll_per_employee": 67811
+    },
+    {
+      "naics": "331315",
+      "establishments": 81,
+      "employment": 17594,
+      "annual_payroll_thousands": 1499097,
+      "avg_payroll_per_employee": 85205
+    },
+    {
+      "naics": "331318",
+      "establishments": 242,
+      "employment": 29968,
+      "annual_payroll_thousands": 1695976,
+      "avg_payroll_per_employee": 56593
+    },
+    {
+      "naics": "331410",
+      "establishments": 128,
+      "employment": 7315,
+      "annual_payroll_thousands": 559265,
+      "avg_payroll_per_employee": 76455
+    },
+    {
+      "naics": "331420",
+      "establishments": 228,
+      "employment": 23775,
+      "annual_payroll_thousands": 1566042,
+      "avg_payroll_per_employee": 65869
+    },
+    {
+      "naics": "331491",
+      "establishments": 242,
+      "employment": 13994,
+      "annual_payroll_thousands": 994229,
+      "avg_payroll_per_employee": 71047
+    },
+    {
+      "naics": "331492",
+      "establishments": 193,
+      "employment": 8649,
+      "annual_payroll_thousands": 637386,
+      "avg_payroll_per_employee": 73695
+    },
+    {
+      "naics": "331511",
+      "establishments": 289,
+      "employment": 30427,
+      "annual_payroll_thousands": 1992920,
+      "avg_payroll_per_employee": 65498
+    },
+    {
+      "naics": "331512",
+      "establishments": 109,
+      "employment": 13522,
+      "annual_payroll_thousands": 837195,
+      "avg_payroll_per_employee": 61914
+    },
+    {
+      "naics": "331513",
+      "establishments": 169,
+      "employment": 9786,
+      "annual_payroll_thousands": 561301,
+      "avg_payroll_per_employee": 57358
+    },
+    {
+      "naics": "331523",
+      "establishments": 343,
+      "employment": 28396,
+      "annual_payroll_thousands": 1567889,
+      "avg_payroll_per_employee": 55215
+    },
+    {
+      "naics": "331524",
+      "establishments": 274,
+      "employment": 11176,
+      "annual_payroll_thousands": 672301,
+      "avg_payroll_per_employee": 60156
+    },
+    {
+      "naics": "331529",
+      "establishments": 234,
+      "employment": 7884,
+      "annual_payroll_thousands": 458701,
+      "avg_payroll_per_employee": 58181
+    },
+    {
+      "naics": "332111",
+      "establishments": 358,
+      "employment": 18886,
+      "annual_payroll_thousands": 1131635,
+      "avg_payroll_per_employee": 59919
+    },
+    {
+      "naics": "332112",
+      "establishments": 57,
+      "employment": 4764,
+      "annual_payroll_thousands": 347410,
+      "avg_payroll_per_employee": 72924
+    },
+    {
+      "naics": "332114",
+      "establishments": 393,
+      "employment": 17252,
+      "annual_payroll_thousands": 1061613,
+      "avg_payroll_per_employee": 61536
+    },
+    {
+      "naics": "332117",
+      "establishments": 138,
+      "employment": 8707,
+      "annual_payroll_thousands": 465173,
+      "avg_payroll_per_employee": 53425
+    },
+    {
+      "naics": "332119",
+      "establishments": 1216,
+      "employment": 46572,
+      "annual_payroll_thousands": 2726772,
+      "avg_payroll_per_employee": 58550
+    },
+    {
+      "naics": "332215",
+      "establishments": 200,
+      "employment": 7073,
+      "annual_payroll_thousands": 430359,
+      "avg_payroll_per_employee": 60845
+    },
+    {
+      "naics": "332216",
+      "establishments": 828,
+      "employment": 25305,
+      "annual_payroll_thousands": 1501759,
+      "avg_payroll_per_employee": 59346
+    },
+    {
+      "naics": "332311",
+      "establishments": 797,
+      "employment": 28418,
+      "annual_payroll_thousands": 1775303,
+      "avg_payroll_per_employee": 62471
+    },
+    {
+      "naics": "332312",
+      "establishments": 3413,
+      "employment": 104078,
+      "annual_payroll_thousands": 6581523,
+      "avg_payroll_per_employee": 63236
+    },
+    {
+      "naics": "332313",
+      "establishments": 1563,
+      "employment": 36948,
+      "annual_payroll_thousands": 2123100,
+      "avg_payroll_per_employee": 57462
+    },
+    {
+      "naics": "332321",
+      "establishments": 1009,
+      "employment": 55894,
+      "annual_payroll_thousands": 3075960,
+      "avg_payroll_per_employee": 55032
+    },
+    {
+      "naics": "332322",
+      "establishments": 4369,
+      "employment": 111759,
+      "annual_payroll_thousands": 6343021,
+      "avg_payroll_per_employee": 56756
+    },
+    {
+      "naics": "332323",
+      "establishments": 2635,
+      "employment": 39233,
+      "annual_payroll_thousands": 2162643,
+      "avg_payroll_per_employee": 55123
+    },
+    {
+      "naics": "332410",
+      "establishments": 285,
+      "employment": 21152,
+      "annual_payroll_thousands": 1565060,
+      "avg_payroll_per_employee": 73991
+    },
+    {
+      "naics": "332420",
+      "establishments": 690,
+      "employment": 32234,
+      "annual_payroll_thousands": 2036557,
+      "avg_payroll_per_employee": 63180
+    },
+    {
+      "naics": "332431",
+      "establishments": 170,
+      "employment": 18821,
+      "annual_payroll_thousands": 1471972,
+      "avg_payroll_per_employee": 78209
+    },
+    {
+      "naics": "332439",
+      "establishments": 265,
+      "employment": 9971,
+      "annual_payroll_thousands": 558827,
+      "avg_payroll_per_employee": 56045
+    },
+    {
+      "naics": "332510",
+      "establishments": 557,
+      "employment": 29837,
+      "annual_payroll_thousands": 1743182,
+      "avg_payroll_per_employee": 58424
+    },
+    {
+      "naics": "332613",
+      "establishments": 355,
+      "employment": 16487,
+      "annual_payroll_thousands": 909707,
+      "avg_payroll_per_employee": 55177
+    },
+    {
+      "naics": "332618",
+      "establishments": 670,
+      "employment": 18543,
+      "annual_payroll_thousands": 1023425,
+      "avg_payroll_per_employee": 55192
+    },
+    {
+      "naics": "332710",
+      "establishments": 17530,
+      "employment": 209280,
+      "annual_payroll_thousands": 12316948,
+      "avg_payroll_per_employee": 58854
+    },
+    {
+      "naics": "332721",
+      "establishments": 3997,
+      "employment": 101343,
+      "annual_payroll_thousands": 5955422,
+      "avg_payroll_per_employee": 58765
+    },
+    {
+      "naics": "332722",
+      "establishments": 706,
+      "employment": 34815,
+      "annual_payroll_thousands": 2167423,
+      "avg_payroll_per_employee": 62255
+    },
+    {
+      "naics": "332811",
+      "establishments": 745,
+      "employment": 18335,
+      "annual_payroll_thousands": 1112171,
+      "avg_payroll_per_employee": 60658
+    },
+    {
+      "naics": "332812",
+      "establishments": 2634,
+      "employment": 52542,
+      "annual_payroll_thousands": 2890544,
+      "avg_payroll_per_employee": 55014
+    },
+    {
+      "naics": "332813",
+      "establishments": 2024,
+      "employment": 46394,
+      "annual_payroll_thousands": 2466398,
+      "avg_payroll_per_employee": 53162
+    },
+    {
+      "naics": "332911",
+      "establishments": 477,
+      "employment": 32636,
+      "annual_payroll_thousands": 2404951,
+      "avg_payroll_per_employee": 73690
+    },
+    {
+      "naics": "332912",
+      "establishments": 339,
+      "employment": 30650,
+      "annual_payroll_thousands": 2136727,
+      "avg_payroll_per_employee": 69714
+    },
+    {
+      "naics": "332913",
+      "establishments": 120,
+      "employment": 8841,
+      "annual_payroll_thousands": 533751,
+      "avg_payroll_per_employee": 60372
+    },
+    {
+      "naics": "332919",
+      "establishments": 221,
+      "employment": 12824,
+      "annual_payroll_thousands": 827788,
+      "avg_payroll_per_employee": 64550
+    },
+    {
+      "naics": "332991",
+      "establishments": 167,
+      "employment": 17717,
+      "annual_payroll_thousands": 1075045,
+      "avg_payroll_per_employee": 60679
+    },
+    {
+      "naics": "332992",
+      "establishments": 174,
+      "employment": 13560,
+      "annual_payroll_thousands": 856807,
+      "avg_payroll_per_employee": 63186
+    },
+    {
+      "naics": "332993",
+      "establishments": 55,
+      "employment": 13960,
+      "annual_payroll_thousands": 1370336,
+      "avg_payroll_per_employee": 98162
+    },
+    {
+      "naics": "332994",
+      "establishments": 473,
+      "employment": 22757,
+      "annual_payroll_thousands": 2386063,
+      "avg_payroll_per_employee": 104850
+    },
+    {
+      "naics": "332996",
+      "establishments": 692,
+      "employment": 24635,
+      "annual_payroll_thousands": 1494095,
+      "avg_payroll_per_employee": 60649
+    },
+    {
+      "naics": "332999",
+      "establishments": 3421,
+      "employment": 67731,
+      "annual_payroll_thousands": 3794790,
+      "avg_payroll_per_employee": 56027
+    },
+    {
+      "naics": "333111",
+      "establishments": 1112,
+      "employment": 61859,
+      "annual_payroll_thousands": 4283636,
+      "avg_payroll_per_employee": 69248
+    },
+    {
+      "naics": "333112",
+      "establishments": 157,
+      "employment": 17125,
+      "annual_payroll_thousands": 873778,
+      "avg_payroll_per_employee": 51024
+    },
+    {
+      "naics": "333120",
+      "establishments": 687,
+      "employment": 59145,
+      "annual_payroll_thousands": 4055981,
+      "avg_payroll_per_employee": 68577
+    },
+    {
+      "naics": "333131",
+      "establishments": 250,
+      "employment": 13159,
+      "annual_payroll_thousands": 921029,
+      "avg_payroll_per_employee": 69992
+    },
+    {
+      "naics": "333132",
+      "establishments": 599,
+      "employment": 28114,
+      "annual_payroll_thousands": 2213578,
+      "avg_payroll_per_employee": 78736
+    },
+    {
+      "naics": "333241",
+      "establishments": 478,
+      "employment": 17809,
+      "annual_payroll_thousands": 1356984,
+      "avg_payroll_per_employee": 76197
+    },
+    {
+      "naics": "333242",
+      "establishments": 163,
+      "employment": 20430,
+      "annual_payroll_thousands": 3149409,
+      "avg_payroll_per_employee": 154156
+    },
+    {
+      "naics": "333243",
+      "establishments": 363,
+      "employment": 12251,
+      "annual_payroll_thousands": 940694,
+      "avg_payroll_per_employee": 76785
+    },
+    {
+      "naics": "333244",
+      "establishments": 261,
+      "employment": 5477,
+      "annual_payroll_thousands": 378001,
+      "avg_payroll_per_employee": 69016
+    },
+    {
+      "naics": "333249",
+      "establishments": 1687,
+      "employment": 51480,
+      "annual_payroll_thousands": 3799838,
+      "avg_payroll_per_employee": 73812
+    },
+    {
+      "naics": "333314",
+      "establishments": 413,
+      "employment": 16240,
+      "annual_payroll_thousands": 1376345,
+      "avg_payroll_per_employee": 84750
+    },
+    {
+      "naics": "333316",
+      "establishments": 164,
+      "employment": 2774,
+      "annual_payroll_thousands": 221964,
+      "avg_payroll_per_employee": 80016
+    },
+    {
+      "naics": "333318",
+      "establishments": 1155,
+      "employment": 50574,
+      "annual_payroll_thousands": 3711829,
+      "avg_payroll_per_employee": 73394
+    },
+    {
+      "naics": "333413",
+      "establishments": 487,
+      "employment": 26704,
+      "annual_payroll_thousands": 1495675,
+      "avg_payroll_per_employee": 56009
+    },
+    {
+      "naics": "333414",
+      "establishments": 356,
+      "employment": 15721,
+      "annual_payroll_thousands": 978408,
+      "avg_payroll_per_employee": 62236
+    },
+    {
+      "naics": "333415",
+      "establishments": 831,
+      "employment": 90055,
+      "annual_payroll_thousands": 5421428,
+      "avg_payroll_per_employee": 60201
+    },
+    {
+      "naics": "333511",
+      "establishments": 1340,
+      "employment": 30710,
+      "annual_payroll_thousands": 1891677,
+      "avg_payroll_per_employee": 61598
+    },
+    {
+      "naics": "333514",
+      "establishments": 2078,
+      "employment": 41394,
+      "annual_payroll_thousands": 2686482,
+      "avg_payroll_per_employee": 64900
+    },
+    {
+      "naics": "333515",
+      "establishments": 1091,
+      "employment": 23656,
+      "annual_payroll_thousands": 1469355,
+      "avg_payroll_per_employee": 62113
+    },
+    {
+      "naics": "333517",
+      "establishments": 1217,
+      "employment": 27819,
+      "annual_payroll_thousands": 1899122,
+      "avg_payroll_per_employee": 68267
+    },
+    {
+      "naics": "333519",
+      "establishments": 330,
+      "employment": 11177,
+      "annual_payroll_thousands": 844613,
+      "avg_payroll_per_employee": 75567
+    },
+    {
+      "naics": "333611",
+      "establishments": 203,
+      "employment": 28054,
+      "annual_payroll_thousands": 2583510,
+      "avg_payroll_per_employee": 92091
+    },
+    {
+      "naics": "333612",
+      "establishments": 201,
+      "employment": 10093,
+      "annual_payroll_thousands": 643717,
+      "avg_payroll_per_employee": 63779
+    },
+    {
+      "naics": "333613",
+      "establishments": 220,
+      "employment": 15517,
+      "annual_payroll_thousands": 968948,
+      "avg_payroll_per_employee": 62444
+    },
+    {
+      "naics": "333618",
+      "establishments": 266,
+      "employment": 36350,
+      "annual_payroll_thousands": 2455614,
+      "avg_payroll_per_employee": 67555
+    },
+    {
+      "naics": "333912",
+      "establishments": 283,
+      "employment": 18821,
+      "annual_payroll_thousands": 1374193,
+      "avg_payroll_per_employee": 73014
+    },
+    {
+      "naics": "333914",
+      "establishments": 550,
+      "employment": 38240,
+      "annual_payroll_thousands": 2912736,
+      "avg_payroll_per_employee": 76170
+    },
+    {
+      "naics": "333921",
+      "establishments": 182,
+      "employment": 8092,
+      "annual_payroll_thousands": 564548,
+      "avg_payroll_per_employee": 69766
+    },
+    {
+      "naics": "333922",
+      "establishments": 741,
+      "employment": 40322,
+      "annual_payroll_thousands": 2869094,
+      "avg_payroll_per_employee": 71155
+    },
+    {
+      "naics": "333923",
+      "establishments": 318,
+      "employment": 19653,
+      "annual_payroll_thousands": 1278084,
+      "avg_payroll_per_employee": 65033
+    },
+    {
+      "naics": "333924",
+      "establishments": 329,
+      "employment": 28345,
+      "annual_payroll_thousands": 1690141,
+      "avg_payroll_per_employee": 59627
+    },
+    {
+      "naics": "333991",
+      "establishments": 123,
+      "employment": 6797,
+      "annual_payroll_thousands": 427324,
+      "avg_payroll_per_employee": 62870
+    },
+    {
+      "naics": "333992",
+      "establishments": 457,
+      "employment": 15390,
+      "annual_payroll_thousands": 1149157,
+      "avg_payroll_per_employee": 74669
+    },
+    {
+      "naics": "333993",
+      "establishments": 507,
+      "employment": 22983,
+      "annual_payroll_thousands": 1792604,
+      "avg_payroll_per_employee": 77997
+    },
+    {
+      "naics": "333994",
+      "establishments": 319,
+      "employment": 9810,
+      "annual_payroll_thousands": 670587,
+      "avg_payroll_per_employee": 68357
+    },
+    {
+      "naics": "333995",
+      "establishments": 291,
+      "employment": 19879,
+      "annual_payroll_thousands": 1466160,
+      "avg_payroll_per_employee": 73754
+    },
+    {
+      "naics": "333996",
+      "establishments": 142,
+      "employment": 10777,
+      "annual_payroll_thousands": 814054,
+      "avg_payroll_per_employee": 75536
+    },
+    {
+      "naics": "333997",
+      "establishments": 80,
+      "employment": 3150,
+      "annual_payroll_thousands": 208793,
+      "avg_payroll_per_employee": 66283
+    },
+    {
+      "naics": "333999",
+      "establishments": 1427,
+      "employment": 56178,
+      "annual_payroll_thousands": 4248323,
+      "avg_payroll_per_employee": 75623
+    },
+    {
+      "naics": "334111",
+      "establishments": 300,
+      "employment": 15489,
+      "annual_payroll_thousands": 1550838,
+      "avg_payroll_per_employee": 100125
+    },
+    {
+      "naics": "334112",
+      "establishments": 79,
+      "employment": 7734,
+      "annual_payroll_thousands": 977386,
+      "avg_payroll_per_employee": 126375
+    },
+    {
+      "naics": "334118",
+      "establishments": 428,
+      "employment": 15274,
+      "annual_payroll_thousands": 1499054,
+      "avg_payroll_per_employee": 98144
+    },
+    {
+      "naics": "334210",
+      "establishments": 176,
+      "employment": 7955,
+      "annual_payroll_thousands": 910474,
+      "avg_payroll_per_employee": 114453
+    },
+    {
+      "naics": "334220",
+      "establishments": 656,
+      "employment": 55681,
+      "annual_payroll_thousands": 5851527,
+      "avg_payroll_per_employee": 105090
+    },
+    {
+      "naics": "334290",
+      "establishments": 320,
+      "employment": 11484,
+      "annual_payroll_thousands": 884684,
+      "avg_payroll_per_employee": 77036
+    },
+    {
+      "naics": "334310",
+      "establishments": 483,
+      "employment": 8844,
+      "annual_payroll_thousands": 698053,
+      "avg_payroll_per_employee": 78930
+    },
+    {
+      "naics": "334412",
+      "establishments": 399,
+      "employment": 22166,
+      "annual_payroll_thousands": 1329002,
+      "avg_payroll_per_employee": 59957
+    },
+    {
+      "naics": "334413",
+      "establishments": 781,
+      "employment": 95446,
+      "annual_payroll_thousands": 13266492,
+      "avg_payroll_per_employee": 138995
+    },
+    {
+      "naics": "334416",
+      "establishments": 344,
+      "employment": 18053,
+      "annual_payroll_thousands": 1026518,
+      "avg_payroll_per_employee": 56861
+    },
+    {
+      "naics": "334417",
+      "establishments": 204,
+      "employment": 19731,
+      "annual_payroll_thousands": 1493093,
+      "avg_payroll_per_employee": 75672
+    },
+    {
+      "naics": "334418",
+      "establishments": 821,
+      "employment": 48492,
+      "annual_payroll_thousands": 3216327,
+      "avg_payroll_per_employee": 66327
+    },
+    {
+      "naics": "334419",
+      "establishments": 1093,
+      "employment": 50998,
+      "annual_payroll_thousands": 3588012,
+      "avg_payroll_per_employee": 70356
+    },
+    {
+      "naics": "334510",
+      "establishments": 912,
+      "employment": 86008,
+      "annual_payroll_thousands": 9067759,
+      "avg_payroll_per_employee": 105429
+    },
+    {
+      "naics": "334511",
+      "establishments": 515,
+      "employment": 134157,
+      "annual_payroll_thousands": 12985437,
+      "avg_payroll_per_employee": 96793
+    },
+    {
+      "naics": "334512",
+      "establishments": 244,
+      "employment": 12581,
+      "annual_payroll_thousands": 1030490,
+      "avg_payroll_per_employee": 81908
+    },
+    {
+      "naics": "334513",
+      "establishments": 828,
+      "employment": 35646,
+      "annual_payroll_thousands": 2870247,
+      "avg_payroll_per_employee": 80521
+    },
+    {
+      "naics": "334514",
+      "establishments": 166,
+      "employment": 10814,
+      "annual_payroll_thousands": 836784,
+      "avg_payroll_per_employee": 77380
+    },
+    {
+      "naics": "334515",
+      "establishments": 685,
+      "employment": 32459,
+      "annual_payroll_thousands": 3725233,
+      "avg_payroll_per_employee": 114767
+    },
+    {
+      "naics": "334516",
+      "establishments": 650,
+      "employment": 44301,
+      "annual_payroll_thousands": 4779864,
+      "avg_payroll_per_employee": 107895
+    },
+    {
+      "naics": "334517",
+      "establishments": 128,
+      "employment": 11358,
+      "annual_payroll_thousands": 1198449,
+      "avg_payroll_per_employee": 105516
+    },
+    {
+      "naics": "334519",
+      "establishments": 883,
+      "employment": 34511,
+      "annual_payroll_thousands": 3210724,
+      "avg_payroll_per_employee": 93035
+    },
+    {
+      "naics": "334613",
+      "establishments": 52,
+      "employment": 615,
+      "annual_payroll_thousands": 50871,
+      "avg_payroll_per_employee": 82717
+    },
+    {
+      "naics": "334614",
+      "establishments": 288,
+      "employment": 4664,
+      "annual_payroll_thousands": 320123,
+      "avg_payroll_per_employee": 68637
+    },
+    {
+      "naics": "335110",
+      "establishments": 68,
+      "employment": 2609,
+      "annual_payroll_thousands": 174815,
+      "avg_payroll_per_employee": 67005
+    },
+    {
+      "naics": "335121",
+      "establishments": 243,
+      "employment": 5484,
+      "annual_payroll_thousands": 345137,
+      "avg_payroll_per_employee": 62935
+    },
+    {
+      "naics": "335122",
+      "establishments": 427,
+      "employment": 17729,
+      "annual_payroll_thousands": 1197536,
+      "avg_payroll_per_employee": 67547
+    },
+    {
+      "naics": "335129",
+      "establishments": 273,
+      "employment": 9818,
+      "annual_payroll_thousands": 724051,
+      "avg_payroll_per_employee": 73747
+    },
+    {
+      "naics": "335210",
+      "establishments": 170,
+      "employment": 10203,
+      "annual_payroll_thousands": 566120,
+      "avg_payroll_per_employee": 55486
+    },
+    {
+      "naics": "335220",
+      "establishments": 180,
+      "employment": 45419,
+      "annual_payroll_thousands": 2479941,
+      "avg_payroll_per_employee": 54601
+    },
+    {
+      "naics": "335311",
+      "establishments": 246,
+      "employment": 19909,
+      "annual_payroll_thousands": 1335189,
+      "avg_payroll_per_employee": 67065
+    },
+    {
+      "naics": "335312",
+      "establishments": 395,
+      "employment": 29030,
+      "annual_payroll_thousands": 2011485,
+      "avg_payroll_per_employee": 69290
+    },
+    {
+      "naics": "335313",
+      "establishments": 452,
+      "employment": 34042,
+      "annual_payroll_thousands": 2372695,
+      "avg_payroll_per_employee": 69699
+    },
+    {
+      "naics": "335314",
+      "establishments": 740,
+      "employment": 34114,
+      "annual_payroll_thousands": 2517502,
+      "avg_payroll_per_employee": 73797
+    },
+    {
+      "naics": "335911",
+      "establishments": 180,
+      "employment": 21958,
+      "annual_payroll_thousands": 1492820,
+      "avg_payroll_per_employee": 67985
+    },
+    {
+      "naics": "335912",
+      "establishments": 79,
+      "employment": 5615,
+      "annual_payroll_thousands": 992489,
+      "avg_payroll_per_employee": 176757
+    },
+    {
+      "naics": "335921",
+      "establishments": 103,
+      "employment": 6229,
+      "annual_payroll_thousands": 411952,
+      "avg_payroll_per_employee": 66135
+    },
+    {
+      "naics": "335929",
+      "establishments": 225,
+      "employment": 16673,
+      "annual_payroll_thousands": 1081745,
+      "avg_payroll_per_employee": 64880
+    },
+    {
+      "naics": "335931",
+      "establishments": 379,
+      "employment": 22998,
+      "annual_payroll_thousands": 1379118,
+      "avg_payroll_per_employee": 59967
+    },
+    {
+      "naics": "335932",
+      "establishments": 138,
+      "employment": 14033,
+      "annual_payroll_thousands": 869230,
+      "avg_payroll_per_employee": 61942
+    },
+    {
+      "naics": "335991",
+      "establishments": 174,
+      "employment": 8202,
+      "annual_payroll_thousands": 610415,
+      "avg_payroll_per_employee": 74423
+    },
+    {
+      "naics": "335999",
+      "establishments": 782,
+      "employment": 33114,
+      "annual_payroll_thousands": 3595814,
+      "avg_payroll_per_employee": 108589
+    },
+    {
+      "naics": "336111",
+      "establishments": 171,
+      "employment": 90565,
+      "annual_payroll_thousands": 11237483,
+      "avg_payroll_per_employee": 124082
+    },
+    {
+      "naics": "336112",
+      "establishments": 81,
+      "employment": 122813,
+      "annual_payroll_thousands": 9595029,
+      "avg_payroll_per_employee": 78127
+    },
+    {
+      "naics": "336120",
+      "establishments": 89,
+      "employment": 33788,
+      "annual_payroll_thousands": 2268307,
+      "avg_payroll_per_employee": 67134
+    },
+    {
+      "naics": "336211",
+      "establishments": 741,
+      "employment": 52006,
+      "annual_payroll_thousands": 2815357,
+      "avg_payroll_per_employee": 54135
+    },
+    {
+      "naics": "336212",
+      "establishments": 515,
+      "employment": 42362,
+      "annual_payroll_thousands": 2143796,
+      "avg_payroll_per_employee": 50607
+    },
+    {
+      "naics": "336213",
+      "establishments": 64,
+      "employment": 11893,
+      "annual_payroll_thousands": 786723,
+      "avg_payroll_per_employee": 66150
+    },
+    {
+      "naics": "336214",
+      "establishments": 711,
+      "employment": 63496,
+      "annual_payroll_thousands": 3920840,
+      "avg_payroll_per_employee": 61749
+    },
+    {
+      "naics": "336310",
+      "establishments": 698,
+      "employment": 59063,
+      "annual_payroll_thousands": 4175659,
+      "avg_payroll_per_employee": 70698
+    },
+    {
+      "naics": "336320",
+      "establishments": 566,
+      "employment": 58208,
+      "annual_payroll_thousands": 3457312,
+      "avg_payroll_per_employee": 59396
+    },
+    {
+      "naics": "336330",
+      "establishments": 277,
+      "employment": 36150,
+      "annual_payroll_thousands": 2004803,
+      "avg_payroll_per_employee": 55458
+    },
+    {
+      "naics": "336340",
+      "establishments": 169,
+      "employment": 20787,
+      "annual_payroll_thousands": 1127433,
+      "avg_payroll_per_employee": 54237
+    },
+    {
+      "naics": "336350",
+      "establishments": 464,
+      "employment": 76913,
+      "annual_payroll_thousands": 4797443,
+      "avg_payroll_per_employee": 62375
+    },
+    {
+      "naics": "336360",
+      "establishments": 427,
+      "employment": 72006,
+      "annual_payroll_thousands": 3465915,
+      "avg_payroll_per_employee": 48134
+    },
+    {
+      "naics": "336370",
+      "establishments": 726,
+      "employment": 102637,
+      "annual_payroll_thousands": 5618962,
+      "avg_payroll_per_employee": 54746
+    },
+    {
+      "naics": "336390",
+      "establishments": 1329,
+      "employment": 143867,
+      "annual_payroll_thousands": 7438517,
+      "avg_payroll_per_employee": 51704
+    },
+    {
+      "naics": "336411",
+      "establishments": 348,
+      "employment": 170658,
+      "annual_payroll_thousands": 17106522,
+      "avg_payroll_per_employee": 100239
+    },
+    {
+      "naics": "336412",
+      "establishments": 451,
+      "employment": 67717,
+      "annual_payroll_thousands": 6218972,
+      "avg_payroll_per_employee": 91838
+    },
+    {
+      "naics": "336413",
+      "establishments": 912,
+      "employment": 98945,
+      "annual_payroll_thousands": 7477425,
+      "avg_payroll_per_employee": 75572
+    },
+    {
+      "naics": "336414",
+      "establishments": 46,
+      "employment": 37860,
+      "annual_payroll_thousands": 5697877,
+      "avg_payroll_per_employee": 150499
+    },
+    {
+      "naics": "336415",
+      "establishments": 31,
+      "employment": 22606,
+      "annual_payroll_thousands": 2543733,
+      "avg_payroll_per_employee": 112525
+    },
+    {
+      "naics": "336419",
+      "establishments": 37,
+      "employment": 5503,
+      "annual_payroll_thousands": 549484,
+      "avg_payroll_per_employee": 99852
+    },
+    {
+      "naics": "336510",
+      "establishments": 219,
+      "employment": 24373,
+      "annual_payroll_thousands": 1675360,
+      "avg_payroll_per_employee": 68738
+    },
+    {
+      "naics": "336611",
+      "establishments": 489,
+      "employment": 100139,
+      "annual_payroll_thousands": 7230709,
+      "avg_payroll_per_employee": 72207
+    },
+    {
+      "naics": "336612",
+      "establishments": 895,
+      "employment": 43186,
+      "annual_payroll_thousands": 2248301,
+      "avg_payroll_per_employee": 52061
+    },
+    {
+      "naics": "336991",
+      "establishments": 399,
+      "employment": 8874,
+      "annual_payroll_thousands": 545820,
+      "avg_payroll_per_employee": 61508
+    },
+    {
+      "naics": "336992",
+      "establishments": 70,
+      "employment": 12363,
+      "annual_payroll_thousands": 970627,
+      "avg_payroll_per_employee": 78511
+    },
+    {
+      "naics": "336999",
+      "establishments": 407,
+      "employment": 15543,
+      "annual_payroll_thousands": 888776,
+      "avg_payroll_per_employee": 57182
+    },
+    {
+      "naics": "337110",
+      "establishments": 6043,
+      "employment": 95356,
+      "annual_payroll_thousands": 4352920,
+      "avg_payroll_per_employee": 45649
+    },
+    {
+      "naics": "337121",
+      "establishments": 969,
+      "employment": 63313,
+      "annual_payroll_thousands": 2618574,
+      "avg_payroll_per_employee": 41359
+    },
+    {
+      "naics": "337122",
+      "establishments": 2048,
+      "employment": 21488,
+      "annual_payroll_thousands": 860829,
+      "avg_payroll_per_employee": 40061
+    },
+    {
+      "naics": "337124",
+      "establishments": 262,
+      "employment": 9402,
+      "annual_payroll_thousands": 470701,
+      "avg_payroll_per_employee": 50064
+    },
+    {
+      "naics": "337125",
+      "establishments": 167,
+      "employment": 2860,
+      "annual_payroll_thousands": 120867,
+      "avg_payroll_per_employee": 42261
+    },
+    {
+      "naics": "337127",
+      "establishments": 530,
+      "employment": 18970,
+      "annual_payroll_thousands": 1026565,
+      "avg_payroll_per_employee": 54115
+    },
+    {
+      "naics": "337211",
+      "establishments": 302,
+      "employment": 11998,
+      "annual_payroll_thousands": 661588,
+      "avg_payroll_per_employee": 55142
+    },
+    {
+      "naics": "337212",
+      "establishments": 2315,
+      "employment": 42844,
+      "annual_payroll_thousands": 2447971,
+      "avg_payroll_per_employee": 57137
+    },
+    {
+      "naics": "337214",
+      "establishments": 199,
+      "employment": 17649,
+      "annual_payroll_thousands": 992362,
+      "avg_payroll_per_employee": 56228
+    },
+    {
+      "naics": "337215",
+      "establishments": 845,
+      "employment": 29361,
+      "annual_payroll_thousands": 1545823,
+      "avg_payroll_per_employee": 52649
+    },
+    {
+      "naics": "337910",
+      "establishments": 404,
+      "employment": 25048,
+      "annual_payroll_thousands": 1208929,
+      "avg_payroll_per_employee": 48264
+    },
+    {
+      "naics": "337920",
+      "establishments": 310,
+      "employment": 11207,
+      "annual_payroll_thousands": 571391,
+      "avg_payroll_per_employee": 50985
+    },
+    {
+      "naics": "339112",
+      "establishments": 1275,
+      "employment": 119468,
+      "annual_payroll_thousands": 9579695,
+      "avg_payroll_per_employee": 80186
+    },
+    {
+      "naics": "339113",
+      "establishments": 1842,
+      "employment": 100340,
+      "annual_payroll_thousands": 9478588,
+      "avg_payroll_per_employee": 94465
+    },
+    {
+      "naics": "339114",
+      "establishments": 527,
+      "employment": 15517,
+      "annual_payroll_thousands": 1140205,
+      "avg_payroll_per_employee": 73481
+    },
+    {
+      "naics": "339115",
+      "establishments": 455,
+      "employment": 21622,
+      "annual_payroll_thousands": 1418182,
+      "avg_payroll_per_employee": 65590
+    },
+    {
+      "naics": "339116",
+      "establishments": 5086,
+      "employment": 40203,
+      "annual_payroll_thousands": 2080128,
+      "avg_payroll_per_employee": 51741
+    },
+    {
+      "naics": "339910",
+      "establishments": 1849,
+      "employment": 18479,
+      "annual_payroll_thousands": 1043518,
+      "avg_payroll_per_employee": 56470
+    },
+    {
+      "naics": "339920",
+      "establishments": 1638,
+      "employment": 38700,
+      "annual_payroll_thousands": 2296590,
+      "avg_payroll_per_employee": 59343
+    },
+    {
+      "naics": "339930",
+      "establishments": 495,
+      "employment": 5704,
+      "annual_payroll_thousands": 329502,
+      "avg_payroll_per_employee": 57767
+    },
+    {
+      "naics": "339940",
+      "establishments": 401,
+      "employment": 9763,
+      "annual_payroll_thousands": 512304,
+      "avg_payroll_per_employee": 52474
+    },
+    {
+      "naics": "339950",
+      "establishments": 5814,
+      "employment": 65266,
+      "annual_payroll_thousands": 3570546,
+      "avg_payroll_per_employee": 54708
+    },
+    {
+      "naics": "339991",
+      "establishments": 662,
+      "employment": 30641,
+      "annual_payroll_thousands": 2042149,
+      "avg_payroll_per_employee": 66648
+    },
+    {
+      "naics": "339992",
+      "establishments": 615,
+      "employment": 11219,
+      "annual_payroll_thousands": 626104,
+      "avg_payroll_per_employee": 55807
+    },
+    {
+      "naics": "339993",
+      "establishments": 101,
+      "employment": 3602,
+      "annual_payroll_thousands": 193821,
+      "avg_payroll_per_employee": 53809
+    },
+    {
+      "naics": "339994",
+      "establishments": 153,
+      "employment": 9548,
+      "annual_payroll_thousands": 516933,
+      "avg_payroll_per_employee": 54140
+    },
+    {
+      "naics": "339995",
+      "establishments": 78,
+      "employment": 3028,
+      "annual_payroll_thousands": 140605,
+      "avg_payroll_per_employee": 46435
+    },
+    {
+      "naics": "339999",
+      "establishments": 3014,
+      "employment": 42166,
+      "annual_payroll_thousands": 2255966,
+      "avg_payroll_per_employee": 53502
+    },
+    {
+      "naics": "423110",
+      "establishments": 6076,
+      "employment": 128391,
+      "annual_payroll_thousands": 10303118,
+      "avg_payroll_per_employee": 80248
+    },
+    {
+      "naics": "423120",
+      "establishments": 12416,
+      "employment": 213545,
+      "annual_payroll_thousands": 13002298,
+      "avg_payroll_per_employee": 60888
+    },
+    {
+      "naics": "423130",
+      "establishments": 2581,
+      "employment": 42886,
+      "annual_payroll_thousands": 2620403,
+      "avg_payroll_per_employee": 61102
+    },
+    {
+      "naics": "423140",
+      "establishments": 1603,
+      "employment": 20567,
+      "annual_payroll_thousands": 924671,
+      "avg_payroll_per_employee": 44959
+    },
+    {
+      "naics": "423210",
+      "establishments": 5301,
+      "employment": 65372,
+      "annual_payroll_thousands": 4739775,
+      "avg_payroll_per_employee": 72505
+    },
+    {
+      "naics": "423220",
+      "establishments": 6867,
+      "employment": 90514,
+      "annual_payroll_thousands": 6446941,
+      "avg_payroll_per_employee": 71226
+    },
+    {
+      "naics": "423310",
+      "establishments": 7138,
+      "employment": 128600,
+      "annual_payroll_thousands": 9414771,
+      "avg_payroll_per_employee": 73210
+    },
+    {
+      "naics": "423320",
+      "establishments": 3739,
+      "employment": 38608,
+      "annual_payroll_thousands": 2505622,
+      "avg_payroll_per_employee": 64899
+    },
+    {
+      "naics": "423330",
+      "establishments": 3684,
+      "employment": 50108,
+      "annual_payroll_thousands": 4255374,
+      "avg_payroll_per_employee": 84924
+    },
+    {
+      "naics": "423390",
+      "establishments": 3633,
+      "employment": 48383,
+      "annual_payroll_thousands": 3291863,
+      "avg_payroll_per_employee": 68038
+    },
+    {
+      "naics": "423410",
+      "establishments": 566,
+      "employment": 8255,
+      "annual_payroll_thousands": 776299,
+      "avg_payroll_per_employee": 94040
+    },
+    {
+      "naics": "423420",
+      "establishments": 8540,
+      "employment": 102629,
+      "annual_payroll_thousands": 6753193,
+      "avg_payroll_per_employee": 65802
+    },
+    {
+      "naics": "423430",
+      "establishments": 7182,
+      "employment": 178270,
+      "annual_payroll_thousands": 24388218,
+      "avg_payroll_per_employee": 136805
+    },
+    {
+      "naics": "423440",
+      "establishments": 3785,
+      "employment": 45903,
+      "annual_payroll_thousands": 3164014,
+      "avg_payroll_per_employee": 68928
+    },
+    {
+      "naics": "423450",
+      "establishments": 10846,
+      "employment": 261343,
+      "annual_payroll_thousands": 31803598,
+      "avg_payroll_per_employee": 121693
+    },
+    {
+      "naics": "423460",
+      "establishments": 1017,
+      "employment": 20441,
+      "annual_payroll_thousands": 1364131,
+      "avg_payroll_per_employee": 66735
+    },
+    {
+      "naics": "423490",
+      "establishments": 2406,
+      "employment": 36224,
+      "annual_payroll_thousands": 3322526,
+      "avg_payroll_per_employee": 91722
+    },
+    {
+      "naics": "423510",
+      "establishments": 8799,
+      "employment": 138749,
+      "annual_payroll_thousands": 10952810,
+      "avg_payroll_per_employee": 78940
+    },
+    {
+      "naics": "423520",
+      "establishments": 315,
+      "employment": 2730,
+      "annual_payroll_thousands": 282278,
+      "avg_payroll_per_employee": 103399
+    },
+    {
+      "naics": "423610",
+      "establishments": 13576,
+      "employment": 208197,
+      "annual_payroll_thousands": 17626710,
+      "avg_payroll_per_employee": 84664
+    },
+    {
+      "naics": "423620",
+      "establishments": 2600,
+      "employment": 51166,
+      "annual_payroll_thousands": 5175991,
+      "avg_payroll_per_employee": 101161
+    },
+    {
+      "naics": "423690",
+      "establishments": 10793,
+      "employment": 243456,
+      "annual_payroll_thousands": 38943954,
+      "avg_payroll_per_employee": 159963
+    },
+    {
+      "naics": "423710",
+      "establishments": 5755,
+      "employment": 92492,
+      "annual_payroll_thousands": 6410270,
+      "avg_payroll_per_employee": 69306
+    },
+    {
+      "naics": "423720",
+      "establishments": 6699,
+      "employment": 86783,
+      "annual_payroll_thousands": 6640544,
+      "avg_payroll_per_employee": 76519
+    },
+    {
+      "naics": "423730",
+      "establishments": 6216,
+      "employment": 76916,
+      "annual_payroll_thousands": 6518873,
+      "avg_payroll_per_employee": 84753
+    },
+    {
+      "naics": "423740",
+      "establishments": 1199,
+      "employment": 11694,
+      "annual_payroll_thousands": 871565,
+      "avg_payroll_per_employee": 74531
+    },
+    {
+      "naics": "423810",
+      "establishments": 4821,
+      "employment": 97970,
+      "annual_payroll_thousands": 8214305,
+      "avg_payroll_per_employee": 83845
+    },
+    {
+      "naics": "423820",
+      "establishments": 7328,
+      "employment": 106506,
+      "annual_payroll_thousands": 7101086,
+      "avg_payroll_per_employee": 66673
+    },
+    {
+      "naics": "423830",
+      "establishments": 27246,
+      "employment": 359015,
+      "annual_payroll_thousands": 29400667,
+      "avg_payroll_per_employee": 81893
+    },
+    {
+      "naics": "423840",
+      "establishments": 9039,
+      "employment": 105127,
+      "annual_payroll_thousands": 8020249,
+      "avg_payroll_per_employee": 76291
+    },
+    {
+      "naics": "423850",
+      "establishments": 4487,
+      "employment": 48134,
+      "annual_payroll_thousands": 2837994,
+      "avg_payroll_per_employee": 58960
+    },
+    {
+      "naics": "423860",
+      "establishments": 2426,
+      "employment": 33702,
+      "annual_payroll_thousands": 2707535,
+      "avg_payroll_per_employee": 80338
+    },
+    {
+      "naics": "423910",
+      "establishments": 5377,
+      "employment": 64208,
+      "annual_payroll_thousands": 4734254,
+      "avg_payroll_per_employee": 73733
+    },
+    {
+      "naics": "423920",
+      "establishments": 2068,
+      "employment": 33288,
+      "annual_payroll_thousands": 3585008,
+      "avg_payroll_per_employee": 107697
+    },
+    {
+      "naics": "423930",
+      "establishments": 7693,
+      "employment": 98257,
+      "annual_payroll_thousands": 5817502,
+      "avg_payroll_per_employee": 59207
+    },
+    {
+      "naics": "423940",
+      "establishments": 6783,
+      "employment": 34567,
+      "annual_payroll_thousands": 2482164,
+      "avg_payroll_per_employee": 71807
+    },
+    {
+      "naics": "423990",
+      "establishments": 9645,
+      "employment": 84899,
+      "annual_payroll_thousands": 5832486,
+      "avg_payroll_per_employee": 68699
+    },
+    {
+      "naics": "424110",
+      "establishments": 733,
+      "employment": 8704,
+      "annual_payroll_thousands": 696806,
+      "avg_payroll_per_employee": 80056
+    },
+    {
+      "naics": "424120",
+      "establishments": 3546,
+      "employment": 60442,
+      "annual_payroll_thousands": 3152679,
+      "avg_payroll_per_employee": 52160
+    },
+    {
+      "naics": "424130",
+      "establishments": 3961,
+      "employment": 63928,
+      "annual_payroll_thousands": 5147289,
+      "avg_payroll_per_employee": 80517
+    },
+    {
+      "naics": "424210",
+      "establishments": 10342,
+      "employment": 306601,
+      "annual_payroll_thousands": 44518161,
+      "avg_payroll_per_employee": 145199
+    },
+    {
+      "naics": "424310",
+      "establishments": 2772,
+      "employment": 22547,
+      "annual_payroll_thousands": 1437799,
+      "avg_payroll_per_employee": 63769
+    },
+    {
+      "naics": "424320",
+      "establishments": 3156,
+      "employment": 48624,
+      "annual_payroll_thousands": 3301886,
+      "avg_payroll_per_employee": 67907
+    },
+    {
+      "naics": "424330",
+      "establishments": 6665,
+      "employment": 69493,
+      "annual_payroll_thousands": 5120729,
+      "avg_payroll_per_employee": 73687
+    },
+    {
+      "naics": "424340",
+      "establishments": 1183,
+      "employment": 23586,
+      "annual_payroll_thousands": 2300384,
+      "avg_payroll_per_employee": 97532
+    },
+    {
+      "naics": "424410",
+      "establishments": 3047,
+      "employment": 148321,
+      "annual_payroll_thousands": 9926275,
+      "avg_payroll_per_employee": 66924
+    },
+    {
+      "naics": "424420",
+      "establishments": 3148,
+      "employment": 84450,
+      "annual_payroll_thousands": 5724620,
+      "avg_payroll_per_employee": 67787
+    },
+    {
+      "naics": "424430",
+      "establishments": 1829,
+      "employment": 38691,
+      "annual_payroll_thousands": 2656742,
+      "avg_payroll_per_employee": 68666
+    },
+    {
+      "naics": "424440",
+      "establishments": 441,
+      "employment": 8993,
+      "annual_payroll_thousands": 501204,
+      "avg_payroll_per_employee": 55733
+    },
+    {
+      "naics": "424450",
+      "establishments": 2357,
+      "employment": 40279,
+      "annual_payroll_thousands": 2661302,
+      "avg_payroll_per_employee": 66072
+    },
+    {
+      "naics": "424460",
+      "establishments": 1969,
+      "employment": 20978,
+      "annual_payroll_thousands": 1213064,
+      "avg_payroll_per_employee": 57826
+    },
+    {
+      "naics": "424470",
+      "establishments": 2271,
+      "employment": 46604,
+      "annual_payroll_thousands": 3266474,
+      "avg_payroll_per_employee": 70090
+    },
+    {
+      "naics": "424480",
+      "establishments": 4852,
+      "employment": 101532,
+      "annual_payroll_thousands": 5893605,
+      "avg_payroll_per_employee": 58047
+    },
+    {
+      "naics": "424490",
+      "establishments": 14805,
+      "employment": 294245,
+      "annual_payroll_thousands": 18548524,
+      "avg_payroll_per_employee": 63038
+    },
+    {
+      "naics": "424510",
+      "establishments": 4531,
+      "employment": 46568,
+      "annual_payroll_thousands": 3197094,
+      "avg_payroll_per_employee": 68654
+    },
+    {
+      "naics": "424520",
+      "establishments": 635,
+      "employment": 4911,
+      "annual_payroll_thousands": 162457,
+      "avg_payroll_per_employee": 33080
+    },
+    {
+      "naics": "424590",
+      "establishments": 956,
+      "employment": 10405,
+      "annual_payroll_thousands": 850852,
+      "avg_payroll_per_employee": 81773
+    },
+    {
+      "naics": "424610",
+      "establishments": 2628,
+      "employment": 32412,
+      "annual_payroll_thousands": 2768682,
+      "avg_payroll_per_employee": 85422
+    },
+    {
+      "naics": "424690",
+      "establishments": 9297,
+      "employment": 125831,
+      "annual_payroll_thousands": 11329771,
+      "avg_payroll_per_employee": 90040
+    },
+    {
+      "naics": "424710",
+      "establishments": 3683,
+      "employment": 65798,
+      "annual_payroll_thousands": 5507927,
+      "avg_payroll_per_employee": 83710
+    },
+    {
+      "naics": "424720",
+      "establishments": 2607,
+      "employment": 31497,
+      "annual_payroll_thousands": 3306105,
+      "avg_payroll_per_employee": 104966
+    },
+    {
+      "naics": "424810",
+      "establishments": 1913,
+      "employment": 112257,
+      "annual_payroll_thousands": 6696220,
+      "avg_payroll_per_employee": 59651
+    },
+    {
+      "naics": "424820",
+      "establishments": 2829,
+      "employment": 88618,
+      "annual_payroll_thousands": 7934685,
+      "avg_payroll_per_employee": 89538
+    },
+    {
+      "naics": "424910",
+      "establishments": 8990,
+      "employment": 107531,
+      "annual_payroll_thousands": 7917860,
+      "avg_payroll_per_employee": 73633
+    },
+    {
+      "naics": "424920",
+      "establishments": 1238,
+      "employment": 18234,
+      "annual_payroll_thousands": 978715,
+      "avg_payroll_per_employee": 53675
+    },
+    {
+      "naics": "424930",
+      "establishments": 3454,
+      "employment": 46882,
+      "annual_payroll_thousands": 2225826,
+      "avg_payroll_per_employee": 47477
+    },
+    {
+      "naics": "424940",
+      "establishments": 1546,
+      "employment": 57603,
+      "annual_payroll_thousands": 3599566,
+      "avg_payroll_per_employee": 62489
+    },
+    {
+      "naics": "424950",
+      "establishments": 1934,
+      "employment": 19635,
+      "annual_payroll_thousands": 1471079,
+      "avg_payroll_per_employee": 74921
+    },
+    {
+      "naics": "424990",
+      "establishments": 10617,
+      "employment": 72099,
+      "annual_payroll_thousands": 4441415,
+      "avg_payroll_per_employee": 61602
+    },
+    {
+      "naics": "425110",
+      "establishments": 378,
+      "employment": 4352,
+      "annual_payroll_thousands": 262494,
+      "avg_payroll_per_employee": 60316
+    },
+    {
+      "naics": "425120",
+      "establishments": 36284,
+      "employment": 235399,
+      "annual_payroll_thousands": 15798369,
+      "avg_payroll_per_employee": 67113
+    },
+    {
+      "naics": "441110",
+      "establishments": 21622,
+      "employment": 1094863,
+      "annual_payroll_thousands": 84644166,
+      "avg_payroll_per_employee": 77310
+    },
+    {
+      "naics": "441120",
+      "establishments": 25649,
+      "employment": 163014,
+      "annual_payroll_thousands": 9113411,
+      "avg_payroll_per_employee": 55906
+    },
+    {
+      "naics": "441210",
+      "establishments": 2870,
+      "employment": 54931,
+      "annual_payroll_thousands": 4124779,
+      "avg_payroll_per_employee": 75090
+    },
+    {
+      "naics": "441222",
+      "establishments": 4253,
+      "employment": 37160,
+      "annual_payroll_thousands": 2200944,
+      "avg_payroll_per_employee": 59229
+    },
+    {
+      "naics": "441228",
+      "establishments": 6634,
+      "employment": 70809,
+      "annual_payroll_thousands": 3675078,
+      "avg_payroll_per_employee": 51901
+    },
+    {
+      "naics": "441310",
+      "establishments": 38281,
+      "employment": 360426,
+      "annual_payroll_thousands": 11565518,
+      "avg_payroll_per_employee": 32088
+    },
+    {
+      "naics": "441320",
+      "establishments": 20613,
+      "employment": 176511,
+      "annual_payroll_thousands": 7792963,
+      "avg_payroll_per_employee": 44150
+    },
+    {
+      "naics": "442110",
+      "establishments": 21983,
+      "employment": 196524,
+      "annual_payroll_thousands": 9819730,
+      "avg_payroll_per_employee": 49967
+    },
+    {
+      "naics": "442210",
+      "establishments": 10119,
+      "employment": 70262,
+      "annual_payroll_thousands": 3705819,
+      "avg_payroll_per_employee": 52743
+    },
+    {
+      "naics": "442291",
+      "establishments": 2116,
+      "employment": 7961,
+      "annual_payroll_thousands": 381387,
+      "avg_payroll_per_employee": 47907
+    },
+    {
+      "naics": "442299",
+      "establishments": 11185,
+      "employment": 153611,
+      "annual_payroll_thousands": 3404799,
+      "avg_payroll_per_employee": 22165
+    },
+    {
+      "naics": "443141",
+      "establishments": 6003,
+      "employment": 50362,
+      "annual_payroll_thousands": 2519651,
+      "avg_payroll_per_employee": 50031
+    },
+    {
+      "naics": "443142",
+      "establishments": 16797,
+      "employment": 172298,
+      "annual_payroll_thousands": 6764396,
+      "avg_payroll_per_employee": 39260
+    },
+    {
+      "naics": "444110",
+      "establishments": 5969,
+      "employment": 749421,
+      "annual_payroll_thousands": 20414048,
+      "avg_payroll_per_employee": 27240
+    },
+    {
+      "naics": "444120",
+      "establishments": 6678,
+      "employment": 31687,
+      "annual_payroll_thousands": 1449742,
+      "avg_payroll_per_employee": 45752
+    },
+    {
+      "naics": "444130",
+      "establishments": 15099,
+      "employment": 148732,
+      "annual_payroll_thousands": 4800071,
+      "avg_payroll_per_employee": 32273
+    },
+    {
+      "naics": "444190",
+      "establishments": 27433,
+      "employment": 278231,
+      "annual_payroll_thousands": 16109737,
+      "avg_payroll_per_employee": 57901
+    },
+    {
+      "naics": "444210",
+      "establishments": 3856,
+      "employment": 29639,
+      "annual_payroll_thousands": 1338687,
+      "avg_payroll_per_employee": 45166
+    },
+    {
+      "naics": "444220",
+      "establishments": 13358,
+      "employment": 140484,
+      "annual_payroll_thousands": 4923717,
+      "avg_payroll_per_employee": 35048
+    },
+    {
+      "naics": "445110",
+      "establishments": 62329,
+      "employment": 2833797,
+      "annual_payroll_thousands": 74251321,
+      "avg_payroll_per_employee": 26202
+    },
+    {
+      "naics": "445120",
+      "establishments": 34170,
+      "employment": 153456,
+      "annual_payroll_thousands": 3377598,
+      "avg_payroll_per_employee": 22010
+    },
+    {
+      "naics": "445210",
+      "establishments": 5413,
+      "employment": 47355,
+      "annual_payroll_thousands": 1228531,
+      "avg_payroll_per_employee": 25943
+    },
+    {
+      "naics": "445220",
+      "establishments": 2018,
+      "employment": 11852,
+      "annual_payroll_thousands": 406065,
+      "avg_payroll_per_employee": 34261
+    },
+    {
+      "naics": "445230",
+      "establishments": 2681,
+      "employment": 18976,
+      "annual_payroll_thousands": 577318,
+      "avg_payroll_per_employee": 30424
+    },
+    {
+      "naics": "445291",
+      "establishments": 2793,
+      "employment": 20135,
+      "annual_payroll_thousands": 594647,
+      "avg_payroll_per_employee": 29533
+    },
+    {
+      "naics": "445292",
+      "establishments": 3227,
+      "employment": 20121,
+      "annual_payroll_thousands": 416491,
+      "avg_payroll_per_employee": 20699
+    },
+    {
+      "naics": "445299",
+      "establishments": 6013,
+      "employment": 41343,
+      "annual_payroll_thousands": 932180,
+      "avg_payroll_per_employee": 22547
+    },
+    {
+      "naics": "445310",
+      "establishments": 35533,
+      "employment": 184364,
+      "annual_payroll_thousands": 5002384,
+      "avg_payroll_per_employee": 27133
+    },
+    {
+      "naics": "446110",
+      "establishments": 43879,
+      "employment": 663384,
+      "annual_payroll_thousands": 25861116,
+      "avg_payroll_per_employee": 38984
+    },
+    {
+      "naics": "446120",
+      "establishments": 17800,
+      "employment": 144217,
+      "annual_payroll_thousands": 3860650,
+      "avg_payroll_per_employee": 26770
+    },
+    {
+      "naics": "446130",
+      "establishments": 11519,
+      "employment": 75897,
+      "annual_payroll_thousands": 2542613,
+      "avg_payroll_per_employee": 33501
+    },
+    {
+      "naics": "446191",
+      "establishments": 8991,
+      "employment": 37856,
+      "annual_payroll_thousands": 1009557,
+      "avg_payroll_per_employee": 26668
+    },
+    {
+      "naics": "446199",
+      "establishments": 10150,
+      "employment": 68877,
+      "annual_payroll_thousands": 3612065,
+      "avg_payroll_per_employee": 52442
+    },
+    {
+      "naics": "447110",
+      "establishments": 98056,
+      "employment": 829937,
+      "annual_payroll_thousands": 19951840,
+      "avg_payroll_per_employee": 24040
+    },
+    {
+      "naics": "447190",
+      "establishments": 12869,
+      "employment": 146566,
+      "annual_payroll_thousands": 4380481,
+      "avg_payroll_per_employee": 29887
+    },
+    {
+      "naics": "448110",
+      "establishments": 6446,
+      "employment": 35596,
+      "annual_payroll_thousands": 1292009,
+      "avg_payroll_per_employee": 36296
+    },
+    {
+      "naics": "448120",
+      "establishments": 26926,
+      "employment": 194041,
+      "annual_payroll_thousands": 4345654,
+      "avg_payroll_per_employee": 22396
+    },
+    {
+      "naics": "448130",
+      "establishments": 4065,
+      "employment": 33621,
+      "annual_payroll_thousands": 570437,
+      "avg_payroll_per_employee": 16967
+    },
+    {
+      "naics": "448140",
+      "establishments": 27527,
+      "employment": 637176,
+      "annual_payroll_thousands": 12929049,
+      "avg_payroll_per_employee": 20291
+    },
+    {
+      "naics": "448150",
+      "establishments": 8066,
+      "employment": 51340,
+      "annual_payroll_thousands": 1629647,
+      "avg_payroll_per_employee": 31742
+    },
+    {
+      "naics": "448190",
+      "establishments": 11565,
+      "employment": 102842,
+      "annual_payroll_thousands": 2587564,
+      "avg_payroll_per_employee": 25161
+    },
+    {
+      "naics": "448210",
+      "establishments": 18861,
+      "employment": 202047,
+      "annual_payroll_thousands": 4122970,
+      "avg_payroll_per_employee": 20406
+    },
+    {
+      "naics": "448310",
+      "establishments": 19336,
+      "employment": 96349,
+      "annual_payroll_thousands": 4634042,
+      "avg_payroll_per_employee": 48096
+    },
+    {
+      "naics": "448320",
+      "establishments": 849,
+      "employment": 5769,
+      "annual_payroll_thousands": 363608,
+      "avg_payroll_per_employee": 63028
+    },
+    {
+      "naics": "451110",
+      "establishments": 19976,
+      "employment": 238887,
+      "annual_payroll_thousands": 6575467,
+      "avg_payroll_per_employee": 27525
+    },
+    {
+      "naics": "451120",
+      "establishments": 7962,
+      "employment": 102022,
+      "annual_payroll_thousands": 2326545,
+      "avg_payroll_per_employee": 22804
+    },
+    {
+      "naics": "451130",
+      "establishments": 3605,
+      "employment": 37159,
+      "annual_payroll_thousands": 558451,
+      "avg_payroll_per_employee": 15029
+    },
+    {
+      "naics": "451140",
+      "establishments": 3268,
+      "employment": 25021,
+      "annual_payroll_thousands": 787680,
+      "avg_payroll_per_employee": 31481
+    },
+    {
+      "naics": "451211",
+      "establishments": 5591,
+      "employment": 44072,
+      "annual_payroll_thousands": 941893,
+      "avg_payroll_per_employee": 21372
+    },
+    {
+      "naics": "451212",
+      "establishments": 771,
+      "employment": 2413,
+      "annual_payroll_thousands": 60853,
+      "avg_payroll_per_employee": 25219
+    },
+    {
+      "naics": "452210",
+      "establishments": 3648,
+      "employment": 329901,
+      "annual_payroll_thousands": 7091055,
+      "avg_payroll_per_employee": 21494
+    },
+    {
+      "naics": "452311",
+      "establishments": 8070,
+      "employment": 1898486,
+      "annual_payroll_thousands": 59218050,
+      "avg_payroll_per_employee": 31192
+    },
+    {
+      "naics": "452319",
+      "establishments": 44989,
+      "employment": 538798,
+      "annual_payroll_thousands": 9371880,
+      "avg_payroll_per_employee": 17394
+    },
+    {
+      "naics": "453110",
+      "establishments": 11775,
+      "employment": 50092,
+      "annual_payroll_thousands": 1245860,
+      "avg_payroll_per_employee": 24871
+    },
+    {
+      "naics": "453210",
+      "establishments": 4475,
+      "employment": 48612,
+      "annual_payroll_thousands": 1211648,
+      "avg_payroll_per_employee": 24925
+    },
+    {
+      "naics": "453220",
+      "establishments": 18609,
+      "employment": 111598,
+      "annual_payroll_thousands": 2767561,
+      "avg_payroll_per_employee": 24799
+    },
+    {
+      "naics": "453310",
+      "establishments": 18640,
+      "employment": 189892,
+      "annual_payroll_thousands": 4377742,
+      "avg_payroll_per_employee": 23054
+    },
+    {
+      "naics": "453910",
+      "establishments": 9684,
+      "employment": 115234,
+      "annual_payroll_thousands": 3277728,
+      "avg_payroll_per_employee": 28444
+    },
+    {
+      "naics": "453920",
+      "establishments": 4633,
+      "employment": 14746,
+      "annual_payroll_thousands": 1061886,
+      "avg_payroll_per_employee": 72012
+    },
+    {
+      "naics": "453930",
+      "establishments": 1845,
+      "employment": 11240,
+      "annual_payroll_thousands": 921421,
+      "avg_payroll_per_employee": 81977
+    },
+    {
+      "naics": "453991",
+      "establishments": 14512,
+      "employment": 50153,
+      "annual_payroll_thousands": 1318123,
+      "avg_payroll_per_employee": 26282
+    },
+    {
+      "naics": "453998",
+      "establishments": 22916,
+      "employment": 134342,
+      "annual_payroll_thousands": 5354291,
+      "avg_payroll_per_employee": 39856
+    },
+    {
+      "naics": "454110",
+      "establishments": 55085,
+      "employment": 734096,
+      "annual_payroll_thousands": 43347241,
+      "avg_payroll_per_employee": 59048
+    },
+    {
+      "naics": "454210",
+      "establishments": 3398,
+      "employment": 35327,
+      "annual_payroll_thousands": 1369259,
+      "avg_payroll_per_employee": 38760
+    },
+    {
+      "naics": "454310",
+      "establishments": 7912,
+      "employment": 72170,
+      "annual_payroll_thousands": 3968331,
+      "avg_payroll_per_employee": 54986
+    },
+    {
+      "naics": "454390",
+      "establishments": 23915,
+      "employment": 102529,
+      "annual_payroll_thousands": 4972201,
+      "avg_payroll_per_employee": 48496
+    },
+    {
+      "naics": "481111",
+      "establishments": 1797,
+      "employment": 407370,
+      "annual_payroll_thousands": 35988585,
+      "avg_payroll_per_employee": 88344
+    },
+    {
+      "naics": "481112",
+      "establishments": 377,
+      "employment": 9666,
+      "annual_payroll_thousands": 883336,
+      "avg_payroll_per_employee": 91386
+    },
+    {
+      "naics": "481211",
+      "establishments": 1602,
+      "employment": 33196,
+      "annual_payroll_thousands": 3888484,
+      "avg_payroll_per_employee": 117137
+    },
+    {
+      "naics": "481212",
+      "establishments": 218,
+      "employment": 8104,
+      "annual_payroll_thousands": 885751,
+      "avg_payroll_per_employee": 109298
+    },
+    {
+      "naics": "481219",
+      "establishments": 549,
+      "employment": 7087,
+      "annual_payroll_thousands": 562352,
+      "avg_payroll_per_employee": 79350
+    },
+    {
+      "naics": "483111",
+      "establishments": 315,
+      "employment": 7216,
+      "annual_payroll_thousands": 744040,
+      "avg_payroll_per_employee": 103110
+    },
+    {
+      "naics": "483112",
+      "establishments": 81,
+      "employment": 10708,
+      "annual_payroll_thousands": 1099542,
+      "avg_payroll_per_employee": 102684
+    },
+    {
+      "naics": "483113",
+      "establishments": 546,
+      "employment": 17928,
+      "annual_payroll_thousands": 1755894,
+      "avg_payroll_per_employee": 97941
+    },
+    {
+      "naics": "483114",
+      "establishments": 170,
+      "employment": 1839,
+      "annual_payroll_thousands": 163779,
+      "avg_payroll_per_employee": 89059
+    },
+    {
+      "naics": "483211",
+      "establishments": 371,
+      "employment": 15917,
+      "annual_payroll_thousands": 1346206,
+      "avg_payroll_per_employee": 84577
+    },
+    {
+      "naics": "483212",
+      "establishments": 309,
+      "employment": 2822,
+      "annual_payroll_thousands": 177392,
+      "avg_payroll_per_employee": 62860
+    },
+    {
+      "naics": "484110",
+      "establishments": 41896,
+      "employment": 294834,
+      "annual_payroll_thousands": 13864147,
+      "avg_payroll_per_employee": 47024
+    },
+    {
+      "naics": "484121",
+      "establishments": 57000,
+      "employment": 573674,
+      "annual_payroll_thousands": 31674011,
+      "avg_payroll_per_employee": 55213
+    },
+    {
+      "naics": "484122",
+      "establishments": 11107,
+      "employment": 296344,
+      "annual_payroll_thousands": 19126731,
+      "avg_payroll_per_employee": 64542
+    },
+    {
+      "naics": "484210",
+      "establishments": 9547,
+      "employment": 102346,
+      "annual_payroll_thousands": 4346416,
+      "avg_payroll_per_employee": 42468
+    },
+    {
+      "naics": "484220",
+      "establishments": 32217,
+      "employment": 225094,
+      "annual_payroll_thousands": 13071256,
+      "avg_payroll_per_employee": 58070
+    },
+    {
+      "naics": "484230",
+      "establishments": 11798,
+      "employment": 166880,
+      "annual_payroll_thousands": 10037845,
+      "avg_payroll_per_employee": 60150
+    },
+    {
+      "naics": "485111",
+      "establishments": 33,
+      "employment": 748,
+      "annual_payroll_thousands": 30308,
+      "avg_payroll_per_employee": 40519
+    },
+    {
+      "naics": "485112",
+      "establishments": 19,
+      "employment": 4074,
+      "annual_payroll_thousands": 407080,
+      "avg_payroll_per_employee": 99921
+    },
+    {
+      "naics": "485113",
+      "establishments": 525,
+      "employment": 38576,
+      "annual_payroll_thousands": 2081888,
+      "avg_payroll_per_employee": 53968
+    },
+    {
+      "naics": "485119",
+      "establishments": 60,
+      "employment": 1254,
+      "annual_payroll_thousands": 86398,
+      "avg_payroll_per_employee": 68898
+    },
+    {
+      "naics": "485210",
+      "establishments": 554,
+      "employment": 13310,
+      "annual_payroll_thousands": 553083,
+      "avg_payroll_per_employee": 41554
+    },
+    {
+      "naics": "485310",
+      "establishments": 3108,
+      "employment": 26803,
+      "annual_payroll_thousands": 4292138,
+      "avg_payroll_per_employee": 160136
+    },
+    {
+      "naics": "485320",
+      "establishments": 3914,
+      "employment": 17144,
+      "annual_payroll_thousands": 698410,
+      "avg_payroll_per_employee": 40738
+    },
+    {
+      "naics": "485410",
+      "establishments": 4002,
+      "employment": 194529,
+      "annual_payroll_thousands": 5301500,
+      "avg_payroll_per_employee": 27253
+    },
+    {
+      "naics": "485510",
+      "establishments": 1137,
+      "employment": 17331,
+      "annual_payroll_thousands": 742104,
+      "avg_payroll_per_employee": 42819
+    },
+    {
+      "naics": "485991",
+      "establishments": 3812,
+      "employment": 61165,
+      "annual_payroll_thousands": 2020428,
+      "avg_payroll_per_employee": 33032
+    },
+    {
+      "naics": "485999",
+      "establishments": 2062,
+      "employment": 18041,
+      "annual_payroll_thousands": 634923,
+      "avg_payroll_per_employee": 35193
+    },
+    {
+      "naics": "486110",
+      "establishments": 658,
+      "employment": 10048,
+      "annual_payroll_thousands": 1327185,
+      "avg_payroll_per_employee": 132084
+    },
+    {
+      "naics": "486210",
+      "establishments": 2068,
+      "employment": 26263,
+      "annual_payroll_thousands": 3274407,
+      "avg_payroll_per_employee": 124678
+    },
+    {
+      "naics": "486910",
+      "establishments": 661,
+      "employment": 8699,
+      "annual_payroll_thousands": 1080148,
+      "avg_payroll_per_employee": 124169
+    },
+    {
+      "naics": "486990",
+      "establishments": 59,
+      "employment": 280,
+      "annual_payroll_thousands": 32747,
+      "avg_payroll_per_employee": 116954
+    },
+    {
+      "naics": "487110",
+      "establishments": 682,
+      "employment": 5852,
+      "annual_payroll_thousands": 262939,
+      "avg_payroll_per_employee": 44931
+    },
+    {
+      "naics": "487210",
+      "establishments": 2119,
+      "employment": 9841,
+      "annual_payroll_thousands": 581985,
+      "avg_payroll_per_employee": 59139
+    },
+    {
+      "naics": "487990",
+      "establishments": 267,
+      "employment": 2115,
+      "annual_payroll_thousands": 124477,
+      "avg_payroll_per_employee": 58854
+    },
+    {
+      "naics": "488111",
+      "establishments": 217,
+      "employment": 1672,
+      "annual_payroll_thousands": 128856,
+      "avg_payroll_per_employee": 77067
+    },
+    {
+      "naics": "488119",
+      "establishments": 2083,
+      "employment": 101555,
+      "annual_payroll_thousands": 3787182,
+      "avg_payroll_per_employee": 37292
+    },
+    {
+      "naics": "488190",
+      "establishments": 3986,
+      "employment": 85980,
+      "annual_payroll_thousands": 5747587,
+      "avg_payroll_per_employee": 66848
+    },
+    {
+      "naics": "488210",
+      "establishments": 1658,
+      "employment": 42048,
+      "annual_payroll_thousands": 2364210,
+      "avg_payroll_per_employee": 56226
+    },
+    {
+      "naics": "488310",
+      "establishments": 349,
+      "employment": 12653,
+      "annual_payroll_thousands": 911795,
+      "avg_payroll_per_employee": 72062
+    },
+    {
+      "naics": "488320",
+      "establishments": 481,
+      "employment": 61763,
+      "annual_payroll_thousands": 5432106,
+      "avg_payroll_per_employee": 87951
+    },
+    {
+      "naics": "488330",
+      "establishments": 1047,
+      "employment": 14157,
+      "annual_payroll_thousands": 1205483,
+      "avg_payroll_per_employee": 85151
+    },
+    {
+      "naics": "488390",
+      "establishments": 755,
+      "employment": 7181,
+      "annual_payroll_thousands": 505637,
+      "avg_payroll_per_employee": 70413
+    },
+    {
+      "naics": "488410",
+      "establishments": 10119,
+      "employment": 64530,
+      "annual_payroll_thousands": 3003743,
+      "avg_payroll_per_employee": 46548
+    },
+    {
+      "naics": "488490",
+      "establishments": 3971,
+      "employment": 49815,
+      "annual_payroll_thousands": 1879683,
+      "avg_payroll_per_employee": 37733
+    },
+    {
+      "naics": "488510",
+      "establishments": 21832,
+      "employment": 301772,
+      "annual_payroll_thousands": 20717120,
+      "avg_payroll_per_employee": 68652
+    },
+    {
+      "naics": "488991",
+      "establishments": 1502,
+      "employment": 19817,
+      "annual_payroll_thousands": 974594,
+      "avg_payroll_per_employee": 49180
+    },
+    {
+      "naics": "488999",
+      "establishments": 609,
+      "employment": 3816,
+      "annual_payroll_thousands": 424355,
+      "avg_payroll_per_employee": 111204
+    },
+    {
+      "naics": "492110",
+      "establishments": 11285,
+      "employment": 954109,
+      "annual_payroll_thousands": 40914977,
+      "avg_payroll_per_employee": 42883
+    },
+    {
+      "naics": "492210",
+      "establishments": 5362,
+      "employment": 136797,
+      "annual_payroll_thousands": 7162863,
+      "avg_payroll_per_employee": 52361
+    },
+    {
+      "naics": "493110",
+      "establishments": 13780,
+      "employment": 1074752,
+      "annual_payroll_thousands": 51152771,
+      "avg_payroll_per_employee": 47595
+    },
+    {
+      "naics": "493120",
+      "establishments": 1236,
+      "employment": 53635,
+      "annual_payroll_thousands": 2619676,
+      "avg_payroll_per_employee": 48843
+    },
+    {
+      "naics": "493130",
+      "establishments": 680,
+      "employment": 8174,
+      "annual_payroll_thousands": 448325,
+      "avg_payroll_per_employee": 54848
+    },
+    {
+      "naics": "493190",
+      "establishments": 2556,
+      "employment": 62317,
+      "annual_payroll_thousands": 4245175,
+      "avg_payroll_per_employee": 68122
+    },
+    {
+      "naics": "511110",
+      "establishments": 6260,
+      "employment": 115522,
+      "annual_payroll_thousands": 6270236,
+      "avg_payroll_per_employee": 54277
+    },
+    {
+      "naics": "511120",
+      "establishments": 4315,
+      "employment": 65764,
+      "annual_payroll_thousands": 6257270,
+      "avg_payroll_per_employee": 95147
+    },
+    {
+      "naics": "511130",
+      "establishments": 2386,
+      "employment": 63254,
+      "annual_payroll_thousands": 5696579,
+      "avg_payroll_per_employee": 90059
+    },
+    {
+      "naics": "511140",
+      "establishments": 548,
+      "employment": 11325,
+      "annual_payroll_thousands": 1043216,
+      "avg_payroll_per_employee": 92116
+    },
+    {
+      "naics": "511191",
+      "establishments": 113,
+      "employment": 13718,
+      "annual_payroll_thousands": 495440,
+      "avg_payroll_per_employee": 36116
+    },
+    {
+      "naics": "511199",
+      "establishments": 726,
+      "employment": 3849,
+      "annual_payroll_thousands": 278504,
+      "avg_payroll_per_employee": 72357
+    },
+    {
+      "naics": "511210",
+      "establishments": 16591,
+      "employment": 769084,
+      "annual_payroll_thousands": 158914319,
+      "avg_payroll_per_employee": 206628
+    },
+    {
+      "naics": "512110",
+      "establishments": 17269,
+      "employment": 125134,
+      "annual_payroll_thousands": 13257469,
+      "avg_payroll_per_employee": 105946
+    },
+    {
+      "naics": "512120",
+      "establishments": 461,
+      "employment": 2559,
+      "annual_payroll_thousands": 337964,
+      "avg_payroll_per_employee": 132069
+    },
+    {
+      "naics": "512131",
+      "establishments": 4109,
+      "employment": 59216,
+      "annual_payroll_thousands": 1274165,
+      "avg_payroll_per_employee": 21517
+    },
+    {
+      "naics": "512132",
+      "establishments": 226,
+      "employment": 991,
+      "annual_payroll_thousands": 21957,
+      "avg_payroll_per_employee": 22156
+    },
+    {
+      "naics": "512191",
+      "establishments": 2952,
+      "employment": 29268,
+      "annual_payroll_thousands": 2663851,
+      "avg_payroll_per_employee": 91016
+    },
+    {
+      "naics": "512199",
+      "establishments": 251,
+      "employment": 976,
+      "annual_payroll_thousands": 89934,
+      "avg_payroll_per_employee": 92145
+    },
+    {
+      "naics": "512230",
+      "establishments": 815,
+      "employment": 5368,
+      "annual_payroll_thousands": 586960,
+      "avg_payroll_per_employee": 109344
+    },
+    {
+      "naics": "512240",
+      "establishments": 2177,
+      "employment": 5748,
+      "annual_payroll_thousands": 448900,
+      "avg_payroll_per_employee": 78097
+    },
+    {
+      "naics": "512250",
+      "establishments": 877,
+      "employment": 10079,
+      "annual_payroll_thousands": 1751413,
+      "avg_payroll_per_employee": 173769
+    },
+    {
+      "naics": "512290",
+      "establishments": 533,
+      "employment": 1939,
+      "annual_payroll_thousands": 134760,
+      "avg_payroll_per_employee": 69500
+    },
+    {
+      "naics": "515111",
+      "establishments": 671,
+      "employment": 10030,
+      "annual_payroll_thousands": 1156798,
+      "avg_payroll_per_employee": 115334
+    },
+    {
+      "naics": "515112",
+      "establishments": 4348,
+      "employment": 61355,
+      "annual_payroll_thousands": 3995001,
+      "avg_payroll_per_employee": 65113
+    },
+    {
+      "naics": "515120",
+      "establishments": 2450,
+      "employment": 143196,
+      "annual_payroll_thousands": 13910888,
+      "avg_payroll_per_employee": 97146
+    },
+    {
+      "naics": "515210",
+      "establishments": 861,
+      "employment": 57646,
+      "annual_payroll_thousands": 8620588,
+      "avg_payroll_per_employee": 149544
+    },
+    {
+      "naics": "517311",
+      "establishments": 31313,
+      "employment": 604428,
+      "annual_payroll_thousands": 56938965,
+      "avg_payroll_per_employee": 94203
+    },
+    {
+      "naics": "517312",
+      "establishments": 25485,
+      "employment": 270285,
+      "annual_payroll_thousands": 19277913,
+      "avg_payroll_per_employee": 71324
+    },
+    {
+      "naics": "517410",
+      "establishments": 431,
+      "employment": 8219,
+      "annual_payroll_thousands": 1070325,
+      "avg_payroll_per_employee": 130226
+    },
+    {
+      "naics": "517911",
+      "establishments": 3026,
+      "employment": 29430,
+      "annual_payroll_thousands": 1994982,
+      "avg_payroll_per_employee": 67787
+    },
+    {
+      "naics": "517919",
+      "establishments": 1850,
+      "employment": 29890,
+      "annual_payroll_thousands": 3994137,
+      "avg_payroll_per_employee": 133628
+    },
+    {
+      "naics": "518210",
+      "establishments": 17297,
+      "employment": 552789,
+      "annual_payroll_thousands": 83930617,
+      "avg_payroll_per_employee": 151831
+    },
+    {
+      "naics": "519110",
+      "establishments": 464,
+      "employment": 6661,
+      "annual_payroll_thousands": 710355,
+      "avg_payroll_per_employee": 106644
+    },
+    {
+      "naics": "519120",
+      "establishments": 2281,
+      "employment": 23901,
+      "annual_payroll_thousands": 880780,
+      "avg_payroll_per_employee": 36851
+    },
+    {
+      "naics": "519130",
+      "establishments": 9552,
+      "employment": 322211,
+      "annual_payroll_thousands": 108570304,
+      "avg_payroll_per_employee": 336954
+    },
+    {
+      "naics": "519190",
+      "establishments": 1368,
+      "employment": 10794,
+      "annual_payroll_thousands": 1147126,
+      "avg_payroll_per_employee": 106274
+    },
+    {
+      "naics": "521110",
+      "establishments": 63,
+      "employment": 20708,
+      "annual_payroll_thousands": 2913176,
+      "avg_payroll_per_employee": 140679
+    },
+    {
+      "naics": "522110",
+      "establishments": 85064,
+      "employment": 1525965,
+      "annual_payroll_thousands": 152045549,
+      "avg_payroll_per_employee": 99639
+    },
+    {
+      "naics": "522120",
+      "establishments": 7049,
+      "employment": 104193,
+      "annual_payroll_thousands": 9385028,
+      "avg_payroll_per_employee": 90073
+    },
+    {
+      "naics": "522130",
+      "establishments": 19149,
+      "employment": 317236,
+      "annual_payroll_thousands": 21130802,
+      "avg_payroll_per_employee": 66609
+    },
+    {
+      "naics": "522190",
+      "establishments": 22,
+      "employment": 2248,
+      "annual_payroll_thousands": 296047,
+      "avg_payroll_per_employee": 131694
+    },
+    {
+      "naics": "522210",
+      "establishments": 582,
+      "employment": 57946,
+      "annual_payroll_thousands": 6330271,
+      "avg_payroll_per_employee": 109244
+    },
+    {
+      "naics": "522220",
+      "establishments": 3769,
+      "employment": 99396,
+      "annual_payroll_thousands": 10523010,
+      "avg_payroll_per_employee": 105870
+    },
+    {
+      "naics": "522291",
+      "establishments": 14351,
+      "employment": 93199,
+      "annual_payroll_thousands": 8407351,
+      "avg_payroll_per_employee": 90209
+    },
+    {
+      "naics": "522292",
+      "establishments": 17003,
+      "employment": 360910,
+      "annual_payroll_thousands": 49458793,
+      "avg_payroll_per_employee": 137039
+    },
+    {
+      "naics": "522293",
+      "establishments": 268,
+      "employment": 930,
+      "annual_payroll_thousands": 108577,
+      "avg_payroll_per_employee": 116749
+    },
+    {
+      "naics": "522294",
+      "establishments": 168,
+      "employment": 16684,
+      "annual_payroll_thousands": 2605036,
+      "avg_payroll_per_employee": 156140
+    },
+    {
+      "naics": "522298",
+      "establishments": 10017,
+      "employment": 65843,
+      "annual_payroll_thousands": 5786637,
+      "avg_payroll_per_employee": 87885
+    },
+    {
+      "naics": "522310",
+      "establishments": 10812,
+      "employment": 72742,
+      "annual_payroll_thousands": 9345859,
+      "avg_payroll_per_employee": 128480
+    },
+    {
+      "naics": "522320",
+      "establishments": 5172,
+      "employment": 169824,
+      "annual_payroll_thousands": 27035746,
+      "avg_payroll_per_employee": 159199
+    },
+    {
+      "naics": "522390",
+      "establishments": 13336,
+      "employment": 81528,
+      "annual_payroll_thousands": 5729962,
+      "avg_payroll_per_employee": 70282
+    },
+    {
+      "naics": "523110",
+      "establishments": 3785,
+      "employment": 85594,
+      "annual_payroll_thousands": 39692348,
+      "avg_payroll_per_employee": 463728
+    },
+    {
+      "naics": "523120",
+      "establishments": 22433,
+      "employment": 253465,
+      "annual_payroll_thousands": 57600044,
+      "avg_payroll_per_employee": 227250
+    },
+    {
+      "naics": "523130",
+      "establishments": 833,
+      "employment": 8360,
+      "annual_payroll_thousands": 2867363,
+      "avg_payroll_per_employee": 342986
+    },
+    {
+      "naics": "523140",
+      "establishments": 911,
+      "employment": 8142,
+      "annual_payroll_thousands": 1440495,
+      "avg_payroll_per_employee": 176922
+    },
+    {
+      "naics": "523210",
+      "establishments": 47,
+      "employment": 5959,
+      "annual_payroll_thousands": 1461698,
+      "avg_payroll_per_employee": 245292
+    },
+    {
+      "naics": "523910",
+      "establishments": 9780,
+      "employment": 49647,
+      "annual_payroll_thousands": 12043137,
+      "avg_payroll_per_employee": 242575
+    },
+    {
+      "naics": "523920",
+      "establishments": 42422,
+      "employment": 363095,
+      "annual_payroll_thousands": 110613764,
+      "avg_payroll_per_employee": 304641
+    },
+    {
+      "naics": "523930",
+      "establishments": 24254,
+      "employment": 108388,
+      "annual_payroll_thousands": 17153617,
+      "avg_payroll_per_employee": 158261
+    },
+    {
+      "naics": "523991",
+      "establishments": 2517,
+      "employment": 36114,
+      "annual_payroll_thousands": 3982205,
+      "avg_payroll_per_employee": 110268
+    },
+    {
+      "naics": "523999",
+      "establishments": 1708,
+      "employment": 22834,
+      "annual_payroll_thousands": 5946145,
+      "avg_payroll_per_employee": 260408
+    },
+    {
+      "naics": "524113",
+      "establishments": 6844,
+      "employment": 323245,
+      "annual_payroll_thousands": 39121844,
+      "avg_payroll_per_employee": 121028
+    },
+    {
+      "naics": "524114",
+      "establishments": 5552,
+      "employment": 538684,
+      "annual_payroll_thousands": 51375569,
+      "avg_payroll_per_employee": 95372
+    },
+    {
+      "naics": "524126",
+      "establishments": 12178,
+      "employment": 594926,
+      "annual_payroll_thousands": 58881722,
+      "avg_payroll_per_employee": 98973
+    },
+    {
+      "naics": "524127",
+      "establishments": 3866,
+      "employment": 45847,
+      "annual_payroll_thousands": 5482397,
+      "avg_payroll_per_employee": 119580
+    },
+    {
+      "naics": "524128",
+      "establishments": 559,
+      "employment": 32718,
+      "annual_payroll_thousands": 2990112,
+      "avg_payroll_per_employee": 91390
+    },
+    {
+      "naics": "524130",
+      "establishments": 669,
+      "employment": 15583,
+      "annual_payroll_thousands": 2810102,
+      "avg_payroll_per_employee": 180331
+    },
+    {
+      "naics": "524210",
+      "establishments": 135939,
+      "employment": 769558,
+      "annual_payroll_thousands": 61989768,
+      "avg_payroll_per_employee": 80552
+    },
+    {
+      "naics": "524291",
+      "establishments": 4534,
+      "employment": 39226,
+      "annual_payroll_thousands": 3201391,
+      "avg_payroll_per_employee": 81614
+    },
+    {
+      "naics": "524292",
+      "establishments": 8375,
+      "employment": 405413,
+      "annual_payroll_thousands": 30569946,
+      "avg_payroll_per_employee": 75404
+    },
+    {
+      "naics": "524298",
+      "establishments": 2956,
+      "employment": 34219,
+      "annual_payroll_thousands": 3134026,
+      "avg_payroll_per_employee": 91587
+    },
+    {
+      "naics": "525910",
+      "establishments": 298,
+      "employment": 1506,
+      "annual_payroll_thousands": 292176,
+      "avg_payroll_per_employee": 194008
+    },
+    {
+      "naics": "525990",
+      "establishments": 1606,
+      "employment": 6434,
+      "annual_payroll_thousands": 1121680,
+      "avg_payroll_per_employee": 174336
+    },
+    {
+      "naics": "531110",
+      "establishments": 74358,
+      "employment": 337014,
+      "annual_payroll_thousands": 16522050,
+      "avg_payroll_per_employee": 49025
+    },
+    {
+      "naics": "531120",
+      "establishments": 34689,
+      "employment": 160791,
+      "annual_payroll_thousands": 13320317,
+      "avg_payroll_per_employee": 82842
+    },
+    {
+      "naics": "531130",
+      "establishments": 18715,
+      "employment": 46279,
+      "annual_payroll_thousands": 1783898,
+      "avg_payroll_per_employee": 38547
+    },
+    {
+      "naics": "531190",
+      "establishments": 8681,
+      "employment": 35655,
+      "annual_payroll_thousands": 1961513,
+      "avg_payroll_per_employee": 55014
+    },
+    {
+      "naics": "531210",
+      "establishments": 158902,
+      "employment": 383471,
+      "annual_payroll_thousands": 31531475,
+      "avg_payroll_per_employee": 82226
+    },
+    {
+      "naics": "531311",
+      "establishments": 55347,
+      "employment": 485256,
+      "annual_payroll_thousands": 25601794,
+      "avg_payroll_per_employee": 52759
+    },
+    {
+      "naics": "531312",
+      "establishments": 18259,
+      "employment": 156926,
+      "annual_payroll_thousands": 13275767,
+      "avg_payroll_per_employee": 84599
+    },
+    {
+      "naics": "531320",
+      "establishments": 13472,
+      "employment": 36044,
+      "annual_payroll_thousands": 2685428,
+      "avg_payroll_per_employee": 74504
+    },
+    {
+      "naics": "531390",
+      "establishments": 20370,
+      "employment": 68454,
+      "annual_payroll_thousands": 6755400,
+      "avg_payroll_per_employee": 98685
+    },
+    {
+      "naics": "532111",
+      "establishments": 9149,
+      "employment": 62218,
+      "annual_payroll_thousands": 2838489,
+      "avg_payroll_per_employee": 45622
+    },
+    {
+      "naics": "532112",
+      "establishments": 520,
+      "employment": 9008,
+      "annual_payroll_thousands": 843986,
+      "avg_payroll_per_employee": 93693
+    },
+    {
+      "naics": "532120",
+      "establishments": 5972,
+      "employment": 70864,
+      "annual_payroll_thousands": 3897620,
+      "avg_payroll_per_employee": 55001
+    },
+    {
+      "naics": "532210",
+      "establishments": 5214,
+      "employment": 23996,
+      "annual_payroll_thousands": 1159707,
+      "avg_payroll_per_employee": 48329
+    },
+    {
+      "naics": "532281",
+      "establishments": 726,
+      "employment": 2825,
+      "annual_payroll_thousands": 120753,
+      "avg_payroll_per_employee": 42744
+    },
+    {
+      "naics": "532282",
+      "establishments": 1169,
+      "employment": 4900,
+      "annual_payroll_thousands": 151752,
+      "avg_payroll_per_employee": 30970
+    },
+    {
+      "naics": "532283",
+      "establishments": 1859,
+      "employment": 23620,
+      "annual_payroll_thousands": 1315689,
+      "avg_payroll_per_employee": 55702
+    },
+    {
+      "naics": "532284",
+      "establishments": 2740,
+      "employment": 12805,
+      "annual_payroll_thousands": 622172,
+      "avg_payroll_per_employee": 48588
+    },
+    {
+      "naics": "532289",
+      "establishments": 4711,
+      "employment": 28994,
+      "annual_payroll_thousands": 1551961,
+      "avg_payroll_per_employee": 53527
+    },
+    {
+      "naics": "532310",
+      "establishments": 2792,
+      "employment": 17857,
+      "annual_payroll_thousands": 928680,
+      "avg_payroll_per_employee": 52006
+    },
+    {
+      "naics": "532411",
+      "establishments": 631,
+      "employment": 4545,
+      "annual_payroll_thousands": 693340,
+      "avg_payroll_per_employee": 152550
+    },
+    {
+      "naics": "532412",
+      "establishments": 5146,
+      "employment": 63199,
+      "annual_payroll_thousands": 5146466,
+      "avg_payroll_per_employee": 81433
+    },
+    {
+      "naics": "532420",
+      "establishments": 695,
+      "employment": 7177,
+      "annual_payroll_thousands": 685544,
+      "avg_payroll_per_employee": 95520
+    },
+    {
+      "naics": "532490",
+      "establishments": 9525,
+      "employment": 101636,
+      "annual_payroll_thousands": 7129660,
+      "avg_payroll_per_employee": 70149
+    },
+    {
+      "naics": "533110",
+      "establishments": 2584,
+      "employment": 37068,
+      "annual_payroll_thousands": 5075389,
+      "avg_payroll_per_employee": 136921
+    },
+    {
+      "naics": "541110",
+      "establishments": 168044,
+      "employment": 1045127,
+      "annual_payroll_thousands": 122292936,
+      "avg_payroll_per_employee": 117013
+    },
+    {
+      "naics": "541191",
+      "establishments": 9511,
+      "employment": 72266,
+      "annual_payroll_thousands": 5277079,
+      "avg_payroll_per_employee": 73023
+    },
+    {
+      "naics": "541199",
+      "establishments": 4938,
+      "employment": 26890,
+      "annual_payroll_thousands": 1838831,
+      "avg_payroll_per_employee": 68383
+    },
+    {
+      "naics": "541211",
+      "establishments": 55346,
+      "employment": 535309,
+      "annual_payroll_thousands": 49494404,
+      "avg_payroll_per_employee": 92460
+    },
+    {
+      "naics": "541213",
+      "establishments": 33293,
+      "employment": 154310,
+      "annual_payroll_thousands": 2742556,
+      "avg_payroll_per_employee": 17773
+    },
+    {
+      "naics": "541214",
+      "establishments": 5545,
+      "employment": 247224,
+      "annual_payroll_thousands": 18929024,
+      "avg_payroll_per_employee": 76566
+    },
+    {
+      "naics": "541219",
+      "establishments": 45775,
+      "employment": 237275,
+      "annual_payroll_thousands": 12468446,
+      "avg_payroll_per_employee": 52549
+    },
+    {
+      "naics": "541310",
+      "establishments": 22223,
+      "employment": 171348,
+      "annual_payroll_thousands": 15792114,
+      "avg_payroll_per_employee": 92164
+    },
+    {
+      "naics": "541320",
+      "establishments": 5063,
+      "employment": 26816,
+      "annual_payroll_thousands": 1905267,
+      "avg_payroll_per_employee": 71050
+    },
+    {
+      "naics": "541330",
+      "establishments": 62535,
+      "employment": 1146300,
+      "annual_payroll_thousands": 115886430,
+      "avg_payroll_per_employee": 101096
+    },
+    {
+      "naics": "541340",
+      "establishments": 2891,
+      "employment": 9062,
+      "annual_payroll_thousands": 556735,
+      "avg_payroll_per_employee": 61436
+    },
+    {
+      "naics": "541350",
+      "establishments": 7717,
+      "employment": 26290,
+      "annual_payroll_thousands": 1413477,
+      "avg_payroll_per_employee": 53765
+    },
+    {
+      "naics": "541360",
+      "establishments": 992,
+      "employment": 6907,
+      "annual_payroll_thousands": 622621,
+      "avg_payroll_per_employee": 90143
+    },
+    {
+      "naics": "541370",
+      "establishments": 7382,
+      "employment": 52793,
+      "annual_payroll_thousands": 3601328,
+      "avg_payroll_per_employee": 68216
+    },
+    {
+      "naics": "541380",
+      "establishments": 7449,
+      "employment": 146426,
+      "annual_payroll_thousands": 10514207,
+      "avg_payroll_per_employee": 71806
+    },
+    {
+      "naics": "541410",
+      "establishments": 15435,
+      "employment": 46872,
+      "annual_payroll_thousands": 2987509,
+      "avg_payroll_per_employee": 63738
+    },
+    {
+      "naics": "541420",
+      "establishments": 1632,
+      "employment": 12113,
+      "annual_payroll_thousands": 1293825,
+      "avg_payroll_per_employee": 106813
+    },
+    {
+      "naics": "541430",
+      "establishments": 15865,
+      "employment": 48978,
+      "annual_payroll_thousands": 3126139,
+      "avg_payroll_per_employee": 63827
+    },
+    {
+      "naics": "541490",
+      "establishments": 3012,
+      "employment": 9749,
+      "annual_payroll_thousands": 707209,
+      "avg_payroll_per_employee": 72542
+    },
+    {
+      "naics": "541511",
+      "establishments": 67329,
+      "employment": 944630,
+      "annual_payroll_thousands": 121461615,
+      "avg_payroll_per_employee": 128581
+    },
+    {
+      "naics": "541512",
+      "establishments": 59188,
+      "employment": 830910,
+      "annual_payroll_thousands": 100545779,
+      "avg_payroll_per_employee": 121007
+    },
+    {
+      "naics": "541513",
+      "establishments": 6387,
+      "employment": 117222,
+      "annual_payroll_thousands": 11158483,
+      "avg_payroll_per_employee": 95191
+    },
+    {
+      "naics": "541519",
+      "establishments": 11397,
+      "employment": 126283,
+      "annual_payroll_thousands": 14579124,
+      "avg_payroll_per_employee": 115448
+    },
+    {
+      "naics": "541611",
+      "establishments": 94116,
+      "employment": 706811,
+      "annual_payroll_thousands": 84315595,
+      "avg_payroll_per_employee": 119290
+    },
+    {
+      "naics": "541612",
+      "establishments": 8664,
+      "employment": 147738,
+      "annual_payroll_thousands": 12524298,
+      "avg_payroll_per_employee": 84774
+    },
+    {
+      "naics": "541613",
+      "establishments": 48009,
+      "employment": 262204,
+      "annual_payroll_thousands": 20707256,
+      "avg_payroll_per_employee": 78974
+    },
+    {
+      "naics": "541614",
+      "establishments": 8740,
+      "employment": 87614,
+      "annual_payroll_thousands": 6148649,
+      "avg_payroll_per_employee": 70179
+    },
+    {
+      "naics": "541618",
+      "establishments": 11419,
+      "employment": 38549,
+      "annual_payroll_thousands": 4770175,
+      "avg_payroll_per_employee": 123743
+    },
+    {
+      "naics": "541620",
+      "establishments": 10297,
+      "employment": 93407,
+      "annual_payroll_thousands": 7377682,
+      "avg_payroll_per_employee": 78984
+    },
+    {
+      "naics": "541690",
+      "establishments": 25289,
+      "employment": 150353,
+      "annual_payroll_thousands": 14593161,
+      "avg_payroll_per_employee": 97059
+    },
+    {
+      "naics": "541713",
+      "establishments": 2375,
+      "employment": 174958,
+      "annual_payroll_thousands": 24893842,
+      "avg_payroll_per_employee": 142285
+    },
+    {
+      "naics": "541714",
+      "establishments": 5019,
+      "employment": 130912,
+      "annual_payroll_thousands": 27378400,
+      "avg_payroll_per_employee": 209136
+    },
+    {
+      "naics": "541715",
+      "establishments": 11840,
+      "employment": 521509,
+      "annual_payroll_thousands": 75957645,
+      "avg_payroll_per_employee": 145650
+    },
+    {
+      "naics": "541720",
+      "establishments": 2086,
+      "employment": 44518,
+      "annual_payroll_thousands": 3525072,
+      "avg_payroll_per_employee": 79183
+    },
+    {
+      "naics": "541810",
+      "establishments": 14612,
+      "employment": 176870,
+      "annual_payroll_thousands": 18790680,
+      "avg_payroll_per_employee": 106240
+    },
+    {
+      "naics": "541820",
+      "establishments": 8567,
+      "employment": 54730,
+      "annual_payroll_thousands": 6584383,
+      "avg_payroll_per_employee": 120307
+    },
+    {
+      "naics": "541830",
+      "establishments": 841,
+      "employment": 19208,
+      "annual_payroll_thousands": 2159147,
+      "avg_payroll_per_employee": 112409
+    },
+    {
+      "naics": "541840",
+      "establishments": 1282,
+      "employment": 16907,
+      "annual_payroll_thousands": 2152481,
+      "avg_payroll_per_employee": 127313
+    },
+    {
+      "naics": "541850",
+      "establishments": 2532,
+      "employment": 21571,
+      "annual_payroll_thousands": 1421421,
+      "avg_payroll_per_employee": 65895
+    },
+    {
+      "naics": "541860",
+      "establishments": 1963,
+      "employment": 35421,
+      "annual_payroll_thousands": 2280686,
+      "avg_payroll_per_employee": 64388
+    },
+    {
+      "naics": "541870",
+      "establishments": 1246,
+      "employment": 10599,
+      "annual_payroll_thousands": 988000,
+      "avg_payroll_per_employee": 93216
+    },
+    {
+      "naics": "541890",
+      "establishments": 7110,
+      "employment": 97095,
+      "annual_payroll_thousands": 3957960,
+      "avg_payroll_per_employee": 40764
+    },
+    {
+      "naics": "541910",
+      "establishments": 4558,
+      "employment": 79935,
+      "annual_payroll_thousands": 8884845,
+      "avg_payroll_per_employee": 111151
+    },
+    {
+      "naics": "541921",
+      "establishments": 10622,
+      "employment": 32491,
+      "annual_payroll_thousands": 1071566,
+      "avg_payroll_per_employee": 32980
+    },
+    {
+      "naics": "541922",
+      "establishments": 4738,
+      "employment": 10974,
+      "annual_payroll_thousands": 600237,
+      "avg_payroll_per_employee": 54696
+    },
+    {
+      "naics": "541930",
+      "establishments": 2839,
+      "employment": 37377,
+      "annual_payroll_thousands": 1727073,
+      "avg_payroll_per_employee": 46207
+    },
+    {
+      "naics": "541940",
+      "establishments": 32634,
+      "employment": 420232,
+      "annual_payroll_thousands": 19598468,
+      "avg_payroll_per_employee": 46637
+    },
+    {
+      "naics": "541990",
+      "establishments": 22123,
+      "employment": 118392,
+      "annual_payroll_thousands": 9757468,
+      "avg_payroll_per_employee": 82417
+    },
+    {
+      "naics": "551111",
+      "establishments": 676,
+      "employment": 11308,
+      "annual_payroll_thousands": 1346491,
+      "avg_payroll_per_employee": 119074
+    },
+    {
+      "naics": "551112",
+      "establishments": 6850,
+      "employment": 98917,
+      "annual_payroll_thousands": 12184356,
+      "avg_payroll_per_employee": 123178
+    },
+    {
+      "naics": "551114",
+      "establishments": 44546,
+      "employment": 3373929,
+      "annual_payroll_thousands": 421034257,
+      "avg_payroll_per_employee": 124790
+    },
+    {
+      "naics": "561110",
+      "establishments": 36800,
+      "employment": 526457,
+      "annual_payroll_thousands": 41589210,
+      "avg_payroll_per_employee": 78998
+    },
+    {
+      "naics": "561210",
+      "establishments": 9182,
+      "employment": 259479,
+      "annual_payroll_thousands": 13015524,
+      "avg_payroll_per_employee": 50160
+    },
+    {
+      "naics": "561311",
+      "establishments": 6528,
+      "employment": 209442,
+      "annual_payroll_thousands": 9921220,
+      "avg_payroll_per_employee": 47370
+    },
+    {
+      "naics": "561312",
+      "establishments": 6179,
+      "employment": 39639,
+      "annual_payroll_thousands": 5254404,
+      "avg_payroll_per_employee": 132556
+    },
+    {
+      "naics": "561320",
+      "establishments": 41238,
+      "employment": 3497222,
+      "annual_payroll_thousands": 152902143,
+      "avg_payroll_per_employee": 43721
+    },
+    {
+      "naics": "561330",
+      "establishments": 4127,
+      "employment": 3344544,
+      "annual_payroll_thousands": 249161113,
+      "avg_payroll_per_employee": 74498
+    },
+    {
+      "naics": "561410",
+      "establishments": 5521,
+      "employment": 39087,
+      "annual_payroll_thousands": 1468284,
+      "avg_payroll_per_employee": 37565
+    },
+    {
+      "naics": "561421",
+      "establishments": 1124,
+      "employment": 45011,
+      "annual_payroll_thousands": 1514330,
+      "avg_payroll_per_employee": 33644
+    },
+    {
+      "naics": "561422",
+      "establishments": 3727,
+      "employment": 410038,
+      "annual_payroll_thousands": 13621086,
+      "avg_payroll_per_employee": 33219
+    },
+    {
+      "naics": "561431",
+      "establishments": 5302,
+      "employment": 27080,
+      "annual_payroll_thousands": 776535,
+      "avg_payroll_per_employee": 28676
+    },
+    {
+      "naics": "561439",
+      "establishments": 5038,
+      "employment": 44582,
+      "annual_payroll_thousands": 2152672,
+      "avg_payroll_per_employee": 48286
+    },
+    {
+      "naics": "561440",
+      "establishments": 3289,
+      "employment": 114565,
+      "annual_payroll_thousands": 5497405,
+      "avg_payroll_per_employee": 47985
+    },
+    {
+      "naics": "561450",
+      "establishments": 475,
+      "employment": 26390,
+      "annual_payroll_thousands": 5026895,
+      "avg_payroll_per_employee": 190485
+    },
+    {
+      "naics": "561491",
+      "establishments": 725,
+      "employment": 7286,
+      "annual_payroll_thousands": 284439,
+      "avg_payroll_per_employee": 39039
+    },
+    {
+      "naics": "561492",
+      "establishments": 3226,
+      "employment": 12128,
+      "annual_payroll_thousands": 695901,
+      "avg_payroll_per_employee": 57380
+    },
+    {
+      "naics": "561499",
+      "establishments": 3830,
+      "employment": 55006,
+      "annual_payroll_thousands": 4882039,
+      "avg_payroll_per_employee": 88755
+    },
+    {
+      "naics": "561510",
+      "establishments": 9263,
+      "employment": 74669,
+      "annual_payroll_thousands": 6580419,
+      "avg_payroll_per_employee": 88128
+    },
+    {
+      "naics": "561520",
+      "establishments": 2413,
+      "employment": 17868,
+      "annual_payroll_thousands": 1175664,
+      "avg_payroll_per_employee": 65797
+    },
+    {
+      "naics": "561591",
+      "establishments": 955,
+      "employment": 6778,
+      "annual_payroll_thousands": 490058,
+      "avg_payroll_per_employee": 72301
+    },
+    {
+      "naics": "561599",
+      "establishments": 2723,
+      "employment": 56239,
+      "annual_payroll_thousands": 5369086,
+      "avg_payroll_per_employee": 95469
+    },
+    {
+      "naics": "561611",
+      "establishments": 4143,
+      "employment": 40025,
+      "annual_payroll_thousands": 2197920,
+      "avg_payroll_per_employee": 54914
+    },
+    {
+      "naics": "561612",
+      "establishments": 10265,
+      "employment": 753571,
+      "annual_payroll_thousands": 21793235,
+      "avg_payroll_per_employee": 28920
+    },
+    {
+      "naics": "561613",
+      "establishments": 791,
+      "employment": 27747,
+      "annual_payroll_thousands": 1240804,
+      "avg_payroll_per_employee": 44718
+    },
+    {
+      "naics": "561621",
+      "establishments": 7549,
+      "employment": 125389,
+      "annual_payroll_thousands": 8018497,
+      "avg_payroll_per_employee": 63949
+    },
+    {
+      "naics": "561622",
+      "establishments": 4030,
+      "employment": 15737,
+      "annual_payroll_thousands": 744178,
+      "avg_payroll_per_employee": 47288
+    },
+    {
+      "naics": "561710",
+      "establishments": 15802,
+      "employment": 129676,
+      "annual_payroll_thousands": 6450694,
+      "avg_payroll_per_employee": 49745
+    },
+    {
+      "naics": "561720",
+      "establishments": 66471,
+      "employment": 1029648,
+      "annual_payroll_thousands": 27607550,
+      "avg_payroll_per_employee": 26813
+    },
+    {
+      "naics": "561730",
+      "establishments": 115196,
+      "employment": 741293,
+      "annual_payroll_thousands": 35198867,
+      "avg_payroll_per_employee": 47483
+    },
+    {
+      "naics": "561740",
+      "establishments": 7023,
+      "employment": 34567,
+      "annual_payroll_thousands": 1372540,
+      "avg_payroll_per_employee": 39707
+    },
+    {
+      "naics": "561790",
+      "establishments": 16597,
+      "employment": 79093,
+      "annual_payroll_thousands": 3606692,
+      "avg_payroll_per_employee": 45601
+    },
+    {
+      "naics": "561910",
+      "establishments": 1751,
+      "employment": 47664,
+      "annual_payroll_thousands": 2349963,
+      "avg_payroll_per_employee": 49303
+    },
+    {
+      "naics": "561920",
+      "establishments": 6021,
+      "employment": 47783,
+      "annual_payroll_thousands": 2769431,
+      "avg_payroll_per_employee": 57958
+    },
+    {
+      "naics": "561990",
+      "establishments": 12567,
+      "employment": 168478,
+      "annual_payroll_thousands": 8608704,
+      "avg_payroll_per_employee": 51097
+    },
+    {
+      "naics": "562111",
+      "establishments": 10640,
+      "employment": 221309,
+      "annual_payroll_thousands": 14035325,
+      "avg_payroll_per_employee": 63420
+    },
+    {
+      "naics": "562112",
+      "establishments": 453,
+      "employment": 9026,
+      "annual_payroll_thousands": 629855,
+      "avg_payroll_per_employee": 69782
+    },
+    {
+      "naics": "562119",
+      "establishments": 1277,
+      "employment": 10276,
+      "annual_payroll_thousands": 523563,
+      "avg_payroll_per_employee": 50950
+    },
+    {
+      "naics": "562211",
+      "establishments": 961,
+      "employment": 32840,
+      "annual_payroll_thousands": 2547655,
+      "avg_payroll_per_employee": 77578
+    },
+    {
+      "naics": "562212",
+      "establishments": 1501,
+      "employment": 22302,
+      "annual_payroll_thousands": 1451539,
+      "avg_payroll_per_employee": 65086
+    },
+    {
+      "naics": "562213",
+      "establishments": 65,
+      "employment": 2052,
+      "annual_payroll_thousands": 229447,
+      "avg_payroll_per_employee": 111816
+    },
+    {
+      "naics": "562219",
+      "establishments": 543,
+      "employment": 4375,
+      "annual_payroll_thousands": 282238,
+      "avg_payroll_per_employee": 64512
+    },
+    {
+      "naics": "562910",
+      "establishments": 5576,
+      "employment": 85937,
+      "annual_payroll_thousands": 5919235,
+      "avg_payroll_per_employee": 68879
+    },
+    {
+      "naics": "562920",
+      "establishments": 1383,
+      "employment": 21542,
+      "annual_payroll_thousands": 1222766,
+      "avg_payroll_per_employee": 56762
+    },
+    {
+      "naics": "562991",
+      "establishments": 3899,
+      "employment": 29628,
+      "annual_payroll_thousands": 1642263,
+      "avg_payroll_per_employee": 55429
+    },
+    {
+      "naics": "562998",
+      "establishments": 1305,
+      "employment": 16132,
+      "annual_payroll_thousands": 1030071,
+      "avg_payroll_per_employee": 63853
+    },
+    {
+      "naics": "611110",
+      "establishments": 22326,
+      "employment": 1045805,
+      "annual_payroll_thousands": 47457924,
+      "avg_payroll_per_employee": 45379
+    },
+    {
+      "naics": "611210",
+      "establishments": 756,
+      "employment": 50923,
+      "annual_payroll_thousands": 2114347,
+      "avg_payroll_per_employee": 41520
+    },
+    {
+      "naics": "611310",
+      "establishments": 4109,
+      "employment": 1703614,
+      "annual_payroll_thousands": 89039271,
+      "avg_payroll_per_employee": 52265
+    },
+    {
+      "naics": "611410",
+      "establishments": 107,
+      "employment": 1139,
+      "annual_payroll_thousands": 51161,
+      "avg_payroll_per_employee": 44917
+    },
+    {
+      "naics": "611420",
+      "establishments": 1582,
+      "employment": 19475,
+      "annual_payroll_thousands": 1439425,
+      "avg_payroll_per_employee": 73911
+    },
+    {
+      "naics": "611430",
+      "establishments": 7368,
+      "employment": 53236,
+      "annual_payroll_thousands": 4550743,
+      "avg_payroll_per_employee": 85482
+    },
+    {
+      "naics": "611511",
+      "establishments": 1597,
+      "employment": 16356,
+      "annual_payroll_thousands": 600856,
+      "avg_payroll_per_employee": 36736
+    },
+    {
+      "naics": "611512",
+      "establishments": 1148,
+      "employment": 16916,
+      "annual_payroll_thousands": 1157899,
+      "avg_payroll_per_employee": 68450
+    },
+    {
+      "naics": "611513",
+      "establishments": 1238,
+      "employment": 12911,
+      "annual_payroll_thousands": 622266,
+      "avg_payroll_per_employee": 48197
+    },
+    {
+      "naics": "611519",
+      "establishments": 4506,
+      "employment": 53022,
+      "annual_payroll_thousands": 2694488,
+      "avg_payroll_per_employee": 50818
+    },
+    {
+      "naics": "611610",
+      "establishments": 15531,
+      "employment": 101495,
+      "annual_payroll_thousands": 1955469,
+      "avg_payroll_per_employee": 19267
+    },
+    {
+      "naics": "611620",
+      "establishments": 18733,
+      "employment": 126549,
+      "annual_payroll_thousands": 3112672,
+      "avg_payroll_per_employee": 24597
+    },
+    {
+      "naics": "611630",
+      "establishments": 1605,
+      "employment": 17395,
+      "annual_payroll_thousands": 669064,
+      "avg_payroll_per_employee": 38463
+    },
+    {
+      "naics": "611691",
+      "establishments": 10323,
+      "employment": 102609,
+      "annual_payroll_thousands": 3037145,
+      "avg_payroll_per_employee": 29599
+    },
+    {
+      "naics": "611692",
+      "establishments": 2486,
+      "employment": 13912,
+      "annual_payroll_thousands": 375451,
+      "avg_payroll_per_employee": 26988
+    },
+    {
+      "naics": "611699",
+      "establishments": 7399,
+      "employment": 44287,
+      "annual_payroll_thousands": 1444429,
+      "avg_payroll_per_employee": 32615
+    },
+    {
+      "naics": "611710",
+      "establishments": 10729,
+      "employment": 108384,
+      "annual_payroll_thousands": 6764044,
+      "avg_payroll_per_employee": 62408
+    },
+    {
+      "naics": "621111",
+      "establishments": 196996,
+      "employment": 2544650,
+      "annual_payroll_thousands": 254274459,
+      "avg_payroll_per_employee": 99925
+    },
+    {
+      "naics": "621112",
+      "establishments": 12394,
+      "employment": 54614,
+      "annual_payroll_thousands": 3891463,
+      "avg_payroll_per_employee": 71254
+    },
+    {
+      "naics": "621210",
+      "establishments": 135333,
+      "employment": 994716,
+      "annual_payroll_thousands": 56124960,
+      "avg_payroll_per_employee": 56423
+    },
+    {
+      "naics": "621310",
+      "establishments": 40118,
+      "employment": 144947,
+      "annual_payroll_thousands": 5516339,
+      "avg_payroll_per_employee": 38058
+    },
+    {
+      "naics": "621320",
+      "establishments": 22213,
+      "employment": 143900,
+      "annual_payroll_thousands": 6551637,
+      "avg_payroll_per_employee": 45529
+    },
+    {
+      "naics": "621330",
+      "establishments": 36002,
+      "employment": 184856,
+      "annual_payroll_thousands": 7645782,
+      "avg_payroll_per_employee": 41361
+    },
+    {
+      "naics": "621340",
+      "establishments": 47101,
+      "employment": 431257,
+      "annual_payroll_thousands": 20134946,
+      "avg_payroll_per_employee": 46689
+    },
+    {
+      "naics": "621391",
+      "establishments": 7597,
+      "employment": 35320,
+      "annual_payroll_thousands": 1858074,
+      "avg_payroll_per_employee": 52607
+    },
+    {
+      "naics": "621399",
+      "establishments": 30197,
+      "employment": 109734,
+      "annual_payroll_thousands": 5812563,
+      "avg_payroll_per_employee": 52970
+    },
+    {
+      "naics": "621410",
+      "establishments": 2556,
+      "employment": 26057,
+      "annual_payroll_thousands": 1543504,
+      "avg_payroll_per_employee": 59236
+    },
+    {
+      "naics": "621420",
+      "establishments": 14461,
+      "employment": 289057,
+      "annual_payroll_thousands": 13536082,
+      "avg_payroll_per_employee": 46828
+    },
+    {
+      "naics": "621491",
+      "establishments": 1695,
+      "employment": 145028,
+      "annual_payroll_thousands": 18535349,
+      "avg_payroll_per_employee": 127805
+    },
+    {
+      "naics": "621492",
+      "establishments": 8440,
+      "employment": 131953,
+      "annual_payroll_thousands": 7634846,
+      "avg_payroll_per_employee": 57860
+    },
+    {
+      "naics": "621493",
+      "establishments": 9298,
+      "employment": 182126,
+      "annual_payroll_thousands": 11008845,
+      "avg_payroll_per_employee": 60446
+    },
+    {
+      "naics": "621498",
+      "establishments": 18192,
+      "employment": 451112,
+      "annual_payroll_thousands": 31859070,
+      "avg_payroll_per_employee": 70623
+    },
+    {
+      "naics": "621511",
+      "establishments": 12663,
+      "employment": 223251,
+      "annual_payroll_thousands": 16176201,
+      "avg_payroll_per_employee": 72457
+    },
+    {
+      "naics": "621512",
+      "establishments": 6814,
+      "employment": 97809,
+      "annual_payroll_thousands": 7019814,
+      "avg_payroll_per_employee": 71771
+    },
+    {
+      "naics": "621610",
+      "establishments": 38040,
+      "employment": 1582974,
+      "annual_payroll_thousands": 53697216,
+      "avg_payroll_per_employee": 33922
+    },
+    {
+      "naics": "621910",
+      "establishments": 6427,
+      "employment": 177015,
+      "annual_payroll_thousands": 7998314,
+      "avg_payroll_per_employee": 45184
+    },
+    {
+      "naics": "621991",
+      "establishments": 1750,
+      "employment": 83378,
+      "annual_payroll_thousands": 4264041,
+      "avg_payroll_per_employee": 51141
+    },
+    {
+      "naics": "621999",
+      "establishments": 7937,
+      "employment": 97712,
+      "annual_payroll_thousands": 7245759,
+      "avg_payroll_per_employee": 74154
+    },
+    {
+      "naics": "622110",
+      "establishments": 5849,
+      "employment": 5577400,
+      "annual_payroll_thousands": 401873014,
+      "avg_payroll_per_employee": 72054
+    },
+    {
+      "naics": "622210",
+      "establishments": 795,
+      "employment": 248218,
+      "annual_payroll_thousands": 15538724,
+      "avg_payroll_per_employee": 62601
+    },
+    {
+      "naics": "622310",
+      "establishments": 821,
+      "employment": 259951,
+      "annual_payroll_thousands": 18588131,
+      "avg_payroll_per_employee": 71506
+    },
+    {
+      "naics": "623110",
+      "establishments": 17692,
+      "employment": 1421763,
+      "annual_payroll_thousands": 54754342,
+      "avg_payroll_per_employee": 38512
+    },
+    {
+      "naics": "623210",
+      "establishments": 36315,
+      "employment": 542497,
+      "annual_payroll_thousands": 17697260,
+      "avg_payroll_per_employee": 32622
+    },
+    {
+      "naics": "623220",
+      "establishments": 8416,
+      "employment": 217454,
+      "annual_payroll_thousands": 8897213,
+      "avg_payroll_per_employee": 40915
+    },
+    {
+      "naics": "623311",
+      "establishments": 5420,
+      "employment": 449757,
+      "annual_payroll_thousands": 15121554,
+      "avg_payroll_per_employee": 33622
+    },
+    {
+      "naics": "623312",
+      "establishments": 21265,
+      "employment": 500791,
+      "annual_payroll_thousands": 14592621,
+      "avg_payroll_per_employee": 29139
+    },
+    {
+      "naics": "623990",
+      "establishments": 6067,
+      "employment": 122532,
+      "annual_payroll_thousands": 4556148,
+      "avg_payroll_per_employee": 37183
+    },
+    {
+      "naics": "624110",
+      "establishments": 13927,
+      "employment": 206880,
+      "annual_payroll_thousands": 8079903,
+      "avg_payroll_per_employee": 39056
+    },
+    {
+      "naics": "624120",
+      "establishments": 39913,
+      "employment": 1267368,
+      "annual_payroll_thousands": 31332629,
+      "avg_payroll_per_employee": 24723
+    },
+    {
+      "naics": "624190",
+      "establishments": 34531,
+      "employment": 419748,
+      "annual_payroll_thousands": 16740319,
+      "avg_payroll_per_employee": 39882
+    },
+    {
+      "naics": "624210",
+      "establishments": 5127,
+      "employment": 51711,
+      "annual_payroll_thousands": 1888863,
+      "avg_payroll_per_employee": 36527
+    },
+    {
+      "naics": "624221",
+      "establishments": 4551,
+      "employment": 84724,
+      "annual_payroll_thousands": 3140089,
+      "avg_payroll_per_employee": 37063
+    },
+    {
+      "naics": "624229",
+      "establishments": 4770,
+      "employment": 59602,
+      "annual_payroll_thousands": 2734944,
+      "avg_payroll_per_employee": 45887
+    },
+    {
+      "naics": "624230",
+      "establishments": 1269,
+      "employment": 26870,
+      "annual_payroll_thousands": 1489972,
+      "avg_payroll_per_employee": 55451
+    },
+    {
+      "naics": "624310",
+      "establishments": 7235,
+      "employment": 217747,
+      "annual_payroll_thousands": 6179685,
+      "avg_payroll_per_employee": 28380
+    },
+    {
+      "naics": "624410",
+      "establishments": 77383,
+      "employment": 875114,
+      "annual_payroll_thousands": 23066019,
+      "avg_payroll_per_employee": 26358
+    },
+    {
+      "naics": "711110",
+      "establishments": 3259,
+      "employment": 29357,
+      "annual_payroll_thousands": 1564460,
+      "avg_payroll_per_employee": 53291
+    },
+    {
+      "naics": "711120",
+      "establishments": 745,
+      "employment": 8170,
+      "annual_payroll_thousands": 291829,
+      "avg_payroll_per_employee": 35720
+    },
+    {
+      "naics": "711130",
+      "establishments": 5225,
+      "employment": 24908,
+      "annual_payroll_thousands": 1587003,
+      "avg_payroll_per_employee": 63715
+    },
+    {
+      "naics": "711190",
+      "establishments": 342,
+      "employment": 2023,
+      "annual_payroll_thousands": 163619,
+      "avg_payroll_per_employee": 80879
+    },
+    {
+      "naics": "711211",
+      "establishments": 1195,
+      "employment": 57059,
+      "annual_payroll_thousands": 21895325,
+      "avg_payroll_per_employee": 383731
+    },
+    {
+      "naics": "711212",
+      "establishments": 565,
+      "employment": 28229,
+      "annual_payroll_thousands": 1224131,
+      "avg_payroll_per_employee": 43364
+    },
+    {
+      "naics": "711219",
+      "establishments": 2981,
+      "employment": 16426,
+      "annual_payroll_thousands": 1063853,
+      "avg_payroll_per_employee": 64766
+    },
+    {
+      "naics": "711310",
+      "establishments": 3924,
+      "employment": 81077,
+      "annual_payroll_thousands": 3579943,
+      "avg_payroll_per_employee": 44155
+    },
+    {
+      "naics": "711320",
+      "establishments": 4689,
+      "employment": 23069,
+      "annual_payroll_thousands": 1592826,
+      "avg_payroll_per_employee": 69046
+    },
+    {
+      "naics": "711410",
+      "establishments": 4695,
+      "employment": 20286,
+      "annual_payroll_thousands": 2907172,
+      "avg_payroll_per_employee": 143309
+    },
+    {
+      "naics": "711510",
+      "establishments": 36108,
+      "employment": 51041,
+      "annual_payroll_thousands": 10025953,
+      "avg_payroll_per_employee": 196429
+    },
+    {
+      "naics": "712110",
+      "establishments": 5297,
+      "employment": 70046,
+      "annual_payroll_thousands": 3346074,
+      "avg_payroll_per_employee": 47770
+    },
+    {
+      "naics": "712120",
+      "establishments": 1133,
+      "employment": 9193,
+      "annual_payroll_thousands": 363013,
+      "avg_payroll_per_employee": 39488
+    },
+    {
+      "naics": "712130",
+      "establishments": 711,
+      "employment": 34013,
+      "annual_payroll_thousands": 1436760,
+      "avg_payroll_per_employee": 42241
+    },
+    {
+      "naics": "712190",
+      "establishments": 723,
+      "employment": 7165,
+      "annual_payroll_thousands": 314686,
+      "avg_payroll_per_employee": 43920
+    },
+    {
+      "naics": "713110",
+      "establishments": 613,
+      "employment": 135919,
+      "annual_payroll_thousands": 4328571,
+      "avg_payroll_per_employee": 31847
+    },
+    {
+      "naics": "713120",
+      "establishments": 3210,
+      "employment": 42760,
+      "annual_payroll_thousands": 1076547,
+      "avg_payroll_per_employee": 25176
+    },
+    {
+      "naics": "713210",
+      "establishments": 316,
+      "employment": 69986,
+      "annual_payroll_thousands": 3076894,
+      "avg_payroll_per_employee": 43964
+    },
+    {
+      "naics": "713290",
+      "establishments": 2926,
+      "employment": 46380,
+      "annual_payroll_thousands": 2327798,
+      "avg_payroll_per_employee": 50190
+    },
+    {
+      "naics": "713910",
+      "establishments": 10246,
+      "employment": 275162,
+      "annual_payroll_thousands": 10673280,
+      "avg_payroll_per_employee": 38789
+    },
+    {
+      "naics": "713920",
+      "establishments": 344,
+      "employment": 66249,
+      "annual_payroll_thousands": 1144361,
+      "avg_payroll_per_employee": 17274
+    },
+    {
+      "naics": "713930",
+      "establishments": 3734,
+      "employment": 28475,
+      "annual_payroll_thousands": 1368091,
+      "avg_payroll_per_employee": 48045
+    },
+    {
+      "naics": "713940",
+      "establishments": 39359,
+      "employment": 537198,
+      "annual_payroll_thousands": 10184870,
+      "avg_payroll_per_employee": 18959
+    },
+    {
+      "naics": "713950",
+      "establishments": 3303,
+      "employment": 49067,
+      "annual_payroll_thousands": 1042269,
+      "avg_payroll_per_employee": 21242
+    },
+    {
+      "naics": "713990",
+      "establishments": 20502,
+      "employment": 145411,
+      "annual_payroll_thousands": 4188548,
+      "avg_payroll_per_employee": 28805
+    },
+    {
+      "naics": "721110",
+      "establishments": 56478,
+      "employment": 1131342,
+      "annual_payroll_thousands": 38465264,
+      "avg_payroll_per_employee": 34000
+    },
+    {
+      "naics": "721120",
+      "establishments": 478,
+      "employment": 315129,
+      "annual_payroll_thousands": 13681048,
+      "avg_payroll_per_employee": 43414
+    },
+    {
+      "naics": "721191",
+      "establishments": 2554,
+      "employment": 10208,
+      "annual_payroll_thousands": 308937,
+      "avg_payroll_per_employee": 30264
+    },
+    {
+      "naics": "721199",
+      "establishments": 1771,
+      "employment": 7602,
+      "annual_payroll_thousands": 267017,
+      "avg_payroll_per_employee": 35125
+    },
+    {
+      "naics": "721211",
+      "establishments": 4868,
+      "employment": 24216,
+      "annual_payroll_thousands": 858803,
+      "avg_payroll_per_employee": 35464
+    },
+    {
+      "naics": "721214",
+      "establishments": 2980,
+      "employment": 19025,
+      "annual_payroll_thousands": 1011064,
+      "avg_payroll_per_employee": 53144
+    },
+    {
+      "naics": "721310",
+      "establishments": 1666,
+      "employment": 8078,
+      "annual_payroll_thousands": 257024,
+      "avg_payroll_per_employee": 31818
+    },
+    {
+      "naics": "722310",
+      "establishments": 29474,
+      "employment": 513043,
+      "annual_payroll_thousands": 13568130,
+      "avg_payroll_per_employee": 26446
+    },
+    {
+      "naics": "722320",
+      "establishments": 12800,
+      "employment": 83496,
+      "annual_payroll_thousands": 3153316,
+      "avg_payroll_per_employee": 37766
+    },
+    {
+      "naics": "722330",
+      "establishments": 10134,
+      "employment": 26594,
+      "annual_payroll_thousands": 744887,
+      "avg_payroll_per_employee": 28010
+    },
+    {
+      "naics": "722410",
+      "establishments": 38398,
+      "employment": 282490,
+      "annual_payroll_thousands": 7686382,
+      "avg_payroll_per_employee": 27209
+    },
+    {
+      "naics": "722511",
+      "establishments": 250186,
+      "employment": 4361855,
+      "annual_payroll_thousands": 118333611,
+      "avg_payroll_per_employee": 27129
+    },
+    {
+      "naics": "722513",
+      "establishments": 256375,
+      "employment": 4490315,
+      "annual_payroll_thousands": 84341717,
+      "avg_payroll_per_employee": 18783
+    },
+    {
+      "naics": "722514",
+      "establishments": 4783,
+      "employment": 55427,
+      "annual_payroll_thousands": 1257419,
+      "avg_payroll_per_employee": 22686
+    },
+    {
+      "naics": "722515",
+      "establishments": 72985,
+      "employment": 813507,
+      "annual_payroll_thousands": 14886502,
+      "avg_payroll_per_employee": 18299
+    },
+    {
+      "naics": "811111",
+      "establishments": 83027,
+      "employment": 362616,
+      "annual_payroll_thousands": 16880317,
+      "avg_payroll_per_employee": 46551
+    },
+    {
+      "naics": "811112",
+      "establishments": 1495,
+      "employment": 4738,
+      "annual_payroll_thousands": 193438,
+      "avg_payroll_per_employee": 40827
+    },
+    {
+      "naics": "811113",
+      "establishments": 3884,
+      "employment": 14853,
+      "annual_payroll_thousands": 677383,
+      "avg_payroll_per_employee": 45606
+    },
+    {
+      "naics": "811118",
+      "establishments": 3294,
+      "employment": 13382,
+      "annual_payroll_thousands": 608181,
+      "avg_payroll_per_employee": 45448
+    },
+    {
+      "naics": "811121",
+      "establishments": 34782,
+      "employment": 231698,
+      "annual_payroll_thousands": 12523071,
+      "avg_payroll_per_employee": 54049
+    },
+    {
+      "naics": "811122",
+      "establishments": 6614,
+      "employment": 31259,
+      "annual_payroll_thousands": 1456053,
+      "avg_payroll_per_employee": 46580
+    },
+    {
+      "naics": "811191",
+      "establishments": 8500,
+      "employment": 67580,
+      "annual_payroll_thousands": 2097602,
+      "avg_payroll_per_employee": 31039
+    },
+    {
+      "naics": "811192",
+      "establishments": 18520,
+      "employment": 156419,
+      "annual_payroll_thousands": 4055564,
+      "avg_payroll_per_employee": 25928
+    },
+    {
+      "naics": "811198",
+      "establishments": 4926,
+      "employment": 21727,
+      "annual_payroll_thousands": 918706,
+      "avg_payroll_per_employee": 42284
+    },
+    {
+      "naics": "811211",
+      "establishments": 1705,
+      "employment": 14286,
+      "annual_payroll_thousands": 554979,
+      "avg_payroll_per_employee": 38848
+    },
+    {
+      "naics": "811212",
+      "establishments": 4830,
+      "employment": 30470,
+      "annual_payroll_thousands": 1593387,
+      "avg_payroll_per_employee": 52294
+    },
+    {
+      "naics": "811213",
+      "establishments": 1879,
+      "employment": 23060,
+      "annual_payroll_thousands": 1308924,
+      "avg_payroll_per_employee": 56762
+    },
+    {
+      "naics": "811219",
+      "establishments": 3221,
+      "employment": 36602,
+      "annual_payroll_thousands": 2972574,
+      "avg_payroll_per_employee": 81213
+    },
+    {
+      "naics": "811310",
+      "establishments": 21835,
+      "employment": 198565,
+      "annual_payroll_thousands": 13007851,
+      "avg_payroll_per_employee": 65509
+    },
+    {
+      "naics": "811411",
+      "establishments": 1708,
+      "employment": 4413,
+      "annual_payroll_thousands": 148291,
+      "avg_payroll_per_employee": 33603
+    },
+    {
+      "naics": "811412",
+      "establishments": 5380,
+      "employment": 21734,
+      "annual_payroll_thousands": 950735,
+      "avg_payroll_per_employee": 43744
+    },
+    {
+      "naics": "811420",
+      "establishments": 3256,
+      "employment": 10664,
+      "annual_payroll_thousands": 399939,
+      "avg_payroll_per_employee": 37504
+    },
+    {
+      "naics": "811430",
+      "establishments": 708,
+      "employment": 1548,
+      "annual_payroll_thousands": 49677,
+      "avg_payroll_per_employee": 32091
+    },
+    {
+      "naics": "811490",
+      "establishments": 10477,
+      "employment": 34761,
+      "annual_payroll_thousands": 1468987,
+      "avg_payroll_per_employee": 42260
+    },
+    {
+      "naics": "812111",
+      "establishments": 6838,
+      "employment": 26118,
+      "annual_payroll_thousands": 759862,
+      "avg_payroll_per_employee": 29093
+    },
+    {
+      "naics": "812112",
+      "establishments": 79472,
+      "employment": 369597,
+      "annual_payroll_thousands": 10685044,
+      "avg_payroll_per_employee": 28910
+    },
+    {
+      "naics": "812113",
+      "establishments": 32078,
+      "employment": 122646,
+      "annual_payroll_thousands": 3070275,
+      "avg_payroll_per_employee": 25034
+    },
+    {
+      "naics": "812191",
+      "establishments": 2779,
+      "employment": 13852,
+      "annual_payroll_thousands": 388086,
+      "avg_payroll_per_employee": 28017
+    },
+    {
+      "naics": "812199",
+      "establishments": 26868,
+      "employment": 143837,
+      "annual_payroll_thousands": 4035553,
+      "avg_payroll_per_employee": 28056
+    },
+    {
+      "naics": "812210",
+      "establishments": 15456,
+      "employment": 102195,
+      "annual_payroll_thousands": 4351636,
+      "avg_payroll_per_employee": 42582
+    },
+    {
+      "naics": "812220",
+      "establishments": 5085,
+      "employment": 30518,
+      "annual_payroll_thousands": 1515922,
+      "avg_payroll_per_employee": 49673
+    },
+    {
+      "naics": "812310",
+      "establishments": 10736,
+      "employment": 38225,
+      "annual_payroll_thousands": 936438,
+      "avg_payroll_per_employee": 24498
+    },
+    {
+      "naics": "812320",
+      "establishments": 16906,
+      "employment": 84682,
+      "annual_payroll_thousands": 2186120,
+      "avg_payroll_per_employee": 25816
+    },
+    {
+      "naics": "812331",
+      "establishments": 830,
+      "employment": 41452,
+      "annual_payroll_thousands": 1799759,
+      "avg_payroll_per_employee": 43418
+    },
+    {
+      "naics": "812332",
+      "establishments": 1498,
+      "employment": 66351,
+      "annual_payroll_thousands": 3101069,
+      "avg_payroll_per_employee": 46737
+    },
+    {
+      "naics": "812910",
+      "establishments": 22622,
+      "employment": 126855,
+      "annual_payroll_thousands": 3448622,
+      "avg_payroll_per_employee": 27186
+    },
+    {
+      "naics": "812921",
+      "establishments": 347,
+      "employment": 3703,
+      "annual_payroll_thousands": 227964,
+      "avg_payroll_per_employee": 61562
+    },
+    {
+      "naics": "812922",
+      "establishments": 92,
+      "employment": 239,
+      "annual_payroll_thousands": 6839,
+      "avg_payroll_per_employee": 28615
+    },
+    {
+      "naics": "812930",
+      "establishments": 11713,
+      "employment": 99031,
+      "annual_payroll_thousands": 2942884,
+      "avg_payroll_per_employee": 29717
+    },
+    {
+      "naics": "812990",
+      "establishments": 21071,
+      "employment": 75465,
+      "annual_payroll_thousands": 3602789,
+      "avg_payroll_per_employee": 47741
+    },
+    {
+      "naics": "813110",
+      "establishments": 185668,
+      "employment": 1481370,
+      "annual_payroll_thousands": 39245637,
+      "avg_payroll_per_employee": 26493
+    },
+    {
+      "naics": "813211",
+      "establishments": 12557,
+      "employment": 100598,
+      "annual_payroll_thousands": 8013474,
+      "avg_payroll_per_employee": 79658
+    },
+    {
+      "naics": "813212",
+      "establishments": 4322,
+      "employment": 55905,
+      "annual_payroll_thousands": 4730614,
+      "avg_payroll_per_employee": 84619
+    },
+    {
+      "naics": "813219",
+      "establishments": 4753,
+      "employment": 36226,
+      "annual_payroll_thousands": 2123265,
+      "avg_payroll_per_employee": 58612
+    },
+    {
+      "naics": "813311",
+      "establishments": 3927,
+      "employment": 43344,
+      "annual_payroll_thousands": 2899219,
+      "avg_payroll_per_employee": 66889
+    },
+    {
+      "naics": "813312",
+      "establishments": 7864,
+      "employment": 80747,
+      "annual_payroll_thousands": 4287822,
+      "avg_payroll_per_employee": 53102
+    },
+    {
+      "naics": "813319",
+      "establishments": 7391,
+      "employment": 62856,
+      "annual_payroll_thousands": 3989854,
+      "avg_payroll_per_employee": 63476
+    },
+    {
+      "naics": "813410",
+      "establishments": 24492,
+      "employment": 166962,
+      "annual_payroll_thousands": 5168923,
+      "avg_payroll_per_employee": 30959
+    },
+    {
+      "naics": "813910",
+      "establishments": 15246,
+      "employment": 101508,
+      "annual_payroll_thousands": 9543283,
+      "avg_payroll_per_employee": 94015
+    },
+    {
+      "naics": "813920",
+      "establishments": 6559,
+      "employment": 81829,
+      "annual_payroll_thousands": 7652864,
+      "avg_payroll_per_employee": 93523
+    },
+    {
+      "naics": "813930",
+      "establishments": 13027,
+      "employment": 126530,
+      "annual_payroll_thousands": 6215578,
+      "avg_payroll_per_employee": 49123
+    },
+    {
+      "naics": "813940",
+      "establishments": 2451,
+      "employment": 13629,
+      "annual_payroll_thousands": 738513,
+      "avg_payroll_per_employee": 54187
+    },
+    {
+      "naics": "813990",
+      "establishments": 18757,
+      "employment": 128459,
+      "annual_payroll_thousands": 6791124,
+      "avg_payroll_per_employee": 52866
+    }
+  ]
+}

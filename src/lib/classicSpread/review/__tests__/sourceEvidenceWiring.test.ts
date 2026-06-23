@@ -1,0 +1,140 @@
+/**
+ * SPEC-SPREAD-SOURCE-EVIDENCE-CLEARING-WORKFLOW-1 — UI + route wiring guards.
+ *
+ * The panel is a client component (source-guarded here); the lifecycle LOGIC is proven by the pure
+ * sourceEvidenceStatus / attachSourceEvidence unit tests. These guards lock in that the panel renders
+ * the evidence strip on active rows (and only there), the GET route enriches via attachSourceEvidence,
+ * and the enrichment reads existing tables (no new route).
+ */
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../..");
+const read = (rel: string) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
+
+describe("panel renders the evidence-clearing strip", () => {
+  const panel = read("src/components/deals/spreads/SpreadReviewActionsPanel.tsx");
+  it("MANDATORY strip: renders for active source rows even without server evidence (client fallback)", () => {
+    // The strip is driven by rowEvidence(a), which falls back to a client-built lifecycle when the
+    // API did not attach one — so the strip never silently disappears for an active source blocker.
+    assert.match(panel, /function rowEvidence\(/);
+    assert.match(panel, /const ev = rowEvidence\(a\);/);
+    assert.match(panel, /<EvidenceStrip ev=\{ev\}/);
+    assert.match(panel, /buildSourceEvidenceStatus\(/); // client-side fallback derivation
+    assert.match(panel, /documentsUnavailable: true/);
+    // fallback only for active source action types
+    assert.match(panel, /SOURCE_ACTION_TYPES\.includes\(a\.action_type\) .*isActiveReviewActionStatus\(a\.status\)/s);
+  });
+  it("the strip shows needed / request / upload / extraction / regenerate / linked / candidate / next", () => {
+    assert.match(panel, /Evidence needed:/);
+    assert.match(panel, /requiredEvidenceSummary/);
+    assert.match(panel, /Request:/);
+    assert.match(panel, /Upload:/);
+    assert.match(panel, /Extraction:/);
+    assert.match(panel, /Regenerate:/);
+    assert.match(panel, /Linked evidence:/);
+    assert.match(panel, /Candidate documents:/);
+    assert.match(panel, /linkedEvidenceDocuments\.map/);
+    assert.match(panel, /candidateDocuments\.map/);
+    assert.match(panel, /Next:/);
+    assert.match(panel, /requestWarning/);
+  });
+  it("the strip distinguishes Cleared / Needs regenerate / Still blocking (request created != cleared)", () => {
+    assert.match(panel, /Cleared after regenerate/);
+    assert.match(panel, /Needs regenerate/);
+    assert.match(panel, /Still blocking/);
+  });
+  it("surfaces a Regenerate-spread CTA wired to the EXISTING /ensure route (no new route)", () => {
+    assert.match(panel, /Regenerate spread/);
+    assert.match(panel, /regenerateRecommended && onRegenerate/);
+    assert.match(panel, /classic-spread\/ensure`, \{ method: "POST" \}/);
+  });
+  it("refreshes after regenerate so pruned/closed actions drop out of the open list", () => {
+    // regenerate() re-fetches the actions; the open list is filtered by isActiveReviewActionStatus,
+    // so a backend-pruned (closed) action moves to the reviewed/settled list automatically.
+    const regen = panel.slice(panel.indexOf("const regenerate"), panel.indexOf("const regenerate") + 500);
+    assert.match(regen, /await load\(\)/);
+    assert.match(panel, /const open = actions\.filter\(\(a\) => isActiveReviewActionStatus\(a\.status\)\)/);
+    assert.match(panel, /const reviewed = actions\.filter\(\(a\) => !isActiveReviewActionStatus\(a\.status\)\)/);
+  });
+  it("the strip lives in the OPEN (active) section, not the reviewed/settled list", () => {
+    const openIdx = panel.indexOf("{open.map(");
+    const reviewedIdx = panel.indexOf("{reviewed.map(");
+    const stripIdx = panel.indexOf("<EvidenceStrip");
+    assert.ok(openIdx > -1 && reviewedIdx > openIdx && stripIdx > openIdx && stripIdx < reviewedIdx,
+      "EvidenceStrip must be rendered within the open.map block, before reviewed.map");
+  });
+});
+
+describe("GET /review-actions enriches with evidence (no new route)", () => {
+  const route = read("src/app/api/deals/[dealId]/classic-spread/review-actions/route.ts");
+  it("GET attaches source evidence via attachSourceEvidence", () => {
+    assert.match(route, /import \{ attachSourceEvidence \}/);
+    assert.match(route, /const enriched = await attachSourceEvidence\(rows, dealId, access\.bankId\)/);
+    assert.match(route, /actions: enriched/);
+  });
+  it("still exactly one route file with GET/POST/PATCH", () => {
+    const dir = path.join(repoRoot, "src/app/api/deals/[dealId]/classic-spread/review-actions");
+    assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith(".ts")), ["route.ts"]);
+    assert.match(route, /export async function GET/);
+    assert.match(route, /export async function POST/);
+    assert.match(route, /export async function PATCH/);
+  });
+});
+
+describe("evidence enrichment reuses existing tables", () => {
+  const attach = read("src/lib/classicSpread/review/attachSourceEvidence.ts");
+  it("reads deal_documents + draft_borrower_requests (no new tables)", () => {
+    assert.match(attach, /\.from\("deal_documents"\)/);
+    assert.match(attach, /\.from\("draft_borrower_requests"\)/);
+  });
+  it("only enriches active source-detail / verify rows", () => {
+    assert.match(attach, /REQUEST_SOURCE_DETAIL.*VERIFY_SOURCE_LINE/s);
+    assert.match(attach, /isActiveReviewActionStatus\(r\.status\)/);
+  });
+  it("normalizes spread linkage out of deal_documents.metadata", () => {
+    assert.match(attach, /meta\.spread_review_action_id/);
+    assert.match(attach, /meta\.spread_finding_key/);
+    assert.match(attach, /meta\.draft_borrower_request_id/);
+    assert.match(attach, /\.select\(.*metadata.*\)/s);
+  });
+});
+
+describe("borrower upload preserves spread linkage (no new route)", () => {
+  const commit = read("src/app/api/portal/upload/commit/route.ts");
+  it("commit accepts + persists spread linkage into deal_documents.metadata", () => {
+    assert.match(commit, /spreadReviewActionId/);
+    assert.match(commit, /spread_review_action_id: spreadReviewActionId/);
+    assert.match(commit, /uploaded_for: "classic_spread_review_action"/);
+  });
+  it("emits a non-invasive spread_evidence_uploaded ledger event (status only, never clears)", () => {
+    assert.match(commit, /event_type: "spread_evidence_uploaded"/);
+    assert.match(commit, /status: "uploaded"/);
+  });
+  it("still exactly the same portal upload route files (no new route added)", () => {
+    const dir = path.join(repoRoot, "src/app/api/portal/upload/commit");
+    assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith(".ts")), ["route.ts"]);
+  });
+  it("portal upload UI can forward spread linkage to the commit body (REQUEST-PACKAGE-POLISH-1)", () => {
+    const portal = read("src/app/portal/[token]/ui.tsx");
+    assert.match(portal, /spreadLinkage\?: SpreadUploadLinkage/);
+    assert.match(portal, /spreadReviewActionId: spreadLinkage\.spreadReviewActionId/);
+    assert.match(portal, /requestedEvidenceKind: spreadLinkage\.requestedEvidenceKind/);
+  });
+});
+
+describe("request package exposes the upload-linkage contract + evidence kind", () => {
+  const builder = read("src/lib/classicSpread/review/sourceDetailRequestBuilder.ts");
+  it("the request builder emits requestedEvidenceKind, clearingTarget, and uploadContext", () => {
+    assert.match(builder, /requestedEvidenceKind: RequestedEvidenceKind/);
+    assert.match(builder, /clearingTarget: string/);
+    assert.match(builder, /uploadContext: EvidenceUploadContext/);
+  });
+  it("the draft request persists the structured fields for upload linkage", () => {
+    const ensure = read("src/lib/classicSpread/review/ensureBorrowerSourceDetailRequest.ts");
+    assert.match(ensure, /requested_evidence_kind: req\.requestedEvidenceKind/);
+    assert.match(ensure, /clearing_target: req\.clearingTarget/);
+  });
+});

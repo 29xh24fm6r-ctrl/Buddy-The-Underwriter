@@ -175,10 +175,12 @@ function buildFinancialsGroup(
     }
   }
 
-  // Memo-input layer adds DSCR / debt service / global cash flow blockers.
+  // Memo-input layer adds business cash flow / debt service / global cash flow /
+  // DSCR blockers (dependency-ordered upstream → downstream).
   if (memoInput) {
     for (const b of memoInput.blockers) {
       if (
+        b.code === "missing_business_cash_flow" ||
         b.code === "missing_dscr" ||
         b.code === "missing_global_cash_flow" ||
         b.code === "missing_debt_service_facts"
@@ -283,6 +285,7 @@ function buildMemoInputsGroup(
   // Tracked separately by Documents/Financials/Research above.
   const ROUTED_ELSEWHERE = new Set([
     "missing_research_quality_gate",
+    "missing_business_cash_flow",
     "missing_dscr",
     "missing_global_cash_flow",
     "missing_debt_service_facts",

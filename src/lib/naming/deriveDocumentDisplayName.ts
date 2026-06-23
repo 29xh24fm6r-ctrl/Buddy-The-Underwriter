@@ -24,6 +24,7 @@ const DOC_TYPE_LABELS: Record<CanonicalDocumentType, string> = {
   ENTITY_DOCS: "Entity Documents",
   COMMERCIAL_LEASE: "Commercial Lease",
   CREDIT_MEMO: "Credit Memo",
+  AR_AGING: "AR Aging Report",
   OTHER: "Document",
 };
 

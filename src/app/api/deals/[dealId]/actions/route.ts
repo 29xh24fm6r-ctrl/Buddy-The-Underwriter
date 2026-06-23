@@ -98,12 +98,13 @@ export async function POST(
       console.warn("[actions] Timeline insert failed (non-fatal):", timelineInsert.error);
     }
 
-    // Also write to deal_events for backward compatibility
+    // Also write to deal_events for backward compatibility.
+    // Schema columns are (deal_id, kind, payload, created_at) — there is no
+    // event_type / actor_id column; the actor id is folded into payload.
     const insertResult = await sb.from("deal_events").insert({
       deal_id: dealId,
-      event_type: action,
-      actor_id: userId,
-      payload: event.payload,
+      kind: action,
+      payload: { ...event.payload, actor_id: userId },
       created_at: event.timestamp,
     });
 

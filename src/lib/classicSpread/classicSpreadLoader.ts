@@ -6,11 +6,27 @@ import type {
   ClassicSpreadInput,
   FinancialRow,
   GlobalCashFlowSection,
-  RatioRow,
-  RatioSection,
   StatementPeriod,
 } from "./types";
 import { loadPersonalIncome } from "./personalIncomeLoader";
+import {
+  buildRatioSections,
+  deriveTotalEquity,
+  deriveTotalLiabilities,
+  deriveTotalCurrentLiabilities,
+  deriveTotalNonCurrentLiabilities,
+} from "./classicSpreadRatios";
+import { auditClassicSpread, type AuditFactRef } from "./audit/spreadAccuracyAudit";
+import { buildResolvedByPeriod } from "./audit/statementTruthResolver";
+import { resolveBalanceSheetSourceLines } from "./audit/balanceSheetSourceLineResolver";
+import { buildClassicSpreadCertificationSummary } from "./certification/certificationSummary";
+import { applyComputedEntityCashFlow } from "./entityCashFlowFromSpread";
+import { isBusinessStatementFact } from "./businessFactScope";
+import { buildCanonicalSpreadViewModel } from "@/lib/spreads/buildCanonicalSpreadViewModel";
+import {
+  runClassicSpreadCertification,
+  applyCertificationToInput,
+} from "./certification/certifiedSpreadGate";
 import { loadDealMethodology } from "@/lib/methodology/loadDealMethodology";
 import { METHODOLOGY_AXES } from "@/lib/methodology/methodologyAxes";
 import { DEFAULT_METHODOLOGY_SLATE } from "@/lib/methodology/methodologyDefaults";
@@ -26,6 +42,13 @@ type RawFact = {
   fact_value_num: number | null;
   confidence: number | null;
   created_at: string;
+  id?: string | null;
+  source_document_id?: string | null;
+  owner_type?: string | null;
+  source_canonical_type?: string | null;
+  // SPEC-CLASSIC-SPREAD-BS-SOURCE-LINE-PARITY-2: provenance carries the source-line snippet used by
+  // the balance-sheet source-line resolver to reclassify/suppress misclassified facts.
+  provenance?: unknown;
 };
 
 /** Group facts by period_end, picking the highest-confidence value per key per period. */
@@ -57,11 +80,39 @@ function buildPeriodMaps(facts: RawFact[]): {
     }
   }
 
-  // Cap at 4 periods to prevent layout overflow (each period ~116pt, 4 × 116 = 464pt ≤ 540pt usable)
-  const MAX_PERIODS = 4;
-  let periods = Array.from(periodSet).sort();
+  // SPEC-CLASSIC-SPREAD-PERIOD-POLICY-1:
+  // Hard cap at 5 — landscape PDF can fit 5 columns with tight labels.
+  // Policy: always include ALL financial-statement (IS/BS) periods first
+  // (most current data), then fill remaining slots with most-recent tax years.
+  const MAX_PERIODS = 5;
+
+  // Identify tax-return periods by IRS-specific fact keys on Dec-31 dates.
+  const TAX_MARKER_KEYS = new Set([
+    "GROSS_RECEIPTS",
+    "ORDINARY_BUSINESS_INCOME",
+    "OFFICER_COMPENSATION",
+    "BUSINESS_TAX_RETURN",
+    "PERSONAL_TAX_RETURN",
+  ]);
+  const taxReturnPeriodSet = new Set<string>();
+  for (const f of facts) {
+    const pe = f.fact_period_end?.slice(0, 10);
+    if (!pe || f.fact_value_num == null) continue;
+    if (TAX_MARKER_KEYS.has(f.fact_key) && pe.endsWith("-12-31")) {
+      taxReturnPeriodSet.add(pe);
+    }
+  }
+
+  const allSorted = Array.from(periodSet).sort();
+  const nonTaxPeriods = allSorted.filter((p) => !taxReturnPeriodSet.has(p));
+  const taxPeriods = allSorted.filter((p) => taxReturnPeriodSet.has(p));
+
+  // All non-tax (IS/BS) periods included first, then most-recent tax years
+  const remaining = Math.max(0, MAX_PERIODS - nonTaxPeriods.length);
+  const taxToInclude = taxPeriods.slice(-remaining);
+  let periods = [...taxToInclude, ...nonTaxPeriods].sort();
   if (periods.length > MAX_PERIODS) {
-    periods = periods.slice(-MAX_PERIODS); // keep most recent
+    periods = periods.slice(-MAX_PERIODS);
   }
   const byPeriod = new Map<string, Map<string, number | null>>();
   for (const pe of periods) {
@@ -155,7 +206,10 @@ function buildBalanceSheetRows(
   const cash = getVals(byPeriod, periods, "SL_CASH");
   const ar = getVals(byPeriod, periods, "SL_AR_GROSS");
   const arAllowance = getVals(byPeriod, periods, "SL_AR_ALLOWANCE");
-  const netAr = sub(ar, arAllowance);
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #4 (policy A): Net AR uses the SAME derivation as
+  // the Total Current Assets roll-up — a missing allowance is treated as zero (Net AR = Gross AR),
+  // never blank. This prevents a blank Net AR row while TCA silently includes that same AR value.
+  const netAr = ar.map((v, i) => (v != null ? v - (arAllowance[i] ?? 0) : null));
   const inventory = getVals(byPeriod, periods, "SL_INVENTORY");
   const usGov = getVals(byPeriod, periods, "SL_US_GOV_OBLIGATIONS");
   const taxExempt = getVals(byPeriod, periods, "SL_TAX_EXEMPT_SECURITIES");
@@ -201,19 +255,7 @@ function buildBalanceSheetRows(
   const wagesPayable = getVals(byPeriod, periods, "SL_WAGES_PAYABLE");
   const shortTermDebt = getVals(byPeriod, periods, "SL_SHORT_TERM_DEBT");
   const operatingCurrLiab = getVals(byPeriod, periods, "SL_OPERATING_CURRENT_LIABILITIES");
-  const totalCurrentLiab = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "TOTAL_CURRENT_LIABILITIES") ?? getVal(byPeriod, p, "SL_TOTAL_CURRENT_LIABILITIES");
-    if (direct != null) return direct;
-    // Derive from components
-    const components = [
-      getVal(byPeriod, p, "SL_ACCOUNTS_PAYABLE"),
-      getVal(byPeriod, p, "SL_WAGES_PAYABLE"),
-      getVal(byPeriod, p, "SL_SHORT_TERM_DEBT"),
-      getVal(byPeriod, p, "SL_OPERATING_CURRENT_LIABILITIES"),
-    ];
-    const nonNull = components.filter((v) => v != null) as number[];
-    return nonNull.length > 0 ? nonNull.reduce((a, b) => a + b, 0) : null;
-  });
+  const totalCurrentLiab = deriveTotalCurrentLiabilities(byPeriod, periods);
   const otherCurrentLiab = deriveValues(periods, (p) => {
     const i = periods.indexOf(p);
     const tcl = totalCurrentLiab[i];
@@ -233,27 +275,28 @@ function buildBalanceSheetRows(
   const capitalStock = getVals(byPeriod, periods, "SL_CAPITAL_STOCK");
   const retainedEarnings = getVals(byPeriod, periods, "SL_RETAINED_EARNINGS");
 
-  // S-corp fallback: retained earnings = total equity
-  const totalEquity = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
-    if (direct != null) return direct;
-    return getVal(byPeriod, p, "SL_RETAINED_EARNINGS");
-  });
+  // S-corp fallback: retained earnings = total equity.
+  // Shared with the ratio engine so the visible TOTAL LIABILITIES row and the liability-derived
+  // ratios derive from the identical source/rule (BUGFIX classic-spread render consistency).
+  const totalEquity = deriveTotalEquity(byPeriod, periods);
 
-  // Derive total liabilities when not directly stored
-  const totalLiabilities = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
-    if (direct != null) return direct;
-    const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
-    const eq = totalEquity[periods.indexOf(p)];
-    return ta != null && eq != null ? ta - eq : null;
-  });
+  // Derive total liabilities — direct → component sum → assets−equity (shared with ratios/audit).
+  const totalLiabilities = deriveTotalLiabilities(byPeriod, periods);
 
-  const totalNonCurrentLiab = deriveValues(periods, (p) => {
+  // #5: non-current liabilities come from DIRECT components first, not TL − TCL (which would mask a
+  // blocked/unavailable TL when shareholder loans + other liabilities are present).
+  const totalNonCurrentLiab = deriveTotalNonCurrentLiabilities(byPeriod, periods);
+
+  // SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1: TOTAL LIABILITIES & NET WORTH is the SUM of
+  // the rendered Total Liabilities + Total Net Worth — the SAME value the line-accuracy audit
+  // reconciles against Total Assets. It must NEVER mirror Total Assets (which fakes a balance when the
+  // Schedule L liability/equity detail is incomplete, e.g. OmniCare 2022 where only mortgages + a
+  // negative retained-earnings line were extracted). Blank when either side is unavailable.
+  const liabilitiesPlusNetWorth = deriveValues(periods, (p) => {
     const i = periods.indexOf(p);
     const tl = totalLiabilities[i];
-    const tcl = totalCurrentLiab[i];
-    return tl != null && tcl != null ? tl - tcl : null;
+    const eq = totalEquity[i];
+    return tl != null && eq != null ? tl + eq : null;
   });
 
   const workingCapital = sub(totalCurrentAssets, totalCurrentLiab);
@@ -317,7 +360,7 @@ function buildBalanceSheetRows(
     { label: "Retained Earnings", indent: 1, isBold: false, values: retainedEarnings, showPct: true, pctBase: totalAssets },
     { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
-    { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
+    { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: liabilitiesPlusNetWorth, showPct: true, pctBase: totalAssets },
     // Memo items
     { label: "", indent: 0, isBold: false, values: periods.map(() => null), showPct: false },
     { label: "Working Capital", indent: 1, isBold: false, values: workingCapital, showPct: false },
@@ -331,7 +374,9 @@ function buildIncomeStatementRows(
   byPeriod: Map<string, Map<string, number | null>>,
   periods: string[],
 ): FinancialRow[] {
-  const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2 — NET sales (resolved net of returns/allowances),
+  // never gross receipts and NEVER TOTAL_INCOME. The resolved overlay injects NET_SALES_REVENUE.
+  const revenue = getValsFallback(byPeriod, periods, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
   const cogs = getVals(byPeriod, periods, "COST_OF_GOODS_SOLD");
   const grossProfit = getValsFallback(byPeriod, periods, "GROSS_PROFIT");
   const effectiveGrossProfit = grossProfit.map((v, i) => {
@@ -528,19 +573,37 @@ function buildCashFlowRows(
     });
   }
 
-  const dAR = delta("SL_AR_GROSS", false); // asset: decrease = cash in
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #7: the UCA AR delta must use the NET AR basis
+  // (gross − allowance), not raw gross — the same Net AR shown on the balance sheet. A delta on a
+  // net-of-allowance receivable that is computed from gross alone misstates the cash impact.
+  const netArByPeriod = (p: string): number | null => {
+    const g = getVal(byPeriod, p, "SL_AR_GROSS");
+    return g != null ? g - (getVal(byPeriod, p, "SL_AR_ALLOWANCE") ?? 0) : null;
+  };
+  const deltaFn = (valFn: (p: string) => number | null, invert: boolean): (number | null)[] =>
+    periods.map((p, i) => {
+      if (i === 0) return null;
+      const cur = valFn(p);
+      const prev = valFn(periods[i - 1]!);
+      if (cur == null || prev == null) return null;
+      return invert ? cur - prev : prev - cur;
+    });
+
+  const dAR = deltaFn(netArByPeriod, false); // asset: decrease = cash in (NET AR basis)
   const dInventory = delta("SL_INVENTORY", false);
   const dOtherCA = delta("SL_OTHER_CURRENT_ASSETS", false);
   const dAP = delta("SL_ACCOUNTS_PAYABLE", true); // liability: increase = cash in
   const dWagesPayable = delta("SL_WAGES_PAYABLE", true);
-  const dOtherCL = delta("SL_OTHER_LIABILITIES", true);
+  // #7: "other current liabilities" delta must use the CURRENT operating-liability field, not the
+  // NON-current SL_OTHER_LIABILITIES (which belongs to long-term liabilities, not working capital).
+  const dOtherCL = delta("SL_OPERATING_CURRENT_LIABILITIES", true);
 
   rows.push({ label: "(Inc) / Dec in Accounts Receivable", indent: 1, isBold: false, values: dAR });
   rows.push({ label: "(Inc) / Dec in Inventory", indent: 1, isBold: false, values: dInventory });
   rows.push({ label: "(Inc) / Dec in Other Current Assets", indent: 1, isBold: false, values: dOtherCA });
   rows.push({ label: "Inc / (Dec) in Accounts Payable", indent: 1, isBold: false, values: dAP });
   rows.push({ label: "Inc / (Dec) in Wages Payable", indent: 1, isBold: false, values: dWagesPayable });
-  rows.push({ label: "Inc / (Dec) in Other Liabilities", indent: 1, isBold: false, values: dOtherCL });
+  rows.push({ label: "Inc / (Dec) in Other Current Liabilities", indent: 1, isBold: false, values: dOtherCL });
 
   // Total working capital change
   const wcChange = periods.map((_, i) => {
@@ -596,388 +659,20 @@ function buildCashFlowRows(
   return rows;
 }
 
-function buildRatioSections(
-  byPeriod: Map<string, Map<string, number | null>>,
-  periods: string[],
-  cashFlowRows: CashFlowRow[],
-): RatioSection[] {
-  const g = (p: string, ...keys: string[]) => {
-    for (const k of keys) {
-      const v = getVal(byPeriod, p, k);
-      if (v != null) return v;
-    }
-    return null;
-  };
-
-  function ratioVals(fn: (p: string, i: number) => number | string | null): (number | string | null)[] {
-    return periods.map((p, i) => fn(p, i));
-  }
-
-  function safeDiv(a: number | null, b: number | null): number | string | null {
-    if (a == null || b == null) return null;
-    if (b === 0) return "N/A";
-    if (b < 0) return "N/A";
-    return a / b;
-  }
-
-  // Helper: get UCA CFO from cash flow rows
-  function getCfo(periodIndex: number): number | null {
-    const cfoRow = cashFlowRows.find((r) => r.label === "CASH FROM OPERATIONS (UCA)");
-    return cfoRow?.values[periodIndex] ?? null;
-  }
-
-  // Helper: derive total equity with S-corp fallback
-  function getEquity(p: string): number | null {
-    return g(p, "SL_TOTAL_EQUITY") ?? g(p, "SL_RETAINED_EARNINGS");
-  }
-
-  // Helper: derive total liabilities
-  function getLiabilities(p: string): number | null {
-    const direct = g(p, "SL_TOTAL_LIABILITIES");
-    if (direct != null) return direct;
-    const ta = g(p, "SL_TOTAL_ASSETS");
-    const eq = getEquity(p);
-    return ta != null && eq != null ? ta - eq : null;
-  }
-
-  // Helper: derive total current assets
-  function getTCA(p: string): number | null {
-    return g(p, "TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS") ?? (() => {
-      const components = [
-        g(p, "SL_CASH"),
-        (() => { const a = g(p, "SL_AR_GROSS"); return a != null ? a - (g(p, "SL_AR_ALLOWANCE") ?? 0) : null; })(),
-        g(p, "SL_INVENTORY"),
-        g(p, "SL_US_GOV_OBLIGATIONS"),
-        g(p, "SL_TAX_EXEMPT_SECURITIES"),
-        g(p, "SL_OTHER_CURRENT_ASSETS"),
-      ].filter((v) => v != null) as number[];
-      return components.length > 0 ? components.reduce((a, b) => a + b, 0) : null;
-    })();
-  }
-
-  // Helper: derive total current liabilities
-  function getTCL(p: string): number | null {
-    return g(p, "TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES") ?? (() => {
-      const components = [
-        g(p, "SL_ACCOUNTS_PAYABLE"),
-        g(p, "SL_WAGES_PAYABLE"),
-        g(p, "SL_SHORT_TERM_DEBT"),
-        g(p, "SL_OPERATING_CURRENT_LIABILITIES"),
-      ].filter((v) => v != null) as number[];
-      return components.length > 0 ? components.reduce((a, b) => a + b, 0) : null;
-    })();
-  }
-
-  // Helper: derive total opex (with _IS suffix fallbacks for tax return data)
-  function getOpex(p: string): number | null {
-    const direct = g(p, "TOTAL_OPERATING_EXPENSES") ?? g(p, "TOTAL_DEDUCTIONS");
-    if (direct != null) return direct;
-    const sum =
-      (g(p, "OFFICER_COMPENSATION") ?? 0) +
-      (g(p, "SALARIES_WAGES", "SALARIES_WAGES_IS") ?? 0) +
-      (g(p, "RENT_EXPENSE", "RENT_EXPENSE_IS") ?? 0) +
-      (g(p, "REPAIRS_MAINTENANCE", "REPAIRS_MAINTENANCE_IS") ?? 0) +
-      (g(p, "BAD_DEBT_EXPENSE", "BAD_DEBT_EXPENSE_IS") ?? 0) +
-      (g(p, "TAXES_LICENSES") ?? 0) +
-      (g(p, "DEPRECIATION") ?? 0) +
-      (g(p, "AMORTIZATION") ?? 0) +
-      (g(p, "INTEREST_EXPENSE") ?? 0) +
-      (g(p, "ADVERTISING", "ADVERTISING_IS") ?? 0) +
-      (g(p, "PENSION_PROFIT_SHARING") ?? 0) +
-      (g(p, "EMPLOYEE_BENEFITS") ?? 0) +
-      (g(p, "INSURANCE_EXPENSE", "INSURANCE_EXPENSE_IS") ?? 0) +
-      (g(p, "OTHER_DEDUCTIONS", "OTHER_DEDUCTIONS_IS", "OTHER_OPERATING_EXPENSES_IS") ?? 0);
-    return sum > 0 ? sum : null;
-  }
-
-  function yoyGrowth(keysFn: (p: string) => number | null): (number | string | null)[] {
-    return periods.map((p, i) => {
-      if (i === 0) return null;
-      const cur = keysFn(p);
-      const prev = keysFn(periods[i - 1]!);
-      if (cur == null || prev == null || prev === 0) return null;
-      return ((cur - prev) / Math.abs(prev)) * 100;
-    });
-  }
-
-  const sections: RatioSection[] = [
-    {
-      title: "LIQUIDITY",
-      rows: [
-        {
-          label: "Working Capital",
-          values: ratioVals((p) => {
-            const ca = getTCA(p);
-            const cl = getTCL(p);
-            return ca != null && cl != null ? ca - cl : null;
-          }),
-          format: "currency", decimals: 0,
-        },
-        {
-          label: "Current Ratio",
-          values: ratioVals((p) => safeDiv(getTCA(p), getTCL(p))),
-          format: "ratio", decimals: 2,
-        },
-        {
-          label: "Quick Ratio",
-          values: ratioVals((p) => {
-            const ca = getTCA(p);
-            const inv = g(p, "SL_INVENTORY") ?? 0;
-            const cl = getTCL(p);
-            return ca != null && cl != null ? safeDiv(ca - inv, cl) : null;
-          }),
-          format: "ratio", decimals: 2,
-        },
-      ],
-    },
-    {
-      title: "LEVERAGE",
-      rows: [
-        {
-          label: "Net Worth",
-          values: ratioVals((p) => getEquity(p)),
-          format: "currency", decimals: 0,
-        },
-        {
-          label: "Tangible Net Worth",
-          values: ratioVals((p) => {
-            const eq = getEquity(p);
-            const intgGross = g(p, "SL_INTANGIBLES_GROSS") ?? 0;
-            const intgAmort = g(p, "SL_ACCUMULATED_AMORTIZATION") ?? 0;
-            const intg = intgGross - intgAmort;
-            return eq != null ? eq - intg : null;
-          }),
-          format: "currency", decimals: 0,
-        },
-        {
-          label: "Debt / Worth",
-          values: ratioVals((p) => safeDiv(getLiabilities(p), getEquity(p))),
-          format: "ratio", decimals: 2,
-        },
-        {
-          label: "Debt / Tangible Net Worth",
-          values: ratioVals((p) => {
-            const tl = getLiabilities(p);
-            const eq = getEquity(p);
-            const intgGross = g(p, "SL_INTANGIBLES_GROSS") ?? 0;
-            const intgAmort = g(p, "SL_ACCUMULATED_AMORTIZATION") ?? 0;
-            const tnw = eq != null ? eq - (intgGross - intgAmort) : null;
-            return safeDiv(tl, tnw);
-          }),
-          format: "ratio", decimals: 2,
-        },
-        {
-          label: "Total Liabilities / Total Assets",
-          values: ratioVals((p) => safeDiv(getLiabilities(p), g(p, "SL_TOTAL_ASSETS"))),
-          format: "ratio", decimals: 2,
-        },
-      ],
-    },
-    {
-      title: "COVERAGE",
-      rows: [
-        {
-          label: "EBITDA",
-          values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            if (ni == null) return null;
-            return ni + (g(p, "INTEREST_EXPENSE") ?? 0) + (g(p, "DEPRECIATION") ?? 0) + (g(p, "AMORTIZATION") ?? 0);
-          }),
-          format: "currency", decimals: 0,
-        },
-        {
-          label: "Interest Coverage",
-          values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            const ie = g(p, "INTEREST_EXPENSE");
-            if (ni == null || ie == null) return null;
-            return safeDiv(ni + ie, ie);
-          }),
-          format: "ratio", decimals: 2,
-        },
-        {
-          label: "DSCR (Traditional)",
-          values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            const dep = g(p, "DEPRECIATION") ?? 0;
-            const ie = g(p, "INTEREST_EXPENSE");
-            if (ni == null || ie == null) return "N/A";
-            if (ie === 0) return "N/A";
-            return (ni + dep + ie) / ie;
-          }),
-          format: "ratio", decimals: 2,
-        },
-        {
-          label: "UCA Cash Flow DSCR",
-          values: ratioVals((_, i) => {
-            const cfo = getCfo(i);
-            const ie = g(periods[i]!, "INTEREST_EXPENSE");
-            if (cfo == null || ie == null || ie === 0) return "N/A";
-            return safeDiv(cfo, ie);
-          }),
-          format: "ratio", decimals: 2,
-        },
-      ],
-    },
-    {
-      title: "PROFITABILITY",
-      rows: [
-        {
-          label: "Gross Margin %",
-          values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            const gp = g(p, "GROSS_PROFIT") ?? (rev != null ? rev - (g(p, "COST_OF_GOODS_SOLD") ?? 0) : null);
-            if (rev == null || gp == null || rev === 0) return null;
-            return (gp / rev) * 100;
-          }),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Operating Profit Margin %",
-          values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            if (rev == null || rev === 0) return null;
-            const gp = g(p, "GROSS_PROFIT") ?? (rev - (g(p, "COST_OF_GOODS_SOLD") ?? 0));
-            const opex = getOpex(p);
-            if (opex == null) return null;
-            return ((gp - opex) / rev) * 100;
-          }),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Net Margin %",
-          values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            if (rev == null || ni == null || rev === 0) return null;
-            return (ni / rev) * 100;
-          }),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Return on Assets %",
-          values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            const ta = g(p, "SL_TOTAL_ASSETS");
-            if (ni == null || ta == null || ta === 0) return null;
-            return (ni / ta) * 100;
-          }),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Return on Equity %",
-          values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            const eq = getEquity(p);
-            if (ni == null || eq == null || eq === 0) return null;
-            return (ni / eq) * 100;
-          }),
-          format: "percent", decimals: 1,
-        },
-      ],
-    },
-    {
-      title: "ACTIVITY",
-      rows: [
-        {
-          label: "AR Days",
-          values: ratioVals((p) => {
-            const ar = g(p, "SL_AR_GROSS");
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
-            if (ar == null || rev == null || rev === 0) return null;
-            return (ar / rev) * 365;
-          }),
-          format: "days", decimals: 1,
-        },
-        {
-          label: "AP Days",
-          values: ratioVals((p) => {
-            const ap = g(p, "SL_ACCOUNTS_PAYABLE");
-            const cogs = g(p, "COST_OF_GOODS_SOLD");
-            if (ap == null || cogs == null || cogs === 0) return null;
-            return (ap / cogs) * 365;
-          }),
-          format: "days", decimals: 1,
-        },
-        {
-          label: "Inventory Days",
-          values: ratioVals((p) => {
-            const inv = g(p, "SL_INVENTORY");
-            const cogs = g(p, "COST_OF_GOODS_SOLD");
-            if (inv == null || cogs == null || cogs === 0) return null;
-            return (inv / cogs) * 365;
-          }),
-          format: "days", decimals: 1,
-        },
-        {
-          label: "Net Sales / Total Assets",
-          values: ratioVals((p) => safeDiv(g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"), g(p, "SL_TOTAL_ASSETS"))),
-          format: "ratio", decimals: 2,
-        },
-        {
-          label: "Net Sales / Net Worth",
-          values: ratioVals((p) => safeDiv(g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"), getEquity(p))),
-          format: "ratio", decimals: 2,
-        },
-      ],
-    },
-    {
-      title: "GROWTH",
-      rows: [
-        {
-          label: "Net Sales Growth %",
-          values: yoyGrowth((p) => g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME")),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Net Profit Growth %",
-          values: yoyGrowth((p) => g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME")),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Total Assets Growth %",
-          values: yoyGrowth((p) => g(p, "SL_TOTAL_ASSETS")),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Total Liabilities Growth %",
-          values: yoyGrowth((p) => getLiabilities(p)),
-          format: "percent", decimals: 1,
-        },
-        {
-          label: "Net Worth Growth %",
-          values: yoyGrowth((p) => getEquity(p)),
-          format: "percent", decimals: 1,
-        },
-      ],
-    },
-  ];
-
-  return sections;
-}
-
 function buildExecutiveSummary(
   byPeriod: Map<string, Map<string, number | null>>,
   periods: string[],
 ): ClassicSpreadInput["executiveSummary"] {
   const totalAssets = getVals(byPeriod, periods, "SL_TOTAL_ASSETS");
-  const revenue = getValsFallback(byPeriod, periods, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #2 — NET sales (resolved net of returns/allowances),
+  // never gross receipts and NEVER TOTAL_INCOME. The resolved overlay injects NET_SALES_REVENUE.
+  const revenue = getValsFallback(byPeriod, periods, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
 
-  // S-corp fallback: retained earnings = total equity when SL_TOTAL_EQUITY missing
-  const totalEquity = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_EQUITY");
-    if (direct != null) return direct;
-    return getVal(byPeriod, p, "SL_RETAINED_EARNINGS");
-  });
-
-  // Derive total liabilities when not directly stored
-  const totalLiabilities = deriveValues(periods, (p) => {
-    const direct = getVal(byPeriod, p, "SL_TOTAL_LIABILITIES");
-    if (direct != null) return direct;
-    const ta = getVal(byPeriod, p, "SL_TOTAL_ASSETS");
-    const eq = totalEquity[periods.indexOf(p)];
-    return ta != null && eq != null ? ta - eq : null;
-  });
+  // SPEC-CLASSIC-SPREAD-V7-FOLLOWUP-1 #1: the Executive Financial Statement MUST use the IDENTICAL
+  // liability hierarchy (direct → component sum → assets−equity) as the Detailed Balance Sheet, so
+  // the two pages never disagree on TOTAL LIABILITIES (OmniCare 2024 = 2,287,062 on both).
+  const totalEquity = deriveTotalEquity(byPeriod, periods);
+  const totalLiabilities = deriveTotalLiabilities(byPeriod, periods);
 
   return {
     assets: [
@@ -1018,7 +713,14 @@ function buildExecutiveSummary(
       { label: "Long-Term Debt", indent: 1, isBold: false, values: getVals(byPeriod, periods, "SL_MORTGAGES_NOTES_BONDS"), showPct: true, pctBase: totalAssets },
       { label: "TOTAL LIABILITIES", indent: 0, isBold: true, values: totalLiabilities, showPct: true, pctBase: totalAssets },
       { label: "TOTAL NET WORTH", indent: 0, isBold: true, values: totalEquity, showPct: true, pctBase: totalAssets },
-      { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: totalAssets, showPct: true, pctBase: totalAssets },
+      // SPEC-CLASSIC-SPREAD-2022-SCHEDULE-L-BALANCE-PARITY-1: SUM of Total Liabilities + Net Worth,
+      // never a mirror of Total Assets — so an incomplete L&E side (e.g. 2022) shows the real imbalance.
+      { label: "TOTAL LIABILITIES & NET WORTH", indent: 0, isBold: true, values: deriveValues(periods, (p) => {
+        const i = periods.indexOf(p);
+        const tl = totalLiabilities[i];
+        const eq = totalEquity[i];
+        return tl != null && eq != null ? tl + eq : null;
+      }), showPct: true, pctBase: totalAssets },
     ],
     incomeStatement: [
       { label: "Sales / Revenues", indent: 0, isBold: true, values: revenue, showPct: true, pctBase: revenue },
@@ -1056,15 +758,16 @@ function deriveAuditMethod(
 
 async function buildGlobalCashFlowSection(
   dealId: string,
-  bankId?: string | null,
+  bankId: string,
 ): Promise<GlobalCashFlowSection | null> {
   const sb = supabaseAdmin();
 
-  // Read GCF-related facts (exclude superseded/rejected)
+  // Read GCF-related facts (bank-scoped; exclude superseded/rejected)
   const { data: gcfFacts } = await (sb as any)
     .from("deal_financial_facts")
     .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
     .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
     .eq("is_superseded", false)
     .neq("resolution_status", "rejected")
     .in("fact_key", [
@@ -1124,6 +827,7 @@ async function buildGlobalCashFlowSection(
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num, owner_type, owner_entity_id, fact_period_end")
       .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
       .eq("fact_type", "PERSONAL_INCOME")
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
@@ -1260,14 +964,18 @@ async function buildGlobalCashFlowSection(
 // Main Loader
 // ---------------------------------------------------------------------------
 
-export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpreadInput> {
+export async function loadClassicSpreadData(dealId: string, bankId: string): Promise<ClassicSpreadInput> {
   const sb = supabaseAdmin();
 
-  const [factsRes, dealRes, bankRes] = await Promise.all([
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #1: bank-scope EVERY fact read. The caller passes
+  // the access-checked bankId; facts (and every downstream section) filter on it so a sibling-bank
+  // tenant's facts can never enter this spread.
+  const [factsRes, dealRes] = await Promise.all([
     sb
       .from("deal_financial_facts")
-      .select("fact_key, fact_period_end, fact_value_num, confidence, created_at")
+      .select("id, fact_key, fact_period_end, fact_value_num, confidence, created_at, source_document_id, owner_type, source_canonical_type, provenance")
       .eq("deal_id", dealId)
+      .eq("bank_id", bankId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .not("fact_value_num", "is", null),
@@ -1275,20 +983,19 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
       .from("deals")
       .select("id, name, borrower_name, bank_id")
       .eq("id", dealId)
+      .eq("bank_id", bankId)
       .maybeSingle(),
-    // We'll get the bank name after we have the bank_id
-    null as any,
   ]);
 
   if (factsRes.error) throw new Error(`facts_query_failed: ${factsRes.error.message}`);
   const deal = dealRes.data as { id: string; name: string | null; borrower_name: string | null; bank_id: string | null } | null;
 
   let bankName = "Bank";
-  if (deal?.bank_id) {
+  {
     const { data: bank } = await sb
       .from("banks")
       .select("name")
-      .eq("id", deal.bank_id)
+      .eq("id", bankId)
       .maybeSingle();
     bankName = (bank as { name: string } | null)?.name ?? "Bank";
   }
@@ -1296,24 +1003,84 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   // Exclude sentinel EXTRACTION_HEARTBEAT facts:
   // - fact_key starting with "document:" are OCR anchor facts (not financial data)
   // - fact_period_end year < 2000 is a sentinel date (1900-01-01 used for heartbeats)
-  const facts = ((factsRes.data ?? []) as RawFact[]).filter((f) => {
+  const businessFacts = ((factsRes.data ?? []) as RawFact[]).filter((f) => {
     if (f.fact_key?.startsWith("document:")) return false;
     if (f.fact_period_end) {
       const year = parseInt(f.fact_period_end.slice(0, 4), 10);
       if (!isNaN(year) && year < 2000) return false;
     }
+    // #2: business statements consume business facts only; personal-return facts are excluded here
+    // and surface only on the Personal Income / GCF sponsor sections.
+    if (!isBusinessStatementFact(f)) return false;
     return true;
   });
-  const { periods, byPeriod } = buildPeriodMaps(facts);
+
+  // SPEC-CLASSIC-SPREAD-BS-SOURCE-LINE-PARITY-2: correct three balance-sheet source-line
+  // MISCLASSIFICATIONS using each fact's provenance/source line (never a blind numeric heuristic) —
+  // Schedule L "Other current liabilities" → current bucket, OCR line-number micro-stub suppression,
+  // and an interim "Accounts receivable" line mislabeled as Total Current Assets. Pure + non-fatal;
+  // it only re-keys/suppresses an in-memory copy and never mutates the underlying facts.
+  const { facts, audit: bsSourceLineAudit } = resolveBalanceSheetSourceLines(businessFacts);
+  if (bsSourceLineAudit.length > 0) {
+    console.info("[classic-spread] balance-sheet source-line corrections", {
+      dealId,
+      corrections: bsSourceLineAudit.map((a) => `${a.periodEnd} ${a.originalKey}→${a.resolvedKey ?? "(suppressed)"} [${a.code}]`),
+    });
+  }
   const currentYear = new Date().getFullYear();
 
+  // SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: the canonical reconciled view model is the
+  // SINGLE source of truth for which period columns render and their source attribution
+  // (audit method, statement type, months covered) — derived from the ACTUAL facts'
+  // source_canonical_type per column, not inferred from dates/fact-key presence.
+  const canonByPeriod = new Map<string, { auditMethod: string; statementType: string; monthsCovered: number | null }>();
+  {
+    try {
+      const vm = await buildCanonicalSpreadViewModel(dealId, bankId);
+      for (const c of vm.columns) {
+        canonByPeriod.set(c.periodEnd, { auditMethod: c.auditMethod, statementType: c.statementType, monthsCovered: c.monthsCovered });
+      }
+    } catch {
+      // Non-fatal — fall back to the legacy period list + per-period derivation below.
+    }
+  }
+
+  // SPEC-CLASSIC-SPREAD-FINANCIAL-PERIOD-SPINE-1: restrict the period universe (and thus the
+  // 5-column cap math in buildPeriodMaps) to the VM's eligible statement periods. The VM
+  // already excludes AR-aging / PFS / personal-tax / collateral periods, so non-statement
+  // periods can no longer consume a cap slot and push a real tax year (e.g. 2022) out.
+  const eligibleFacts =
+    canonByPeriod.size > 0
+      ? facts.filter((f) => {
+          const pe = f.fact_period_end?.slice(0, 10);
+          return pe ? canonByPeriod.has(pe) : true;
+        })
+      : facts;
+  const { periods: rawPeriods, byPeriod } = buildPeriodMaps(eligibleFacts);
+
+  // Drive the rendered period list from the VM when available: drop any period the VM did
+  // not emit (empty columns the VM suppressed, or columns whose facts were quarantined).
+  // Surviving periods therefore always carry VM attribution — the legacy "Company Prepared"
+  // fallback only runs when the VM is entirely unavailable.
+  const periods = canonByPeriod.size > 0 ? rawPeriods.filter((p) => canonByPeriod.has(p)) : rawPeriods;
+
   const statementPeriods: StatementPeriod[] = periods.map((p) => {
-    const auditMethod = deriveAuditMethod(byPeriod, p);
+    const canon = canonByPeriod.get(p);
+    const auditMethod = canon?.auditMethod ?? deriveAuditMethod(byPeriod, p);
+    const months = canon?.monthsCovered ?? deriveMonths(p);
+    const stmtType =
+      canon?.statementType && canon.statementType !== "Unknown"
+        ? (canon.statementType === "Interim" ? "Interim" : "Annual")
+        : auditMethod === "Tax Return"
+          ? "Annual"
+          : months === 12
+            ? "Annual"
+            : "Interim";
     return {
       date: formatPeriodDate(p),
-      months: deriveMonths(p),
+      months,
       auditMethod,
-      stmtType: auditMethod === "Tax Return" ? "Annual" : (deriveMonths(p) === 12 ? "Annual" : "Interim"),
+      stmtType,
       label: derivePeriodLabel(p, currentYear),
     };
   });
@@ -1322,6 +1089,7 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
   const hasBsData = periods.some((p) => getVal(byPeriod, p, "SL_TOTAL_ASSETS") != null);
   const hasIsData = periods.some((p) =>
     getVal(byPeriod, p, "GROSS_RECEIPTS") != null ||
+    getVal(byPeriod, p, "NET_SALES_REVENUE") != null ||
     getVal(byPeriod, p, "TOTAL_REVENUE") != null ||
     getVal(byPeriod, p, "NET_INCOME") != null,
   );
@@ -1333,19 +1101,27 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     hour12: true,
   }) + ", " + now.toLocaleDateString("en-US");
 
-  const cashFlowRows = hasBsData && hasIsData ? buildCashFlowRows(byPeriod, periods) : [];
+  // SPEC-CLASSIC-SPREAD-TRUTH-RESOLVER-RENDER-WIRING-1: the rendered Detailed BS / Executive /
+  // Ratios / Cash Flow rows derive from the RESOLVED overlay — wrong direct totals (e.g. 2024
+  // direct equity, 2025 AR-only TCA) are corrected to the resolver's arbitrated value. The audit
+  // keeps the ORIGINAL `byPeriod` so it still detects and reports the rejected source (BLOCKER).
+  const resolvedByPeriod = buildResolvedByPeriod(byPeriod, periods);
+
+  const cashFlowRows = hasBsData && hasIsData ? buildCashFlowRows(resolvedByPeriod, periods) : [];
   // Cash flow periods exclude the first period (need prior for deltas)
   const cfPeriods = periods.length >= 2 ? statementPeriods : [];
 
+  // Single source of truth for liability-derived ratios: the EXACT array that populates the
+  // visible TOTAL LIABILITIES row, from the resolved overlay so ratios match the rendered rows.
+  const totalLiabilitiesForRatios = deriveTotalLiabilities(resolvedByPeriod, periods);
+
   // Global cash flow section (Phase 18 facts → Phase 19 PDF page)
-  const globalCashFlow = await buildGlobalCashFlowSection(dealId, deal?.bank_id);
+  const globalCashFlow = await buildGlobalCashFlowSection(dealId, bankId);
 
   // Personal income section — load PERSONAL_INCOME facts if any exist
-  const personalIncome = deal?.bank_id
-    ? await loadPersonalIncome(dealId, deal.bank_id)
-    : null;
+  const personalIncome = await loadPersonalIncome(dealId, bankId);
 
-  return {
+  const input: ClassicSpreadInput = {
     dealId,
     companyName: deal?.borrower_name ?? deal?.name ?? "Unknown Company",
     preparedDate,
@@ -1353,13 +1129,136 @@ export async function loadClassicSpreadData(dealId: string): Promise<ClassicSpre
     naicsDescription: null,
     bankName,
     periods: statementPeriods,
-    balanceSheet: hasBsData ? buildBalanceSheetRows(byPeriod, periods) : [],
-    incomeStatement: hasIsData ? buildIncomeStatementRows(byPeriod, periods) : [],
+    balanceSheet: hasBsData ? buildBalanceSheetRows(resolvedByPeriod, periods) : [],
+    incomeStatement: hasIsData ? buildIncomeStatementRows(resolvedByPeriod, periods) : [],
     cashFlow: cashFlowRows,
     cashFlowPeriods: cfPeriods,
-    ratioSections: buildRatioSections(byPeriod, periods, cashFlowRows),
+    ratioSections: buildRatioSections(resolvedByPeriod, periods, cashFlowRows, totalLiabilitiesForRatios),
     globalCashFlow,
     personalIncome,
-    executiveSummary: buildExecutiveSummary(byPeriod, periods),
+    executiveSummary: buildExecutiveSummary(resolvedByPeriod, periods),
   };
+
+  // SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1 (Phase 6): pre-render certification gate.
+  // Suppress blocked values and replace weak personal-income values with certified ones BEFORE the
+  // PDF is rendered, and persist the audit.
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: FAIL CLOSED — if certification throws or
+  // returns null, the spread is NOT certified and the PDF must say so. Never silently render an
+  // apparently-certified spread.
+  input.certified = false;
+  {
+    const gate = await runClassicSpreadCertification(dealId, bankId, {
+      periods,
+      gcfTaxYear: globalCashFlow?.taxYear ?? null,
+    });
+    if (gate) {
+      input.certified = true;
+      applyCertificationToInput(input, gate.decisions);
+      input.certificationAudit = gate.audit;
+
+      // SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1: AFTER the gate has suppressed any
+      // sentinel-backed GCF source, compute entity cash flow + global DSCR from the already-rendered
+      // annual income-statement rows (NCADS Standard: EBITDA -> OBI/NI). Pure — never invents source
+      // data, never touches the canonical VM / reconcileFinancialFacts, and only fills in entity cash
+      // flow when the pipeline did not materialize one (a real fact is left untouched). The derived
+      // value is marked computed/preliminary so certification + PDF present it honestly.
+      if (input.globalCashFlow) {
+        input.globalCashFlow = applyComputedEntityCashFlow(
+          input.globalCashFlow,
+          input.incomeStatement,
+          input.periods,
+        );
+      }
+
+      // SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1: run the line-accuracy / completion
+      // audit on the FINAL (post-suppression) rows vs the source facts, and attach it as a
+      // certification domain so it persists into rendered_json and reaches the PDF + narrative.
+      try {
+        const auditPeriods = periods.map((p, i) => ({ iso: p, label: statementPeriods[i]?.label ?? p }));
+        const renderedIso = new Set(periods);
+        const factRefs: AuditFactRef[] = [];
+        for (const f of facts) {
+          const pe = f.fact_period_end?.slice(0, 10);
+          if (!pe || !renderedIso.has(pe)) continue;
+          factRefs.push({ period: pe, factKey: f.fact_key, factId: f.id ?? null, documentId: f.source_document_id ?? null });
+        }
+        gate.audit.spreadAccuracy = auditClassicSpread({
+          periods: auditPeriods,
+          byPeriod,
+          balanceSheet: input.balanceSheet,
+          incomeStatement: input.incomeStatement,
+          cashFlow: input.cashFlow,
+          factRefs,
+          // #6: arbitrate candidate facts via the statement truth resolver and surface its findings.
+          resolve: true,
+        });
+
+        // SPEC-CLASSIC-SPREAD-BANKER-REVIEW-ACTIONS-1 #5: consume reviewed banker decisions so the
+        // rendered PDF + persisted audit reflect confirmations/waivers/verifications. Non-fatal and
+        // never clears a blocker without a reviewer (enforced inside applyReviewDecisions).
+        let openReviewActionCount: number | undefined;
+        try {
+          const { loadReviewDecisions } = await import("./review/reviewActionsRepo");
+          const { applyReviewDecisions } = await import("./review/applyReviewDecisions");
+          const { isActiveReviewActionStatus } = await import("./review/reviewActionStatus");
+          const decisions = await loadReviewDecisions(dealId, bankId);
+          // Open = still-actionable review rows. BUGFIX-CLASSIC-SPREAD-BORROWER-REQUESTED-STILL-OPEN-1:
+          // `borrower_detail_requested` is ACTIVE (request created, support not yet uploaded) — it must
+          // count as open and keep the spread blocked. Pruned/closed rows are excluded by the repo.
+          openReviewActionCount = decisions.filter((d) => isActiveReviewActionStatus(d.status)).length;
+          if (decisions.length > 0 && gate.audit.spreadAccuracy) {
+            gate.audit.spreadAccuracy = applyReviewDecisions(gate.audit.spreadAccuracy, decisions);
+          }
+        } catch {
+          // Non-fatal — decisions are an overlay on top of the audit.
+        }
+
+        // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: honest certified/preliminary/blocked
+        // roll-up over the post-decision audit, surfaced on the PDF and safe for memo consumers.
+        input.certificationSummary = buildClassicSpreadCertificationSummary({
+          certified: true,
+          audit: gate.audit,
+          openReviewActionCount,
+          globalCashFlow: input.globalCashFlow ?? null,
+        });
+      } catch {
+        // Non-fatal — the audit is supplemental; a failure must not block the PDF.
+      }
+    }
+  }
+
+  // Fail closed: if the gate never produced a certification summary, the spread is NOT certified.
+  if (!input.certificationSummary) {
+    input.certificationSummary = buildClassicSpreadCertificationSummary({
+      certified: input.certified === true,
+      audit: input.certificationAudit ?? null,
+      globalCashFlow: input.globalCashFlow ?? null,
+    });
+  }
+
+  // SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1: build the Borrowing Base Certificate when the facility
+  // is borrowing-base monitored (data-driven: an AR aging report exists). Non-fatal — a failure here
+  // must never block the spread PDF. Read-only: never clears a source-detail blocker. The date-
+  // mismatch check uses the most-recent rendered balance-sheet period end, so an AR aging of a
+  // different date (e.g. 4/28 vs a 3/31 balance sheet) is flagged, not silently bridged.
+  try {
+    const { loadBorrowingBaseCertificate } = await import("@/lib/borrowingBase/loadBorrowingBaseCertificate");
+    // Most-recent rendered period end is the last entry (periods are chronological). StatementPeriod.date
+    // is "MM/DD/YYYY"; convert to ISO for the date-mismatch comparison.
+    const latestDate = input.periods.length > 0 ? input.periods[input.periods.length - 1]?.date : null;
+    const m = latestDate ? /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(latestDate) : null;
+    const latestBsIso = m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
+    input.borrowingBaseCertificate = await loadBorrowingBaseCertificate({
+      dealId,
+      bankId,
+      borrowerName: input.companyName,
+      lenderName: input.bankName,
+      certificateDateIso: new Date().toISOString().slice(0, 10),
+      balanceSheetAsOfIso: latestBsIso,
+    });
+  } catch {
+    // Non-fatal — the BBC is a supplemental page; a failure must not block the PDF.
+  }
+
+  return input;
 }

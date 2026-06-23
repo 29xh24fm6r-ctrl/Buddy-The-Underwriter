@@ -12,6 +12,7 @@ import { persistFinancialSnapshot, persistFinancialSnapshotDecision } from "@/li
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { getVisibleFacts, type FactsVisibility } from "@/lib/financialFacts/getVisibleFacts";
 import { backfillCanonicalFactsFromSpreads } from "@/lib/financialFacts/backfillFromSpreads";
+import { filterRequiredKeysForDealType } from "@/lib/financialIntelligence/snapshotRequiredKeys";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -343,6 +344,50 @@ export async function POST(_req: Request, ctx: Ctx) {
       }, { status: 422 });
     }
 
+    // Invalidate stale aggregator-computed facts before recomputing.
+    // Written with source_document_id = SENTINEL_UUID — supersede so snapshot
+    // reads fresh values, not stale ones from a previous wrong computation.
+    try {
+      await (sb as any)
+        .from("deal_financial_facts")
+        .update({ is_superseded: true })
+        .eq("deal_id", dealId)
+        .eq("bank_id", access.bankId)
+        .in("fact_key", [
+          "DSCR", "ANNUAL_DEBT_SERVICE", "CASH_FLOW_AVAILABLE",
+          "EXCESS_CASH_FLOW", "GCF_GLOBAL_CASH_FLOW", "GCF_DSCR",
+          "GLOBAL_CASH_FLOW", "GCF_CASH_AVAILABLE", "DSCR_STRESSED_300BPS",
+        ])
+        .eq("source_document_id", "00000000-0000-0000-0000-000000000000");
+    } catch (invalidateErr: any) {
+      console.warn("[recompute] stale fact invalidation failed (non-fatal)", invalidateErr?.message);
+    }
+
+    // Run cash flow aggregator to compute DSCR/ADS from structural pricing
+    let aggregatorWarnings: string[] = [];
+    try {
+      const { runCashFlowAggregator } = await import("@/lib/financialFacts/runCashFlowAggregator");
+      const aggResult = await runCashFlowAggregator({ dealId, bankId: access.bankId });
+      if (!aggResult.ok) {
+        console.warn("[recompute] runCashFlowAggregator returned", aggResult.reason, aggResult.detail ?? "");
+      } else {
+        console.log("[recompute] aggregator wrote", aggResult.factsWritten, "facts, DSCR=", aggResult.dscr);
+        aggregatorWarnings = aggResult.ncadsWarnings ?? [];
+      }
+    } catch (aggErr: any) {
+      console.warn("[recompute] runCashFlowAggregator threw (non-fatal)", aggErr?.message);
+    }
+
+    // Run GCF persist to ensure CASH_FLOW_AVAILABLE is written
+    try {
+      const { persistGlobalCashFlow } = await import(
+        "@/lib/financialIntelligence/persistGlobalCashFlow"
+      );
+      await persistGlobalCashFlow({ dealId, bankId: access.bankId });
+    } catch (gcfErr: any) {
+      console.warn("[recompute] persistGlobalCashFlow failed (non-fatal)", gcfErr?.message);
+    }
+
     const [snapshot, dealMeta, loanMeta] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId, bankId: access.bankId }),
       loadDealMeta(dealId),
@@ -352,8 +397,54 @@ export async function POST(_req: Request, ctx: Ctx) {
     const stress = computeFinancialStress({
       snapshot,
       loanTerms: loanMeta.loanTerms,
-      stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
+      stress: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 300 },
     });
+
+    // Persist dscr_stressed_300bps fact
+    const stressedDscr = stress.stresses.rateUp.dscr;
+    if (stressedDscr !== null && Number.isFinite(stressedDscr)) {
+      try {
+        const { upsertDealFinancialFact } = await import("@/lib/financialFacts/writeFact");
+        await upsertDealFinancialFact({
+          dealId,
+          bankId: access.bankId,
+          sourceDocumentId: "00000000-0000-0000-0000-000000000000",
+          factType: "FINANCIAL_ANALYSIS",
+          factKey: "DSCR_STRESSED_300BPS",
+          factValueNum: stressedDscr,
+          confidence: 0.85,
+          provenance: {
+            source_type: "STRUCTURAL",
+            source_ref: "computed:stress:rate_up_300bps",
+            as_of_date: new Date().toISOString().slice(0, 10),
+            extractor: "financialStressEngine:rateUp:v1",
+            calc: `base_dscr=${stress.base.dscr} rate_up_300bps`,
+          },
+          ownerType: "DEAL",
+          ownerEntityId: "00000000-0000-0000-0000-000000000000",
+        });
+      } catch (stressErr: any) {
+        console.warn("[recompute] dscr_stressed_300bps persist failed (non-fatal)", stressErr?.message);
+      }
+    }
+
+    // Inject dscr_stressed_300bps into snapshot so this response includes it
+    if (stressedDscr !== null && Number.isFinite(stressedDscr)) {
+      (snapshot as any).dscr_stressed_300bps = {
+        value_num: stressedDscr,
+        value_text: null,
+        as_of_date: new Date().toISOString().slice(0, 10),
+        confidence: 0.85,
+        source_type: "STRUCTURAL",
+        source_ref: "computed:stress:rate_up_300bps",
+        provenance: {
+          source_type: "STRUCTURAL",
+          source_ref: "computed:stress:rate_up_300bps",
+          extractor: "financialStressEngine:rateUp:v1",
+          calc: `base_dscr=${stress.base.dscr} rate_up_300bps`,
+        },
+      };
+    }
 
     const sba = evaluateSbaEligibility({
       snapshot,
@@ -369,6 +460,28 @@ export async function POST(_req: Request, ctx: Ctx) {
       stress,
       sba,
     });
+
+    // Infer entity_type from document types if not set on the deal
+    if (!(dealMeta as any)?.entity_type) {
+      try {
+        const { data: form1120 } = await (sb as any)
+          .from("deal_documents")
+          .select("id")
+          .eq("deal_id", dealId)
+          .eq("canonical_type", "BUSINESS_TAX_RETURN")
+          .limit(1)
+          .maybeSingle();
+        if (form1120) {
+          await (sb as any)
+            .from("deals")
+            .update({ entity_type: "C_CORP" })
+            .eq("id", dealId)
+            .is("entity_type", null);
+        }
+      } catch {
+        // Non-fatal — entity_type inference is best-effort
+      }
+    }
 
     const snapRow = await persistFinancialSnapshot({
       dealId,
@@ -441,13 +554,29 @@ export async function POST(_req: Request, ctx: Ctx) {
       "revenue", "cogs", "gross_profit", "ebitda", "net_income",
       "working_capital", "current_ratio", "debt_to_equity",
     ] as const;
-    const populatedMetrics = METRIC_KEYS.filter(
-      (k) => (snapshot as any)[k]?.value != null,
+    // SPEC-SNAPSHOT-DEAL-TYPE-AWARE-1: filter out CRE/TTM keys for CONVENTIONAL/SBA
+    const dealType = (dealMeta as any)?.deal_type ?? null;
+    const relevantKeys = filterRequiredKeysForDealType(METRIC_KEYS, dealType);
+    const relevantPopulated = relevantKeys.filter(
+      (k: string) => (snapshot as any)[k]?.value_num != null,
     );
-    const completeness = Math.round((populatedMetrics.length / METRIC_KEYS.length) * 100);
-    const missingKeys = METRIC_KEYS.filter(
-      (k) => (snapshot as any)[k]?.value == null,
+    const completeness = Math.round(
+      (relevantPopulated.length / relevantKeys.length) * 100,
     );
+    const missingKeys = relevantKeys.filter(
+      (k: string) => (snapshot as any)[k]?.value_num == null,
+    );
+
+    // Filter snapshot's internal missing_required_keys
+    if ((snapshot as any).missing_required_keys) {
+      (snapshot as any).missing_required_keys = filterRequiredKeysForDealType(
+        (snapshot as any).missing_required_keys,
+        dealType,
+      );
+    }
+    if ((snapshot as any).completeness_pct !== undefined) {
+      (snapshot as any).completeness_pct = completeness;
+    }
 
     // Telemetry: snapshot succeeded
     await logLedgerEvent({
@@ -465,6 +594,16 @@ export async function POST(_req: Request, ctx: Ctx) {
       },
     });
 
+    // SPEC-NCADS-SUPERSEDED-FALLBACK-1: surface DSCR blocker when null
+    const dscrBlocker = (snapshot as any).dscr?.value_num == null
+      ? {
+          dscr_blocker: "no_ncads_candidates",
+          dscr_blocker_detail:
+            "No EBITDA, Ordinary Business Income, or Net Income facts found. " +
+            "Re-run extraction or manually enter income figures.",
+        }
+      : {};
+
     return NextResponse.json({
       ok: true,
       deal_id: dealId,
@@ -473,6 +612,8 @@ export async function POST(_req: Request, ctx: Ctx) {
       facts_count: factsVis.total,
       completeness,
       missing_keys: missingKeys,
+      ncadsWarnings: aggregatorWarnings,
+      ...dscrBlocker,
       snapshot,
       stress,
       sba,

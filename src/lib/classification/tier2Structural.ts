@@ -270,21 +270,26 @@ function detectARAging(doc: NormalizedDocument): string[] | null {
   const hasTitle =
     /accounts\s+receivable\s+aging/i.test(text) ||
     /A\/R\s+aging/i.test(text) ||
+    /\bAR\s+aging/i.test(text) ||
     /receivables\s+aging/i.test(text) ||
     /\bcustomer\s+aging\b/i.test(text) ||
+    /\baging\s+summary\s+report\b/i.test(text) ||
     /\baging\s+report\b/i.test(text);
 
-  // Aging bucket columns (current / 30 / 60 / 90 / 120 days).
+  // Aging bucket columns — matches both "30 days" format and "1-30" range format.
   const buckets = [
     /\bcurrent\b/i,
-    /\b(?:1\s*-\s*)?30\s*(?:days?|d)\b/i,
-    /\b(?:31\s*-\s*)?60\s*(?:days?|d)\b/i,
-    /\b(?:61\s*-\s*)?90\s*(?:days?|d)\b/i,
-    /\b(?:91\s*-\s*)?120\s*(?:days?|d)\b/i,
-    /\bover\s*90\b/i,
-    /\bover\s*120\b/i,
-    /\b90\+\b/i,
-    /\b120\+\b/i,
+    /\b0?\s*-\s*30\b/,                              // 0-30, 1-30
+    /\b1\s*-\s*30\b/,                                // 1-30, 1 - 30
+    /\b(?:1\s*-\s*)?30\s*(?:days?|d)\b/i,           // 30 days, 30d
+    /\b31\s*-\s*60\b/,                               // 31-60, 31 - 60
+    /\b(?:31\s*-\s*)?60\s*(?:days?|d)\b/i,           // 60 days, 60d
+    /\b61\s*-\s*90\b/,                               // 61-90, 61 - 90
+    /\b(?:61\s*-\s*)?90\s*(?:days?|d)\b/i,           // 90 days, 90d
+    /\b91\s*(?:and|&)?\s*over\b/i,                   // 91 AND OVER, 91 & over
+    /\b(?:91\s*-\s*)?120\s*(?:days?|d)\b/i,          // 120 days
+    /\bover\s*(?:90|120)\b/i,                        // over 90, over 120
+    /\b(?:90|91|120)\+\b/,                           // 90+, 91+, 120+
   ];
 
   let bucketHits = 0;
@@ -321,6 +326,85 @@ function detectARAging(doc: NormalizedDocument): string[] | null {
   // Catches OCR'd tabular AR aging exports where the title text is fragmented or absent.
   if (hasCustomerColumn && bucketHits >= 3) {
     signals.unshift("Customer column + aging buckets (no title)");
+    return signals;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Pattern: Business Balance Sheet
+// ---------------------------------------------------------------------------
+
+function detectBusinessBalanceSheet(doc: NormalizedDocument): string[] | null {
+  const text = doc.firstTwoPagesText;
+  const signals: string[] = [];
+
+  // PFS negative guard — if PFS signals dominate, reject
+  const pfsSigs = [
+    /personal\s+financial\s+statement/i,
+    /SBA\s+Form\s+413/i,
+    /\bguarantor\b/i,
+    /\bspouse\b/i,
+    /\bdate\s+of\s+birth\b/i,
+    /\bsocial\s+security\b/i,
+    /personal\s+residence/i,
+    /life\s+insurance\s+cash\s+value/i,
+  ];
+  let pfsHits = 0;
+  for (const p of pfsSigs) { if (p.test(text)) pfsHits++; }
+  if (pfsHits >= 2) return null;
+
+  // Strong title signals
+  const hasStrongTitle =
+    /statement\s+of\s+assets[\s,]+liabilities\s+(?:and|&)\s+equity/i.test(text) ||
+    /statement\s+of\s+assets\s+(?:and|&)\s+liabilities/i.test(text) ||
+    /statement\s+of\s+financial\s+(?:position|condition)/i.test(text) ||
+    /\bbalance\s+sheet\b/i.test(text);
+
+  // Asset/liability/equity structural signals
+  const structuralSigs = [
+    /\bassets\b/i,
+    /\bcurrent\s+assets\b/i,
+    /\btotal\s+assets\b/i,
+    /\bliabilities\b/i,
+    /\bliabilities\s+(?:and|&)\s+equity\b/i,
+    /\btotal\s+liabilities(?:\s+(?:and|&)\s+equity)?\b/i,
+    /\bequity\b/i,
+    /\bretained\s+earnings\b/i,
+    /\baccounts\s+receivable\b/i,
+    /\baccounts\s+payable\b/i,
+    /\bfixed\s+assets\b/i,
+    /\bdepreciation\b/i,
+  ];
+  let structHits = 0;
+  for (const p of structuralSigs) {
+    if (p.test(text)) {
+      structHits++;
+      signals.push(`Balance sheet signal: ${p.source}`);
+    }
+  }
+
+  // Business entity signals — distinguish from PFS
+  const hasBusinessEntity =
+    /\b(?:Inc|LLC|Corp|Ltd|LP|LLP)\b/.test(text) ||
+    /\baccounts\s+(?:receivable|payable)\b/i.test(text) ||
+    /\bretained\s+earnings\b/i.test(text) ||
+    /\bpayroll\s+liabilities\b/i.test(text) ||
+    /\bfixed\s+assets\b/i.test(text) ||
+    /\b(?:accumulated\s+)?depreciation\b/i.test(text);
+
+  // Path 1: strong title + at least 2 asset/liability/equity signals
+  if (hasStrongTitle && structHits >= 2) {
+    signals.unshift("Balance sheet title + structural signals");
+    return signals;
+  }
+
+  // Path 2: total assets + liabilities/equity + business entity signal
+  const hasTotalAssets = /\btotal\s+assets\b/i.test(text);
+  const hasLiabEquity = /\bliabilities\s+(?:and|&)\s+equity\b/i.test(text) || /\btotal\s+liabilities\b/i.test(text);
+  if (hasTotalAssets && hasLiabEquity && hasBusinessEntity) {
+    signals.unshift("Total assets + liabilities/equity + business entity");
     return signals;
   }
 
@@ -369,6 +453,12 @@ const STRUCTURAL_PATTERNS: StructuralPattern[] = [
     docType: "PFS",
     confidence: 0.85,
     detect: detectPFS,
+  },
+  {
+    patternId: "BUSINESS_BALANCE_SHEET_FORMAT",
+    docType: "BALANCE_SHEET",
+    confidence: 0.84,
+    detect: detectBusinessBalanceSheet,
   },
   {
     patternId: "MULTI_YEAR_PL",

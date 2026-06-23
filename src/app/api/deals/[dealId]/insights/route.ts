@@ -37,7 +37,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     sb.from("deal_intelligence_runs").select("id, status").eq("deal_id", dealId).order("requested_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("deal_intelligence_steps").select("step_code, status, summary, error_detail")
       .eq("deal_id", dealId).order("step_code"),
-    sb.from("deal_truth_snapshots").select("id, snapshot_json").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    sb.from("financial_snapshots").select("id, snapshot_json").eq("deal_id", dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("deal_risk_pricing_model").select("finalized, risk_grade, risk_score").eq("deal_id", dealId).maybeSingle(),
     sb.from("deal_lender_matches" as any).select("id").eq("deal_id", dealId),
     sb.from("deals").select("stage").eq("id", dealId).maybeSingle(),

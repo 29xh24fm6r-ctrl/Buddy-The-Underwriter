@@ -1,11 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { DealManagementProfile } from "@/lib/creditMemo/inputs/types";
 
 type Props = {
   dealId: string;
   initial: DealManagementProfile[];
+  /**
+   * SPEC-BORROWER-PROFILE-CONTINUE-AFTER-SAVE-1: when set, a "Return to Memo
+   * Inputs" continue CTA appears after a successful save so the banker is
+   * guided forward instead of stranded on a completed sub-task. The standalone
+   * borrower page passes this; the embedded Memo Inputs section omits it (the
+   * banker is already on Memo Inputs there, so the CTA would be redundant).
+   */
+  returnToMemoInputsHref?: string;
 };
 
 type DraftProfile = {
@@ -45,13 +54,46 @@ const EMPTY_DRAFT: DraftProfile = {
   credit_relevance: "",
 };
 
-export default function ManagementProfilesForm({ dealId, initial }: Props) {
+// SPEC-BORROWER-PROFILE-SAVE-FEEDBACK-1: per-profile save/delete status so the
+// banker can see whether a Save/Remove actually persisted. UX feedback only —
+// the canonical /api/deals/[dealId]/memo-inputs persistence path is unchanged.
+type SaveState = "idle" | "saving" | "saved" | "error" | "removing";
+type SaveStatus = { state: SaveState; message?: string; at?: string };
+
+const DRAFT_KEY = "__draft__";
+
+function nowLocalTime(): string {
+  // Runs only inside event handlers (post-interaction), never during render,
+  // so toLocaleTimeString here does not introduce a hydration mismatch.
+  return new Date().toLocaleTimeString();
+}
+
+export default function ManagementProfilesForm({
+  dealId,
+  initial,
+  returnToMemoInputsHref,
+}: Props) {
   const [profiles, setProfiles] = useState<DraftProfile[]>(() =>
     initial.map(toDraft),
   );
   const [draft, setDraft] = useState<DraftProfile>(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Keyed by profile id for saved rows, DRAFT_KEY for the add-new card.
+  const [statusByKey, setStatusByKey] = useState<Record<string, SaveStatus>>({});
+
+  function setStatus(key: string, status: SaveStatus) {
+    setStatusByKey((prev) => ({ ...prev, [key]: status }));
+  }
+
+  function clearStatus(key: string) {
+    setStatusByKey((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
 
   function asPayload(d: DraftProfile) {
     return {
@@ -74,6 +116,7 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
     }
     setBusy(true);
     setError(null);
+    setStatus(DRAFT_KEY, { state: "saving" });
     try {
       const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "POST",
@@ -82,10 +125,15 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "save_failed");
-      setProfiles((p) => [...p, toDraft(json.profile)]);
+      const saved = toDraft(json.profile);
+      setProfiles((p) => [...p, saved]);
       setDraft(EMPTY_DRAFT);
+      clearStatus(DRAFT_KEY);
+      if (saved.id) setStatus(saved.id, { state: "saved", at: nowLocalTime() });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      setStatus(DRAFT_KEY, { state: "error", message: `Save failed: ${message}` });
     } finally {
       setBusy(false);
     }
@@ -94,8 +142,10 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
   async function saveProfile(idx: number) {
     const target = profiles[idx];
     if (!target.id) return;
+    const key = target.id;
     setBusy(true);
     setError(null);
+    setStatus(key, { state: "saving" });
     try {
       const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
         method: "PATCH",
@@ -107,8 +157,11 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
       setProfiles((p) =>
         p.map((cur, i) => (i === idx ? toDraft(json.profile) : cur)),
       );
+      setStatus(key, { state: "saved", at: nowLocalTime() });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      setStatus(key, { state: "error", message: `Save failed: ${message}` });
     } finally {
       setBusy(false);
     }
@@ -120,8 +173,10 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
       setProfiles((p) => p.filter((_, i) => i !== idx));
       return;
     }
+    const key = target.id;
     setBusy(true);
     setError(null);
+    setStatus(key, { state: "removing" });
     try {
       const res = await fetch(
         `/api/deals/${dealId}/memo-inputs?kind=management&id=${encodeURIComponent(
@@ -132,8 +187,11 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "delete_failed");
       setProfiles((p) => p.filter((_, i) => i !== idx));
+      clearStatus(key);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      setStatus(key, { state: "error", message: `Remove failed: ${message}` });
     } finally {
       setBusy(false);
     }
@@ -176,6 +234,17 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
               >
                 Remove
               </button>
+              <SaveStatusBadge status={p.id ? statusByKey[p.id] : undefined} />
+              {/* SPEC-BORROWER-PROFILE-CONTINUE-CTA-VISIBLE-1: the continue CTA
+                  is the SOLE CTA (no bottom/global duplicate). It renders in the
+                  SAME action row as the just-saved status so the banker sees the
+                  next step without scrolling. Gated on returnToMemoInputsHref so
+                  the embedded Memo Inputs section never shows it. */}
+              {returnToMemoInputsHref &&
+              p.id &&
+              statusByKey[p.id]?.state === "saved" ? (
+                <ContinueCtaLink href={returnToMemoInputsHref} />
+              ) : null}
             </div>
           </div>
         ))}
@@ -195,11 +264,47 @@ export default function ManagementProfilesForm({ dealId, initial }: Props) {
             >
               Add profile
             </button>
+            <SaveStatusBadge status={statusByKey[DRAFT_KEY]} />
             {error ? <span className="text-xs text-rose-700">{error}</span> : null}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function ContinueCtaLink({ href }: { href: string }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex shrink-0 items-center rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
+    >
+      Return to Memo Inputs
+    </Link>
+  );
+}
+
+function SaveStatusBadge({ status }: { status?: SaveStatus }) {
+  if (!status || status.state === "idle") return null;
+
+  if (status.state === "saving") {
+    return <span className="text-xs font-medium text-amber-700">Saving…</span>;
+  }
+  if (status.state === "removing") {
+    return <span className="text-xs font-medium text-amber-700">Removing…</span>;
+  }
+  if (status.state === "saved") {
+    return (
+      <span className="text-xs font-medium text-emerald-700">
+        Saved{status.at ? ` at ${status.at}` : ""}
+      </span>
+    );
+  }
+  // error
+  return (
+    <span className="text-xs font-medium text-rose-700">
+      {status.message ?? "Save failed"}
+    </span>
   );
 }
 
@@ -263,7 +368,7 @@ function Input(props: {
         type={props.type ?? "text"}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-gray-500 focus:outline-none"
+        className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-500 focus:outline-none"
       />
     </label>
   );
@@ -281,7 +386,7 @@ function Textarea(props: {
         rows={2}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-gray-500 focus:outline-none"
+        className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:border-gray-500 focus:outline-none"
       />
     </label>
   );

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useSpreadOutput } from "@/hooks/useSpreadOutput";
+import { useState, useEffect, useCallback } from "react";
 import { useAIRisk } from "@/hooks/useAIRisk";
 import type { AuditCertRow } from "./page";
 
@@ -15,9 +14,15 @@ type Flag = {
   status: string;
   banker_summary: string;
   banker_detail: string;
+  banker_implication?: string | null;
   domain?: string | null;
+  category?: string | null;
   field?: string | null;
+  trigger_type?: string | null;
+  year_observed?: number | null;
   recommendation?: string | null;
+  waived_reason?: string | null;
+  resolution_note?: string | null;
 };
 
 // ─── Risk domain taxonomy ────────────────────────────────────────────────────
@@ -126,16 +131,24 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 function FlagCard({
+  dealId,
   flag,
   expanded,
   onToggle,
+  onAction,
+  busy,
 }: {
+  dealId: string;
   flag: Flag;
   expanded: boolean;
   onToggle: () => void;
+  onAction: (flagId: string, action: string, extra?: Record<string, string>) => void;
+  busy: boolean;
 }) {
   const s = SEV[flag.severity] ?? SEV.info;
   const resolved = flag.status === "resolved" || flag.status === "waived";
+  const [waiveReason, setWaiveReason] = useState("");
+  const [showWaive, setShowWaive] = useState(false);
 
   return (
     <div
@@ -154,11 +167,9 @@ function FlagCard({
             >
               {flag.severity}
             </span>
-            {resolved && (
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/40">
-                {flag.status}
-              </span>
-            )}
+            <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/40">
+              {flag.status}
+            </span>
             <span className="text-sm text-white/90 truncate">
               {flag.banker_summary}
             </span>
@@ -174,14 +185,93 @@ function FlagCard({
           <p className="text-sm text-white/70 leading-relaxed">
             {flag.banker_detail}
           </p>
+          {flag.banker_implication && (
+            <p className="text-xs text-white/50">{flag.banker_implication}</p>
+          )}
           {flag.recommendation && (
             <div className="text-xs text-white/50 italic">
               Recommendation: {flag.recommendation}
             </div>
           )}
-          {flag.field && (
+          {flag.waived_reason && (
+            <div className="text-xs text-white/40">Waived: {flag.waived_reason}</div>
+          )}
+          {flag.resolution_note && (
+            <div className="text-xs text-white/40">Resolution: {flag.resolution_note}</div>
+          )}
+          {flag.trigger_type && (
             <div className="text-[10px] text-white/30 font-mono">
-              field: {flag.field}
+              trigger: {flag.trigger_type}
+            </div>
+          )}
+
+          {/* ── OD Detail Expansion ── */}
+          {(flag.trigger_type === "large_other_expense_5pct" || flag.trigger_type === "other_deductions_detail_sum_mismatch") && (
+            <OdDetailPanel dealId={dealId} year={flag.year_observed} />
+          )}
+
+          {/* ── Actions ── */}
+          {!resolved && (
+            <div className="flex items-center gap-2 pt-2">
+              {flag.status === "open" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onAction(flag.id, "review")}
+                  className="rounded border border-white/10 px-3 py-1 text-[11px] text-white/60 hover:bg-white/10 disabled:opacity-50"
+                >
+                  Mark Reviewed
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(flag.id, "resolve")}
+                className="rounded border border-emerald-500/30 px-3 py-1 text-[11px] text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+              >
+                Resolve
+              </button>
+              {flag.status === "banker_reviewed" && !showWaive && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setShowWaive(true)}
+                  className="rounded border border-amber-500/30 px-3 py-1 text-[11px] text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                >
+                  Waive
+                </button>
+              )}
+              {showWaive && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Waive reason (required)"
+                    value={waiveReason}
+                    onChange={(e) => setWaiveReason(e.target.value)}
+                    className="rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white placeholder-white/30 w-48"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !waiveReason.trim()}
+                    onClick={() => { onAction(flag.id, "waive", { waived_reason: waiveReason }); setShowWaive(false); }}
+                    className="rounded bg-amber-500/20 px-2 py-1 text-[11px] text-amber-300 disabled:opacity-50"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {resolved && (
+            <div className="pt-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(flag.id, "reopen")}
+                className="rounded border border-white/10 px-3 py-1 text-[11px] text-white/40 hover:bg-white/10 disabled:opacity-50"
+              >
+                Reopen
+              </button>
             </div>
           )}
         </div>
@@ -192,6 +282,13 @@ function FlagCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// Normalize deal_flags severity "informational" → "info" for display
+function normSeverity(s: string): FlagSeverity {
+  if (s === "informational") return "info";
+  if (s === "critical" || s === "elevated" || s === "watch" || s === "info") return s;
+  return "info";
+}
+
 export default function RiskClient({
   dealId,
   auditCerts,
@@ -199,13 +296,57 @@ export default function RiskClient({
   dealId: string;
   auditCerts: AuditCertRow[];
 }) {
-  const { data: spread, loading } = useSpreadOutput(dealId);
   const { run: aiRun, loading: aiLoading, running: aiRunning, error: aiError, runAssessment } = useAIRisk(dealId);
   const [expandedFlags, setExpandedFlags] = useState<Set<string>>(new Set());
   const [showResolved, setShowResolved] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FlagSeverity | "all">("all");
+  const [allFlags, setAllFlags] = useState<Flag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const allFlags: Flag[] = (spread?.flag_report?.flags ?? []) as Flag[];
+  // ── Fetch lifecycle-blocking deal_flags as primary source ──
+  const loadFlags = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags`, { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.flags)) {
+        setAllFlags(
+          json.flags.map((f: any) => ({
+            ...f,
+            severity: normSeverity(f.severity),
+          })),
+        );
+      }
+    } catch { /* non-fatal */ }
+    setLoading(false);
+  }, [dealId]);
+
+  useEffect(() => { loadFlags(); }, [loadFlags]);
+
+  // ── Flag actions ──
+  async function handleFlagAction(flagId: string, action: string, extra?: Record<string, string>) {
+    setActionBusy(flagId);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ flag_id: flagId, action, ...extra }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setActionError(json.error ?? "Action failed");
+      } else {
+        await loadFlags(); // refresh
+      }
+    } catch {
+      setActionError("Network error");
+    } finally {
+      setActionBusy(null);
+    }
+  }
 
   const openFlags = allFlags.filter(
     (f) => f.status !== "resolved" && f.status !== "waived",
@@ -369,7 +510,8 @@ export default function RiskClient({
         )}
       </div>
 
-      {/* ── Section 1: Risk Summary Bar ───────────────────────────────────── */}
+      {/* ── Section 1: Lifecycle Risk Flags (from deal_flags) ──────────────── */}
+      <SectionHeader>Lifecycle Risk Flags</SectionHeader>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(["critical", "elevated", "watch", "info"] as FlagSeverity[]).map(
           (sev) => {
@@ -449,8 +591,13 @@ export default function RiskClient({
             No open risk signals.
           </p>
           <p className="text-xs text-emerald-400/60 mt-1">
-            All flags are resolved or waived. Review evidence audit below.
+            {allFlags.length === 0
+              ? "No risk flags found. If financial data has been extracted, regenerate flags to check for issues."
+              : "All flags are resolved or waived. Review evidence audit below."}
           </p>
+          {allFlags.length === 0 && (
+            <RegenerateFlagsButton dealId={dealId} onComplete={loadFlags} />
+          )}
         </div>
       ) : Object.keys(byDomain).length === 0 ? (
         <div className="text-sm text-white/40 text-center py-8">
@@ -458,6 +605,11 @@ export default function RiskClient({
         </div>
       ) : (
         <div className="space-y-6">
+          {actionError && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-4 py-2 text-xs text-rose-400">
+              {actionError}
+            </div>
+          )}
           {Object.entries(byDomain).map(([domain, flags]) => (
             <div key={domain}>
               <SectionHeader>
@@ -468,9 +620,12 @@ export default function RiskClient({
                 {flags.map((flag) => (
                   <FlagCard
                     key={flag.id}
+                    dealId={dealId}
                     flag={flag}
                     expanded={expandedFlags.has(flag.id)}
                     onToggle={() => toggleFlag(flag.id)}
+                    onAction={handleFlagAction}
+                    busy={actionBusy === flag.id}
                   />
                 ))}
               </div>
@@ -573,6 +728,273 @@ export default function RiskClient({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── OD Detail Panel: shows extracted Other Deductions line items ──────────
+
+type OdLine = {
+  id: string;
+  factKey: string;
+  category: string;
+  amount: number | null;
+  confidence: number | null;
+  isHighRisk: boolean;
+  isPotentialAddback: boolean;
+};
+
+type OdYearData = {
+  aggregate: number | null;
+  detailTotal: number | null;
+  reconciled: boolean | null;
+  variance: number | null;
+  lines: OdLine[];
+};
+
+function OdDetailPanel({ dealId, year }: { dealId: string; year?: number | null }) {
+  const [data, setData] = useState<Record<number, OdYearData> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const url = year
+      ? `/api/deals/${dealId}/flags/od-detail?year=${year}`
+      : `/api/deals/${dealId}/flags/od-detail`;
+    fetch(url, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (!cancelled && json.ok) setData(json.years);
+      })
+      .catch(() => { if (!cancelled) setError("Failed to load detail"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [dealId, year]);
+
+  async function handleAction(factId: string, action: string) {
+    setActionBusy(factId);
+    try {
+      await fetch(`/api/deals/${dealId}/flags/od-detail`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fact_id: factId, action }),
+      });
+    } catch { /* non-fatal */ }
+    setActionBusy(null);
+  }
+
+  if (loading) return <div className="text-[10px] text-white/30 py-2">Loading detail...</div>;
+  if (error) return <div className="text-[10px] text-rose-400 py-1">{error}</div>;
+  if (!data || Object.keys(data).length === 0) {
+    return (
+      <div className="mt-2">
+        <div className="text-[10px] text-white/30 py-1">No line-level detail extracted yet.</div>
+        <BackfillOdDetailButton dealId={dealId} onComplete={() => {
+          // Re-fetch OD detail after backfill
+          setLoading(true);
+          const url = year
+            ? `/api/deals/${dealId}/flags/od-detail?year=${year}`
+            : `/api/deals/${dealId}/flags/od-detail`;
+          fetch(url, { cache: "no-store" })
+            .then((r) => r.json())
+            .then((json) => { if (json.ok) setData(json.years); })
+            .finally(() => setLoading(false));
+        }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {Object.entries(data).map(([yr, entry]) => (
+        <div key={yr} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-wide text-white/40">
+              {yr} Other Deductions Detail
+            </div>
+            {entry.reconciled != null && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                entry.reconciled
+                  ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
+                  : "border-amber-500/30 text-amber-400 bg-amber-500/10"
+              }`}>
+                {entry.reconciled ? "Reconciled" : `Variance: $${entry.variance?.toLocaleString() ?? "?"}`}
+              </span>
+            )}
+          </div>
+
+          {/* Reconciliation summary */}
+          <div className="flex gap-4 text-[10px] text-white/50 mb-2">
+            <span>Aggregate: {entry.aggregate != null ? `$${entry.aggregate.toLocaleString()}` : "—"}</span>
+            <span>Detail total: {entry.detailTotal != null ? `$${entry.detailTotal.toLocaleString()}` : "—"}</span>
+          </div>
+
+          {/* Line items table */}
+          {entry.lines.length > 0 && (
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-white/[0.06] text-white/40">
+                  <th className="text-left py-1 pr-2">Category</th>
+                  <th className="text-right py-1 px-2">Amount</th>
+                  <th className="text-center py-1 px-2">Risk</th>
+                  <th className="text-right py-1 pl-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entry.lines
+                  .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))
+                  .map((line) => (
+                    <tr key={line.id} className="border-b border-white/[0.03]">
+                      <td className="py-1.5 pr-2 text-white/70">
+                        {line.category.replace(/_/g, " ").toLowerCase()}
+                      </td>
+                      <td className="py-1.5 px-2 text-right tabular-nums text-white/80">
+                        {line.amount != null ? `$${line.amount.toLocaleString()}` : "—"}
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        {line.isHighRisk && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                            High Risk
+                          </span>
+                        )}
+                        {!line.isHighRisk && line.isPotentialAddback && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            Addback?
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pl-2 text-right">
+                        <button
+                          type="button"
+                          disabled={actionBusy === line.id}
+                          onClick={() => handleAction(line.id, "mark_reviewed")}
+                          className="text-[9px] text-white/40 hover:text-white/70 disabled:opacity-50"
+                        >
+                          Mark reviewed
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          )}
+
+          {entry.lines.length === 0 && (
+            <div className="text-[10px] text-white/30">No individual category lines extracted.</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Regenerate flags button ─────────────────────────────────────────────────
+
+function RegenerateFlagsButton({
+  dealId,
+  onComplete,
+}: {
+  dealId: string;
+  onComplete: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handleRegenerate() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags/regenerate`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? "Regeneration failed");
+      } else {
+        setResult(`${json.flagCount} flag(s) generated.`);
+        onComplete();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={handleRegenerate}
+        disabled={busy}
+        className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 text-xs font-semibold text-white transition-colors"
+      >
+        {busy ? "Regenerating..." : "Regenerate Risk Flags"}
+      </button>
+      {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
+      {result && <p className="mt-1 text-xs text-emerald-400">{result}</p>}
+    </div>
+  );
+}
+
+// ── Backfill OD detail button ───────────────────────────────────────────────
+
+function BackfillOdDetailButton({
+  dealId,
+  onComplete,
+}: {
+  dealId: string;
+  onComplete: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handleBackfill() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/flags/od-detail/backfill`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? json.message ?? "Backfill failed");
+      } else {
+        const detail = (json.details ?? []) as Array<{ year: number | null; linesFound: number; reason: string | null }>;
+        const found = detail.filter((d) => d.linesFound > 0);
+        const notFound = detail.filter((d) => d.linesFound === 0);
+        const parts: string[] = [];
+        if (found.length > 0) parts.push(`${found.map((d) => `${d.year}: ${d.linesFound} lines`).join(", ")}`);
+        if (notFound.length > 0) parts.push(`${notFound.length} doc(s) had no statement detail`);
+        setResult(parts.join(". ") || "Backfill complete.");
+        onComplete();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={handleBackfill}
+        disabled={busy}
+        className="rounded border border-white/10 px-3 py-1.5 text-[11px] text-white/60 hover:bg-white/10 disabled:opacity-50"
+      >
+        {busy ? "Extracting detail..." : "Extract OD Detail from Tax Returns"}
+      </button>
+      {error && <p className="mt-1 text-[10px] text-rose-400">{error}</p>}
+      {result && <p className="mt-1 text-[10px] text-emerald-400">{result}</p>}
     </div>
   );
 }

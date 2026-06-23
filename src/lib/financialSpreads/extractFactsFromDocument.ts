@@ -300,6 +300,12 @@ export async function extractFactsFromDocument(args: {
         const { writeFactsBatch } = await import(
           "@/lib/financialSpreads/extractors/shared"
         );
+        // SPEC-EXTRACTION-PERIOD-INTEGRITY-1 Fix 2:
+        // Pass documentPeriodEnd from Gemini metadata so capItemsToDocumentPeriod
+        // fires. Without this, AI-extrapolated dates (e.g. 2026-12-31 for a YTD
+        // doc covering through 3/31) leak into facts and pollute spread columns.
+        const documentPeriodEnd =
+          gemResult.rawResponse?.metadata?.period_end ?? null;
         const wr = await writeFactsBatch({
           dealId: args.dealId,
           bankId: args.bankId,
@@ -308,6 +314,7 @@ export async function extractFactsFromDocument(args: {
           items: gemResult.items,
           ownerType: ownerContext?.ownerType,
           ownerEntityId: ownerContext?.ownerEntityId,
+          documentPeriodEnd,
         });
         return { succeeded: true, factsWritten: wr.factsWritten };
       }

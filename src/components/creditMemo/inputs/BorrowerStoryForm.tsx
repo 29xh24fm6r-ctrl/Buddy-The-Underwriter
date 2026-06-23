@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import type { DealBorrowerStory } from "@/lib/creditMemo/inputs/types";
+import NaicsSuggestionPicker, {
+  type NaicsSelection,
+} from "@/components/naics/NaicsSuggestionPicker";
 
 type Props = {
   dealId: string;
@@ -39,6 +42,8 @@ const FIELDS: Array<{
   { key: "banker_notes", label: "Banker notes", rows: 3 },
 ];
 
+const EXTRACT_KEYS = FIELDS.map((f) => f.key);
+
 export default function BorrowerStoryForm({ dealId, initial }: Props) {
   const [values, setValues] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
@@ -46,11 +51,36 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
       const v = (initial as any)?.[f.key];
       out[f.key] = typeof v === "string" ? v : "";
     }
+    // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: industry/NAICS fields are set via
+    // the suggestion picker (not the generic grid) but ride the same save payload.
+    for (const k of ["industry_classification", "naics_code", "naics_description", "naics_source"]) {
+      const v = (initial as any)?.[k];
+      out[k] = typeof v === "string" ? v : "";
+    }
+    const conf = (initial as any)?.naics_confidence;
+    out["naics_confidence"] = typeof conf === "number" ? String(conf) : "";
     return out;
   });
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Transcript extraction state
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [aiSuggestedKeys, setAiSuggestedKeys] = useState<Set<string>>(new Set());
+
+  function handleNaicsSelect(sel: NaicsSelection) {
+    setValues((s) => ({
+      ...s,
+      naics_code: sel.naics_code ?? "",
+      naics_description: sel.naics_description ?? "",
+      industry_classification: sel.industry_classification ?? "",
+      naics_source: sel.source,
+      naics_confidence: sel.confidence != null ? String(sel.confidence) : "",
+    }));
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -66,10 +96,47 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
         throw new Error(json.error ?? "save_failed");
       }
       setSavedAt(new Date().toLocaleTimeString());
+      setAiSuggestedKeys(new Set()); // Clear AI highlights on save
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleExtract() {
+    if (!transcript.trim()) return;
+    setExtracting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/memo-inputs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "extract-transcript", transcript: transcript.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error ?? "extraction_failed");
+      }
+      const extracted = json.extracted as Record<string, string>;
+      const newSuggested = new Set<string>();
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const key of EXTRACT_KEYS) {
+          const val = extracted[key];
+          if (typeof val === "string" && val.trim()) {
+            next[key] = val.trim();
+            newSuggested.add(key);
+          }
+        }
+        return next;
+      });
+      setAiSuggestedKeys(newSuggested);
+      setShowTranscript(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExtracting(false);
     }
   }
 
@@ -80,21 +147,58 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
           <h2 className="text-base font-semibold text-gray-900">Borrower Story</h2>
           <p className="text-xs text-gray-500">Banker-certified narrative. Required fields gate memo submission.</p>
         </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="inline-flex items-center rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save story"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowTranscript(!showTranscript)}
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {showTranscript ? "Cancel" : "Extract from transcript"}
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save story"}
+          </button>
+        </div>
       </header>
+
+      {/* Transcript extraction panel */}
+      {showTranscript && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-4">
+          <p className="mb-2 text-xs font-medium text-amber-800">
+            Paste your client meeting transcript below. Buddy will extract structured fields automatically.
+          </p>
+          <textarea
+            rows={10}
+            value={transcript}
+            onChange={(e) => setTranscript(e.target.value)}
+            placeholder="Paste transcript here..."
+            className="mb-2 w-full rounded-md border border-amber-300 bg-white p-3 text-sm text-gray-900 placeholder:text-gray-500 focus:border-amber-500 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleExtract}
+            disabled={extracting || !transcript.trim()}
+            className="inline-flex items-center rounded-md bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {extracting ? "Extracting…" : "Extract →"}
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {FIELDS.map((f) => (
           <label key={f.key} className="flex flex-col text-sm text-gray-800">
             <span className="mb-1 font-medium">
               {f.label}
               {f.required ? <span className="ml-1 text-rose-600">*</span> : null}
+              {aiSuggestedKeys.has(f.key) ? (
+                <span className="ml-2 text-xs text-amber-600">AI-suggested</span>
+              ) : null}
             </span>
             <textarea
               rows={f.rows}
@@ -102,7 +206,11 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
               onChange={(e) =>
                 setValues((s) => ({ ...s, [f.key]: e.target.value }))
               }
-              className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-gray-500 focus:outline-none"
+              className={`w-full rounded-md border p-2 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none ${
+                aiSuggestedKeys.has(f.key)
+                  ? "border-amber-400 bg-amber-50 focus:border-amber-600"
+                  : "border-gray-300 bg-white focus:border-gray-500"
+              }`}
             />
             {f.hint ? (
               <span className="mt-0.5 text-xs text-gray-500">{f.hint}</span>
@@ -110,9 +218,29 @@ export default function BorrowerStoryForm({ dealId, initial }: Props) {
           </label>
         ))}
       </div>
+
+      {/* SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: industry / NAICS via Buddy's
+          existing suggestion tool. Selecting/entering a value stages it into the
+          save payload — the banker still clicks "Save story" to persist. */}
+      <div className="mt-4">
+        <NaicsSuggestionPicker
+          dealId={dealId}
+          businessDescription={values.business_description}
+          currentNaicsCode={values.naics_code || null}
+          currentNaicsDescription={values.naics_description || null}
+          currentIndustryClassification={values.industry_classification || null}
+          onSelect={handleNaicsSelect}
+        />
+      </div>
+
       <div className="mt-3 flex items-center gap-3 text-xs">
         {savedAt ? <span className="text-emerald-700">Saved at {savedAt}</span> : null}
         {error ? <span className="text-rose-700">{error}</span> : null}
+        {aiSuggestedKeys.size > 0 ? (
+          <span className="text-amber-700">
+            {aiSuggestedKeys.size} field(s) populated by AI — review before saving
+          </span>
+        ) : null}
       </div>
     </section>
   );

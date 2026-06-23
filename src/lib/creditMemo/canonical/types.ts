@@ -7,6 +7,13 @@ export type CanonicalMetricSource = {
 
 export type CanonicalMetricValue = CanonicalMetricSource & {
   value: CanonicalMemoNumber;
+  /**
+   * SPEC-DSCR-PRELIMINARY-LABEL-RENDERING-1: when true, the metric's denominator is
+   * not yet committee-final (e.g. global obligations unconfirmed / existing debt not
+   * on file). `caveat` is the human-readable reason rendered next to the value.
+   */
+  preliminary?: boolean;
+  caveat?: string | null;
 };
 
 // ── Debt Coverage Row (one period: Interim, Year 1, Year 2, etc.) ─────────
@@ -84,6 +91,26 @@ export type BalanceSheetRow = {
   total_equity: CanonicalMemoNumber;
   // Balancing check: total_liabilities + total_equity (should equal total_assets)
   liabilities_plus_equity: CanonicalMemoNumber;
+};
+
+// ── AR Borrowing Base (embedded in collateral section) ───────────────────
+
+export type ArAgingBucketRow = {
+  bucket: string;           // "Current", "1-30", "31-60", "61-90", "91+"
+  amount: CanonicalMemoNumber;
+  pct_of_total: CanonicalMemoNumber;
+};
+
+export type ArBorrowingBaseSection = {
+  as_of_date: string | null;
+  total_ar: CanonicalMemoNumber;
+  eligible_ar: CanonicalMemoNumber;
+  ineligible_ar: CanonicalMemoNumber;
+  advance_rate: CanonicalMemoNumber;
+  borrowing_base_value: CanonicalMemoNumber;
+  borrowing_base_availability: CanonicalMemoNumber;
+  aging_buckets: ArAgingBucketRow[];
+  collateral_coverage_narrative: string;
 };
 
 // ── Ratio Analysis Row ────────────────────────────────────────────────────
@@ -201,11 +228,23 @@ export type CanonicalCreditMemoV1 = {
   // Phase 81: Committee certification
   certification?: CommitteeCertification;
 
+  // ── CREDIT OFFICER EXECUTIVE TAKEAWAY ─────────────────────────────────
+  executive_takeaway?: string[];
+
   // ── HEADER ──────────────────────────────────────────────────────────────
   header: {
     deal_name: string;
     borrower_name: string;
+    /** Legacy: simple name list. Prefer guarantor_details when available. */
     guarantors: string[];
+    guarantor_details?: Array<{
+      name: string;
+      type: "individual" | "entity";
+      role: string;
+      ownership_pct: number | null;
+      verification_status: "verified" | "pending_verification";
+    }>;
+    pending_guarantor_items?: string[];
     lender_name: string;
     prepared_by: string;
     underwriting_assistance: string | null;
@@ -300,6 +339,14 @@ export type CanonicalCreditMemoV1 = {
     life_insurance_required: boolean;
     life_insurance_amount: CanonicalMemoNumber;
     life_insurance_insured: string | null;
+
+    // AR / Borrowing Base (populated when collateral type is AR/LOC)
+    ar_borrowing_base: ArBorrowingBaseSection | null;
+  };
+
+  // ── BANKER CONTEXT (live render of banker notes) ─────────────────────────
+  banker_context?: {
+    banker_notes: string | null;
   };
 
   // ── BUSINESS & INDUSTRY ANALYSIS ─────────────────────────────────────────
@@ -313,6 +360,11 @@ export type CanonicalCreditMemoV1 = {
     marketing_channels: string[];
     competitive_advantages: string;
     vision: string;
+    // ACTIVATION: enriched fields from deal_borrower_story
+    products_services?: string | null;
+    customers?: string | null;
+    customer_concentration?: string | null;
+    key_risks?: string | null;
   };
 
   business_industry_analysis: {
@@ -344,6 +396,8 @@ export type CanonicalCreditMemoV1 = {
     three_five_year_outlook?: string;
     research_quality_score?: "Strong" | "Moderate" | "Limited";
     sources_count_bie?: number;
+    /** Elite: industry risk and borrower positioning narrative for credit judgment */
+    industry_risk_positioning?: string | null;
   } | null;
 
   // ── MANAGEMENT QUALIFICATIONS ─────────────────────────────────────────────
@@ -407,6 +461,29 @@ export type CanonicalCreditMemoV1 = {
     living_expenses: CanonicalMetricValue;
     total_obligations: CanonicalMetricValue;
     global_cf_table: GlobalCFRow[];
+    /** Elite: narrative explaining GCF proxy status when formal exhibit is incomplete */
+    gcf_proxy_narrative?: string | null;
+    /** Elite: structured GCF status for institutional rendering */
+    gcf_status?: "formal_complete" | "proxy_with_pfs" | "pending_pfs";
+    /** Elite: guarantor support summary for institutional rendering */
+    guarantor_support?: {
+      guarantor_name: string | null;
+      annual_personal_income: CanonicalMemoNumber;
+      total_assets: CanonicalMemoNumber;
+      total_liabilities: CanonicalMemoNumber;
+      net_worth: CanonicalMemoNumber;
+      liquidity: CanonicalMemoNumber;
+      known_limitations: string[];
+      credit_view: string;
+      required_follow_up: string[];
+      income_reconciliation?: {
+        selected_income_for_gcf: number | null;
+        selected_income_source: string;
+        alternate_income_values: Array<{ value: number; source: string; label: string }>;
+        reconciliation_note: string | null;
+        warning_level: string;
+      };
+    } | null;
   };
 
   // ── PERSONAL FINANCIAL STATEMENTS ───────────────────────────────────────
@@ -503,6 +580,14 @@ export type CanonicalCreditMemoV1 = {
 
   // ── QUALITATIVE ASSESSMENT (Phase 90 Part C) ─────────────────────────────
   qualitative_assessment: import("./buildQualitativeAssessment").QualitativeAssessment | null;
+
+  // ── COMMITTEE READINESS (SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 PR-B)
+  // Projection of the SAME committee-readiness model the Committee Readiness panel
+  // renders — the memo no longer states a separate, weaker truth. Null when no
+  // committee model is on file (research not run / no mission).
+  committee_readiness:
+    | import("@/lib/creditMemo/committee/buildMemoCommitteeReadinessSection").MemoCommitteeReadinessSection
+    | null;
 
   // ── META ─────────────────────────────────────────────────────────────────
   meta: {

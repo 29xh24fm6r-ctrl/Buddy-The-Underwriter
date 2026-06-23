@@ -82,6 +82,9 @@ export type LifecycleBlockerCode =
   | "financial_snapshot_stale"
   | "financial_validation_open"
   | "financial_snapshot_build_failed"
+  // Financial statement period review — unresolved BS/P&L reporting period
+  // (generic/missing checklist_key) awaiting banker confirmation
+  | "financial_period_review_open"
   // Critical risk flags blocker — emitted when unresolved critical flags exist
   | "critical_flags_unresolved"
   // Borrower is REQUIRED for every deal — no cockpit without it
@@ -97,6 +100,9 @@ export type LifecycleBlockerCode =
   | "missing_research_quality_gate"
   | "open_fact_conflicts"
   | "missing_policy_exception_review"
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+  // upstream financial prerequisite, ahead of the downstream GCF / DSCR blockers.
+  | "missing_business_cash_flow"
   | "missing_dscr"
   | "missing_global_cash_flow"
   | "missing_debt_service_facts"

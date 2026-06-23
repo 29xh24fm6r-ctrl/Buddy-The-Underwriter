@@ -415,6 +415,7 @@ const NAICS_CATALOG: Record<string, NaicsEntry> = {
   "722513": { group: "food_service", description: "Limited-service restaurants" },
   "722515": { group: "food_service", description: "Snack and nonalcoholic beverage bars" },
   // Other Services (NAICS 56, 81, 812)
+  "561422": { group: "other_services", description: "Telemarketing bureaus and other contact centers" },
   "561720": { group: "other_services", description: "Janitorial services" },
   "811111": { group: "other_services", description: "General automotive repair" },
   "812111": { group: "other_services", description: "Barber shops" },
@@ -442,18 +443,37 @@ export function getRevenueTier(annualRevenue: number): RevenueTier {
 // NAICS resolution — supports exact code, 4-digit prefix, 2-digit prefix
 // ---------------------------------------------------------------------------
 
+// Human-readable group labels for prefix-fallback description
+const GROUP_LABELS: Record<IndustryGroup, string> = {
+  manufacturing: "Manufacturing",
+  wholesale: "Wholesale trade",
+  retail: "Retail trade",
+  professional_services: "Professional services",
+  healthcare: "Healthcare",
+  construction: "Construction",
+  real_estate: "Real estate",
+  food_service: "Accommodation & food service",
+  transportation: "Transportation & warehousing",
+  other_services: "Other services",
+  agriculture: "Agriculture",
+  finance_insurance: "Finance & insurance",
+};
+
 function resolveNaics(naicsCode: string): NaicsEntry | null {
   // Exact match
   if (NAICS_CATALOG[naicsCode]) return NAICS_CATALOG[naicsCode];
-  // Try 4-digit prefix
+  // Try 4-digit prefix — return matched entry with its specific description
   const prefix4 = naicsCode.slice(0, 4);
   for (const [code, entry] of Object.entries(NAICS_CATALOG)) {
     if (code.startsWith(prefix4)) return entry;
   }
-  // Try 2-digit prefix → industry group
+  // Try 2-digit prefix → industry group. Use group label, not the matched
+  // code's specific description (avoids "Janitorial" for telemarketing).
   const prefix2 = naicsCode.slice(0, 2);
   for (const [code, entry] of Object.entries(NAICS_CATALOG)) {
-    if (code.startsWith(prefix2)) return entry;
+    if (code.startsWith(prefix2)) {
+      return { ...entry, description: `${GROUP_LABELS[entry.group]} (NAICS ${prefix2}xx peer group)` };
+    }
   }
   return null;
 }

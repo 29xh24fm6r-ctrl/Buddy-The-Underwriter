@@ -406,15 +406,15 @@ export async function runMission(
       const subjectLockResult = validateSubjectLock({
         company_name: subject.company_name,
         naics_code: subject.naics_code,
-        naics_description: (subject as any).naics_description,
-        business_description: (subject as any).business_description,
-        city: (subject as any).city,
-        state: (subject as any).state,
+        naics_description: subject.naics_description,
+        business_description: subject.business_description,
+        city: subject.city,
+        state: subject.state,
         geography: subject.geography,
-        website: (subject as any).website,
-        dba: (subject as any).dba,
-        banker_summary: (subject as any).banker_summary,
-        banker_override: (subject as any).banker_override,
+        website: subject.website,
+        dba: subject.dba,
+        banker_summary: subject.banker_summary,
+        banker_override: subject.banker_override,
       });
 
       if (!subjectLockResult.ok) {
@@ -452,17 +452,41 @@ export async function runMission(
         const bieInput = {
           company_name: subject.company_name ?? null,
           naics_code: subject.naics_code ?? null,
-          naics_description: (subject as any).naics_description ?? null,
-          city: (subject as any).city ?? null,
-          state: (subject as any).state ?? null,
+          naics_description: subject.naics_description ?? null,
+          city: subject.city ?? null,
+          state: subject.state ?? null,
           geography: subject.geography ?? null,
-          principals: (subject as any).principals ?? [],
-          annual_revenue: (subject as any).annual_revenue ?? null,
-          loan_amount: (subject as any).loan_amount ?? null,
-          loan_purpose: (subject as any).loan_purpose ?? null,
+          principals: subject.principals ?? [],
+          annual_revenue: subject.annual_revenue ?? null,
+          loan_amount: subject.loan_amount ?? null,
+          loan_purpose: subject.loan_purpose ?? null,
+          // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1
+          legal_name: subject.legal_name ?? null,
+          dba: subject.dba ?? null,
+          website: subject.website ?? null,
+          business_description: subject.business_description ?? null,
+          banker_summary: subject.banker_summary ?? null,
+          customer_anchors: subject.customer_anchors ?? null,
+          company_search_name: subject.company_search_name ?? null,
+          private_company_mode: subject.private_company_mode ?? false,
+          has_banker_certified_anchor: subject.has_banker_certified_anchor ?? false,
         };
 
         const bieResult = await runBuddyIntelligenceEngine(bieInput);
+
+        // SPEC-BIE-...-MEGA-1 Phase 1: persist per-thread diagnostics on the
+        // mission row unconditionally — especially when research_quality is
+        // "minimal", which is exactly when the banker needs to know WHY a thread
+        // produced nothing. Non-fatal.
+        try {
+          const sbDiag = supabaseAdmin();
+          await (sbDiag as any)
+            .from("buddy_research_missions")
+            .update({ thread_diagnostics: bieResult.thread_diagnostics })
+            .eq("id", missionId);
+        } catch (e: any) {
+          console.warn("[runMission] thread_diagnostics persist failed (non-fatal):", e?.message);
+        }
 
         if (bieResult.research_quality !== "minimal") {
           // Build BIE sections — mutable so we can apply the hallucination guard below
@@ -580,9 +604,36 @@ export async function runMission(
             const evidenceCoverage = await computeEvidenceCoverage(dealId, opts?.bankId ?? "").catch(() => null);
 
             // 3. Run deterministic completion gate
+            // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: pass the
+            // deterministic entity disposition + banker-certified evidence flags so
+            // a private/banker-certified borrower isn't auto-failed on public gaps.
             const gateResult = evaluateCompletionGate(bieResult, missionId, {
               naicsCode: subject.naics_code,
               evidenceSupportRatio: evidenceCoverage?.supportRatio ?? null,
+              entityClassification: bieResult.entity_classification,
+              bankerCertifiedEvidence: {
+                hasStory: !!(subject.business_description && subject.business_description.trim().length > 0),
+                hasManagement: (subject.principals?.length ?? 0) > 0,
+                hasFinancials: subject.annual_revenue != null,
+              },
+              // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: provenance.
+              managementBasis: bieResult.management_basis,
+              // Phase 2: borrower's own website domain for source classification.
+              borrowerDomain: subject.website ?? null,
+              // Phase 5/6: loan-file / banker-certified evidence signals from the subject.
+              evidenceSignals: {
+                hasLegalName: !!subject.legal_name,
+                hasWebsite: !!subject.website,
+                hasHqLocation: !!(subject.city || subject.state || subject.geography),
+                hasBankerIdentitySummary: !!subject.banker_summary,
+                hasNaics: !!(subject.naics_code && subject.naics_code !== "999999"),
+                hasIndustryDescription: !!subject.naics_description,
+                hasBusinessDescription: !!(subject.business_description && subject.business_description.trim().length > 0),
+                hasCustomerAnchors: !!subject.customer_anchors,
+                hasRevenue: subject.annual_revenue != null,
+                hasLoanRequest: !!(subject.loan_purpose || subject.loan_amount),
+                privateCompanyMode: subject.private_company_mode ?? false,
+              },
             });
             console.log(
               `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +
@@ -612,6 +663,15 @@ export async function runMission(
               gate_failures: gateResult.checks.filter(c => c.status !== "pass").map(c => ({
                 gate_id: c.gate_id, reason: c.reason, severity: c.severity,
               })),
+              // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phases 3–6:
+              // structured artifacts for the research flight deck.
+              section_source_statuses: gateResult.section_source_statuses,
+              contradiction_checklist: gateResult.contradiction_checklist,
+              evidence_quality: gateResult.evidence_quality,
+              preliminary_eligible: gateResult.preliminary_eligible,
+              committee_eligible: gateResult.committee_eligible,
+              preliminary_basis: gateResult.preliminary_basis,
+              committee_blockers: gateResult.committee_blockers,
               thread_results: {
                 borrower: bieResult.borrower ? "ok" : "null",
                 management: bieResult.management ? "ok" : "null",
@@ -643,6 +703,21 @@ export async function runMission(
           } catch (trustErr: any) {
             // Non-fatal — claim ledger and gate failures must never block mission completion
             console.warn("[runMission] trust layer failed (non-fatal):", trustErr?.message);
+          }
+
+          // SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1:
+          // generate committee evidence-collection tasks + snapshot the borrower
+          // website. Non-fatal — never blocks mission completion, never changes
+          // gate semantics.
+          try {
+            const { ensureCommitteeEvidenceTasks } = await import("./committeeEvidenceCollection");
+            const taskResult = await ensureCommitteeEvidenceTasks({ missionId, dealId });
+            console.log(
+              `[runMission] committee evidence tasks: ${taskResult.tasks_upserted} task(s); ` +
+              `website snapshot=${taskResult.website_snapshot?.status ?? "n/a"}`,
+            );
+          } catch (taskErr: any) {
+            console.warn("[runMission] committee evidence tasks failed (non-fatal):", taskErr?.message);
           }
 
           // Perfect Banker Flow v1.1 — research finished. Refresh readiness

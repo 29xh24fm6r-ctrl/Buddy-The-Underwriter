@@ -35,11 +35,33 @@ export type FinancialFactProvenance = {
    * Existing facts (pre-Batch 2) have undefined methodology.
    */
   methodology?: MethodologyProvenance[];
+
+  /**
+   * SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: DSCR denominator transparency.
+   * On DSCR: `denominator` ("total_business_ads"), `denominator_basis`,
+   * `existing_debt_on_file`. On GCF_DSCR: `preliminary` (global obligations
+   * unconfirmed), `global_obligations_confirmed`. `note` is human-readable.
+   */
+  denominator?: string;
+  denominator_basis?: { proposed: number | null; existing: number };
+  existing_debt_on_file?: boolean;
+  preliminary?: boolean;
+  global_obligations_confirmed?: boolean;
+  note?: string;
+
+  /**
+   * SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: full NCADS waterfall trace on CF_NCADS /
+   * CASH_FLOW_AVAILABLE (selected period, base, addbacks, QoE, owner benefit, tax/capex,
+   * source facts). `ncads_path` on aggregator-written facts records waterfall vs cold-start.
+   */
+  ncads_waterfall?: Record<string, unknown>;
+  ncads_path?: "waterfall" | "cold_start_fallback";
 };
 
 export type CanonicalFact = {
   canonical_key:
     | "CASH_FLOW_AVAILABLE"
+    | "CF_NCADS"
     | "ANNUAL_DEBT_SERVICE"
     | "EXCESS_CASH_FLOW"
     | "DSCR"
@@ -66,6 +88,9 @@ export type CanonicalFact = {
     | "NET_WORTH"
     // Tax return / global cash flow metrics
     | "GROSS_RECEIPTS"
+    // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #1 — Form 1120 line 1b / 1c source lines.
+    | "RETURNS_ALLOWANCES"
+    | "NET_SALES_REVENUE"
     | "DEPRECIATION_ADDBACK"
     | "GLOBAL_CASH_FLOW"
     // Personal income / PFS / GCF metrics
@@ -78,6 +103,7 @@ export type CanonicalFact = {
     // Structural debt service breakdown
     | "ANNUAL_DEBT_SERVICE_PROPOSED"
     | "ANNUAL_DEBT_SERVICE_EXISTING"
+    | "PROPOSED_LOAN_COVERAGE"
     // Income statement computed metrics
     | "REVENUE"
     | "COGS"
@@ -88,8 +114,22 @@ export type CanonicalFact = {
     // Balance sheet computed metrics
     | "WORKING_CAPITAL"
     | "CURRENT_RATIO"
-    | "DEBT_TO_EQUITY";
-  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT";
+    | "DEBT_TO_EQUITY"
+    // Stressed debt service
+    | "ANNUAL_DEBT_SERVICE_STRESSED_300BPS"
+    // Canonical-named collateral keys (written alongside legacy aliases)
+    | "COLLATERAL_COVERAGE_RATIO"
+    // Canonical-named sources/uses keys (written alongside legacy aliases)
+    | "EQUITY_INJECTION"
+    | "EQUITY_INJECTION_PCT"
+    // AR / Borrowing base
+    | "AR_TOTAL"
+    | "AR_ELIGIBLE"
+    | "AR_INELIGIBLE"
+    | "AR_ADVANCE_RATE"
+    | "AR_BORROWING_BASE_VALUE"
+    | "AR_BORROWING_BASE_AVAILABILITY";
+  fact_type: "FINANCIAL_ANALYSIS" | "COLLATERAL" | "SOURCES_USES" | "BALANCE_SHEET" | "TAX_RETURN" | "PERSONAL_INCOME" | "PERSONAL_FINANCIAL_STATEMENT" | "AR_BORROWING_BASE";
   fact_key: string;
 };
 
@@ -98,6 +138,13 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     canonical_key: "CASH_FLOW_AVAILABLE",
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "CASH_FLOW_AVAILABLE",
+  },
+  // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: institutional NCADS from the cash-flow
+  // waterfall; mirrored into CASH_FLOW_AVAILABLE as the canonical repayment-capacity value.
+  CF_NCADS: {
+    canonical_key: "CF_NCADS",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "CF_NCADS",
   },
   ANNUAL_DEBT_SERVICE: {
     canonical_key: "ANNUAL_DEBT_SERVICE",
@@ -230,6 +277,18 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     fact_type: "TAX_RETURN",
     fact_key: "GROSS_RECEIPTS",
   },
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #1 — Form 1120 line 1b (returns & allowances) and
+  // line 1c (net sales/receipts). TOTAL_INCOME (line 11) must never be used as sales/revenue.
+  RETURNS_ALLOWANCES: {
+    canonical_key: "RETURNS_ALLOWANCES",
+    fact_type: "TAX_RETURN",
+    fact_key: "RETURNS_ALLOWANCES",
+  },
+  NET_SALES_REVENUE: {
+    canonical_key: "NET_SALES_REVENUE",
+    fact_type: "TAX_RETURN",
+    fact_key: "NET_SALES_REVENUE",
+  },
   DEPRECIATION_ADDBACK: {
     canonical_key: "DEPRECIATION_ADDBACK",
     fact_type: "TAX_RETURN",
@@ -284,6 +343,13 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
     fact_type: "FINANCIAL_ANALYSIS",
     fact_key: "ANNUAL_DEBT_SERVICE_EXISTING",
   },
+  // Proposed-loan-only coverage (NCADS / proposed ADS). Explicitly NOT DSCR — DSCR
+  // uses the total/business denominator (owned by computeTotalDebtService).
+  PROPOSED_LOAN_COVERAGE: {
+    canonical_key: "PROPOSED_LOAN_COVERAGE",
+    fact_type: "FINANCIAL_ANALYSIS",
+    fact_key: "PROPOSED_LOAN_COVERAGE",
+  },
 
   // Income statement computed metrics
   REVENUE: { canonical_key: "REVENUE", fact_type: "FINANCIAL_ANALYSIS", fact_key: "REVENUE" },
@@ -298,6 +364,23 @@ export const CANONICAL_FACTS: Record<CanonicalFact["canonical_key"], CanonicalFa
   WORKING_CAPITAL: { canonical_key: "WORKING_CAPITAL", fact_type: "BALANCE_SHEET", fact_key: "WORKING_CAPITAL" },
   CURRENT_RATIO: { canonical_key: "CURRENT_RATIO", fact_type: "BALANCE_SHEET", fact_key: "CURRENT_RATIO" },
   DEBT_TO_EQUITY: { canonical_key: "DEBT_TO_EQUITY", fact_type: "BALANCE_SHEET", fact_key: "DEBT_TO_EQUITY" },
+
+  // Stressed debt service (synthesis-computed)
+  ANNUAL_DEBT_SERVICE_STRESSED_300BPS: { canonical_key: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS", fact_type: "FINANCIAL_ANALYSIS", fact_key: "ANNUAL_DEBT_SERVICE_STRESSED_300BPS" },
+
+  // Canonical-named collateral/sources keys — written alongside legacy aliases
+  // so both GROSS_VALUE and COLLATERAL_GROSS_VALUE exist in DB.
+  COLLATERAL_COVERAGE_RATIO: { canonical_key: "COLLATERAL_COVERAGE_RATIO", fact_type: "COLLATERAL", fact_key: "COLLATERAL_COVERAGE_RATIO" },
+  EQUITY_INJECTION: { canonical_key: "EQUITY_INJECTION", fact_type: "SOURCES_USES", fact_key: "EQUITY_INJECTION" },
+  EQUITY_INJECTION_PCT: { canonical_key: "EQUITY_INJECTION_PCT", fact_type: "SOURCES_USES", fact_key: "EQUITY_INJECTION_PCT" },
+
+  // AR / Borrowing base facts
+  AR_TOTAL: { canonical_key: "AR_TOTAL", fact_type: "AR_BORROWING_BASE", fact_key: "AR_TOTAL" },
+  AR_ELIGIBLE: { canonical_key: "AR_ELIGIBLE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_ELIGIBLE" },
+  AR_INELIGIBLE: { canonical_key: "AR_INELIGIBLE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_INELIGIBLE" },
+  AR_ADVANCE_RATE: { canonical_key: "AR_ADVANCE_RATE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_ADVANCE_RATE" },
+  AR_BORROWING_BASE_VALUE: { canonical_key: "AR_BORROWING_BASE_VALUE", fact_type: "AR_BORROWING_BASE", fact_key: "AR_BORROWING_BASE_VALUE" },
+  AR_BORROWING_BASE_AVAILABILITY: { canonical_key: "AR_BORROWING_BASE_AVAILABILITY", fact_type: "AR_BORROWING_BASE", fact_key: "AR_BORROWING_BASE_AVAILABILITY" },
 };
 
 // ---------------------------------------------------------------------------

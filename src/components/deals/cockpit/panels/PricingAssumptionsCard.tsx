@@ -68,9 +68,48 @@ function toFormState(data: PricingAssumptions | null | undefined): FormState {
   };
 }
 
+function isLocProductType(productType: string | null): boolean {
+  return (
+    productType === "LOC_SECURED" ||
+    productType === "LOC_UNSECURED" ||
+    productType === "LOC_RE_SECURED" ||
+    productType === "LINE_OF_CREDIT"
+  );
+}
+
 // ─── PMT math (mirrors server) ──────────────────────────────
-function computePreview(form: FormState) {
+function computePreview(form: FormState, isLoc: boolean) {
   const principal = parseFloat(form.loan_amount);
+
+  function resolveRate(): number | null {
+    if (form.rate_type === "fixed") {
+      return parseFloat(form.fixed_rate_pct) || null;
+    }
+    const idx = parseFloat(form.index_rate_pct);
+    if (!idx && idx !== 0) return null; // index rate not set — cannot compute
+    const spreadBps = form.spread_override_bps ? parseFloat(form.spread_override_bps) : null;
+    const spreadPct = spreadBps != null ? spreadBps / 100 : 0;
+    const floor = parseFloat(form.floor_rate_pct) || 0;
+    return Math.max(floor, idx + spreadPct);
+  }
+
+  // LOC products are interest-only by definition; amortization is irrelevant.
+  if (isLoc) {
+    if (!principal || principal <= 0) {
+      return { finalRate: null, monthlyPayment: null, annualDebtService: null };
+    }
+    const finalRate = resolveRate();
+    if (finalRate == null || finalRate <= 0) {
+      return { finalRate, monthlyPayment: null, annualDebtService: null };
+    }
+    const monthlyPayment = (principal * finalRate) / 100 / 12;
+    return {
+      finalRate,
+      monthlyPayment,
+      annualDebtService: monthlyPayment * 12,
+    };
+  }
+
   const amortMonths = parseInt(form.amort_months, 10);
   const ioMonths = parseInt(form.interest_only_months, 10) || 0;
 
@@ -78,15 +117,7 @@ function computePreview(form: FormState) {
     return { finalRate: null, monthlyPayment: null, annualDebtService: null };
   }
 
-  let finalRate: number | null = null;
-  if (form.rate_type === "fixed") {
-    finalRate = parseFloat(form.fixed_rate_pct) || null;
-  } else {
-    const idx = parseFloat(form.index_rate_pct) || 0;
-    const spreadPct = (parseFloat(form.spread_override_bps) || 0) / 100;
-    const floor = parseFloat(form.floor_rate_pct) || 0;
-    finalRate = Math.max(floor, idx + spreadPct);
-  }
+  const finalRate = resolveRate();
 
   if (finalRate == null || finalRate <= 0) {
     return { finalRate, monthlyPayment: null, annualDebtService: null };
@@ -125,6 +156,17 @@ function formatPct(n: number | null, decimals = 2): string {
   return `${n.toFixed(decimals)}%`;
 }
 
+/** Parse a string to number, preserving 0 and negatives. Returns null only for blank/non-finite. */
+function parseOptionalNumber(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// ─── Live Rate Types ────────────────────────────────────────
+type LiveRateEntry = { ratePct: number; asOf: string };
+type LiveRates = Partial<Record<IndexCode, LiveRateEntry>>;
+
 // ─── Component ──────────────────────────────────────────────
 export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
   const [loading, setLoading] = useState(true);
@@ -133,41 +175,97 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
   const [form, setForm] = useState<FormState>(() => ({ ...DEFAULT_FORM }));
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+  const [productType, setProductType] = useState<string | null>(null);
+  const [liveRates, setLiveRates] = useState<LiveRates>({});
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const isLoc = isLocProductType(productType);
+
+  // ── Fetch live rates ──
+  const fetchLiveRates = useCallback(async () => {
+    setRatesLoading(true);
+    try {
+      const res = await fetch("/api/rates/latest", { cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json();
+        if (!json.ok || !json.rates) {
+          setStatus({ kind: "info", message: "Live rates unavailable — pricing assumptions can still be saved manually." });
+          setRatesLoading(false);
+          return null;
+        }
+        const ratesMap = json.rates as Record<string, { ratePct?: unknown; asOf?: unknown }>;
+        const rates: LiveRates = {};
+        for (const code of ["SOFR", "UST_5Y", "PRIME"] as IndexCode[]) {
+          const entry = ratesMap[code];
+          if (entry && Number.isFinite(Number(entry.ratePct))) {
+            rates[code] = { ratePct: Number(entry.ratePct), asOf: String(entry.asOf ?? "") };
+          }
+        }
+        setLiveRates(rates);
+        return rates;
+      }
+      setStatus({ kind: "info", message: "Live rates unavailable — pricing assumptions can still be saved manually." });
+    } catch { /* non-fatal */ }
+    setRatesLoading(false);
+    return null;
+  }, []);
 
   // ── Self-load on mount ──
   const refresh = useCallback(async () => {
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/pricing-assumptions`, {
-        cache: "no-store",
-      });
-      const json = await res.json();
+      const [assumptionsRes, lrRes, rates] = await Promise.all([
+        fetch(`/api/deals/${dealId}/pricing-assumptions`, { cache: "no-store" }),
+        fetch(`/api/deals/${dealId}/loan-requests`, { cache: "no-store" }),
+        fetchLiveRates(),
+      ]);
+      const json = await assumptionsRes.json();
       if (json.ok && json.pricingAssumptions) {
-        setForm(toFormState(json.pricingAssumptions));
+        const loaded = toFormState(json.pricingAssumptions);
+        // Only auto-populate from live rates when canonical rate is truly blank
+        // (empty string from DB null). Do NOT overwrite a saved canonical rate.
+        if (loaded.index_rate_pct === "" && rates?.[loaded.index_code]) {
+          loaded.index_rate_pct = String(rates[loaded.index_code]!.ratePct);
+        }
+        setForm(loaded);
         setHasInputs(true);
       } else {
         setHasInputs(false);
+      }
+      if (lrRes.ok) {
+        const lrJson = await lrRes.json();
+        const requests = Array.isArray(lrJson?.requests) ? lrJson.requests : [];
+        const primary =
+          requests.find((r: any) => r?.request_number === 1) ?? requests[0] ?? null;
+        setProductType(primary?.product_type ?? null);
       }
     } catch {
       setStatus({ kind: "error", message: "Failed to load pricing inputs." });
     } finally {
       setLoading(false);
+      setRatesLoading(false);
     }
-  }, [dealId]);
+  }, [dealId, fetchLiveRates]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const preview = useMemo(() => computePreview(form), [form]);
+  const preview = useMemo(() => computePreview(form, isLoc), [form, isLoc]);
 
   const updateField = useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
-      setForm((prev) => ({ ...prev, [key]: value }));
+      setForm((prev) => {
+        const next = { ...prev, [key]: value };
+        // Auto-populate index rate when index changes and rate is blank or stale
+        if (key === "index_code" && liveRates[value as IndexCode]) {
+          next.index_rate_pct = String(liveRates[value as IndexCode]!.ratePct);
+        }
+        return next;
+      });
       setStatus(null);
     },
-    [],
+    [liveRates],
   );
 
   // ── Create Defaults ──
@@ -203,15 +301,15 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
         rate_type: form.rate_type,
         fixed_rate_pct: form.rate_type === "fixed" ? parseFloat(form.fixed_rate_pct) || null : null,
         index_code: form.index_code,
-        index_rate_pct: parseFloat(form.index_rate_pct) || null,
+        index_rate_pct: parseOptionalNumber(form.index_rate_pct),
         spread_override_bps:
-          form.rate_type === "floating" ? parseFloat(form.spread_override_bps) || null : null,
-        floor_rate_pct: parseFloat(form.floor_rate_pct) || null,
+          form.rate_type === "floating" ? parseOptionalNumber(form.spread_override_bps) : null,
+        floor_rate_pct: parseOptionalNumber(form.floor_rate_pct),
         amort_months: parseInt(form.amort_months, 10) || 300,
         interest_only_months: parseInt(form.interest_only_months, 10) || 0,
         term_months: parseInt(form.amort_months, 10) || 120,
-        origination_fee_pct: parseFloat(form.origination_fee_pct) || null,
-        closing_costs: parseFloat(form.closing_costs) || null,
+        origination_fee_pct: parseOptionalNumber(form.origination_fee_pct),
+        closing_costs: parseOptionalNumber(form.closing_costs),
         include_existing_debt: form.include_existing_debt,
         include_proposed_debt: true,
         notes: form.notes || null,
@@ -356,7 +454,7 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <Field label="Index">
                 <select
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  className="w-full rounded-lg border border-white/10 bg-[#1a1d23] px-3 py-2 text-sm text-white focus:border-primary focus:outline-none [color-scheme:dark]"
                   value={form.index_code}
                   onChange={(e) => updateField("index_code", e.target.value as IndexCode)}
                 >
@@ -371,20 +469,32 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                   type="number"
                   step="0.01"
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                  placeholder="e.g. 4.50"
+                  placeholder={liveRates[form.index_code] ? `${liveRates[form.index_code]!.ratePct.toFixed(2)}` : "e.g. 4.50"}
                   value={form.index_rate_pct}
                   onChange={(e) => updateField("index_rate_pct", e.target.value)}
                 />
+                <IndexRateAnnotation
+                  formRate={form.index_rate_pct}
+                  liveRate={liveRates[form.index_code] ?? null}
+                  onUseLive={() => {
+                    if (liveRates[form.index_code]) {
+                      updateField("index_rate_pct", String(liveRates[form.index_code]!.ratePct));
+                    }
+                  }}
+                />
               </Field>
 
-              <Field label="Spread (bps)" required>
+              <Field label="Spread / Margin (bps)">
                 <input
                   type="number"
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                  placeholder="e.g. 250"
+                  placeholder="e.g. 250 or 0 or -25"
                   value={form.spread_override_bps}
                   onChange={(e) => updateField("spread_override_bps", e.target.value)}
                 />
+                {!form.spread_override_bps && form.spread_override_bps !== "0" && (
+                  <div className="mt-1 text-[10px] text-amber-300/70">No spread set — will be determined by risk pricing</div>
+                )}
               </Field>
             </div>
           )}
@@ -404,23 +514,29 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
               </Field>
             )}
 
-            <Field label="Amortization (months)">
-              <input
-                type="number"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                value={form.amort_months}
-                onChange={(e) => updateField("amort_months", e.target.value)}
-              />
-            </Field>
+            {/* Amortization + Interest-Only — hidden for LOC products
+                (LOC is interest-only by definition; amort is irrelevant). */}
+            {!isLoc && (
+              <Field label="Amortization (months)">
+                <input
+                  type="number"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
+                  value={form.amort_months}
+                  onChange={(e) => updateField("amort_months", e.target.value)}
+                />
+              </Field>
+            )}
 
-            <Field label="Interest-Only (months)">
-              <input
-                type="number"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
-                value={form.interest_only_months}
-                onChange={(e) => updateField("interest_only_months", e.target.value)}
-              />
-            </Field>
+            {!isLoc && (
+              <Field label="Interest-Only (months)">
+                <input
+                  type="number"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-primary focus:outline-none"
+                  value={form.interest_only_months}
+                  onChange={(e) => updateField("interest_only_months", e.target.value)}
+                />
+              </Field>
+            )}
           </div>
 
           {/* ── Row 4: Optional fees ── */}
@@ -486,13 +602,17 @@ export default function PricingAssumptionsCard({ dealId, onSave }: Props) {
                 <div className="text-lg font-bold text-white">
                   {formatCurrency(preview.monthlyPayment)}
                 </div>
-                <div className="text-[10px] text-white/40">Monthly P&I</div>
+                <div className="text-[10px] text-white/40">
+                  {isLoc ? "Monthly Interest" : "Monthly P&I"}
+                </div>
               </div>
               <div>
                 <div className="text-lg font-bold text-white">
                   {formatCurrency(preview.annualDebtService)}
                 </div>
-                <div className="text-[10px] text-white/40">Annual Debt Service</div>
+                <div className="text-[10px] text-white/40">
+                  {isLoc ? "Annual Interest Cost" : "Annual Debt Service"}
+                </div>
               </div>
             </div>
           </div>
@@ -533,4 +653,70 @@ function Field({
       {children}
     </div>
   );
+}
+
+// ── Index rate annotation: shows live vs locked source clearly ────────────
+function IndexRateAnnotation({
+  formRate,
+  liveRate,
+  onUseLive,
+}: {
+  formRate: string;
+  liveRate: LiveRateEntry | null;
+  onUseLive: () => void;
+}) {
+  const hasFormRate = formRate !== "" && formRate !== undefined;
+  const formNum = hasFormRate ? Number(formRate) : null;
+  const liveNum = liveRate?.ratePct ?? null;
+  const ratesMatch = formNum != null && liveNum != null && Math.abs(formNum - liveNum) < 0.001;
+
+  // Case 1: Live rate populated the field (matches live) → show "Using live rate"
+  if (hasFormRate && liveRate && ratesMatch) {
+    return (
+      <div className="mt-1 text-[10px] text-emerald-400/70">
+        Using live rate: {liveNum!.toFixed(2)}% as of {liveRate.asOf}
+      </div>
+    );
+  }
+
+  // Case 2: Form rate differs from live → banker locked/overrode it
+  if (hasFormRate && liveRate && !ratesMatch) {
+    return (
+      <div className="mt-1 space-y-0.5">
+        <div className="text-[10px] text-amber-300/70">
+          Locked/manual rate: {formNum!.toFixed(2)}%
+        </div>
+        <div className="flex items-center gap-2 text-[10px] text-white/40">
+          <span>Live: {liveNum!.toFixed(2)}% as of {liveRate.asOf}</span>
+          <button
+            type="button"
+            onClick={onUseLive}
+            className="underline text-primary/70 hover:text-primary"
+          >
+            Use live rate
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Case 3: Form rate set but no live rate available
+  if (hasFormRate && !liveRate) {
+    return (
+      <div className="mt-1 text-[10px] text-white/40">
+        Saved rate: {formNum!.toFixed(2)}% (live rate unavailable)
+      </div>
+    );
+  }
+
+  // Case 4: No form rate, live rate available → will be populated on mount
+  if (!hasFormRate && liveRate) {
+    return (
+      <div className="mt-1 text-[10px] text-white/40">
+        Live: {liveNum!.toFixed(2)}% as of {liveRate.asOf}
+      </div>
+    );
+  }
+
+  return null;
 }

@@ -5,7 +5,7 @@ import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanoni
 import { assembleNarratives, overlayNarratives } from "@/lib/creditMemo/canonical/narrativeAssembly";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,

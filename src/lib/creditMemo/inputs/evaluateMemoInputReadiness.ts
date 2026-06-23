@@ -36,6 +36,7 @@ const BLOCKER_WEIGHTS: Record<MemoInputBlockerCode, number> = {
   missing_management_profile: 12,
   missing_collateral_item: 10,
   missing_collateral_value: 10,
+  missing_business_cash_flow: 12,
   missing_dscr: 12,
   missing_debt_service_facts: 10,
   missing_global_cash_flow: 8,
@@ -43,6 +44,7 @@ const BLOCKER_WEIGHTS: Record<MemoInputBlockerCode, number> = {
   open_fact_conflicts: 6,
   unfinalized_required_documents: 4,
   missing_policy_exception_review: 2,
+  missing_ar_borrowing_base: 8,
 };
 
 export function evaluateMemoInputReadiness(
@@ -115,7 +117,9 @@ export function evaluateMemoInputReadiness(
   const managementComplete = management.length > 0;
 
   // ── 3. Collateral ─────────────────────────────────────────────────────
-  if (collateral.length === 0) {
+  // ACTIVATION: Accept snapshot collateral or AR borrowing base as alternatives
+  const hasSnapshotOrAr = args.hasSnapshotCollateral === true || args.hasArBorrowingBase === true;
+  if (collateral.length === 0 && !hasSnapshotOrAr) {
     blockers.push({
       code: "missing_collateral_item",
       label: "Collateral analysis is required",
@@ -124,7 +128,7 @@ export function evaluateMemoInputReadiness(
     });
   }
   const anyCollateralValued = collateral.some((c) => valuationOf(c) !== null);
-  if (collateral.length > 0 && !anyCollateralValued) {
+  if (collateral.length > 0 && !anyCollateralValued && !hasSnapshotOrAr) {
     blockers.push({
       code: "missing_collateral_value",
       label: "At least one collateral item must have a market or appraised value",
@@ -132,7 +136,7 @@ export function evaluateMemoInputReadiness(
       fixPath: `/deals/${dealId}/memo-inputs#collateral`,
     });
   }
-  const collateralComplete = collateral.length > 0 && anyCollateralValued;
+  const collateralComplete = (collateral.length > 0 && anyCollateralValued) || hasSnapshotOrAr;
 
   if (collateral.some((c) => c.requires_review)) {
     warnings.push({
@@ -142,15 +146,42 @@ export function evaluateMemoInputReadiness(
     });
   }
 
-  // ── 4. Financial facts ────────────────────────────────────────────────
-  if (financialFacts.dscr === null) {
+  // ── 3b. AR Borrowing Base (conditional on collateral type) ─────────
+  if (args.isArLocDeal && !args.hasArBorrowingBase) {
     blockers.push({
-      code: "missing_dscr",
-      label: "DSCR has not been computed",
+      code: "missing_ar_borrowing_base",
+      label: "AR borrowing base analysis is required for AR/LOC collateral type",
       owner: "buddy",
-      fixPath: `/deals/${dealId}/spreads`,
+      fixPath: `/deals/${dealId}/underwriting-synthesis`,
     });
   }
+
+  // ── 4. Financial facts ────────────────────────────────────────────────
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a DOWNSTREAM aggregate.
+  // Emit financial blockers in dependency order — business cash flow →
+  // annual debt service → global cash flow → DSCR (most downstream LAST) — so
+  // the Memo Inputs panel (which presents blockers[0] as the next action) never
+  // surfaces GCF/DSCR ahead of the upstream financial analysis that feeds them.
+  //
+  // GCF / DSCR fixPaths route to the EARLIEST unresolved upstream step (business
+  // cash flow / ADS / personal-PFS) when GCF prerequisites are not yet ready,
+  // instead of dead-ending on the GCF compute page that can't compute yet.
+  const gcfPrereqs = args.gcfPrerequisites;
+  const gcfFixPath =
+    gcfPrereqs && !gcfPrereqs.ready && gcfPrereqs.earliestMissing
+      ? `/deals/${dealId}${gcfPrereqs.earliestMissing.fixPathSuffix}`
+      : `/deals/${dealId}/spreads/global-cash-flow`;
+
+  // 1. Business cash flow — earliest upstream prerequisite.
+  if (financialFacts.cashFlowAvailable === null) {
+    blockers.push({
+      code: "missing_business_cash_flow",
+      label: "Business cash flow must be computed",
+      owner: "buddy",
+      fixPath: `/deals/${dealId}/financials`,
+    });
+  }
+  // 2. Annual debt service.
   if (financialFacts.annualDebtService === null) {
     blockers.push({
       code: "missing_debt_service_facts",
@@ -159,15 +190,39 @@ export function evaluateMemoInputReadiness(
       fixPath: `/deals/${dealId}/financials`,
     });
   }
+  // 3. Global cash flow (downstream aggregate). Routes upstream when blocked.
   if (financialFacts.globalCashFlow === null) {
     blockers.push({
       code: "missing_global_cash_flow",
-      label: "Global cash flow must be computed",
+      label:
+        gcfPrereqs && !gcfPrereqs.ready
+          ? "Global cash flow blocked — run upstream financial analysis first"
+          : "Global cash flow must be computed",
       owner: "buddy",
+      fixPath: gcfFixPath,
+    });
+  }
+  // 4. DSCR — most downstream financial metric, presented LAST.
+  if (financialFacts.dscr === null) {
+    blockers.push({
+      code: "missing_dscr",
+      label: "DSCR has not been computed",
+      owner: "buddy",
+      // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: DSCR depends on GCF, which depends
+      // on the upstream financial facts. Route to the earliest unresolved upstream
+      // step, NOT blindly to the GCF compute page (which can't clear DSCR yet).
+      fixPath: gcfFixPath,
+    });
+  } else if (args.dscrSource === "proxy") {
+    // ACTIVATION: DSCR exists but from proxy/fallback — warn, don't block
+    warnings.push({
+      code: "dscr_proxy_source",
+      label: "DSCR is computed from proxy (T12/structural) — authoritative spread-based DSCR recommended",
       fixPath: `/deals/${dealId}/spreads`,
     });
   }
   const financialsComplete =
+    financialFacts.cashFlowAvailable !== null &&
     financialFacts.dscr !== null &&
     financialFacts.annualDebtService !== null &&
     financialFacts.globalCashFlow !== null;
@@ -178,13 +233,13 @@ export function evaluateMemoInputReadiness(
       code: "missing_research_quality_gate",
       label: "Research quality gate must pass",
       owner: "buddy",
-      fixPath: `/deals/${dealId}/research`,
+      fixPath: `/deals/${dealId}/underwrite`,
     });
   } else if (research.trust_grade === "preliminary") {
     warnings.push({
       code: "low_research_quality",
       label: "Research is preliminary — committee-grade research is recommended",
-      fixPath: `/deals/${dealId}/research`,
+      fixPath: `/deals/${dealId}/underwrite`,
     });
   }
   const researchComplete = !!research?.gate_passed;

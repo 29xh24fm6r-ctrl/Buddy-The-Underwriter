@@ -23,8 +23,15 @@ const REQUIRED_SPREADS: SpreadType[] = ["GLOBAL_CASH_FLOW"];
 const REQUIRED_FACT_TYPES = ["COLLATERAL", "SOURCES_USES", "FINANCIAL_ANALYSIS"] as const;
 
 const REQUIRED_FACT_KEYS = {
-  COLLATERAL: ["AS_IS_VALUE", "GROSS_VALUE", "NET_VALUE", "DISCOUNTED_VALUE"],
-  SOURCES_USES: ["TOTAL_PROJECT_COST", "BORROWER_EQUITY", "BANK_LOAN_TOTAL"],
+  // Canonical-named keys first, then legacy aliases
+  COLLATERAL: [
+    "COLLATERAL_GROSS_VALUE", "COLLATERAL_NET_VALUE", "COLLATERAL_DISCOUNTED_VALUE", "COLLATERAL_COVERAGE_RATIO",
+    "AS_IS_VALUE", "GROSS_VALUE", "NET_VALUE", "DISCOUNTED_VALUE", "DISCOUNTED_COVERAGE",
+  ],
+  SOURCES_USES: [
+    "TOTAL_PROJECT_COST", "EQUITY_INJECTION", "EQUITY_INJECTION_PCT",
+    "BORROWER_EQUITY", "BORROWER_EQUITY_PCT", "BANK_LOAN_TOTAL",
+  ],
   FINANCIAL_ANALYSIS: [
     "CASH_FLOW_AVAILABLE",
     "ANNUAL_DEBT_SERVICE",
@@ -224,28 +231,42 @@ export async function getCanonicalMemoStatusForDeals(args: {
       return pendingMetric();
     })();
 
+    // Helper: try canonical key first, then legacy alias
+    const factMetricWithFallback = (did: string, ft: string, ...keys: string[]): MetricValue => {
+      for (const fk of keys) {
+        const m = factMetric(did, ft, fk);
+        if (m.value !== null) return m;
+      }
+      return pendingMetric();
+    };
+
     const totalProjectCost = factMetric(dealId, "SOURCES_USES", "TOTAL_PROJECT_COST");
-    const borrowerEquity = factMetric(dealId, "SOURCES_USES", "BORROWER_EQUITY");
+    const borrowerEquity = factMetricWithFallback(dealId, "SOURCES_USES", "EQUITY_INJECTION", "BORROWER_EQUITY");
     const bankLoanTotal = factMetric(dealId, "SOURCES_USES", "BANK_LOAN_TOTAL");
     const borrowerEquityPct: MetricValue = (() => {
+      const eqPct = factMetricWithFallback(dealId, "SOURCES_USES", "EQUITY_INJECTION_PCT", "BORROWER_EQUITY_PCT");
+      if (eqPct.value !== null) return eqPct;
       if (borrowerEquity.value === null || totalProjectCost.value === null || totalProjectCost.value === 0) return pendingMetric();
       return {
         value: (borrowerEquity.value / totalProjectCost.value) * 100,
-        source: "Computed:BORROWER_EQUITY / TOTAL_PROJECT_COST",
+        source: "Computed:EQUITY_INJECTION / TOTAL_PROJECT_COST",
         updated_at: [borrowerEquity.updated_at, totalProjectCost.updated_at].filter(Boolean).sort().slice(-1)[0] ?? null,
       };
     })();
 
     const asIs = factMetric(dealId, "COLLATERAL", "AS_IS_VALUE");
-    const gross = factMetric(dealId, "COLLATERAL", "GROSS_VALUE");
-    const net = factMetric(dealId, "COLLATERAL", "NET_VALUE");
-    const discounted = factMetric(dealId, "COLLATERAL", "DISCOUNTED_VALUE");
+    const gross = factMetricWithFallback(dealId, "COLLATERAL", "COLLATERAL_GROSS_VALUE", "GROSS_VALUE");
+    const net = factMetricWithFallback(dealId, "COLLATERAL", "COLLATERAL_NET_VALUE", "NET_VALUE");
+    const discounted = factMetricWithFallback(dealId, "COLLATERAL", "COLLATERAL_DISCOUNTED_VALUE", "DISCOUNTED_VALUE");
 
     const grossCollateral: MetricValue = gross.value !== null ? gross : asIs.value !== null ? asIs : pendingMetric();
     const netCollateral: MetricValue = net;
     const ltvGross = computeLtvPct({ loanAmount: bankLoanTotal.value, collateralValue: grossCollateral, label: "LTV Gross" });
     const ltvNet = computeLtvPct({ loanAmount: bankLoanTotal.value, collateralValue: netCollateral, label: "LTV Net" });
-    const discountedCoverage = computeDiscountedCoverageRatio({ discountedCollateralValue: discounted, bankLoanTotal });
+    const coverageFromFacts = factMetricWithFallback(dealId, "COLLATERAL", "COLLATERAL_COVERAGE_RATIO", "DISCOUNTED_COVERAGE");
+    const discountedCoverage = coverageFromFacts.value !== null
+      ? coverageFromFacts
+      : computeDiscountedCoverageRatio({ discountedCollateralValue: discounted, bankLoanTotal });
 
     const requiredMetrics: RequiredMetric[] = [
       { key: "DSCR_GLOBAL", label: "DSCR", metric: dscrGlobal },

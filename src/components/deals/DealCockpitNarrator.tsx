@@ -35,14 +35,12 @@ export function DealCockpitNarrator({ dealId }: Props) {
           }
         }
 
-        // Fetch uploads status
-        const uploadsRes = await fetch(`/api/deals/${dealId}/uploads/status`);
-        if (uploadsRes.ok) {
-          const uploadsData = await uploadsRes.json();
-          if (uploadsData.ok) {
-            setUploads({ processing: uploadsData.processing || 0 });
-          }
-        }
+        // SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1 #4:
+        // /api/deals/<id>/uploads/status was removed in the route-cap
+        // cleanup. Pipeline-level state already drives the narrator copy,
+        // so we no longer poll a deleted endpoint. Leave uploads state at
+        // its initial empty shape.
+        void setUploads;
       } catch (e) {
         console.error("Narrator state fetch error:", e);
       }

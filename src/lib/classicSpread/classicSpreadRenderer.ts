@@ -9,6 +9,9 @@ import type {
 } from "./types";
 import type { PersonalIncomeSection, PersonalIncomeYear } from "./personalIncomeLoader";
 import type { SpreadNarrative } from "./narrativeEngine";
+import { sanitizeForPdf } from "./pdfText";
+import { certificationStatusLines, type ClassicSpreadCertificationSummary } from "./certification/certificationSummary";
+import { borrowingBaseCertificateLines, type BorrowingBaseCertificate } from "@/lib/borrowingBase/borrowingBaseCertificate";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,11 +23,20 @@ const FONT_SIZE_BODY = 8;
 const FONT_SIZE_HEADER = 9;
 const FONT_SIZE_TITLE = 11;
 const FONT_SIZE_META = 7;
-// Tuned to fit 4 periods + % columns within letter portrait (540pt usable).
-// 165 + 4 × (60 + 30) = 525pt — fits with margin to spare.
-const COL_WIDTH_LABEL = 165;
-const COL_WIDTH_VALUE = 60;
-const COL_WIDTH_PCT = 30;
+// SPEC-CLASSIC-SPREAD-5COL-LAYOUT-1:
+// Dynamic column widths based on period count.
+// Letter portrait usable = 612 - 2×36 = 540pt.
+//   4 cols: 165 + 4 × (60 + 30) = 525pt ✓
+//   5 cols: 140 + 5 × (52 + 26) = 530pt ✓
+function computeLayout(periodCount: number) {
+  if (periodCount >= 5) {
+    return { label: 140, value: 52, pct: 26 };
+  }
+  return { label: 165, value: 60, pct: 30 };
+}
+
+// Default layout for 4 or fewer periods (used as fallback).
+const DEFAULT_LAYOUT: LayoutConfig = { label: 165, value: 60, pct: 30 };
 const ROW_HEIGHT = 12;
 const PAGE_MARGIN = 36;
 const HEADER_HEIGHT = 56;
@@ -44,7 +56,11 @@ const DOUBLE_RULE_LABELS = new Set([
 // ---------------------------------------------------------------------------
 
 function fmtNumber(val: number | null, isNegative?: boolean): string {
-  if (val == null || val === 0) return "\u2014"; // em dash
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #6: distinguish true zero from missing. `null`
+  // (missing/blocked) renders as an em dash; a genuine reported `0` renders as "0" \u2014 never collapse
+  // a real zero to a blank.
+  if (val == null) return "\u2014"; // em dash \u2014 missing
+  if (val === 0) return "0"; // true zero
   let n = isNegative ? -val : val;
   if (n < 0) {
     return `(${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })})`;
@@ -68,7 +84,7 @@ function fmtRatioValue(val: number | string | null, format: string, decimals: nu
 
   switch (format) {
     case "currency":
-      if (val === 0) return "\u2014";
+      if (val === 0) return "0"; // #6: true zero, not a blank
       if (val < 0) return `(${Math.abs(val).toLocaleString("en-US", { maximumFractionDigits: 0 })})`;
       return val.toLocaleString("en-US", { maximumFractionDigits: 0 });
     case "percent":
@@ -89,6 +105,8 @@ function fmtRatioValue(val: number | string | null, format: string, decimals: nu
 // PDF Document helpers
 // ---------------------------------------------------------------------------
 
+type LayoutConfig = { label: number; value: number; pct: number };
+
 type DocState = {
   doc: PDFKit.PDFDocument;
   y: number;
@@ -97,6 +115,7 @@ type DocState = {
   pageTitle: string;
   periods: StatementPeriod[];
   showPctColumns: boolean;
+  layout: LayoutConfig;
 };
 
 function drawPageHeader(s: DocState) {
@@ -185,15 +204,15 @@ function drawMetadataGrid(s: DocState) {
     const rowY = s.y;
 
     // Label cell (gray bg)
-    doc.rect(PAGE_MARGIN, rowY, COL_WIDTH_LABEL, ROW_HEIGHT).fill("#f0f0f0");
+    doc.rect(PAGE_MARGIN, rowY, s.layout.label, ROW_HEIGHT).fill("#f0f0f0");
     doc.fillColor("#000000").font(FONT_BOLD).fontSize(FONT_SIZE_META);
-    doc.text(metaRows[r]!, PAGE_MARGIN + 4, rowY + 2, { width: COL_WIDTH_LABEL - 8 });
+    doc.text(metaRows[r]!, PAGE_MARGIN + 4, rowY + 2, { width: s.layout.label - 8 });
 
     // Value cells
     doc.font(FONT_NORMAL);
-    let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+    let x = PAGE_MARGIN + s.layout.label;
     for (let c = 0; c < periods.length; c++) {
-      const colW = s.showPctColumns ? COL_WIDTH_VALUE + COL_WIDTH_PCT : COL_WIDTH_VALUE;
+      const colW = s.showPctColumns ? s.layout.value + s.layout.pct : s.layout.value;
       const val = metaFns[r]!(periods[c]!);
       doc.text(val, x + 2, rowY + 2, { width: colW - 4, align: "center" });
       x += colW;
@@ -219,15 +238,15 @@ function drawColumnHeaders(s: DocState) {
   const rowY = s.y;
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-  doc.text("LINE ITEM", PAGE_MARGIN + 4, rowY + 2, { width: COL_WIDTH_LABEL - 8 });
+  doc.text("LINE ITEM", PAGE_MARGIN + 4, rowY + 2, { width: s.layout.label - 8 });
 
-  let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+  let x = PAGE_MARGIN + s.layout.label;
   for (const p of periods) {
-    doc.text(p.label, x, rowY + 2, { width: COL_WIDTH_VALUE, align: "right" });
-    x += COL_WIDTH_VALUE;
+    doc.text(p.label, x, rowY + 2, { width: s.layout.value, align: "right" });
+    x += s.layout.value;
     if (s.showPctColumns) {
-      doc.text("%", x, rowY + 2, { width: COL_WIDTH_PCT, align: "right" });
-      x += COL_WIDTH_PCT;
+      doc.text("%", x, rowY + 2, { width: s.layout.pct, align: "right" });
+      x += s.layout.pct;
     }
   }
 
@@ -252,8 +271,8 @@ function drawFinancialRow(s: DocState, row: FinancialRow) {
   checkPageBreak(s);
   const { doc, periods } = s;
   const rowY = s.y;
-  const rightEdge = PAGE_MARGIN + COL_WIDTH_LABEL +
-    periods.length * (COL_WIDTH_VALUE + (s.showPctColumns && row.showPct ? COL_WIDTH_PCT : 0));
+  const rightEdge = PAGE_MARGIN + s.layout.label +
+    periods.length * (s.layout.value + (s.showPctColumns && row.showPct ? s.layout.pct : 0));
 
   // Double rule before certain totals
   if (DOUBLE_RULE_LABELS.has(row.label)) {
@@ -271,23 +290,23 @@ function drawFinancialRow(s: DocState, row: FinancialRow) {
   // Label
   const indent = row.indent * 12;
   doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: COL_WIDTH_LABEL - 8 - indent });
+  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: s.layout.label - 8 - indent });
 
   // Values
-  let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+  let x = PAGE_MARGIN + s.layout.label;
   for (let i = 0; i < periods.length; i++) {
     const val = row.values[i] ?? null;
     const display = fmtNumber(val, row.isNegative);
     doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-    doc.text(display, x, s.y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-    x += COL_WIDTH_VALUE;
+    doc.text(display, x, s.y + 2, { width: s.layout.value - 4, align: "right" });
+    x += s.layout.value;
 
     if (s.showPctColumns && row.showPct) {
       const base = row.pctBase?.[i] ?? null;
       const pctDisplay = fmtPct(val, base);
       doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META);
-      doc.text(pctDisplay, x, s.y + 2, { width: COL_WIDTH_PCT - 4, align: "right" });
-      x += COL_WIDTH_PCT;
+      doc.text(pctDisplay, x, s.y + 2, { width: s.layout.pct - 4, align: "right" });
+      x += s.layout.pct;
     }
   }
 
@@ -311,7 +330,7 @@ function drawCashFlowRow(s: DocState, row: CashFlowRow) {
 
   checkPageBreak(s);
   const { doc, periods } = s;
-  const rightEdge = PAGE_MARGIN + COL_WIDTH_LABEL + periods.length * COL_WIDTH_VALUE;
+  const rightEdge = PAGE_MARGIN + s.layout.label + periods.length * s.layout.value;
 
   // Double rule before key totals
   if (DOUBLE_RULE_LABELS.has(row.label)) {
@@ -329,16 +348,16 @@ function drawCashFlowRow(s: DocState, row: CashFlowRow) {
   // Label
   const indent = row.indent * 12;
   doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: COL_WIDTH_LABEL - 8 - indent });
+  doc.text(row.label, PAGE_MARGIN + 4 + indent, s.y + 2, { width: s.layout.label - 8 - indent });
 
   // Values (no % columns for cash flow)
-  let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+  let x = PAGE_MARGIN + s.layout.label;
   for (let i = 0; i < periods.length; i++) {
     const val = row.values[i] ?? null;
     const display = fmtNumber(val, row.isNegative);
     doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-    doc.text(display, x, s.y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-    x += COL_WIDTH_VALUE;
+    doc.text(display, x, s.y + 2, { width: s.layout.value - 4, align: "right" });
+    x += s.layout.value;
   }
 
   // Light horizontal rule
@@ -386,6 +405,197 @@ function drawNarrativeSections(s: DocState, narrative: SpreadNarrative) {
 }
 
 // ---------------------------------------------------------------------------
+// SPEC-CLASSIC-SPREAD-LINE-ACCURACY-COMPLETION-AUDIT-1 — Spread Accuracy & Completion Audit page
+// ---------------------------------------------------------------------------
+
+// SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1 — honest "Spread Certification" status block
+// at the top of the audit page (certified / preliminary / blocked + remaining open actions).
+function drawCertificationStatus(s: DocState, summary: ClassicSpreadCertificationSummary | null | undefined) {
+  if (!summary) return;
+  const { doc } = s;
+  const rightEdge = doc.page.width - PAGE_MARGIN;
+  const textWidth = rightEdge - PAGE_MARGIN;
+
+  const color =
+    summary.status === "blocked" ? "#dc2626" : summary.status === "preliminary" ? "#d97706" : "#16a34a";
+  const lines = certificationStatusLines(summary);
+
+  // Header (status) on a colored accent bar; the remaining lines as compact meta.
+  doc.rect(PAGE_MARGIN, s.y, 4, 18).fill(color);
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor(color);
+  const header = sanitizeForPdf(lines[0] ?? "Spread Certification");
+  doc.text(header, PAGE_MARGIN + 12, s.y + 4, { width: textWidth - 12 });
+  doc.fillColor("#000000");
+  s.y += 24;
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+  for (const line of lines.slice(1)) {
+    checkPageBreak(s, 2);
+    const txt = sanitizeForPdf(line);
+    const h = doc.heightOfString(txt, { width: textWidth });
+    doc.text(txt, PAGE_MARGIN, s.y, { width: textWidth });
+    s.y += h + 2;
+  }
+  doc.fillColor("#000000");
+  s.y += 8;
+}
+
+// SPEC-BORROWING-BASE-CERTIFICATE-ENGINE-1 (Phase 4): render the Borrowing Base Certificate as a
+// dedicated page. Header on a status-colored accent bar, then the pure certificate lines. Section
+// breaks (lines starting with "— ") render as small bold sub-headers.
+function drawBorrowingBaseCertificate(s: DocState, cert: BorrowingBaseCertificate) {
+  const { doc } = s;
+  const rightEdge = doc.page.width - PAGE_MARGIN;
+  const textWidth = rightEdge - PAGE_MARGIN;
+
+  const color =
+    cert.certificateStatus === "blocked"
+      ? "#dc2626"
+      : cert.certificateStatus === "ready_for_review"
+        ? "#d97706"
+        : cert.certificateStatus === "approved"
+          ? "#16a34a"
+          : "#6b7280";
+  const lines = borrowingBaseCertificateLines(cert);
+
+  doc.rect(PAGE_MARGIN, s.y, 4, 18).fill(color);
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor(color);
+  doc.text(sanitizeForPdf(lines[0] ?? "Borrowing Base Certificate"), PAGE_MARGIN + 12, s.y + 4, { width: textWidth - 12 });
+  doc.fillColor("#000000");
+  s.y += 24;
+
+  for (const line of lines.slice(1)) {
+    checkPageBreak(s, 2);
+    const txt = sanitizeForPdf(line);
+    const isSubHeader = line.startsWith("— ");
+    if (isSubHeader) {
+      s.y += 3;
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#111111");
+    } else {
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+    }
+    const h = doc.heightOfString(txt, { width: textWidth });
+    doc.text(txt, PAGE_MARGIN, s.y, { width: textWidth });
+    s.y += h + 2;
+  }
+  doc.fillColor("#000000");
+  s.y += 8;
+}
+
+function drawSpreadAuditSection(
+  s: DocState,
+  audit: NonNullable<NonNullable<ClassicSpreadInput["certificationAudit"]>["spreadAccuracy"]> | null,
+  notCertified: boolean = false,
+) {
+  const { doc } = s;
+  const rightEdge = doc.page.width - PAGE_MARGIN;
+  const textWidth = rightEdge - PAGE_MARGIN;
+
+  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: certification fail-closed banner. If the
+  // certification gate could not run/succeed, say so loudly — never present this as certified.
+  if (notCertified) {
+    doc.rect(PAGE_MARGIN, s.y, textWidth, 22).fill("#dc2626");
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor("#ffffff");
+    doc.text("NOT CERTIFIED - certification unavailable", PAGE_MARGIN + 8, s.y + 5, { width: textWidth - 16 });
+    doc.fillColor("#000000");
+    s.y += 30;
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text(
+      "The certification/accuracy gate did not complete for this spread. Values shown are uncertified and must not be relied upon until certification succeeds.",
+      PAGE_MARGIN,
+      s.y,
+      { width: textWidth },
+    );
+    s.y += 18;
+    if (!audit) return;
+  }
+  if (!audit) return;
+
+  const statusColor =
+    audit.status === "blocker" ? "#dc2626" : audit.status === "warning" ? "#d97706" : "#16a34a";
+  const statusLabel =
+    audit.status === "blocker" ? "BLOCKER" : audit.status === "warning" ? "WARNING" : "CLEAN";
+
+  // Status badge
+  doc.rect(PAGE_MARGIN, s.y, 4, 18).fill(statusColor);
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_HEADER).fillColor(statusColor);
+  doc.text(`Spread audit: ${statusLabel}`, PAGE_MARGIN + 12, s.y + 4, { width: textWidth - 12 });
+  doc.fillColor("#000000");
+  s.y += 24;
+
+  // Summary line
+  const sm = audit.summary;
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+  doc.text(
+    sanitizeForPdf(
+      `${sm.blockers} blocker(s), ${sm.warnings} warning(s), ${sm.infos} info - ${sm.footingsChecked} footing checks across ${sm.periodsAudited.join(", ") || "no"} period(s); ` +
+        `${sm.mappedFactKeys} source line(s) mapped, ${sm.unmappedFactKeys} unmapped.`,
+    ),
+    PAGE_MARGIN,
+    s.y,
+    { width: textWidth },
+  );
+  doc.fillColor("#000000");
+  s.y += 18;
+
+  if (audit.status === "clean") {
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text(
+      "All statements foot and every uploaded financial line is mapped or intentionally ignored. No reconciliation exceptions found.",
+      PAGE_MARGIN,
+      s.y,
+      { width: textWidth },
+    );
+    s.y += 16;
+    return;
+  }
+
+  // SPEC-CLASSIC-SPREAD-BLOCKER-BATCH-RESOLUTION-1 #5: action-oriented, concise. Show the grouped
+  // action counts and the TOP BLOCKER actions (not every warning).
+  const as = audit.actionSummary;
+  const byAction = Object.entries(as.byAction).map(([a, n]) => `${a}: ${n}`).join(", ");
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#444444");
+  doc.text(sanitizeForPdf(`Source-review actions: ${as.unresolvedActionCount} unresolved${byAction ? ` (${byAction})` : ""}.`), PAGE_MARGIN, s.y, { width: textWidth });
+  doc.fillColor("#000000");
+  s.y += 16;
+
+  const blockerActions = as.actions.filter((a) => a.severity === "blocker");
+  const warningCount = as.actions.filter((a) => a.severity === "warning").length;
+  const MAX_SHOWN = 12;
+  const shown = blockerActions.slice(0, MAX_SHOWN);
+
+  doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#333333");
+  doc.text("Top blocker actions", PAGE_MARGIN, s.y, { width: textWidth });
+  doc.fillColor("#000000");
+  s.y += 14;
+
+  for (const a of shown) {
+    checkPageBreak(s, 3);
+    const head = sanitizeForPdf(`[${a.action}] ${a.period} - ${a.statement.replace(/_/g, " ")} - ${a.rowLabel}`);
+    doc.font(FONT_BOLD).fontSize(FONT_SIZE_META).fillColor("#dc2626");
+    const headHeight = doc.heightOfString(head, { width: textWidth });
+    doc.text(head, PAGE_MARGIN, s.y, { width: textWidth });
+    s.y += headHeight + 1;
+
+    const body = sanitizeForPdf(a.detail);
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#000000");
+    const bodyHeight = doc.heightOfString(body, { width: textWidth - 8 });
+    doc.text(body, PAGE_MARGIN + 8, s.y, { width: textWidth - 8 });
+    s.y += bodyHeight + 5;
+  }
+
+  const extra: string[] = [];
+  if (blockerActions.length > MAX_SHOWN) extra.push(`${blockerActions.length - MAX_SHOWN} more blocker action(s)`);
+  if (warningCount > 0) extra.push(`${warningCount} warning(s)`);
+  if (extra.length > 0) {
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
+    doc.text(sanitizeForPdf(`Plus ${extra.join(" and ")}. See certificationAudit.spreadAccuracy for the full list.`), PAGE_MARGIN, s.y, { width: textWidth });
+    doc.fillColor("#000000");
+    s.y += 12;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Ratio Section Rendering
 // ---------------------------------------------------------------------------
 
@@ -396,25 +606,25 @@ function drawRatioSections(s: DocState, sections: RatioSection[]) {
     checkPageBreak(s, 2);
 
     // Section title: gray band
-    const rightEdge = PAGE_MARGIN + COL_WIDTH_LABEL + periods.length * COL_WIDTH_VALUE;
+    const rightEdge = PAGE_MARGIN + s.layout.label + periods.length * s.layout.value;
     doc.rect(PAGE_MARGIN, s.y, rightEdge - PAGE_MARGIN, ROW_HEIGHT).fill("#f0f0f0");
     doc.fillColor("#000000");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-    doc.text(section.title, PAGE_MARGIN + 4, s.y + 2, { width: COL_WIDTH_LABEL - 8 });
+    doc.text(section.title, PAGE_MARGIN + 4, s.y + 2, { width: s.layout.label - 8 });
     s.y += ROW_HEIGHT;
 
     for (const row of section.rows) {
       checkPageBreak(s);
 
       doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-      doc.text(row.label, PAGE_MARGIN + 16, s.y + 2, { width: COL_WIDTH_LABEL - 20 });
+      doc.text(row.label, PAGE_MARGIN + 16, s.y + 2, { width: s.layout.label - 20 });
 
-      let x = PAGE_MARGIN + COL_WIDTH_LABEL;
+      let x = PAGE_MARGIN + s.layout.label;
       for (let i = 0; i < periods.length; i++) {
         const val = row.values[i] ?? null;
         const display = fmtRatioValue(val, row.format, row.decimals);
-        doc.text(display, x, s.y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-        x += COL_WIDTH_VALUE;
+        doc.text(display, x, s.y + 2, { width: s.layout.value - 4, align: "right" });
+        x += s.layout.value;
       }
 
       doc.moveTo(PAGE_MARGIN, s.y + ROW_HEIGHT)
@@ -467,13 +677,17 @@ function renderMethodologyBlock(
   doc.fillColor("#000000");
   for (const entry of visibleEntries) {
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-    const heading = `${entry.axisLabel}: ${entry.chosenVariantLabel}`;
+    // SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1: methodology labels/rationale carry Unicode the
+    // core PDF font cannot render (e.g. "EBITDA -> OBI -> NI" arrows, Section-sign). Run them through
+    // the shared PDF sanitizer so they print plain ASCII instead of garbled glyphs ("EBITDA !' OBI !' NI").
+    const heading = sanitizeForPdf(`${entry.axisLabel}: ${entry.chosenVariantLabel}`);
     doc.text(heading, PAGE_MARGIN + 8, y + 2, { width: contentWidth - 8 });
     y += ROW_HEIGHT;
 
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
-    const rationaleHeight = doc.heightOfString(entry.rationale, { width: contentWidth - 16 });
-    doc.text(entry.rationale, PAGE_MARGIN + 16, y + 1, { width: contentWidth - 16 });
+    const rationale = sanitizeForPdf(entry.rationale);
+    const rationaleHeight = doc.heightOfString(rationale, { width: contentWidth - 16 });
+    doc.text(rationale, PAGE_MARGIN + 16, y + 1, { width: contentWidth - 16 });
     y += rationaleHeight + 4;
     doc.fillColor("#000000");
   }
@@ -531,6 +745,18 @@ function renderGlobalCashFlowPage(
     doc.text(`(from ${gcf.entityCount} operating ${gcf.entityCount === 1 ? "entity" : "entities"})`, PAGE_MARGIN + 20, y + 1, { width: labelWidth });
     doc.fillColor("#000000");
     y += ROW_HEIGHT;
+
+    // SPEC-CLASSIC-SPREAD-GCF-ENTITY-CASH-FLOW-COMPUTE-1: when entity cash flow was derived from the
+    // rendered annual income-statement rows (no materialized GCF fact), label its provenance + basis so
+    // the banker sees it is a PRELIMINARY computation, not a certified pipeline figure.
+    if (gcf.entityCashFlowComputed) {
+      const basisLabel = gcf.entityCashFlowBasis === "EBITDA" ? "EBITDA" : "ordinary business income";
+      const periodLabel = gcf.entityCashFlowSourcePeriod ? ` ${gcf.entityCashFlowSourcePeriod}` : "";
+      doc.font(FONT_NORMAL).fontSize(FONT_SIZE_META).fillColor("#666666");
+      doc.text(`Computed from${periodLabel} ${basisLabel} (preliminary - not a materialized GCF fact)`, PAGE_MARGIN + 20, y + 1, { width: contentWidth - 28 });
+      doc.fillColor("#000000");
+      y += ROW_HEIGHT;
+    }
   } else {
     doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#999999");
     doc.text("Entity data not yet computed \u2014 re-run spread pipeline", PAGE_MARGIN + 8, y + 2, { width: contentWidth });
@@ -600,9 +826,14 @@ function renderGlobalCashFlowPage(
   doc.text("Global DSCR", PAGE_MARGIN + 8, y + 2, { width: labelWidth });
 
   const dscrDisplay = gcf.globalDscr != null ? `${gcf.globalDscr.toFixed(2)}x` : "\u2014";
-  const dscrColor = gcf.coverageStatus === "ADEQUATE" ? "#16a34a"
-    : gcf.coverageStatus === "TIGHT" ? "#d97706"
-    : gcf.coverageStatus === "DEFICIT" ? "#dc2626"
+  // Patch B (BUGFIX classic-spread render consistency): a coverage band is only meaningful when the
+  // global DSCR is numeric. Certification can blank globalDscr while leaving coverageStatus set to
+  // ADEQUATE/TIGHT/DEFICIT \u2014 never present such a band (or "TIGHT \u2014 DSCR 1.00x\u20131.25x") without an
+  // actual number. Fall back to the UNKNOWN / insufficient-data band.
+  const coverageStatus = gcf.globalDscr != null ? gcf.coverageStatus : "UNKNOWN";
+  const dscrColor = coverageStatus === "ADEQUATE" ? "#16a34a"
+    : coverageStatus === "TIGHT" ? "#d97706"
+    : coverageStatus === "DEFICIT" ? "#dc2626"
     : "#666666";
   doc.fillColor(dscrColor);
   doc.text(dscrDisplay, valueX, y + 2, { width: valueWidth, align: "right" });
@@ -611,9 +842,9 @@ function renderGlobalCashFlowPage(
 
   // ── Coverage Signal Bar ─────────────────────────────────────────────────
   const barHeight = 28;
-  const accentColor = gcf.coverageStatus === "ADEQUATE" ? "#22c55e"
-    : gcf.coverageStatus === "TIGHT" ? "#f59e0b"
-    : gcf.coverageStatus === "DEFICIT" ? "#ef4444"
+  const accentColor = coverageStatus === "ADEQUATE" ? "#22c55e"
+    : coverageStatus === "TIGHT" ? "#f59e0b"
+    : coverageStatus === "DEFICIT" ? "#ef4444"
     : "#999999";
 
   // Left accent border
@@ -621,10 +852,12 @@ function renderGlobalCashFlowPage(
   // Light background
   doc.rect(PAGE_MARGIN + 4, y, contentWidth - 4, barHeight).fill("#f9fafb");
 
-  const statusLabel = gcf.coverageStatus === "ADEQUATE" ? "ADEQUATE \u2014 DSCR \u2265 1.25x"
-    : gcf.coverageStatus === "TIGHT" ? "TIGHT \u2014 DSCR 1.00x\u20131.25x"
-    : gcf.coverageStatus === "DEFICIT" ? "DEFICIT \u2014 DSCR < 1.00x"
-    : "UNKNOWN \u2014 Insufficient data to compute DSCR";
+  // SPEC-CLASSIC-SPREAD-FINAL-AUDIT-COPY-POLISH-1: write the coverage band in plain ASCII (>=, -)
+  // so the core PDF font does not garble the comparison/dash glyphs (e.g. 'DSCR "e 1.25x').
+  const statusLabel = coverageStatus === "ADEQUATE" ? "ADEQUATE - DSCR >= 1.25x"
+    : coverageStatus === "TIGHT" ? "TIGHT - DSCR 1.00x-1.25x"
+    : coverageStatus === "DEFICIT" ? "DEFICIT - DSCR < 1.00x"
+    : "UNKNOWN - Insufficient data to compute DSCR";
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor(accentColor);
   doc.text(statusLabel, PAGE_MARGIN + 14, y + 9, { width: contentWidth - 24, lineBreak: false });
@@ -716,14 +949,17 @@ function renderPersonalIncomePage(
   input: ClassicSpreadInput,
   pi: PersonalIncomeSection,
   pageNum: number,
+  layout: LayoutConfig = DEFAULT_LAYOUT,
 ): number {
+  // Alias for all s.layout.* references in this standalone function
+  const s = { layout };
   const rightEdge = doc.page.width - PAGE_MARGIN;
   const contentWidth = rightEdge - PAGE_MARGIN;
 
   // Use up to 4 most recent years, newest right
   const displayYears = pi.years.slice(-4);
   const numCols = displayYears.length;
-  const totalRowWidth = PAGE_MARGIN + COL_WIDTH_LABEL + numCols * COL_WIDTH_VALUE;
+  const totalRowWidth = PAGE_MARGIN + s.layout.label + numCols * s.layout.value;
 
   let y = PAGE_MARGIN;
 
@@ -745,11 +981,11 @@ function renderPersonalIncomePage(
 
   // ── Year column headers ─────────────────────────────────────────────────
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-  doc.text("LINE ITEM", PAGE_MARGIN + 4, y + 2, { width: COL_WIDTH_LABEL - 8 });
-  let hx = PAGE_MARGIN + COL_WIDTH_LABEL;
+  doc.text("LINE ITEM", PAGE_MARGIN + 4, y + 2, { width: s.layout.label - 8 });
+  let hx = PAGE_MARGIN + s.layout.label;
   for (const yr of displayYears) {
-    doc.text(String(yr.year), hx, y + 2, { width: COL_WIDTH_VALUE, align: "right" });
-    hx += COL_WIDTH_VALUE;
+    doc.text(String(yr.year), hx, y + 2, { width: s.layout.value, align: "right" });
+    hx += s.layout.value;
   }
   doc.moveTo(PAGE_MARGIN, y + ROW_HEIGHT).lineTo(totalRowWidth, y + ROW_HEIGHT).lineWidth(0.5).stroke("#333333");
   y = y + ROW_HEIGHT + 2;
@@ -788,7 +1024,7 @@ function renderPersonalIncomePage(
       y += 4; // gap before section
       doc.rect(PAGE_MARGIN, y, totalRowWidth - PAGE_MARGIN, ROW_HEIGHT).fill("#f0f0f0");
       doc.fillColor("#000000").font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-      doc.text(row.label, PAGE_MARGIN + 4, y + 2, { width: COL_WIDTH_LABEL - 8 });
+      doc.text(row.label, PAGE_MARGIN + 4, y + 2, { width: s.layout.label - 8 });
       y += ROW_HEIGHT;
       continue;
     }
@@ -801,17 +1037,17 @@ function renderPersonalIncomePage(
     // Label
     doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
     doc.text(row.label, PAGE_MARGIN + (row.isBold ? 4 : 16), y + 2, {
-      width: COL_WIDTH_LABEL - (row.isBold ? 8 : 20),
+      width: s.layout.label - (row.isBold ? 8 : 20),
     });
 
     // Values
-    let vx = PAGE_MARGIN + COL_WIDTH_LABEL;
+    let vx = PAGE_MARGIN + s.layout.label;
     for (const yr of displayYears) {
       const val = row.getter(yr);
       const display = fmtNumber(val, row.isNegative);
       doc.font(row.isBold ? FONT_BOLD : FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-      doc.text(display, vx, y + 2, { width: COL_WIDTH_VALUE - 4, align: "right" });
-      vx += COL_WIDTH_VALUE;
+      doc.text(display, vx, y + 2, { width: s.layout.value - 4, align: "right" });
+      vx += s.layout.value;
     }
 
     // Light horizontal rule
@@ -868,6 +1104,7 @@ export function renderClassicSpread(
     }
 
     // ===== Page 1: Balance Sheet =====
+    const layout = computeLayout(periods.length);
     const s: DocState = {
       doc,
       y: 0,
@@ -876,9 +1113,21 @@ export function renderClassicSpread(
       pageTitle: "Detailed Balance Sheet - Actual and % Amounts",
       periods,
       showPctColumns: true,
+      layout,
     };
 
     drawPageHeader(s);
+
+    // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #9: fail-closed banner on the first page banker
+    // sees — an uncertified spread must announce itself, not look certified.
+    if (input.certified === false) {
+      const bannerW = doc.page.width - 2 * PAGE_MARGIN;
+      doc.rect(PAGE_MARGIN, s.y, bannerW, 16).fill("#dc2626");
+      doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY).fillColor("#ffffff");
+      doc.text("NOT CERTIFIED - certification unavailable; values are uncertified", PAGE_MARGIN + 6, s.y + 3, { width: bannerW - 12, lineBreak: false });
+      doc.fillColor("#000000");
+      s.y += 22;
+    }
 
     if (input.balanceSheet.length > 0) {
       drawMetadataGrid(s);
@@ -927,11 +1176,11 @@ export function renderClassicSpread(
       // Column headers (no % columns)
       const cfColY = s.y;
       doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-      doc.text("LINE ITEM", PAGE_MARGIN + 4, cfColY + 2, { width: COL_WIDTH_LABEL - 8 });
-      let cfx = PAGE_MARGIN + COL_WIDTH_LABEL;
+      doc.text("LINE ITEM", PAGE_MARGIN + 4, cfColY + 2, { width: s.layout.label - 8 });
+      let cfx = PAGE_MARGIN + s.layout.label;
       for (const p of periods) {
-        doc.text(p.label, cfx, cfColY + 2, { width: COL_WIDTH_VALUE, align: "right" });
-        cfx += COL_WIDTH_VALUE;
+        doc.text(p.label, cfx, cfColY + 2, { width: s.layout.value, align: "right" });
+        cfx += s.layout.value;
       }
       doc.moveTo(PAGE_MARGIN, cfColY + ROW_HEIGHT).lineTo(cfx, cfColY + ROW_HEIGHT).lineWidth(0.5).stroke("#333333");
       s.y = cfColY + ROW_HEIGHT + 2;
@@ -953,11 +1202,11 @@ export function renderClassicSpread(
     // Ratio column headers (no % columns)
     const ratioY = s.y;
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
-    doc.text("RATIO", PAGE_MARGIN + 4, ratioY + 2, { width: COL_WIDTH_LABEL - 8 });
-    let rx = PAGE_MARGIN + COL_WIDTH_LABEL;
+    doc.text("RATIO", PAGE_MARGIN + 4, ratioY + 2, { width: s.layout.label - 8 });
+    let rx = PAGE_MARGIN + s.layout.label;
     for (const p of periods) {
-      doc.text(p.label, rx, ratioY + 2, { width: COL_WIDTH_VALUE, align: "right" });
-      rx += COL_WIDTH_VALUE;
+      doc.text(p.label, rx, ratioY + 2, { width: s.layout.value, align: "right" });
+      rx += s.layout.value;
     }
     doc.moveTo(PAGE_MARGIN, ratioY + ROW_HEIGHT).lineTo(rx, ratioY + ROW_HEIGHT).lineWidth(0.5).stroke("#333333");
     s.y = ratioY + ROW_HEIGHT + 2;
@@ -977,7 +1226,7 @@ export function renderClassicSpread(
     if (input.personalIncome != null && input.personalIncome.years.length > 0) {
       doc.addPage();
       s.pageNum++;
-      s.pageNum = renderPersonalIncomePage(doc, input, input.personalIncome, s.pageNum);
+      s.pageNum = renderPersonalIncomePage(doc, input, input.personalIncome, s.pageNum, layout);
     }
 
     // ===== Executive Summary =====
@@ -1018,6 +1267,33 @@ export function renderClassicSpread(
     }
 
     drawPageFooter(s);
+
+    // ===== Spread Accuracy & Completion Audit (if computed) =====
+    const spreadAudit = input.certificationAudit?.spreadAccuracy ?? null;
+    const notCertified = input.certified === false;
+    const certSummary = input.certificationSummary ?? null;
+    if (spreadAudit || notCertified || certSummary) {
+      doc.addPage();
+      s.pageNum++;
+      s.pageTitle = "Spread Accuracy & Completion Audit";
+      s.showPctColumns = false;
+      drawPageHeader(s);
+      // SPEC-CLASSIC-SPREAD-CERTIFICATION-GATE-PDF-VERSION-1: lead with the honest certification status.
+      drawCertificationStatus(s, certSummary);
+      drawSpreadAuditSection(s, spreadAudit, notCertified);
+      drawPageFooter(s);
+    }
+
+    // ===== Borrowing Base Certificate (AR-backed facilities only) =====
+    if (input.borrowingBaseCertificate) {
+      doc.addPage();
+      s.pageNum++;
+      s.pageTitle = "Borrowing Base Certificate";
+      s.showPctColumns = false;
+      drawPageHeader(s);
+      drawBorrowingBaseCertificate(s, input.borrowingBaseCertificate);
+      drawPageFooter(s);
+    }
 
     // ===== Optional: Narrative Analysis =====
     if (narrative && narrative.sections.length > 0) {

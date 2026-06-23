@@ -44,6 +44,7 @@ const SL_ALIAS: Partial<Record<string, keyof BalanceSheetRow>> = {
   SL_LONG_TERM_DEBT:          "mortgages_notes_bonds",
   SL_OTHER_CURRENT_ASSETS:    "other_current_assets",
   SL_OTHER_CURRENT_LIABILITIES:"other_current_liabilities",
+  SL_AR_GROSS:                "accounts_receivable",
 };
 
 function emptyRow(periodEnd: string): BalanceSheetRow {
@@ -78,6 +79,7 @@ export async function buildBalanceSheetTable(args: {
   try {
     const sb = supabaseAdmin();
 
+    // Primary: SL_ prefixed facts (Schedule L / balance sheet documents)
     const { data, error } = await (sb as any)
       .from("deal_financial_facts")
       .select("fact_key, fact_value_num, fact_period_end")
@@ -89,18 +91,55 @@ export async function buildBalanceSheetTable(args: {
       .order("fact_period_end", { ascending: false })
       .limit(120);
 
-    if (error || !data?.length) return [];
+    // SPEC-CREDIT-MEMO-AUDIT-1 Bug 11: fallback to non-SL facts for tax return
+    // years that have TOTAL_ASSETS / TOTAL_LIABILITIES but no Schedule L extraction.
+    const { data: fallbackData } = await (sb as any)
+      .from("deal_financial_facts")
+      .select("fact_key, fact_value_num, fact_period_end")
+      .eq("deal_id", args.dealId)
+      .eq("is_superseded", false)
+      .neq("resolution_status", "rejected")
+      .in("fact_key", [
+        "TOTAL_ASSETS", "TOTAL_LIABILITIES", "TOTAL_EQUITY",
+        "TOTAL_CURRENT_ASSETS", "TOTAL_CURRENT_LIABILITIES",
+        "CASH_AND_EQUIVALENTS", "ACCOUNTS_RECEIVABLE",
+        "RETAINED_EARNINGS", "NET_FIXED_ASSETS",
+      ])
+      .not("fact_value_num", "is", null)
+      .order("fact_period_end", { ascending: false })
+      .limit(60);
 
-    // Group by period_end — first-write-wins (BALANCE_SHEET type facts come first
-    // since the query is ordered desc by period, and within a period the more
-    // authoritative BALANCE_SHEET type will typically precede TAX_RETURN).
+    const mergedData = [...(data ?? []), ...(fallbackData ?? [])];
+
+    if (!mergedData.length) return [];
+
+    // Non-SL key → field mapping (fallback for tax return years without Schedule L)
+    const NON_SL_ALIAS: Partial<Record<string, keyof BalanceSheetRow>> = {
+      TOTAL_ASSETS:              "total_assets",
+      TOTAL_LIABILITIES:         "total_liabilities",
+      TOTAL_EQUITY:              "total_equity",
+      TOTAL_CURRENT_ASSETS:      "total_current_assets",
+      TOTAL_CURRENT_LIABILITIES: "total_current_liabilities",
+      CASH_AND_EQUIVALENTS:      "cash_and_equivalents",
+      ACCOUNTS_RECEIVABLE:       "accounts_receivable",
+      RETAINED_EARNINGS:         "retained_earnings",
+      NET_FIXED_ASSETS:          "ppe_net",
+    };
+
+    // SPEC-CREDIT-MEMO-DATA-PIPELINE-1 Fix 1: max-value-wins dedup.
+    // When duplicate SL_ rows exist for the same (period, field), pick the
+    // larger value. Balance sheet values should be positive; the larger value
+    // eliminates garbage extraction artifacts (e.g. SL_CASH=2 vs SL_CASH=401558).
+    // SL_ facts come first in mergedData so they take priority over non-SL fallbacks.
     const byPeriod: Record<string, Record<string, number>> = {};
-    for (const f of (data as Array<{ fact_key: string; fact_value_num: string | number; fact_period_end: string }>)) {
+    for (const f of (mergedData as Array<{ fact_key: string; fact_value_num: string | number; fact_period_end: string }>)) {
       const period = f.fact_period_end;
       if (!byPeriod[period]) byPeriod[period] = {};
-      const field = SL_ALIAS[f.fact_key];
-      if (field && !(field in byPeriod[period])) {
-        byPeriod[period][field] = Number(f.fact_value_num);
+      const field = SL_ALIAS[f.fact_key] ?? NON_SL_ALIAS[f.fact_key];
+      if (!field) continue;
+      const val = Number(f.fact_value_num);
+      if (!(field in byPeriod[period]) || val > byPeriod[period][field]) {
+        byPeriod[period][field] = val;
       }
     }
 

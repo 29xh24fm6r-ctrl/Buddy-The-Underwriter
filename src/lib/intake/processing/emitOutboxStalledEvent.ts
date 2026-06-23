@@ -35,7 +35,7 @@ export async function emitOutboxStalledEventIfNeeded(args: {
       .eq("kind", "intake.processing_outbox_stalled")
       .limit(5);
 
-    // Check meta.outbox_id match (deal_events.meta is JSONB)
+    // Check payload.meta.outbox_id match (deal_events.payload is JSONB, meta is nested inside)
     if (existing && existing.length > 0) {
       // Since we can't easily filter JSONB in this query, check if ANY
       // recent stalled event exists for this deal. Conservative: we emit
@@ -43,14 +43,15 @@ export async function emitOutboxStalledEventIfNeeded(args: {
       // The outbox_id changes on re-enqueue, so a new cycle gets a new event.
       const { data: matchCheck } = await (sb as any)
         .from("deal_events")
-        .select("id, meta")
+        .select("id, payload")
         .eq("deal_id", args.dealId)
         .eq("kind", "intake.processing_outbox_stalled")
         .order("created_at", { ascending: false })
         .limit(1);
 
       if (matchCheck?.[0]) {
-        const meta = matchCheck[0].meta as Record<string, unknown> | null;
+        // meta is nested inside payload (writeEvent stores meta inside the payload JSONB column)
+        const meta = (matchCheck[0].payload as Record<string, unknown> | null)?.meta as Record<string, unknown> | null;
         if (meta?.outbox_id === args.outboxId) {
           // Already emitted for this exact outbox row
           return false;

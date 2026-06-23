@@ -92,7 +92,7 @@ function buildMemoFixture(opts: {
     risk_factors: [],
     strengths_weaknesses: { strengths: [], weaknesses: [] },
     policy_exceptions: [],
-    proposed_terms: { product: "CRE_TERM" },
+    proposed_terms: { product: "CRE_TERM", rate: { all_in_rate: 0.085 }, rationale: "fixture rationale" },
     conditions: { precedent: [], ongoing: [], insurance: [] },
     recommendation: { verdict: "approve", exceptions: [] },
     stress_testing: null,
@@ -150,8 +150,8 @@ test("[fa-1] failed readiness contract throws FloridaArmoryBuildError", () => {
   const memo = buildMemoFixture();
   const failed: MemoReadinessContract = {
     passed: false,
-    required: { dscr_computed: false, loan_amount: true, collateral_value: true, business_description: true, management_bio: true },
-    warnings: { ai_narrative_missing: false, research_missing: false, covenant_review_missing: false, qualitative_review_missing: false },
+    required: { dscr_computed: false, loan_amount: true, collateral_value: true, business_description: true, management_bio: true, committee_ready: true },
+    warnings: { ai_narrative_missing: false, research_missing: false, covenant_review_missing: false, qualitative_review_missing: false, committee_not_ready_overridden: false },
     blockers: [{ code: "dscr_computed", label: "DSCR not computed", owner: "buddy" }],
     warningList: [],
     evaluatedAt: FIXED_SUBMITTED_AT,

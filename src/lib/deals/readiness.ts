@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { fireWebhook } from "@/lib/webhooks/fireWebhook";
+import { scheduleReadinessRefresh } from "@/lib/deals/readiness/refreshDealReadiness";
 import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { LedgerEventType } from "@/buddy/lifecycle/events";
 import { getSatisfiedRequired, getMissingRequired } from "@/lib/deals/checklistSatisfaction";
@@ -44,12 +45,15 @@ export async function computeDealReadiness(
 ): Promise<DealReadinessResult> {
   const sb = supabaseAdmin();
 
-  // 1. Check for in-flight uploads
+  // 1. Check for genuinely unfinalized uploads — only UPLOADED/LOCKED_FOR_PROCESSING.
+  // CLASSIFIED_PENDING_REVIEW and beyond means the doc is processed; finalized_at
+  // null on those is a stale artifact, not actual incompleteness.
   const { count: uploadsPending } = await sb
     .from("deal_documents")
     .select("id", { count: "exact", head: true })
     .eq("deal_id", dealId)
-    .is("finalized_at", null);
+    .is("finalized_at", null)
+    .in("intake_status", ["UPLOADED", "LOCKED_FOR_PROCESSING"]);
 
   if (uploadsPending && uploadsPending > 0) {
     return {
@@ -123,7 +127,7 @@ export async function computeDealReadiness(
   // 3. Check checklist satisfaction
   const { data: checklist } = await sb
     .from("deal_checklist_items")
-    .select("required, status")
+    .select("required, status, checklist_key, required_years, satisfied_years")
     .eq("deal_id", dealId);
 
   if (!checklist || checklist.length === 0) {
@@ -135,7 +139,52 @@ export async function computeDealReadiness(
   }
 
   const satisfiedRequired = getSatisfiedRequired(checklist);
-  const missingRequired = getMissingRequired(checklist).length;
+  const missingItems = getMissingRequired(checklist);
+  let missingRequired = missingItems.length;
+
+  // SPEC-OUTSTANDING-FIXES-BATCH-1 Fix 7: Tax year tolerance.
+  // If the ONLY missing required items are tax returns for the current-prior
+  // year (e.g. 2025 returns in May 2026 — filed but borrower hasn't provided),
+  // treat the requirement as substantially met for stage advancement.
+  // The checklist still shows the missing year so bankers know to collect it.
+  if (missingRequired > 0) {
+    const currentTaxYear = new Date().getMonth() >= 3
+      ? new Date().getFullYear() - 1
+      : new Date().getFullYear() - 2;
+    const currentYearSuffix = `_${currentTaxYear}`;
+
+    const nonTolerableMissing = missingItems.filter((item: any) => {
+      const key = (item.checklist_key ?? "") as string;
+      // Tolerate missing IRS_BUSINESS_<year> and IRS_PERSONAL_<year> for current tax year only
+      if (key.endsWith(currentYearSuffix)) {
+        const prefix = key.replace(currentYearSuffix, "");
+        if (prefix === "IRS_BUSINESS" || prefix === "IRS_PERSONAL") {
+          return false; // tolerable — don't count as blocking
+        }
+      }
+      return true; // non-tolerable — still blocks
+    });
+
+    missingRequired = nonTolerableMissing.length;
+
+    // SPEC-READINESS-SYSTEM-UNIFICATION-1: PFS_CURRENT tolerance.
+    // If PFS_CURRENT is missing but a finalized PFS doc exists, treat as
+    // non-blocking. Reconciliation (System B) will fix the status.
+    if (nonTolerableMissing.some((i: any) => i.checklist_key === "PFS_CURRENT")) {
+      const { count: pfsCount } = await sb
+        .from("deal_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .in("canonical_type", ["PFS", "PERSONAL_FINANCIAL_STATEMENT"])
+        .not("finalized_at", "is", null);
+
+      if ((pfsCount ?? 0) > 0) {
+        missingRequired = nonTolerableMissing.filter(
+          (i: any) => i.checklist_key !== "PFS_CURRENT",
+        ).length;
+      }
+    }
+  }
 
   if (missingRequired > 0) {
     return {
@@ -182,6 +231,18 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
     .single();
 
   const wasReady = !!currentDeal?.ready_at;
+
+  // SPEC-READINESS-SYSTEM-UNIFICATION-1: Reconcile checklist synchronously
+  // before evaluating readiness. Without this, checklist status is stale and
+  // computeDealReadiness sees missing items even when docs exist.
+  try {
+    const { reconcileChecklistForDeal } = await import("@/lib/checklist/engine");
+    const sb2 = supabaseAdmin();
+    await reconcileChecklistForDeal({ sb: sb2, dealId });
+  } catch (reconcileErr: any) {
+    console.warn("[recomputeDealReady] checklist reconcile failed (non-fatal)", reconcileErr?.message);
+  }
+
   const result = await computeDealReadiness(dealId);
 
   if (result.ready) {
@@ -236,14 +297,25 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       });
     }
 
+    // Phase 12B: fire comms lifecycle hook on ready transition
+    if (updated) {
+      void import("@/lib/brokerage/commsLifecycleHooks")
+        .then((m) => m.handleLifecycleHook({ dealId, event: "deal_ready_for_review" }, sb))
+        .catch(() => {});
+    }
+
     // Best-effort lifecycle advancement — advanceDealLifecycle has its own
     // internal stage guard (ALLOWED_TRANSITIONS), so this is safe to call
     // unconditionally. Wrapped in try/catch because stage column
     // may not exist in all environments and this must not break readiness.
     try {
+      // SPEC-OUTSTANDING-FIXES-BATCH-1: collecting → underwriting is the valid
+      // transition. "ready" is not a valid toStage from "collecting" per
+      // ALLOWED_TRANSITIONS. The UI stage label is "Memo Inputs Required"
+      // which maps to the underwriting stage in the lifecycle model.
       await advanceDealLifecycle({
         dealId,
-        toStage: "ready",
+        toStage: "underwriting",
         reason: "deal_ready",
         source: "readiness",
         actor: { userId: null, type: "system", label: "readiness" },
@@ -261,6 +333,12 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
       })
       .eq("id", dealId);
 
+    // SPEC-READINESS-SYSTEM-UNIFICATION-1: Always fire System B regardless of
+    // System A's gate result. System B (refreshDealReadiness) runs checklist
+    // reconciliation before evaluating readiness — it may find the deal IS
+    // ready after reconciliation even when System A sees stale checklist state.
+    scheduleReadinessRefresh({ dealId, trigger: "financial_facts_written" });
+
     // Write reverted event if deal was previously ready
     if (wasReady) {
       const { writeEvent } = await import("@/lib/ledger/writeEvent");
@@ -270,6 +348,11 @@ export async function recomputeDealReady(dealId: string): Promise<void> {
         actorUserId: null,
         input: { reason: result.reason },
       });
+
+      // Phase 12B: fire comms lifecycle hook on readiness regression
+      void import("@/lib/brokerage/commsLifecycleHooks")
+        .then((m) => m.handleLifecycleHook({ dealId, event: "readiness_regressed" }, sb))
+        .catch(() => {});
     }
   }
 }

@@ -33,6 +33,7 @@ export const BLOCKER_ACTION_MAP: Record<string, BuddyActionCode[]> = {
   financial_snapshot_stale: ["generate_financial_snapshot"],
   financial_validation_open: ["resolve_readiness_blockers"],
   financial_snapshot_build_failed: ["generate_financial_snapshot"],
+  financial_period_review_open: ["resolve_readiness_blockers"],
 
   // Intake blockers
   intake_health_below_threshold: ["resolve_readiness_blockers"],

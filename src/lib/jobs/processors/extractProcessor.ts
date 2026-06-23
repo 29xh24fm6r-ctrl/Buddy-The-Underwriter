@@ -39,7 +39,7 @@ export async function processExtractJob(jobId: string, leaseOwner: string) {
     // Get document info
     const { data: doc, error: docErr } = await (supabase as any)
       .from("deal_documents")
-      .select("id, deal_id, bank_id, document_type, original_filename")
+      .select("id, deal_id, bank_id, document_type, canonical_type, original_filename")
       .eq("id", job.attachment_id)
       .single();
 
@@ -98,8 +98,10 @@ export async function processExtractJob(jobId: string, leaseOwner: string) {
 
     // AR collateral side-effect (gated by ENABLE_AR_COLLATERAL).
     // Fire-and-forget: failures here must not fail the extract job.
+    // Check both document_type and canonical_type for AR_AGING.
+    const isArDoc = doc.document_type === "AR_AGING" || doc.canonical_type === "AR_AGING";
     if (
-      doc.document_type === "AR_AGING" &&
+      isArDoc &&
       result.result.tables &&
       process.env.ENABLE_AR_COLLATERAL === "true"
     ) {

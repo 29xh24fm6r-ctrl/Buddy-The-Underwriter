@@ -167,7 +167,6 @@ type DealShellDeal = {
   nickname: string | null;
   borrower_name: string | null;
   name: string | null;
-  legal_name?: string | null;
   amount: number | null;
   stage: string | null;
   risk_score: number | null;
@@ -287,7 +286,6 @@ export default function DealShell({
         nickname,
         borrower_name: borrowerName,
         name: deal.name ?? null,
-        legal_name: deal.legal_name ?? null,
       })
     : null;
 
@@ -365,6 +363,16 @@ export default function DealShell({
 
             {/* Right: Key actions — Credit Memo button is readiness-aware */}
             <div className="flex items-center gap-2 shrink-0">
+              {/* Back to Cockpit — sticky shortcut on all sub-pages */}
+              {!pathname?.endsWith("/cockpit") && (
+                <Link
+                  href={`/deals/${dealId}/cockpit`}
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>home</span>
+                  <span>Cockpit</span>
+                </Link>
+              )}
               <DealShellMemoCta dealId={dealId} />
               <Link
                 href={`/deals/${dealId}/classic-spreads`}

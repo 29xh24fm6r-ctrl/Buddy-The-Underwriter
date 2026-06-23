@@ -28,7 +28,10 @@ function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDo
   if (key.startsWith("IRS_PERSONAL")) return ["personal_tax_return"];
 
   if (key === "FIN_STMT_PL_YTD") return ["income_statement", "financial_statement"];
+  if (key === "FIN_STMT_PL_ANNUAL") return ["income_statement", "financial_statement"];
   if (key === "FIN_STMT_BS_YTD") return ["balance_sheet", "financial_statement"];
+  if (key === "FIN_STMT_BS_CURRENT") return ["balance_sheet", "financial_statement"];
+  if (key === "FIN_STMT_BS_HISTORICAL") return ["balance_sheet", "financial_statement"];
   // Back-compat legacy key (older deals): treat as requiring either statement.
   if (key === "FIN_STMT_YTD") return ["income_statement", "balance_sheet", "financial_statement"];
 
@@ -560,6 +563,15 @@ export async function reconcileDealChecklist(dealId: string) {
         })()
       : (docsByKey.get(itemKey) ?? []);
 
+    // SPEC-CHECKLIST-STAGE-GATE-FIX-1: PFS docs may have canonical_type="PFS"
+    // but document_type is not normalized to a CanonicalDocTypeBucket. Fall back
+    // to direct canonical_type match for PFS_CURRENT.
+    if (docsForItem.length === 0 && itemKey === "PFS_CURRENT") {
+      docsForItem = matchedDocs.filter((d: any) =>
+        d.canonical_type === "PFS" || d.canonical_type === "PERSONAL_FINANCIAL_STATEMENT",
+      );
+    }
+
     // Conditional satisfaction: PTR only satisfies IRS_BUSINESS_* if it has Schedule C
     if (itemKey.toUpperCase().startsWith("IRS_BUSINESS") && docsForItem.length > 0) {
       const filtered: any[] = [];
@@ -655,7 +667,9 @@ export async function reconcileDealChecklist(dealId: string) {
       const utcMonth = now.getUTCMonth();
       const utcDay = now.getUTCDate();
       const beforeDeadline = utcMonth < 3 || (utcMonth === 3 && utcDay < 16);
-      const minMostRecentYear = beforeDeadline ? currentYear - 2 : currentYear - 1;
+      // Accept returns one year older than the most recent filed year.
+      // e.g. in May 2026: minMostRecentYear = 2026 - 2 = 2024, so [2022,2023,2024] passes.
+      const minMostRecentYear = beforeDeadline ? currentYear - 3 : currentYear - 2;
 
       const evalResult = evaluateConsecutiveYears(
         Array.from(satisfiedYearsSet),
@@ -930,17 +944,22 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
         (doc as any).statement_period ?? null,
       );
       if (derivedKey && !(doc as any).checklist_key) {
-        throw new Error(
-          `Invariant violation: finalized doc ${(doc as any).id} has canonical_type=${(doc as any).canonical_type} which resolves to checklist_key=${derivedKey}, but checklist_key is null`,
+        // Self-heal: stamp the derived checklist_key rather than crashing reconcile.
+        // This covers docs finalized before the stamp canonicality fix landed.
+        console.warn(
+          `[reconcile] Phase I self-heal: doc ${(doc as any).id} canonical_type=${(doc as any).canonical_type} → checklist_key=${derivedKey}`,
         );
+        await sbCheck
+          .from("deal_documents")
+          .update({ checklist_key: derivedKey })
+          .eq("id", (doc as any).id);
       }
     }
   } catch (e: any) {
-    if (e?.message?.startsWith("Invariant violation:")) {
-      throw e; // Re-throw invariant violations — fail closed
-    }
-    // Swallow other errors (query failures, schema drift) — non-fatal
-    console.warn("[reconcile] Phase I invariant check query failed (non-fatal)", e);
+    // All errors in the invariant check / self-heal are non-fatal.
+    // The reconcile must not crash — the downstream conflict resolution and
+    // readiness computation depend on it completing.
+    console.warn("[reconcile] Phase I invariant check failed (non-fatal)", e?.message ?? e);
   }
 
   // ── Phase 8: Deterministic conflict resolution ──────────────────────

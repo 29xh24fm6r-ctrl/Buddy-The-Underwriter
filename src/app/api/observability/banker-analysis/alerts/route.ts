@@ -33,6 +33,7 @@ import { sendBankerAnalysisAlert } from "@/lib/observability/sendBankerAnalysisA
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function alertsEnabled(): boolean {
   return process.env.BANKER_ANALYSIS_ALERTS_ENABLED === "true";

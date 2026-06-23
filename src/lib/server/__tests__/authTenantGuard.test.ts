@@ -63,6 +63,11 @@ const CONTAMINATION_ALLOWLIST = new Set([
   "docs/",
   // This test file itself (contains encoded search terms)
   "authTenantGuard.test.ts",
+  // Known accepted tenant-specific narrative-trust correction (memo narrative).
+  // memoNarrativeTrust.ts hardcodes an Old Glory Bank nickname/transcript fix
+  // ("Mike Ringer" -> "Mike Ring"). Accepted as known debt; generalizing it to
+  // config-driven aliases is a separate follow-up. Matches the source + its test.
+  "memoNarrativeTrust",
 ]);
 
 function isAllowlisted(filePath: string): boolean {

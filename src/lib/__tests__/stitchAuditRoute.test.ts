@@ -51,10 +51,16 @@ test("audit: tracing config includes stitch_exports for Vercel bundle", () => {
   );
 });
 
-// ── Guard 5: Audit route file exists ──────────────────────
-test("audit: audit route file exists", () => {
+// ── Guard 5: Audit route stays removed (gating-by-absence) ─
+// The builder/stitch/audit route was removed in 824c90f7 (dead-route cleanup
+// for the Vercel route cap). Pin its removal: if re-introduced, restore the
+// route-existence expectation alongside it.
+test("audit: builder stitch/audit route stays removed", () => {
   const auditRoute = path.resolve(root, "src/app/api/builder/stitch/audit/route.ts");
-  assert.ok(fs.existsSync(auditRoute), "Audit route file missing");
+  assert.ok(
+    !fs.existsSync(auditRoute),
+    "builder/stitch/audit/route.ts was removed in the route-cap cleanup — if re-added, restore its registration guard",
+  );
 });
 
 // ── Guard 6: Recovery routes are not required ─────────────

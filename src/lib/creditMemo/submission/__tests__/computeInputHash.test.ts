@@ -22,12 +22,19 @@ function memo(loanAmount: number = 1_000_000): CanonicalCreditMemoV1 {
     version: "canonical_v1",
     generated_at: "2026-05-05T00:00:00.000Z",
     key_metrics: { loan_amount: { value: loanAmount } },
-    financial_analysis: { dscr: { value: 1.4 } },
+    financial_analysis: { dscr: { value: 1.4 }, debt_coverage_table: [] },
     collateral: { gross_value: { value: 1_500_000 } },
     business_summary: { business_description: "stub" },
     management_qualifications: {
       principals: [{ id: "p1", bio: "x".repeat(50) }],
     },
+    // Required by the expanded hash inputs (pricing + recommendation).
+    proposed_terms: {
+      product: "sba_7a",
+      rate: { all_in_rate: 0.105 },
+      rationale: "stub rationale",
+    },
+    recommendation: { verdict: "approve" },
   } as unknown as CanonicalCreditMemoV1;
 }
 

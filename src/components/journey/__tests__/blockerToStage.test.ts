@@ -42,6 +42,7 @@ const ALL_BLOCKER_CODES = [
   "financial_snapshot_stale",
   "financial_validation_open",
   "financial_snapshot_build_failed",
+  "financial_period_review_open",
   "critical_flags_unresolved",
   "borrower_not_attached",
   "artifacts_processing_stalled",
@@ -124,6 +125,10 @@ describe("blockerGatesStage — underwriting blockers", () => {
 
   it("financial_validation_open → underwrite_ready", () => {
     assert.equal(blockerGatesStage("financial_validation_open"), "underwrite_ready");
+  });
+
+  it("financial_period_review_open → underwrite_ready", () => {
+    assert.equal(blockerGatesStage("financial_period_review_open"), "underwrite_ready");
   });
 
   it("financial_snapshot_build_failed → underwrite_ready", () => {

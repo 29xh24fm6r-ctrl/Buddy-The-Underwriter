@@ -87,7 +87,7 @@ test("[cfa-extract-4] aggregator uses sentinel UUID and sentinel date matching r
 
 // ── Guard 5: aggregator uses the correct provenance shape (v2 per SPEC-B4.1.2) ──
 
-test("[cfa-extract-5] aggregator provenance matches classicSpread:debtService:v1", () => {
+test("[cfa-extract-5] aggregator provenance matches computed:classic_spread:v2", () => {
   const body = readAggregator();
   assert.match(
     body,
@@ -114,11 +114,13 @@ test("[cfa-extract-6] aggregator onConflict columns match route", () => {
 
 // ── Guard 7: aggregator writes the correct 4 fact keys ─────────────────────
 
-test("[cfa-extract-7] aggregator writes ANNUAL_DEBT_SERVICE, DSCR, CASH_FLOW_AVAILABLE, EXCESS_CASH_FLOW", () => {
+test("[cfa-extract-7] aggregator writes PROPOSED-only keys + CASH_FLOW_AVAILABLE, EXCESS_CASH_FLOW (never total ANNUAL_DEBT_SERVICE/DSCR)", () => {
   const body = readAggregator();
+  // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1 (PR-519): the aggregator writes proposed-loan
+  // figures only — canonical DSCR + total ANNUAL_DEBT_SERVICE are owned by computeTotalDebtService.
   for (const key of [
-    "ANNUAL_DEBT_SERVICE",
-    "DSCR",
+    "ANNUAL_DEBT_SERVICE_PROPOSED",
+    "PROPOSED_LOAN_COVERAGE",
     "CASH_FLOW_AVAILABLE",
     "EXCESS_CASH_FLOW",
   ]) {
@@ -128,6 +130,15 @@ test("[cfa-extract-7] aggregator writes ANNUAL_DEBT_SERVICE, DSCR, CASH_FLOW_AVA
       `Aggregator must write fact key ${key}.`,
     );
   }
+  // Must NOT write a bare DSCR or total ANNUAL_DEBT_SERVICE key (would masquerade as global DSCR).
+  assert.ok(
+    !/factsToWrite[\s\S]*?\{\s*key:\s*"DSCR"/.test(body),
+    "Aggregator must NOT write a bare DSCR fact (proposed-only coverage cannot masquerade as DSCR).",
+  );
+  assert.ok(
+    !/factsToWrite[\s\S]*?\{\s*key:\s*"ANNUAL_DEBT_SERVICE"\s*,/.test(body),
+    "Aggregator must NOT write total ANNUAL_DEBT_SERVICE (owned by computeTotalDebtService).",
+  );
 });
 
 // ── Guard 8: aggregator does NOT contain snapshot persistence ──────────────

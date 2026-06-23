@@ -210,6 +210,31 @@ const FORM_ANCHORS: AnchorRule[] = [
 /** Structural anchors — require multiple signals */
 const STRUCTURAL_ANCHORS: AnchorRule[] = [
 
+  // ── AR AGING ───────────────────────────────────────────────────────────
+  // MUST come before BALANCE_SHEET (balance sheets have "Accounts Receivable"
+  // as a line item — must not false-positive as AR aging).
+  {
+    anchorId: "AR_AGING_TITLE",
+    pattern: /(?:A\/R|AR|accounts\s+receivable|receivables)\s+aging(?:\s+summary|\s+report|\s+detail)?/i,
+    docType: "AR_AGING",
+    confidence: 0.94,
+    entityType: "business",
+    formNumber: null,
+    secondaryPatterns: [
+      /\bcurrent\b/i,
+      /\b\d{1,2}\s*-\s*\d{2}\b/, // 1-30, 31-60, 61-90
+      /\b(?:91|90)\s*(?:and|&)?\s*over\b/i,
+      /\b(?:90|91|120)\+\b/,
+      /\btotal\b/i,
+    ],
+    secondaryMinMatch: 2,
+    excludePatterns: [
+      /\baccounts\s+payable\s+aging\b/i,
+      /\b(?:vendor|supplier)\s+aging\b/i,
+      /\bA\/P\s+aging\b/i,
+    ],
+  },
+
   // ── PERSONAL FINANCIAL STATEMENT ────────────────────────────────────────
   // MUST come before BALANCE_SHEET_STRUCTURAL.
   // The OGB PFS form contains "Section 3 – Balance Sheet" as a section header,
@@ -269,13 +294,17 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
   },
 
   // ── BALANCE SHEET ───────────────────────────────────────────────────────
+  // Matches:
+  //   - Balance Sheet
+  //   - Statement of Financial Position
+  //   - Statement of Assets, Liabilities and Equity (QuickBooks/accounting software)
+  //   - Statement of Assets and Liabilities
+  //   - Statement of Financial Condition
   // excludePatterns: suppressed when personal financial statement language
   // is present — prevents PFS from being locked as BALANCE_SHEET.
-  // (Belt-and-suspenders: PERSONAL_FINANCIAL_STMT_STRUCTURAL fires first,
-  // but this exclusion catches edge cases where OCR garbles the PFS header.)
   {
     anchorId: "BALANCE_SHEET_STRUCTURAL",
-    pattern: /balance\s+sheet|statement\s+of\s+financial\s+position/i,
+    pattern: /balance\s+sheet|statement\s+of\s+financial\s+(?:position|condition)|statement\s+of\s+assets[\s,]+liabilities\s+(?:and|&)\s+equity|statement\s+of\s+assets\s+(?:and|&)\s+liabilities/i,
     docType: "BALANCE_SHEET",
     confidence: 0.93,
     entityType: null,
@@ -284,8 +313,17 @@ const STRUCTURAL_ANCHORS: AnchorRule[] = [
       /personal\s+financial\s+statement/i,
       /statement\s+of\s+personal/i,
       /net\s+worth.*personal/i,
+      /\bspouse\b/i,
+      /\bguarantor\b/i,
+      /SBA\s+Form\s+413/i,
     ],
-    secondaryPatterns: [/total\s+assets/i, /total\s+liabilities/i],
+    secondaryPatterns: [
+      /total\s+assets/i,
+      /total\s+liabilities/i,
+      /liabilities\s+(?:and|&)\s+equity/i,
+      /retained\s+earnings/i,
+    ],
+    secondaryMinMatch: 2,
   },
 
   // ── INCOME STATEMENT ────────────────────────────────────────────────────

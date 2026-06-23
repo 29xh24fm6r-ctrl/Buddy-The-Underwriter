@@ -5,19 +5,40 @@ import "server-only";
  *
  * Generates a PDF of the canonical credit memo using PDFKit (pure Node.js).
  * Replaces the previous Playwright/Chromium approach which fails on Vercel serverless.
+ *
+ * SPEC — Florida Armory Snapshot Is The Only Committee Source Of Truth:
+ * - This route MUST NOT call buildCanonicalCreditMemo directly.
+ * - The PDF is rendered from the latest certified Florida Armory snapshot in
+ *   credit_memo_snapshots (status='banker_submitted'), via
+ *   loadLatestCertifiedFloridaArmorySnapshot + assertCommitteeMemoSafe.
+ * - buildCanonicalCreditMemo remains valid for diagnostic / draft / pre-submission
+ *   surfaces, but cannot generate final committee PDFs.
+ * - TODO: long-term, replace this route with
+ *   /api/deals/[dealId]/credit-memo/snapshots/latest/pdf
+ *   and render the PDF from snapshot.sections directly. This is the interim
+ *   safe bridge that still uses snapshot.canonical_memo for the body but
+ *   only after the committee-artifact guard passes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
-import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow } from "@/lib/creditMemo/canonical/types";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadLatestCertifiedFloridaArmorySnapshot } from "@/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot";
+import {
+  assertCommitteeMemoSafe,
+} from "@/lib/creditMemo/snapshot/assertCommitteeMemoSafe";
+import { FloridaArmoryBuildError } from "@/lib/creditMemo/snapshot/types";
+import type { CanonicalCreditMemoV1, DebtCoverageRow, IncomeStatementRow, BalanceSheetRow, RatioAnalysisRow } from "@/lib/creditMemo/canonical/types";
+import type { StressTestTable, StressScenarioRow } from "@/lib/creditMemo/canonical/buildStressTestTable";
+import type { CovenantPackage } from "@/lib/covenants/covenantTypes";
+import type { QualitativeAssessment } from "@/lib/creditMemo/canonical/buildQualitativeAssessment";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -155,7 +176,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       ["Product",        pending(km.product)],
       ["Rate",           pending(km.rate_summary)],
       ["Term",           km.term_months ? `${km.term_months} months` : "Pending"],
-      ["Amortization",  km.amort_months ? `${km.amort_months} months` : "Pending"],
+      ["Amortization",  km.amort_months === 0 ? "Interest Only" : km.amort_months ? `${km.amort_months} months` : "Pending"],
       ["Monthly Pmt",   pendingNum(km.monthly_payment, fmt$)],
     ];
     const col2 = [
@@ -243,14 +264,15 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       ["Credit Elsewhere", elig.credit_available_elsewhere],
     ];
     eligRows.forEach(([lbl, val]) => { labelValue(lbl, val); divider(); });
+    doc.moveDown(0.4);
 
     // ── BUSINESS SUMMARY ──────────────────────────────────────────────────────
 
     sectionHeader("Business & Industry Analysis");
     const bs = memo.business_summary;
     doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
-      .text(pending(bs.business_description), L, doc.y, { width: pageWidth, lineGap: 2 });
-    doc.moveDown(0.3);
+      .text(pending(bs.business_description), L, doc.y, { width: pageWidth, lineGap: 2.5 });
+    doc.moveDown(0.4);
 
     if (memo.business_industry_analysis) {
       const bia = memo.business_industry_analysis;
@@ -258,10 +280,10 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       if (narrative && narrative !== "Pending") {
         doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.accent)
           .text("Credit Thesis / Industry Overview", L, doc.y);
-        doc.fontSize(8).font("Helvetica").fillColor(COLORS.black)
-          .text(narrative.slice(0, 1200) + (narrative.length > 1200 ? "…" : ""),
-            L, doc.y, { width: pageWidth, lineGap: 2 });
-        doc.moveDown(0.3);
+        doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
+          .text(narrative.slice(0, 1500) + (narrative.length > 1500 ? "…" : ""),
+            L, doc.y, { width: pageWidth, lineGap: 2.5 });
+        doc.moveDown(0.4);
       }
 
       if (bia.risk_indicators?.length) {
@@ -297,6 +319,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
     // ── FINANCIAL ANALYSIS ────────────────────────────────────────────────────
 
+    doc.addPage(); // Force new page before Financial Analysis
     sectionHeader("Financial Analysis");
 
     // Debt Coverage Table
@@ -463,6 +486,298 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       doc.moveDown(0.3);
     }
 
+    // ── RATIO ANALYSIS ───────────────────────────────────────────────────────
+
+    const ratios = memo.financial_analysis.ratio_analysis;
+    if (ratios.length) {
+      doc.addPage(); // Force new page before Ratio Analysis
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Ratio Analysis", L, doc.y);
+      doc.moveDown(0.3);
+
+      // Table layout: Metric | Value | Assessment | Interpretation
+      const rColMetric = 140;
+      const rColValue = 50;
+      const rColAssess = 65;
+      const rColInterp = pageWidth - rColMetric - rColValue - rColAssess;
+      const rRowH = 14;
+
+      let lastCat = "";
+      ratios.forEach((r: RatioAnalysisRow) => {
+        const cat = r.category ?? "";
+        if (cat && cat !== lastCat) {
+          checkPageBreak(rRowH + 14);
+          lastCat = cat;
+          // Category sub-header (dark bar)
+          const catY = doc.y;
+          doc.rect(L, catY, pageWidth, rRowH).fill(COLORS.headerBg);
+          doc.fontSize(7).font("Helvetica-Bold").fillColor("#FFFFFF")
+            .text(cat.toUpperCase(), L + 4, catY + 3, { width: pageWidth - 8 });
+          doc.y = catY + rRowH + 1;
+        }
+        checkPageBreak(rRowH);
+        const rowY = doc.y;
+
+        // Metric name
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(r.metric, L + 2, rowY + 3, { width: rColMetric - 4 });
+        // Value
+        const val = r.value !== null ? (r.value as number).toFixed(2) : "—";
+        doc.font("Helvetica-Bold").text(val, L + rColMetric + 2, rowY + 3,
+          { width: rColValue - 4, align: "right" });
+        // Assessment (colored)
+        const assess = r.assessment ?? "";
+        const assessColor = assess === "Strong" ? COLORS.green
+          : assess === "Adequate" ? COLORS.gray
+          : assess === "Weak" ? COLORS.red
+          : assess === "N/A" ? COLORS.lightGray
+          : COLORS.gray;
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(assessColor)
+          .text(assess, L + rColMetric + rColValue + 2, rowY + 3,
+            { width: rColAssess - 4, align: "center" });
+        // Interpretation
+        if (r.interpretation) {
+          doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+            .text(r.interpretation, L + rColMetric + rColValue + rColAssess + 2, rowY + 3,
+              { width: rColInterp - 4 });
+        }
+
+        // Light rule
+        doc.moveTo(L, rowY + rRowH).lineTo(L + pageWidth, rowY + rRowH)
+          .strokeColor(COLORS.lineGray).lineWidth(0.15).stroke();
+        doc.y = rowY + rRowH;
+      });
+      doc.moveDown(0.4);
+    }
+
+    // ── REPAYMENT ABILITY ────────────────────────────────────────────────────
+
+    if (memo.financial_analysis.repayment_notes.length) {
+      checkPageBreak(40);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Repayment Ability", L, doc.y);
+      doc.moveDown(0.2);
+      memo.financial_analysis.repayment_notes.forEach((n) => {
+        doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${n}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 2 });
+      });
+      doc.moveDown(0.4);
+    }
+
+    // ── PROJECTION FEASIBILITY ───────────────────────────────────────────────
+
+    if (memo.financial_analysis.projection_feasibility && memo.financial_analysis.projection_feasibility !== "Pending") {
+      checkPageBreak(30);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Projection Feasibility", L, doc.y);
+      doc.moveDown(0.2);
+      doc.fontSize(8.5).font("Helvetica").fillColor(COLORS.black)
+        .text(memo.financial_analysis.projection_feasibility, L, doc.y, { width: pageWidth, lineGap: 2.5 });
+      doc.moveDown(0.4);
+    }
+
+    // ── BREAKEVEN ANALYSIS ───────────────────────────────────────────────────
+
+    const bev = memo.financial_analysis.breakeven;
+    if (bev.required_revenue !== null) {
+      checkPageBreak(40);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Breakeven Analysis", L, doc.y);
+      doc.moveDown(0.2);
+      const bevItems: [string, string][] = [
+        ["Required Revenue",   fmt$(bev.required_revenue)],
+        ["Fixed Expenses",     fmt$(bev.fixed_expenses)],
+        ["Revenue Cushion",    bev.revenue_cushion_pct !== null ? fmtPct(bev.revenue_cushion_pct) : "—"],
+      ];
+      bevItems.forEach(([lbl, val]) => { labelValue(lbl, val); });
+      if (bev.narrative) {
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(bev.narrative, L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── STRESS TESTING (Phase 90A) ───────────────────────────────────────────
+
+    const st = memo.stress_testing;
+    if (st && st.scenarios.length) {
+      doc.addPage(); // Force new page before Stress Testing
+      sectionHeader("Stress Testing");
+      checkPageBreak(60);
+
+      labelValue("Baseline DSCR", fmtRatio(st.baseline_dscr));
+      labelValue("Worst-Case DSCR", fmtRatio(st.worst_case_dscr));
+      labelValue("Breakeven EBITDA (1.0×)", fmt$(st.breakeven_ebitda_1x));
+      labelValue("Revenue Cushion", st.revenue_cushion_pct !== null ? fmtPct(st.revenue_cushion_pct) : "—");
+      doc.moveDown(0.3);
+
+      // Scenario table — wider scenario col to avoid wrapping
+      const stCols: Array<{ label: string; fn: (r: StressScenarioRow) => string; w: number }> = [
+        { label: "Scenario",         fn: r => r.label,                              w: 200 },
+        { label: "Revenue Impact",   fn: r => r.revenue_haircut_pct ? fmtPct(r.revenue_haircut_pct * 100) : "—", w: 80 },
+        { label: "DSCR",             fn: r => fmtRatio(r.stressed_dscr),            w: 50 },
+        { label: "Assessment",       fn: r => r.assessment,                          w: 80 },
+      ];
+
+      const stHY = doc.y;
+      doc.rect(L, stHY, pageWidth, 13).fill(COLORS.sectionBg);
+      let stx = L;
+      stCols.forEach((c) => {
+        doc.fontSize(6.5).font("Helvetica-Bold").fillColor(COLORS.gray)
+          .text(c.label, stx + 2, stHY + 3, { width: c.w - 4 });
+        stx += c.w;
+      });
+      doc.y = stHY + 15;
+
+      st.scenarios.forEach((row, ri) => {
+        checkPageBreak(14);
+        const rowY = doc.y;
+        if (ri % 2 === 0) doc.rect(L, rowY, pageWidth, 13).fill("#FAFAFA");
+        stx = L;
+        stCols.forEach((c) => {
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(c.fn(row), stx + 2, rowY + 3, { width: c.w - 4 });
+          stx += c.w;
+        });
+        doc.y = rowY + 14;
+      });
+
+      if (st.narrative) {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(st.narrative.slice(0, 500), L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── COVENANT PACKAGE (Phase 90B) ─────────────────────────────────────────
+
+    const cpkg = memo.covenant_package;
+    if (cpkg && (cpkg.financial.length || cpkg.reporting.length || cpkg.affirmativeNegative.length)) {
+      sectionHeader("Covenant Package");
+
+      if (cpkg.financial.length) {
+        checkPageBreak(30);
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(COLORS.accent)
+          .text("Financial Covenants", L, doc.y);
+        doc.moveDown(0.2);
+        cpkg.financial.forEach((c) => {
+          checkPageBreak(16);
+          doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.black)
+            .text(c.name, L + 4, doc.y, { continued: true, width: 140 });
+          doc.font("Helvetica").fillColor(COLORS.gray)
+            .text(`  ${c.threshold}${c.unit === "ratio" ? "×" : c.unit === "percentage" ? "%" : ""} (${c.testingFrequency})`, { width: pageWidth - 150 });
+        });
+        doc.moveDown(0.2);
+      }
+
+      if (cpkg.reporting.length) {
+        checkPageBreak(30);
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(COLORS.accent)
+          .text("Reporting Requirements", L, doc.y);
+        doc.moveDown(0.2);
+        cpkg.reporting.forEach((c) => {
+          checkPageBreak(13);
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`• ${c.name} — ${c.requirement} (${c.frequency})`, L + 4, doc.y, { width: pageWidth - 4, lineGap: 1 });
+        });
+        doc.moveDown(0.2);
+      }
+
+      if (cpkg.affirmativeNegative.length) {
+        checkPageBreak(30);
+        doc.fontSize(7.5).font("Helvetica-Bold").fillColor(COLORS.accent)
+          .text("Affirmative / Negative Covenants", L, doc.y);
+        doc.moveDown(0.2);
+        cpkg.affirmativeNegative.forEach((c) => {
+          checkPageBreak(13);
+          const prefix = c.covenantType === "affirmative" ? "✓" : "✗";
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`${prefix} ${c.name}: ${c.draftLanguage.slice(0, 200)}`, L + 4, doc.y, { width: pageWidth - 4, lineGap: 1 });
+        });
+        doc.moveDown(0.2);
+      }
+
+      if (cpkg.rationale) {
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(cpkg.rationale.slice(0, 300), L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── QUALITATIVE ASSESSMENT (Phase 90C) ───────────────────────────────────
+
+    const qa = memo.qualitative_assessment;
+    if (qa) {
+      sectionHeader("Qualitative Assessment");
+      checkPageBreak(60);
+
+      // Composite badge
+      const compColor = qa.composite_label === "Strong" ? COLORS.green
+        : qa.composite_label === "Adequate" ? COLORS.accent
+        : qa.composite_label === "Marginal" ? COLORS.amber
+        : COLORS.red;
+      doc.rect(L, doc.y, 90, 18).fill(compColor);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor("#FFFFFF")
+        .text(`${qa.composite_label.toUpperCase()} (${qa.composite_score.toFixed(1)})`, L + 4, doc.y - 14, { width: 82 });
+      doc.y += 6;
+      doc.moveDown(0.3);
+
+      // Five dimensions
+      const dims: Array<{ label: string; dim: typeof qa.character }> = [
+        { label: "Character",      dim: qa.character },
+        { label: "Capital",        dim: qa.capital },
+        { label: "Conditions",     dim: qa.conditions },
+        { label: "Management",     dim: qa.management },
+        { label: "Business Model", dim: qa.business_model },
+      ];
+      dims.forEach(({ label, dim }) => {
+        checkPageBreak(16);
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.black)
+          .text(`${label}: ${dim.label} (${dim.score}/5)`, L, doc.y, { continued: true, width: 160 });
+        doc.font("Helvetica").fillColor(COLORS.gray)
+          .text(`  ${dim.basis.slice(0, 200)}`, { width: pageWidth - 170 });
+      });
+
+      if (qa.key_strengths.length) {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.green).text("Key Strengths", L, doc.y);
+        qa.key_strengths.forEach((s) => {
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`+ ${s}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 1 });
+        });
+      }
+      if (qa.key_concerns.length) {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Bold").fillColor(COLORS.amber).text("Key Concerns", L, doc.y);
+        qa.key_concerns.forEach((c) => {
+          doc.fontSize(7).font("Helvetica").fillColor(COLORS.black)
+            .text(`⊒ ${c}`, L + 8, doc.y, { width: pageWidth - 8, lineGap: 1 });
+        });
+      }
+      doc.moveDown(0.3);
+    }
+
+    // ── PROPOSED TERMS ───────────────────────────────────────────────────────
+
+    const pt = memo.proposed_terms;
+    if (pt.product && pt.product !== "Pending") {
+      sectionHeader("Proposed Terms");
+      const ptItems: [string, string][] = [
+        ["Product",     pt.product],
+        ["All-In Rate", pt.rate.all_in_rate !== null ? fmtPct(pt.rate.all_in_rate as number) : "Pending"],
+        ["Index",       pt.rate.index || "Pending"],
+        ["Margin",      pt.rate.margin_bps !== null ? `${pt.rate.margin_bps} bps` : "Pending"],
+      ];
+      ptItems.forEach(([lbl, val]) => { labelValue(lbl, val); });
+      if (pt.rationale && pt.rationale !== "Pending") {
+        doc.moveDown(0.2);
+        doc.fontSize(7).font("Helvetica-Oblique").fillColor(COLORS.gray)
+          .text(pt.rationale.slice(0, 400), L, doc.y, { width: pageWidth, lineGap: 1 });
+      }
+      doc.moveDown(0.3);
+    }
+
     // ── PERSONAL FINANCIAL STATEMENTS ─────────────────────────────────────────
 
     const pfsList = memo.personal_financial_statements.filter(
@@ -553,6 +868,7 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
 
     // ── RECOMMENDATION ────────────────────────────────────────────────────────
 
+    doc.addPage(); // Force new page before Recommendation
     sectionHeader("Recommendation / Approvals");
     const rec = memo.recommendation;
 
@@ -618,6 +934,28 @@ function buildCreditMemoPdf(memo: CanonicalCreditMemoV1): Promise<Buffer> {
       doc.moveDown(0.3);
     }
 
+    if (memo.conditions.ongoing.length) {
+      checkPageBreak(40);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Ongoing Conditions", L, doc.y);
+      memo.conditions.ongoing.slice(0, 10).forEach((c) => {
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${c}`, L + 8, doc.y, { width: pageWidth - 8 });
+      });
+      doc.moveDown(0.3);
+    }
+
+    if (memo.conditions.insurance.length) {
+      checkPageBreak(30);
+      doc.fontSize(8).font("Helvetica-Bold").fillColor(COLORS.gray)
+        .text("Insurance Requirements", L, doc.y);
+      memo.conditions.insurance.slice(0, 10).forEach((c) => {
+        doc.fontSize(7.5).font("Helvetica").fillColor(COLORS.black)
+          .text(`• ${c}`, L + 8, doc.y, { width: pageWidth - 8 });
+      });
+      doc.moveDown(0.3);
+    }
+
     // ── SIGNATURE BLOCK ───────────────────────────────────────────────────────
 
     checkPageBreak(100);
@@ -671,7 +1009,7 @@ async function handlePdfRequest(dealId: string) {
       return NextResponse.json({ ok: false, error: "no_bank_selected" }, { status: 401 });
     }
 
-    // Phase 81: Trust enforcement — PDF export requires committee-grade research
+    // Phase 81: Trust enforcement — PDF export requires committee-grade research.
     const { loadAndEnforceResearchTrust } = await import("@/lib/research/trustEnforcement");
     const trustCheck = await loadAndEnforceResearchTrust(dealId, "committee_packet");
     if (!trustCheck.allowed) {
@@ -681,14 +1019,97 @@ async function handlePdfRequest(dealId: string) {
       );
     }
 
-    const res = await buildCanonicalCreditMemo({ dealId, bankId: bankPick.bankId });
-    if (!res.ok) {
-      return NextResponse.json({ ok: false, error: res.error }, { status: 400 });
+    // ── SPEC: ONLY render from the latest certified Florida Armory snapshot.
+    // We do NOT call buildCanonicalCreditMemo here — that path is reserved for
+    // diagnostic / draft / pre-submission surfaces. Committee artifacts MUST
+    // pass through the snapshot + hard-gate pipeline.
+    const snapshotRes = await loadLatestCertifiedFloridaArmorySnapshot({
+      dealId,
+      bankId: bankPick.bankId,
+    });
+    if (!snapshotRes.ok) {
+      if (snapshotRes.reason === "not_found") {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "certified_snapshot_required",
+            message:
+              "Submit the credit memo to underwriting before generating a committee PDF.",
+          },
+          { status: 409 },
+        );
+      }
+      // load_failed → internal failure surface (don't leak details)
+      console.error("[canonical/pdf] snapshot load_failed:", snapshotRes.error);
+      return NextResponse.json(
+        { ok: false, error: "snapshot_load_failed" },
+        { status: 500 },
+      );
     }
 
-    const pdfBuffer = await buildCreditMemoPdf(res.memo);
+    // Final artifact guard: refuse to render unsafe committee memos.
+    try {
+      assertCommitteeMemoSafe(snapshotRes.snapshot);
+    } catch (guardErr: unknown) {
+      if (guardErr instanceof FloridaArmoryBuildError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "committee_artifact_unsafe",
+            details: guardErr.missingFields,
+          },
+          { status: 409 },
+        );
+      }
+      throw guardErr;
+    }
 
-    const borrowerSlug = (res.memo.header.borrower_name ?? dealId)
+    const snapshot = snapshotRes.snapshot;
+    // Interim safe bridge: render the committee PDF from the certified
+    // snapshot's canonical_memo body. The snapshot is now guaranteed
+    // committee-safe by assertCommitteeMemoSafe above. The longer-term path
+    // (separate route + render from snapshot.sections) is captured by the
+    // TODO in the file header.
+    const memoFromSnapshot: CanonicalCreditMemoV1 = snapshot.canonical_memo;
+
+    // SPEC-PDF-NARRATIVE-OVERLAY-1: overlay cached narratives (same logic as canonical/page.tsx).
+    // Narrative overlay does not change underlying data — only enriches
+    // narrative-only fields the canonical builder may have left thin. The
+    // committee-safe guard above ran on the immutable snapshot body, so the
+    // overlay cannot reintroduce placeholders that were already rejected.
+    const memoForRender: CanonicalCreditMemoV1 = {
+      ...memoFromSnapshot,
+      executive_summary: { ...memoFromSnapshot.executive_summary },
+      financial_analysis: { ...memoFromSnapshot.financial_analysis },
+      collateral: { ...memoFromSnapshot.collateral },
+      borrower_sponsor: { ...memoFromSnapshot.borrower_sponsor },
+    };
+    {
+      const sb = supabaseAdmin();
+      const { data: cachedNarrative } = await (sb as any)
+        .from("canonical_memo_narratives")
+        .select("narratives")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankPick.bankId)
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cachedNarrative?.narratives) {
+        const n = cachedNarrative.narratives as any;
+        if (n.executive_summary) memoForRender.executive_summary.narrative = n.executive_summary;
+        if (n.income_analysis) memoForRender.financial_analysis.income_analysis = n.income_analysis;
+        if (n.property_description) memoForRender.collateral.property_description = n.property_description;
+        if (n.borrower_background) memoForRender.borrower_sponsor.background = n.borrower_background;
+        if (n.borrower_experience) memoForRender.borrower_sponsor.experience = n.borrower_experience;
+        if (n.guarantor_strength) memoForRender.borrower_sponsor.guarantor_strength = n.guarantor_strength;
+        if (n.repayment_analysis) memoForRender.financial_analysis.projection_feasibility = n.repayment_analysis;
+      }
+    }
+
+    const pdfBuffer = await buildCreditMemoPdf(memoForRender);
+
+    const borrowerSlug = (memoForRender.header.borrower_name ?? dealId)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 40);

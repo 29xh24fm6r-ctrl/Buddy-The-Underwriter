@@ -19,10 +19,69 @@ import { getRule } from "./flagRegistry";
 // Main entry
 // ---------------------------------------------------------------------------
 
+// ── Reconciliation triggers that require period-aligned evidence ──────────
+const PERIOD_SENSITIVE_TRIGGERS = new Set([
+  "revenue_variance_3pct",
+  "schedule_l_variance_3pct",
+  "large_other_income_5pct",
+  "large_other_expense_5pct",
+  "retained_earnings_rollforward_mismatch",
+]);
+
+/**
+ * Evidence gate: suppresses borrower question when evidence is insufficient.
+ * Returns null instead of a question when period alignment cannot be verified.
+ */
+function checkEvidenceGate(
+  flag: Omit<SpreadFlag, "borrower_question">,
+  facts: Record<string, unknown>,
+): { pass: true } | { pass: false; reason: string } {
+  if (!PERIOD_SENSITIVE_TRIGGERS.has(flag.trigger_type)) {
+    return { pass: true };
+  }
+
+  const yr = flag.year_observed;
+  if (!yr || yr === 0) {
+    return { pass: false, reason: "no year_observed on flag — cannot verify period alignment" };
+  }
+
+  // For revenue variance, both numerator and denominator must exist for the same year
+  if (flag.trigger_type === "revenue_variance_3pct") {
+    const hasNumYr = toNum(facts[`GROSS_RECEIPTS_${yr}`]) !== null;
+    const hasDenYr = toNum(facts[`TOTAL_REVENUE_${yr}`]) !== null;
+    if (!hasNumYr || !hasDenYr) {
+      return { pass: false, reason: `missing same-year (${yr}) facts for revenue comparison` };
+    }
+  }
+
+  // For large expense/income, denominator must be same-year
+  if (flag.trigger_type === "large_other_expense_5pct") {
+    const hasDen = toNum(facts[`GROSS_RECEIPTS_${yr}`]) !== null || toNum(facts[`TOTAL_REVENUE_${yr}`]) !== null;
+    if (!hasDen) {
+      return { pass: false, reason: `missing same-year (${yr}) revenue denominator for expense comparison` };
+    }
+  }
+
+  if (flag.trigger_type === "large_other_income_5pct") {
+    const hasDen = toNum(facts[`GROSS_RECEIPTS_${yr}`]) !== null || toNum(facts[`TOTAL_REVENUE_${yr}`]) !== null;
+    if (!hasDen) {
+      return { pass: false, reason: `missing same-year (${yr}) revenue denominator for income comparison` };
+    }
+  }
+
+  return { pass: true };
+}
+
 export function generateQuestion(
   flag: Omit<SpreadFlag, "borrower_question">,
   facts: Record<string, unknown>,
-): BorrowerQuestion {
+): BorrowerQuestion | null {
+  // ── Evidence gate: suppress question when evidence is bad ──
+  const gate = checkEvidenceGate(flag, facts);
+  if (!gate.pass) {
+    return null;
+  }
+
   const rule = getRule(flag.trigger_type);
   const recipientType: RecipientType = rule?.recipient_type ?? "borrower";
   const urgency: DocumentUrgency = getUrgency(flag.trigger_type);
@@ -209,17 +268,16 @@ const TEMPLATES: Record<string, TemplateFn> = {
 
   // ── Reconciliation questions ─────────────────────────────────────────────
   revenue_variance_3pct: (flag, facts) => {
-    const taxRev = toNum(facts["GROSS_RECEIPTS"]);
-    const fsRev = toNum(facts["TOTAL_REVENUE"]);
     const yr = flag.year_observed ?? "";
-    const taxLabel = "gross receipts";
-    const fsLabel = "net revenue";
+    // Use year-keyed facts to ensure same-period comparison
+    const taxRev = toNum(facts[`GROSS_RECEIPTS_${yr}`]);
+    const fsRev = toNum(facts[`TOTAL_REVENUE_${yr}`]);
     const taxAmt = taxRev !== null ? fmtDollars(taxRev) : "the reported amount";
     const fsAmt = fsRev !== null ? fmtDollars(fsRev) : "the reported amount";
     const diff = taxRev !== null && fsRev !== null ? fmtDollars(Math.abs(taxRev - fsRev)) : "the difference";
     return {
-      questionText: `Your ${yr} tax return reports ${taxLabel} of ${taxAmt}, while your ${yr} financial statements show ${fsLabel} of ${fsAmt} — a difference of ${diff}. Could you help us understand the source of this difference? If this is a timing or accounting basis difference, a brief note from your accountant confirming the reconciliation would be sufficient.`,
-      questionContext: `Revenue variance between tax return and financial statements exceeds 3%, requiring explanation.`,
+      questionText: `Your ${yr} business tax return reports gross receipts of ${taxAmt}, while your ${yr} financial statements show revenue of ${fsAmt} — a difference of ${diff}. Could you help us understand the source of this difference? If this is a timing or accounting basis difference, a brief note from your accountant confirming the reconciliation would be sufficient.`,
+      questionContext: `${yr} revenue variance between tax return and financial statements exceeds 3%, requiring explanation.`,
     };
   },
 
@@ -255,23 +313,57 @@ const TEMPLATES: Record<string, TemplateFn> = {
 
   large_other_income_5pct: (flag, facts) => {
     const amount = toNum(flag.observed_value);
-    const rev = toNum(facts["TOTAL_REVENUE"]);
-    const pct = amount !== null && rev !== null && rev > 0 ? fmtPct(amount / rev) : "more than 5%";
     const yr = flag.year_observed ?? "";
+    const rev = toNum(facts[`GROSS_RECEIPTS_${yr}`]) ?? toNum(facts[`TOTAL_REVENUE_${yr}`]);
+    const pct = amount !== null && rev !== null && rev > 0 ? fmtPct(amount / rev) : "more than 5%";
     return {
-      questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other income, which represents ${pct} of total revenue. Could you describe the source of this income and whether it is expected to recur? If this relates to a one-time event, brief documentation of that event would be helpful.`,
-      questionContext: `Large other income relative to revenue needs classification as recurring or non-recurring.`,
+      questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other income, which represents ${pct} of ${yr} revenue${rev !== null ? ` (${fmtDollars(rev)})` : ""}. Could you describe the source of this income and whether it is expected to recur? If this relates to a one-time event, brief documentation of that event would be helpful.`,
+      questionContext: `${yr} large other income relative to revenue needs classification as recurring or non-recurring.`,
     };
   },
 
   large_other_expense_5pct: (flag, facts) => {
     const amount = toNum(flag.observed_value);
-    const rev = toNum(facts["TOTAL_REVENUE"]);
-    const pct = amount !== null && rev !== null && rev > 0 ? fmtPct(amount / rev) : "more than 5%";
     const yr = flag.year_observed ?? "";
+    const rev = toNum(facts[`GROSS_RECEIPTS_${yr}`]) ?? toNum(facts[`TOTAL_REVENUE_${yr}`]);
+    const pct = amount !== null && rev !== null && rev > 0 ? fmtPct(amount / rev) : "more than 5%";
+
+    // SPEC-TAX-RETURN-OTHER-DEDUCTIONS-STATEMENT-SPREADING-1:
+    // If detail has been extracted, ask targeted questions on high-risk items.
+    // If detail is missing, ask for the breakdown.
+    const hasDetail = facts[`OD_DETAIL_TOTAL_${yr}`] != null;
+    const relatedParty = toNum(facts[`OD_DETAIL_RELATED_PARTY_TOTAL_${yr}`]);
+    const mgmtFees = toNum(facts[`OD_DETAIL_MANAGEMENT_FEES_${yr}`]);
+    const consulting = toNum(facts[`OD_DETAIL_CONSULTING_${yr}`]);
+    const uncategorized = toNum(facts[`OD_DETAIL_UNCATEGORIZED_TOTAL_${yr}`]);
+
+    if (hasDetail) {
+      // Targeted question on high-risk categories
+      const items: string[] = [];
+      if (relatedParty && relatedParty > 0) items.push(`${fmtDollars(relatedParty)} in related-party payments`);
+      if (mgmtFees && mgmtFees > 0) items.push(`${fmtDollars(mgmtFees)} in management fees`);
+      if (consulting && consulting > 0) items.push(`${fmtDollars(consulting)} in consulting fees`);
+      if (uncategorized && uncategorized > 0) items.push(`${fmtDollars(uncategorized)} in uncategorized items`);
+
+      if (items.length > 0) {
+        return {
+          questionText: `Your ${yr} tax return other deductions of ${amount !== null ? fmtDollars(amount) : "the reported amount"} include ${items.join(", ")}. Could you confirm whether any of these were paid to owners, related parties, or for non-recurring services?`,
+          questionContext: `${yr} other deductions detail extracted — targeted review on high-risk categories.`,
+        };
+      }
+      // Detail exists but no high-risk items — no borrower question needed
+      return {
+        questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other deductions (${pct} of revenue). The line-item detail has been reviewed. No further action is required unless you have additional context to share.`,
+        questionContext: `${yr} other deductions detail extracted and reviewed — no high-risk items identified.`,
+      };
+    }
+
+    // No detail extracted — ask for breakdown
     return {
-      questionText: `Your ${yr} financials include ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other deductions, representing ${pct} of total revenue. Could you provide a breakdown of the major components of this category?`,
-      questionContext: `Large other expenses require itemization to ensure proper classification.`,
+      questionText: `Your ${yr} tax return includes ${amount !== null ? fmtDollars(amount) : "a significant amount"} of other deductions, representing ${pct} of ${yr} revenue${rev !== null ? ` (${fmtDollars(rev)})` : ""}. Could you provide the attached statement or a breakdown of the major components?`,
+      questionContext: `${yr} large other expenses require itemization to ensure proper classification.`,
+      documentRequested: `${yr} Other Deductions statement or line-item breakdown`,
+      documentFormat: "PDF or Excel",
     };
   },
 

@@ -64,6 +64,20 @@ const PATCHABLE_BORROWER_STORY_KEYS = [
   "seasonality",
   "key_risks",
   "banker_notes",
+  // SPEC-MEMO-INPUTS-INDUSTRY-CLASSIFICATION-FIELD-1
+  "industry_classification",
+  "naics_code",
+  "naics_description",
+  // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1 (naics_confidence is numeric —
+  // coerced separately in putBorrowerStory, not via this string allowlist).
+  "naics_source",
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: entity identity
+  "legal_name",
+  "dba",
+  "website",
+  "hq_city",
+  "hq_state",
+  "banker_identity_summary",
 ] as const;
 
 const COLLATERAL_STRING_KEYS = [
@@ -179,10 +193,21 @@ async function putBorrowerStory(
   dealId: string,
   body: Record<string, unknown>,
 ) {
-  const patch: Record<string, string> = {};
+  const patch: Record<string, string | number | null> = {};
   for (const k of PATCHABLE_BORROWER_STORY_KEYS) {
     const v = body[k];
     if (typeof v === "string") patch[k] = v;
+  }
+  // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: naics_confidence is numeric.
+  // Accept a number directly or a numeric string; "" / null clears it.
+  const conf = body.naics_confidence;
+  if (typeof conf === "number" && Number.isFinite(conf)) {
+    patch.naics_confidence = conf;
+  } else if (typeof conf === "string" && conf.trim().length > 0) {
+    const n = Number(conf);
+    if (Number.isFinite(n)) patch.naics_confidence = n;
+  } else if (conf === null || conf === "") {
+    patch.naics_confidence = null;
   }
   const result = await upsertBorrowerStory({
     dealId,
@@ -537,6 +562,8 @@ export async function POST(
     if (kind === "management") return await postCreateManagement(dealId, body);
     if (kind === "conflicts")
       return await postResolveConflict(dealId, auth.userId, body);
+    if (kind === "extract-transcript")
+      return await postExtractTranscript(body);
 
     return NextResponse.json(
       { ok: false, error: `unknown kind: ${kind || "(missing)"}` },
@@ -600,5 +627,60 @@ export async function DELETE(
     rethrowNextErrors(e);
     console.error("[memo-inputs DELETE]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
+  }
+}
+
+// ── Extract transcript → borrower story fields ────────────────────────
+
+async function postExtractTranscript(
+  body: Record<string, unknown>,
+): Promise<NextResponse> {
+  const transcript = typeof body.transcript === "string" ? body.transcript.trim() : "";
+  if (!transcript) {
+    return NextResponse.json(
+      { ok: false, error: "transcript is required" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const { aiJson } = await import("@/lib/ai/openai");
+
+    const schemaHint = `{
+      "business_description": "string",
+      "revenue_model": "string",
+      "products_services": "string",
+      "customers": "string",
+      "customer_concentration": "string",
+      "competitive_position": "string",
+      "growth_strategy": "string",
+      "seasonality": "string",
+      "key_risks": "string",
+      "banker_notes": "string"
+    }`;
+
+    const result = await aiJson<Record<string, string>>({
+      scope: "memo_inputs",
+      action: "extract_transcript",
+      system:
+        "You are a commercial banker's assistant. Extract the following structured information from this client meeting transcript. Be concise and factual. If a field cannot be determined from the transcript, use an empty string.",
+      user: `Transcript:\n${transcript}\n\nReturn JSON exactly matching schema.`,
+      jsonSchemaHint: schemaHint,
+    });
+
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, error: result.error ?? "extraction_failed" },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, extracted: result.result });
+  } catch (e: unknown) {
+    console.error("[memo-inputs extract-transcript]", e);
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message : String(e) },
+      { status: 500 },
+    );
   }
 }

@@ -89,12 +89,18 @@ function determineStatus(results: IdentityCheckResult[], spec: FormSpecification
     return "FLAGGED";
   }
 
-  // All skipped — can't verify
-  if (requiredSkipped.length === required.length) {
+  // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: VERIFIED must NOT display
+  // when material checks were skipped. Any skipped required check — or no required
+  // checks at all — degrades to PARTIAL; only an all-required-ran-and-passed result
+  // earns VERIFIED.
+  if (requiredSkipped.length > 0) {
+    return "PARTIAL";
+  }
+  if (required.length === 0) {
     return "PARTIAL";
   }
 
-  // All required passed
+  // All required checks ran and passed
   return "VERIFIED";
 }
 

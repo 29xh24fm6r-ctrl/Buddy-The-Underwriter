@@ -4,8 +4,10 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { DecisionOnePager } from "@/components/decision/DecisionOnePager";
+import { DecisionStartPage } from "@/components/decision/DecisionStartPage";
 import { getAttestationStatus } from "@/lib/decision/attestation";
 import { requiresCreditCommittee } from "@/lib/decision/creditCommittee";
+import { generateDecisionSnapshot } from "@/lib/decision/generateDecisionSnapshot";
 import { ExaminerBanner } from "@/components/examiner/ExaminerBanner";
 import { redirect } from "next/navigation";
 
@@ -25,7 +27,7 @@ export default async function DecisionPage({ params, searchParams }: Props) {
   const sb = supabaseAdmin();
 
   // Get latest snapshot
-  const { data: snapshot } = await sb
+  let { data: snapshot } = await sb
     .from("decision_snapshots")
     .select("*")
     .eq("deal_id", dealId)
@@ -33,8 +35,35 @@ export default async function DecisionPage({ params, searchParams }: Props) {
     .limit(1)
     .maybeSingle();
 
+  // First-visit path: auto-generate a proposed snapshot from the current
+  // financial snapshot so the banker lands on a populated page instead of
+  // a redirect loop. Falls back to DecisionStartPage if generation fails.
   if (!snapshot) {
-    redirect(`/deals/${dealId}`);
+    const generated = await generateDecisionSnapshot({ dealId, bankId, sb });
+    if (!generated.ok) {
+      return (
+        <>
+          {isExaminerMode && <ExaminerBanner />}
+          <DecisionStartPage dealId={dealId} error={generated.error} />
+        </>
+      );
+    }
+    const { data: fresh } = await sb
+      .from("decision_snapshots")
+      .select("*")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!fresh) {
+      return (
+        <>
+          {isExaminerMode && <ExaminerBanner />}
+          <DecisionStartPage dealId={dealId} error="Snapshot inserted but re-fetch returned no row" />
+        </>
+      );
+    }
+    snapshot = fresh;
   }
 
   // Get overrides

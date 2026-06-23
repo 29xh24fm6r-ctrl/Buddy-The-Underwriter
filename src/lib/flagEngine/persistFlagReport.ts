@@ -30,7 +30,11 @@ export async function generateAndPersistFlags(
     const output = composeFlagReport(input);
 
     if (output.flags.length === 0) {
-      // No flags — still log, but nothing to persist
+      // No flags from the engine — but stale auto-generated flags may still be
+      // open from a prior run whose source facts were since superseded. Resolve
+      // them BEFORE returning. An empty engine output must never leave a flag
+      // behind: fact invalidation and flag cleanup are one workflow.
+      await resolveStaleAutoFlags(sb, dealId, new Set<string>());
       await logLedgerEvent({
         dealId,
         bankId,
@@ -81,11 +85,22 @@ export async function generateAndPersistFlags(
         continue;
       }
 
-      // 4. Upsert borrower question if present
+      // 4. Upsert borrower question if present; delete stale question if suppressed
       if (flag.borrower_question) {
         await upsertBorrowerQuestion(sb, dealId, flag, flag.borrower_question);
+      } else {
+        // Evidence gate suppressed the question — remove any stale persisted question
+        await deleteStaleBorrowerQuestion(sb, dealId, flag);
       }
     }
+
+    // 4b. Resolve stale auto-generated flags no longer supported by current facts.
+    // When source facts are superseded/removed, the engine stops producing the
+    // corresponding flag, but the old deal_flags row persists. Resolve it.
+    const newFlagKeys = new Set(
+      output.flags.map((f) => `${f.trigger_type}:${f.year_observed ?? 0}`),
+    );
+    await resolveStaleAutoFlags(sb, dealId, newFlagKeys);
 
     // 5. Write audit entry
     await (sb as any).from("deal_flag_audit").insert({
@@ -125,8 +140,129 @@ export async function generateAndPersistFlags(
 }
 
 // ---------------------------------------------------------------------------
+// Stale-flag cleanup — invalid facts must never leave active flags behind
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve auto-generated flags that the current engine output no longer supports.
+ *
+ * Runs on every persist pass (including empty output) so that superseding the
+ * source facts always clears the dependent flag in the same workflow.
+ *
+ * `liveFlagKeys` is the set of `${trigger_type}:${year_observed ?? 0}` keys the
+ * engine produced this pass. Any open / banker_reviewed auto-generated flag whose
+ * key is absent has lost its source facts and is resolved.
+ */
+async function resolveStaleAutoFlags(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+  liveFlagKeys: Set<string>,
+): Promise<void> {
+  try {
+    const { data: existingFlags } = await (sb as any)
+      .from("deal_flags")
+      .select("id, trigger_type, year_observed")
+      .eq("deal_id", dealId)
+      .eq("auto_generated", true)
+      .in("status", ["open", "banker_reviewed"]);
+
+    for (const existing of (existingFlags ?? []) as Array<{ id: string; trigger_type: string; year_observed: number }>) {
+      const key = `${existing.trigger_type}:${existing.year_observed ?? 0}`;
+      if (!liveFlagKeys.has(key)) {
+        await (sb as any)
+          .from("deal_flags")
+          .update({ status: "resolved", resolution_note: "Auto-resolved: source facts no longer support this flag" })
+          .eq("id", existing.id);
+      }
+    }
+  } catch (staleErr: any) {
+    console.warn("[persistFlagReport] stale flag cleanup failed (non-fatal)", staleErr?.message);
+  }
+
+  // Direct safety net for OD detail-sum mismatch flags. Invariant: an open
+  // auto-generated other_deductions_detail_sum_mismatch flag must never outlive
+  // a live OD_DETAIL_TOTAL fact for its year. This holds independently of the
+  // generic pass above (which depends on the engine's flag-key naming), so the
+  // $9.73B-style stale mismatch can never re-stick after supersession.
+  await resolveOrphanedOdMismatchFlags(sb, dealId);
+}
+
+async function resolveOrphanedOdMismatchFlags(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+): Promise<void> {
+  try {
+    const { data: mismatchFlags } = await (sb as any)
+      .from("deal_flags")
+      .select("id, year_observed")
+      .eq("deal_id", dealId)
+      .eq("trigger_type", "other_deductions_detail_sum_mismatch")
+      .eq("auto_generated", true)
+      .in("status", ["open", "banker_reviewed"]);
+
+    for (const flag of (mismatchFlags ?? []) as Array<{ id: string; year_observed: number }>) {
+      const year = flag.year_observed;
+      const { data: liveTotal } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("id")
+        .eq("deal_id", dealId)
+        .eq("fact_key", "OD_DETAIL_TOTAL")
+        .eq("is_superseded", false)
+        .neq("resolution_status", "rejected")
+        .gte("fact_period_end", `${year}-01-01`)
+        .lte("fact_period_end", `${year}-12-31`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!liveTotal?.id) {
+        await (sb as any)
+          .from("deal_flags")
+          .update({ status: "resolved", resolution_note: "Auto-resolved: no live OD_DETAIL_TOTAL fact supports this mismatch flag" })
+          .eq("id", flag.id);
+      }
+    }
+  } catch (odErr: any) {
+    console.warn("[persistFlagReport] OD mismatch safety cleanup failed (non-fatal)", odErr?.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+async function deleteStaleBorrowerQuestion(
+  sb: ReturnType<typeof supabaseAdmin>,
+  dealId: string,
+  flag: SpreadFlag,
+): Promise<void> {
+  try {
+    const yearObserved = flag.year_observed ?? 0;
+    const { data: dbFlag } = await (sb as any)
+      .from("deal_flags")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("trigger_type", flag.trigger_type)
+      .eq("year_observed", yearObserved)
+      .maybeSingle();
+
+    if (!dbFlag?.id) return;
+
+    const { error } = await (sb as any)
+      .from("deal_borrower_questions")
+      .delete()
+      .eq("flag_id", dbFlag.id);
+
+    if (error) {
+      console.warn("[persistFlagReport] stale question delete failed", {
+        dealId, flagId: dbFlag.id, error: error.message,
+      });
+    }
+  } catch (err: any) {
+    console.warn("[persistFlagReport] stale question cleanup threw", {
+      dealId, error: err?.message,
+    });
+  }
+}
 
 async function upsertBorrowerQuestion(
   sb: ReturnType<typeof supabaseAdmin>,

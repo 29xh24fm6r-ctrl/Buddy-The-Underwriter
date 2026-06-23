@@ -35,6 +35,7 @@ const EXTRACT_ELIGIBLE = new Set([
   "BALANCE_SHEET",
   "RENT_ROLL",
   "PERSONAL_FINANCIAL_STATEMENT",
+  "PFS",  // classifier outputs "PFS" not "PERSONAL_FINANCIAL_STATEMENT"
   "PERSONAL_INCOME",
   "SCHEDULE_K1",
   "AR_AGING",
@@ -252,6 +253,7 @@ export async function processConfirmedIntake(
     .in("canonical_type", [
       "PERSONAL_TAX_RETURN",
       "PERSONAL_FINANCIAL_STATEMENT",
+      "PFS",
       "BUSINESS_TAX_RETURN",
     ]);
 
@@ -312,6 +314,36 @@ export async function processConfirmedIntake(
   }
 
   const confirmedDocs = docs as ConfirmedDoc[];
+
+  // SPEC-INTAKE-FLOW-FIX-1 Fix 2: Ensure document slots exist before matching.
+  // Slots must exist before runMatchForDocument() — attachDocumentToSlot fails
+  // silently when no slots are present. ensureCoreDocumentSlots is idempotent.
+  try {
+    const { ensureCoreDocumentSlots } = await import(
+      "@/lib/intake/slots/ensureCoreDocumentSlots"
+    );
+    const slotResult = await ensureCoreDocumentSlots({ dealId, bankId });
+    if (!slotResult.ok) {
+      errors.push(`slot_seed_failed: ${(slotResult as any).error ?? "unknown"}`);
+      void writeEvent({
+        dealId,
+        kind: "intake.slot_seed_failed",
+        scope: "intake",
+        meta: { run_id: runId ?? null, error: (slotResult as any).error },
+      });
+    } else if ((slotResult as any).slotsCreated > 0) {
+      void writeEvent({
+        dealId,
+        kind: "intake.slots_seeded",
+        scope: "intake",
+        meta: { run_id: runId ?? null, slots_created: (slotResult as any).slotsCreated },
+      });
+    }
+  } catch (slotErr: any) {
+    errors.push(`slot_seed_threw: ${slotErr?.message}`);
+  }
+
+  if (runId) void stampProcessingHeartbeat(dealId, runId, "slots_ensured");
 
   // 2. Per-doc: matching + extraction (parallelized with bounded concurrency)
   //
@@ -600,6 +632,21 @@ export async function processConfirmedIntake(
     } catch {
       // Non-fatal
     }
+  }
+
+  // 3f. Final blank-name repair — SPEC-BUDDY-HARD-STOP-AUDIT-AND-RECOVERY-1
+  // #7. If runNamingDerivation could not produce a usable name (no anchor
+  // doc, classification disagreed, OCR null, etc.), fall back to
+  // borrower_name → primary owner → synthetic "Deal YYYY-MM-DD <short>".
+  // Never blocks phase transition; the repair helper swallows its own
+  // errors and writes a ledger event for visibility.
+  try {
+    const { repairBlankDealName } = await import(
+      "@/lib/naming/repairBlankDealName"
+    );
+    await repairBlankDealName({ dealId, bankId });
+  } catch (err: any) {
+    errors.push(`name_repair:${err?.message ?? "unknown"}`);
   }
 
   // ── POST-PROCESSING OUTPUT INVARIANT ─────────────────────────────

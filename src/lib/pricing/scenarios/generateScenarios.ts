@@ -79,6 +79,20 @@ function computeDscr(cashFlow: number | null, ads: number | null): number | null
   return cashFlow / ads;
 }
 
+const LOC_PRODUCT_TYPES = new Set([
+  "LOC_SECURED", "LOC_UNSECURED", "LOC_RE_SECURED", "LINE_OF_CREDIT",
+  "ACCOUNTS_RECEIVABLE", "REVOLVING_LINE_OF_CREDIT",
+]);
+
+function isLocProduct(productType: string): boolean {
+  return LOC_PRODUCT_TYPES.has(productType);
+}
+
+/** Interest-only annual debt service for LOC/revolving products */
+function annualInterestCost(principal: number, annualRatePct: number): number {
+  return principal * annualRatePct / 100;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function generatePricingScenarios(args: {
@@ -137,6 +151,13 @@ export async function generatePricingScenarios(args: {
     return { ok: false, error: "rate_feed_unavailable", status: 502 };
   }
 
+  // 4b. Load canonical pricing context — ensures BASE scenario matches
+  // banker-visible assumptions from PricingAssumptionsCard.
+  const { resolveCanonicalPricingContext } = await import(
+    "@/lib/pricing/resolveCanonicalPricingContext"
+  );
+  const canonical = await resolveCanonicalPricingContext(args.dealId, args.bankId);
+
   // 5. Load bank overlays
   const { data: overlayRow } = await sb
     .from("bank_overlays")
@@ -155,28 +176,32 @@ export async function generatePricingScenarios(args: {
     borrowerEntityType: null,
     useOfProceeds: loanReq.use_of_proceeds as string[] | null,
     dealType: null,
-    loanProductType: loanReq.product_type,
+    loanProductType: canonical.product_type ?? loanReq.product_type,
   });
 
-  // 7. Extract snapshot metrics
+  // 7. Extract snapshot metrics — with EBITDA fallback for cash flow proxy
   const noi = toNum(snapshot.noi_ttm);
-  const cashFlowAvailable = toNum(snapshot.cash_flow_available) ?? noi;
+  const ebitda = toNum((snapshot as any).ebitda);
+  const netIncome = toNum((snapshot as any).net_income);
+  const cashFlowAvailable = toNum(snapshot.cash_flow_available) ?? noi ?? ebitda ?? netIncome;
   const collateralValue = toNum(snapshot.collateral_gross_value);
   const gcf = toNum((snapshot as any).gcf_global_cash_flow);
 
-  // 8. Derive base loan parameters
-  const loanAmount = Number(loanReq.requested_amount ?? loanReq.approved_amount ?? 0);
-  const termMonths = Number(loanReq.requested_term_months ?? 120);
-  const amortMonths = Number(loanReq.requested_amort_months ?? 300);
-  const ioMonths = Number(loanReq.requested_interest_only_months ?? 0);
-  const productType = String(loanReq.product_type ?? "CONVENTIONAL");
-  const indexCode: IndexCode = (loanReq.requested_rate_index as IndexCode) ?? "SOFR";
-  const baseRatePct = rates[indexCode]?.ratePct ?? rates.SOFR?.ratePct ?? 5.0;
+  // 8. Derive base loan parameters from canonical context (which reflects
+  //    banker-visible assumptions), falling back to loan request raw values.
+  const loanAmount = canonical.loan_amount ?? Number(loanReq.requested_amount ?? loanReq.approved_amount ?? 0);
+  const termMonths = canonical.term_months ?? Number(loanReq.requested_term_months ?? 120);
+  const amortMonths = canonical.amort_months ?? Number(loanReq.requested_amort_months ?? 300);
+  const ioMonths = canonical.interest_only_months ?? Number(loanReq.requested_interest_only_months ?? 0);
+  const productType = canonical.product_type ?? String(loanReq.product_type ?? "CONVENTIONAL");
+  const indexCode: IndexCode = canonical.index_code ?? (loanReq.requested_rate_index as IndexCode) ?? "SOFR";
+  const baseRatePct = canonical.index_rate_pct ?? rates[indexCode]?.ratePct ?? rates.SOFR?.ratePct ?? 5.0;
 
   // 9. Policy constraints
   const minDscr = Number(bankOverlay.min_dscr ?? 1.25);
   const maxLtv = Number(bankOverlay.max_ltv ?? 0.80);
-  const baseSpreadBps = Number(bankOverlay.base_spread_bps ?? 250);
+  // BASE spread: use canonical (banker-visible) spread, fall back to bank overlay
+  const baseSpreadBps = canonical.spread_bps ?? Number(bankOverlay.base_spread_bps ?? 250);
   const conservativeSpreadBps = baseSpreadBps + 50;
   const stretchSpreadBps = Math.max(baseSpreadBps - 50, 100);
 
@@ -194,13 +219,26 @@ export async function generatePricingScenarios(args: {
     const guaranty = adjustments.guaranty ?? "Full personal guaranty required";
 
     const allInRatePct = baseRatePct + spreadBps / 100;
-    const ads = annualDebtService(adjLoanAmount, allInRatePct, adjAmort);
-    const pi = monthlyPI(adjLoanAmount, allInRatePct, adjAmort);
+    const locProduct = isLocProduct(product);
     const io = adjLoanAmount * (allInRatePct / 100 / 12);
+
+    // LOC/revolving products: interest-only debt service (no amortizing P&I)
+    // Amortizing products: standard P&I from amortization schedule
+    let ads: number | null;
+    let pi: number | null;
+    if (locProduct) {
+      ads = annualInterestCost(adjLoanAmount, allInRatePct);
+      pi = null; // LOC has no amortizing P&I
+    } else {
+      ads = annualDebtService(adjLoanAmount, allInRatePct, adjAmort);
+      pi = monthlyPI(adjLoanAmount, allInRatePct, adjAmort);
+    }
 
     const dscr = computeDscr(cashFlowAvailable, ads);
     const stressedRate = allInRatePct + 3.0;
-    const stressedAds = annualDebtService(adjLoanAmount, stressedRate, adjAmort);
+    const stressedAds = locProduct
+      ? annualInterestCost(adjLoanAmount, stressedRate)
+      : annualDebtService(adjLoanAmount, stressedRate, adjAmort);
     const dscrStressed = computeDscr(cashFlowAvailable, stressedAds);
 
     const ltvPct = collateralValue && collateralValue > 0 ? adjLoanAmount / collateralValue : null;
@@ -278,7 +316,8 @@ export async function generatePricingScenarios(args: {
       debt_yield_pct: debtYieldPct,
       annual_debt_service: ads,
       monthly_pi: pi,
-      monthly_io: adjIo > 0 ? io : null,
+      // LOC products always show monthly IO as the primary payment
+      monthly_io: locProduct ? io : (adjIo > 0 ? io : null),
       global_cf_impact: gcf,
     };
 

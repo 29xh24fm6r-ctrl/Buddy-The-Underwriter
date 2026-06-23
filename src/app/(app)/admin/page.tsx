@@ -49,6 +49,15 @@ export default async function AdminHome() {
         />
 
         <GlassActionCard
+          icon="calendar_month"
+          iconColor="text-orange-400"
+          title="Period Review"
+          description="Resolve ambiguous financial statement periods (BS current/historical, IS YTD/annual)."
+          href="/admin/financial-period-reviews"
+          actionLabel="Review Queue"
+        />
+
+        <GlassActionCard
           icon="history"
           iconColor="text-amber-400"
           title="Audit"
@@ -136,6 +145,15 @@ export default async function AdminHome() {
           description="Auto-attach rates, review routing, override confusion heatmap."
           href="/admin/intake"
           actionLabel="View Intake Metrics"
+        />
+
+        <GlassActionCard
+          icon="dashboard"
+          iconColor="text-rose-400"
+          title="Owner Command Center"
+          description="Brokerage operational surface — pipeline, bottlenecks, team workload."
+          href="/admin/brokerage-owner"
+          actionLabel="Open Command Center"
         />
 
       </div>

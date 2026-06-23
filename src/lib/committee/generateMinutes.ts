@@ -161,12 +161,13 @@ Return ONLY the minutes text (no JSON wrapper, no markdown formatting).`,
     throw new Error("Failed to save committee minutes");
   }
 
-  // Write audit event
+  // Write audit event. deal_events schema is (deal_id, kind, payload) —
+  // there is no bank_id column; bank_id moves into payload.
   await sb.from("deal_events").insert({
     deal_id: args.dealId,
-    bank_id: args.bankId,
     kind: "committee.minutes_generated",
     payload: {
+      bank_id: args.bankId,
       snapshot_id: args.snapshotId,
       generated_by: args.generatedByUserId,
       word_count: minutesContent.split(/\s+/).length

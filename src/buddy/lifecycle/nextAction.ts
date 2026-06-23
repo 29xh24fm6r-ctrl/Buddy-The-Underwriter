@@ -149,11 +149,16 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
       };
 
     case "committee_ready":
+      // The credit memo is already visible from the cockpit. At
+      // committee_ready, the actionable next step is to record the decision —
+      // not re-navigate to the memo. The decision page itself surfaces the
+      // memo for review and auto-generates a proposed snapshot on first visit.
       return {
-        label: "Review Credit Memo",
-        href: `/credit-memo/${dealId}/canonical`,
-        intent: "navigate",
-        description: "Review auto-populated credit memo, then record decision",
+        label: "Record Decision",
+        href: `/deals/${dealId}/decision`,
+        intent: "advance",
+        shouldAdvance: true,
+        description: "Review credit memo and record the committee decision",
       };
 
     case "committee_decisioned":
@@ -323,9 +328,16 @@ export function getBlockerFixAction(
       };
 
     case "missing_research_quality_gate":
+      // Research resolution is canonical on the underwrite workbench route.
+      // There is intentionally no /deals/[dealId]/research page — it 404s — and
+      // the workbench (AnalystWorkbench → ResearchGateActionPanel) owns the
+      // run-research path. Route to /underwrite, the same destination memo
+      // readiness uses for missing_research_quality_gate, so both layers agree
+      // on one existing route. (SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1 /
+      // SPEC-UNDERWRITE-RESEARCH-GATE-END-TO-END-1)
       return {
         label: "Run research",
-        href: `/deals/${dealId}/research`,
+        href: `/deals/${dealId}/underwrite`,
       };
 
     case "open_fact_conflicts":
@@ -340,8 +352,35 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/policy-exceptions`,
       };
 
-    case "missing_dscr":
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+    // upstream financial step — route to the financial analysis surface.
+    case "missing_business_cash_flow":
+      return {
+        label: "Run financial analysis",
+        href: `/deals/${dealId}/financials`,
+      };
+
+    // SPEC-GCF-FIXPATH-DEEP-LINK-1: GCF deep-links to its own sub-page (which
+    // exposes a Compute action + diagnostic), not the Executive Summary tab. The
+    // page itself gates Compute on prerequisites and shows upstream CTAs when not
+    // ready (SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1), so this is never a dead-end.
     case "missing_global_cash_flow":
+      return {
+        label: "Review Global Cash Flow",
+        href: `/deals/${dealId}/spreads/global-cash-flow`,
+      };
+
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: DSCR is the most-downstream metric
+    // (depends on GCF, which depends on business financials + ADS). Without per-deal
+    // fact context here, route to the financial analysis hub — the earliest upstream
+    // surface — NOT blindly to the GCF compute page that can't clear DSCR yet. (The
+    // memo-readiness blocker carries a fact-aware fixPath for the precise step.)
+    case "missing_dscr":
+      return {
+        label: "Run financial analysis",
+        href: `/deals/${dealId}/financials`,
+      };
+
     case "missing_debt_service_facts":
       return {
         label: "Generate financial snapshot",
@@ -376,7 +415,11 @@ export function getBlockerFixAction(
     case "research_stalled":
       return {
         label: "Run research",
-        href: `/deals/${dealId}/research`,
+        // SPEC-RESEARCH-FIXPATH-CANONICAL-ROUTE-1: /deals/[dealId]/research does
+        // not exist (404). Route to the canonical /underwrite page — the same
+        // destination memo readiness uses for missing_research_quality_gate — so
+        // both layers agree on one existing route.
+        href: `/deals/${dealId}/underwrite`,
       };
 
     case "financial_snapshot_stale_recovery":
@@ -444,6 +487,12 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/financial-validation`,
       };
 
+    case "financial_period_review_open":
+      return {
+        label: "Confirm statement periods",
+        href: `/deals/${dealId}/documents`,
+      };
+
     case "critical_flags_unresolved":
       return {
         label: "Review critical risk flags",
@@ -451,9 +500,15 @@ export function getBlockerFixAction(
       };
 
     case "borrower_not_attached":
+      // SPEC-BORROWER-ENTITY-SPONSOR-SEPARATION-1: this blocker means the LEGAL
+      // borrower entity is unidentified — NOT that a management/sponsor/guarantor
+      // profile is missing. The /borrower page edits deal_management_profiles, so
+      // it is not a legal-borrower attach surface. Route to the borrower-story
+      // section of memo inputs (where legal_name is edited) and label it as
+      // confirming identity rather than "Attach borrower".
       return {
-        label: "Attach borrower",
-        href: `/deals/${dealId}/borrower`,
+        label: "Confirm borrower identity",
+        href: `/deals/${dealId}/memo-inputs#borrower-story`,
       };
 
     // Infrastructure/fetch errors - no direct fix

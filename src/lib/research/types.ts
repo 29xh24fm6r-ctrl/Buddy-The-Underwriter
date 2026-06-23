@@ -37,6 +37,24 @@ export type MissionSubject = {
   annual_revenue?: number | null;
   loan_amount?: number | null;
   loan_purpose?: string | null;
+  // SPEC-RESEARCH-SUBJECT-LOCK-MEMO-INPUT-PARITY-1: memo-input borrower context.
+  // First-class subject-lock satisfiers so they stop being read via `(subject as any)`.
+  business_description?: string | null;
+  website?: string | null;
+  dba?: string | null;
+  banker_summary?: string | null;
+  banker_override?: boolean;
+  // True when naics_description was derived from banker-certified business context
+  // because borrowers.naics_code was missing/placeholder (no NAICS number invented).
+  naics_provisional?: boolean;
+  // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: entity identity +
+  // private-company routing carried into the BIE. `company_search_name` is null
+  // when the only name available is a placeholder deal label (do NOT web-search it).
+  legal_name?: string | null;
+  company_search_name?: string | null;
+  customer_anchors?: string | null;
+  private_company_mode?: boolean;
+  has_banker_certified_anchor?: boolean;
 };
 
 export type ResearchMission = {

@@ -1,6 +1,6 @@
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 
-export type SbaEligibilityStatus = "eligible" | "conditional" | "ineligible";
+export type SbaEligibilityStatus = "eligible" | "conditional" | "ineligible" | "not_applicable";
 
 export type SbaEligibilityInput = {
   snapshot: DealFinancialSnapshotV1;
@@ -30,14 +30,19 @@ function normalizeList(values: string[] | null | undefined): string[] {
 }
 
 export function evaluateSbaEligibility(input: SbaEligibilityInput): SbaEligibilityResult {
+  // SBA eligibility is only relevant for SBA loan products.
+  // Conventional products return not_applicable immediately.
+  const loanProductType = normalizeEnum(input.loanProductType);
+  if (loanProductType && !loanProductType.startsWith("SBA")) {
+    return { status: "not_applicable", reasons: [], missing: [] };
+  }
+
   const reasons: string[] = [];
   const missing: string[] = [];
 
   const entityType = normalizeEnum(input.borrowerEntityType);
   const useOfProceeds = normalizeList(input.useOfProceeds);
   const dealType = normalizeEnum(input.dealType);
-  const loanProductType = normalizeEnum(input.loanProductType);
-
   if (!entityType) missing.push("borrower_entity_type");
   if (!useOfProceeds.length) missing.push("use_of_proceeds");
   if (!dealType) missing.push("deal_type");

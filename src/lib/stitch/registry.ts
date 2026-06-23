@@ -23,6 +23,7 @@ export const STITCH_PAGES: StitchPage[] = [
   { slug: "portfolio-command-bridge", title: "Portfolio Command Bridge", group: "Portfolio", route: "/portfolio" },
   { slug: "pricing-memo-command-center", title: "Pricing Memo Command Center", group: "Pricing", route: "/pricing" },
   { slug: "reo-command-center", title: "REO Command Center", group: "REO", route: "/reo" },
+  { slug: "brokerage-owner-command-center", title: "Brokerage Owner Command Center", group: "Admin", route: "/admin/brokerage-owner" },
   { slug: "roles-permissions-control", title: "Roles Permissions Control", group: "Admin", route: "/admin/roles" },
   { slug: "stitch_buddy_login_page", title: "Stitch Buddy Login Page", group: "Auth", route: "/stitch-login" },
   { slug: "workout-case-file", title: "Workout Case File", group: "Workout", route: "/workout/case-file" },

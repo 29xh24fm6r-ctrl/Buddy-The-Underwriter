@@ -128,7 +128,7 @@ describe("[guard-5] FUNNEL_STAGES contract", () => {
   });
 
   it("funnel API route references intake_funnel_daily_v1", () => {
-    const src = readSource("src/app/api/ops/intake/funnel/route.ts");
+    const src = readSource("src/app/api/ops/[...path]/_handlers/intake-funnel.ts");
     assert.ok(
       src.includes("intake_funnel_daily_v1"),
       "Funnel API must query intake_funnel_daily_v1 view",

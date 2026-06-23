@@ -403,7 +403,7 @@ async function getRiskProfile(dealId: string, bankId: string): Promise<Response>
 
   const { data: facts } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, value_numeric, value_text")
+    .select("fact_key, fact_value_num, fact_value_text")
     .eq("deal_id", dealId)
     .in("fact_key", [
       "YEARS_IN_BUSINESS",
@@ -436,7 +436,7 @@ async function getRiskProfile(dealId: string, bankId: string): Promise<Response>
   const business = ((businessSection?.data as Record<string, unknown>) ?? {});
   const structure = ((structureSection?.data as Record<string, unknown>) ?? {});
 
-  const naicsFromFact = (facts ?? []).find((f) => f.fact_key === "NAICS_CODE")?.value_text;
+  const naicsFromFact = (facts ?? []).find((f) => f.fact_key === "NAICS_CODE")?.fact_value_text;
   const naicsCode = naicsFromFact ?? (business.naics_code as string | null) ?? null;
   const termMonths =
     (structure.desired_term_months as number | null) ??
@@ -458,7 +458,11 @@ async function getRiskProfile(dealId: string, bankId: string): Promise<Response>
     urbanRural: "unknown" as UrbanRuralClassification,
     state: (business.state as string | null) ?? null,
     zip: (business.zip as string | null) ?? null,
-    facts: facts ?? [],
+    facts: (facts ?? []).map((f: any) => ({
+      fact_key: f.fact_key as string,
+      value_numeric: f.fact_value_num != null ? Number(f.fact_value_num) : null,
+      value_text: (f.fact_value_text as string | null) ?? null,
+    })),
     managementYearsInIndustry,
     hasBusinessPlan: !!assumptionsRow?.management_team,
     sb,

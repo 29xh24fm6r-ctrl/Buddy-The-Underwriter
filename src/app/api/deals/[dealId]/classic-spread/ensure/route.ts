@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
+import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -52,7 +53,13 @@ export async function POST(_req: Request, ctx: Ctx) {
     if (row?.status === "ready" && row.rendered_json?.pdf_base64) {
       // Quick staleness check
       let isStale = false;
-      if (row.rendered_json?.canonicalFactsTimestamp) {
+      // Code-version invalidation (mirrors the /cached route): a blob rendered by an older
+      // renderer version is stale even when no fact changed, so a code-only render fix (e.g. a
+      // CLASSIC_PDF_RENDER_VERSION bump) re-enqueues a regeneration instead of reporting "cached".
+      if ((row.rendered_json?.renderVersion ?? 0) !== CLASSIC_PDF_RENDER_VERSION) {
+        isStale = true;
+      }
+      if (!isStale && row.rendered_json?.canonicalFactsTimestamp) {
         const { data: latestFact } = await (sb as any)
           .from("deal_financial_facts")
           .select("updated_at")

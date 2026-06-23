@@ -55,6 +55,24 @@ describe("IRS Knowledge Base — Identity Validator", async () => {
     assert.equal(result.failedCount, 0);
   });
 
+  // SPEC-SPREAD-FACT-RECONCILIATION-AND-CONFIDENCE-GATES-1: VERIFIED must NOT display
+  // when a REQUIRED (material) identity check is skipped for missing facts.
+  it("does NOT return VERIFIED when a required check is skipped (material check missing)", () => {
+    const spec = getForm1065Spec(2024);
+    // Gross-profit identity facts present (that required check passes), but OBI inputs
+    // (TOTAL_DEDUCTIONS / ORDINARY_BUSINESS_INCOME) are missing → that required check skips.
+    const facts: Record<string, number | null> = {
+      GROSS_RECEIPTS: 1502871,
+      COST_OF_GOODS_SOLD: 449671,
+      GROSS_PROFIT: 1053200,
+      TOTAL_INCOME: 1053200,
+    };
+    const result = validateDocumentFacts("doc-2024-partial", spec, facts);
+    assert.notEqual(result.status, "VERIFIED");
+    assert.equal(result.status, "PARTIAL");
+    assert.ok(result.skippedCount >= 1);
+  });
+
   // Test 3: Extraction error — OBI used as revenue (the bug we found)
   // When the extractor confuses OBI with revenue, both gross profit and OBI
   // identity checks fail because the wrong top-line cascades through.

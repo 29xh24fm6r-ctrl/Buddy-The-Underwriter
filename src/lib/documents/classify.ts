@@ -23,6 +23,7 @@ export type CanonicalDocumentType =
   | "ENTITY_DOCS"
   | "COMMERCIAL_LEASE"
   | "CREDIT_MEMO"
+  | "AR_AGING"
   | "OTHER";
 
 /**
@@ -88,6 +89,8 @@ export function toCanonicalDocType(aiDocType: string): CanonicalDocumentType {
       return "COMMERCIAL_LEASE";
     case "CREDIT_MEMO":
       return "CREDIT_MEMO";
+    case "AR_AGING":
+      return "AR_AGING";
 
     default:
       return "OTHER";
@@ -122,6 +125,8 @@ export function canonicalTypeToChecklistKeys(
       return ["ENTITY_DOCS"];
     case "COMMERCIAL_LEASE":
       return ["LEASES_TOP"];
+    case "AR_AGING":
+      return ["AR_AGING"];
     case "CREDIT_MEMO":
       return [];
     case "OTHER":

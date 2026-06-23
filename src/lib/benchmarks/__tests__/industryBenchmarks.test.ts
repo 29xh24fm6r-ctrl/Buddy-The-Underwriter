@@ -210,9 +210,11 @@ describe("catalog queries", () => {
     assert.equal(getNaicsDescription("999999"), null);
   });
 
-  it("getSupportedNaicsCodes returns 50 codes", () => {
+  it("getSupportedNaicsCodes returns the full catalog with no duplicates", () => {
     const codes = getSupportedNaicsCodes();
-    assert.equal(codes.length, 50);
+    // NAICS_CATALOG currently holds 51 distinct codes.
+    assert.equal(codes.length, 51);
+    assert.equal(new Set(codes).size, codes.length, "catalog must have no duplicate codes");
   });
 
   it("getAvailableMetrics returns metrics for an industry", () => {

@@ -131,18 +131,35 @@ export function buildSourcesAndUsesSection(input: SectionInput): FloridaArmorySe
 export function buildCollateralSection(input: SectionInput): FloridaArmorySection {
   const collateral = input.memo.collateral ?? {};
   const rows = ((collateral as any).line_items ?? []) as Array<Record<string, unknown>>;
+  const arBb = (collateral as any).ar_borrowing_base;
 
-  return section(
-    "collateral",
-    "Collateral Analysis",
-    "Collateral support, lien position, advance rates, and discounted collateral coverage.",
-    { collateral },
-    [{
+  const tables: Array<{ key: string; title: string; columns: string[]; rows: Array<Record<string, unknown>> }> = [
+    {
       key: "collateral_line_items",
       title: "Collateral Analysis",
       columns: ["description", "market_value", "advance_rate", "discounted_value", "lien_position"],
       rows,
-    }],
+    },
+  ];
+
+  // Add AR aging table when borrowing base data exists
+  if (arBb && Array.isArray(arBb.aging_buckets) && arBb.aging_buckets.length > 0) {
+    tables.push({
+      key: "ar_aging_buckets",
+      title: "AR Aging Analysis",
+      columns: ["bucket", "amount", "pct_of_total"],
+      rows: arBb.aging_buckets as Array<Record<string, unknown>>,
+    });
+  }
+
+  return section(
+    "collateral",
+    "Collateral Analysis",
+    arBb
+      ? `Collateral support with AR borrowing base analysis. ${arBb.collateral_coverage_narrative ?? ""}`
+      : "Collateral support, lien position, advance rates, and discounted collateral coverage.",
+    { collateral },
+    tables,
     input.sources,
   );
 }

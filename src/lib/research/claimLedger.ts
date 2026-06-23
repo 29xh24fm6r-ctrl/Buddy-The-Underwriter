@@ -15,11 +15,51 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { BIEResult } from "./buddyIntelligenceEngine";
 import { classifySourceUrl } from "./sourcePolicy";
 
+export type ClaimLayer = "fact" | "inference" | "narrative";
+
+// SPEC-CLAIM-LEDGER-EVIDENCE-TYPE-MAPPING-1: must match the DB CHECK constraint
+// buddy_research_evidence_evidence_type_check exactly.
+export type ResearchEvidenceType =
+  | "fact"
+  | "inference"
+  | "narrative_citation"
+  | "external_document"
+  | "financial_metric"
+  | "benchmark_comparison";
+
+export const RESEARCH_EVIDENCE_TYPES: readonly ResearchEvidenceType[] = [
+  "fact",
+  "inference",
+  "narrative_citation",
+  "external_document",
+  "financial_metric",
+  "benchmark_comparison",
+] as const;
+
+/**
+ * Map a BIE claim_layer to a DB-allowed evidence_type.
+ *
+ * The bug this fixes: the insert wrote `evidence_type: claim_layer`, so a
+ * `claim_layer = "narrative"` violated the evidence_type CHECK constraint and
+ * every batch insert failed silently — buddy_research_evidence had 0 rows
+ * all-time. "narrative" is the only layer whose name differs from the enum.
+ */
+export function mapClaimLayerToEvidenceType(layer: ClaimLayer): ResearchEvidenceType {
+  switch (layer) {
+    case "fact":
+      return "fact";
+    case "inference":
+      return "inference";
+    case "narrative":
+      return "narrative_citation";
+  }
+}
+
 export type ClaimRecord = {
   mission_id: string;
   section: string;
   claim_text: string;
-  claim_layer: "fact" | "inference" | "narrative";
+  claim_layer: ClaimLayer;
   thread_origin: string;
   source_uris: string[];
   source_types: string[];
@@ -28,6 +68,42 @@ export type ClaimRecord = {
   identity_confirmed?: boolean;
   adversarial_check_id?: string;
 };
+
+/**
+ * Convert a ClaimRecord into a buddy_research_evidence insert row.
+ *
+ * Populates the first-class columns (thread_origin, claim_layer, source_uris,
+ * source_types, section, supports_memo_fields, identity_confirmed,
+ * adversarial_check_id) and keeps supporting_data for backward compatibility.
+ * Pure function — exported for the persistence regression test.
+ */
+export function toEvidenceRow(c: ClaimRecord) {
+  return {
+    mission_id: c.mission_id,
+    evidence_type: mapClaimLayerToEvidenceType(c.claim_layer),
+    claim: c.claim_text,
+    confidence: c.confidence,
+    // First-class provenance columns.
+    thread_origin: c.thread_origin,
+    claim_layer: c.claim_layer,
+    source_uris: c.source_uris,
+    source_types: c.source_types,
+    section: c.section,
+    supports_memo_fields: c.supports_memo_fields,
+    identity_confirmed: c.identity_confirmed ?? null,
+    adversarial_check_id: c.adversarial_check_id ?? null,
+    // Backward-compatible mirror — do NOT rely on this as the only storage.
+    supporting_data: {
+      section: c.section,
+      thread_origin: c.thread_origin,
+      source_uris: c.source_uris,
+      source_types: c.source_types,
+      supports_memo_fields: c.supports_memo_fields,
+      identity_confirmed: c.identity_confirmed,
+      adversarial_check_id: c.adversarial_check_id,
+    },
+  };
+}
 
 function makeClaimRecords(
   missionId: string,
@@ -49,7 +125,7 @@ function makeClaimRecords(
       claim_layer: layer,
       thread_origin: thread,
       source_uris: sourceUrls.slice(0, 10),
-      source_types: sourceUrls.slice(0, 10).map(classifySourceUrl),
+      source_types: sourceUrls.slice(0, 10).map((u) => classifySourceUrl(u)),
       confidence,
       supports_memo_fields: memoFields,
       ...extra,
@@ -57,15 +133,10 @@ function makeClaimRecords(
 }
 
 /**
- * Extract claim records from a BIEResult and persist them to buddy_research_evidence.
- * Called after BIE completes, before marking the mission complete.
- * Non-fatal — failure is logged but does not block mission completion.
+ * Assemble structured claim records from a BIEResult.
+ * Pure (no DB) — exported for the persistence regression test.
  */
-export async function persistClaimLedger(
-  missionId: string,
-  result: BIEResult,
-): Promise<{ ok: boolean; claims_written: number; error?: string }> {
-  const sb = supabaseAdmin();
+export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRecord[] {
   const claims: ClaimRecord[] = [];
   const ts = result.thread_sources;
 
@@ -146,7 +217,7 @@ export async function persistClaimLedger(
         claim_layer: "fact",
         thread_origin: "competitive",
         source_uris: ts.competitive.slice(0, 5),
-        source_types: ts.competitive.slice(0, 5).map(classifySourceUrl),
+        source_types: ts.competitive.slice(0, 5).map((u) => classifySourceUrl(u)),
         confidence: 0.65,
         supports_memo_fields: ["competitive_positioning"],
       });
@@ -225,6 +296,21 @@ export async function persistClaimLedger(
     }
   }
 
+  return claims;
+}
+
+/**
+ * Extract claim records from a BIEResult and persist them to buddy_research_evidence.
+ * Called after BIE completes, before marking the mission complete.
+ * Non-fatal — failure is logged but does not block mission completion.
+ */
+export async function persistClaimLedger(
+  missionId: string,
+  result: BIEResult,
+): Promise<{ ok: boolean; claims_written: number; error?: string }> {
+  const sb = supabaseAdmin();
+  const claims = buildClaimRecords(missionId, result);
+
   if (claims.length === 0) {
     return { ok: true, claims_written: 0 };
   }
@@ -234,21 +320,9 @@ export async function persistClaimLedger(
   const BATCH_SIZE = 50;
   for (let i = 0; i < claims.length; i += BATCH_SIZE) {
     const batch = claims.slice(i, i + BATCH_SIZE);
-    const rows = batch.map((c) => ({
-      mission_id: c.mission_id,
-      evidence_type: c.claim_layer,
-      claim: c.claim_text,
-      supporting_data: {
-        section: c.section,
-        thread_origin: c.thread_origin,
-        source_uris: c.source_uris,
-        source_types: c.source_types,
-        supports_memo_fields: c.supports_memo_fields,
-        identity_confirmed: c.identity_confirmed,
-        adversarial_check_id: c.adversarial_check_id,
-      },
-      confidence: c.confidence,
-    }));
+    // SPEC-CLAIM-LEDGER-EVIDENCE-TYPE-MAPPING-1: map claim_layer → DB-allowed
+    // evidence_type and populate first-class provenance columns.
+    const rows = batch.map(toEvidenceRow);
 
     const { error } = await sb.from("buddy_research_evidence").insert(rows);
     if (error) {

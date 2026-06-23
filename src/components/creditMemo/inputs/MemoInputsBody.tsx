@@ -8,6 +8,7 @@
  */
 import "server-only";
 
+import EntityIdentityForm from "@/components/creditMemo/inputs/EntityIdentityForm";
 import BorrowerStoryForm from "@/components/creditMemo/inputs/BorrowerStoryForm";
 import ManagementProfilesForm from "@/components/creditMemo/inputs/ManagementProfilesForm";
 import CollateralItemsTable from "@/components/creditMemo/inputs/CollateralItemsTable";
@@ -31,6 +32,8 @@ export default function MemoInputsBody({ dealId, pkg }: MemoInputsBodyProps) {
       <CommitteeAnticipationPanel dealId={dealId} />
 
       <MemoInputSuggestionsBridge dealId={dealId} />
+
+      <EntityIdentityForm dealId={dealId} initial={pkg.borrower_story} />
 
       <BorrowerStoryForm dealId={dealId} initial={pkg.borrower_story} />
 

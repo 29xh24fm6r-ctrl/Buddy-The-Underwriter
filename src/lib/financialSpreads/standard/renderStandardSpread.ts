@@ -150,37 +150,64 @@ const FULL_YEAR_FACT_TYPES = new Set([
  *   - Specific non-Dec-31 dates → "Mon YYYY" (clearly dated)
  */
 function detectPeriods(facts: FinancialFact[]): PeriodBucket[] {
-  const periodEnds = new Set<string>();
-  for (const f of facts) {
-    if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
-      periodEnds.add(f.fact_period_end);
-    }
-  }
-
-  const sorted = [...periodEnds].sort();
-  if (sorted.length <= 1) {
-    // Single period or no periods — use one "Current" column
-    return [{
-      key: "CURRENT",
-      label: "Current",
-      kind: "other",
-      start_date: null,
-      end_date: sorted[0] ?? null,
-    }];
-  }
-
-  // Build fact-type set per period for label classification
+  // Build fact-type set per period (used for labels AND for tax-return
+  // spine selection below).
   const factTypesByPeriod = new Map<string, Set<string>>();
+  // SPEC-SPREAD-SUPERSEDED-FILTER-1: also track source_canonical_type per
+  // period so tax-return spine detection works even when fact_type is
+  // "SOURCE_DOCUMENT" or another non-tax-return value.
+  const sourceTypesByPeriod = new Map<string, Set<string>>();
   for (const f of facts) {
     if (f.fact_period_end && !SENTINEL_DATES.has(f.fact_period_end)) {
       if (!factTypesByPeriod.has(f.fact_period_end)) {
         factTypesByPeriod.set(f.fact_period_end, new Set());
       }
       factTypesByPeriod.get(f.fact_period_end)!.add(f.fact_type);
+      if (f.source_canonical_type) {
+        if (!sourceTypesByPeriod.has(f.fact_period_end)) {
+          sourceTypesByPeriod.set(f.fact_period_end, new Set());
+        }
+        sourceTypesByPeriod.get(f.fact_period_end)!.add(f.source_canonical_type);
+      }
     }
   }
 
-  // Multi-period: create a column per distinct period_end
+  const FULL_YEAR_SOURCE_TYPES = new Set([
+    "BUSINESS_TAX_RETURN",
+    "PERSONAL_TAX_RETURN",
+  ]);
+
+  const allPeriodEnds = [...factTypesByPeriod.keys()];
+  if (allPeriodEnds.length <= 1) {
+    return [{
+      key: "CURRENT",
+      label: "Current",
+      kind: "other",
+      start_date: null,
+      end_date: allPeriodEnds[0] ?? null,
+    }];
+  }
+
+  // SPEC-COMMITTEE-READY-FLOW-1 — Fix 4 Part B.
+  // Tax-return periods form the column spine. Non-tax periods (income
+  // statements, balance sheets, PFS) are appended only if they don't
+  // share a calendar year with a tax-return period — otherwise they'd
+  // create a duplicate "YTD YYYY" column adjacent to "FY YYYY" that
+  // shows the same year twice.
+  const taxReturnPeriods = allPeriodEnds.filter((pe) => {
+    const factTypes = factTypesByPeriod.get(pe);
+    const sourceTypes = sourceTypesByPeriod.get(pe);
+    return (
+      (!!factTypes && [...factTypes].some((t) => FULL_YEAR_FACT_TYPES.has(t))) ||
+      (!!sourceTypes && [...sourceTypes].some((t) => FULL_YEAR_SOURCE_TYPES.has(t)))
+    );
+  });
+  const taxReturnYears = new Set(taxReturnPeriods.map((pe) => pe.slice(0, 4)));
+  const otherPeriods = allPeriodEnds.filter(
+    (pe) => !taxReturnPeriods.includes(pe) && !taxReturnYears.has(pe.slice(0, 4)),
+  );
+
+  const sorted = [...taxReturnPeriods, ...otherPeriods].sort();
   return sorted.map((pe) => ({
     key: pe,
     label: formatPeriodLabel(pe, factTypesByPeriod.get(pe)),

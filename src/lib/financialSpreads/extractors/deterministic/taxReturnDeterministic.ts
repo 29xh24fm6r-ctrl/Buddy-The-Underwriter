@@ -28,6 +28,7 @@ import { extractForm8825 } from "./form8825Deterministic";
 import { extractForm1125A } from "./form1125aDeterministic";
 import { extractForm1125E } from "./form1125eDeterministic";
 import { extractK1 } from "./k1Deterministic";
+import { extractOtherDeductionsDetail } from "./otherDeductionsDetailDeterministic";
 import { validateArithmetic } from "./arithmeticValidator";
 import { writeScheduleLFacts } from "@/lib/financialFacts/writeScheduleLFacts";
 import { writeK1BaseFacts } from "@/lib/financialFacts/writeK1BaseFacts";
@@ -37,7 +38,7 @@ import { writeK1BaseFacts } from "@/lib/financialFacts/writeK1BaseFacts";
 // ---------------------------------------------------------------------------
 
 const VALID_LINE_KEYS = new Set([
-  "GROSS_RECEIPTS", "COST_OF_GOODS_SOLD", "GROSS_PROFIT",
+  "GROSS_RECEIPTS", "RETURNS_ALLOWANCES", "NET_SALES_REVENUE", "COST_OF_GOODS_SOLD", "GROSS_PROFIT",
   "TOTAL_INCOME", "TOTAL_DEDUCTIONS", "TAXABLE_INCOME", "NET_INCOME", "TAX_LIABILITY",
   "DEPRECIATION", "AMORTIZATION", "DEPLETION",
   "OFFICER_COMPENSATION", "SALARIES_WAGES",
@@ -85,7 +86,10 @@ const FORM_1040_PATTERNS: LinePattern[] = [
 ];
 
 const FORM_1120_PATTERNS: LinePattern[] = [
-  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1[abc]?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  // Line 1b / 1c must be matched BEFORE the generic line-1 gross-receipts catch-all.
+  { key: "RETURNS_ALLOWANCES", pattern: /(?:line\s+1b|returns?\s+and\s+allowances?).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "NET_SALES_REVENUE", pattern: /(?:line\s+1c|net\s+(?:sales|receipts)).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
+  { key: "GROSS_RECEIPTS", pattern: /(?:line\s+1a?|gross\s+receipts).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "COST_OF_GOODS_SOLD", pattern: /(?:line\s+2|cost\s+of\s+goods\s+sold|COGS).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "GROSS_PROFIT", pattern: /(?:line\s+3|gross\s+profit).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
   { key: "OFFICER_COMPENSATION", pattern: /(?:line\s+12|officer\s+compensation|compensation\s+of\s+officer).*?(\$?[\d,]+(?:\.\d{0,2})?)/i },
@@ -140,6 +144,13 @@ const GENERIC_TAX_PATTERNS: LinePattern[] = [
 const ENTITY_MAP: Record<string, string> = {
   // Income statement
   gross_receipts: "GROSS_RECEIPTS",
+  // SPEC-CLASSIC-SPREAD-SOURCE-LINE-MODEL-PARITY-1 #1 — line 1b / 1c source lines.
+  returns_allowances: "RETURNS_ALLOWANCES",
+  returns_and_allowances: "RETURNS_ALLOWANCES",
+  net_sales: "NET_SALES_REVENUE",
+  net_receipts: "NET_SALES_REVENUE",
+  net_sales_revenue: "NET_SALES_REVENUE",
+  net_receipts_sales: "NET_SALES_REVENUE",
   cost_of_goods_sold: "COST_OF_GOODS_SOLD",
   gross_profit: "GROSS_PROFIT",
   total_income: "TOTAL_INCOME",
@@ -276,6 +287,7 @@ export async function extractTaxReturnDeterministic(
     { pattern: /form\s+8825\b/i, extractor: extractForm8825, factType: "TAX_RETURN_RENTAL" },
     { pattern: /form\s+1125-?a\b|cost\s+of\s+goods\s+sold/i, extractor: extractForm1125A, factType: "TAX_RETURN_COGS_DETAIL" },
     { pattern: /form\s+1125-?e\b|compensation\s+of\s+officers/i, extractor: extractForm1125E, factType: "TAX_RETURN_OFFICER_COMP" },
+    { pattern: /other\s+deductions|statement\s+\d+[:\s]*other|line\s+(?:19|20|26)\s+(?:detail|other)/i, extractor: extractOtherDeductionsDetail, factType: "TAX_RETURN_OTHER_DEDUCTIONS_DETAIL" },
   ];
 
   const schedulePromises = scheduleChecks
@@ -285,6 +297,39 @@ export async function extractTaxReturnDeterministic(
   const settled = await Promise.allSettled(schedulePromises);
   for (const r of settled) {
     if (r.status === "fulfilled") factsWritten += r.value;
+  }
+
+  // After OD detail extraction, write reconciliation fact
+  // Compare OD_DETAIL_TOTAL to OTHER_DEDUCTIONS aggregate
+  if (taxYear) {
+    const odAggregate = items.find((i) => i.factKey === "OTHER_DEDUCTIONS")?.value;
+    const odDetailResult = extractOtherDeductionsDetail(args);
+    const odDetailTotal = odDetailResult.items.find((i) => i.key === "OD_DETAIL_TOTAL")?.value;
+    if (typeof odAggregate === "number" && typeof odDetailTotal === "number") {
+      const reconciled = Math.abs(odAggregate - odDetailTotal) <= 1;
+      const { start: ps, end: pe } = normalizePeriod(`FY${taxYear}`);
+      const reconResult = await writeFactsBatch({
+        dealId: args.dealId,
+        bankId: args.bankId,
+        sourceDocumentId: args.documentId,
+        factType: "TAX_RETURN_OTHER_DEDUCTIONS_DETAIL",
+        items: [{
+          factKey: "OD_DETAIL_RECONCILED",
+          value: reconciled ? 1 : 0,
+          confidence: 0.90,
+          periodStart: ps,
+          periodEnd: pe,
+          provenance: {
+            source_type: "DOC_EXTRACT",
+            source_ref: `tax_return:${args.documentId}`,
+            as_of_date: pe,
+            extractor: "otherDeductionsDetail:reconciliation:v1",
+            calc: `|${odAggregate} - ${odDetailTotal}| = ${Math.abs(odAggregate - odDetailTotal)}`,
+          },
+        }],
+      });
+      factsWritten += reconResult.factsWritten;
+    }
   }
 
   factsWritten += k1Facts;
@@ -492,7 +537,7 @@ function truncateBeforeK1(text: string): string {
  * These map the actual IRS form line numbers to our canonical keys.
  */
 const IRS_LINE_MAP_1065: Record<string, string> = {
-  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1b": "RETURNS_ALLOWANCES", "1c": "NET_SALES_REVENUE",
   "2": "COST_OF_GOODS_SOLD",
   "3": "GROSS_PROFIT",
   "8": "TOTAL_INCOME",
@@ -508,7 +553,8 @@ const IRS_LINE_MAP_1065: Record<string, string> = {
 };
 
 const IRS_LINE_MAP_1120: Record<string, string> = {
-  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1c": "GROSS_RECEIPTS",
+  // 1a gross receipts, 1b returns & allowances, 1c net sales/receipts (SPEC-...-SOURCE-LINE-MODEL-PARITY-1 #1).
+  "1": "GROSS_RECEIPTS", "1a": "GROSS_RECEIPTS", "1b": "RETURNS_ALLOWANCES", "1c": "NET_SALES_REVENUE",
   "2": "COST_OF_GOODS_SOLD",
   "3": "GROSS_PROFIT",
   "11": "TOTAL_INCOME",

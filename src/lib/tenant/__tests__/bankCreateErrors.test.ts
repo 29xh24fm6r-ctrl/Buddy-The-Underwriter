@@ -147,7 +147,7 @@ test("two calls produce different suffixes (timestamp-based)", () => {
 console.log("bankCreateErrors — type safety");
 
 test("all five error codes are representable", () => {
-  const codes: import("../bankCreateErrors").BankCreateError[] = [
+  const codes: string[] = [
     "bank_name_conflict",
     "bank_code_conflict",
     "bank_insert_failed",

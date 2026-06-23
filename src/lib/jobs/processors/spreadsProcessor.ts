@@ -783,6 +783,25 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1 (Step 1) — institutional NCADS.
+    // Runs AFTER computeBusinessEbitdaFacts + analyzeOfficerCompFacts, BEFORE the
+    // aggregator, so the waterfall-derived CF_NCADS / CASH_FLOW_AVAILABLE (most recent
+    // complete fiscal year) is in place when the aggregator runs and prefers it. Non-fatal:
+    // when no complete FY exists it writes nothing and the aggregator's cold-start bootstrap
+    // (below) applies.
+    try {
+      const { computeCashFlowWaterfallFacts } = await import(
+        "@/lib/financialFacts/computeCashFlowWaterfallFacts"
+      );
+      const wfResult = await computeCashFlowWaterfallFacts({ dealId, bankId });
+      if (!wfResult.ok) {
+        console.warn(`[spreadsProcessor] computeCashFlowWaterfallFacts: ${wfResult.reason}${wfResult.detail ? ` (${wfResult.detail})` : ""}`);
+      }
+    } catch (wfErr: any) {
+      console.warn("[spreadsProcessor] computeCashFlowWaterfallFacts threw:", wfErr?.message);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // BOOTSTRAP-WRITER-DO-NOT-REMOVE
     //
     // SPEC-FOUNDATION-V1 PR5i — Cold-start bootstrap writer for CASH_FLOW_AVAILABLE.
@@ -1024,7 +1043,12 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
           dealId,
           bankId,
           spreadType: "GLOBAL_CASH_FLOW" as SpreadType,
-          ownerType: ownerType ?? "DEAL",
+          // SPEC-GCF-RECOMPUTE-OWNER-TYPE-PARITY-1: resolve to the canonical
+          // owner_type (GLOBAL for GCF), matching the placeholder and the CAS
+          // claim. renderSpread persists owner_type RAW, so passing the
+          // unresolved job-meta ownerType ("DEAL") here wrote a stale DEAL-owned
+          // GCF row and left the canonical GLOBAL row stuck queued/generating.
+          ownerType: resolveOwnerType("GLOBAL_CASH_FLOW" as SpreadType, ownerType),
           ownerEntityId: ownerEntityId,
         });
         if ((secondRender as any).ok) {
@@ -1104,7 +1128,47 @@ export async function processSpreadJob(jobId: string, leaseOwner: string) {
       });
     }
 
-    // Recompute deal readiness after facts are materialized (non-fatal)
+    // ── Persist canonical financial snapshot ─────────────────────────────
+    // The pricing/lifecycle gate trusts financial_snapshots (count > 0).
+    // Without this, the banker is trapped in a Pricing ↔ Spreads loop:
+    // spreads render fine but pricing blocks on financialSnapshotExists.
+    // SPEC-FINANCIAL-SNAPSHOT-HANDOFF-FIX-2: primary writer is here;
+    // /spread-output is the self-healing fallback only.
+    try {
+      const { buildDealFinancialSnapshotForBank, persistCashFlowAvailableFromSnapshot } =
+        await import("@/lib/deals/financialSnapshot");
+      const { persistFinancialSnapshot } =
+        await import("@/lib/deals/financialSnapshotPersistence");
+
+      const snapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
+      await persistCashFlowAvailableFromSnapshot({ dealId, bankId, snapshot });
+      await persistFinancialSnapshot({ dealId, bankId, snapshot });
+
+      await logLedgerEvent({
+        dealId, bankId,
+        eventKey: "financial_snapshot.persisted",
+        uiState: "done",
+        uiMessage: "Financial snapshot persisted from spread job",
+        meta: { jobId, completeness_pct: snapshot.completeness_pct },
+      });
+    } catch (snapErr: any) {
+      const msg = snapErr?.message ?? String(snapErr);
+      // Hash-duplicate inserts (same snapshot already persisted) are expected
+      if (!msg.includes("duplicate") && !msg.includes("snapshot_hash")) {
+        console.error("[spreadsProcessor] financial snapshot persistence FAILED", {
+          dealId, bankId, jobId, error: msg,
+        });
+        await logLedgerEvent({
+          dealId, bankId,
+          eventKey: "financial_snapshot.persist_failed",
+          uiState: "error",
+          uiMessage: `Financial snapshot persistence failed: ${msg.slice(0, 200)}`,
+          meta: { jobId, error: msg },
+        }).catch(() => {});
+      }
+    }
+
+    // Recompute deal readiness after facts + snapshot are materialized (non-fatal)
     try {
       const { recomputeDealReady } = await import("@/lib/deals/readiness");
       await recomputeDealReady(dealId);

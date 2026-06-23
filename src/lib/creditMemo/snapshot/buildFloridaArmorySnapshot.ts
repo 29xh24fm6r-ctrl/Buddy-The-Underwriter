@@ -79,12 +79,47 @@ function buildSources(
   return sources;
 }
 
-function sourceCoverage(sources: FloridaArmorySource[]) {
-  return {
+function sourceCoverage(sources: FloridaArmorySource[], canonicalMemo: CanonicalCreditMemoV1) {
+  // Count from both the source array AND the canonical memo's actual content
+  const fromSources = {
     document_sources: sources.filter((s) => s.source_type === "document").length,
     financial_fact_sources: sources.filter((s) => s.source_type === "financial_fact").length,
     research_sources: sources.filter((s) => s.source_type === "research").length,
     override_sources: sources.filter((s) => s.source_type === "override").length,
+  };
+
+  // Derive content-based counts from canonical memo to ensure non-zero when data exists
+  let factCount = fromSources.financial_fact_sources;
+  if (factCount === 0) {
+    // Count non-null metric values as fact sources
+    const fa = canonicalMemo.financial_analysis;
+    const metricsPresent = [fa.dscr, fa.revenue, fa.ebitda, fa.net_income, fa.cash_flow_available, fa.debt_service, fa.dscr_stressed].filter((m) => m.value !== null).length;
+    const tableRows = (fa.debt_coverage_table?.length ?? 0) + (fa.income_statement_table?.length ?? 0) + (fa.balance_sheet_table?.length ?? 0);
+    factCount = metricsPresent + tableRows;
+  }
+
+  let docCount = fromSources.document_sources;
+  if (docCount === 0) {
+    // Count spreads as document sources
+    docCount = canonicalMemo.meta?.spreads?.length ?? 0;
+  }
+
+  let researchCount = fromSources.research_sources;
+  if (researchCount === 0 && canonicalMemo.business_industry_analysis) {
+    const rc = canonicalMemo.business_industry_analysis.research_coverage;
+    researchCount = rc.missions_count + (rc.facts_count > 0 ? 1 : 0);
+  }
+
+  let overrideCount = fromSources.override_sources;
+  if (overrideCount === 0 && canonicalMemo.banker_context?.banker_notes) {
+    overrideCount = 1;
+  }
+
+  return {
+    document_sources: docCount,
+    financial_fact_sources: factCount,
+    research_sources: researchCount,
+    override_sources: overrideCount,
   };
 }
 
@@ -150,7 +185,7 @@ export function buildFloridaArmorySnapshot({
     sources,
     diagnostics: {
       readiness_contract: readinessContract,
-      source_coverage: sourceCoverage(sources),
+      source_coverage: sourceCoverage(sources, canonicalMemo),
       warnings,
     },
     canonical_memo: canonicalMemo,

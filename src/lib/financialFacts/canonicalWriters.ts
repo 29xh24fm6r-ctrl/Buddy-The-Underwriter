@@ -42,9 +42,12 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
   runCashFlowAggregator: {
     name: "runCashFlowAggregator",
     role: "bootstrap",
+    // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1 (PR-519): the aggregator writes only
+    // PROPOSED-loan figures. Total ANNUAL_DEBT_SERVICE + canonical DSCR (total/business
+    // denominator) are owned SOLELY by computeTotalDebtService, which runs after.
     ownedFactKeys: [
-      "ANNUAL_DEBT_SERVICE",
-      "DSCR",
+      "ANNUAL_DEBT_SERVICE_PROPOSED",
+      "PROPOSED_LOAN_COVERAGE",
       "CASH_FLOW_AVAILABLE",
       "EXCESS_CASH_FLOW",
     ],
@@ -152,6 +155,39 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       "to display officer comp normalization in EBITDA waterfalls.",
   },
 
+  computeCashFlowWaterfallFacts: {
+    name: "computeCashFlowWaterfallFacts",
+    role: "compute",
+    // SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1: institutional NCADS source. Writes CF_NCADS
+    // and the canonical CASH_FLOW_AVAILABLE (high confidence) from the cash-flow waterfall
+    // for the most recent COMPLETE fiscal year.
+    ownedFactKeys: ["CF_NCADS", "CASH_FLOW_AVAILABLE"],
+    bootstrapsForDownstream: ["CASH_FLOW_AVAILABLE"],
+    reads: {
+      factKeys: [
+        "ORDINARY_BUSINESS_INCOME", "TAXABLE_INCOME", "NET_INCOME", "DEPRECIATION",
+        "AMORTIZATION", "SECTION_179_EXPENSE", "BONUS_DEPRECIATION", "INTEREST_EXPENSE",
+        "NON_RECURRING_INCOME", "NON_RECURRING_EXPENSE", "OFFICER_COMPENSATION",
+        "GUARANTEED_PAYMENTS", "GROSS_RECEIPTS", "TOTAL_TAX", "M1_FEDERAL_TAX_BOOK",
+        "MAINTENANCE_CAPEX", "SCH_C_NET_PROFIT",
+      ],
+      tables: ["deal_financial_facts", "deal_methodology_choices"],
+    },
+    runsAfter: ["computeBusinessEbitdaFacts", "analyzeOfficerCompFacts"],
+    runsBefore: ["runCashFlowAggregator"],
+    invariant:
+      "When a complete fiscal-year period with an income base fact exists, CF_NCADS and " +
+      "CASH_FLOW_AVAILABLE are written from the institutional waterfall (base + addbacks + " +
+      "QoE + owner benefit − tax − capex) with full provenance. Interim periods are never " +
+      "used. When no complete FY exists, nothing is written and a labeled diagnostic event " +
+      "is emitted (runCashFlowAggregator's cold-start bootstrap then applies).",
+    loadBearing: false,
+    notes:
+      "SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1 Step 1. The canonical NCADS source; " +
+      "runCashFlowAggregator prefers CF_NCADS and demotes its crude C-corp/tax-return " +
+      "fallbacks to cold-start diagnostics. DSCR remains owned by computeTotalDebtService.",
+  },
+
   computeTotalDebtService: {
     name: "computeTotalDebtService",
     role: "compute",
@@ -191,7 +227,13 @@ export const CANONICAL_WRITERS: Record<string, CanonicalWriterEntry> = {
       factKeys: [
         "NOI_TTM", "EBITDA", "CASH_FLOW_AVAILABLE", "ANNUAL_DEBT_SERVICE",
         "ANNUAL_DEBT_SERVICE_PROPOSED", "ANNUAL_DEBT_SERVICE_EXISTING",
-        "TOTAL_PERSONAL_INCOME", "PFS_ANNUAL_DEBT_SERVICE", "PFS_LIVING_EXPENSES",
+        // SPEC-GCF-SOURCE-OF-TRUTH-1: personal income now derives from the GCF
+        // template's K-1-excluded component build-up (WAGES_W2, SCH_E_RENTAL_TOTAL,
+        // etc. — see gcfPersonalIncome.ts), NOT the AGI aggregate TOTAL_PERSONAL_INCOME.
+        "WAGES_W2", "SCH_E_RENTAL_TOTAL", "SCH_E_NET", "TAXABLE_INTEREST",
+        "ORDINARY_DIVIDENDS", "SOCIAL_SECURITY", "IRA_DISTRIBUTIONS",
+        "PENSION_ANNUITY", "SCHED_C_NET",
+        "PFS_ANNUAL_DEBT_SERVICE", "PFS_LIVING_EXPENSES",
         "DEPRECIATION",
       ],
       tables: ["deal_entities"],
