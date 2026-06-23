@@ -36,6 +36,7 @@ const BLOCKER_WEIGHTS: Record<MemoInputBlockerCode, number> = {
   missing_management_profile: 12,
   missing_collateral_item: 10,
   missing_collateral_value: 10,
+  missing_business_cash_flow: 12,
   missing_dscr: 12,
   missing_debt_service_facts: 10,
   missing_global_cash_flow: 8,
@@ -156,15 +157,61 @@ export function evaluateMemoInputReadiness(
   }
 
   // ── 4. Financial facts ────────────────────────────────────────────────
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a DOWNSTREAM aggregate.
+  // Emit financial blockers in dependency order — business cash flow →
+  // annual debt service → global cash flow → DSCR (most downstream LAST) — so
+  // the Memo Inputs panel (which presents blockers[0] as the next action) never
+  // surfaces GCF/DSCR ahead of the upstream financial analysis that feeds them.
+  //
+  // GCF / DSCR fixPaths route to the EARLIEST unresolved upstream step (business
+  // cash flow / ADS / personal-PFS) when GCF prerequisites are not yet ready,
+  // instead of dead-ending on the GCF compute page that can't compute yet.
+  const gcfPrereqs = args.gcfPrerequisites;
+  const gcfFixPath =
+    gcfPrereqs && !gcfPrereqs.ready && gcfPrereqs.earliestMissing
+      ? `/deals/${dealId}${gcfPrereqs.earliestMissing.fixPathSuffix}`
+      : `/deals/${dealId}/spreads/global-cash-flow`;
+
+  // 1. Business cash flow — earliest upstream prerequisite.
+  if (financialFacts.cashFlowAvailable === null) {
+    blockers.push({
+      code: "missing_business_cash_flow",
+      label: "Business cash flow must be computed",
+      owner: "buddy",
+      fixPath: `/deals/${dealId}/financials`,
+    });
+  }
+  // 2. Annual debt service.
+  if (financialFacts.annualDebtService === null) {
+    blockers.push({
+      code: "missing_debt_service_facts",
+      label: "Annual debt service must be computed",
+      owner: "buddy",
+      fixPath: `/deals/${dealId}/financials`,
+    });
+  }
+  // 3. Global cash flow (downstream aggregate). Routes upstream when blocked.
+  if (financialFacts.globalCashFlow === null) {
+    blockers.push({
+      code: "missing_global_cash_flow",
+      label:
+        gcfPrereqs && !gcfPrereqs.ready
+          ? "Global cash flow blocked — run upstream financial analysis first"
+          : "Global cash flow must be computed",
+      owner: "buddy",
+      fixPath: gcfFixPath,
+    });
+  }
+  // 4. DSCR — most downstream financial metric, presented LAST.
   if (financialFacts.dscr === null) {
     blockers.push({
       code: "missing_dscr",
       label: "DSCR has not been computed",
       owner: "buddy",
-      // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: DSCR is materialized by the Global
-      // Cash Flow computation. Route to the GCF compute page (real Compute/Retry
-      // action), not the generic /spreads Executive Summary which cannot clear it.
-      fixPath: `/deals/${dealId}/spreads/global-cash-flow`,
+      // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: DSCR depends on GCF, which depends
+      // on the upstream financial facts. Route to the earliest unresolved upstream
+      // step, NOT blindly to the GCF compute page (which can't clear DSCR yet).
+      fixPath: gcfFixPath,
     });
   } else if (args.dscrSource === "proxy") {
     // ACTIVATION: DSCR exists but from proxy/fallback — warn, don't block
@@ -174,27 +221,8 @@ export function evaluateMemoInputReadiness(
       fixPath: `/deals/${dealId}/spreads`,
     });
   }
-  if (financialFacts.annualDebtService === null) {
-    blockers.push({
-      code: "missing_debt_service_facts",
-      label: "Annual debt service must be computed",
-      owner: "buddy",
-      fixPath: `/deals/${dealId}/financials`,
-    });
-  }
-  if (financialFacts.globalCashFlow === null) {
-    blockers.push({
-      code: "missing_global_cash_flow",
-      label: "Global cash flow must be computed",
-      owner: "buddy",
-      // SPEC-GCF-FIXPATH-DEEP-LINK-1: deep-link straight to the Global Cash Flow
-      // sub-page (which exposes a Compute action + diagnostic) instead of the
-      // /spreads root, which opens on the read-only Executive Summary tab and
-      // strands the banker with no GCF resolution action.
-      fixPath: `/deals/${dealId}/spreads/global-cash-flow`,
-    });
-  }
   const financialsComplete =
+    financialFacts.cashFlowAvailable !== null &&
     financialFacts.dscr !== null &&
     financialFacts.annualDebtService !== null &&
     financialFacts.globalCashFlow !== null;

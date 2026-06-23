@@ -352,22 +352,33 @@ export function getBlockerFixAction(
         href: `/deals/${dealId}/policy-exceptions`,
       };
 
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+    // upstream financial step — route to the financial analysis surface.
+    case "missing_business_cash_flow":
+      return {
+        label: "Run financial analysis",
+        href: `/deals/${dealId}/financials`,
+      };
+
     // SPEC-GCF-FIXPATH-DEEP-LINK-1: GCF deep-links to its own sub-page (which
-    // exposes a Compute action + diagnostic), not the Executive Summary tab.
+    // exposes a Compute action + diagnostic), not the Executive Summary tab. The
+    // page itself gates Compute on prerequisites and shows upstream CTAs when not
+    // ready (SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1), so this is never a dead-end.
     case "missing_global_cash_flow":
       return {
         label: "Review Global Cash Flow",
         href: `/deals/${dealId}/spreads/global-cash-flow`,
       };
 
-    // SPEC-GCF-SYSTEM-WIDE-PERMANENT-FIX-1: global DSCR is derived by the Global
-    // Cash Flow computation, so missing_dscr must route to the GCF compute page —
-    // which has a real Compute/Retry action — not the read-only /spreads
-    // Executive Summary tab, which cannot clear DSCR.
+    // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: DSCR is the most-downstream metric
+    // (depends on GCF, which depends on business financials + ADS). Without per-deal
+    // fact context here, route to the financial analysis hub — the earliest upstream
+    // surface — NOT blindly to the GCF compute page that can't clear DSCR yet. (The
+    // memo-readiness blocker carries a fact-aware fixPath for the precise step.)
     case "missing_dscr":
       return {
-        label: "Compute Global Cash Flow",
-        href: `/deals/${dealId}/spreads/global-cash-flow`,
+        label: "Run financial analysis",
+        href: `/deals/${dealId}/financials`,
       };
 
     case "missing_debt_service_facts":

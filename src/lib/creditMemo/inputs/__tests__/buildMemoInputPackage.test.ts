@@ -91,7 +91,7 @@ function basicCollateral(): DealCollateralItem[] {
 }
 
 function basicFacts(): RequiredFinancialFacts {
-  return { dscr: 1.4, annualDebtService: 100_000, globalCashFlow: 250_000, loanAmount: 500_000 };
+  return { dscr: 1.4, annualDebtService: 100_000, globalCashFlow: 250_000, loanAmount: 500_000, cashFlowAvailable: 400_000 };
 }
 
 function basicResearch(): ResearchGateSnapshot {

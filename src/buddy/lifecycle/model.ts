@@ -100,6 +100,9 @@ export type LifecycleBlockerCode =
   | "missing_research_quality_gate"
   | "open_fact_conflicts"
   | "missing_policy_exception_review"
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
+  // upstream financial prerequisite, ahead of the downstream GCF / DSCR blockers.
+  | "missing_business_cash_flow"
   | "missing_dscr"
   | "missing_global_cash_flow"
   | "missing_debt_service_facts"

@@ -71,6 +71,7 @@ const CODE_TO_WORKSTREAM: Partial<Record<LifecycleBlockerCode, UnderwritingWorks
 
   // b. spread / financial computation readiness
   financial_snapshot_missing: "financial_computation",
+  missing_business_cash_flow: "financial_computation",
   missing_dscr: "financial_computation",
   missing_debt_service_facts: "financial_computation",
   missing_global_cash_flow: "financial_computation",
