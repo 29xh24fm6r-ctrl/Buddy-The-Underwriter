@@ -184,14 +184,36 @@ export async function writeFactsBatch(args: {
     const affectsSpread = SPREAD_AFFECTING_TYPES.has(args.factType);
     if (affectsSpread) {
       try {
-        const { enqueueSpreadRecompute } = await import(
-          "@/lib/financialSpreads/enqueueSpreadRecompute"
-        );
+        // SPEC-SPREAD-SYSTEM-PERFECTION-HARDENING-1 (Phase 2): this internal
+        // fact-write recompute is a DEFAULT (non-banker-explicit) trigger. It must
+        // NOT enqueue T12 from annual statement/tax-return facts (#556 — optional,
+        // gated on a real T12/monthly source) and must NOT enqueue GCF before its
+        // upstream prerequisites exist (#554 — no orphan/placeholder GCF rows).
+        // BALANCE_SHEET stays a candidate; enqueueSpreadRecompute still gates each
+        // type on its own template prerequisites.
+        const [{ dealHasT12Source }, { getCanonicalGlobalCashFlow }, { planFactWriteRecomputeSpreadTypes }, { enqueueSpreadRecompute }] =
+          await Promise.all([
+            import("@/lib/spreads/t12RecomputeGate"),
+            import("@/lib/financialFacts/getCanonicalGlobalCashFlow"),
+            import("@/lib/financialSpreads/factWriteRecomputePlan"),
+            import("@/lib/financialSpreads/enqueueSpreadRecompute"),
+          ]);
+
+        const [hasT12Source, gcf] = await Promise.all([
+          dealHasT12Source(args.dealId),
+          getCanonicalGlobalCashFlow(args.dealId, args.bankId),
+        ]);
+
+        const spreadTypes = planFactWriteRecomputeSpreadTypes({
+          hasT12Source,
+          gcfPrerequisitesReady: gcf.prerequisitesReady,
+        });
+
         await enqueueSpreadRecompute({
           dealId: args.dealId,
           bankId: args.bankId,
           sourceDocumentId: args.sourceDocumentId,
-          spreadTypes: ["T12", "BALANCE_SHEET", "GLOBAL_CASH_FLOW"],
+          spreadTypes,
         });
       } catch (err: any) {
         console.warn("[writeFactsBatch] spread recompute enqueue failed (non-fatal)", err?.message);
