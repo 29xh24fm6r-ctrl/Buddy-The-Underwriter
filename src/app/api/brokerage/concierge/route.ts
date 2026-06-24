@@ -19,9 +19,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   getBorrowerSession,
-  createBorrowerSession,
   claimBorrowerSession,
 } from "@/lib/brokerage/sessionToken";
+import { getOrCreateBorrowerSession } from "@/lib/brokerage/session";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
@@ -92,7 +92,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // applied). Surface an explicit errorCode so the network tab shows root
     // cause without needing server logs.
     let sb: ReturnType<typeof supabaseAdmin>;
-    let brokerageBankId: string;
     try {
       sb = supabaseAdmin();
     } catch (e) {
@@ -103,6 +102,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 500 },
       );
     }
+    // Eagerly resolve the brokerage tenant id so a missing/ambiguous
+    // singleton fails fast with a clear errorCode (instead of bubbling
+    // up from inside getOrCreateBorrowerSession on first cookie-less
+    // request).
+    let brokerageBankId: string;
     try {
       brokerageBankId = await getBrokerageBankId();
     } catch (e) {
@@ -114,48 +118,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // First message — create draft deal + session.
+    // First message — create draft deal + session via the single source of
+    // truth (SPEC-BROKERAGE-LAUNCH-BLOCKERS-V1 §3.1). The helper takes a
+    // per-tenant pg_advisory_xact_lock inside claim_brokerage_session() and
+    // is the only path in the codebase that inserts a brokerage_anonymous
+    // deal row.
     if (!session) {
-      const { data: newDeal, error: dealErr } = await sb
-        .from("deals")
+      session = await getOrCreateBorrowerSession();
+
+      // Concierge session row is concierge-specific (transcript / facts /
+      // progress). It is not created by the session helper; it lives 1:1
+      // with the deal but only when the deal flows through the concierge.
+      await sb
+        .from("borrower_concierge_sessions")
         .insert({
-          bank_id: brokerageBankId,
-          deal_type: "SBA",
-          origin: "brokerage_anonymous",
-          display_name: "New borrower inquiry",
+          deal_id: session.deal_id,
+          bank_id: session.bank_id,
+          program: "7a",
         })
         .select("id")
-        .single();
-
-      if (dealErr || !newDeal) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `Failed to create draft deal: ${dealErr?.message}`,
-          },
-          { status: 500 },
-        );
-      }
-
-      const created = await createBorrowerSession({
-        dealId: newDeal.id,
-        bankId: brokerageBankId,
-      });
-
-      session = {
-        rawToken: created.rawToken,
-        tokenHash: created.tokenHash,
-        deal_id: newDeal.id,
-        bank_id: brokerageBankId,
-        claimed_email: null,
-        claimed_at: null,
-      };
-
-      await sb.from("borrower_concierge_sessions").insert({
-        deal_id: newDeal.id,
-        bank_id: brokerageBankId,
-        program: "7a",
-      });
+        .maybeSingle();
     }
 
     const { data: conciergeRow } = await sb

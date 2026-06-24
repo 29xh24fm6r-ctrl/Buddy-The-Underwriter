@@ -1,26 +1,34 @@
 import "server-only";
 
+import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Internal operational dashboard stub.
+ * Internal operational dashboard.
  *
- * Spec: SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 8.
+ * Spec: SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 8 + LAUNCH-BLOCKERS-V1 §3.6.
  *
- * Counts only. No marketplace UI, no lender UI, no borrower UI. Just
- * enough signal so Buddy ops can see whether intake / OCR / sealing /
- * listings are stuck before real borrowers come through.
+ * Counts with drilldown links. No marketplace UI, no lender UI, no
+ * borrower UI. Just enough signal so Buddy ops can see whether intake
+ * / OCR / sealing / listings are stuck before real borrowers come
+ * through. Each tile links to a filtered detail page where ops can
+ * see WHICH deal is stuck and WHY.
  *
  * Access: admin layout already requires super_admin. We do NOT add a
  * second gate here — single source of truth is the layout.
  *
- * Errors: surfaced inline, not swallowed.
+ * Errors: surfaced inline per tile, not swallowed.
  */
 
-type CountRow = { label: string; value: number; error?: string };
+type CountRow = {
+  label: string;
+  value: number;
+  href?: string;
+  error?: string;
+};
 
 async function safeCount(
   fn: () => PromiseLike<{ count: number | null; error: unknown }>,
@@ -55,12 +63,13 @@ export default async function AdminBrokerageListingsPage() {
   }
 
   const sb = supabaseAdmin();
-  const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const since24h = new Date(new Date().valueOf() - 24 * 3600 * 1000).toISOString();
 
   const counts: CountRow[] = [];
 
   counts.push({
     label: "Borrower sessions last 24h",
+    href: "/admin/brokerage/sessions",
     ...(await safeCount(() =>
       sb
         .from("borrower_session_tokens")
@@ -73,6 +82,7 @@ export default async function AdminBrokerageListingsPage() {
   if (brokerageBankId) {
     counts.push({
       label: "Draft brokerage deals (pre-email)",
+      href: "/admin/brokerage/deals?origin=brokerage_anonymous",
       ...(await safeCount(() =>
         sb
           .from("deals")
@@ -84,6 +94,7 @@ export default async function AdminBrokerageListingsPage() {
     });
     counts.push({
       label: "Claimed brokerage deals",
+      href: "/admin/brokerage/deals?origin=brokerage_claimed",
       ...(await safeCount(() =>
         sb
           .from("deals")
@@ -97,6 +108,7 @@ export default async function AdminBrokerageListingsPage() {
 
   counts.push({
     label: "Uploads pending OCR",
+    href: "/admin/brokerage/uploads",
     ...(await safeCount(() =>
       sb
         .from("deal_documents")
@@ -108,6 +120,7 @@ export default async function AdminBrokerageListingsPage() {
 
   counts.push({
     label: "Sealed packages (active)",
+    href: "/admin/brokerage/packages",
     ...(await safeCount(() =>
       sb
         .from("buddy_sealed_packages")
@@ -152,12 +165,20 @@ export default async function AdminBrokerageListingsPage() {
 
   return (
     <main className="px-8 py-10 max-w-5xl mx-auto">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Brokerage operations</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          Counts only. Use these to spot stuck pipelines before borrowers
-          notice.
-        </p>
+      <header className="mb-6 flex items-baseline justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Brokerage operations</h1>
+          <p className="text-sm text-neutral-400 mt-1">
+            Click any tile for the underlying rows. Pilot-readiness is on
+            its own page.
+          </p>
+        </div>
+        <Link
+          href="/admin/brokerage/launch-readiness"
+          className="text-sm underline"
+        >
+          Launch readiness
+        </Link>
       </header>
 
       {tenantError && (
@@ -167,23 +188,29 @@ export default async function AdminBrokerageListingsPage() {
       )}
 
       <section className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {counts.map((c) => (
-          <div
-            key={c.label}
-            className="rounded-md border border-neutral-800 bg-neutral-900 p-4"
-          >
-            <div className="text-xs uppercase tracking-wide text-neutral-400">
-              {c.label}
-            </div>
-            {c.error ? (
-              <div className="mt-2 text-xs text-red-400 break-all">
-                error: {c.error}
+        {counts.map((c) => {
+          const inner = (
+            <div className="rounded-md border border-neutral-800 bg-neutral-900 p-4 h-full transition-colors hover:border-neutral-600">
+              <div className="text-xs uppercase tracking-wide text-neutral-400">
+                {c.label}
               </div>
-            ) : (
-              <div className="text-3xl font-semibold mt-2">{c.value}</div>
-            )}
-          </div>
-        ))}
+              {c.error ? (
+                <div className="mt-2 text-xs text-red-400 break-all">
+                  error: {c.error}
+                </div>
+              ) : (
+                <div className="text-3xl font-semibold mt-2">{c.value}</div>
+              )}
+            </div>
+          );
+          return c.href ? (
+            <Link key={c.label} href={c.href}>
+              {inner}
+            </Link>
+          ) : (
+            <div key={c.label}>{inner}</div>
+          );
+        })}
       </section>
 
       <p className="text-xs text-neutral-500 mt-8">
