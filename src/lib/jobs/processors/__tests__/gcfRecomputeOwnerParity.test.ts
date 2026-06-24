@@ -38,14 +38,26 @@ test("GLOBAL_CASH_FLOW always resolves to the canonical GLOBAL owner_type", () =
 });
 
 test("placeholder, claim, and second render share one resolved owner contract", () => {
-  // Placeholder (enqueue + route) resolves owner_type.
+  // Placeholder creation lives in enqueueSpreadRecompute and resolves owner_type.
   assert.ok(
     /owner_type:\s*resolveOwnerType\(/.test(read(ENQUEUE)),
     "enqueue placeholder must resolve owner_type",
   );
+
+  // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: the recompute route no longer
+  // hand-rolls a placeholder ahead of the prerequisite decision. It delegates
+  // to enqueueSpreadRecompute (asserted above to resolve owner_type) and only
+  // forwards ownerType as a parameter, so the owner contract is upheld in one
+  // place. Guard that the route delegates and never persists a raw, unresolved
+  // owner_type itself.
+  const route = read(ROUTE);
   assert.ok(
-    /owner_type:\s*resolveOwnerType\(/.test(read(ROUTE)),
-    "recompute route placeholder must resolve owner_type",
+    /enqueueSpreadRecompute\(/.test(route),
+    "recompute route must delegate placeholder creation to enqueueSpreadRecompute",
+  );
+  assert.ok(
+    !/owner_type:\s*ownerType\b/.test(route),
+    "recompute route must not persist a raw, unresolved owner_type",
   );
 
   // Processor: CAS claim + both renders resolve owner_type per spread type.
