@@ -12,6 +12,7 @@ import {
   type SpreadTableColumn,
   type SpreadTableRow,
 } from "@/components/deals/spreads/SpreadTable";
+import { isOptionalSpreadType } from "@/lib/spreads/t12Eligibility";
 
 type SpreadData = {
   deal_id: string;
@@ -26,7 +27,10 @@ type SpreadData = {
   owner_entity_id?: string | null;
 };
 
-const BUSINESS_TYPES = ["T12", "BALANCE_SHEET", "RENT_ROLL"];
+// SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: the primary business spread is the balance
+// sheet (plus rent roll for CRE). T12 is optional / nice-to-have — listed last
+// and labeled optional, never as a primary/required business spread.
+const BUSINESS_TYPES = ["BALANCE_SHEET", "RENT_ROLL", "T12"];
 
 function buildSingleColumnRows(spread: SpreadData): SpreadTableRow[] {
   const rows = spread.rendered_json?.rows;
@@ -202,7 +206,8 @@ export default function BusinessSpreadsPage() {
         <div>
           <h2 className="text-lg font-semibold text-white">Business Spreads</h2>
           <p className="mt-0.5 text-xs text-white/50">
-            Operating performance, balance sheet, and rent roll for the subject property.
+            Balance sheet and rent roll for the subject property. Trailing 12-month
+            operating performance is shown when available (optional).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -246,7 +251,12 @@ export default function BusinessSpreadsPage() {
       ) : (
         <div className="space-y-6">
           {spreads.map((spread) => {
-            const title = String(spread.rendered_json?.title ?? spread.spread_type);
+            // SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: optional spreads (T12) may be
+            // displayed but must be labeled optional — never primary/required.
+            const baseTitle = String(spread.rendered_json?.title ?? spread.spread_type);
+            const title = isOptionalSpreadType(spread.spread_type)
+              ? `${baseTitle} (optional)`
+              : baseTitle;
             const asOf = spread.rendered_json?.asOf ?? null;
             const subtitle = [
               asOf ? `As of ${asOf}` : null,

@@ -7,6 +7,8 @@ import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadReco
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { ALL_SPREAD_TYPES, type SpreadType } from "@/lib/financialSpreads/types";
 import { getCanonicalGlobalCashFlow } from "@/lib/financialFacts/getCanonicalGlobalCashFlow";
+import { filterOptionalSpreadsForDefaultRecompute } from "@/lib/spreads/t12Eligibility";
+import { dealHasT12Source } from "@/lib/spreads/t12RecomputeGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,9 +59,21 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const ownerType = typeof body?.ownerType === "string" ? body.ownerType : "DEAL";
     const ownerEntityId = typeof body?.ownerEntityId === "string" ? body.ownerEntityId : SENTINEL_UUID;
 
-    const requestedTypes: SpreadType[] = spreadTypes.length
-      ? spreadTypes
-      : ALL_SPREAD_TYPES;
+    // SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: an EXPLICIT per-type request is always
+    // honored (including T12 when the banker deliberately asks for it). A DEFAULT
+    // recompute (no explicit types) must NOT request the optional T12 spread
+    // unless the deal actually supplied a real T12/monthly operating-statement
+    // source — otherwise it only manufactures orphan/error rows.
+    let requestedTypes: SpreadType[];
+    if (spreadTypes.length) {
+      requestedTypes = spreadTypes;
+    } else {
+      const hasT12Source = await dealHasT12Source(dealId);
+      requestedTypes = filterOptionalSpreadsForDefaultRecompute(
+        [...ALL_SPREAD_TYPES],
+        { hasOptionalSource: hasT12Source },
+      );
+    }
 
     // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: GCF is a DOWNSTREAM aggregate of
     // facts produced by OTHER spreads (business cash flow, ADS) + personal/PFS.

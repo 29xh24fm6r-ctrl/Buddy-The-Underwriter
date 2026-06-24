@@ -27,6 +27,7 @@
  */
 
 import { assertServerOnly } from "@/lib/serverOnly";
+import { isOptionalSpreadType } from "@/lib/spreads/t12Eligibility";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 assertServerOnly();
@@ -915,14 +916,20 @@ async function loadSpreadInfo(
   dealId: string,
   bankId: string,
 ): Promise<SpreadInfo | null> {
-  const { data } = await sb
+  // SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: ignore optional spreads (T12). An errored
+  // or orphaned T12 row must never flip the analysis phase to waiting/failed —
+  // analysis readiness keys off primary spreads only. Fetch a small window and
+  // pick the latest PRIMARY (non-optional) row.
+  const { data: rows } = await sb
     .from("deal_spreads")
-    .select("id, status, updated_at")
+    .select("id, spread_type, status, updated_at")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(20);
+  const data = (Array.isArray(rows) ? rows : []).find(
+    (r: any) => !isOptionalSpreadType(r.spread_type),
+  );
   if (!data) return null;
   const status = (data as any).status as string | null;
   const id = (data as any).id as string | null;

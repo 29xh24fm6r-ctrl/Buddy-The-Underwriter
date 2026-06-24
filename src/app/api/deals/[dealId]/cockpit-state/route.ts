@@ -6,6 +6,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { recomputeDealDocumentState } from "@/lib/documentTruth/recomputeDealDocumentState";
 import { computeReadinessAndBlockers } from "@/lib/documentTruth/computeReadinessAndBlockers";
 import { getRequirementsForDealMode } from "@/lib/documentTruth/requirementRegistry";
+import { isOptionalSpreadType } from "@/lib/spreads/t12Eligibility";
 import {
   computeLoanRequestStatus,
   deriveLoanRequestBlocker,
@@ -134,7 +135,13 @@ export async function GET(
     let spreadStuck = 0;
     const spreadErroredTypes: string[] = [];
     const spreadStuckTypes: string[] = [];
-    for (const row of spreadRowsArr) {
+    // SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: optional spreads (T12) are nice-to-have.
+    // Their orphan/error/stuck rows must NOT drive readiness or emit blockers —
+    // exclude them from the stats the readiness engine consumes.
+    const primarySpreadRows = spreadRowsArr.filter(
+      (row) => !isOptionalSpreadType(row.spread_type),
+    );
+    for (const row of primarySpreadRows) {
       const st = row.status ?? "";
       if (st === "ready") {
         spreadReady += 1;
@@ -154,7 +161,7 @@ export async function GET(
       }
     }
     const spreadStats = {
-      total: spreadRowsArr.length,
+      total: primarySpreadRows.length,
       ready: spreadReady,
       errored: spreadErrored,
       erroredTypes: spreadErroredTypes,

@@ -7,6 +7,8 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { enqueueSpreadRecompute } from "@/lib/financialSpreads/enqueueSpreadRecompute";
 import { ALL_SPREAD_TYPES } from "@/lib/financialSpreads/types";
+import { filterOptionalSpreadsForDefaultRecompute } from "@/lib/spreads/t12Eligibility";
+import { dealHasT12Source } from "@/lib/spreads/t12RecomputeGate";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 
 export const runtime = "nodejs";
@@ -166,10 +168,18 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     // ── SPREADS scope: call existing enqueueSpreadRecompute ──
     if (scope === "ALL" || scope === "SPREADS") {
+      // SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: a blanket pipeline recompute is a
+      // DEFAULT (non-explicit) request — drop the optional T12 spread unless the
+      // deal supplied a real T12/monthly operating-statement source.
+      const hasT12Source = await dealHasT12Source(dealId);
+      const spreadTypes = filterOptionalSpreadsForDefaultRecompute(
+        [...ALL_SPREAD_TYPES],
+        { hasOptionalSource: hasT12Source },
+      );
       const res = await enqueueSpreadRecompute({
         dealId,
         bankId: access.bankId,
-        spreadTypes: [...ALL_SPREAD_TYPES],
+        spreadTypes,
         meta: { source: "pipeline_recompute_api", scope, requested_at: new Date().toISOString() },
       });
       counts.spreads = res.ok && (res as any).enqueued ? 1 : 0;

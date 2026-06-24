@@ -14,6 +14,45 @@
  * when the borrower provides monthly statements — never a requirement.
  */
 
+/**
+ * SPEC-T12-OPTIONAL-NEVER-PRIMARY-1
+ *
+ * System-wide rule: T12 (trailing-twelve operating statement) is OPTIONAL /
+ * nice-to-have only. It must NEVER act as a primary prerequisite, blocker, next
+ * action, readiness dependency, analysis-status dependency, or required/default
+ * business spread.
+ *
+ * The primary business financial workflow is driven by annual financial
+ * statements, tax returns, balance sheets, interim financials, and canonical
+ * cash-flow facts (e.g. CASH_FLOW_AVAILABLE) — never by T12. A T12 orphan/error
+ * row is a benign optional-artifact issue, not an upstream defect.
+ *
+ * This set is the single source of truth for "which spread types are optional".
+ * Consumers (readiness/blocker engines, default recompute, analysis status,
+ * UI labels) must treat membership here as "may be displayed, never required".
+ */
+export const OPTIONAL_SPREAD_TYPES: ReadonlySet<string> = new Set(["T12"]);
+
+/** True when `spreadType` is optional / nice-to-have (never a primary dependency). */
+export function isOptionalSpreadType(spreadType: string | null | undefined): boolean {
+  return OPTIONAL_SPREAD_TYPES.has(String(spreadType ?? "").trim().toUpperCase());
+}
+
+/**
+ * Filter the spread set a DEFAULT recompute would run. Optional spreads (T12)
+ * are dropped UNLESS the deal actually supplied the optional artifact's source
+ * (`hasOptionalSource`). Explicit per-type requests must NOT be routed through
+ * this filter — an explicit request for T12 is always honored by the caller
+ * before this helper is consulted.
+ */
+export function filterOptionalSpreadsForDefaultRecompute<T extends string>(
+  types: readonly T[],
+  opts: { hasOptionalSource: boolean },
+): T[] {
+  if (opts.hasOptionalSource) return [...types];
+  return types.filter((t) => !isOptionalSpreadType(t));
+}
+
 export type T12EligibilityInput = {
   deal_type: string | null;
   /** True only if the deal has 12 consecutive months of monthly operating statements
