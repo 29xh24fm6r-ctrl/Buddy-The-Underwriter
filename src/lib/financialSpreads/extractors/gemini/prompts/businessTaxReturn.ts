@@ -3,13 +3,21 @@
  *
  * Returns canonical fact keys directly. Version must increment on any text change.
  * v2: +3 SL_* (Gap A), +13 SK_* (Gap B), +8 S_AAA/S_TAX (Gap C), +8 M2_* (Gap D)
- * 59 total expected keys. Shadow-mode smoke-test threshold: >= 55 keys extracted.
+ * v3 (SPEC-SPREAD-SYSTEM-PERFECTION-HARDENING-1 Phase 1): +4 Schedule L
+ *   current-liability keys (SL_OPERATING_CURRENT_LIABILITIES,
+ *   SL_LOANS_FROM_SHAREHOLDERS, SL_OTHER_LIABILITIES, SL_TOTAL_CURRENT_LIABILITIES)
+ *   + per-fact source-evidence instruction.
+ * 63 total expected keys. Shadow-mode smoke-test threshold: >= 55 keys extracted.
  */
 
 import type { GeminiExtractionPrompt } from "../types";
-import { SYSTEM_PREFIX, RESPONSE_FORMAT_INSTRUCTION } from "./shared";
+import {
+  SYSTEM_PREFIX,
+  RESPONSE_FORMAT_INSTRUCTION,
+  EVIDENCE_INSTRUCTION,
+} from "./shared";
 
-const PROMPT_VERSION = "gemini_primary_btr_v2";
+const PROMPT_VERSION = "gemini_primary_btr_v3";
 
 const EXPECTED_KEYS = [
   // ── Main Body (16) ──────────────────────────────────────────────────
@@ -30,7 +38,7 @@ const EXPECTED_KEYS = [
   "GUARANTEED_PAYMENTS",
   "DISTRIBUTIONS",
 
-  // ── Schedule L — Balance Sheet (12) ─────────────────────────────────
+  // ── Schedule L — Balance Sheet (16) ─────────────────────────────────
   "SL_CASH",
   "SL_AR_GROSS",
   "SL_INVENTORY",
@@ -43,6 +51,11 @@ const EXPECTED_KEYS = [
   "SL_TOTAL_LIABILITIES",
   "SL_RETAINED_EARNINGS",
   "SL_TOTAL_EQUITY",
+  // Schedule L current-liability coverage (SPEC-…-HARDENING-1 Phase 1)
+  "SL_OPERATING_CURRENT_LIABILITIES",
+  "SL_LOANS_FROM_SHAREHOLDERS",
+  "SL_OTHER_LIABILITIES",
+  "SL_TOTAL_CURRENT_LIABILITIES",
 
   // ── Schedule M-1 — Book/Tax Reconciliation (2) ─────────────────────
   "M1_BOOK_INCOME",
@@ -119,7 +132,11 @@ const BTR_INSTRUCTIONS =
   "- SL_MORTGAGES_NOTES_BONDS: Mortgages, notes, bonds payable (>1 yr) from Schedule L\n" +
   "- SL_TOTAL_LIABILITIES: Total liabilities from Schedule L\n" +
   "- SL_RETAINED_EARNINGS: Retained earnings (or partners capital) from Schedule L\n" +
-  "- SL_TOTAL_EQUITY: Total equity / partners capital from Schedule L\n\n" +
+  "- SL_TOTAL_EQUITY: Total equity / partners capital from Schedule L\n" +
+  "- SL_OPERATING_CURRENT_LIABILITIES: Other current liabilities from Schedule L (the line explicitly labeled 'Other current liabilities', often itemized on an attached statement). NOT long-term/non-current other liabilities.\n" +
+  "- SL_LOANS_FROM_SHAREHOLDERS: Loans from shareholders / loans from partners from Schedule L\n" +
+  "- SL_OTHER_LIABILITIES: Other liabilities from Schedule L that are long-term / non-current (the line labeled 'Other liabilities' in the >1 year / non-current section)\n" +
+  "- SL_TOTAL_CURRENT_LIABILITIES: Total current liabilities from Schedule L, if a current-liabilities subtotal is shown\n\n" +
 
   "── SCHEDULE M-1 — Book/Tax Reconciliation ──\n" +
   "- M1_BOOK_INCOME: Net income per books (Line 1)\n" +
@@ -170,7 +187,8 @@ const BTR_INSTRUCTIONS =
   "- ein: Employer Identification Number (XX-XXXXXXX)\n" +
   "- entity_name: Business name\n" +
   "- form_type: IRS form number (1120, 1065, or 1120S)\n\n" +
-  RESPONSE_FORMAT_INSTRUCTION;
+  RESPONSE_FORMAT_INSTRUCTION +
+  EVIDENCE_INSTRUCTION;
 
 export function buildBusinessTaxReturnPrompt(
   ocrText: string,
