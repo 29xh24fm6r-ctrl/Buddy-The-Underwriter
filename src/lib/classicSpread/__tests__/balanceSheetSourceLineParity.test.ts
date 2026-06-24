@@ -20,6 +20,7 @@ import {
   type SourceLineFact,
 } from "../audit/balanceSheetSourceLineResolver";
 import { resolveBalanceSheet, type Facts } from "../audit/statementTruthResolver";
+import { parseGeminiResponse } from "@/lib/financialSpreads/extractors/gemini/geminiResponseParser";
 
 // Build a fixture fact carrying a provenance citation snippet (as the extractors write it).
 const f = (
@@ -169,5 +170,63 @@ describe("interim Accounts Receivable mapped by label/provenance", () => {
     assert.equal(audit.length, 0);
     assert.ok(out.some((x) => x.fact_key === "SL_AR_GROSS"));
     assert.ok(out.some((x) => x.fact_key === "SL_TOTAL_CURRENT_ASSETS"));
+  });
+});
+
+// ── Gemini-primary provenance → resolver (SPEC-…-HARDENING-1 Phase 1) ────────────────────────────
+// Proves the enriched Gemini parser produces provenance the resolver can act on:
+// a Gemini-primary fact carrying a source-line snippet triggers the existing
+// OCL_RECLASSIFIED_CURRENT behavior, identical to a deterministic-extractor fact.
+describe("Gemini-primary facts carry resolver-usable provenance", () => {
+  // Map a parsed ExtractedLineItem onto the resolver's SourceLineFact shape.
+  const toSourceLineFact = (item: {
+    factKey: string;
+    value: number;
+    periodEnd: string | null;
+    provenance: unknown;
+  }): SourceLineFact => ({
+    fact_key: item.factKey,
+    fact_value_num: item.value,
+    fact_period_end: item.periodEnd,
+    provenance: item.provenance,
+  });
+
+  it("a Gemini-primary 'other current liabilities' fact reclassifies to a CURRENT liability", () => {
+    const { items } = parseGeminiResponse({
+      rawJson: {
+        facts: { SL_OTHER_LIABILITIES: 10_669 },
+        evidence: { SL_OTHER_LIABILITIES: "Line 18: 10,669 Other current liabilities (Statement 2)" },
+      },
+      expectedKeys: ["SL_OTHER_LIABILITIES"],
+      docType: "BUSINESS_TAX_RETURN",
+      documentId: "doc-omni",
+      factType: "TAX_RETURN",
+      periodStart: "2023-12-31",
+      periodEnd: "2023-12-31",
+    });
+    // The parser attached citations/raw_snippets the resolver reads.
+    assert.ok(provenanceSnippet(items[0].provenance).includes("Other current liabilities"));
+
+    const { facts: out, audit } = resolveBalanceSheetSourceLines(items.map(toSourceLineFact));
+    const a = audit.find((x) => x.originalKey === "SL_OTHER_LIABILITIES" && x.periodEnd === "2023-12-31");
+    assert.ok(a, "Gemini-primary provenance must trigger the source-line resolver");
+    assert.equal(a!.code, "OCL_RECLASSIFIED_CURRENT");
+    assert.equal(a!.resolvedKey, "SL_OPERATING_CURRENT_LIABILITIES");
+    assert.ok(out.some((x) => x.fact_key === "SL_OPERATING_CURRENT_LIABILITIES" && x.fact_value_num === 10_669));
+  });
+
+  it("a Gemini-primary fact with NO evidence does NOT trigger the resolver (no fabricated provenance)", () => {
+    const { items } = parseGeminiResponse({
+      rawJson: { facts: { SL_OTHER_LIABILITIES: 10_669 } },
+      expectedKeys: ["SL_OTHER_LIABILITIES"],
+      docType: "BUSINESS_TAX_RETURN",
+      documentId: "doc-omni",
+      factType: "TAX_RETURN",
+      periodStart: "2023-12-31",
+      periodEnd: "2023-12-31",
+    });
+    assert.equal(provenanceSnippet(items[0].provenance), "");
+    const { audit } = resolveBalanceSheetSourceLines(items.map(toSourceLineFact));
+    assert.equal(audit.length, 0);
   });
 });

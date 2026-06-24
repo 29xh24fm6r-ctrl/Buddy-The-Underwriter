@@ -34,3 +34,29 @@ export const RESPONSE_FORMAT_INSTRUCTION =
   '}\n' +
   "Include ONLY the keys listed above in facts. " +
   "Do not add extra keys. Use null for any value not found in the document.";
+
+/**
+ * SPEC-SPREAD-SYSTEM-PERFECTION-HARDENING-1 (Phase 1).
+ *
+ * Optional per-fact source evidence. Appended ONLY by prompts that need
+ * source-line provenance (balance sheet, business tax return) so the
+ * classic-spread source-line resolver can safely remap/suppress facts. Adding
+ * this to a prompt is what authorizes the otherwise-forbidden extra top-level
+ * `evidence` key for that doc type. The parser tolerates its absence — never
+ * fabricate evidence.
+ */
+export const EVIDENCE_INSTRUCTION =
+  "\n\nAdditionally, include a top-level \"evidence\" object that maps each fact " +
+  "key you returned a non-null value for to the EXACT source line text you read " +
+  "that value from (verbatim, including the line label and amount). Use this " +
+  "structure:\n" +
+  '{\n' +
+  '  "evidence": {\n' +
+  '    "CANONICAL_KEY": "<verbatim source line text>",\n' +
+  '    ...\n' +
+  '  }\n' +
+  '}\n' +
+  "Only include evidence for keys you actually extracted. If you cannot quote the " +
+  "exact source line for a key, omit that key from evidence — do NOT invent or " +
+  "paraphrase a source line. The evidence object is supplementary; the facts " +
+  "object remains the authoritative result.";
