@@ -281,3 +281,26 @@ describe("Omnicare PFS reconciliation — rail self-corrects via blockers", () =
     assert.notEqual(a.label, "Finalize required documents");
   });
 });
+
+// SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1 — Required test #6.
+// Once canonical readiness removes the stale document blocker, the rail must
+// advance to the next TRUE blocker's action — proving the rail self-corrects
+// through the blocker set, with no CTA wording patch.
+describe("canonical readiness convergence — rail advances to the next true blocker", () => {
+  it("document blocker present → can be Finalize required documents", () => {
+    const s = state("underwrite_in_progress", [
+      b("unfinalized_required_documents", "Buddy is still processing 1 required document"),
+      b("missing_dscr", "DSCR not computed"),
+    ]);
+    const a = buildJourneyPrimaryAction(s, DEAL);
+    assert.equal(a.label, "Finalize required documents");
+  });
+
+  it("document blocker removed → advances to the next true blocker (financial), not a UX patch", () => {
+    const s = state("underwrite_in_progress", [b("missing_dscr", "DSCR not computed")]);
+    const a = buildJourneyPrimaryAction(s, DEAL);
+    assert.notEqual(a.label, "Finalize required documents");
+    assert.equal(a.label, "Run financial analysis");
+    assert.match(a.href ?? "", /\/financials$/);
+  });
+});
