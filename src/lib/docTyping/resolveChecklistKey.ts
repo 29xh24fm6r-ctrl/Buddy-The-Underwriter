@@ -31,6 +31,13 @@ export function resolveChecklistKey(
 ): string | null {
   switch (canonicalType) {
     case "PERSONAL_FINANCIAL_STATEMENT":
+    // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: the AI classifier and
+    // several upstream writers stamp the short canonical type "PFS" rather than the
+    // long form. Without this alias the Phase-I self-heal in reconcileChecklistForDeal
+    // (which calls resolveChecklistKey(canonical_type, …)) returned null for "PFS",
+    // so a valid finalized PFS document never received its PFS_CURRENT checklist_key
+    // and the required item stayed status=missing. Both spellings resolve identically.
+    case "PFS":
       return "PFS_CURRENT";
 
     case "PERSONAL_TAX_RETURN":

@@ -8,35 +8,15 @@ import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { sendSmsWithConsent } from "@/lib/sms/send";
 import { evaluateConsecutiveYears } from "@/lib/readiness/consecutiveYears";
 import { resolveChecklistKey } from "@/lib/docTyping/resolveChecklistKey";
+import {
+  type CanonicalDocTypeBucket,
+  acceptableDocTypesForChecklistKey,
+  normalizeDocIntelDocTypeToCanonicalBucket,
+  isDocValidForChecklistKey,
+} from "./docValidity";
 
 /** @deprecated Filename matching fallback — disable with FILENAME_MATCH_ENABLED=false */
 const FILENAME_MATCH_ENABLED = process.env.FILENAME_MATCH_ENABLED !== "false";
-
-type CanonicalDocTypeBucket =
-  | "business_tax_return"
-  | "personal_tax_return"
-  | "income_statement"
-  | "balance_sheet"
-  | "financial_statement";
-
-function acceptableDocTypesForChecklistKey(checklistKeyRaw: string): CanonicalDocTypeBucket[] | null {
-  const key = String(checklistKeyRaw || "").toUpperCase();
-  if (!key) return null;
-
-  // PTR with Schedule C can satisfy BTR requirement (sole proprietors)
-  if (key.startsWith("IRS_BUSINESS")) return ["business_tax_return", "personal_tax_return"];
-  if (key.startsWith("IRS_PERSONAL")) return ["personal_tax_return"];
-
-  if (key === "FIN_STMT_PL_YTD") return ["income_statement", "financial_statement"];
-  if (key === "FIN_STMT_PL_ANNUAL") return ["income_statement", "financial_statement"];
-  if (key === "FIN_STMT_BS_YTD") return ["balance_sheet", "financial_statement"];
-  if (key === "FIN_STMT_BS_CURRENT") return ["balance_sheet", "financial_statement"];
-  if (key === "FIN_STMT_BS_HISTORICAL") return ["balance_sheet", "financial_statement"];
-  // Back-compat legacy key (older deals): treat as requiring either statement.
-  if (key === "FIN_STMT_YTD") return ["income_statement", "balance_sheet", "financial_statement"];
-
-  return null;
-}
 
 // inferChecklistKeyFromDocumentType removed — checklist_key is set only by AI classification
 // in processArtifact.ts step 6.5. Filename/heuristic matching must not satisfy checklist items.
@@ -74,62 +54,6 @@ function parseRequiredDistinctYearCountFromChecklistKey(checklistKeyRaw: string)
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
-}
-
-function normalizeDocIntelDocTypeToCanonicalBucket(docTypeRaw: unknown): CanonicalDocTypeBucket | null {
-  const raw = String(docTypeRaw ?? "").trim();
-  if (!raw) return null;
-
-  // Canonical values (preferred)
-  if (raw === "business_tax_return") return "business_tax_return";
-  if (raw === "personal_tax_return") return "personal_tax_return";
-  if (raw === "income_statement") return "income_statement";
-  if (raw === "balance_sheet") return "balance_sheet";
-  if (raw === "financial_statement") return "financial_statement";
-
-  // Tolerate older / alternate doc_type strings (e.g. OpenAI/legacy)
-  // Normalize to a token soup.
-  const s = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-  const has = (t: string) => s.includes(t);
-
-  const looksIncome =
-    has("income_statement") ||
-    has("profit_and_loss") ||
-    has("profit_loss") ||
-    has("p_l") ||
-    has("pl") ||
-    has("statement_of_operations") ||
-    has("statement_of_income");
-
-  const looksBalance =
-    has("balance_sheet") ||
-    has("statement_of_financial_position") ||
-    has("financial_position");
-
-  if (looksIncome && looksBalance) return "financial_statement";
-  if (looksIncome) return "income_statement";
-  if (looksBalance) return "balance_sheet";
-
-  // Tax returns: accept both descriptive types and form codes.
-  if (has("business") && has("tax")) return "business_tax_return";
-  if (has("personal") && has("tax")) return "personal_tax_return";
-
-  // Form tokens seen in the wild.
-  if (/(^|_)irs_?(1120s|1120|1065)(_|$)/.test(s) || /(^|_)1120s?(_|$)/.test(s) || /(^|_)1065(_|$)/.test(s)) {
-    return "business_tax_return";
-  }
-  if (/(^|_)irs_?1040(_|$)/.test(s) || /(^|_)1040(_|$)/.test(s)) {
-    return "personal_tax_return";
-  }
-
-  // If doc type is too broad, ignore it.
-  if (has("unknown") || has("other") || has("document")) return null;
-
-  return null;
 }
 
 function coerceYearArray(raw: unknown): number[] | null {
@@ -419,14 +343,31 @@ export async function reconcileDealChecklist(dealId: string) {
   // where migrations/triggers haven't been applied yet.
   let matchedDocs: any[] = [];
   {
+    // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: also pull
+    // canonical_type / quality_status / finalized_at so the PFS_CURRENT canonical
+    // fallback can actually fire (it filters on canonical_type, which used to be
+    // absent from this select) and so doc validity (quality-passed, not
+    // failed/rejected/superseded, type-compatible) can be enforced before
+    // satisfaction. NOTE: is_active is intentionally NOT selected — it is not a
+    // migration-defined column on deal_documents (schema-select gate), so quality
+    // state is carried by quality_status instead (which includes SUPERSEDED).
     const attempt = await sb
       .from("deal_documents")
-      .select("id, checklist_key, doc_year, doc_years, document_type, assigned_owner_id, subject_ids, joint_filer_confirmed")
+      .select("id, checklist_key, doc_year, doc_years, document_type, canonical_type, quality_status, finalized_at, assigned_owner_id, subject_ids, joint_filer_confirmed")
       .eq("deal_id", dealId);
 
     if (attempt.error) {
       const msg = String(attempt.error.message || "");
-      if (msg.toLowerCase().includes("does not exist") && (msg.includes("doc_years") || msg.includes("document_type") || msg.includes("subject_ids") || msg.includes("joint_filer_confirmed"))) {
+      if (
+        msg.toLowerCase().includes("does not exist") &&
+        (msg.includes("doc_years") ||
+          msg.includes("document_type") ||
+          msg.includes("canonical_type") ||
+          msg.includes("quality_status") ||
+          msg.includes("finalized_at") ||
+          msg.includes("subject_ids") ||
+          msg.includes("joint_filer_confirmed"))
+      ) {
         const fallback = await sb
           .from("deal_documents")
           .select("id, checklist_key, doc_year")
@@ -448,12 +389,14 @@ export async function reconcileDealChecklist(dealId: string) {
   {
     const attempt = await sb
       .from("deal_checklist_items")
-      .select("id, checklist_key, status, received_at, required_years, satisfied_years")
+      // received_document_id powers the self-heal: a required item already pointing
+      // at a valid received document must not stay status=missing.
+      .select("id, checklist_key, status, received_at, received_document_id, required_years, satisfied_years")
       .eq("deal_id", dealId);
 
     if (attempt.error) {
       const msg = String(attempt.error.message || "");
-      if (msg.toLowerCase().includes("does not exist") && (msg.includes("required_years") || msg.includes("satisfied_years"))) {
+      if (msg.toLowerCase().includes("does not exist") && (msg.includes("required_years") || msg.includes("satisfied_years") || msg.includes("received_document_id"))) {
         hasRequiredYearsColumn = !msg.includes("required_years");
         hasSatisfiedYearsColumn = !msg.includes("satisfied_years");
         const fallback = await sb
@@ -472,7 +415,10 @@ export async function reconcileDealChecklist(dealId: string) {
 
   const docsByKey = new Map<string, any[]>();
   const docsByType = new Map<string, any[]>();
+  const docById = new Map<string, any>();
   for (const d of matchedDocs || []) {
+    const did = String((d as any)?.id || "").trim();
+    if (did) docById.set(did, d);
     // Phase 82: A document with joint_filer_confirmed=true + subject_ids
     // has valid entity binding even if assigned_owner_id is null.
     // Normalize: if joint-confirmed, ensure assigned_owner_id fallback exists.
@@ -563,13 +509,32 @@ export async function reconcileDealChecklist(dealId: string) {
         })()
       : (docsByKey.get(itemKey) ?? []);
 
-    // SPEC-CHECKLIST-STAGE-GATE-FIX-1: PFS docs may have canonical_type="PFS"
-    // but document_type is not normalized to a CanonicalDocTypeBucket. Fall back
-    // to direct canonical_type match for PFS_CURRENT.
+    // SPEC-CHECKLIST-STAGE-GATE-FIX-1 / SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1:
+    // PFS docs may carry canonical_type/document_type="PFS" with a null checklist_key,
+    // so they don't land in docsByKey/docsByType. Fall back to a validated canonical
+    // match. isDocValidForChecklistKey enforces active + quality-passed so a failed,
+    // rejected, superseded, or inactive PFS doc never satisfies the item.
     if (docsForItem.length === 0 && itemKey === "PFS_CURRENT") {
       docsForItem = matchedDocs.filter((d: any) =>
-        d.canonical_type === "PFS" || d.canonical_type === "PERSONAL_FINANCIAL_STATEMENT",
+        isDocValidForChecklistKey(d, "PFS_CURRENT"),
       );
+    }
+
+    // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: deterministic self-heal.
+    // If the required item already points at a received_document_id (linked at
+    // upload/finalize time) but type/key matching above found nothing, satisfy it
+    // from that linked document — but ONLY when the linked doc is still active,
+    // quality-passed, and type-compatible with this checklist key. This closes the
+    // Omnicare case (status=missing + valid received_document_id + checklist_key=null)
+    // without ever marking an inactive / failed / wrong-type / superseded doc received.
+    if (docsForItem.length === 0) {
+      const linkedId = String((item as any)?.received_document_id || "").trim();
+      if (linkedId) {
+        const linked = docById.get(linkedId);
+        if (linked && isDocValidForChecklistKey(linked, itemKey)) {
+          docsForItem = [linked];
+        }
+      }
     }
 
     // Conditional satisfaction: PTR only satisfies IRS_BUSINESS_* if it has Schedule C
@@ -738,13 +703,31 @@ export async function reconcileDealChecklist(dealId: string) {
     if (!isSatisfied && !satisfiedByMappingOnly) continue;
 
     if ((item as any)?.status !== "received") {
-      const attempt = await sb
+      const nowIso = new Date().toISOString();
+      // NOTE: we never write received_document_id here, so any existing pointer
+      // (and banker/manual overrides on other columns) is preserved untouched.
+      const basePayload = {
+        status: "received",
+        received_at: (item as any)?.received_at ?? nowIso,
+      };
+
+      // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: also stamp
+      // satisfied_at when satisfying. Schema-tolerant: retry without the column
+      // in older environments that haven't migrated it.
+      let attempt = await sb
         .from("deal_checklist_items")
-        .update({
-          status: "received",
-          received_at: (item as any)?.received_at ?? new Date().toISOString(),
-        } as any)
+        .update({ ...basePayload, satisfied_at: nowIso } as any)
         .eq("id", (item as any).id);
+
+      if (attempt.error) {
+        const msg = String(attempt.error.message || "");
+        if (msg.toLowerCase().includes("does not exist") && msg.includes("satisfied_at")) {
+          attempt = await sb
+            .from("deal_checklist_items")
+            .update(basePayload as any)
+            .eq("id", (item as any).id);
+        }
+      }
 
       if (attempt.error) {
         throw new Error(`checklist_mark_received_failed: ${attempt.error.message}`);
@@ -1139,6 +1122,36 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
     }
   } catch {
     // ignore signal failures
+  }
+
+  // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: when reconciliation
+  // actually changed a checklist item to received, the lifecycle/readiness view
+  // of "unfinalized required documents" is now stale. Drop the in-memory lifecycle
+  // cache and schedule a readiness recompute so the cached deal_memo_input_readiness
+  // row (which the journey rail's unfinalized_required_documents blocker is sourced
+  // from) is regenerated — making the rail self-correct with no CTA-specific patch.
+  //
+  // Loop-safe: buildUnifiedDealReadiness → buildMemoInputPackage reads the checklist
+  // status directly and does NOT re-run checklist reconciliation, and we only fire
+  // when a change occurred (checklistMarkedReceived > 0), so a second pass marks
+  // nothing and does not re-schedule. Both calls are best-effort and non-fatal.
+  if (((result as any)?.checklistMarkedReceived ?? 0) > 0) {
+    try {
+      const { invalidateLifecycleCache } = await import(
+        "@/buddy/lifecycle/lifecycleCache"
+      );
+      invalidateLifecycleCache(dealId);
+    } catch {
+      // non-fatal — best-effort cache drop
+    }
+    try {
+      const { scheduleReadinessRefresh } = await import(
+        "@/lib/deals/readiness/refreshDealReadiness"
+      );
+      scheduleReadinessRefresh({ dealId, trigger: "document_finalized" });
+    } catch {
+      // non-fatal — best-effort readiness recompute
+    }
   }
 
   return result;
