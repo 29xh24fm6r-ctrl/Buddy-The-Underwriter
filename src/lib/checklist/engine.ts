@@ -1124,6 +1124,27 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
     // ignore signal failures
   }
 
+  // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: delegate a final
+  // evidence-only satisfaction pass to the shared helper so the canonical
+  // satisfaction rule lives in one place (reconcileChecklistSatisfaction) rather
+  // than being duplicated. Idempotent — it only touches required rows still
+  // missing despite valid linked/finalized evidence, so it catches anything the
+  // heavy year-aware loop above did not. Its count folds into the change trigger.
+  let satItemsMarked = 0;
+  try {
+    const { reconcileChecklistSatisfactionForDeal } = await import(
+      "./reconcileChecklistSatisfaction"
+    );
+    const sat = await reconcileChecklistSatisfactionForDeal({
+      dealId,
+      sb: sbOverride,
+      mode: "self_heal",
+    });
+    satItemsMarked = sat.itemsMarkedReceived;
+  } catch {
+    // non-fatal — delegation must never break the core reconcile outcome
+  }
+
   // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: when reconciliation
   // actually changed a checklist item to received, the lifecycle/readiness view
   // of "unfinalized required documents" is now stale. Drop the in-memory lifecycle
@@ -1135,7 +1156,7 @@ export async function reconcileChecklistForDeal(opts: { sb: any; dealId: string 
   // status directly and does NOT re-run checklist reconciliation, and we only fire
   // when a change occurred (checklistMarkedReceived > 0), so a second pass marks
   // nothing and does not re-schedule. Both calls are best-effort and non-fatal.
-  if (((result as any)?.checklistMarkedReceived ?? 0) > 0) {
+  if ((((result as any)?.checklistMarkedReceived ?? 0) + satItemsMarked) > 0) {
     try {
       const { invalidateLifecycleCache } = await import(
         "@/buddy/lifecycle/lifecycleCache"

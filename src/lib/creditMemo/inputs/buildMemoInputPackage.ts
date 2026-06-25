@@ -62,6 +62,38 @@ export async function buildMemoInputPackage(
 
   if (args.runReconciliation) {
     await reconcileDealFacts({ dealId: args.dealId });
+
+    // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: run the cheap,
+    // deterministic checklist-satisfaction self-heal BEFORE counting unfinalized
+    // required docs below. Without this, a repairable checklist (e.g. a valid
+    // PFS already linked via received_document_id but still status=missing) would
+    // be counted as unfinalized and persist a stale unfinalized_required_documents
+    // blocker into deal_memo_input_readiness. The helper never seeds rows, runs no
+    // OCR/AI, and only marks already-evidenced gaps — so it is safe on this path.
+    // It schedules nothing (no recursion); when it actually changes a row we drop
+    // the in-memory lifecycle cache so the next derivation reads fresh.
+    try {
+      const { reconcileChecklistSatisfactionForDeal } = await import(
+        "@/lib/checklist/reconcileChecklistSatisfaction"
+      );
+      const sat = await reconcileChecklistSatisfactionForDeal({
+        dealId: args.dealId,
+        bankId,
+        mode: "self_heal",
+      });
+      if (sat.itemsMarkedReceived > 0) {
+        try {
+          const { invalidateLifecycleCache } = await import(
+            "@/buddy/lifecycle/lifecycleCache"
+          );
+          invalidateLifecycleCache(args.dealId);
+        } catch {
+          // non-fatal — best-effort cache drop
+        }
+      }
+    } catch {
+      // non-fatal — checklist self-heal must never block memo-input assembly
+    }
   }
 
   // SPEC-13 — auto-migration of legacy `deal_memo_overrides` JSON into

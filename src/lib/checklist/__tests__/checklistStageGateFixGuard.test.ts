@@ -84,9 +84,11 @@ describe("SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1 guards", () => {
       ENGINE_SRC.includes("scheduleReadinessRefresh"),
       "reconcile must schedule a readiness recompute when an item is newly satisfied",
     );
+    // Gate combines the heavy-loop count with the delegated helper's count
+    // (SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1), still guarded on > 0.
     assert.ok(
-      ENGINE_SRC.includes("checklistMarkedReceived ?? 0) > 0"),
-      "refresh wiring must be gated on a real change to stay loop-safe",
+      ENGINE_SRC.includes("checklistMarkedReceived ?? 0) + satItemsMarked) > 0"),
+      "refresh wiring must be gated on a real change (heavy loop + delegated helper) to stay loop-safe",
     );
   });
 
