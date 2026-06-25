@@ -180,11 +180,21 @@ describe("readiness: generic keys must not satisfy checklist slots", () => {
 });
 
 describe("checklist engine accepts resolved period keys", () => {
-  // Source-pattern guard: the checklist engine must recognize resolved period keys
-  const engineSrc = require("node:fs").readFileSync(
-    require("node:path").join(process.cwd(), "src/lib/checklist/engine.ts"),
-    "utf-8",
-  );
+  // Source-pattern guard: the checklist engine must recognize resolved period keys.
+  // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1 relocated the pure
+  // acceptableDocTypesForChecklistKey resolver into src/lib/checklist/docValidity.ts
+  // (engine.ts imports it), so the guard reads both files.
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const engineSrc =
+    fs.readFileSync(
+      path.join(process.cwd(), "src/lib/checklist/engine.ts"),
+      "utf-8",
+    ) +
+    fs.readFileSync(
+      path.join(process.cwd(), "src/lib/checklist/docValidity.ts"),
+      "utf-8",
+    );
 
   it("FIN_STMT_BS_CURRENT is in acceptableDocTypesForChecklistKey", () => {
     assert.ok(engineSrc.includes("FIN_STMT_BS_CURRENT"));
