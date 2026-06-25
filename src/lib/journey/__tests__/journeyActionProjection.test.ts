@@ -245,3 +245,39 @@ describe("workstreamForBlocker — priority mapping", () => {
     assert.equal(workstreamForBlocker("internal_error"), null);
   });
 });
+
+// SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1 — Required test #5.
+// Proves the rail self-corrects through the lifecycle blocker set: it shows the
+// document-finalization CTA only while `unfinalized_required_documents` is present,
+// and stops showing it once the (now-satisfied) PFS_CURRENT blocker is gone. The
+// rail is never patched directly — correctness flows from the blocker set.
+describe("Omnicare PFS reconciliation — rail self-corrects via blockers", () => {
+  it("BEFORE reconciliation: unfinalized_required_documents → rail CTA is the document-finalization action", () => {
+    const s = state("underwrite_in_progress", [
+      b("risk_pricing_not_finalized", "Risk pricing must be finalized before committee"),
+      b("unfinalized_required_documents", "Buddy is still processing 1 required document"),
+    ]);
+    const a = buildJourneyPrimaryAction(s, DEAL);
+    // documents workstream outranks pricing → the exact stale CTA the banker saw.
+    assert.equal(a.label, "Finalize required documents");
+    assert.match(a.href ?? "", /\/intake$/);
+  });
+
+  it("AFTER reconciliation: blocker removed, no other document blocker → rail CTA is NOT the document-finalization action", () => {
+    // PFS_CURRENT is now satisfied, so the memo-input layer no longer emits
+    // unfinalized_required_documents. Only the late pricing gate remains.
+    const s = state("underwrite_in_progress", [
+      b("risk_pricing_not_finalized", "Risk pricing must be finalized before committee"),
+    ]);
+    const a = buildJourneyPrimaryAction(s, DEAL);
+    assert.notEqual(a.label, "Finalize required documents");
+    assert.equal(a.label, "Finalize Pricing");
+    assert.doesNotMatch(a.href ?? "", /\/intake$/);
+  });
+
+  it("AFTER reconciliation with zero blockers → neutral stage action, never the document CTA", () => {
+    const s = state("underwrite_in_progress", []);
+    const a = buildJourneyPrimaryAction(s, DEAL);
+    assert.notEqual(a.label, "Finalize required documents");
+  });
+});
