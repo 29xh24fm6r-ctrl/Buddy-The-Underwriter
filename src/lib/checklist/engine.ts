@@ -344,13 +344,16 @@ export async function reconcileDealChecklist(dealId: string) {
   let matchedDocs: any[] = [];
   {
     // SPEC-CHECKLIST-DOCUMENT-SATISFACTION-RECONCILIATION-1: also pull
-    // canonical_type / quality_status / is_active / finalized_at so the
-    // PFS_CURRENT canonical fallback can actually fire (it filters on
-    // canonical_type, which used to be absent from this select) and so doc
-    // validity (active + quality-passed) can be enforced before satisfaction.
+    // canonical_type / quality_status / finalized_at so the PFS_CURRENT canonical
+    // fallback can actually fire (it filters on canonical_type, which used to be
+    // absent from this select) and so doc validity (quality-passed, not
+    // failed/rejected/superseded, type-compatible) can be enforced before
+    // satisfaction. NOTE: is_active is intentionally NOT selected — it is not a
+    // migration-defined column on deal_documents (schema-select gate), so quality
+    // state is carried by quality_status instead (which includes SUPERSEDED).
     const attempt = await sb
       .from("deal_documents")
-      .select("id, checklist_key, doc_year, doc_years, document_type, canonical_type, quality_status, is_active, finalized_at, assigned_owner_id, subject_ids, joint_filer_confirmed")
+      .select("id, checklist_key, doc_year, doc_years, document_type, canonical_type, quality_status, finalized_at, assigned_owner_id, subject_ids, joint_filer_confirmed")
       .eq("deal_id", dealId);
 
     if (attempt.error) {
@@ -361,7 +364,6 @@ export async function reconcileDealChecklist(dealId: string) {
           msg.includes("document_type") ||
           msg.includes("canonical_type") ||
           msg.includes("quality_status") ||
-          msg.includes("is_active") ||
           msg.includes("finalized_at") ||
           msg.includes("subject_ids") ||
           msg.includes("joint_filer_confirmed"))
