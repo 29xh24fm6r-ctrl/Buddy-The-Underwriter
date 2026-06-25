@@ -41,6 +41,7 @@ import type { ReadinessMode } from "./model";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { computeBlockers } from "./computeBlockers";
 import { getCachedLifecycleState, setCachedLifecycleState } from "./lifecycleCache";
+import { suppressStaleUnfinalizedDocsBlocker } from "./staleBlockerGuards";
 import { isIntakeSloEnforcementEnabled } from "@/lib/flags/intakeSloEnforcement";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
 import { computeIntakeHealthScore } from "@/lib/intake/slo/computeIntakeHealthScore";
@@ -549,6 +550,15 @@ async function deriveLifecycleStateInternal(dealId: string): Promise<LifecycleSt
     memoInputReadinessScore = null;
     memoInputsReady = undefined;
   }
+
+  // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: narrow stale-blocker
+  // guard. The cached deal_memo_input_readiness row can lag a freshly-repaired
+  // checklist, so it may still carry unfinalized_required_documents even though no
+  // required checklist row is actually unsatisfied. Suppress ONLY that blocker
+  // when the checklist we already fetched above shows nothing unsatisfied — a
+  // pure, zero-extra-query check, never a full readiness recompute. If required
+  // rows are genuinely still unsatisfied, the blocker is preserved.
+  memoInputBlockers = suppressStaleUnfinalizedDocsBlocker(memoInputBlockers, checklist);
 
   const derived: LifecycleDerived = {
     readinessMode,

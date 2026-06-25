@@ -28,6 +28,12 @@ export type SelfHealReport = {
   collateralExtraction:
     | { ran: false; reason: string }
     | { ran: true; itemsUpserted: number; itemsFlaggedForReview: number };
+  // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: deterministic checklist
+  // satisfaction self-heal — repairs checklist rows that are still "missing"
+  // despite valid evidence already existing (e.g. a linked, finalized PFS).
+  checklistSatisfaction:
+    | { ran: false; reason: string }
+    | { ran: true; itemsMarkedReceived: number; repairedKeys: string[] };
   detected: {
     documentsProcessingStalled: boolean;
     researchMissing: boolean;
@@ -110,9 +116,58 @@ export async function selfHealDeal(args: {
     }
   }
 
+  // ── Checklist satisfaction self-heal (cheap, deterministic) ────────────
+  // SPEC-LIFECYCLE-CHECKLIST-READINESS-CANONICAL-FLOW-1: repair checklist rows
+  // that are still "missing" despite valid linked/finalized evidence. Non-fatal;
+  // failures become diagnostics, never thrown to the UI. When a row is actually
+  // marked received we drop the in-memory lifecycle cache so the next derivation
+  // reads fresh (no reliance on a later page load).
+  let checklistSatisfaction: SelfHealReport["checklistSatisfaction"] = {
+    ran: false,
+    reason: "not_run",
+  };
+  try {
+    const { reconcileChecklistSatisfactionForDeal } = await import(
+      "@/lib/checklist/reconcileChecklistSatisfaction"
+    );
+    const sat = await reconcileChecklistSatisfactionForDeal({
+      dealId: args.dealId,
+      sb,
+      mode: "self_heal",
+    });
+    if (sat.ok) {
+      checklistSatisfaction = {
+        ran: true,
+        itemsMarkedReceived: sat.itemsMarkedReceived,
+        repairedKeys: sat.repairedKeys,
+      };
+      if (sat.itemsMarkedReceived > 0) {
+        try {
+          const { invalidateLifecycleCache } = await import(
+            "@/buddy/lifecycle/lifecycleCache"
+          );
+          invalidateLifecycleCache(args.dealId);
+        } catch {
+          // non-fatal
+        }
+      }
+    } else {
+      checklistSatisfaction = {
+        ran: false,
+        reason: (sat.errors ?? ["unknown"]).join("; "),
+      };
+    }
+  } catch (e) {
+    checklistSatisfaction = {
+      ran: false,
+      reason: e instanceof Error ? e.message : String(e),
+    };
+  }
+
   return {
     dealId: args.dealId,
     collateralExtraction,
+    checklistSatisfaction,
     detected,
     startedAt,
     completedAt: new Date().toISOString(),
