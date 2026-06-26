@@ -1,46 +1,38 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { PersonalIncomeFact } from "./certification/certifiedPersonalIncome";
+import {
+  buildCertifiedPersonalIncomeYears,
+  type PersonalIncomeYear,
+  type PersonalIncomeAudit,
+} from "./personalIncomeSelection";
 
-export type PersonalIncomeYear = {
-  year: number;
-  periodEnd: string;
-  wagesW2: number | null;
-  schedCNet: number | null;
-  schedENet: number | null;
-  k1OrdinaryIncome: number | null;
-  taxableInterest: number | null;
-  ordinaryDividends: number | null;
-  capitalGains: number | null;
-  pensionAnnuity: number | null;
-  socialSecurity: number | null;
-  otherIncome: number | null;
-  adjustmentsToIncome: number | null;
-  adjustedGrossIncome: number | null;
-  standardDeduction: number | null;
-  qbiDeduction: number | null;
-  taxableIncome: number | null;
-  totalTax: number | null;
-  schEGrossRents: number | null;
-  schEMortgageInterest: number | null;
-  schEDepreciation: number | null;
-  schETotalExpenses: number | null;
-  f4562Sec179: number | null;
-  f4562BonusDepreciation: number | null;
-  f4562TotalDepreciation: number | null;
-  f8825NetIncomeLoss: number | null;
-};
+// Re-export the rendered-row + audit types from the pure selection module so existing
+// importers (types.ts, classicSpreadRenderer.ts, certifiedSpreadGateCore.ts) are unchanged.
+export type {
+  PersonalIncomeYear,
+  PersonalIncomeAudit,
+  PersonalIncomeSourceTrace,
+  PersonalIncomeRejectionTrace,
+} from "./personalIncomeSelection";
 
 export type PersonalIncomeSection = {
   ownerName: string | null;
   years: PersonalIncomeYear[];
+  /**
+   * SPEC-CLASSIC-SPREAD-PERSONAL-INCOME-CROSS-OWNER-CERTIFICATION-1 (Phase 3): certified
+   * selection metadata explaining the selected source family and the competitors that were
+   * dropped. Optional so existing consumers are unaffected.
+   */
+  audit?: PersonalIncomeAudit;
 };
 
 /**
- * Load personal income facts from deal_financial_facts for all PERSONAL_INCOME
- * type rows. Groups by tax year. Returns years in ascending order.
+ * Load personal income facts from deal_financial_facts and route them through the certified
+ * cross-owner selector (Phase 3). Groups by tax year; returns years in ascending order.
  *
- * If ownerEntityId is provided, filters to that owner. Otherwise returns all
- * PERSONAL_INCOME facts for the deal (first guarantor found).
+ * If ownerEntityId is provided, filters to that owner. Otherwise considers all personal-income
+ * candidates for the deal (first guarantor found).
  */
 export async function loadPersonalIncome(
   dealId: string,
@@ -49,18 +41,24 @@ export async function loadPersonalIncome(
 ): Promise<PersonalIncomeSection> {
   const sb = supabaseAdmin();
 
-  // SPEC-CLASSIC-SPREAD-SYSTEM-HARDENING-AUDIT-2 #3 (safe slice): exclude superseded/rejected facts
-  // and prefer the HIGHEST-confidence value per (key, year) so a strong fact wins over a weak
-  // deterministic microfact. (Full re-architecture to consume the certified cross-owner selector
-  // directly is deferred — the certification gate still substitutes certified values pre-render.)
-  let query = (sb as ReturnType<typeof supabaseAdmin>)
+  // SPEC-CLASSIC-SPREAD-PERSONAL-INCOME-CROSS-OWNER-CERTIFICATION-1 (Phase 3):
+  // Load BOTH the weak deterministic PERSONAL_INCOME family AND the strong
+  // PERSONAL_TAX_RETURN / DEAL-owned family so the certified selector can prefer
+  // source-backed tax-return values over weak micro-facts. Scope by the personal-tax
+  // canonical family (source_canonical_type=PERSONAL_TAX_RETURN) OR fact_type=PERSONAL_INCOME
+  // so business (e.g. C-corp) tax returns sharing a key like TAXABLE_INCOME are NOT pulled in.
+  // Lifecycle filtering (superseded / rejected / system_invalidated / null) and quality/stub
+  // dropping are owned by the pure certified selector (buildCertifiedPersonalIncomeYears), which
+  // also fixes the prior `.neq("resolution_status","rejected")` null-drop and lets a strong
+  // fact outrank a weak deterministic micro-fact.
+  let query = (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end, owner_entity_id, confidence")
+    .select(
+      "id, fact_key, fact_value_num, fact_period_end, owner_type, owner_entity_id, source_document_id, source_canonical_type, fact_type, confidence, provenance, is_superseded, resolution_status",
+    )
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
-    .eq("fact_type", "PERSONAL_INCOME")
-    .eq("is_superseded", false)
-    .neq("resolution_status", "rejected")
+    .or("fact_type.eq.PERSONAL_INCOME,source_canonical_type.eq.PERSONAL_TAX_RETURN")
     .not("fact_value_num", "is", null)
     .order("fact_period_end", { ascending: true });
 
@@ -73,69 +71,25 @@ export async function loadPersonalIncome(
     return { ownerName: null, years: [] };
   }
 
-  // Group facts by tax year; keep the highest-confidence value per key.
-  const byYear = new Map<number, Record<string, number>>();
-  const bestConf = new Map<number, Record<string, number>>();
+  const facts: PersonalIncomeFact[] = (data as any[]).map((r) => ({
+    id: r.id ?? null,
+    fact_key: r.fact_key,
+    fact_value_num: r.fact_value_num !== null ? Number(r.fact_value_num) : null,
+    fact_period_end: r.fact_period_end ?? null,
+    owner_type: r.owner_type,
+    owner_entity_id: r.owner_entity_id ?? null,
+    source_document_id: r.source_document_id ?? null,
+    source_canonical_type: r.source_canonical_type ?? null,
+    fact_type: r.fact_type ?? null,
+    confidence: r.confidence !== null && r.confidence !== undefined ? Number(r.confidence) : null,
+    extractor: r.provenance?.extractor ?? null,
+    is_superseded: r.is_superseded ?? null,
+    resolution_status: r.resolution_status ?? null,
+  }));
 
-  for (const row of data as Array<{ fact_key: string; fact_value_num: number; fact_period_end: string; confidence: number | null }>) {
-    if (!row.fact_period_end) continue;
-    const year = new Date(row.fact_period_end).getFullYear();
-    if (!byYear.has(year)) { byYear.set(year, {}); bestConf.set(year, {}); }
-    const bucket = byYear.get(year)!;
-    const conf = bestConf.get(year)!;
-    const c = row.confidence ?? 0;
-    if (bucket[row.fact_key] === undefined || c >= (conf[row.fact_key] ?? -1)) {
-      bucket[row.fact_key] = row.fact_value_num;
-      conf[row.fact_key] = c;
-    }
-  }
+  const { years, audit } = buildCertifiedPersonalIncomeYears(facts, {
+    ownerEntityId: ownerEntityId ?? null,
+  });
 
-  const helper = (bucket: Record<string, number>, ...keys: string[]): number | null => {
-    for (const k of keys) {
-      if (bucket[k] != null) return bucket[k];
-    }
-    return null;
-  };
-
-  const years: PersonalIncomeYear[] = Array.from(byYear.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([year, b]) => ({
-      year,
-      periodEnd: `${year}-12-31`,
-      wagesW2: helper(b, "WAGES_W2"),
-      schedCNet: helper(b, "SCHED_C_NET"),
-      schedENet: helper(b, "SCHED_E_NET", "SCH_E_NET", "SCH_E_RENTAL_TOTAL", "RENTAL_INCOME_SCHED_E"),
-      k1OrdinaryIncome: (() => {
-        const canonical = helper(b, "K1_ORDINARY_INCOME", "SCH_E_K1_NET_TOTAL");
-        if (canonical != null) return canonical;
-        // Gemini primary writes multi-source K-1s as K1_ORDINARY_INCOME_2, _3, etc.
-        // Sum all numbered variants.
-        const k1Keys = Object.keys(b).filter((k) => /^K1_ORDINARY_INCOME_\d+$/.test(k));
-        if (k1Keys.length === 0) return null;
-        const sum = k1Keys.reduce((acc, k) => acc + (b[k] ?? 0), 0);
-        return sum !== 0 ? sum : null;
-      })(),
-      taxableInterest: helper(b, "TAXABLE_INTEREST", "INTEREST_INCOME"),
-      ordinaryDividends: helper(b, "ORDINARY_DIVIDENDS", "DIVIDEND_INCOME"),
-      capitalGains: helper(b, "CAPITAL_GAINS"),
-      pensionAnnuity: helper(b, "PENSION_ANNUITY"),
-      socialSecurity: helper(b, "SOCIAL_SECURITY"),
-      otherIncome: helper(b, "OTHER_INCOME", "OTHER_INCOME_SCH1"),
-      adjustmentsToIncome: helper(b, "ADJUSTMENTS_TO_INCOME"),
-      adjustedGrossIncome: helper(b, "ADJUSTED_GROSS_INCOME"),
-      standardDeduction: helper(b, "STANDARD_DEDUCTION"),
-      qbiDeduction: helper(b, "QBI_DEDUCTION"),
-      taxableIncome: helper(b, "TAXABLE_INCOME"),
-      totalTax: helper(b, "TOTAL_TAX"),
-      schEGrossRents: helper(b, "SCH_E_GROSS_RENTS_RECEIVED", "RENTAL_INCOME_SCHED_E"),
-      schEMortgageInterest: helper(b, "SCH_E_MORTGAGE_INTEREST"),
-      schEDepreciation: helper(b, "SCH_E_DEPRECIATION"),
-      schETotalExpenses: helper(b, "SCH_E_TOTAL_EXPENSES"),
-      f4562Sec179: helper(b, "F4562_SEC179_ELECTED"),
-      f4562BonusDepreciation: helper(b, "F4562_BONUS_DEPRECIATION"),
-      f4562TotalDepreciation: helper(b, "F4562_TOTAL_DEPRECIATION"),
-      f8825NetIncomeLoss: helper(b, "F8825_NET_INCOME_LOSS"),
-    }));
-
-  return { ownerName: null, years };
+  return { ownerName: null, years, audit };
 }
