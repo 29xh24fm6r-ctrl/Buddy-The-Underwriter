@@ -7,11 +7,13 @@ import type { RentRollRow } from "@/lib/financialSpreads/types";
 import {
   buildEmptyMetric,
   buildSnapshotFromFacts,
+  overlayCanonicalEngineState,
   type DealFinancialSnapshotV1,
   type MetricSpec,
   type SnapshotMetricValue,
   type MinimalFact,
 } from "@/lib/deals/financialSnapshotCore";
+import { buildCanonicalEngineState } from "@/lib/financials/canonicalEngineState";
 import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 
 function toIsoDatePrefix(s: unknown): string | null {
@@ -205,7 +207,14 @@ export async function buildDealFinancialSnapshotForBank(args: {
   const dealMode = args.dealMode ?? (dealModeRes.data as any)?.deal_mode ?? "full_underwrite";
   const dealType: string | null = (dealModeRes.data as any)?.deal_type ?? null;
 
-  return buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode, dealType });
+  const base = buildSnapshotFromFacts({ facts, metricSpecs: metricSpecsV1(), waltYears, dealMode, dealType });
+
+  // SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: re-project
+  // the canonical/certified engine values (the SAME selectors the GCF page and
+  // spreads use) and overlay them so Financial Analysis can never diverge. This is
+  // read-only over the already-loaded active facts — no writes, no extra IO.
+  const engineState = buildCanonicalEngineState(facts as any);
+  return overlayCanonicalEngineState(base, engineState);
 }
 
 /**

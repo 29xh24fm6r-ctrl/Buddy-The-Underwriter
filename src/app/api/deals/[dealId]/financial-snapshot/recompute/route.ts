@@ -409,6 +409,25 @@ export async function POST(_req: Request, ctx: Ctx) {
       console.warn("[recompute] persistGlobalCashFlow failed (non-fatal)", gcfErr?.message);
     }
 
+    // SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: before the
+    // snapshot consumes the canonical engine, run the deterministic prerequisite
+    // repair so ANNUAL_DEBT_SERVICE (from current structural pricing) and the PFS
+    // debt-service / living-expense facts are materialized first. Best-effort:
+    // the snapshot still fail-closes on anything not source-backed.
+    try {
+      const { ensureFinancialReadinessPrerequisites } = await import(
+        "@/lib/financialReadiness/ensureFinancialReadinessPrerequisites"
+      );
+      await ensureFinancialReadinessPrerequisites({
+        dealId,
+        bankId: access.bankId,
+        reason: "financial_snapshot_recompute",
+        scheduleRefresh: false,
+      });
+    } catch (prereqErr: any) {
+      console.warn("[recompute] ensureFinancialReadinessPrerequisites failed (non-fatal)", prereqErr?.message);
+    }
+
     const [snapshot, dealMeta, loanMeta] = await Promise.all([
       buildDealFinancialSnapshotForBank({ dealId, bankId: access.bankId }),
       loadDealMeta(dealId),
@@ -511,21 +530,42 @@ export async function POST(_req: Request, ctx: Ctx) {
       asOfTimestamp: new Date().toISOString(),
     });
 
-    const decisionRow = await persistFinancialSnapshotDecision({
-      snapshotId: snapRow.id,
-      dealId,
-      bankId: access.bankId,
-      inputs: {
-        loanTerms: loanMeta.loanTerms,
-        loanProductType: loanMeta.loanProductType,
-        useOfProceeds: loanMeta.useOfProceeds,
-        entityType: (dealMeta as any)?.entity_type ?? null,
-        dealType: (dealMeta as any)?.deal_type ?? null,
-      },
-      stress,
-      sba,
-      narrative,
-    });
+    // SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: the snapshot
+    // + decision rows are one reviewable package. If the decision write fails after
+    // the snapshot landed, roll back the orphan snapshot and surface an explicit,
+    // retry-safe error instead of leaving a half-written package behind.
+    let decisionRow: Awaited<ReturnType<typeof persistFinancialSnapshotDecision>>;
+    try {
+      decisionRow = await persistFinancialSnapshotDecision({
+        snapshotId: snapRow.id,
+        dealId,
+        bankId: access.bankId,
+        inputs: {
+          loanTerms: loanMeta.loanTerms,
+          loanProductType: loanMeta.loanProductType,
+          useOfProceeds: loanMeta.useOfProceeds,
+          entityType: (dealMeta as any)?.entity_type ?? null,
+          dealType: (dealMeta as any)?.deal_type ?? null,
+        },
+        stress,
+        sba,
+        narrative,
+      });
+    } catch (decisionErr: any) {
+      try {
+        await (sb as any).from("financial_snapshots").delete().eq("id", snapRow.id);
+      } catch {
+        // Best-effort orphan cleanup.
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "snapshot_decision_persist_failed",
+          message: `${decisionErr?.message ?? "unknown"} (orphan snapshot ${snapRow.id} rolled back; retry is safe)`,
+        },
+        { status: 500 },
+      );
+    }
 
     // Recompute deal readiness now that snapshot exists (non-fatal)
     try {

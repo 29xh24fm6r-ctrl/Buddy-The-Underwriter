@@ -63,6 +63,24 @@ export async function POST(_req: Request, ctx: Ctx) {
       );
     }
 
+    // SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: run the
+    // deterministic prerequisite repair first so the rebuilt snapshot consumes a
+    // materialized ANNUAL_DEBT_SERVICE / PFS debt-service from current pricing,
+    // not a stale/missing fact. Best-effort; snapshot still fail-closes.
+    try {
+      const { ensureFinancialReadinessPrerequisites } = await import(
+        "@/lib/financialReadiness/ensureFinancialReadinessPrerequisites"
+      );
+      await ensureFinancialReadinessPrerequisites({
+        dealId,
+        bankId,
+        reason: "financial_snapshot_rebuild",
+        scheduleRefresh: false,
+      });
+    } catch (prereqErr: any) {
+      console.warn("[rebuild] ensureFinancialReadinessPrerequisites failed (non-fatal)", prereqErr?.message);
+    }
+
     // Build and persist
     const snapshot = await buildDealFinancialSnapshotForBank({ dealId, bankId });
     await persistCashFlowAvailableFromSnapshot({ dealId, bankId, snapshot });

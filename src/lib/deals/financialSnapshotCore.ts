@@ -5,6 +5,10 @@ import {
   factSourceType as _factSourceType,
   type SelectableFact,
 } from "@/lib/financialFacts/selectBestFact";
+import type {
+  CanonicalFinancialEngineState,
+  CanonicalEngineValue,
+} from "@/lib/financials/canonicalEngineState";
 
 export type SnapshotSourceType = "MANUAL" | "SPREAD" | "DOC_EXTRACT" | "STRUCTURAL" | "UNKNOWN";
 
@@ -152,6 +156,14 @@ export type DealFinancialSnapshotV1 = {
   completeness_pct: number;
   missing_required_keys: SnapshotMetricName[];
   sources_summary: SnapshotSourceSummary[];
+
+  /**
+   * SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: the
+   * canonical/certified financial engine state (same selectors as the GCF page
+   * and spreads). When present, the overlaid metric values above were taken from
+   * this state — Financial Analysis never reselects weaker raw facts for these.
+   */
+  canonical_engine?: CanonicalFinancialEngineState | null;
 };
 
 export type MinimalFact = SelectableFact & {
@@ -720,5 +732,48 @@ export function buildSnapshotFromFacts(args: {
     completeness_pct: completenessPct,
     missing_required_keys: missingRequired,
     sources_summary: sources,
+  };
+}
+
+/**
+ * SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1
+ *
+ * Overlay the canonical/certified financial engine values onto a snapshot so
+ * Financial Analysis presents the SAME numbers as the GCF page and spreads.
+ * Pure: only OVERRIDES a metric when the canonical/certified value exists — it
+ * never nulls out a value the snapshot already resolved, and it never invents.
+ */
+export function overlayCanonicalEngineState(
+  snapshot: DealFinancialSnapshotV1,
+  state: CanonicalFinancialEngineState,
+): DealFinancialSnapshotV1 {
+  const apply = (
+    metric: SnapshotMetricValue,
+    cv: CanonicalEngineValue,
+  ): SnapshotMetricValue => {
+    if (cv.value === null) return metric;
+    if (metric.value_num === cv.value && metric.provenance?.canonical_overlay) return metric;
+    return {
+      ...metric,
+      value_num: cv.value,
+      as_of_date: cv.asOf ?? metric.as_of_date,
+      source_ref: cv.factKey ? `canonical:${cv.factKey}` : metric.source_ref,
+      provenance: {
+        ...(metric.provenance ?? {}),
+        canonical_overlay: true,
+        canonical_source: cv.source,
+        canonical_fact_key: cv.factKey,
+      },
+    };
+  };
+
+  return {
+    ...snapshot,
+    cash_flow_available: apply(snapshot.cash_flow_available, state.cashFlowAvailable),
+    annual_debt_service: apply(snapshot.annual_debt_service, state.annualDebtService),
+    personal_total_income: apply(snapshot.personal_total_income, state.personalTotalIncome),
+    gcf_global_cash_flow: apply(snapshot.gcf_global_cash_flow, state.gcfGlobalCashFlow),
+    gcf_dscr: apply(snapshot.gcf_dscr, state.gcfDscr),
+    canonical_engine: state,
   };
 }
