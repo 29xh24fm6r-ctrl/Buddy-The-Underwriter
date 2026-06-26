@@ -8,6 +8,7 @@ import {
   isOptionalSpreadType,
   filterOptionalSpreadsForDefaultRecompute,
 } from "@/lib/spreads/t12Eligibility";
+import { getBusinessSpreadTypesForDealContext } from "@/lib/spreads/businessSpreadContext";
 import { ALL_SPREAD_TYPES, type SpreadType } from "@/lib/financialSpreads/types";
 import { evaluateGcfPrerequisites, type GcfFactRow } from "@/lib/financialFacts/canonicalGcfCore";
 import { evaluateMemoInputReadiness } from "@/lib/creditMemo/inputs/evaluateMemoInputReadiness";
@@ -264,14 +265,22 @@ test("(d/e) cockpit-state and analysis-status exclude optional spreads from read
 // ── 7. Business Spreads UI: T12 shown but optional; balance sheet primary ───
 
 test("(f) Business Spreads page treats balance sheet as primary and labels T12 optional", () => {
-  const page = read("src/app/(app)/deals/[dealId]/spreads/business/page.tsx");
-  const m = page.match(/const BUSINESS_TYPES = \[([^\]]*)\]/);
-  assert.ok(m, "BUSINESS_TYPES present");
-  const order = m![1];
+  // SPEC-BUSINESS-SPREADS-OPERATING-COMPANY-VIEW-1: spread types now come from the
+  // context-aware helper. The optional T12 must still come after BALANCE_SHEET and
+  // only appear when a real source exists.
+  const creWithT12 = getBusinessSpreadTypesForDealContext({
+    collateralType: "CRE",
+    hasT12Source: true,
+  });
   assert.ok(
-    order.indexOf("BALANCE_SHEET") < order.indexOf("T12"),
+    creWithT12.indexOf("BALANCE_SHEET") < creWithT12.indexOf("T12"),
     "BALANCE_SHEET (primary) must precede T12 (optional)",
   );
+  const page = read("src/app/(app)/deals/[dealId]/spreads/business/page.tsx");
   assert.ok(page.includes("isOptionalSpreadType"), "page derives optional label from the central rule");
   assert.ok(page.includes("(optional)"), "T12 spread is labeled optional in the UI");
+  assert.ok(
+    page.includes("getBusinessSpreadTypesForDealContext"),
+    "page builds its request from the context-aware helper",
+  );
 });

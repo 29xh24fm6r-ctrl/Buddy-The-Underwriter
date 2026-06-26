@@ -13,6 +13,11 @@ import {
   type SpreadTableRow,
 } from "@/components/deals/spreads/SpreadTable";
 import { isOptionalSpreadType } from "@/lib/spreads/t12Eligibility";
+import {
+  getBusinessSpreadTypesForDealContext,
+  getBusinessSpreadsHeaderCopy,
+  type BusinessSpreadDealContext,
+} from "@/lib/spreads/businessSpreadContext";
 
 type SpreadData = {
   deal_id: string;
@@ -27,10 +32,13 @@ type SpreadData = {
   owner_entity_id?: string | null;
 };
 
-// SPEC-T12-OPTIONAL-NEVER-PRIMARY-1: the primary business spread is the balance
-// sheet (plus rent roll for CRE). T12 is optional / nice-to-have — listed last
-// and labeled optional, never as a primary/required business spread.
-const BUSINESS_TYPES = ["BALANCE_SHEET", "RENT_ROLL", "T12"];
+// SPEC-BUSINESS-SPREADS-OPERATING-COMPANY-VIEW-1: the eligible business spreads
+// depend on the deal context. Operating companies get balance sheet + income
+// statement / business spread; CRE / property deals get balance sheet + rent
+// roll. T12 (optional trailing-twelve) is only requested when a real T12 /
+// monthly-operating source exists. Resolved per-deal in load(); until the deal
+// context loads we fall back to the operating-company set (empty context) so we
+// never speculatively request RENT_ROLL.
 
 function buildSingleColumnRows(spread: SpreadData): SpreadTableRow[] {
   const rows = spread.rendered_json?.rows;
@@ -147,6 +155,7 @@ export default function BusinessSpreadsPage() {
   const params = useParams<{ dealId: string }>();
   const dealId = params?.dealId ?? "";
   const [spreads, setSpreads] = React.useState<SpreadData[]>([]);
+  const [dealContext, setDealContext] = React.useState<BusinessSpreadDealContext | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [recomputing, setRecomputing] = React.useState(false);
@@ -155,8 +164,31 @@ export default function BusinessSpreadsPage() {
     setLoading(true);
     setError(null);
     try {
+      // Resolve the deal context first so we only request eligible business
+      // spreads (operating company vs CRE / property). The deal route never
+      // 500s and is non-fatal: if it fails we fall back to the operating-company
+      // set rather than re-introducing real-estate sections.
+      let ctx: BusinessSpreadDealContext = {};
+      try {
+        const dealRes = await fetch(`/api/deals/${dealId}`, { cache: "no-store" });
+        const dealJson = await dealRes.json().catch(() => null);
+        const deal = dealJson?.deal ?? null;
+        if (deal) {
+          ctx = {
+            dealMode: deal.deal_mode ?? null,
+            dealType: deal.deal_type ?? null,
+            collateralType: deal.product_type ?? null,
+            hasT12Source: deal.has_monthly_statements === true,
+          };
+        }
+      } catch {
+        // Non-fatal — keep the safe operating-company fallback context.
+      }
+      setDealContext(ctx);
+
+      const types = getBusinessSpreadTypesForDealContext(ctx);
       const res = await fetch(
-        `/api/deals/${dealId}/spreads?types=${BUSINESS_TYPES.join(",")}&owner_type=DEAL`,
+        `/api/deals/${dealId}/spreads?types=${types.join(",")}&owner_type=DEAL`,
         { cache: "no-store" },
       );
       const json = await res.json().catch(() => null);
@@ -206,8 +238,7 @@ export default function BusinessSpreadsPage() {
         <div>
           <h2 className="text-lg font-semibold text-white">Business Spreads</h2>
           <p className="mt-0.5 text-xs text-white/50">
-            Balance sheet and rent roll for the subject property. Trailing 12-month
-            operating performance is shown when available (optional).
+            {getBusinessSpreadsHeaderCopy(dealContext ?? {})}
           </p>
         </div>
         <div className="flex items-center gap-2">
