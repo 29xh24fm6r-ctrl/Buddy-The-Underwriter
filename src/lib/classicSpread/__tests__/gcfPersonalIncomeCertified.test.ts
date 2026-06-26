@@ -150,13 +150,24 @@ describe("Phase 4: multi-sponsor does not double-count a shared DEAL-owned fact"
 // ── 4. PFS_LIVING_EXPENSES remains fail-closed (preserved) ───────────────────────────────────
 
 describe("Phase 4: financial-readiness behavior preserved", () => {
-  it("PFS_LIVING_EXPENSES stays missing/gated when no source-backed fact exists", () => {
+  it("PFS_LIVING_EXPENSES stays missing/gated when only BALANCES exist (no expense/payment fact)", () => {
+    // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: source-backed housing PAYMENT
+    // facts (mortgage/rent) now DERIVE living expenses, but balances never do.
     const r = derivePfsLivingExpensesByOwner([
-      { fact_key: "PFS_MORTGAGE_PAYMENT_MO", fact_value_num: 18_000, owner_type: "PERSONAL", owner_entity_id: OWNER, is_superseded: false, fact_period_end: "2025-12-31" },
+      { fact_key: "PFS_MORTGAGE_BALANCE", fact_value_num: 2_000_000, owner_type: "PERSONAL", owner_entity_id: OWNER, is_superseded: false, fact_period_end: "2025-12-31" },
       { fact_key: "PFS_NET_WORTH", fact_value_num: 24_837_000, owner_type: "PERSONAL", owner_entity_id: OWNER, is_superseded: false, fact_period_end: "2025-12-31" },
     ]);
     assert.equal(r.derivations.length, 0);
     assert.ok(r.diagnostic && /not repairable from existing facts; extraction\/manual review required/i.test(r.diagnostic));
+  });
+
+  it("PFS_LIVING_EXPENSES now derives from a source-backed PFS_MORTGAGE_PAYMENT_MO (new rule)", () => {
+    const r = derivePfsLivingExpensesByOwner([
+      { fact_key: "PFS_MORTGAGE_PAYMENT_MO", fact_value_num: 18_000, owner_type: "PERSONAL", owner_entity_id: OWNER, source_document_id: "doc-pfs", is_superseded: false, fact_period_end: "2025-12-31" },
+    ]);
+    assert.equal(r.derivations.length, 1);
+    assert.equal(r.derivations[0].value, 216_000);
+    assert.ok(r.derivations[0].auditNote && /PFS_ANNUAL_DEBT_SERVICE/.test(r.derivations[0].auditNote));
   });
 
   // ── 5. ANNUAL_DEBT_SERVICE / PFS_ANNUAL_DEBT_SERVICE repair still materializes ──────────────

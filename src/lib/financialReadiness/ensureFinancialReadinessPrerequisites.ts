@@ -228,11 +228,20 @@ export async function ensureFinancialReadinessPrerequisites(
             extractor: "financialReadinessPrereqRepair:pfs_living_expenses",
             calc: d.calc,
             confidence: d.confidence,
+            // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: surface the shared-basis
+            // overlap when living expenses were derived from a housing PAYMENT that
+            // also backs PFS_ANNUAL_DEBT_SERVICE, so the double-count basis is visible.
+            audit_note: d.auditNote ?? undefined,
           },
           ownerType: "PERSONAL",
           ownerEntityId: d.ownerEntityId,
         });
-        if (ok.ok) wroteAny = true;
+        if (ok.ok) {
+          wroteAny = true;
+          // Echo the double-count audit note into the result diagnostics so it is
+          // visible to reviewers/operators, not only buried in fact provenance.
+          if (d.auditNote) diagnostics.push(d.auditNote);
+        }
       }
       if (wroteAny) {
         repaired.pfsLivingExpenses = true;

@@ -19,6 +19,14 @@ export type FinancialFactProvenance = {
   extractor?: string; // versioned extractor id
   calc?: string; // for derived values
 
+  /**
+   * SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: reviewer-facing note flagging a
+   * shared-basis overlap — e.g. PFS_LIVING_EXPENSES derived from a housing PAYMENT
+   * that also backs PFS_ANNUAL_DEBT_SERVICE — so potential double-counting is
+   * visible rather than hidden.
+   */
+  audit_note?: string;
+
   confidence?: number | null;
   citations?: Array<{
     page: number | null;

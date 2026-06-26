@@ -12,6 +12,10 @@ import {
 } from "@/components/deals/spreads/SpreadTable";
 import { cn } from "@/lib/utils";
 import type { CanonicalGcfResult } from "@/lib/financialFacts/canonicalGcfCore";
+import {
+  canRunGcfRecompute,
+  ORPHANED_BY_FAILED_ORCHESTRATION,
+} from "@/lib/financialFacts/gcfComputeGate";
 
 type SpreadData = {
   spread_type: string;
@@ -227,6 +231,15 @@ export default function GlobalCashFlowPage() {
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
+        // Fail-closed gate: the route ran the deterministic prerequisite repair and
+        // re-evaluated, but GCF prerequisites are still genuinely missing, so it
+        // refused to enqueue (no fake success). Reload to surface the (possibly
+        // newly-materialized) prerequisite state + precise upstream diagnostics
+        // instead of throwing a cryptic error string.
+        if (json?.error === "gcf_prerequisites_missing" || json?.gcfGated) {
+          await load();
+          return;
+        }
         throw new Error(json?.error ?? "Failed to start global cash flow computation");
       }
       // Reload picks up the "queued" state immediately; the poll effect below
@@ -314,6 +327,21 @@ export default function GlobalCashFlowPage() {
   const missingPrereqs = prerequisites.filter((p) => !p.satisfied);
   // Default ready=true when canonical is absent so we never block a legit compute.
   const computeBlocked = canonical ? canonical.prerequisitesReady === false : false;
+
+  // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: an ORPHANED_BY_FAILED_ORCHESTRATION
+  // GLOBAL row must never be a permanent dead-end. The page reads canonical state on
+  // a plain GET (no repair), so a fully-repairable deal still loads computeBlocked.
+  // The recompute POST runs the deterministic repair before the gate, so the orphan
+  // recovery action must stay runnable even while computeBlocked — the server still
+  // fail-closes if the prerequisites are genuinely missing.
+  const isOrphanedRow =
+    (errorSpread?.error_code ?? null) === ORPHANED_BY_FAILED_ORCHESTRATION;
+  const canRetryError = canRunGcfRecompute({
+    recomputing,
+    isComputing,
+    computeBlocked,
+    isOrphanedRow,
+  });
 
   function prereqHref(suffix: string): string {
     return `/deals/${dealId}${suffix}`;
@@ -458,15 +486,17 @@ export default function GlobalCashFlowPage() {
               onClick={() => void compute()}
               // Block retry while upstream prerequisites are missing — it can only
               // re-fail until they're produced (recompute API also refuses GCF).
-              disabled={recomputing || isComputing || computeBlocked}
+              // EXCEPTION: an orphaned GLOBAL row stays retryable so the deterministic
+              // prerequisite repair (run by the recompute POST) can recover it.
+              disabled={!canRetryError}
               title={
-                computeBlocked
+                computeBlocked && !isOrphanedRow
                   ? "Resolve the upstream financial steps before retrying Global Cash Flow"
                   : undefined
               }
               className={cn(
                 "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50",
-                computeBlocked
+                computeBlocked && !isOrphanedRow
                   ? "border border-white/15 bg-white/5 text-white/60"
                   : "bg-amber-500 text-amber-950 hover:bg-amber-400 disabled:opacity-60",
               )}

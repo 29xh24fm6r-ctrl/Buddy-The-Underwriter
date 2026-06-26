@@ -57,6 +57,21 @@ export const PFS_LIVING_EXPENSES_MONTHLY_KEYS = [
   "PFS_LIVING_EXPENSES_MONTHLY",
 ];
 
+/**
+ * Recognized PFS rent / housing MONTHLY *expense* keys. These are source-backed
+ * recurring housing costs (a living-cost component), NOT balances. Used as a
+ * living-expense proxy only when no explicit living-expense key exists.
+ */
+export const PFS_HOUSING_EXPENSE_MONTHLY_KEYS = [
+  "PFS_RENT_PAYMENT_MO",
+  "PFS_RENT_MO",
+  "PFS_MONTHLY_RENT",
+  "RENT_MO",
+  "PFS_HOUSING_EXPENSE_MO",
+  "PFS_HOUSING_PAYMENT_MO",
+  "PFS_MONTHLY_HOUSING_EXPENSE",
+];
+
 function isActiveNumeric(f: PrereqFactRow): boolean {
   return f.is_superseded !== true && typeof f.fact_value_num === "number" && Number.isFinite(f.fact_value_num);
 }
@@ -159,6 +174,13 @@ export type PfsDerivation = {
   periodStart: string | null;
   periodEnd: string | null;
   confidence: number;
+  /**
+   * Reviewer-facing audit note set when the derivation reuses a source fact that
+   * ALSO feeds another canonical key (e.g. a housing PAYMENT used for both
+   * PFS_LIVING_EXPENSES and PFS_ANNUAL_DEBT_SERVICE), so hidden double-counting is
+   * surfaced rather than silent. Null when there is no overlap.
+   */
+  auditNote?: string | null;
 };
 
 export type PfsDeriveResult = {
@@ -254,10 +276,28 @@ export function derivePfsAnnualDebtServiceByOwner(facts: PrereqFactRow[]): PfsDe
 // ── 5. PFS_LIVING_EXPENSES derivation (per personal owner) ──────────────────
 
 /**
- * Derive PFS_LIVING_EXPENSES ONLY when a source-backed living-expense fact
- * already exists under a recognized alternate key (annual copied as-is, monthly
- * × 12). NEVER invents a value and NEVER parses raw OCR. When no such fact
- * exists the owner is left unrepaired with a precise diagnostic (fail-closed).
+ * Derive PFS_LIVING_EXPENSES from already-accepted source-backed PFS facts, per
+ * personal owner that does not already have it. NEVER invents a value and NEVER
+ * parses raw OCR. Borrower PFS forms include recurring housing cost (mortgage /
+ * rent), so a source-backed monthly housing expense/payment is a usable living-
+ * expense basis when no explicit living-expense line was captured.
+ *
+ * Resolution order (first match wins):
+ *   (a) explicit ANNUAL living-expense keys — copied as-is.
+ *   (b) explicit MONTHLY living-expense keys — × 12.
+ *   (c) PFS rent / housing MONTHLY *expense* keys — × 12.
+ *   (d) source-backed mortgage / housing PAYMENT facts — × 12, preferring the
+ *       aggregate PFS_MORTGAGE_PAYMENT_MO and only summing per-property
+ *       PFS_RE*_MONTHLY_PAYMENT lines when no aggregate exists (never both — the
+ *       aggregate already rolls up the per-property lines).
+ *
+ * NEVER derives from BALANCES (PFS_MORTGAGE_BALANCE, PFS_RE*_MORTGAGE_BALANCE,
+ * PFS_TOTAL_LIABILITIES, asset/net-worth values) — only from explicit recurring
+ * expense / payment facts. When nothing is derivable the owner is left unrepaired
+ * with a precise diagnostic (fail-closed).
+ *
+ * Branch (d) reuses the SAME payment facts that back PFS_ANNUAL_DEBT_SERVICE, so
+ * each such derivation carries an audit note flagging the overlap for reviewers.
  */
 export function derivePfsLivingExpensesByOwner(facts: PrereqFactRow[]): PfsDeriveResult {
   const owners = personalOwners(facts);
@@ -271,7 +311,9 @@ export function derivePfsLivingExpensesByOwner(facts: PrereqFactRow[]): PfsDeriv
     let annual: number | null = null;
     let calc: string | null = null;
     let source: PrereqFactRow | null = null;
+    let auditNote: string | null = null;
 
+    // (a) explicit ANNUAL living-expense keys
     for (const key of PFS_LIVING_EXPENSES_ANNUAL_KEYS) {
       const f = latestActiveFact(facts, key, { ownerType: "PERSONAL", ownerEntityId });
       if (f?.fact_value_num != null) {
@@ -282,6 +324,7 @@ export function derivePfsLivingExpensesByOwner(facts: PrereqFactRow[]): PfsDeriv
       }
     }
 
+    // (b) explicit MONTHLY living-expense keys × 12
     if (annual == null) {
       for (const key of PFS_LIVING_EXPENSES_MONTHLY_KEYS) {
         const f = latestActiveFact(facts, key, { ownerType: "PERSONAL", ownerEntityId });
@@ -291,6 +334,54 @@ export function derivePfsLivingExpensesByOwner(facts: PrereqFactRow[]): PfsDeriv
           source = f;
           calc = `${key} (${monthly}) × 12 = ${annual}`;
           break;
+        }
+      }
+    }
+
+    // (c) PFS rent / housing MONTHLY expense keys × 12
+    if (annual == null) {
+      for (const key of PFS_HOUSING_EXPENSE_MONTHLY_KEYS) {
+        const f = latestActiveFact(facts, key, { ownerType: "PERSONAL", ownerEntityId });
+        if (f?.fact_value_num != null) {
+          const monthly = Number(f.fact_value_num);
+          annual = monthly * 12;
+          source = f;
+          calc = `${key} (${monthly}) × 12 = ${annual}`;
+          break;
+        }
+      }
+    }
+
+    // (d) source-backed mortgage / housing PAYMENT facts (last resort). These also
+    // back PFS_ANNUAL_DEBT_SERVICE — attach an audit note so reviewers can see the
+    // shared basis and avoid hidden double-counting. Aggregate wins over per-property
+    // lines (never both).
+    if (annual == null) {
+      const mortgage = latestActiveFact(facts, PFS_MORTGAGE_PAYMENT_MO_KEY, {
+        ownerType: "PERSONAL",
+        ownerEntityId,
+      });
+      if (mortgage?.fact_value_num != null) {
+        const monthly = Number(mortgage.fact_value_num);
+        annual = monthly * 12;
+        source = mortgage;
+        calc = `${PFS_MORTGAGE_PAYMENT_MO_KEY} (${monthly}) × 12 = ${annual}`;
+        auditNote = `PFS_LIVING_EXPENSES derived from housing PAYMENT fact ${PFS_MORTGAGE_PAYMENT_MO_KEY} (${monthly}/mo), which also backs PFS_ANNUAL_DEBT_SERVICE — review GCF obligations for potential double-counting.`;
+      } else {
+        const reLines = facts.filter(
+          (f) =>
+            PFS_RE_MONTHLY_PAYMENT_RE.test(f.fact_key) &&
+            f.owner_type === "PERSONAL" &&
+            f.owner_entity_id === ownerEntityId &&
+            isActiveNumeric(f),
+        );
+        if (reLines.length > 0) {
+          const monthly = reLines.reduce((sum, f) => sum + Number(f.fact_value_num), 0);
+          annual = monthly * 12;
+          source = reLines[0];
+          const parts = reLines.map((f) => `${f.fact_key} (${f.fact_value_num})`).join(" + ");
+          calc = `${parts} = ${monthly}/mo × 12 = ${annual}`;
+          auditNote = `PFS_LIVING_EXPENSES derived from per-property housing PAYMENT lines (${parts}), which also back PFS_ANNUAL_DEBT_SERVICE — review GCF obligations for potential double-counting.`;
         }
       }
     }
@@ -305,6 +396,7 @@ export function derivePfsLivingExpensesByOwner(facts: PrereqFactRow[]): PfsDeriv
       periodStart: source?.fact_period_start ?? null,
       periodEnd: source?.fact_period_end ?? null,
       confidence: Math.min(0.6, source?.confidence ?? 0.6),
+      auditNote,
     });
   }
 
