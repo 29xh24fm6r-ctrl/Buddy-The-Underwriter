@@ -22,6 +22,7 @@ import {
   evaluateGcfPrerequisites,
   GCF_DSCR_FACT_KEY,
   type GcfFactRow,
+  type GcfPrerequisite,
 } from "@/lib/financialFacts/canonicalGcfCore";
 import {
   certifyFactSelection,
@@ -75,8 +76,31 @@ export type CanonicalFinancialEngineState = {
   /** GCF dependency-ordered prerequisites resolution (same engine as the GCF page). */
   prerequisitesReady: boolean;
   earliestMissingPrerequisite: { key: string; label: string; diagnostic: string } | null;
+  /** Full dependency-ordered prerequisite list (same order/labels the GCF page renders). */
+  prerequisites: GcfPrerequisite[];
   diagnostics: string[];
 };
+
+/**
+ * Fact keys the canonical financial engine OWNS / derives. When the engine
+ * reports prerequisites ready, a stale "missing required fact" gap for one of
+ * these keys in the legacy gap queue is no longer a real blocker — it has been
+ * materialized by the engine. Used to suppress stale missing-prerequisite
+ * blockers in the cockpit Financial Analysis card (never used to hide conflicts
+ * or low-confidence review items — those stay).
+ */
+export const CANONICAL_ENGINE_MANAGED_FACT_KEYS: ReadonlySet<string> = new Set([
+  "CASH_FLOW_AVAILABLE",
+  "ANNUAL_DEBT_SERVICE",
+  "ANNUAL_DEBT_SERVICE_PROPOSED",
+  "ANNUAL_DEBT_SERVICE_EXISTING",
+  "DSCR",
+  "GCF_GLOBAL_CASH_FLOW",
+  "GLOBAL_CASH_FLOW",
+  "GCF_DSCR",
+  "PFS_ANNUAL_DEBT_SERVICE",
+  "PFS_LIVING_EXPENSES",
+]);
 
 const EMPTY_VALUE: CanonicalEngineValue = { value: null, source: null, factKey: null, asOf: null };
 
@@ -250,6 +274,7 @@ export function buildCanonicalEngineState(rows: EngineFactRow[]): CanonicalFinan
           diagnostic: prereq.earliestMissing.diagnostic,
         }
       : null,
+    prerequisites: prereq.prerequisites,
     diagnostics,
   };
 }
