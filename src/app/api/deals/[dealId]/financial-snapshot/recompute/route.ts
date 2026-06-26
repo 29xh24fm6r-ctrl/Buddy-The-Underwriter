@@ -107,6 +107,27 @@ export async function POST(_req: Request, ctx: Ctx) {
       uiMessage: "Snapshot generation started",
     }).catch(() => {});
 
+    // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: run the cheap deterministic
+    // prerequisite repair BEFORE the preflight facts-visibility check decides any
+    // blocker. This materializes ANNUAL_DEBT_SERVICE from current structural
+    // pricing and PFS_ANNUAL_DEBT_SERVICE from accepted PFS monthly payments so a
+    // repairable prerequisite no longer surfaces as a missing-financial blocker.
+    // Facts that are not source-backed (e.g. PFS_LIVING_EXPENSES with no source)
+    // remain missing and the preflight still fail-closes on them.
+    try {
+      const { ensureFinancialReadinessPrerequisites } = await import(
+        "@/lib/financialReadiness/ensureFinancialReadinessPrerequisites"
+      );
+      await ensureFinancialReadinessPrerequisites({
+        dealId,
+        bankId: access.bankId,
+        reason: "financial_snapshot_recompute",
+        scheduleRefresh: true,
+      });
+    } catch {
+      // Repair is best-effort; preflight below still enforces prerequisites.
+    }
+
     // Collect all blocking reasons before building snapshot
     const preflightReasons: string[] = [];
 

@@ -37,6 +37,25 @@ export async function POST(
       );
     }
 
+    // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: before the snapshot decides
+    // financial blockers, run the cheap deterministic prerequisite repair so any
+    // facts already derivable from accepted upstream data (ANNUAL_DEBT_SERVICE
+    // from current pricing, PFS_ANNUAL_DEBT_SERVICE from accepted PFS monthly
+    // payments) are materialized first. Anything not source-backed stays missing.
+    try {
+      const { ensureFinancialReadinessPrerequisites } = await import(
+        "@/lib/financialReadiness/ensureFinancialReadinessPrerequisites"
+      );
+      await ensureFinancialReadinessPrerequisites({
+        dealId,
+        bankId: access.bankId,
+        reason: "financial_snapshot_generate",
+        scheduleRefresh: true,
+      });
+    } catch {
+      // Repair is best-effort; snapshot build still fail-closes on missing facts.
+    }
+
     // Generate the financial snapshot
     const result = await buildFinancialSnapshot({
       dealId,
