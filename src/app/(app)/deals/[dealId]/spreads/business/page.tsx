@@ -164,36 +164,27 @@ export default function BusinessSpreadsPage() {
     setLoading(true);
     setError(null);
     try {
-      // Resolve the deal context first so we only request eligible business
-      // spreads (operating company vs CRE / property). The deal route never
-      // 500s and is non-fatal: if it fails we fall back to the operating-company
-      // set rather than re-introducing real-estate sections.
-      let ctx: BusinessSpreadDealContext = {};
-      try {
-        const dealRes = await fetch(`/api/deals/${dealId}`, { cache: "no-store" });
-        const dealJson = await dealRes.json().catch(() => null);
-        const deal = dealJson?.deal ?? null;
-        if (deal) {
-          ctx = {
-            dealMode: deal.deal_mode ?? null,
-            dealType: deal.deal_type ?? null,
-            collateralType: deal.product_type ?? null,
-            hasT12Source: deal.has_monthly_statements === true,
-          };
-        }
-      } catch {
-        // Non-fatal — keep the safe operating-company fallback context.
-      }
-      setDealContext(ctx);
-
-      const types = getBusinessSpreadTypesForDealContext(ctx);
+      // The /spreads route returns the deal context (?context=1) alongside the
+      // DEAL-owned spreads in a single round-trip, so we never fetch the bare
+      // /api/deals/[id] endpoint (banned by the deal-name single-source guard).
       const res = await fetch(
-        `/api/deals/${dealId}/spreads?types=${types.join(",")}&owner_type=DEAL`,
+        `/api/deals/${dealId}/spreads?owner_type=DEAL&context=1`,
         { cache: "no-store" },
       );
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) throw new Error(json?.error ?? "Failed to load spreads");
-      setSpreads(Array.isArray(json.spreads) ? json.spreads : []);
+
+      // Resolve which business spreads are eligible for this deal (operating
+      // company vs CRE / property). When context is unavailable we fall back to
+      // the safe operating-company set rather than re-introducing rent-roll/T12.
+      const ctx: BusinessSpreadDealContext = json.dealContext ?? {};
+      setDealContext(ctx);
+
+      const eligible = new Set(getBusinessSpreadTypesForDealContext(ctx));
+      const all: SpreadData[] = Array.isArray(json.spreads) ? json.spreads : [];
+      // Render only eligible business spreads — no rent roll for operating
+      // companies, no speculative T12 / "Generating…" panels for ineligible types.
+      setSpreads(all.filter((s) => eligible.has(s.spread_type)));
     } catch (e: any) {
       setError(e?.message ?? "Failed to load spreads");
     } finally {
