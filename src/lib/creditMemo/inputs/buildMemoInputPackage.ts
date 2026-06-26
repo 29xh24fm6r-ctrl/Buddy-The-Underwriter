@@ -94,6 +94,39 @@ export async function buildMemoInputPackage(
     } catch {
       // non-fatal — checklist self-heal must never block memo-input assembly
     }
+
+    // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: before the GCF prerequisite
+    // state (loaded below) and readiness blockers are decided, run the cheap
+    // deterministic financial prerequisite repair. It materializes facts already
+    // derivable from accepted upstream data (ANNUAL_DEBT_SERVICE from current
+    // pricing, PFS_ANNUAL_DEBT_SERVICE from accepted PFS monthly payments) so
+    // memo readiness no longer persists a stale GCF/debt-service blocker that is
+    // actually repairable. PFS_LIVING_EXPENSES stays fail-closed when not
+    // source-backed. scheduleRefresh:false — this builder recomputes + persists
+    // readiness inline below, and idempotency prevents any recursion.
+    try {
+      const { ensureFinancialReadinessPrerequisites } = await import(
+        "@/lib/financialReadiness/ensureFinancialReadinessPrerequisites"
+      );
+      const fin = await ensureFinancialReadinessPrerequisites({
+        dealId: args.dealId,
+        bankId,
+        reason: "memo_input_reconciliation",
+        scheduleRefresh: false,
+      });
+      if (fin.factsWritten.length > 0) {
+        try {
+          const { invalidateLifecycleCache } = await import(
+            "@/buddy/lifecycle/lifecycleCache"
+          );
+          invalidateLifecycleCache(args.dealId);
+        } catch {
+          // non-fatal — best-effort cache drop
+        }
+      }
+    } catch {
+      // non-fatal — prerequisite repair must never block memo-input assembly
+    }
   }
 
   // SPEC-13 — auto-migration of legacy `deal_memo_overrides` JSON into

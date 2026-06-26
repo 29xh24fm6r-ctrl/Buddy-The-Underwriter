@@ -89,6 +89,29 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     let enqueueableTypes: SpreadType[] = requestedTypes;
 
     if (requestedTypes.includes("GLOBAL_CASH_FLOW" as SpreadType)) {
+      // SPEC-FINANCIAL-READINESS-GCF-PREREQ-REPAIR-1: a GCF retry must not reuse
+      // the orphaned placeholder blindly. Run the cheap deterministic prerequisite
+      // repair FIRST (materialize ANNUAL_DEBT_SERVICE from current pricing, derive
+      // PFS_ANNUAL_DEBT_SERVICE from accepted PFS monthly payments), THEN re-evaluate
+      // prerequisites. If they are still missing (e.g. PFS_LIVING_EXPENSES not
+      // source-backed) GCF stays gated and we return the earliest missing step —
+      // never forcing success, never hiding ORPHANED_BY_FAILED_ORCHESTRATION. When
+      // prerequisites become ready, enqueue creates a fresh backing job whose
+      // placeholder upsert overwrites the stale orphan row (error_code/last_run_id
+      // are reset to null) so it becomes claimable again.
+      try {
+        const { ensureFinancialReadinessPrerequisites } = await import(
+          "@/lib/financialReadiness/ensureFinancialReadinessPrerequisites"
+        );
+        await ensureFinancialReadinessPrerequisites({
+          dealId,
+          bankId: access.bankId,
+          reason: "gcf_recompute_retry",
+          scheduleRefresh: true,
+        });
+      } catch {
+        // Repair is best-effort; the prerequisite gate below still fail-closes.
+      }
       const canonical = await getCanonicalGlobalCashFlow(dealId, access.bankId);
       if (!canonical.prerequisitesReady) {
         gcfGated = true;
