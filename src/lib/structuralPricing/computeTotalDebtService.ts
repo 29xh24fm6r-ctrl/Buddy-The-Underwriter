@@ -5,6 +5,13 @@ import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/wri
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeDebtService } from "./debtServiceMath";
 import { assessDenominatorCompleteness } from "./debtServiceCompleteness";
+import {
+  resolveAdsPeriodDate,
+  computeAdsTotals,
+  summarizeAdsWriteResults,
+  staleAdsFactsToSupersede,
+  type AdsWriteOutcome,
+} from "./computeTotalDebtServiceCore";
 
 export type TotalDebtServiceResult = {
   proposed: number | null;
@@ -16,6 +23,12 @@ export type TotalDebtServiceResult = {
   /** SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: denominator completeness labeling. */
   existingDebtOnFile: boolean;
   globalDscrPreliminary: boolean;
+  /** Valid period/as-of date stamped on every ADS fact written this run. */
+  periodDate: string;
+  /** Canonical fact keys written (and superseded-of-stale) this run. */
+  writtenKeys: string[];
+  /** Non-fatal diagnostics (e.g. skipped optional DSCR). */
+  diagnostics: string[];
 };
 
 /**
@@ -28,6 +41,15 @@ export type TotalDebtServiceResult = {
  *
  * If NOI fact is available, also computes and writes DSCR.
  * If GCF fact is available, also computes and writes GCF_DSCR.
+ *
+ * SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1:
+ *   - Every fact is written with a VALID period/as-of date (latest structural
+ *     pricing computed_at, else today) — never the 1900-01-01 sentinel that
+ *     upsertDealFinancialFact rejects, so the canonical ADS total actually lands.
+ *   - Each upsert result is inspected; a REQUIRED ADS write that is skipped or
+ *     fails returns ok:false with an explicit diagnostic (no silent success).
+ *   - Stale active same-key DEAL facts (e.g. a 75,000 proposed under a different
+ *     period) are superseded so current pricing (101,250) is the only active value.
  *
  * Never throws.
  */
@@ -45,7 +67,9 @@ export async function computeTotalDebtService(args: {
     // Step 1: Get latest proposed ADS from structural pricing
     const { data: spRow, error: spErr } = await (sb as any)
       .from("deal_structural_pricing")
-      .select("annual_debt_service_est, structural_rate_pct, loan_amount, amort_months, interest_only_months")
+      .select(
+        "annual_debt_service_est, structural_rate_pct, loan_amount, amort_months, interest_only_months, computed_at",
+      )
       .eq("deal_id", dealId)
       .order("computed_at", { ascending: false })
       .limit(1)
@@ -58,13 +82,10 @@ export async function computeTotalDebtService(args: {
     const proposed: number | null = spRow?.annual_debt_service_est ?? null;
 
     // Step 2: Sum existing debt (included_in_global = true, not being refinanced)
-    let existing: number | null = null;
-    let existingDebtRowsPresent = false;
+    let existingRows: { annual_debt_service: number | null; monthly_payment: number | null }[] | null = null;
 
-    if (skipExistingDebt) {
-      existing = 0;
-    } else {
-      const { data: existingRows, error: exErr } = await (sb as any)
+    if (!skipExistingDebt) {
+      const { data: rows, error: exErr } = await (sb as any)
         .from("deal_existing_debt_schedule")
         .select("annual_debt_service, monthly_payment")
         .eq("deal_id", dealId)
@@ -74,30 +95,17 @@ export async function computeTotalDebtService(args: {
       if (exErr) {
         return { ok: false, error: `existing_debt query: ${exErr.message}` };
       }
-
-      existingDebtRowsPresent = !!(existingRows && existingRows.length > 0);
-      if (existingRows && existingRows.length > 0) {
-        existing = 0;
-        for (const row of existingRows) {
-          if (row.annual_debt_service != null) {
-            existing += Number(row.annual_debt_service);
-          } else if (row.monthly_payment != null) {
-            existing += Number(row.monthly_payment) * 12;
-          }
-        }
-        if (existing === 0 && existingRows.length > 0) {
-          existing = null; // All rows had null payments
-        }
-      }
+      existingRows = (rows ?? []) as typeof existingRows;
     }
 
-    // Step 3: Compute total
-    const total =
-      proposed != null || existing != null
-        ? (proposed ?? 0) + (existing ?? 0)
-        : null;
+    // Step 3: Compute proposed / existing / total (pure)
+    const totals = computeAdsTotals({ proposed, existingRows, skipExistingDebt });
+    const { existing, total, existingDebtRowsPresent } = totals;
 
-    const asOfDate = new Date().toISOString().slice(0, 10);
+    // SPEC-…-ADS-MATERIALIZATION-1: valid period/as-of date — NEVER the sentinel.
+    const today = new Date().toISOString().slice(0, 10);
+    const periodDate = resolveAdsPeriodDate(spRow?.computed_at, today);
+    const asOfDate = periodDate;
 
     // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: assess denominator completeness.
     // Guarantor/personal obligations are confirmed if we have either a PFS personal
@@ -130,76 +138,91 @@ export async function computeTotalDebtService(args: {
       guarantorObligationsConfirmed,
     });
 
-    // Step 4: Write 3 facts
-    const factWrites: Promise<{ ok: boolean; error?: string }>[] = [];
+    // Step 4: Write the ADS facts with a VALID period date and inspect each result.
+    const writeOutcomes: AdsWriteOutcome[] = [];
+    const writtenKeys: string[] = [];
+    const diagnostics: string[] = [];
 
-    if (proposed != null) {
-      factWrites.push(
-        upsertDealFinancialFact({
-          dealId,
-          bankId,
-          sourceDocumentId: SENTINEL_UUID,
-          factType: "FINANCIAL_ANALYSIS",
-          factKey: "ANNUAL_DEBT_SERVICE_PROPOSED",
-          factValueNum: proposed,
-          confidence: 0.9,
-          provenance: {
-            source_type: "STRUCTURAL",
-            source_ref: `deal_structural_pricing:${dealId}`,
-            as_of_date: asOfDate,
-            extractor: "computeTotalDebtService:v1",
-          },
-          ownerType: "DEAL",
-          ownerEntityId: SENTINEL_UUID,
-        }),
+    const writeAds = async (
+      factKey: string,
+      factValueNum: number,
+      provenance: Record<string, unknown>,
+      required: boolean,
+    ) => {
+      const res = await upsertDealFinancialFact({
+        dealId,
+        bankId,
+        sourceDocumentId: SENTINEL_UUID,
+        factType: "FINANCIAL_ANALYSIS",
+        factKey,
+        factValueNum,
+        confidence: 0.9,
+        factPeriodStart: periodDate,
+        factPeriodEnd: periodDate,
+        provenance: provenance as any,
+        ownerType: "DEAL",
+        ownerEntityId: SENTINEL_UUID,
+      });
+      writeOutcomes.push({
+        key: factKey,
+        ok: res.ok,
+        error: res.ok ? undefined : res.error,
+        skipped: res.ok ? undefined : (res as { skipped?: boolean }).skipped,
+        required,
+      });
+      if (res.ok) writtenKeys.push(factKey);
+    };
+
+    if (totals.proposed != null) {
+      await writeAds(
+        "ANNUAL_DEBT_SERVICE_PROPOSED",
+        totals.proposed,
+        {
+          source_type: "STRUCTURAL",
+          source_ref: `deal_structural_pricing:${dealId}`,
+          as_of_date: asOfDate,
+          extractor: "computeTotalDebtService:v1",
+        },
+        true,
       );
     }
 
     if (existing != null) {
-      factWrites.push(
-        upsertDealFinancialFact({
-          dealId,
-          bankId,
-          sourceDocumentId: SENTINEL_UUID,
-          factType: "FINANCIAL_ANALYSIS",
-          factKey: "ANNUAL_DEBT_SERVICE_EXISTING",
-          factValueNum: existing,
-          confidence: 0.9,
-          provenance: {
-            source_type: "STRUCTURAL",
-            source_ref: `deal_existing_debt:${dealId}`,
-            as_of_date: asOfDate,
-            extractor: "computeTotalDebtService:v1",
-          },
-          ownerType: "DEAL",
-          ownerEntityId: SENTINEL_UUID,
-        }),
+      await writeAds(
+        "ANNUAL_DEBT_SERVICE_EXISTING",
+        existing,
+        {
+          source_type: "STRUCTURAL",
+          source_ref: `deal_existing_debt:${dealId}`,
+          as_of_date: asOfDate,
+          extractor: "computeTotalDebtService:v1",
+        },
+        false,
       );
     }
 
     if (total != null) {
-      factWrites.push(
-        upsertDealFinancialFact({
-          dealId,
-          bankId,
-          sourceDocumentId: SENTINEL_UUID,
-          factType: "FINANCIAL_ANALYSIS",
-          factKey: "ANNUAL_DEBT_SERVICE",
-          factValueNum: total,
-          confidence: 0.9,
-          provenance: {
-            source_type: "STRUCTURAL",
-            source_ref: `total_debt:${dealId}`,
-            as_of_date: asOfDate,
-            extractor: "computeTotalDebtService:v1",
-          },
-          ownerType: "DEAL",
-          ownerEntityId: SENTINEL_UUID,
-        }),
+      await writeAds(
+        "ANNUAL_DEBT_SERVICE",
+        total,
+        {
+          source_type: "STRUCTURAL",
+          source_ref: `total_debt:${dealId}`,
+          as_of_date: asOfDate,
+          extractor: "computeTotalDebtService:v1",
+        },
+        true,
       );
     }
 
-    await Promise.all(factWrites);
+    // SPEC-…-ADS-MATERIALIZATION-1: do not swallow skipped/failed required writes.
+    const writeSummary = summarizeAdsWriteResults(writeOutcomes);
+    if (!writeSummary.ok) {
+      return {
+        ok: false,
+        error: `ads_write_failed: ${writeSummary.diagnostics.join("; ")}`,
+      };
+    }
 
     // Step 5: If NOI available, compute and write DSCR
     let dscr: number | null = null;
@@ -220,17 +243,11 @@ export async function computeTotalDebtService(args: {
 
       if (noiFact?.fact_value_num != null) {
         dscr = Number(noiFact.fact_value_num) / total;
-        factWrites.length = 0; // reuse array
 
-        await upsertDealFinancialFact({
-          dealId,
-          bankId,
-          sourceDocumentId: SENTINEL_UUID,
-          factType: "FINANCIAL_ANALYSIS",
-          factKey: "DSCR",
-          factValueNum: Math.round(dscr * 1000) / 1000,
-          confidence: 0.9,
-          provenance: {
+        await writeAds(
+          "DSCR",
+          Math.round(dscr * 1000) / 1000,
+          {
             source_type: "STRUCTURAL",
             source_ref: `computed:noi/total_debt`,
             as_of_date: asOfDate,
@@ -239,13 +256,12 @@ export async function computeTotalDebtService(args: {
             // SPEC-GLOBAL-DEBT-SERVICE-DENOMINATOR-1: this is BUSINESS DSCR over the
             // total business denominator (proposed + on-file existing), not proposed-only.
             denominator: "total_business_ads",
-            denominator_basis: { proposed, existing: existing ?? 0 },
+            denominator_basis: { proposed: totals.proposed, existing: existing ?? 0 },
             existing_debt_on_file: completeness.existingDebtOnFile,
             note: completeness.businessNote,
           },
-          ownerType: "DEAL",
-          ownerEntityId: SENTINEL_UUID,
-        });
+          false,
+        );
       } else {
         // SPEC-FOUNDATION-V1 PR5a — graceful degradation: CASH_FLOW_AVAILABLE
         // fact is null even after the aggregator ran (PR5a inserted it before
@@ -256,6 +272,7 @@ export async function computeTotalDebtService(args: {
           dealId,
           totalAds: total,
         });
+        diagnostics.push("DSCR skipped: CASH_FLOW_AVAILABLE fact is null (MISSING_PREREQ_NOI).");
         void writeEvent({
           dealId,
           kind: "deal.compute.missing_prereq",
@@ -283,15 +300,10 @@ export async function computeTotalDebtService(args: {
       if (gcfFact?.fact_value_num != null) {
         gcf_dscr = Number(gcfFact.fact_value_num) / total;
 
-        await upsertDealFinancialFact({
-          dealId,
-          bankId,
-          sourceDocumentId: SENTINEL_UUID,
-          factType: "FINANCIAL_ANALYSIS",
-          factKey: "GCF_DSCR",
-          factValueNum: Math.round(gcf_dscr * 1000) / 1000,
-          confidence: 0.9,
-          provenance: {
+        await writeAds(
+          "GCF_DSCR",
+          Math.round(gcf_dscr * 1000) / 1000,
+          {
             source_type: "STRUCTURAL",
             source_ref: `computed:gcf/total_debt`,
             as_of_date: asOfDate,
@@ -303,9 +315,8 @@ export async function computeTotalDebtService(args: {
             global_obligations_confirmed: guarantorObligationsConfirmed,
             note: completeness.globalNote,
           },
-          ownerType: "DEAL",
-          ownerEntityId: SENTINEL_UUID,
-        });
+          false,
+        );
       }
 
       // Step 7: Stressed DSCR at +300bps
@@ -327,24 +338,50 @@ export async function computeTotalDebtService(args: {
           const stressedAds = stressedDs.annualDebtService + (existing ?? 0);
           dscr_stressed_300bps = Number(noiFact.fact_value_num) / stressedAds;
 
-          await upsertDealFinancialFact({
-            dealId,
-            bankId,
-            sourceDocumentId: SENTINEL_UUID,
-            factType: "FINANCIAL_ANALYSIS",
-            factKey: "DSCR_STRESSED_300BPS",
-            factValueNum: Math.round(dscr_stressed_300bps * 1000) / 1000,
-            confidence: 0.9,
-            provenance: {
+          await writeAds(
+            "DSCR_STRESSED_300BPS",
+            Math.round(dscr_stressed_300bps * 1000) / 1000,
+            {
               source_type: "STRUCTURAL",
               source_ref: `computed:noi/stressed_total_debt`,
               as_of_date: asOfDate,
               extractor: "computeTotalDebtService:v1",
               calc: `${noiFact.fact_value_num} / (stressed_proposed=${stressedDs.annualDebtService} + existing=${existing ?? 0}); stressed_rate=${stressedRate}%`,
             },
-            ownerType: "DEAL",
-            ownerEntityId: SENTINEL_UUID,
-          });
+            false,
+          );
+        }
+      }
+    }
+
+    // Step 8: Supersede stale active same-key DEAL facts so current pricing is the
+    // only active ADS/DSCR value (e.g. a stale 75,000 proposed cannot survive a
+    // fresh 101,250). Scoped to the keys we wrote — never touches CASH_FLOW_AVAILABLE,
+    // PFS, or unrelated review facts.
+    if (writtenKeys.length > 0) {
+      const { data: existingAdsFacts } = await (sb as any)
+        .from("deal_financial_facts")
+        .select("id, fact_key, owner_type, fact_period_end, is_superseded")
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .in("fact_key", Array.from(new Set(writtenKeys)))
+        .eq("is_superseded", false);
+
+      const staleIds = staleAdsFactsToSupersede({
+        existing: (existingAdsFacts ?? []) as any[],
+        writtenKeys,
+        freshPeriodEnd: periodDate,
+      });
+
+      if (staleIds.length > 0) {
+        const { error: supErr } = await (sb as any)
+          .from("deal_financial_facts")
+          .update({ is_superseded: true })
+          .in("id", staleIds);
+        if (supErr) {
+          diagnostics.push(`stale ADS supersession failed: ${supErr.message}`);
+        } else {
+          diagnostics.push(`Superseded ${staleIds.length} stale ADS/DSCR fact(s) from a prior period.`);
         }
       }
     }
@@ -352,7 +389,7 @@ export async function computeTotalDebtService(args: {
     return {
       ok: true,
       data: {
-        proposed,
+        proposed: totals.proposed,
         existing,
         total,
         dscr,
@@ -360,6 +397,9 @@ export async function computeTotalDebtService(args: {
         dscr_stressed_300bps,
         existingDebtOnFile: completeness.existingDebtOnFile,
         globalDscrPreliminary: completeness.globalDscrPreliminary,
+        periodDate,
+        writtenKeys,
+        diagnostics,
       },
     };
   } catch (e: unknown) {

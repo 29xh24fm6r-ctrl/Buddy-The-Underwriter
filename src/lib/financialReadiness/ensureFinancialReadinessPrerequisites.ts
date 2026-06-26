@@ -152,8 +152,13 @@ export async function ensureFinancialReadinessPrerequisites(
       if (res.ok && res.data.total != null) {
         repaired.annualDebtService = true;
         factsWritten.push(ANNUAL_DEBT_SERVICE_KEY);
+        // SPEC-…-ADS-MATERIALIZATION-1: surface, don't swallow, the compute's own
+        // diagnostics (skipped optional DSCR, stale-fact supersession, etc.).
+        for (const d of res.data.diagnostics) diagnostics.push(d);
         facts = await loadActiveFacts(dealId, bankId); // refresh for downstream checks
       } else {
+        // A skipped/failed REQUIRED ADS write (e.g. invalid_period_date) must be
+        // surfaced loudly here rather than collapsed into a generic "not computable".
         diagnostics.push(
           `ANNUAL_DEBT_SERVICE not computable (${res.ok ? "no structural pricing data" : res.error}); route to pricing / loan terms.`,
         );

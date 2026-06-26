@@ -87,25 +87,42 @@ export async function buildFinancialSnapshot(args: {
     throw new Error("snapshot_missing");
   }
 
-  await persistFinancialSnapshotDecision({
-    snapshotId: snapRow.id,
-    dealId: args.dealId,
-    bankId: args.bankId,
-    inputs: {
-      snapshot,
-      loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: stressRate },
-      stressScenario: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
-      sbaInputs: {
-        borrowerEntityType: args.borrowerEntityType ?? "Unknown",
-        useOfProceeds: ["working_capital"],
-        dealType: null,
-        loanProductType: "SBA7a",
+  // SPEC-FINANCIAL-ANALYSIS-CANONICAL-ENGINE-AND-ADS-MATERIALIZATION-1: the snapshot
+  // row and its decision row form ONE reviewable package. If the decision write
+  // fails after the snapshot row landed, delete the orphan snapshot (the
+  // already_present gate counts decisions, so an orphan would otherwise (a) make
+  // the package look incomplete forever and (b) accumulate a fresh orphan on every
+  // retry) and surface an explicit, retry-safe error rather than a fake success.
+  try {
+    await persistFinancialSnapshotDecision({
+      snapshotId: snapRow.id,
+      dealId: args.dealId,
+      bankId: args.bankId,
+      inputs: {
+        snapshot,
+        loanTerms: { principal: 1_000_000, amortMonths: 300, interestOnly: false, rate: stressRate },
+        stressScenario: { vacancyUpPct: 0.1, rentDownPct: 0.1, rateUpBps: 200 },
+        sbaInputs: {
+          borrowerEntityType: args.borrowerEntityType ?? "Unknown",
+          useOfProceeds: ["working_capital"],
+          dealType: null,
+          loanProductType: "SBA7a",
+        },
       },
-    },
-    stress,
-    sba,
-    narrative,
-  });
+      stress,
+      sba,
+      narrative,
+    });
+  } catch (decisionErr: any) {
+    try {
+      await sb.from("financial_snapshots").delete().eq("id", snapRow.id);
+    } catch {
+      // Best-effort orphan cleanup — surfaced error below is the source of truth.
+    }
+    throw new Error(
+      `snapshot_decision_persist_failed: ${decisionErr?.message ?? "unknown"} (orphan snapshot ${snapRow.id} rolled back)`,
+    );
+  }
 
   return { status: "created", snapshotId: snapRow.id };
 }
