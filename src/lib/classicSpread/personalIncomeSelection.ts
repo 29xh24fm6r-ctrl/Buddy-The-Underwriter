@@ -21,7 +21,9 @@ import {
   certifyPersonalIncome,
   type PersonalIncomeFact,
   type PersonalIncomeKeySpec,
+  type CertifiedPersonalIncome,
 } from "./certification/certifiedPersonalIncome";
+import { GCF_PERSONAL_INCOME_COMPONENT_KEYS } from "@/lib/financialSpreads/gcfPersonalIncome";
 
 export type PersonalIncomeYear = {
   year: number;
@@ -106,6 +108,60 @@ function isStrongFamilyFact(f: PersonalIncomeFact): boolean {
   );
 }
 
+function maxIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a >= b ? a : b;
+}
+
+/**
+ * Build the certified-selection audit (selected source family + dropped competitors) from a
+ * CertifiedPersonalIncome result. Shared by the classic-spread loader and the GCF helper so both
+ * report provenance the same way.
+ */
+export function buildPersonalIncomeAudit(
+  certified: CertifiedPersonalIncome,
+  facts: PersonalIncomeFact[],
+): PersonalIncomeAudit {
+  const selectedSources: PersonalIncomeSourceTrace[] = [];
+  const rejected: PersonalIncomeRejectionTrace[] = [];
+  let hasStrongFamily = false;
+
+  for (const cert of certified.certifications) {
+    for (const r of cert.rejected) {
+      rejected.push({
+        year: cert.year,
+        key: cert.semantic,
+        value: r.value,
+        ownerType: r.ownerType,
+        sourceFamily: r.sourceFamily,
+        reason: r.reason,
+      });
+    }
+    if (cert.value.status !== "certified" || cert.value.value === null) continue;
+    selectedSources.push({
+      year: cert.year,
+      key: cert.semantic,
+      value: cert.value.value,
+      ownerType: cert.ownerType,
+      sourceFamily: cert.sourceFamily,
+      confidence: cert.value.confidence,
+    });
+    // The weak PERSONAL_INCOME family also carries source_canonical_type=PERSONAL_TAX_RETURN, so
+    // the family LABEL can't distinguish weak from strong. The strong family is DEAL-owned, so key
+    // the flag off the winner owner.
+    if ((cert.ownerType ?? "").toUpperCase() === "DEAL") hasStrongFamily = true;
+  }
+
+  return {
+    certified: true,
+    legacyOnly: !facts.some(isStrongFamilyFact),
+    hasStrongFamily,
+    selectedSources,
+    rejected,
+  };
+}
+
 /**
  * Build the certified PersonalIncomeYear[] rows from raw candidate facts.
  *
@@ -127,40 +183,14 @@ export function buildCertifiedPersonalIncomeYears(
     ownerEntityId: opts?.ownerEntityId ?? null,
   });
 
-  const byYear = new Map<number, Record<string, number>>();
-  const selectedSources: PersonalIncomeSourceTrace[] = [];
-  const rejected: PersonalIncomeRejectionTrace[] = [];
-  let hasStrongFamily = false;
+  const audit = buildPersonalIncomeAudit(certified, facts);
 
+  const byYear = new Map<number, Record<string, number>>();
   for (const cert of certified.certifications) {
-    for (const r of cert.rejected) {
-      rejected.push({
-        year: cert.year,
-        key: cert.semantic,
-        value: r.value,
-        ownerType: r.ownerType,
-        sourceFamily: r.sourceFamily,
-        reason: r.reason,
-      });
-    }
     // Stub-only / unavailable lines are left blank — never rendered as garbage.
     if (cert.value.status !== "certified" || cert.value.value === null) continue;
-
     if (!byYear.has(cert.year)) byYear.set(cert.year, {});
     byYear.get(cert.year)![cert.semantic] = cert.value.value;
-
-    selectedSources.push({
-      year: cert.year,
-      key: cert.semantic,
-      value: cert.value.value,
-      ownerType: cert.ownerType,
-      sourceFamily: cert.sourceFamily,
-      confidence: cert.value.confidence,
-    });
-    // The weak PERSONAL_INCOME family also carries source_canonical_type=PERSONAL_TAX_RETURN, so
-    // the family LABEL can't distinguish weak from strong. The strong family is DEAL-owned
-    // (per spec: "PERSONAL_TAX_RETURN / DEAL-owned facts"), so key the flag off the winner owner.
-    if ((cert.ownerType ?? "").toUpperCase() === "DEAL") hasStrongFamily = true;
   }
 
   const years: PersonalIncomeYear[] = [...byYear.entries()]
@@ -202,14 +232,85 @@ export function buildCertifiedPersonalIncomeYears(
       f8825NetIncomeLoss: helper(b, "F8825_NET_INCOME_LOSS"),
     }));
 
-  return {
-    years,
-    audit: {
-      certified: true,
-      legacyOnly: !facts.some(isStrongFamilyFact),
-      hasStrongFamily,
-      selectedSources,
-      rejected,
-    },
-  };
+  return { years, audit };
+}
+
+/**
+ * SPEC-CLASSIC-SPREAD-PERSONAL-INCOME-CROSS-OWNER-CERTIFICATION-1 (Phase 4) — GCF consolidation.
+ *
+ * Global Cash Flow personal income build-up, sourced from the SAME certified cross-owner
+ * selection layer the classic spread uses. GCF keeps its own formula engine
+ * (computeGlobalCashFlow); this only replaces its separate raw-fact selector
+ * (sumGcfPersonalIncome over owner_type=PERSONAL / fact_type=PERSONAL_INCOME), so strong
+ * PERSONAL_TAX_RETURN / DEAL-owned values win over weak deterministic micro-facts.
+ *
+ * - Certifies ONLY the K-1-excluded GCF component keys (GCF_PERSONAL_INCOME_COMPONENT_KEYS), so
+ *   pass-through / K-1 income is never summed into personal income (req 9 preserved).
+ * - Applies the SCH_E_RENTAL_TOTAL-over-SCH_E_NET preference to avoid double-counting rental
+ *   income bundled into the combined Schedule E net figure.
+ * - Candidate scoping: when ownerEntityId is given, considers that sponsor's PERSONAL facts plus
+ *   (when includeDealOwned) the DEAL-owned strong family. The persist path enables includeDealOwned
+ *   only for single-sponsor deals so a shared DEAL-owned fact is never double-counted across
+ *   multiple sponsors.
+ */
+export type CertifiedGcfPersonalIncome = {
+  value: number | null;
+  asOf: string | null;
+  components: Record<string, number>;
+  audit: PersonalIncomeAudit;
+};
+
+export function buildCertifiedGcfPersonalIncome(
+  facts: PersonalIncomeFact[],
+  opts?: { ownerEntityId?: string | null; includeDealOwned?: boolean },
+): CertifiedGcfPersonalIncome {
+  const ownerEntityId = opts?.ownerEntityId ?? null;
+  const includeDealOwned = opts?.includeDealOwned ?? true;
+
+  // Scope candidates to this sponsor's PERSONAL facts plus (for cross-owner certification) the
+  // DEAL-owned strong family. Deal-wide when no owner is given.
+  const candidates = facts.filter((f) => {
+    if (ownerEntityId == null) return true;
+    if (f.owner_entity_id === ownerEntityId) return true;
+    if (includeDealOwned && (f.owner_type ?? "").toUpperCase() === "DEAL") return true;
+    return false;
+  });
+
+  // Certify per GCF component key. K-1 keys are intentionally ABSENT from the component list, so
+  // pass-through income can never be certified or summed. No pinOwner — candidates are already
+  // scoped, so DEAL-owned (null owner) strong facts are not filtered out.
+  const keySpecs: PersonalIncomeKeySpec[] = GCF_PERSONAL_INCOME_COMPONENT_KEYS.map((k) => ({
+    semantic: k,
+    aliases: [k],
+  }));
+  const certified = certifyPersonalIncome(candidates, { keys: keySpecs });
+  const audit = buildPersonalIncomeAudit(certified, candidates);
+
+  // Latest certified value per component key (mirrors sumGcfPersonalIncome's latest-per-key).
+  const latestByKey = new Map<string, { value: number; year: number }>();
+  for (const cert of certified.certifications) {
+    if (cert.value.status !== "certified" || cert.value.value === null) continue;
+    const prev = latestByKey.get(cert.semantic);
+    if (!prev || cert.year > prev.year) latestByKey.set(cert.semantic, { value: cert.value.value, year: cert.year });
+  }
+
+  const hasRentalTotal = latestByKey.has("SCH_E_RENTAL_TOTAL");
+  let total = 0;
+  let present = false;
+  let asOf: string | null = null;
+  const components: Record<string, number> = {};
+
+  for (const key of GCF_PERSONAL_INCOME_COMPONENT_KEYS) {
+    // Prefer explicit rental total over combined Schedule E net (K-1 contamination).
+    if (key === "SCH_E_NET" && hasRentalTotal) continue;
+    if (key === "SCH_E_RENTAL_TOTAL" && !hasRentalTotal) continue;
+    const entry = latestByKey.get(key);
+    if (!entry) continue;
+    total += entry.value;
+    present = true;
+    components[key] = entry.value;
+    asOf = maxIso(asOf, `${entry.year}-12-31`);
+  }
+
+  return { value: present ? total : null, asOf, components, audit };
 }

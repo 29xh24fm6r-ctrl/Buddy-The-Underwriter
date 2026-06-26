@@ -142,7 +142,10 @@ describe("GCF gate wiring (global cash flow blocked/preliminary on unresolved pe
   it("persistGlobalCashFlow reconciles PERSONAL facts and excludes rejected from the income sum", () => {
     assert.match(gcf, /reconcileFinancialFacts/);
     assert.match(gcf, /personalRejectedIds/);
-    assert.match(gcf, /sumGcfPersonalIncome\(reconciledFacts/);
+    // SPEC-...PHASE-4: the income sum is now sourced from the certified cross-owner selector,
+    // still fed from reconciledFacts (which excludes reconciliation-rejected personal facts).
+    assert.match(gcf, /personalIncomeCandidates[\s\S]{0,120}reconciledFacts\.map/);
+    assert.match(gcf, /buildCertifiedGcfPersonalIncome\(personalIncomeCandidates/);
   });
   it("marks GCF preliminary + notes when personal facts are blocked", () => {
     assert.match(gcf, /personalFactsBlocked/);

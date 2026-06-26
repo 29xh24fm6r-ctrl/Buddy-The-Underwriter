@@ -10,7 +10,8 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
-import { sumGcfPersonalIncome } from "@/lib/financialSpreads/gcfPersonalIncome";
+import { buildCertifiedGcfPersonalIncome } from "@/lib/classicSpread/personalIncomeSelection";
+import type { PersonalIncomeFact } from "@/lib/classicSpread/certification/certifiedPersonalIncome";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 import { selectBestFact } from "@/lib/financialFacts/selectBestFact";
 import { reconcileFinancialFacts, type ReconcileFact } from "@/lib/financialFacts/reconcileFinancialFacts";
@@ -62,7 +63,7 @@ export async function persistGlobalCashFlow(args: {
     const { data: factRows, error: factErr } = await (sb as any)
       .from("deal_financial_facts")
       .select(
-        "id, fact_type, fact_key, fact_value_num, fact_value_text, fact_period_start, fact_period_end, confidence, provenance, created_at, owner_type, owner_entity_id, source_canonical_type",
+        "id, fact_type, fact_key, fact_value_num, fact_value_text, fact_period_start, fact_period_end, confidence, provenance, created_at, owner_type, owner_entity_id, source_canonical_type, source_document_id, resolution_status",
       )
       .eq("deal_id", args.dealId)
       .eq("bank_id", args.bankId)
@@ -296,19 +297,51 @@ export async function persistGlobalCashFlow(args: {
       }
     }
 
+    // SPEC-CLASSIC-SPREAD-PERSONAL-INCOME-CROSS-OWNER-CERTIFICATION-1 (Phase 4): map reconciled
+    // facts to the certified personal-income candidate shape ONCE. GCF personal income is now
+    // sourced from the SAME certified cross-owner selection layer the classic spread uses
+    // (buildCertifiedGcfPersonalIncome), so strong PERSONAL_TAX_RETURN / DEAL-owned values win
+    // over weak deterministic micro-facts — instead of a separate owner_type=PERSONAL /
+    // fact_type=PERSONAL_INCOME raw selector.
+    const personalIncomeCandidates: PersonalIncomeFact[] = reconciledFacts.map((f: any) => ({
+      id: f.id ?? null,
+      fact_key: f.fact_key,
+      fact_value_num:
+        f.fact_value_num !== null && f.fact_value_num !== undefined ? Number(f.fact_value_num) : null,
+      fact_period_end: f.fact_period_end ?? null,
+      owner_type: f.owner_type,
+      owner_entity_id: f.owner_entity_id ?? null,
+      source_document_id: f.source_document_id ?? null,
+      source_canonical_type: f.source_canonical_type ?? null,
+      fact_type: f.fact_type ?? null,
+      confidence: f.confidence ?? null,
+      extractor: f.provenance?.extractor ?? null,
+      is_superseded: false, // query already filters is_superseded=false
+      resolution_status: f.resolution_status ?? null,
+    }));
+    // Fold DEAL-owned (cross-owner) strong facts into a sponsor only for single-sponsor deals, so
+    // a shared DEAL-owned fact is never double-counted across multiple sponsors.
+    const singleSponsor = personalEntityIds.size === 1;
+
     for (const ownerId of personalEntityIds) {
       const ownerName =
         usableEntityRows.find((e: any) => e.id === ownerId)?.name ??
         "Sponsor";
 
-      // SPEC-GCF-SOURCE-OF-TRUTH-1: derive personal income from the SAME
-      // K-1-excluded component build-up the GCF spread template uses, instead of
-      // the AGI aggregate TOTAL_PERSONAL_INCOME which double-counts business
-      // pass-through/K-1 income. Shared list guarantees the pure-function value
-      // matches the rendered spread.
-      const totalPersonalIncome = sumGcfPersonalIncome(reconciledFacts, {
+      // SPEC-GCF-SOURCE-OF-TRUTH-1 + Phase 4: derive personal income from the K-1-excluded
+      // component build-up via the certified cross-owner selector. K-1 / pass-through income is
+      // never summed (the component list excludes it), and strong DEAL-owned tax-return values
+      // beat weak deterministic micro-facts.
+      const gcfPersonalIncome = buildCertifiedGcfPersonalIncome(personalIncomeCandidates, {
         ownerEntityId: ownerId,
-      }).value;
+        includeDealOwned: singleSponsor,
+      });
+      const totalPersonalIncome = gcfPersonalIncome.value;
+      if (gcfPersonalIncome.audit.rejected.length > 0) {
+        notes.push(
+          `Sponsor ${ownerName}: GCF personal income certified (dropped ${gcfPersonalIncome.audit.rejected.length} weaker competitor(s)).`,
+        );
+      }
 
       // Personal obligations from PFS
       const personalObligations = findFact({
