@@ -126,7 +126,36 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, dealId, spreads: data ?? [] });
+    // SPEC-BUSINESS-SPREADS-OPERATING-COMPANY-VIEW-1: the Business Spreads page is
+    // context-aware (operating company vs CRE/property) and must derive which
+    // business spreads are eligible from the deal. Rather than have the client
+    // fetch the bare /api/deals/[id] endpoint (banned by the deal-name SSOT guard),
+    // return the minimal deal context alongside the spreads — gated behind
+    // ?context=1 so other callers pay no extra query.
+    let dealContext:
+      | {
+          dealMode: string | null;
+          dealType: string | null;
+          collateralType: string | null;
+          hasT12Source: boolean;
+        }
+      | undefined;
+    if (url.searchParams.get("context") === "1") {
+      const { data: dealRow } = await (sb as any)
+        .from("deals")
+        .select("deal_type, product_type, deal_mode, has_monthly_statements")
+        .eq("id", dealId)
+        .eq("bank_id", access.bankId)
+        .maybeSingle();
+      dealContext = {
+        dealMode: dealRow?.deal_mode ?? null,
+        dealType: dealRow?.deal_type ?? null,
+        collateralType: dealRow?.product_type ?? null,
+        hasT12Source: dealRow?.has_monthly_statements === true,
+      };
+    }
+
+    return NextResponse.json({ ok: true, dealId, spreads: data ?? [], ...(dealContext ? { dealContext } : {}) });
   } catch (e: any) {
     rethrowNextErrors(e);
 
