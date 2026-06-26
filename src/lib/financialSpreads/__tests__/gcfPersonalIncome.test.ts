@@ -98,9 +98,13 @@ test("both producers derive personal income from the shared component list", () 
     /GCF_PERSONAL_INCOME_COMPONENT_KEYS/.test(template),
     "GCF template must use the shared component list",
   );
+  // SPEC-...PHASE-4: persistGlobalCashFlow now sources personal income from the certified
+  // cross-owner selector (buildCertifiedGcfPersonalIncome), which itself certifies ONLY the
+  // shared GCF_PERSONAL_INCOME_COMPONENT_KEYS build-up (K-1 excluded) — not a separate raw
+  // owner_type=PERSONAL / fact_type=PERSONAL_INCOME selector, and not the AGI aggregate.
   assert.ok(
-    /sumGcfPersonalIncome/.test(persist),
-    "persistGlobalCashFlow must use the shared build-up, not TOTAL_PERSONAL_INCOME",
+    /buildCertifiedGcfPersonalIncome/.test(persist),
+    "persistGlobalCashFlow must source personal income from the certified shared build-up",
   );
   assert.ok(
     !/factKey:\s*"TOTAL_PERSONAL_INCOME"/.test(persist),
