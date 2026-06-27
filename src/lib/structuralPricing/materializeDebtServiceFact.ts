@@ -1,3 +1,8 @@
+/** @deprecated SPEC-BUDDY-FINENGINE-QUARANTINE-AND-CONNECT-1 — legacy ACTIVE-PRODUCER, quarantined.
+ *  Materializes ANNUAL_DEBT_SERVICE (deal_structural_pricing:). Do NOT add new importers
+ *  (enforced by guard:finengine → guard-finengine-legacy-imports). Migrating to
+ *  src/lib/finengine/metrics + debtEngine. Tracked in docs/finengine/LEGACY_IMPORT_INVENTORY.md.
+ *  No behavior change. */
 import "server-only";
 
 import { upsertDealFinancialFact, SENTINEL_UUID } from "@/lib/financialFacts/writeFact";

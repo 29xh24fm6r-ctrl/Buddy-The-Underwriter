@@ -1,0 +1,21 @@
+{
+  "spec": "SPEC-BUDDY-FINENGINE-QUARANTINE-AND-CONNECT-1",
+  "purpose": "Approved-violations burn-down ledger. Each entry is a current consumer of a quarantined legacy ACTIVE-PRODUCER (a credit-fact writer that finengine replaces). The guard scripts/guards/guard-finengine-legacy-imports.mjs FAILS if a NEW importer appears (not in this ledger) or if a listed importer no longer imports its producer without this ledger being updated. The ledger only SHRINKS; when empty, the quarantined producers are fully ring-fenced and become deletable in a later cutover PR.",
+  "generatedFrom": "main @ aeec1d0 (2026-06-27)",
+  "quarantinedProducers": [
+    "@/lib/financialIntelligence/persistGlobalCashFlow",
+    "@/lib/financialIntelligence/computeGlobalCashFlow",
+    "@/lib/structuralPricing/computeTotalDebtService",
+    "@/lib/structuralPricing/materializeDebtServiceFact",
+    "@/lib/underwritingSynthesis/runCanonicalUnderwritingSynthesis"
+  ],
+  "ledger": [
+    { "importer": "src/app/api/deals/[dealId]/gcf/route.ts", "producer": "@/lib/financialIntelligence/persistGlobalCashFlow", "kind": "static" },
+    { "importer": "src/app/api/deals/[dealId]/financial-snapshot/recompute/route.ts", "producer": "@/lib/financialIntelligence/persistGlobalCashFlow", "kind": "dynamic" },
+    { "importer": "src/lib/jobs/processors/spreadsProcessor.ts", "producer": "@/lib/financialIntelligence/persistGlobalCashFlow", "kind": "dynamic" },
+    { "importer": "src/lib/jobs/processors/spreadsProcessor.ts", "producer": "@/lib/structuralPricing/computeTotalDebtService", "kind": "dynamic" },
+    { "importer": "src/app/api/deals/[dealId]/pricing-assumptions/route.ts", "producer": "@/lib/structuralPricing/computeTotalDebtService", "kind": "dynamic" },
+    { "importer": "src/lib/financialReadiness/ensureFinancialReadinessPrerequisites.ts", "producer": "@/lib/structuralPricing/computeTotalDebtService", "kind": "static" },
+    { "importer": "src/app/api/deals/[dealId]/underwriting-synthesis/run/route.ts", "producer": "@/lib/underwritingSynthesis/runCanonicalUnderwritingSynthesis", "kind": "static" }
+  ]
+}
