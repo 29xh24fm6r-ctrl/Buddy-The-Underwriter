@@ -1,3 +1,8 @@
+/** @deprecated SPEC-BUDDY-FINENGINE-QUARANTINE-AND-CONNECT-1 — legacy ACTIVE-PRODUCER, quarantined.
+ *  Writes collateral / sources&uses / canonical-alias facts (synthesis:*). Do NOT add new
+ *  importers (enforced by guard:finengine → guard-finengine-legacy-imports). Migrating to
+ *  src/lib/finengine/{collateral,sizing}. Tracked in docs/finengine/LEGACY_IMPORT_INVENTORY.md.
+ *  No behavior change. */
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";

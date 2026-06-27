@@ -1,3 +1,7 @@
+/** @deprecated SPEC-BUDDY-FINENGINE-QUARANTINE-AND-CONNECT-1 — legacy ACTIVE-PRODUCER, quarantined.
+ *  Feeds persistGlobalCashFlow (GCF facts). Do NOT add new importers (enforced by
+ *  guard:finengine → guard-finengine-legacy-imports). Migrating to src/lib/finengine/methods/global.
+ *  Tracked in docs/finengine/LEGACY_IMPORT_INVENTORY.md. No behavior change. */
 /**
  * Global Cash Flow — Pure Computation
  *

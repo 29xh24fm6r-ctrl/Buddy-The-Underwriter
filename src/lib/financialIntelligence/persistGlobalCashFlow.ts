@@ -1,3 +1,7 @@
+/** @deprecated SPEC-BUDDY-FINENGINE-QUARANTINE-AND-CONNECT-1 — legacy ACTIVE-PRODUCER, quarantined.
+ *  Writes GCF_GLOBAL_CASH_FLOW / GCF_DSCR. Do NOT add new importers (enforced by
+ *  guard:finengine → guard-finengine-legacy-imports). Migrating to src/lib/finengine/methods/global.
+ *  Tracked in docs/finengine/LEGACY_IMPORT_INVENTORY.md. No behavior change. */
 import "server-only";
 
 /**
