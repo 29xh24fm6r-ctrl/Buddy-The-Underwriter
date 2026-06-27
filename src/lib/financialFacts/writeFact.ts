@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
+import { stampProvenance } from "@/lib/finengine/provenance";
 
 /** Sentinel values matching NOT NULL DEFAULT in the DB schema. */
 export const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
@@ -149,7 +150,11 @@ export async function upsertDealFinancialFact(args: {
       fact_value_text: args.factValueText ?? null,
       currency: args.currency ?? "USD",
       confidence: args.confidence,
-      provenance: args.provenance,
+      // SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 Phase 0: normalized provenance.
+      // Every canonical fact write is stamped with `engine` + `version` (+ rank)
+      // at this single chokepoint. Additive — no existing field is altered and
+      // no computed value changes. Enforced by guard G2.
+      provenance: stampProvenance(args.provenance, { sourceCanonicalType }),
       owner_type: ownerType,
       owner_entity_id: ownerEntityId,
       fact_identity_hash: identityHash,
