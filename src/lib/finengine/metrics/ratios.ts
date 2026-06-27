@@ -14,19 +14,7 @@
  */
 
 import type { MetricResult, PolicyContext } from "@/lib/finengine/contracts";
-import { resolvePolicy } from "@/lib/finengine/policyRegistry";
-
-const div = (a: number | null, b: number | null): number | null =>
-  a == null || b == null || b === 0 ? null : a / b;
-
-function withFloor(base: Omit<MetricResult, "policyApplied" | "passesFloor">, axis: string, ctx?: PolicyContext): MetricResult {
-  const policy = resolvePolicy(axis, ctx);
-  let passesFloor: boolean | undefined;
-  if (base.value != null && policy.effective != null) {
-    passesFloor = policy.direction === "floor" ? base.value >= policy.effective : base.value <= policy.effective;
-  }
-  return { ...base, policyApplied: policy, passesFloor };
-}
+import { div, withFloor } from "@/lib/finengine/metrics/helpers";
 
 // ---------------------------------------------------------------------------
 // DSCR family — denominator is GLOBAL debt service (per profile), never proposed-only
