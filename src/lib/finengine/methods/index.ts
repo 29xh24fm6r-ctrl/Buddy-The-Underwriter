@@ -18,14 +18,18 @@ import { traditionalMethod } from "@/lib/finengine/methods/traditional";
 import { ucaMethod } from "@/lib/finengine/methods/uca";
 import { creNoiMethod } from "@/lib/finengine/methods/creNoi";
 
-export const ALL_METHODS: Record<MethodId, CashFlowMethod> = {
+/**
+ * Per-entity cash-flow strategies. GLOBAL is intentionally absent — it is a
+ * multi-entity CONSOLIDATION (computeGlobalCashFlow in methods/global.ts over
+ * the entity graph), not a per-entity strategy, so it does not fit the
+ * single-SpreadInputs CashFlowMethod interface.
+ */
+export const ALL_METHODS: Partial<Record<MethodId, CashFlowMethod>> = {
   ADJ_EBITDA: adjustedEbitdaMethod,
   SDE: sdeMethod,
   TRADITIONAL: traditionalMethod,
   UCA: ucaMethod,
   CRE_NOI: creNoiMethod,
-  // GLOBAL is delivered in Phase 3 (entity graph).
-  GLOBAL: undefined as unknown as CashFlowMethod,
 };
 
 export {
