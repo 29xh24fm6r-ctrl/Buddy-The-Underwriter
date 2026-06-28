@@ -25,6 +25,7 @@ import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance"
 import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
 import { loadAndEnforceResearchTrust, loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
 import { buildResearchTrace } from "@/lib/research/memoEvidenceResolver";
+import { memoRenderSource, resolveMemoCutoverFlags, loadFinengineMemo, renderFinengineMemoNarrative } from "@/lib/finengine/memo/loadFinengineMemo";
 import type { RiskOutput } from "@/lib/ai/provider";
 
 export const runtime = "nodejs";
@@ -39,6 +40,33 @@ export async function POST(
     const { dealId } = await ctx.params;
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
+
+    // ── SPEC-FINENGINE-COMPLETE-BUILD-1 Workstream A — finengine render path ──
+    // For a tenant flipped ON (memo_engine_cutover; NOBODY by default), render the
+    // memo from the engine instead of the Gemini narrative — every section is
+    // engine-computed and gate-covered, persisted under the same {sections} shape.
+    // For a legacy tenant (everyone today) this branch is skipped and the existing
+    // Gemini path below runs byte-for-byte unchanged (V4.1 / NG2).
+    if (memoRenderSource(bankId, resolveMemoCutoverFlags()) === "finengine") {
+      const pkg = await loadFinengineMemo(dealId, { bankId });
+      const memo = renderFinengineMemoNarrative(pkg);
+      const hashInputs = await fetchMemoHashInputs(sb, dealId);
+      const inputHash = computeMemoInputHash(hashInputs);
+      await sb
+        .from("canonical_memo_narratives")
+        .upsert(
+          {
+            deal_id: dealId,
+            bank_id: bankId,
+            input_hash: inputHash,
+            narratives: memo as any,
+            model: "finengine.core",
+            generated_at: new Date().toISOString(),
+          } as any,
+          { onConflict: "deal_id,bank_id,input_hash" },
+        );
+      return NextResponse.json({ ok: true, memo, inputHash, source: "finengine", gate: pkg.gate });
+    }
 
     // ── Step 1: Fetch AI risk assessment (hard required) ──────────────────
     const { data: riskRun, error: riskErr } = await sb
