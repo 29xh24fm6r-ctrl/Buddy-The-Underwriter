@@ -163,3 +163,63 @@ export function sizeAcquisition(args: {
     note: `Combined normalized EBITDA ÷ DSCR floor ${dscrFloor.toFixed(2)}x ÷ constant. Seller note ${sellerNoteCountsAsEquity ? "on full standby — counts as equity" : "not on full standby"}.`,
   };
 }
+
+// ---- Equipment: advance-rate / NOLV sizing + useful-life term gate ---------
+// SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — Workstream A.
+
+export type EquipmentSizingInputs = {
+  equipmentCost: number;
+  isNew: boolean;
+  /** Net orderly liquidation value (required for used equipment; ignored when new). */
+  nolv?: number | null;
+  usefulLifeYears?: number | null;
+  proposedTermYears?: number | null;
+  ctx?: PolicyContext;
+};
+
+export type EquipmentSizingResult = SizingResult & {
+  /** True when the proposed term outruns the asset's economic life (term > usefulLife × cap). */
+  termExceedsUsefulLife: boolean | null;
+  termNote: string;
+};
+
+/**
+ * Equipment sizing: NEW equipment advances against invoice cost; USED equipment
+ * advances against net orderly liquidation value (NOLV). The max loan is the
+ * single applicable advance (most-restrictive-of degrades to that one leg). A
+ * separate STRUCTURAL gate — not a maxLoan — flags when the proposed term
+ * outruns the asset's useful life (term > usefulLife × term_to_useful_life_max),
+ * since the self-liquidating collateral should outlast the loan. Pure.
+ */
+export function sizeEquipment(i: EquipmentSizingInputs): EquipmentSizingResult {
+  const newRate = resolvePolicy("advance_rate_equipment_new", i.ctx).effective ?? 0.8;
+  const usedRate = resolvePolicy("advance_rate_equipment_used_nolv", i.ctx).effective ?? 0.8;
+  const termCap = resolvePolicy("term_to_useful_life_max", i.ctx).effective ?? 0.8;
+
+  const constraints: SizingConstraint[] = [];
+  if (i.isNew) {
+    const byCost = i.equipmentCost > 0 ? i.equipmentCost * newRate : null;
+    constraints.push({ name: "EQUIP_COST_ADVANCE", maxLoan: byCost, note: `new equipment cost × ${(newRate * 100).toFixed(0)}% advance` });
+  } else {
+    const nolv = i.nolv ?? null;
+    const byNolv = nolv != null && nolv > 0 ? nolv * usedRate : null;
+    constraints.push({ name: "EQUIP_NOLV_ADVANCE", maxLoan: byNolv, note: nolv != null ? `used equipment NOLV × ${(usedRate * 100).toFixed(0)}% advance` : "used equipment requires NOLV — none provided" });
+  }
+
+  const sized = mostRestrictiveOf(constraints);
+
+  // Structural useful-life term gate (advisory flag, not a sizing constraint).
+  const life = i.usefulLifeYears ?? null;
+  const term = i.proposedTermYears ?? null;
+  let termExceedsUsefulLife: boolean | null = null;
+  let termNote = "useful-life term check skipped (term or useful life not provided)";
+  if (life != null && life > 0 && term != null && term > 0) {
+    const maxTerm = life * termCap;
+    termExceedsUsefulLife = term > maxTerm;
+    termNote = termExceedsUsefulLife
+      ? `proposed term ${term.toFixed(1)}y EXCEEDS ${(termCap * 100).toFixed(0)}% of ${life.toFixed(1)}y useful life (${maxTerm.toFixed(1)}y) — term outruns asset life`
+      : `proposed term ${term.toFixed(1)}y within ${(termCap * 100).toFixed(0)}% of ${life.toFixed(1)}y useful life (${maxTerm.toFixed(1)}y)`;
+  }
+
+  return { ...sized, termExceedsUsefulLife, termNote };
+}

@@ -191,6 +191,31 @@ const AXES: Record<string, PolicyAxisDef> = {
     citation: "OCC ABL Handbook / institutional inventory advance overlay (≤ 50% of NOLV)",
     asOf: "2025-06-01",
   },
+  // SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — equipment finance sizing axes.
+  advance_rate_equipment_new: {
+    axis: "advance_rate_equipment_new",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.8, // conservative; new equipment commonly 80–90% of invoice cost
+    citation: "Institutional equipment-finance overlay (new equipment advance ≤ 80% of cost; 80–90% typical)",
+    asOf: "2026-06-28",
+  },
+  advance_rate_equipment_used_nolv: {
+    axis: "advance_rate_equipment_used_nolv",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.8, // used equipment advanced against net orderly liquidation value
+    citation: "Institutional equipment-finance overlay (used equipment advance ≤ 80% of NOLV)",
+    asOf: "2026-06-28",
+  },
+  term_to_useful_life_max: {
+    axis: "term_to_useful_life_max",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.8, // loan term should not outrun the asset's economic life
+    citation: "Institutional structural overlay (loan term ≤ 80% of equipment useful life; self-liquidating collateral)",
+    asOf: "2026-06-28",
+  },
   // Stress parameters (multi-valued — exposed via getStressParams()).
   stress_rate_bps: {
     axis: "stress_rate_bps",
