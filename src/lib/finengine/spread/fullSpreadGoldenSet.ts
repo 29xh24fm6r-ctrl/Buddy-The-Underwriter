@@ -76,6 +76,44 @@ export function goldenGrossMargin(facts: Record<string, number | null>): { value
   return { value: gp / rev, source: `GROSS_PROFIT(${gp}) ÷ GROSS_RECEIPTS(${rev})` };
 }
 
+/** Independent effective tangible net worth = book equity − intangibles (filed Schedule-L). */
+export function goldenEffectiveTNW(facts: Record<string, number | null>): { value: number | null; source: string } {
+  const eq = num(facts["SL_TOTAL_EQUITY"]) ?? num(facts["TOTAL_EQUITY"]);
+  if (eq == null) return { value: null, source: "SL_TOTAL_EQUITY (missing)" };
+  const intangibles = num(facts["SL_INTANGIBLES_GROSS"]) ?? 0;
+  return { value: eq - intangibles, source: `SL_TOTAL_EQUITY(${eq}) − intangibles(${intangibles})` };
+}
+
+/** Independent debt-to-ETNW = total liabilities ÷ effective tangible net worth. */
+export function goldenDebtToEtnw(facts: Record<string, number | null>): { value: number | null; source: string } {
+  const tl = num(facts["SL_TOTAL_LIABILITIES"]) ?? num(facts["TOTAL_LIABILITIES"]);
+  const etnw = goldenEffectiveTNW(facts).value;
+  if (tl == null || etnw == null || etnw === 0) return { value: null, source: "SL_TOTAL_LIABILITIES / ETNW (missing)" };
+  return { value: tl / etnw, source: `SL_TOTAL_LIABILITIES(${tl}) ÷ ETNW(${etnw})` };
+}
+
+/** Independent total leverage = funded debt ÷ conservative EBITDA (skips when debt absent). */
+export function goldenLeverageTotal(facts: Record<string, number | null>): { value: number | null; source: string } {
+  const debt = num(facts["SL_MORTGAGES_NOTES_BONDS"]);
+  const ebitda = goldenEbitda(facts).value;
+  if (debt == null || ebitda == null || ebitda === 0) return { value: null, source: "SL_MORTGAGES_NOTES_BONDS / EBITDA (missing)" };
+  return { value: debt / ebitda, source: `SL_MORTGAGES_NOTES_BONDS(${debt}) ÷ EBITDA(${ebitda})` };
+}
+
+/**
+ * Independent DSCR / FCCR derivations require a debt-service input that the
+ * business tax snapshot does not carry; they resolve to null until the spread
+ * surfaces those metrics (Phase 2 wires global cash flow / debt service). Defined
+ * here so the gate's coverage list is complete and validates them the moment they
+ * are emitted.
+ */
+export function goldenDscr(facts: Record<string, number | null>): { value: number | null; source: string } {
+  const cash = num(facts["CASH_FLOW_AVAILABLE"]);
+  const ds = num(facts["ANNUAL_DEBT_SERVICE"]);
+  if (cash == null || ds == null || ds === 0) return { value: null, source: "CASH_FLOW_AVAILABLE / ANNUAL_DEBT_SERVICE (not in tax snapshot — pending Phase 2)" };
+  return { value: cash / ds, source: `CASH_FLOW_AVAILABLE(${cash}) ÷ ANNUAL_DEBT_SERVICE(${ds})` };
+}
+
 /**
  * Pre-registered OmniCare expected business EBITDA per tax year, derived by hand
  * from the filed 1120 line items (the audited golden numbers). Used as a hard
