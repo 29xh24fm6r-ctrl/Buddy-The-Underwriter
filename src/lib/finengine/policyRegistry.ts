@@ -125,6 +125,16 @@ const AXES: Record<string, PolicyAxisDef> = {
   altman_zprime_distress: { axis: "altman_zprime_distress", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.23, citation: "Altman Z′ private-manufacturing distress boundary (<1.23)", asOf: "2000-01-01" },
   altman_zdoubleprime_safe: { axis: "altman_zdoubleprime_safe", direction: "floor", regulatoryFloor: null, institutionalOverlay: 2.6, citation: "Altman Z″ private non-manufacturing safe-zone boundary (>2.60)", asOf: "2000-01-01" },
   altman_zdoubleprime_distress: { axis: "altman_zdoubleprime_distress", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.1, citation: "Altman Z″ private non-manufacturing distress boundary (<1.10)", asOf: "2000-01-01" },
+  // Dual risk-rating thresholds (PD obligor grade + LGD facility severity) —
+  // registry-sourced so an institution may tighten its grading without a code
+  // change (NG4). DSCR grade factors are multipliers on the resolved dscr_floor.
+  pd_dscr_grade2_factor: { axis: "pd_dscr_grade2_factor", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.5, citation: "Obligor grade-2 DSCR cushion = 1.50× the DSCR floor (institutional grading overlay)", asOf: "2025-06-01" },
+  pd_dscr_grade3_factor: { axis: "pd_dscr_grade3_factor", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.2, citation: "Obligor grade-3 DSCR cushion = 1.20× the DSCR floor (institutional grading overlay)", asOf: "2025-06-01" },
+  pd_dscr_special_mention_min: { axis: "pd_dscr_special_mention_min", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.0, citation: "Below the policy floor but ≥ 1.00× DSCR → special-mention watch grade", asOf: "2025-06-01" },
+  pd_dscr_substandard_min: { axis: "pd_dscr_substandard_min", direction: "floor", regulatoryFloor: null, institutionalOverlay: 0.9, citation: "DSCR ≥ 0.90× but < 1.00× → substandard (cannot fully service debt)", asOf: "2025-06-01" },
+  lgd_coverage_strong: { axis: "lgd_coverage_strong", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.25, citation: "Collateral coverage ≥ 1.25× → low LGD band (institutional LGD grid)", asOf: "2025-06-01" },
+  lgd_coverage_adequate: { axis: "lgd_coverage_adequate", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.0, citation: "Collateral coverage ≥ 1.00× → adequate LGD band", asOf: "2025-06-01" },
+  lgd_coverage_weak: { axis: "lgd_coverage_weak", direction: "floor", regulatoryFloor: null, institutionalOverlay: 0.75, citation: "Collateral coverage ≥ 0.75× → elevated LGD band; below → severe", asOf: "2025-06-01" },
   leverage_max: {
     axis: "leverage_max",
     direction: "cap",

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { stressC, revenueCompressionSeries, rateShock, runStressBattery, type StressInputs } from "@/lib/finengine/stress/stressEngine";
 import { rateRisk, computePD, computeLGD } from "@/lib/finengine/riskRating";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 
 const base: StressInputs = {
   baseCashFlow: 300_000,
@@ -77,5 +78,30 @@ describe("dual PD/LGD risk rating", () => {
   it("rationale states the grade is deterministic (NG1 — Omega narrates, never sets)", () => {
     const r = rateRisk({ dscr: 1.5, leverage: 2.0 }, { collateralCoverage: 1.4 });
     assert.ok(r.rationale.some((x) => /deterministic/.test(x)));
+  });
+});
+
+describe("risk-rating thresholds are registry-driven (NG4 — tenant-overridable)", () => {
+  it("exposes the new grading axes in the registry", () => {
+    for (const axis of ["pd_dscr_grade2_factor", "pd_dscr_grade3_factor", "pd_dscr_special_mention_min", "pd_dscr_substandard_min", "lgd_coverage_strong", "lgd_coverage_adequate", "lgd_coverage_weak"]) {
+      assert.ok(resolvePolicy(axis).effective != null, `${axis} resolves`);
+    }
+  });
+
+  it("a tenant override tightens the grade-2 DSCR cushion without a code change", () => {
+    // dscr_floor default 1.15; default grade-2 factor 1.5 → grade-2 boundary 1.725.
+    // DSCR 1.8 earns grade 2 by default…
+    const def = computePD({ dscr: 1.8, leverage: 2.0 });
+    assert.equal(def.grade, 2);
+    // …but a tenant that raises the grade-2 cushion to 1.7× (boundary 1.955) drops it to grade 3.
+    const strict = computePD({ dscr: 1.8, leverage: 2.0 }, { overrides: { pd_dscr_grade2_factor: 1.7 } });
+    assert.equal(strict.grade, 3);
+  });
+
+  it("a tenant override loosens the LGD coverage grid", () => {
+    // coverage 1.1 → adequate band (LGD 0.4) by default…
+    assert.equal(computeLGD({ collateralCoverage: 1.1 }).lgd, 0.4);
+    // …but lowering the strong-band threshold to 1.05 puts 1.1 in the low band (LGD 0.2).
+    assert.equal(computeLGD({ collateralCoverage: 1.1 }, { overrides: { lgd_coverage_strong: 1.05 } }).lgd, 0.2);
   });
 });
