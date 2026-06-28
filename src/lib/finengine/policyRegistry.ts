@@ -111,6 +111,20 @@ const AXES: Record<string, PolicyAxisDef> = {
     citation: "Institutional funded-debt-to-assets overlay (≤ 0.80 for SMEs)",
     asOf: "2025-06-01",
   },
+  debt_to_etnw_max: {
+    axis: "debt_to_etnw_max",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 1.3,
+    citation: "Institutional debt-to-effective-TNW overlay ((total liabilities − sub debt) ÷ ETNW ≤ 1.0–1.30x)",
+    asOf: "2025-06-01",
+  },
+  // Altman distress-model zone boundaries (academic model constants, registry-sourced
+  // so an institution may override; SPEC-FINENGINE-FULL-SPREAD-1 §8).
+  altman_zprime_safe: { axis: "altman_zprime_safe", direction: "floor", regulatoryFloor: null, institutionalOverlay: 2.9, citation: "Altman Z′ private-manufacturing safe-zone boundary (>2.90)", asOf: "2000-01-01" },
+  altman_zprime_distress: { axis: "altman_zprime_distress", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.23, citation: "Altman Z′ private-manufacturing distress boundary (<1.23)", asOf: "2000-01-01" },
+  altman_zdoubleprime_safe: { axis: "altman_zdoubleprime_safe", direction: "floor", regulatoryFloor: null, institutionalOverlay: 2.6, citation: "Altman Z″ private non-manufacturing safe-zone boundary (>2.60)", asOf: "2000-01-01" },
+  altman_zdoubleprime_distress: { axis: "altman_zdoubleprime_distress", direction: "floor", regulatoryFloor: null, institutionalOverlay: 1.1, citation: "Altman Z″ private non-manufacturing distress boundary (<1.10)", asOf: "2000-01-01" },
   leverage_max: {
     axis: "leverage_max",
     direction: "cap",
