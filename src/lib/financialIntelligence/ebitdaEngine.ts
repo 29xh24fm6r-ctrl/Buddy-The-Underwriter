@@ -27,7 +27,7 @@ export type EbitdaAnalysis = {
    * for EBITDA. Pass-throughs use ORDINARY_BUSINESS_INCOME; C-corps (Form 1120,
    * no OBI) use pre-tax TAXABLE_INCOME, or NET_INCOME reconstructed to pre-tax.
    */
-  baseKey: "ORDINARY_BUSINESS_INCOME" | "TAXABLE_INCOME" | "NET_INCOME" | null;
+  baseKey: "ORDINARY_BUSINESS_INCOME" | "TAXABLE_INCOME" | "M1_TAXABLE_INCOME" | "NET_INCOME" | null;
   baseLabel: string;
   baseValue: number | null;
   addBacks: EbitdaAddBack[];
@@ -68,12 +68,23 @@ export function computeEbitda(
   let baseValue: number | null = reportedOBI;
   if (reportedOBI === null) {
     const taxable = val(facts, "TAXABLE_INCOME");
+    // Schedule M-1 "income per return" reconciles book income to taxable income —
+    // it IS pre-tax taxable income (same basis as line-30 TAXABLE_INCOME). When the
+    // plain TAXABLE_INCOME line was not extracted but the M-1 bridge was, M1 is the
+    // correct pre-tax base. Without it, a C-corp with only M1 falls through to
+    // after-tax NET_INCOME and EBITDA is silently understated by the full pre-tax
+    // income (SPEC-FINENGINE-LIVE-SPREAD-1 Phase 3 finding: −$200,925 on OmniCare).
+    const m1Taxable = val(facts, "M1_TAXABLE_INCOME");
     const netIncome = val(facts, "NET_INCOME");
     const taxProvision = val(facts, "TOTAL_TAX") ?? val(facts, "M1_FEDERAL_TAX_BOOK");
     if (taxable !== null) {
       baseKey = "TAXABLE_INCOME";
       baseLabel = "Taxable income (pre-tax)";
       baseValue = taxable;
+    } else if (m1Taxable !== null) {
+      baseKey = "M1_TAXABLE_INCOME";
+      baseLabel = "Schedule M-1 taxable income (pre-tax)";
+      baseValue = m1Taxable;
     } else if (netIncome !== null) {
       baseKey = "NET_INCOME";
       baseLabel = "Net income (after-tax, reconstructed to pre-tax)";

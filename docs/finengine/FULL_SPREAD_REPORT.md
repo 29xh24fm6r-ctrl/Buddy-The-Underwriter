@@ -11,12 +11,23 @@ This is the first time the finengine has produced a fully-explained spread on li
 
 ## Headline result
 
+The original read-only run (engine **before** the follow-on fix) classified:
+
 | Deal | rows | cells | biz periods | ZERO | INTENDED | UNEXPECTED | cutover |
 |---|---|---|---|---|---|---|---|
-| OmniCare 365 (primary) `80fe6f7a` | 368 | 166 | 5 | 14 | 1 | 0 | **clear** |
-| OmniCare Deal Review `dc52c626` | 241 | 163 | 5 | 15 | 0 | 0 | **clear** |
+| OmniCare 365 (primary) `80fe6f7a` | 368 | 166 | 5 | 14 | 1 | 0 | clear |
+| OmniCare Deal Review `dc52c626` | 241 | 163 | 5 | 15 | 0 | 0 | clear |
 | New Omnicare `e62eda2a` | 194 | 148 | 5 | 13 | 0 | **1** | **BLOCKED** |
 | Omnicare 6-18-2026 `1d7e7c1b` | 201 | 144 | 5 | 13 | 0 | **1** | **BLOCKED** |
+
+The two UNEXPECTED divergences (and the immaterial INTENDED $1) were root-caused below and **fixed in the same PR** (`M1_TAXABLE_INCOME` added to the EBITDA base priority). After the fix, **all four deals validate clean**:
+
+| Deal | ZERO | INTENDED | UNEXPECTED | cutover |
+|---|---|---|---|---|
+| OmniCare 365 (primary) `80fe6f7a` | 15 | 0 | 0 | **clear** |
+| OmniCare Deal Review `dc52c626` | 15 | 0 | 0 | **clear** |
+| New Omnicare `e62eda2a` | 14 | 0 | 0 | **clear** |
+| Omnicare 6-18-2026 `1d7e7c1b` | 14 | 0 | 0 | **clear** |
 
 All four deals run end-to-end with no crash; snapshots build for every entity scope and period (**V3.1 ✓**).
 
@@ -42,10 +53,10 @@ Note also (NG3): `INTEREST_EXPENSE` exists only on 2025/2026 (`INCOME_STATEMENT`
 
 ---
 
-## INTENDED divergence (immaterial)
+## INTENDED divergence (immaterial) — also resolved by the fix
 
 **Primary deal, 2022 EBITDA: engine 151,226 vs golden 151,225 (Δ $1).**
-Root cause: on 2022 the engine reconstructs a *pre-tax* base from after-tax `NET_INCOME=0` and adds back $1 of federal income tax; the independent golden uses the M1 pre-tax taxable-income line (0). The $1 is an immaterial source-rounding artifact. Registered as INTENDED — does not block cutover.
+Root cause: pre-fix, on 2022 the engine reconstructed a *pre-tax* base from after-tax `NET_INCOME=0` and added back $1 of federal income tax; the independent golden used the M1 pre-tax taxable-income line (0). After the follow-on fix the engine uses the M1 pre-tax base (0) directly — no reconstruction, no $1 add-back — so 2022 now validates **ZERO**.
 
 ---
 
@@ -60,11 +71,13 @@ Root cause, traced to the line item:
 | primary `80fe6f7a` | 200,925 | **200,925 (present)** | 0 | `TAXABLE_INCOME` (200,925) | 411,132 ✓ |
 | `e62eda2a` | 200,925 | **— (absent)** | 0 | `NET_INCOME` (0) | 210,207 ✗ |
 
-The engine's EBITDA base-selection (`computeEbitda`) priority **omits `M1_TAXABLE_INCOME`**. When a deal carries `M1_TAXABLE_INCOME` but not the plain `TAXABLE_INCOME` key, the base falls through to `NET_INCOME` — which is 0 here — and EBITDA is **understated by $200,925** (it captures only the depreciation add-back). The independent golden's base priority *does* include `M1_TAXABLE_INCOME`, so it is correct.
+The engine's EBITDA base-selection (`computeEbitda`) priority **omitted `M1_TAXABLE_INCOME`**. When a deal carries `M1_TAXABLE_INCOME` but not the plain `TAXABLE_INCOME` key, the base fell through to `NET_INCOME` — which is 0 here — and EBITDA was **understated by $200,925** (it captured only the depreciation add-back). The independent golden's base priority *does* include `M1_TAXABLE_INCOME`, so it was correct.
 
-This is a genuine engine bug, surfaced only because the spread ran on live data with an independent check. It is left **UNEXPECTED** and **cutover-blocking** (NG4 — not masked).
+This was a genuine engine bug, surfaced only because the spread ran on live data with an independent check.
 
-**Recommended fix (out of scope for this read-only spec — a behavior change to the EBITDA method):** add `M1_TAXABLE_INCOME` to the `computeEbitda` base-income priority, between `ORDINARY_BUSINESS_INCOME`/`TAXABLE_INCOME` and `NET_INCOME` (mirroring the independent `goldenBase` order). This is filed as the follow-on to this spec; it should ship behind the existing shadow harness with its own golden-set entry.
+**Fix (landed in this PR):** `M1_TAXABLE_INCOME` was added to the `computeEbitda` base-income priority — after the plain `TAXABLE_INCOME` line (so existing behavior is unchanged when that line is present) and before `NET_INCOME` (mirroring the independent `goldenBase` order). It is treated as pre-tax (no tax add-back), matching Schedule M-1 semantics. Re-running all four deals after the fix yields **0 UNEXPECTED / 0 INTENDED** (table above): the two blocked deals now compute 2024 EBITDA = 411,132. The fix is locked by regression tests in `ccorpEbitdaBase.test.ts` (engine unit) and `fullSpreadValidation.test.ts` (end-to-end).
+
+**Blast radius (intentional, corrective):** `computeEbitda` is shared — also consumed by the legacy canonical producers `computeBusinessEbitdaFacts`, `cashFlowWaterfallInput`, and `projectDscrForVariant`. The change only fires for C-corps that have `M1_TAXABLE_INCOME` but neither `ORDINARY_BUSINESS_INCOME` nor `TAXABLE_INCOME` — previously those understated EBITDA via `NET_INCOME`; they now recover the correct pre-tax base. No other path changes.
 
 ---
 

@@ -24,10 +24,14 @@ const DEALS = [
   "1d7e7c1b-6237-4f59-a8ba-0eb84dfa0057", // Omnicare 6-18-2026
 ];
 
-/** Pre-registered immaterial divergence: 2022 pre-tax reconstruction (+$1 federal tax). */
-const INTENDED: IntendedDivergence[] = [
-  { metric: "EBITDA", period: "2022-12-31", expected: 151226, rationale: "Engine reconstructs a pre-tax base from after-tax NET_INCOME(0) and adds back $1 of 2022 federal income tax; the independent golden uses the M1 pre-tax taxable-income line(0). $1 immaterial source-rounding artifact." },
-];
+/**
+ * No pre-registered divergences. The Phase 3 follow-on fix (M1_TAXABLE_INCOME added
+ * to the EBITDA base priority) made all four live deals validate ZERO with no
+ * UNEXPECTED and no INTENDED exceptions — the engine matches the independent golden
+ * outright. Register entries here only if a future, deliberately-different canon is
+ * introduced.
+ */
+const INTENDED: IntendedDivergence[] = [];
 
 async function loadRows(dealId: string): Promise<CertifiedFactRow[]> {
   const sb = supabaseAdmin();
