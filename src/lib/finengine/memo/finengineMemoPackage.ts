@@ -1,27 +1,33 @@
 /**
- * SPEC-FINENGINE god-tier improvement D — memo assembly + cutover gate.
+ * SPEC-FINENGINE god-tier improvement D / SPEC-FINENGINE-MEMO-CUTOVER-1 Phase 2 —
+ * memo assembly + cutover gate, now ENGINE-BACKED end to end.
  *
- * The production-ready assembly that turns a deal's certified facts into a
- * finengine-backed credit memo: compute the spread, validate it against the
- * independent golden, feed the metrics + spread section into buildCreditMemo,
- * and attach the CUTOVER GATE. A memo whose spread carries an UNEXPECTED
- * divergence (engine ≠ independent golden) is gated: `gate.allowed === false`.
+ * Turns a deal's certified facts (+ a bundle of deal primitives) into a
+ * finengine-backed credit memo: compute the spread, validate it (selection-layer
+ * guard + anchors from Phase 1), RUN the engine modules (risk rating, covenants,
+ * stress, global cash flow, collateral) to populate every memo section, and
+ * attach the cutover gate.
  *
- * This is pure and additive — it ASSEMBLES the objects the live memo/borrower-
- * report route will consume; it does not itself replace the legacy renderer.
- * Flipping the route to call this (and enforcing the gate at submission) is the
- * deliberate, separate cutover step. Honors the G4 memo wall (no number is
- * computed here that the engine didn't already certify).
+ * The engine OWNS the financial sections (it computes them from primitives — the
+ * caller no longer hand-supplies a risk grade or covenant package); the caller's
+ * non-financial inputs (borrower, request, sources/uses) pass through untouched.
+ * Pure, read-only, G4-clean (assembles certified objects; computes no number the
+ * engine modules didn't). Flipping the live route to call this is Phase 4.
  */
 
 import { computeDealSpread, type DealSpread } from "@/lib/finengine/spread/dealSpread";
-import { validateSpread, type SpreadValidation, type IntendedDivergence } from "@/lib/finengine/spread/validateSpread";
+import { validateSpread, type SpreadValidation, type IntendedDivergence, type HardAnchor } from "@/lib/finengine/spread/validateSpread";
 import { spreadToMemoContribution } from "@/lib/finengine/spread/spreadMemo";
 import { buildCreditMemo, type MemoInputs, type MemoSection } from "@/lib/finengine/memo/buildCreditMemo";
 import type { CertifiedFactRow, EntityScope } from "@/lib/finengine/shadow/dealInputAdapter";
+import type { PolicyContext } from "@/lib/finengine/contracts";
+import { rateRisk, type ObligorSignals, type FacilitySignals } from "@/lib/finengine/riskRating";
+import { recommendCovenants, type CovenantRecommendationInputs } from "@/lib/finengine/covenants";
+import { runStressBattery, type StressInputs } from "@/lib/finengine/stress/stressEngine";
+import type { GlobalCashFlowResult } from "@/lib/finengine/methods/global";
 
 export type CutoverGate = {
-  allowed: boolean; // false ⇒ memo may not finalize until resolved or overridden
+  allowed: boolean;
   blocked: boolean;
   unexpected: number;
   reason: string;
@@ -47,28 +53,114 @@ export function assertCutoverClean(validation: SpreadValidation): void {
   }
 }
 
+/**
+ * Resolve the borrower label (NG4 / G5): `display_name` is primary, with a
+ * documented fallback for the deals whose `display_name` is null. Never a blank.
+ */
+export function resolveBorrowerLabel(src: { display_name?: string | null; borrower_name?: string | null; name?: string | null }): string {
+  return (src.display_name?.trim() || src.borrower_name?.trim() || src.name?.trim() || "Borrower");
+}
+
+/** Deal primitives the engine modules consume to compute the memo's financial sections. */
+export type MemoSignals = {
+  productId?: string;
+  ctx?: PolicyContext;
+  /** Obligor signals for the risk rating; currentRatio is enriched from the spread when omitted. */
+  riskObligor?: ObligorSignals;
+  riskFacility?: FacilitySignals;
+  /** Covenant inputs (underwritten DSCR/leverage default from riskObligor when omitted). */
+  covenants?: CovenantRecommendationInputs;
+  /** Stress battery inputs. */
+  stress?: StressInputs;
+  /** Pre-computed global cash flow (built from the entity graph by methods/global). */
+  globalCashFlow?: GlobalCashFlowResult;
+  collateral?: { discountedValue: number; loanExposure: number };
+  guarantors?: Array<{ displayName: string; ownershipPct?: number; isGuarantor?: boolean }>;
+};
+
 export type FinengineMemoPackage = {
   spread: DealSpread;
   validation: SpreadValidation;
   gate: CutoverGate;
   memo: { sections: MemoSection[]; marketplaceRedacted: boolean };
+  /** The engine-computed financial sections merged into the memo inputs. */
+  engineInputs: Partial<MemoInputs>;
 };
+
+/** Latest real-period value of a metric in the spread (for enrichment). */
+function latestMetric(spread: DealSpread, scope: EntityScope, metric: string): number | null {
+  const cells = spread.cells
+    .filter((c) => c.scope === scope && c.metric === metric && /^\d{4}-\d{2}-\d{2}$/.test(c.period))
+    .sort((a, b) => (a.period < b.period ? -1 : 1));
+  return cells.length ? cells[cells.length - 1].value : null;
+}
+
+/** Run the engine modules over the signals to produce the memo's financial sections. */
+function engineSections(spread: DealSpread, scope: EntityScope, signals?: MemoSignals): Partial<MemoInputs> {
+  const out: Partial<MemoInputs> = {};
+  if (!signals) return out;
+  const ctx = signals.ctx;
+
+  // Risk rating — enrich the obligor's current ratio from the spread when omitted.
+  if (signals.riskObligor && signals.riskFacility) {
+    const obligor: ObligorSignals = {
+      ...signals.riskObligor,
+      currentRatio: signals.riskObligor.currentRatio ?? latestMetric(spread, scope, "CURRENT_RATIO"),
+    };
+    out.riskRating = rateRisk(obligor, signals.riskFacility, ctx);
+  }
+
+  // Covenant package — underwritten DSCR/leverage default from the obligor signals.
+  if (signals.covenants || signals.riskObligor) {
+    const cov = recommendCovenants({
+      productId: signals.productId,
+      underwrittenDscr: signals.covenants?.underwrittenDscr ?? signals.riskObligor?.dscr ?? null,
+      underwrittenLeverage: signals.covenants?.underwrittenLeverage ?? signals.riskObligor?.leverage ?? null,
+      minLiquidity: signals.covenants?.minLiquidity ?? null,
+      ctx,
+    });
+    if (cov.length) out.covenants = cov.map((c) => ({ name: c.name, threshold: `${c.direction === "floor" ? "≥" : "≤"} ${c.threshold}`, note: c.note }));
+  }
+
+  // Stress battery.
+  if (signals.stress) {
+    const battery = runStressBattery(signals.stress, ctx);
+    out.stress = battery.map((s) => ({ scenario: s.scenario, dscr: s.dscr, passes: s.passes }));
+  }
+
+  // Global cash flow — surfaced from the engine's graph consolidation.
+  if (signals.globalCashFlow) {
+    const g = signals.globalCashFlow;
+    out.globalCashFlow = { globalDSCR: g.globalDSCR, globalCashBeforeDebt: g.globalCashBeforeDebt, globalDebtService: g.globalDebtService };
+  }
+
+  // Collateral coverage summary.
+  if (signals.collateral && signals.collateral.loanExposure > 0) {
+    const { discountedValue, loanExposure } = signals.collateral;
+    const coverageRatio = discountedValue / loanExposure;
+    out.collateral = { coverageRatio, shortfall: Math.max(0, loanExposure - discountedValue), guarantorSupportRequired: coverageRatio < 1 };
+  }
+
+  if (signals.guarantors?.length) out.ownershipGuarantors = signals.guarantors;
+
+  return out;
+}
 
 /**
  * Assemble the finengine-backed memo for a deal. Pure: the live route loads the
- * certified rows + the non-financial MemoInputs (borrower, request, sources/uses,
- * guarantors, …) and passes them here. The financial metrics + credit-spread
- * section come from the engine; everything else passes through untouched.
+ * certified rows, the non-financial MemoInputs, and the deal primitives, and
+ * passes them here. The engine computes the financial sections; the caller's
+ * non-financial inputs pass through. Read-only (NG1).
  */
 export function buildFinengineMemoPackage(
   dealId: string,
   rows: CertifiedFactRow[],
   base: MemoInputs,
-  opts?: { scope?: EntityScope; intended?: IntendedDivergence[] },
+  opts?: { scope?: EntityScope; intended?: IntendedDivergence[]; hardAnchors?: HardAnchor[]; signals?: MemoSignals },
 ): FinengineMemoPackage {
   const scope = opts?.scope ?? "BUSINESS";
   const spread = computeDealSpread(dealId, rows);
-  const validation = validateSpread(spread, { scope, intended: opts?.intended });
+  const validation = validateSpread(spread, { scope, intended: opts?.intended, rawRows: rows, hardAnchors: opts?.hardAnchors });
   const gate = memoGate(validation);
 
   const { metrics, section } = spreadToMemoContribution(spread, {
@@ -76,15 +168,22 @@ export function buildFinengineMemoPackage(
     validation: { unexpected: validation.unexpected, cutoverBlocked: validation.cutoverBlocked },
   });
 
+  const engineInputs = engineSections(spread, scope, opts?.signals);
+
+  // Engine OWNS the financial sections; caller's non-financial inputs pass through.
   // Engine metrics augment (never overwrite) any caller-supplied metrics.
-  const merged: MemoInputs = { ...base, metrics: [...(base.metrics ?? []), ...metrics] };
+  const merged: MemoInputs = {
+    ...base,
+    ...engineInputs,
+    metrics: [...(base.metrics ?? []), ...metrics],
+  };
   const built = buildCreditMemo(merged);
 
-  // The credit-spread section is appended after the rendered memo sections.
   return {
     spread,
     validation,
     gate,
     memo: { sections: [...built.sections, section], marketplaceRedacted: built.marketplaceRedacted },
+    engineInputs,
   };
 }
