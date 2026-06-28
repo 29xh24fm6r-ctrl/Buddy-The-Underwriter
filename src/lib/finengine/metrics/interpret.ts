@@ -10,13 +10,22 @@
  * context, never the regulatory line of record.
  *
  * Pure — no DB. Deterministic — same inputs, same reading, every time.
+ *
+ * Industry context (optional): when the caller supplies a NAICS code + annual
+ * revenue, a metric that the industry-benchmark registry covers is rated against
+ * its REVENUE-TIERED PEER PERCENTILES instead of the fixed bands — a 40% gross
+ * margin is weak for a distributor and elite for a restaurant. Without industry
+ * context, behavior is exactly as before (fixed bands).
  */
 
 import type { PolicyContext } from "@/lib/finengine/contracts";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+import { benchmarkRatio, type BenchmarkMetricId } from "@/lib/benchmarks/industryBenchmarks";
 
 export type Rating = "strong" | "adequate" | "weak" | "flag" | "n/a";
 export type FavorableDirection = "higher" | "lower" | "neutral";
+
+export type IndustryContext = { naics: string; annualRevenue: number };
 
 export type Interpretation = {
   metric: string;
@@ -27,7 +36,23 @@ export type Interpretation = {
   signal: string;
   redFlags: string[];
   benchmark?: { label: string; value: number | null; axis?: string };
+  /** Industry peer percentile (0–100) when rated against NAICS benchmarks. */
+  percentile?: number;
 };
+
+/** finengine metric name → industry-benchmark metric id (where the registry covers it). */
+const BENCHMARKABLE: Record<string, BenchmarkMetricId> = {
+  GROSS_MARGIN: "GROSS_MARGIN", EBITDA_MARGIN: "EBITDA_MARGIN", NET_MARGIN: "NET_MARGIN",
+  CURRENT_RATIO: "CURRENT_RATIO", QUICK_RATIO: "QUICK_RATIO", DEBT_TO_EQUITY: "DEBT_TO_EQUITY",
+  DSCR: "DSCR", GCF_DSCR: "DSCR", DSO: "DSO", DIO: "DIO", DPO: "DPO",
+  INVENTORY_TURNOVER: "INVENTORY_TURNOVER", LEVERAGE_TOTAL: "DEBT_TO_EBITDA",
+  ROA: "ROA", ROE: "ROE", ICR: "INTEREST_COVERAGE",
+};
+
+/** Map the benchmark registry's assessment onto our rating vocabulary. */
+function ratingFromAssessment(a: "strong" | "adequate" | "weak" | "concerning"): Rating {
+  return a === "concerning" ? "flag" : a;
+}
 
 /** Anything carrying a metric name + scalar value (MetricResult / Structural / DuPont / Altman). */
 type Interpretable = { metric: string; value?: number | null; zone?: string; driver?: string | null };
@@ -205,7 +230,7 @@ function policyBreached(value: number, axis: string, ctx?: PolicyContext): { bre
  * `metric` name and (where scalar) a `value`; AltmanResult/DuPontResult carry
  * `zone`/`driver` consumed by the special handlers.
  */
-export function interpret(result: Interpretable, opts?: { ctx?: PolicyContext }): Interpretation {
+export function interpret(result: Interpretable, opts?: { ctx?: PolicyContext; industry?: IndustryContext }): Interpretation {
   const metric = result.metric;
   const value = result.value ?? null;
 
@@ -256,7 +281,32 @@ export function interpret(result: Interpretable, opts?: { ctx?: PolicyContext })
     benchmark = { label: "reference", value: rule.bands.adequate };
   }
 
-  return { metric, value, rating, favorable: rule.favorable, meaning: rule.meaning, signal, redFlags, benchmark };
+  // Industry overlay: rate against revenue-tiered NAICS peer percentiles when the
+  // caller supplies industry context and the benchmark registry covers the metric.
+  // The fixed-band rating remains the floor (a registry policy breach already
+  // demoted it); the industry assessment refines it where peers say otherwise.
+  let percentile: number | undefined;
+  const benchId = BENCHMARKABLE[metric];
+  if (benchId && value != null && opts?.industry) {
+    const b = benchmarkRatio(value, benchId, opts.industry.naics, opts.industry.annualRevenue);
+    if (b) {
+      percentile = b.percentile;
+      const industryRating = ratingFromAssessment(b.assessment);
+      // Don't let the industry overlay upgrade past a policy breach (keep the conservative floor).
+      const policyBreach = benchmark?.label === "policy" && (rating === "weak" || rating === "flag");
+      if (!policyBreach) rating = industryRating;
+      benchmark = { label: `industry NAICS ${opts.industry.naics} (p50)`, value: b.peerMedian };
+      signal = `${metric} = ${round(value)} — ${rating}; ${ordinal(b.percentile)} percentile vs NAICS ${opts.industry.naics} peers (median ${round(b.peerMedian)}).`;
+    }
+  }
+
+  return { metric, value, rating, favorable: rule.favorable, meaning: rule.meaning, signal, redFlags, benchmark, percentile };
+}
+
+function ordinal(p: number): string {
+  const n = Math.round(p);
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 
 function round(v: number): string {
