@@ -23,9 +23,10 @@ import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
 import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
-import { loadAndEnforceResearchTrust, loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
+import { loadTrustGradeForDeal } from "@/lib/research/trustEnforcement";
 import { buildResearchTrace } from "@/lib/research/memoEvidenceResolver";
 import { memoRenderSource, resolveMemoCutoverFlags, loadFinengineMemo, renderFinengineMemoNarrative } from "@/lib/finengine/memo/loadFinengineMemo";
+import { enforceMemoGenerationPreconditions } from "@/lib/creditMemo/memoGenerationPreconditions";
 import type { RiskOutput } from "@/lib/ai/provider";
 
 export const runtime = "nodejs";
@@ -48,6 +49,15 @@ export async function POST(
     // For a legacy tenant (everyone today) this branch is skipped and the existing
     // Gemini path below runs byte-for-byte unchanged (V4.1 / NG2).
     if (memoRenderSource(bankId, resolveMemoCutoverFlags()) === "finengine") {
+      // Renderer-independent data-integrity gates (research trust + validation
+      // pass), shared with the legacy branch so the two can't drift. The engine
+      // path deliberately does NOT require an ai_risk_run — it computes its own
+      // deterministic registry-driven riskRating, superseding the legacy LLM
+      // grade (see memoGenerationPreconditions docblock).
+      const pre = await enforceMemoGenerationPreconditions(dealId);
+      if (!pre.allowed) {
+        return NextResponse.json({ ok: false, error: pre.error, source: "finengine" }, { status: pre.status });
+      }
       const pkg = await loadFinengineMemo(dealId, { bankId });
       const memo = renderFinengineMemoNarrative(pkg);
       const hashInputs = await fetchMemoHashInputs(sb, dealId);
@@ -89,15 +99,14 @@ export async function POST(
       );
     }
 
-    // ── Step 1b: Phase 79 — Trust grade enforcement (soft gate for memo) ──
-    // Block memo generation when research explicitly failed.
-    // Missing/absent research is allowed (memo proceeds without it).
-    const trustCheck = await loadAndEnforceResearchTrust(dealId, "memo");
-    if (!trustCheck.allowed) {
-      return NextResponse.json(
-        { ok: false, error: trustCheck.reason },
-        { status: 400 },
-      );
+    // ── Step 1b + 2b: Renderer-independent data-integrity gates ───────────
+    // Research trust (block only on explicit FAIL) and validation pass (block
+    // only on BLOCK_GENERATION) are enforced by the shared helper that the
+    // finengine branch also calls, so the two paths can't drift. The
+    // ai_risk_runs hard-require above (Step 1) is legacy-only by design.
+    const pre = await enforceMemoGenerationPreconditions(dealId);
+    if (!pre.allowed) {
+      return NextResponse.json({ ok: false, error: pre.error }, { status: pre.status });
     }
 
     // ── Step 2: Fetch research narrative (soft — proceed if absent) ───────
@@ -131,27 +140,8 @@ export async function POST(
       narrative = narrativeData;
     }
 
-    // ── Step 2b: Validation Pass gate ─────────────────────────────────────
-    // Only hard-block when a report exists with gating_decision = BLOCK_GENERATION.
-    // Absent report = validation has not run yet — allow generation to proceed.
-    const { data: validationReport } = await sb
-      .from("buddy_validation_reports")
-      .select("gating_decision")
-      .eq("deal_id", dealId)
-      .order("run_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (validationReport?.gating_decision === "BLOCK_GENERATION") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Validation has flagged blocking issues. Resolve them before generating memo.",
-        },
-        { status: 400 },
-      );
-    }
+    // (Step 1b + 2b — research trust + validation pass — were enforced above by
+    // the shared enforceMemoGenerationPreconditions helper.)
 
     // ── Step 3: Build deal snapshot ──────────────────────────────────────
     // NOTE: deal_financial_facts uses fact_period_end, not period_end
