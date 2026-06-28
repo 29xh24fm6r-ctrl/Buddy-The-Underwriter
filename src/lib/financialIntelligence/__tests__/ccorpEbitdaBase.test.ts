@@ -31,6 +31,30 @@ describe("Form 1120 C-corp EBITDA base", () => {
     assert.equal(a.adjustedEbitda, 150_000);
   });
 
+  it("uses Schedule M-1 taxable income (pre-tax) when the plain TAXABLE_INCOME line is absent", () => {
+    // SPEC-FINENGINE-LIVE-SPREAD-1 Phase 3 fix: M1_TAXABLE_INCOME is pre-tax and must
+    // be preferred over after-tax NET_INCOME(0) — otherwise EBITDA understates by the
+    // full pre-tax income (the live −$200,925 OmniCare divergence).
+    const a = computeEbitda(
+      { M1_TAXABLE_INCOME: 200_925, NET_INCOME: 0, DEPRECIATION: 210_207 },
+      "FORM_1120",
+    );
+    assert.equal(a.baseKey, "M1_TAXABLE_INCOME");
+    assert.match(a.baseLabel, /pre-tax/i);
+    assert.equal(a.baseValue, 200_925);
+    assert.equal(a.adjustedEbitda, 200_925 + 210_207); // 411,132 — NO tax add-back (M1 is pre-tax)
+    assert.equal(a.addBacks.some((b) => b.key === "TAX_PROVISION"), false);
+  });
+
+  it("prefers the plain TAXABLE_INCOME line over M1 when both are present", () => {
+    const a = computeEbitda(
+      { TAXABLE_INCOME: 200_925, M1_TAXABLE_INCOME: 999_999, DEPRECIATION: 50_000 },
+      "FORM_1120",
+    );
+    assert.equal(a.baseKey, "TAXABLE_INCOME");
+    assert.equal(a.baseValue, 200_925);
+  });
+
   it("falls back to NET_INCOME reconstructed to pre-tax (adds the tax provision)", () => {
     const a = computeEbitda(
       { NET_INCOME: 150_000, TOTAL_TAX: 40_000, DEPRECIATION: 20_000 },
