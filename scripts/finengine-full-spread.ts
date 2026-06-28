@@ -14,7 +14,8 @@
 import process from "node:process";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeDealSpread } from "@/lib/finengine/spread/dealSpread";
-import { validateSpread, type IntendedDivergence } from "@/lib/finengine/spread/validateSpread";
+import { validateSpread, type IntendedDivergence, type HardAnchor } from "@/lib/finengine/spread/validateSpread";
+import { OMNICARE_GOLDEN_EBITDA } from "@/lib/finengine/spread/fullSpreadGoldenSet";
 import type { CertifiedFactRow } from "@/lib/finengine/shadow/dealInputAdapter";
 
 const DEALS = [
@@ -32,6 +33,14 @@ const DEALS = [
  * introduced.
  */
 const INTENDED: IntendedDivergence[] = [];
+
+const OMNICARE = "80fe6f7a-5c68-4f02-8bcf-933f246a9fc5";
+
+/** OmniCare EBITDA hard anchors — pre-registered audited values, independent of the adapter (NG5). */
+function omnicareAnchors(dealId: string): HardAnchor[] {
+  if (dealId !== OMNICARE) return [];
+  return Object.entries(OMNICARE_GOLDEN_EBITDA).map(([period, a]) => ({ metric: "EBITDA", period, expected: a.expected, source: `audited anchor: ${a.source}` }));
+}
 
 async function loadRows(dealId: string): Promise<CertifiedFactRow[]> {
   const sb = supabaseAdmin();
@@ -68,7 +77,7 @@ async function main() {
     const rows = await loadRows(dealId);
     if (rows.length === 0) { console.log(`[${dealId.slice(0, 8)}] no facts — skipped.`); continue; }
     const spread = computeDealSpread(dealId, rows);
-    const val = validateSpread(spread, { scope: "BUSINESS", intended: INTENDED });
+    const val = validateSpread(spread, { scope: "BUSINESS", intended: INTENDED, rawRows: rows, hardAnchors: omnicareAnchors(dealId) });
     const bizPeriods = spread.snapshots.filter((s) => s.entityScope === "BUSINESS").map((s) => s.fiscalPeriodEnd);
     console.log(`[${dealId.slice(0, 8)}] rows=${rows.length} cells=${spread.cells.length} bizPeriods=${bizPeriods.length}`);
     console.log(`  validation: ZERO=${val.zero} INTENDED=${val.intended} UNEXPECTED=${val.unexpected} cutoverBlocked=${val.cutoverBlocked}`);
