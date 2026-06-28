@@ -54,6 +54,22 @@ export function assertCutoverClean(validation: SpreadValidation): void {
 }
 
 /**
+ * Submission-time enforcement (SPEC-FINENGINE-MEMO-CUTOVER-1 Phase 3). The memo
+ * finalize/submit path calls this. It binds ONLY where the engine is live for the
+ * tenant (`cutoverEnabled`) — a tenant on the legacy renderer is never blocked by
+ * the engine gate. When the engine is live and the spread is cutover-blocked,
+ * finalization throws with the analyst-facing reason (override = register the
+ * divergence as INTENDED, or resolve the source data). Returns the gate otherwise.
+ */
+export function enforceMemoSubmission(validation: SpreadValidation, opts: { cutoverEnabled: boolean }): CutoverGate {
+  const gate = memoGate(validation);
+  if (opts.cutoverEnabled && gate.blocked) {
+    throw new Error(`[finengine] memo submission blocked: ${gate.reason}`);
+  }
+  return gate;
+}
+
+/**
  * Resolve the borrower label (NG4 / G5): `display_name` is primary, with a
  * documented fallback for the deals whose `display_name` is null. Never a blank.
  */
