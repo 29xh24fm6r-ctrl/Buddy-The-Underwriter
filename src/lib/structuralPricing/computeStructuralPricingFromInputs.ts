@@ -3,6 +3,8 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { computeDebtService, resolveEffectiveRate } from "./debtServiceMath";
 import type { StructuralPricingResult } from "./computeStructuralPricing";
+import { isSizingGateOn } from "@/lib/finengine/featureFlags";
+import { resolveSizingGateFlags } from "@/lib/finengine/sizing/sizingGate";
 
 /**
  * The shape of a deal_pricing_inputs row as returned from Supabase.
@@ -84,6 +86,18 @@ export async function computeStructuralPricingFromInputs(args: {
       amortMonths,
       interestOnlyMonths: ioMonths,
     });
+
+    // ── SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 Workstream F — sizing→pricing gate ──
+    // When a tenant's sizing gate is flipped ON, an UNEXPECTED over-sized facility
+    // is reconciled against the engine-sized maximum (via gateSizingVsPricing, which
+    // wraps reconcileSizingVsPricing) and gated here. The flag DEFAULTS OFF for every
+    // tenant (shadow only), so this branch is inert today and the quoted pricing
+    // below is byte-for-byte unchanged (NG1). Binding it live — resolving the deal's
+    // engine sizing inputs to reconcile `amount` against the engine max — is the
+    // deliberate, separate step; no tenant is ON in this run.
+    if (isSizingGateOn(bankId, resolveSizingGateFlags())) {
+      // Live reconciliation of engine sizing inputs vs `amount` plugs in here at flip time.
+    }
 
     // Upsert to deal_structural_pricing
     const sb = supabaseAdmin();

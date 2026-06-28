@@ -55,3 +55,29 @@ export function isMemoEngineCutOver(
   if (!tenantId) return false;
   return flags[tenantId] === true;
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — Workstream F: sizing→pricing gate.
+//
+// The engine reconciles the priced facility against the engine-sized maximum and
+// can GATE an over-sized (UNEXPECTED) facility — but only for a tenant whose
+// sizing gate is flipped ON, behind a flag that DEFAULTS OFF. OFF = shadow only
+// (log the classification, change nothing — today's borrower-facing behaviour is
+// byte-for-byte preserved). Flipping a tenant ON is a deliberate, separate human
+// step (a runbook like MEMO_CUTOVER.md); no tenant is ON in this run.
+// ---------------------------------------------------------------------------
+
+/** tenant/bank id → sizing→pricing gate enforced. Absent ⇒ OFF (shadow only). */
+export type SizingGateFlags = Record<string, boolean>;
+
+/** Default: no tenant gated — every bank on shadow-only (no price change). */
+export const DEFAULT_SIZING_GATE_FLAGS: SizingGateFlags = {};
+
+/** Is the sizing→pricing gate ENFORCED for a tenant? Defaults OFF (shadow only). */
+export function isSizingGateOn(
+  tenantId: string | null | undefined,
+  flags: SizingGateFlags = DEFAULT_SIZING_GATE_FLAGS,
+): boolean {
+  if (!tenantId) return false;
+  return flags[tenantId] === true;
+}
