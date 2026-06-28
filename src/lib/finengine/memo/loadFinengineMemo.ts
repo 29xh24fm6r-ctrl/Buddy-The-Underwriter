@@ -81,6 +81,23 @@ async function defaultLoadMeta(dealId: string): Promise<DealMemoMeta> {
   return (data ?? {}) as DealMemoMeta;
 }
 
+/** The persisted/returned memo shape the generate route uses: `{ sections: [...] }`. */
+export type RenderedMemo = { sections: Array<{ key: string; title: string; body: string }>; source: "finengine" };
+
+/**
+ * Shape a finengine memo package into the generate route's `memo` payload — the
+ * same `{ sections }` contract the legacy Gemini path persists/returns, so a
+ * flipped-on tenant's memo slots in without a schema change. Only populated
+ * sections are emitted (an empty section renders its "data not yet available"
+ * body in buildCreditMemo, which we keep so the structure is stable). Pure.
+ */
+export function renderFinengineMemoNarrative(pkg: FinengineMemoPackage): RenderedMemo {
+  return {
+    sections: pkg.memo.sections.map((s) => ({ key: s.key, title: s.title, body: s.body })),
+    source: "finengine",
+  };
+}
+
 /**
  * Build the finengine memo package for a deal (the ON path). Pure orchestration
  * over injectable loaders; read-only (NG1 — writes nothing).
