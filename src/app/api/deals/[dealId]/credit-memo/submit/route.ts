@@ -3,6 +3,8 @@ import { requireDealAccess } from "@/lib/auth/requireDealAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { submitCreditMemoToUnderwriting } from "@/lib/creditMemo/submission/submitCreditMemoToUnderwriting";
 import type { ReadinessWarningKey } from "@/lib/creditMemo/submission/types";
+import { memoRenderSource, resolveMemoCutoverFlags, loadFinengineMemo } from "@/lib/finengine/memo/loadFinengineMemo";
+import { enforceMemoSubmission } from "@/lib/finengine/memo/finengineMemoPackage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,6 +23,24 @@ export async function POST(
   try {
     const { dealId } = await props.params;
     const access = await requireDealAccess(dealId);
+
+    // SPEC-FINENGINE-MEMO-CUTOVER-1 Phase 4 — the cutover gate, behind the
+    // per-tenant memo_engine_cutover flag (DEFAULT OFF). For a tenant still on the
+    // legacy renderer this branch is skipped entirely and submission is unchanged
+    // (V4.1). For a flipped-on tenant, a spread that diverges from the independent
+    // golden (UNEXPECTED) cannot be finalized until reviewed or registered (V4.2).
+    const bankId = (access as any).bankId ?? (access as any).bank_id ?? null;
+    if (memoRenderSource(bankId, resolveMemoCutoverFlags()) === "finengine") {
+      const pkg = await loadFinengineMemo(dealId, { bankId });
+      try {
+        enforceMemoSubmission(pkg.validation, { cutoverEnabled: true });
+      } catch (e) {
+        return NextResponse.json(
+          { ok: false, reason: "finengine_cutover_blocked", gate: pkg.gate, error: String(e) },
+          { status: 409 },
+        );
+      }
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
       bankerNotes?: unknown;
