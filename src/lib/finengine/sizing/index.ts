@@ -362,3 +362,68 @@ export function sizeCAndI(i: CAndISizingInputs): SizingResult {
     { name: "DSCR", maxLoan: byDscr, note: `EBITDA ÷ DSCR floor ${dscrFloor.toFixed(2)}x ÷ constant` },
   ]);
 }
+
+// ---- Plain LOC revolver: working-capital-need sizing -----------------------
+// SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — Workstream D. Distinct from
+// sizeBorrowingBase (the asset-based AR/inventory advance): this sizes the
+// NON-borrowing-base working-capital line off the financing gap.
+
+export type RevolverSizingInputs = {
+  ar: number;
+  inventory: number;
+  ap: number;
+  revenue?: number | null;
+  projectedPeakNeed?: number | null;
+  ctx?: PolicyContext;
+};
+
+export type RevolverSizingResult = SizingResult & {
+  /** AR + inventory − AP — the working-capital financing need (primary sizing). */
+  workingCapitalGap: number;
+  /** True when the gap materially exceeds the revenue-pct cross-check (verify); null when revenue absent. */
+  exceedsRevenueCrossCheck: boolean | null;
+};
+
+/**
+ * Working-capital-need revolver sizing. The financing need — AR + inventory − AP
+ * (the working-capital gap, computed inline; no metric exists for it) — is the
+ * PRIMARY size. A revenue-pct cross-check and an optional projected-peak need are
+ * reported as non-binding sanity checks; a gap materially above the revenue
+ * cross-check is flagged for verification. A non-positive gap floors to 0 (no
+ * line needed). Pure.
+ */
+export function sizeRevolver(i: RevolverSizingInputs): RevolverSizingResult {
+  const revPct = resolvePolicy("revolver_pct_of_revenue", i.ctx).effective ?? 0.1;
+  const gap = i.ar + i.inventory - i.ap;
+  const sizedGap = Math.max(0, gap);
+
+  const byRevenuePct = i.revenue != null ? i.revenue * revPct : null;
+  const exceedsRevenueCrossCheck = byRevenuePct != null ? sizedGap > byRevenuePct : null;
+
+  const constraints: SizingConstraint[] = [
+    {
+      name: "WORKING_CAPITAL_GAP",
+      maxLoan: sizedGap,
+      note: gap > 0 ? "AR + inventory − AP (working-capital financing need)" : "AR + inventory ≤ AP — no working-capital financing need",
+    },
+    {
+      name: "REVENUE_PCT_CROSSCHECK",
+      maxLoan: byRevenuePct,
+      note: byRevenuePct != null ? `revenue × ${(revPct * 100).toFixed(0)}% (non-binding cross-check)` : "revenue not provided — cross-check skipped",
+    },
+    {
+      name: "PROJECTED_PEAK",
+      maxLoan: i.projectedPeakNeed ?? null,
+      note: i.projectedPeakNeed != null ? "projected peak working-capital need (non-binding)" : "no projected peak provided",
+    },
+  ];
+
+  // The working-capital gap is PRIMARY (not most-restrictive-of) — the others are cross-checks.
+  return {
+    constraints,
+    bindingConstraint: { name: "WORKING_CAPITAL_GAP", maxLoan: sizedGap, note: constraints[0].note },
+    maxLoan: sizedGap,
+    workingCapitalGap: gap,
+    exceedsRevenueCrossCheck,
+  };
+}

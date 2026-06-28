@@ -175,6 +175,15 @@ const AXES: Record<string, PolicyAxisDef> = {
     citation: "Institutional senior-leverage sizing overlay (senior funded debt ≤ 3.0× EBITDA)",
     asOf: "2026-06-28",
   },
+  // SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — working-capital revolver sizing.
+  revolver_pct_of_revenue: {
+    axis: "revolver_pct_of_revenue",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.1, // a working-capital line ≈ 10% of annual revenue (sanity cross-check)
+    citation: "Institutional working-capital overlay (revolver ≈ 10% of annual revenue as an order-of-magnitude cross-check)",
+    asOf: "2026-06-28",
+  },
   occupancy_min: {
     axis: "occupancy_min",
     direction: "floor",
