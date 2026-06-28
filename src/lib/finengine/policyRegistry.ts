@@ -216,6 +216,39 @@ const AXES: Record<string, PolicyAxisDef> = {
     citation: "Institutional structural overlay (loan term ≤ 80% of equipment useful life; self-liquidating collateral)",
     asOf: "2026-06-28",
   },
+  // SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — construction sizing axes.
+  ltc_max: {
+    axis: "ltc_max",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.8, // loan-to-cost ceiling on total project cost (80–85% typical)
+    citation: "Institutional construction overlay (loan-to-cost ≤ 80%; sponsor equity funds the remainder)",
+    asOf: "2026-06-28",
+  },
+  ltv_completed_max: {
+    axis: "ltv_completed_max",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.75, // loan-to-as-completed-value ceiling (Interagency CRE construction LTV)
+    citation: "Interagency CRE supervisory LTV — construction ≤ 75% of as-completed value (institutional overlay)",
+    asOf: "2026-06-28",
+  },
+  interest_reserve_avg_outstanding: {
+    axis: "interest_reserve_avg_outstanding",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.5, // average balance outstanding over the draw period ≈ 50% of the facility
+    citation: "Institutional construction overlay (interest reserve sized on ~50% average outstanding over the draw period)",
+    asOf: "2026-06-28",
+  },
+  retainage_pct: {
+    axis: "retainage_pct",
+    direction: "floor",
+    regulatoryFloor: null,
+    institutionalOverlay: 0.1, // 10% held back from each draw until completion
+    citation: "Institutional construction overlay (10% retainage withheld from draws until completion)",
+    asOf: "2026-06-28",
+  },
   // Stress parameters (multi-valued — exposed via getStressParams()).
   stress_rate_bps: {
     axis: "stress_rate_bps",
