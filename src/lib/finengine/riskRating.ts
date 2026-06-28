@@ -64,25 +64,31 @@ export function computePD(s: ObligorSignals, ctx?: PolicyContext): PdResult {
     drivers.push("Forward-looking: projected DSCR below current — graded on the projection.");
   }
 
+  // Grade-band thresholds from the registry (NG4 — no hardcoded grading policy).
+  const grade2Factor = resolvePolicy("pd_dscr_grade2_factor", ctx).effective ?? 1.5;
+  const grade3Factor = resolvePolicy("pd_dscr_grade3_factor", ctx).effective ?? 1.2;
+  const smMin = resolvePolicy("pd_dscr_special_mention_min", ctx).effective ?? 1.0;
+  const subMin = resolvePolicy("pd_dscr_substandard_min", ctx).effective ?? 0.9;
+
   let grade: number;
   if (dscr == null) {
     grade = 6;
     drivers.push("DSCR unavailable — conservative watch grade.");
-  } else if (dscr >= floor * 1.5) {
+  } else if (dscr >= floor * grade2Factor) {
     grade = 2;
-  } else if (dscr >= floor * 1.2) {
+  } else if (dscr >= floor * grade3Factor) {
     grade = 3;
   } else if (dscr >= floor) {
     grade = 4;
-  } else if (dscr >= 1.0) {
+  } else if (dscr >= smMin) {
     grade = 6; // below policy floor but still covers — special mention
-    drivers.push(`DSCR ${dscr.toFixed(2)}x below policy floor ${floor.toFixed(2)}x but ≥ 1.00x.`);
-  } else if (dscr >= 0.9) {
+    drivers.push(`DSCR ${dscr.toFixed(2)}x below policy floor ${floor.toFixed(2)}x but ≥ ${smMin.toFixed(2)}x.`);
+  } else if (dscr >= subMin) {
     grade = 7;
-    drivers.push(`DSCR ${dscr.toFixed(2)}x < 1.00x — cannot fully service debt.`);
+    drivers.push(`DSCR ${dscr.toFixed(2)}x < ${smMin.toFixed(2)}x — cannot fully service debt.`);
   } else {
     grade = 8;
-    drivers.push(`DSCR ${dscr.toFixed(2)}x materially below 1.00x.`);
+    drivers.push(`DSCR ${dscr.toFixed(2)}x materially below ${smMin.toFixed(2)}x.`);
   }
 
   // Capital / leverage overlay.
@@ -91,9 +97,10 @@ export function computePD(s: ObligorSignals, ctx?: PolicyContext): PdResult {
     grade += 1;
     drivers.push(`Leverage ${s.leverage.toFixed(1)}x exceeds ${levMax.toFixed(1)}x cap.`);
   }
-  if (s.currentRatio != null && s.currentRatio < 1.0) {
+  const crMin = resolvePolicy("current_ratio_min", ctx).effective ?? 1.0;
+  if (s.currentRatio != null && s.currentRatio < crMin) {
     grade += 1;
-    drivers.push("Current ratio < 1.0 — weak liquidity.");
+    drivers.push(`Current ratio ${s.currentRatio.toFixed(2)} < ${crMin.toFixed(2)} — weak liquidity.`);
   }
   if (s.deterioratingTrend) {
     grade += 1;
@@ -111,22 +118,26 @@ export function computePD(s: ObligorSignals, ctx?: PolicyContext): PdResult {
 }
 
 /** LGD: facility loss severity from collateral coverage + lien + guarantor support. */
-export function computeLGD(f: FacilitySignals): LgdResult {
+export function computeLGD(f: FacilitySignals, ctx?: PolicyContext): LgdResult {
   const drivers: string[] = [];
   const cov = f.collateralCoverage;
+  // Coverage bands from the registry (NG4) — loss-severity magnitudes are model calibration.
+  const covStrong = resolvePolicy("lgd_coverage_strong", ctx).effective ?? 1.25;
+  const covAdequate = resolvePolicy("lgd_coverage_adequate", ctx).effective ?? 1.0;
+  const covWeak = resolvePolicy("lgd_coverage_weak", ctx).effective ?? 0.75;
   let lgd: number;
   if (cov == null) {
     lgd = 0.75;
     drivers.push("No collateral coverage data — high LGD assumed.");
-  } else if (cov >= 1.25) {
+  } else if (cov >= covStrong) {
     lgd = 0.2;
-  } else if (cov >= 1.0) {
+  } else if (cov >= covAdequate) {
     lgd = 0.4;
-  } else if (cov >= 0.75) {
+  } else if (cov >= covWeak) {
     lgd = 0.6;
   } else {
     lgd = 0.85;
-    drivers.push(`Collateral coverage ${cov.toFixed(2)}x < 0.75x — severe expected loss.`);
+    drivers.push(`Collateral coverage ${cov.toFixed(2)}x < ${covWeak.toFixed(2)}x — severe expected loss.`);
   }
   if (f.lienPosition != null && f.lienPosition > 1) {
     lgd = Math.min(1, lgd + 0.1);
@@ -150,7 +161,7 @@ function classify(grade: number, lgd: number): Classification {
 /** Combine PD + LGD into the recommended grade and interagency classification. */
 export function rateRisk(obligor: ObligorSignals, facility: FacilitySignals, ctx?: PolicyContext): RiskRating {
   const pd = computePD(obligor, ctx);
-  const lgd = computeLGD(facility);
+  const lgd = computeLGD(facility, ctx);
   const classification = classify(pd.grade, lgd.lgd);
   return {
     pd,
