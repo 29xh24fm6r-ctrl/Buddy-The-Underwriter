@@ -155,6 +155,26 @@ const AXES: Record<string, PolicyAxisDef> = {
     citation: "Institutional LTV overlay (POLICY_DEFAULTS.ltv_maximum 0.75). Interagency CRE supervisory LTV limits inform the floor.",
     asOf: "2025-06-01",
   },
+  // SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — C&I leverage-multiple sizing.
+  // Distinct from leverage_max (a Debt/EBITDA covenant cap): these size the
+  // facility as a multiple of EBITDA net of existing debt. Total mirrors the
+  // funded-debt/EBITDA appetite; senior is the tighter first-lien sub-limit.
+  leverage_total_max: {
+    axis: "leverage_total_max",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 4.5, // total funded debt ≤ 4.5× EBITDA (mirrors leverage_max appetite)
+    citation: "Institutional total-leverage sizing overlay (total funded debt ≤ 4.5× EBITDA; OCC/FDIC leveraged-lending guidance withdrawn Dec 2025 — overlay, not regulatory)",
+    asOf: "2026-06-28",
+  },
+  leverage_senior_max: {
+    axis: "leverage_senior_max",
+    direction: "cap",
+    regulatoryFloor: null,
+    institutionalOverlay: 3.0, // senior/first-lien debt ≤ 3.0× EBITDA (tighter than total)
+    citation: "Institutional senior-leverage sizing overlay (senior funded debt ≤ 3.0× EBITDA)",
+    asOf: "2026-06-28",
+  },
   occupancy_min: {
     axis: "occupancy_min",
     direction: "floor",

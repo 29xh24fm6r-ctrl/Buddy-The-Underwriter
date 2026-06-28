@@ -310,3 +310,55 @@ export function sizeConstruction(i: ConstructionSizingInputs): ConstructionSizin
 function fmtUsd(n: number): string {
   return `$${Math.round(n).toLocaleString("en-US")}`;
 }
+
+// ---- C&I: leverage-multiple capacity net of existing debt ------------------
+// SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — Workstream C.
+
+export type CAndISizingInputs = {
+  ebitda: number;
+  existingFundedDebt: number;
+  existingSeniorDebt: number;
+  /** Mortgage/loan constant (annual P&I per $1) for the cash-flow capacity leg. */
+  annualConstantRate: number;
+  ctx?: PolicyContext;
+};
+
+/**
+ * C&I sizing by leverage multiple, net of existing debt. Three constraints:
+ *   - total leverage:  (leverage_total_max × EBITDA) − existing funded debt
+ *   - senior leverage: (leverage_senior_max × EBITDA) − existing senior debt
+ *   - DSCR capacity:   (EBITDA ÷ dscr_floor) ÷ constant  (cash-flow ability to service)
+ * The binding (lowest) constraint sets the incremental max loan. A negative
+ * leverage headroom (already over-levered) floors to 0 with a flag note. Pure.
+ */
+export function sizeCAndI(i: CAndISizingInputs): SizingResult {
+  const totalMax = resolvePolicy("leverage_total_max", i.ctx).effective ?? 4.5;
+  const seniorMax = resolvePolicy("leverage_senior_max", i.ctx).effective ?? 3.0;
+  const dscrFloor = resolvePolicy("dscr_floor", i.ctx).effective ?? 1.2;
+
+  const rawTotal = i.ebitda > 0 ? totalMax * i.ebitda - i.existingFundedDebt : null;
+  const rawSenior = i.ebitda > 0 ? seniorMax * i.ebitda - i.existingSeniorDebt : null;
+  const byTotal = rawTotal == null ? null : Math.max(0, rawTotal);
+  const bySenior = rawSenior == null ? null : Math.max(0, rawSenior);
+  const byDscr = i.ebitda > 0 && i.annualConstantRate > 0 ? i.ebitda / dscrFloor / i.annualConstantRate : null;
+
+  return mostRestrictiveOf([
+    {
+      name: "TOTAL_LEVERAGE",
+      maxLoan: byTotal,
+      note:
+        rawTotal != null && rawTotal < 0
+          ? `already over total-leverage cap ${totalMax.toFixed(1)}× — no incremental capacity`
+          : `${totalMax.toFixed(1)}× EBITDA − existing funded debt`,
+    },
+    {
+      name: "SENIOR_LEVERAGE",
+      maxLoan: bySenior,
+      note:
+        rawSenior != null && rawSenior < 0
+          ? `already over senior-leverage cap ${seniorMax.toFixed(1)}× — no incremental senior capacity`
+          : `${seniorMax.toFixed(1)}× EBITDA − existing senior debt`,
+    },
+    { name: "DSCR", maxLoan: byDscr, note: `EBITDA ÷ DSCR floor ${dscrFloor.toFixed(2)}x ÷ constant` },
+  ]);
+}
