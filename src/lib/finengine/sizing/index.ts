@@ -223,3 +223,90 @@ export function sizeEquipment(i: EquipmentSizingInputs): EquipmentSizingResult {
 
   return { ...sized, termExceedsUsefulLife, termNote };
 }
+
+// ---- Construction: LTC / LTV + interest reserve + cost-to-complete ---------
+// SPEC-FINENGINE-PRODUCT-DEPTH-AND-SIZING-1 — Workstream B.
+
+export type ConstructionSizingInputs = {
+  totalProjectCost: number;
+  asCompletedValue: number;
+  /** Annual interest rate (decimal, e.g. 0.085) used to size the interest reserve. */
+  interestRate: number;
+  constructionMonths: number;
+  /** Average % of the facility outstanding over the draw period (defaults to the registry value). */
+  avgOutstandingFactor?: number | null;
+  retainagePct?: number | null;
+  /** Sponsor equity committed; when provided, the cost-to-complete check uses it. */
+  equity?: number | null;
+  ctx?: PolicyContext;
+};
+
+export type ConstructionSizingResult = SizingResult & {
+  /** Interest carve-out funded within the facility (maxLoan × avgOutstanding × rate × months/12). */
+  interestReserve: number | null;
+  /** Equity the sponsor must contribute so loan + equity ≥ total project cost. */
+  impliedEquityRequired: number | null;
+  /** Positive shortfall when maxLoan + provided equity < total project cost (else 0; null if equity absent). */
+  costToCompleteGap: number | null;
+  /** Amount withheld from draws until completion (totalProjectCost × retainage_pct). */
+  retainage: number | null;
+  note: string;
+};
+
+/**
+ * Construction sizing: the facility is the most-restrictive of loan-to-cost (on
+ * total project cost) and loan-to-as-completed-value. The interest reserve is a
+ * required carve-out funded WITHIN the facility, sized on the average balance
+ * outstanding over the draw period. Cost-to-complete coverage asserts loan +
+ * sponsor equity ≥ total project cost; a shortfall is flagged. Retainage is the
+ * holdback withheld from draws until completion. Pure.
+ */
+export function sizeConstruction(i: ConstructionSizingInputs): ConstructionSizingResult {
+  const ltcMax = resolvePolicy("ltc_max", i.ctx).effective ?? 0.8;
+  const ltvCompletedMax = resolvePolicy("ltv_completed_max", i.ctx).effective ?? 0.75;
+  const avgOutstanding = i.avgOutstandingFactor ?? resolvePolicy("interest_reserve_avg_outstanding", i.ctx).effective ?? 0.5;
+  const retainagePct = i.retainagePct ?? resolvePolicy("retainage_pct", i.ctx).effective ?? 0.1;
+
+  const byLtc = i.totalProjectCost > 0 ? i.totalProjectCost * ltcMax : null;
+  const byLtv = i.asCompletedValue > 0 ? i.asCompletedValue * ltvCompletedMax : null;
+
+  const sized = mostRestrictiveOf([
+    { name: "LTC", maxLoan: byLtc, note: `total project cost × LTC cap ${(ltcMax * 100).toFixed(0)}%` },
+    { name: "LTV_COMPLETED", maxLoan: byLtv, note: `as-completed value × LTV cap ${(ltvCompletedMax * 100).toFixed(0)}%` },
+  ]);
+
+  const maxLoan = sized.maxLoan;
+  const interestReserve =
+    maxLoan != null && i.interestRate > 0 && i.constructionMonths > 0
+      ? maxLoan * avgOutstanding * i.interestRate * (i.constructionMonths / 12)
+      : null;
+
+  const impliedEquityRequired = maxLoan != null ? Math.max(0, i.totalProjectCost - maxLoan) : null;
+  let costToCompleteGap: number | null = null;
+  if (maxLoan != null && i.equity != null) {
+    costToCompleteGap = Math.max(0, i.totalProjectCost - maxLoan - i.equity);
+  }
+  const retainage = i.totalProjectCost > 0 ? i.totalProjectCost * retainagePct : null;
+
+  const gapNote =
+    costToCompleteGap == null
+      ? impliedEquityRequired != null
+        ? `requires ${fmtUsd(impliedEquityRequired)} sponsor equity to cover total project cost`
+        : "cost-to-complete indeterminate"
+      : costToCompleteGap > 0
+        ? `COST-TO-COMPLETE GAP ${fmtUsd(costToCompleteGap)} — loan + equity short of total project cost`
+        : "loan + equity fully cover total project cost";
+
+  return {
+    ...sized,
+    interestReserve,
+    impliedEquityRequired,
+    costToCompleteGap,
+    retainage,
+    note: `Construction: binding ${sized.bindingConstraint?.name ?? "n/a"} at ${maxLoan != null ? fmtUsd(maxLoan) : "n/a"}; ${gapNote}.`,
+  };
+}
+
+function fmtUsd(n: number): string {
+  return `$${Math.round(n).toLocaleString("en-US")}`;
+}
