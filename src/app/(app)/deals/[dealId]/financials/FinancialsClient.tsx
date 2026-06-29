@@ -111,7 +111,7 @@ function buildRows(): RowDef[][] {
     { label: "Gross Margin %", keys: ["GROSS_MARGIN"], format: "pct", style: "italic" },
     { label: "Operating Expenses", keys: ["TOTAL_OPERATING_EXPENSES"], format: "dollars", style: "normal" },
     { label: "  Salaries & Wages", keys: ["SALARIES_WAGES_IS", "SALARIES_WAGES"], format: "dollars", style: "subrow" },
-    { label: "  Officer Compensation", keys: ["OFFICERS_COMP_IS", "OFFICERS_COMP"], format: "dollars", style: "subrow" },
+    { label: "  Officer Compensation", keys: ["OFFICER_COMPENSATION", "OFFICERS_COMP_IS", "OFFICERS_COMP"], format: "dollars", style: "subrow" },
     { label: "  Rent Expense", keys: ["RENT_EXPENSE_IS", "RENT_EXPENSE"], format: "dollars", style: "subrow" },
     { label: "  Depreciation", keys: ["DEPRECIATION"], format: "dollars", style: "subrow" },
     { label: "  Interest Expense", keys: ["INTEREST_EXPENSE"], format: "dollars", style: "subrow" },
@@ -132,7 +132,7 @@ function buildRows(): RowDef[][] {
   const cf_rows: RowDef[] = [
     { label: "CASH FLOW & COVERAGE", keys: [], format: "dollars", style: "header" },
     { label: "EBITDA", keys: ["EBITDA"], format: "dollars", style: "normal" },
-    { label: "+ Rental Income (Sched E)", keys: ["RENTAL_INCOME_SCHED_E"], format: "dollars", style: "subrow" },
+    { label: "+ Rental Income (Sched E)", keys: ["RENTAL_INCOME_SCHED_E", "SCH_E_GROSS_RENTS_RECEIVED"], format: "dollars", style: "subrow" },
     { label: "Net Cash Avail. for Debt Svc", keys: ["cf_ncads"], format: "dollars", style: "bold" },
     { label: "Annual Debt Service", keys: ["cf_annual_debt_service"], format: "dollars", style: "normal" },
     { label: "DSCR", keys: ["DSCR"], format: "x", style: "bold" },
