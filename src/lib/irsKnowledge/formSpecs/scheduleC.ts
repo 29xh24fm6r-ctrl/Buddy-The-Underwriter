@@ -89,6 +89,16 @@ export const SCHEDULE_C_2022: FormSpecification = {
       nullAsZero: false,
       isEbitdaAddBack: false,
     },
+    {
+      canonicalKey: "ACCOUNTING_BASIS",
+      lineNumbers: ["F"],
+      label: "Accounting method",
+      labelVariants: ["Accounting method", "Method of accounting"],
+      requiredForValidation: false,
+      nullAsZero: false,
+      isEbitdaAddBack: false,
+      notes: "Categorical (Cash/Accrual/Other) — captured to fact_value_text, never a dollar amount. Schedule C line F: (1) Cash, (2) Accrual, (3) Other.",
+    },
   ],
   identityChecks: [
     {

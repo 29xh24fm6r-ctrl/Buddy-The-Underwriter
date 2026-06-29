@@ -20,7 +20,7 @@ import {
 import { canonicalView, type CanonicalInputs } from "@/lib/finengine/spread/factViews";
 import type { IndustryProfile } from "@/lib/industryIntelligence/types";
 import { coreOperatingEarnings } from "@/lib/finengine/methods/foundation";
-import { interpret, type Interpretation } from "@/lib/finengine/metrics/interpret";
+import { interpret, type Interpretation, type AccountingBasis } from "@/lib/finengine/metrics/interpret";
 import * as M from "@/lib/finengine/metrics";
 
 export type MetricCell = {
@@ -50,8 +50,8 @@ function isReal(period: string): boolean {
 }
 
 /** Build a cell from any result carrying a metric name, attaching its interpretation. */
-function cell(family: string, result: ResultLike, scope: EntityScope, period: string, sourceKeys: string[]): MetricCell {
-  const interpretation = interpret(result);
+function cell(family: string, result: ResultLike, scope: EntityScope, period: string, sourceKeys: string[], accountingBasis?: AccountingBasis): MetricCell {
+  const interpretation = interpret(result, accountingBasis ? { accountingBasis } : undefined);
   return {
     family, metric: result.metric, scope, period,
     value: result.value ?? null,
@@ -78,9 +78,10 @@ function pushReal(cells: MetricCell[], c: MetricCell): void {
 function singlePeriodCells(view: ReturnType<typeof canonicalView>, snap: CertifiedPeriodSnapshot): MetricCell[] {
   const { v, src } = view;
   const scope = snap.entityScope, period = snap.fiscalPeriodEnd;
+  const basis = snap.accountingBasis;
   const s = src as Record<string, string>;
   const out: MetricCell[] = [];
-  const add = (family: string, r: ResultLike, fields: string[]) => pushReal(out, cell(family, r, scope, period, keysFor(s, fields)));
+  const add = (family: string, r: ResultLike, fields: string[]) => pushReal(out, cell(family, r, scope, period, keysFor(s, fields), basis));
 
   // EBITDA method (the real engine).
   const inputs: SpreadInputs = { facts: snap.facts, entityForm: "UNKNOWN", fiscalPeriodEnd: period };
@@ -139,21 +140,24 @@ function singlePeriodCells(view: ReturnType<typeof canonicalView>, snap: Certifi
 }
 
 /** Multi-period metrics from the ordered business series (turnover averages, returns, trend, growth). */
-function multiPeriodCells(scope: EntityScope, series: Array<{ period: string; v: CanonicalInputs }>): MetricCell[] {
+function multiPeriodCells(scope: EntityScope, series: Array<{ period: string; v: CanonicalInputs; basis: AccountingBasis }>): MetricCell[] {
   const out: MetricCell[] = [];
-  const mk = (family: string, r: ResultLike, period: string) => pushReal(out, cell(family, r, scope, period, []));
+  // Per-period basis conditions the accrual-dependent turnover metrics; SERIES-level
+  // trend/CAGR span periods and aren't accrual-dependent, so they pass no basis.
+  const mk = (family: string, r: ResultLike, period: string, basis?: AccountingBasis) =>
+    pushReal(out, cell(family, r, scope, period, [], basis));
 
   // Turnover + returns: each period i uses (prior, current) average balances.
   for (let i = 1; i < series.length; i++) {
-    const cur = series[i].v, prior = series[i - 1].v, period = series[i].period;
-    mk("activity", M.arTurnover(cur.revenue, prior.accountsReceivable, cur.accountsReceivable), period);
-    mk("activity", M.inventoryTurnover(cur.cogs, prior.inventory, cur.inventory), period);
-    mk("activity", M.apTurnover(cur.cogs, prior.accountsPayable, cur.accountsPayable), period);
-    mk("activity", M.assetTurnover(cur.revenue, prior.totalAssets, cur.totalAssets), period);
-    mk("profitability", M.returnOnAssets(cur.netIncome, prior.totalAssets, cur.totalAssets), period);
-    mk("profitability", M.returnOnEquity(cur.netIncome, prior.equity, cur.equity), period);
-    mk("structural", M.growthYoY(cur.revenue, prior.revenue), period);
-    mk("structural", M.growthYoY(cur.netIncome, prior.netIncome), period);
+    const cur = series[i].v, prior = series[i - 1].v, period = series[i].period, basis = series[i].basis;
+    mk("activity", M.arTurnover(cur.revenue, prior.accountsReceivable, cur.accountsReceivable), period, basis);
+    mk("activity", M.inventoryTurnover(cur.cogs, prior.inventory, cur.inventory), period, basis);
+    mk("activity", M.apTurnover(cur.cogs, prior.accountsPayable, cur.accountsPayable), period, basis);
+    mk("activity", M.assetTurnover(cur.revenue, prior.totalAssets, cur.totalAssets), period, basis);
+    mk("profitability", M.returnOnAssets(cur.netIncome, prior.totalAssets, cur.totalAssets), period, basis);
+    mk("profitability", M.returnOnEquity(cur.netIncome, prior.equity, cur.equity), period, basis);
+    mk("structural", M.growthYoY(cur.revenue, prior.revenue), period, basis);
+    mk("structural", M.growthYoY(cur.netIncome, prior.netIncome), period, basis);
   }
 
   // Trend + CAGR over the whole revenue series.
@@ -168,6 +172,18 @@ function multiPeriodCells(scope: EntityScope, series: Array<{ period: string; v:
 }
 
 /**
+ * SPEC-FINENGINE-KNOWLEDGE-WIRE-2 (2d) — when a scope's determinable accounting
+ * basis is not constant across its periods, period-over-period AR/AP/working-
+ * capital trends are not comparable. Only determinable bases (CASH/ACCRUAL/OTHER)
+ * count — an UNKNOWN period is missing capture, not a basis change. One warning.
+ */
+function basisChangeWarning(scope: EntityScope, series: Array<{ basis: AccountingBasis }>): string | null {
+  const determinable = new Set(series.map((s) => s.basis).filter((b) => b !== "UNKNOWN"));
+  if (determinable.size < 2) return null;
+  return `[${scope}] accounting basis changes across periods (${[...determinable].join(" → ")}) — period-over-period trends in AR/AP/working capital are not comparable.`;
+}
+
+/**
  * Compute the full deal spread from certified facts. Pure: the runner loads the
  * richer rows and passes them here. Read-only (NG1).
  */
@@ -178,13 +194,13 @@ export function computeDealSpread(dealId: string, rows: CertifiedFactRow[], opts
   const warnings: string[] = [];
 
   // Single-period metrics for every snapshot.
-  const viewsByScope = new Map<EntityScope, Array<{ period: string; v: CanonicalInputs }>>();
+  const viewsByScope = new Map<EntityScope, Array<{ period: string; v: CanonicalInputs; basis: AccountingBasis }>>();
   for (const snap of snapshots) {
     const view = canonicalView(snap.facts);
     cells.push(...singlePeriodCells(view, snap));
     if (isReal(snap.fiscalPeriodEnd)) {
       const arr = viewsByScope.get(snap.entityScope) ?? [];
-      arr.push({ period: snap.fiscalPeriodEnd, v: view.v });
+      arr.push({ period: snap.fiscalPeriodEnd, v: view.v, basis: snap.accountingBasis });
       viewsByScope.set(snap.entityScope, arr);
     }
     warnings.push(...snap.warnings.map((w) => `[${snap.entityScope} ${snap.fiscalPeriodEnd}] ${w}`));
@@ -194,6 +210,8 @@ export function computeDealSpread(dealId: string, rows: CertifiedFactRow[], opts
   for (const [scope, arr] of viewsByScope) {
     const ordered = arr.filter((a) => isReal(a.period)).sort((a, b) => (a.period < b.period ? -1 : 1));
     cells.push(...multiPeriodCells(scope, ordered));
+    const basisWarn = basisChangeWarning(scope, ordered);
+    if (basisWarn) warnings.push(basisWarn);
   }
 
   return { dealId, scopes, snapshots, cells, warnings };

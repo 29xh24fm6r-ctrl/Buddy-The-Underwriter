@@ -155,6 +155,16 @@ export const FORM_1065_2022: FormSpecification = {
       isEbitdaAddBack: false,
       notes: "Line 22 in 2022. Becomes Line 23 in 2024.",
     },
+    {
+      canonicalKey: "ACCOUNTING_BASIS",
+      lineNumbers: ["Schedule B, Line 1"],
+      label: "Accounting method",
+      labelVariants: ["Accounting method", "Method of accounting"],
+      requiredForValidation: false,
+      nullAsZero: false,
+      isEbitdaAddBack: false,
+      notes: "Categorical (Cash/Accrual/Other) — captured to fact_value_text, never a dollar amount. Schedule B line 1: a Cash, b Accrual, c Other.",
+    },
   ],
   identityChecks: [
     {

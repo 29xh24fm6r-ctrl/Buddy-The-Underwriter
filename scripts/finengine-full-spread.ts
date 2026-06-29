@@ -46,13 +46,14 @@ async function loadRows(dealId: string): Promise<CertifiedFactRow[]> {
   const sb = supabaseAdmin();
   const { data, error } = await (sb as any)
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num, fact_period_end, owner_type, is_superseded, source_canonical_type, confidence, provenance, source_document_id, created_at")
+    .select("fact_key, fact_value_num, fact_value_text, fact_period_end, owner_type, is_superseded, source_canonical_type, confidence, provenance, source_document_id, created_at")
     .eq("deal_id", dealId)
-    .not("fact_value_num", "is", null);
+    .or("fact_value_num.not.is.null,fact_value_text.not.is.null");
   if (error) throw new Error(`load ${dealId}: ${error.message}`);
   return ((data ?? []) as any[]).map((r) => ({
     fact_key: r.fact_key,
     fact_value_num: r.fact_value_num == null ? null : Number(r.fact_value_num),
+    fact_value_text: r.fact_value_text ?? null,
     fact_period_end: r.fact_period_end,
     owner_type: r.owner_type,
     is_superseded: !!r.is_superseded,
