@@ -668,6 +668,31 @@ export async function extractFactsFromDocument(args: {
     }
   }
 
+  // ── Accounting basis (SPEC-FINENGINE-KNOWLEDGE-WIRE-2) ─────────────────
+  // Path-agnostic: derive cash vs accrual from OCR text (tax-return method line
+  // or GAAP basis note) and, for Form 1120, infer ACCRUAL from the Schedule-L
+  // facts just written. Writes one categorical ACCOUNTING_BASIS fact. Best-effort
+  // — never throws, runs before the validation gate so SUSPECT cleanup applies.
+  if (extractedText) {
+    try {
+      const { captureAccountingBasis } = await import(
+        "@/lib/financialSpreads/extractors/captureAccountingBasis"
+      );
+      const basisRes = await captureAccountingBasis({
+        sb,
+        dealId: args.dealId,
+        bankId: args.bankId,
+        documentId: args.documentId,
+        ocrText: extractedText,
+        normDocType,
+        docYear,
+      });
+      if (basisRes.ok) factsWritten += 1;
+    } catch (err) {
+      console.warn("[extractFactsFromDocument] accountingBasis capture failed (non-fatal)", err);
+    }
+  }
+
   // ── Aegis: EXTRACTION_ZERO_FACTS finding ───────────────────────────────
   if (extractorRan && factsWritten === 0 && extractedText.length > 100) {
     writeSystemEvent({

@@ -27,6 +27,48 @@ export type FavorableDirection = "higher" | "lower" | "neutral";
 
 export type IndustryContext = { naics: string; annualRevenue: number };
 
+export type AccountingBasis = "CASH" | "ACCRUAL" | "OTHER" | "UNKNOWN";
+
+/**
+ * SPEC-FINENGINE-KNOWLEDGE-WIRE-2 (2c) — metrics that depend on accrual
+ * recognition (receivables/payables/turnover/working-capital). On a CASH-basis
+ * borrower these are not meaningful (AR/AP are not booked), so their reading is
+ * suppressed to "n/a". The metric VALUE is still computed and returned — only its
+ * interpretation changes. Deliberately limited to the AR/AP/turnover/WC set;
+ * margins, coverage, leverage, and EBITDA are untouched (R1).
+ */
+export const ACCRUAL_DEPENDENT_METRICS: ReadonlySet<string> = new Set([
+  "DSO",
+  "DPO",
+  "AR_TURNOVER",
+  "AP_TURNOVER",
+  "INVENTORY_TURNOVER",
+  "DIO",
+  "OPERATING_CYCLE_DAYS",
+  "CASH_CONVERSION_CYCLE",
+  "AR_DILUTION",
+  "ALLOWANCE_ADEQUACY",
+  "NET_WORKING_CAPITAL",
+  "WC_TO_SALES",
+  "WC_TURNOVER",
+]);
+
+const CASH_BASIS_CAVEAT =
+  "Not meaningful — borrower reports on a cash basis; AR/AP are not recognized.";
+
+/**
+ * Whether a metric's interpretation should be suppressed to "n/a" given the
+ * caller's context. Today this fires only for accrual-dependent metrics on a
+ * CASH basis; the predicate is structured so an industry-applicability set
+ * (e.g. inventory turnover for a service firm) can join here with no rework.
+ */
+function isInterpretationSuppressed(
+  metric: string,
+  opts?: { accountingBasis?: AccountingBasis },
+): boolean {
+  return opts?.accountingBasis === "CASH" && ACCRUAL_DEPENDENT_METRICS.has(metric);
+}
+
 export type Interpretation = {
   metric: string;
   value: number | null;
@@ -230,9 +272,29 @@ function policyBreached(value: number, axis: string, ctx?: PolicyContext): { bre
  * `metric` name and (where scalar) a `value`; AltmanResult/DuPontResult carry
  * `zone`/`driver` consumed by the special handlers.
  */
-export function interpret(result: Interpretable, opts?: { ctx?: PolicyContext; industry?: IndustryContext }): Interpretation {
+export function interpret(
+  result: Interpretable,
+  opts?: { ctx?: PolicyContext; industry?: IndustryContext; accountingBasis?: AccountingBasis },
+): Interpretation {
   const metric = result.metric;
   const value = result.value ?? null;
+
+  // SPEC-FINENGINE-KNOWLEDGE-WIRE-2 (2c): suppress accrual-dependent readings on a
+  // cash basis BEFORE any rating is computed. Value is preserved; rating → n/a,
+  // red flags cleared, signal carries the caveat. Applies uniformly across the
+  // band-rule and special-handler paths.
+  if (isInterpretationSuppressed(metric, opts)) {
+    const rule = RULES[metric];
+    return {
+      metric,
+      value,
+      rating: "n/a",
+      favorable: rule?.favorable ?? "neutral",
+      meaning: rule?.meaning ?? `No interpretation registered for ${metric}.`,
+      signal: CASH_BASIS_CAVEAT,
+      redFlags: [],
+    };
+  }
 
   const special = SPECIAL[metric];
   if (special) {

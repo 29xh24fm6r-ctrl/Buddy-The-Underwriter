@@ -89,6 +89,16 @@ export const FORM_1120_2022: FormSpecification = {
       nullAsZero: false,
       isEbitdaAddBack: false,
     },
+    {
+      canonicalKey: "ACCOUNTING_BASIS",
+      lineNumbers: ["Schedule B, Line 1"],
+      label: "Accounting method",
+      labelVariants: ["Accounting method", "Method of accounting"],
+      requiredForValidation: false,
+      nullAsZero: false,
+      isEbitdaAddBack: false,
+      notes: "Categorical (Cash/Accrual/Other) — captured to fact_value_text, never a dollar amount. Form 1120 has NO standard method line: infer ACCRUAL from Schedule-L AR/inventory presence, else UNKNOWN (never CASH). Form 1120-S carries it explicitly on Schedule B line 1.",
+    },
   ],
   identityChecks: [
     {
