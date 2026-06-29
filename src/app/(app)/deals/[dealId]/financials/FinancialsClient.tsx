@@ -116,12 +116,12 @@ function buildRows(): RowDef[][] {
     { label: "  Depreciation", keys: ["DEPRECIATION"], format: "dollars", style: "subrow" },
     { label: "  Interest Expense", keys: ["INTEREST_EXPENSE"], format: "dollars", style: "subrow" },
     { label: "  Section 179", keys: ["SK_SECTION_179_DEDUCTION"], format: "dollars", style: "subrow" },
-    { label: "Net Income / OBI", keys: ["ORDINARY_BUSINESS_INCOME", "NET_INCOME"], format: "dollars", style: "bold" },
+    { label: "Net Income / OBI", keys: ["EBITDA_BASE", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"], format: "dollars", style: "bold" },
   ];
 
   const ebitda_rows: RowDef[] = [
     { label: "EBITDA BRIDGE", keys: [], format: "dollars", style: "header" },
-    { label: "Net Income / OBI", keys: ["ORDINARY_BUSINESS_INCOME", "NET_INCOME"], format: "dollars", style: "normal" },
+    { label: "Net Income / OBI", keys: ["EBITDA_BASE", "ORDINARY_BUSINESS_INCOME", "NET_INCOME"], format: "dollars", style: "normal" },
     { label: "+ Depreciation", keys: ["DEPRECIATION"], format: "dollars", style: "subrow" },
     { label: "+ Interest Expense", keys: ["INTEREST_EXPENSE"], format: "dollars", style: "subrow" },
     { label: "+ Section 179", keys: ["SK_SECTION_179_DEDUCTION"], format: "dollars", style: "subrow" },

@@ -11,6 +11,7 @@
  */
 
 import type { MethodologySlate } from "@/lib/methodology/types";
+import { resolveEbitdaBaseIncome } from "@/lib/financialIntelligence/ebitdaBase";
 
 export type EbitdaAddBack = {
   key: string;
@@ -56,57 +57,26 @@ export function computeEbitda(
   const addBacks: EbitdaAddBack[] = [];
   const warnings: string[] = [];
 
-  // SPEC-CANONICAL-DSCR-NCADS-PERFECTION-PROGRAM-1 Phase 1: EBITDA base selection.
-  // Pass-throughs (1120S/1065) report ORDINARY_BUSINESS_INCOME. C-corps (Form 1120)
-  // do NOT — they report pre-tax TAXABLE_INCOME (line 30; tax is line 31). Since
-  // EBITDA is a pre-tax figure (base + interest + D&A), TAXABLE_INCOME is the correct
-  // C-corp base with NO tax add-back — symmetric with the pass-through path. Only if
-  // TAXABLE_INCOME is absent do we reconstruct from after-tax NET_INCOME by adding the
-  // tax provision back.
-  let baseKey: EbitdaAnalysis["baseKey"] = reportedOBI !== null ? "ORDINARY_BUSINESS_INCOME" : null;
-  let baseLabel = "OBI";
-  let baseValue: number | null = reportedOBI;
-  if (reportedOBI === null) {
-    const taxable = val(facts, "TAXABLE_INCOME");
-    // Schedule M-1 "income per return" reconciles book income to taxable income —
-    // it IS pre-tax taxable income (same basis as line-30 TAXABLE_INCOME). When the
-    // plain TAXABLE_INCOME line was not extracted but the M-1 bridge was, M1 is the
-    // correct pre-tax base. Without it, a C-corp with only M1 falls through to
-    // after-tax NET_INCOME and EBITDA is silently understated by the full pre-tax
-    // income (SPEC-FINENGINE-LIVE-SPREAD-1 Phase 3 finding: −$200,925 on OmniCare).
-    const m1Taxable = val(facts, "M1_TAXABLE_INCOME");
-    const netIncome = val(facts, "NET_INCOME");
-    const taxProvision = val(facts, "TOTAL_TAX") ?? val(facts, "M1_FEDERAL_TAX_BOOK");
-    if (taxable !== null) {
-      baseKey = "TAXABLE_INCOME";
-      baseLabel = "Taxable income (pre-tax)";
-      baseValue = taxable;
-    } else if (m1Taxable !== null) {
-      baseKey = "M1_TAXABLE_INCOME";
-      baseLabel = "Schedule M-1 taxable income (pre-tax)";
-      baseValue = m1Taxable;
-    } else if (netIncome !== null) {
-      baseKey = "NET_INCOME";
-      baseLabel = "Net income (after-tax, reconstructed to pre-tax)";
-      baseValue = netIncome;
-      if (taxProvision !== null && taxProvision !== 0) {
-        addBacks.push({
-          key: "TAX_PROVISION",
-          label: "Federal Tax Provision (reconstruct pre-tax base)",
-          value: taxProvision,
-          source: "EXTRACTED",
-          notes: "C-corp EBITDA base reconstructed from after-tax NET_INCOME by adding the tax provision back to pre-tax.",
-        });
-      } else {
-        warnings.push(
-          "C-corp NET_INCOME used as the EBITDA base but no tax provision (TOTAL_TAX / M1_FEDERAL_TAX_BOOK) is available — EBITDA likely understates pre-tax earnings.",
-        );
-      }
-    } else {
-      warnings.push(
-        "C-corp (Form 1120) EBITDA base unavailable — no ORDINARY_BUSINESS_INCOME, TAXABLE_INCOME, or NET_INCOME fact on file.",
-      );
-    }
+  // SPEC-EBITDA-BASE-INCOME-WIRE-1: the base-income selection ladder now lives in
+  // the shared resolveEbitdaBaseIncome resolver (extracted verbatim) so the live
+  // spread and this engine share one policy. Output is byte-identical: the
+  // resolver's taxAddBack/warning are translated back into the same add-back push
+  // and warning that the inline ladder produced.
+  const base = resolveEbitdaBaseIncome(facts);
+  const baseKey: EbitdaAnalysis["baseKey"] = base.baseKey;
+  const baseLabel = base.baseLabel;
+  const baseValue: number | null = base.baseValue;
+  if (base.taxAddBack !== null) {
+    addBacks.push({
+      key: "TAX_PROVISION",
+      label: "Federal Tax Provision (reconstruct pre-tax base)",
+      value: base.taxAddBack.value,
+      source: "EXTRACTED",
+      notes: "C-corp EBITDA base reconstructed from after-tax NET_INCOME by adding the tax provision back to pre-tax.",
+    });
+  }
+  if (base.warning !== null) {
+    warnings.push(base.warning);
   }
 
   // SPEC-B4: determine add-back stack variant

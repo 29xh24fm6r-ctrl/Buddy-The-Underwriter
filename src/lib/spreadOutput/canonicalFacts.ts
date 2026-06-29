@@ -9,7 +9,14 @@
  * be in the namespace), so the alias chain is left as-is.
  *
  * Output contract is UNCHANGED: flat `{FACT_KEY}_{year}` map + sorted years.
+ *
+ * SPEC-EBITDA-BASE-INCOME-WIRE-1: the EBITDA derivation now uses the shared
+ * resolveEbitdaBaseIncome resolver for base-income selection (adds the
+ * M1_TAXABLE_INCOME / TAXABLE_INCOME fallback the inline path lacked) and writes
+ * EBITDA_BASE_{year} so the spread row can show the resolved base.
  */
+
+import { resolveEbitdaBaseIncome } from "@/lib/financialIntelligence/ebitdaBase";
 
 export type CanonicalFactRow = {
   fact_key: string;
@@ -185,17 +192,30 @@ export function buildCanonicalFactsFromRows(
   }
 
   // EBITDA derivation: not stored as a fact — derive per year.
-  // Formula: OBI (or NET_INCOME) + DEPRECIATION + INTEREST_EXPENSE
+  // Base income via the shared industry-standard resolver
+  // (ORDINARY_BUSINESS_INCOME → TAXABLE_INCOME → M1_TAXABLE_INCOME → NET_INCOME),
+  // then + DEPRECIATION + INTEREST_EXPENSE + SK_SECTION_179_DEDUCTION.
   for (const year of Array.from(yearsSet)) {
     const ebitdaKey = `EBITDA_${year}`;
     if (facts[ebitdaKey] == null) {
-      const obi =
-        toNum(facts[`ORDINARY_BUSINESS_INCOME_${year}`]) ??
-        toNum(facts[`NET_INCOME_${year}`]);
+      const base = resolveEbitdaBaseIncome({
+        ORDINARY_BUSINESS_INCOME: toNum(facts[`ORDINARY_BUSINESS_INCOME_${year}`]),
+        TAXABLE_INCOME: toNum(facts[`TAXABLE_INCOME_${year}`]),
+        M1_TAXABLE_INCOME: toNum(facts[`M1_TAXABLE_INCOME_${year}`]),
+        NET_INCOME: toNum(facts[`NET_INCOME_${year}`]),
+        TOTAL_TAX: toNum(facts[`TOTAL_TAX_${year}`]),
+        M1_FEDERAL_TAX_BOOK: toNum(facts[`M1_FEDERAL_TAX_BOOK_${year}`]),
+      });
       const dep  = toNum(facts[`DEPRECIATION_${year}`]) ?? 0;
       const ie   = toNum(facts[`INTEREST_EXPENSE_${year}`]) ?? 0;
       const s179 = toNum(facts[`SK_SECTION_179_DEDUCTION_${year}`]) ?? 0;
-      if (obi !== null) facts[ebitdaKey] = obi + dep + ie + s179;
+      if (base.baseValue !== null) {
+        // Resolved base income drives the "Net Income / OBI" display row.
+        facts[`EBITDA_BASE_${year}`] = base.baseValue;
+        // EBITDA reconstructs the pre-tax figure (base + tax add-back when present).
+        const ebitdaBase = base.baseValue + (base.taxAddBack?.value ?? 0);
+        facts[ebitdaKey] = ebitdaBase + dep + ie + s179;
+      }
     }
   }
 
