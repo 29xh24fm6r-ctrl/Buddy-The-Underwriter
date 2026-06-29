@@ -38,6 +38,7 @@ describe("Workstream A — renderFinengineMemoNarrative shapes the engine memo",
       bankId: "bank-1",
       loadRows: async () => CLEAN,
       loadMeta: async () => ({ display_name: "Acme Co" }),
+      loadNaics: async () => null,
       signals: {
         productId: "SBA_7A_STANDARD",
         riskObligor: { dscr: 1.4, leverage: 2.5 },
@@ -62,6 +63,7 @@ describe("Workstream A — renderFinengineMemoNarrative shapes the engine memo",
       bankId: "bank-1",
       loadRows: async () => CLEAN,
       loadMeta: async () => ({ display_name: null, borrower_name: "Fallback Holdings LLC", name: "fixture" }),
+      loadNaics: async () => null,
     });
     const memo = renderFinengineMemoNarrative(pkg);
     const exec = memo.sections.find((s) => s.key === "exec_summary");

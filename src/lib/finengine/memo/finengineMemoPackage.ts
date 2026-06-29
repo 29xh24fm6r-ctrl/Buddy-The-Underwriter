@@ -16,6 +16,7 @@
  */
 
 import { computeDealSpread, type DealSpread } from "@/lib/finengine/spread/dealSpread";
+import type { IndustryProfile } from "@/lib/industryIntelligence/types";
 import { validateSpread, type SpreadValidation, type IntendedDivergence, type HardAnchor } from "@/lib/finengine/spread/validateSpread";
 import { spreadToMemoContribution } from "@/lib/finengine/spread/spreadMemo";
 import { buildCreditMemo, type MemoInputs, type MemoSection } from "@/lib/finengine/memo/buildCreditMemo";
@@ -172,10 +173,10 @@ export function buildFinengineMemoPackage(
   dealId: string,
   rows: CertifiedFactRow[],
   base: MemoInputs,
-  opts?: { scope?: EntityScope; intended?: IntendedDivergence[]; hardAnchors?: HardAnchor[]; signals?: MemoSignals },
+  opts?: { scope?: EntityScope; intended?: IntendedDivergence[]; hardAnchors?: HardAnchor[]; signals?: MemoSignals; industry?: IndustryProfile },
 ): FinengineMemoPackage {
   const scope = opts?.scope ?? "BUSINESS";
-  const spread = computeDealSpread(dealId, rows);
+  const spread = computeDealSpread(dealId, rows, opts?.industry ? { industry: opts.industry } : undefined);
   const validation = validateSpread(spread, { scope, intended: opts?.intended, rawRows: rows, hardAnchors: opts?.hardAnchors });
   const gate = memoGate(validation);
 

@@ -12,6 +12,7 @@ import {
   selectCertifiedValue,
   buildCertifiedSnapshots,
   scopeOf,
+  sourceCanonicalTypeToTrust,
   type CertifiedFactRow,
 } from "@/lib/finengine/shadow/dealInputAdapter";
 
@@ -137,5 +138,56 @@ describe("Phase 1 — provenance + snapshots", () => {
     const biz2025 = snaps.find((s) => s.entityScope === "BUSINESS" && s.fiscalPeriodEnd === "2025-12-31");
     assert.ok(biz2025, "2025 business snapshot exists from the income-statement interest row");
     assert.equal(biz2025!.facts["INTEREST_EXPENSE"], 394774.1);
+  });
+});
+
+// ===========================================================================
+// SPEC-FINENGINE-KNOWLEDGE-WIRE-1 — Workstream A: document-trust ranking.
+// Trust precedes confidence in the survivor ranking, so the higher-authority
+// document wins a same-period conflict even at lower extractor confidence.
+// ===========================================================================
+describe("Knowledge-wire A — document-trust ranking", () => {
+  const PERIOD = "2024-12-31";
+  // A higher-trust audited statement (trust 100) at LOW confidence vs a
+  // business tax return (trust 70) at HIGH confidence, same key/scope/period.
+  const REVENUE_CONFLICT: CertifiedFactRow[] = [
+    row("GROSS_RECEIPTS", PERIOD, 5_000_000, "AUDITED_FINANCIALS", "borrower", 0.6, "auditor_v1"),
+    row("GROSS_RECEIPTS", PERIOD, 4_200_000, "BUSINESS_TAX_RETURN", "DEAL", 0.9, "gemini_primary_v1"),
+  ];
+
+  it("T-A1: higher-trust/lower-confidence beats lower-trust/higher-confidence", () => {
+    const cv = selectCertifiedValue("GROSS_RECEIPTS", "BUSINESS", PERIOD, REVENUE_CONFLICT);
+    assert.equal(cv.value, 5_000_000); // the audited number, not the higher-confidence tax return
+    assert.equal(cv.selectedFrom?.sourceCanonicalType, "AUDITED_FINANCIALS");
+    assert.equal(cv.selectedFrom?.confidence, 0.6); // won despite lower confidence
+  });
+
+  it("T-A2: equal trust falls through to confidence → recency → |value| (unchanged behavior)", () => {
+    // Two BUSINESS_TAX_RETURN rows ⇒ identical trust ⇒ higher confidence wins.
+    const sameTrust: CertifiedFactRow[] = [
+      row("GROSS_RECEIPTS", PERIOD, 4_200_000, "BUSINESS_TAX_RETURN", "DEAL", 0.9, "gemini_primary_v1"),
+      row("GROSS_RECEIPTS", PERIOD, 4_190_000, "BUSINESS_TAX_RETURN", "DEAL", 0.5, "taxReturnExtractor:v2:deterministic"),
+    ];
+    const cv = selectCertifiedValue("GROSS_RECEIPTS", "BUSINESS", PERIOD, sameTrust);
+    assert.equal(cv.value, 4_200_000);
+    assert.equal(cv.selectedFrom?.confidence, 0.9);
+  });
+
+  it("T-A3: SelectionProvenance.trustLevel is populated on the winner", () => {
+    const cv = selectCertifiedValue("GROSS_RECEIPTS", "BUSINESS", PERIOD, REVENUE_CONFLICT);
+    assert.equal(cv.selectedFrom?.trustLevel, 100); // AUDITED_FINANCIALS
+    const taxOnly = selectCertifiedValue("DEPRECIATION", "BUSINESS", "2024-12-31", forKey("DEPRECIATION"));
+    assert.equal(taxOnly.selectedFrom?.trustLevel, 70); // BUSINESS_TAX_RETURN
+  });
+
+  it("sourceCanonicalTypeToTrust: known types map to the trust hierarchy; unknown/absent floors at 40 (R2)", () => {
+    assert.equal(sourceCanonicalTypeToTrust("AUDITED_FINANCIALS"), 100);
+    assert.equal(sourceCanonicalTypeToTrust("BUSINESS_TAX_RETURN"), 70);
+    assert.equal(sourceCanonicalTypeToTrust("PERSONAL_TAX_RETURN"), 65);
+    assert.equal(sourceCanonicalTypeToTrust("BANK_STATEMENT"), 30);
+    assert.equal(sourceCanonicalTypeToTrust("SOMETHING_UNMAPPED"), 40);
+    assert.equal(sourceCanonicalTypeToTrust(null), 40);
+    // Floor must never outrank a tax return (R2).
+    assert.ok(sourceCanonicalTypeToTrust(null) < sourceCanonicalTypeToTrust("PERSONAL_TAX_RETURN"));
   });
 });

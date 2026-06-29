@@ -18,6 +18,7 @@ import {
   type EntityScope,
 } from "@/lib/finengine/shadow/dealInputAdapter";
 import { canonicalView, type CanonicalInputs } from "@/lib/finengine/spread/factViews";
+import type { IndustryProfile } from "@/lib/industryIntelligence/types";
 import { coreOperatingEarnings } from "@/lib/finengine/methods/foundation";
 import { interpret, type Interpretation } from "@/lib/finengine/metrics/interpret";
 import * as M from "@/lib/finengine/metrics";
@@ -170,8 +171,8 @@ function multiPeriodCells(scope: EntityScope, series: Array<{ period: string; v:
  * Compute the full deal spread from certified facts. Pure: the runner loads the
  * richer rows and passes them here. Read-only (NG1).
  */
-export function computeDealSpread(dealId: string, rows: CertifiedFactRow[], opts?: { scopes?: EntityScope[] }): DealSpread {
-  const snapshots = buildCertifiedSnapshots(dealId, rows, opts ? { scopes: opts.scopes } : undefined);
+export function computeDealSpread(dealId: string, rows: CertifiedFactRow[], opts?: { scopes?: EntityScope[]; industry?: IndustryProfile }): DealSpread {
+  const snapshots = buildCertifiedSnapshots(dealId, rows, opts ? { scopes: opts.scopes, industry: opts.industry } : undefined);
   const scopes = [...new Set(snapshots.map((s) => s.entityScope))];
   const cells: MetricCell[] = [];
   const warnings: string[] = [];
