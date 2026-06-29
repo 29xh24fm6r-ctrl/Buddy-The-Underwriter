@@ -51,6 +51,24 @@
 export const GEMINI_FLASH = "gemini-3.1-flash-lite";
 
 /**
+ * GA flagship Flash (GA 2026-05-19, now the Gemini Enterprise default).
+ * Stronger reasoning than Flash-Lite — "rivals Pro" on many tasks — while
+ * staying Flash-tier latency/cost ($0.30/$2.50 per M tokens vs Flash-Lite's
+ * $0.25/$1.50). Used ONLY for accuracy-critical document fact extraction,
+ * where Flash-Lite was zeroing tax-return line items (NET_INCOME) on real
+ * 1120/1040 parses (SPEC-EXTRACTION-MODEL-UPGRADE-1).
+ *
+ * Pinned (NOT the floating `gemini-flash-latest` alias) for reproducibility
+ * in a regulated extraction pipeline.
+ *
+ * Vertex serving note: extraction resolves its location via getVertexLocation()
+ * (src/lib/ai/vertexLocation.ts), which defaults to `us-central1`. Confirm
+ * gemini-3.5-flash is served on that location before relying on the swap —
+ * a 404 falls back silently to OCR-regex (see SPEC-EXTRACTION-MODEL-UPGRADE-1 §0.4).
+ */
+export const GEMINI_FLASH_PRECISION = "gemini-3.5-flash";
+
+/**
  * Deep reasoning model — thinking mode, complex analysis.
  * Replaces: gemini-2.5-pro-preview-03-25 (RETIRED), gemini-2.5-pro (previous alias).
  *
@@ -106,7 +124,7 @@ export const OPENAI_REALTIME_TRANSCRIBE = "gpt-4o-mini-transcribe";
 // Gemini lanes
 export const MODEL_NARRATIVE      = GEMINI_PRO;    // credit memo narratives
 export const MODEL_RISK           = GEMINI_FLASH;  // risk grading (Gemini path)
-export const MODEL_EXTRACTION     = GEMINI_FLASH;  // document extraction (VertexAI)
+export const MODEL_EXTRACTION     = GEMINI_FLASH_PRECISION;  // document extraction (VertexAI) — SPEC-EXTRACTION-MODEL-UPGRADE-1: was GEMINI_FLASH
 export const MODEL_CLASSIFICATION = GEMINI_FLASH;  // doc classification (VertexAI)
 export const MODEL_RESEARCH       = GEMINI_FLASH;  // BIE 8-thread research
 export const MODEL_OCR            = GEMINI_FLASH;  // Gemini OCR job
