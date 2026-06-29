@@ -17,6 +17,7 @@ import { isMemoEngineCutOver, type TenantMemoCutoverFlags } from "@/lib/finengin
 import type { MemoInputs } from "@/lib/finengine/memo/buildCreditMemo";
 import type { HardAnchor } from "@/lib/finengine/spread/validateSpread";
 import type { CertifiedFactRow } from "@/lib/finengine/shadow/dealInputAdapter";
+import { getIndustryProfile } from "@/lib/industryIntelligence/naicsMapper";
 
 export type MemoRenderSource = "finengine" | "legacy";
 
@@ -49,6 +50,8 @@ export type LoadFinengineMemoOpts = {
   /** Injectable for tests; defaults to the supabaseAdmin-backed loaders. */
   loadRows?: (dealId: string) => Promise<CertifiedFactRow[]>;
   loadMeta?: (dealId: string) => Promise<DealMemoMeta>;
+  /** Resolve the deal's NAICS code (industry-calibrated reasonableness). Injectable for tests. */
+  loadNaics?: (dealId: string) => Promise<string | null>;
 };
 
 async function defaultLoadRows(dealId: string): Promise<CertifiedFactRow[]> {
@@ -81,6 +84,41 @@ async function defaultLoadMeta(dealId: string): Promise<DealMemoMeta> {
   return (data ?? {}) as DealMemoMeta;
 }
 
+/**
+ * Resolve the deal's NAICS code. `deal_borrower_story.naics_code` is the
+ * canonical, deal-scoped source (it carries naics_source/naics_confidence);
+ * `borrowers.naics_code` is the fallback when the story has none. Returns null
+ * when neither is present ⇒ caller falls through to the default industry profile.
+ */
+async function defaultLoadNaics(dealId: string): Promise<string | null> {
+  // Advisory: industry calibration is a refinement, never a gate. Any failure
+  // here (missing env, table, row) degrades to the default profile — it must
+  // NOT break memo loading (R3).
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const sb = supabaseAdmin();
+    const { data: story } = await (sb as any)
+      .from("deal_borrower_story")
+      .select("naics_code")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    const storyNaics = (story?.naics_code ?? "").trim();
+    if (storyNaics) return storyNaics;
+
+    const { data: deal } = await (sb as any).from("deals").select("borrower_id").eq("id", dealId).maybeSingle();
+    if (!deal?.borrower_id) return null;
+    const { data: borrower } = await (sb as any)
+      .from("borrowers")
+      .select("naics_code")
+      .eq("id", deal.borrower_id)
+      .maybeSingle();
+    const borrowerNaics = (borrower?.naics_code ?? "").trim();
+    return borrowerNaics || null;
+  } catch {
+    return null;
+  }
+}
+
 /** The persisted/returned memo shape the generate route uses: `{ sections: [...] }`. */
 export type RenderedMemo = { sections: Array<{ key: string; title: string; body: string }>; source: "finengine" };
 
@@ -105,9 +143,14 @@ export function renderFinengineMemoNarrative(pkg: FinengineMemoPackage): Rendere
 export async function loadFinengineMemo(dealId: string, opts: LoadFinengineMemoOpts = {}): Promise<FinengineMemoPackage> {
   const rows = await (opts.loadRows ?? defaultLoadRows)(dealId);
   const meta = await (opts.loadMeta ?? defaultLoadMeta)(dealId);
+  const naics = await (opts.loadNaics ?? defaultLoadNaics)(dealId);
   const base: MemoInputs = {
     ...(opts.base as MemoInputs | undefined),
     borrower: { displayName: resolveBorrowerLabel(meta), entityForm: meta.entityForm ?? opts.base?.borrower?.entityForm },
   };
-  return buildFinengineMemoPackage(dealId, rows, base, { signals: opts.signals, hardAnchors: opts.hardAnchors });
+  return buildFinengineMemoPackage(dealId, rows, base, {
+    signals: opts.signals,
+    hardAnchors: opts.hardAnchors,
+    industry: getIndustryProfile(naics),
+  });
 }

@@ -44,6 +44,7 @@ describe("Phase 4 — loadFinengineMemo (injected DB) builds the gated package",
       bankId: "bank-x",
       loadRows: async () => CLEAN,
       loadMeta: async () => ({ display_name: null, borrower_name: "Acme Holdings LLC", name: "fixture" }),
+      loadNaics: async () => null,
     });
     // display_name null → falls back to borrower_name, never the fixture name
     const exec = pkg.memo.sections.find((s) => s.key === "exec_summary");
@@ -56,6 +57,7 @@ describe("Phase 4 — loadFinengineMemo (injected DB) builds the gated package",
     const pkg = await loadFinengineMemo("deal-2", {
       loadRows: async () => CLEAN,
       loadMeta: async () => ({ display_name: "Acme Co" }),
+      loadNaics: async () => null,
       hardAnchors: [{ metric: "EBITDA", period: "2024-12-31", expected: 999_999, source: "deliberately wrong audited anchor" }],
     });
     assert.equal(pkg.gate.allowed, false);
