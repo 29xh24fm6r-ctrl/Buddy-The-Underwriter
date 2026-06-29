@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { getFormSpec, validateDocumentFacts, isSpreadGenerationAllowed } from "@/lib/irsKnowledge";
+import { canonicalizeFactMap } from "@/lib/irsKnowledge/canonicalFactKeys";
 import type { ValidationStatus } from "@/lib/irsKnowledge/types";
 import { resolveIrsFormType, isTaxReturnDocument } from "./resolveIrsFormType";
 
@@ -122,11 +123,16 @@ export async function runPostExtractionValidation(
       };
     }
 
-    // Build fact map
-    const facts: Record<string, number | null> = {};
+    // Build raw fact map (extractor vocabulary)
+    const rawFacts: Record<string, number | null> = {};
     for (const row of factRows as { fact_key: string; fact_value_num: number | null }[]) {
-      facts[row.fact_key] = row.fact_value_num;
+      rawFacts[row.fact_key] = row.fact_value_num;
     }
+
+    // SPEC-VALIDATION-GATE-RESTORE-PROGRAM-1 Phase 1: normalize extractor keys to
+    // the canonical FormSpec vocabulary so identity-check operands bind. Without
+    // this every check is skipped and the gate verifies nothing.
+    const facts = canonicalizeFactMap(rawFacts);
 
     // d) Run identity validation
     const result = validateDocumentFacts(documentId, spec, facts);
