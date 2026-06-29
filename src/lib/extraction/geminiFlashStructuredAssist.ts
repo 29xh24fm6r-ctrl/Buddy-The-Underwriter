@@ -52,10 +52,13 @@ export type StructuredAssistResult = {
 
 // ─── Hard Limits (C1) ────────────────────────────────────────────────────────
 
-import { GEMINI_FLASH, isGemini3Model } from "@/lib/ai/models";
+// SPEC-EXTRACTION-MODEL-UPGRADE-1: resolve the document-extraction model via the
+// MODEL_EXTRACTION intent-alias (not GEMINI_FLASH directly), so the extraction
+// lane is governed from the single registry alias.
+import { MODEL_EXTRACTION, isGemini3Model } from "@/lib/ai/models";
 
 const STRUCTURED_ASSIST_TIMEOUT_MS = 15_000; // 15s hard timeout (institutional)
-const GEMINI_MODEL = GEMINI_FLASH;
+const GEMINI_MODEL = MODEL_EXTRACTION;
 const GEMINI_TEMPERATURE = 0.1;
 const MAX_OCR_TEXT_LENGTH = 50_000;  // Truncate to avoid token limits
 const MAX_RETRIES = 1;              // At most 1 retry (C2)
