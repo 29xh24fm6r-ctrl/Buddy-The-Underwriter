@@ -7,7 +7,12 @@
  *   current-liability keys (SL_OPERATING_CURRENT_LIABILITIES,
  *   SL_LOANS_FROM_SHAREHOLDERS, SL_OTHER_LIABILITIES, SL_TOTAL_CURRENT_LIABILITIES)
  *   + per-fact source-evidence instruction.
- * 63 total expected keys. Shadow-mode smoke-test threshold: >= 55 keys extracted.
+ * v4 (SPEC-VALIDATION-GATE-RESTORE-PROGRAM-1 Phase 3 revised): +1 main-body key
+ *   TOTAL_DEDUCTIONS (Form 1120 line 27 / 1065 line 21 / 1120S line 20) so the
+ *   1120_TAXABLE_INCOME identity binds. (SL_TOTAL_LIABILITIES / SL_TOTAL_EQUITY
+ *   for 1120_BALANCE_SHEET were already requested since v2 — re-extraction alone
+ *   captures them.) Additive only.
+ * 64 total expected keys. Shadow-mode smoke-test threshold: >= 55 keys extracted.
  */
 
 import type { GeminiExtractionPrompt } from "../types";
@@ -17,14 +22,15 @@ import {
   EVIDENCE_INSTRUCTION,
 } from "./shared";
 
-const PROMPT_VERSION = "gemini_primary_btr_v3";
+const PROMPT_VERSION = "gemini_primary_btr_v4";
 
 const EXPECTED_KEYS = [
-  // ── Main Body (16) ──────────────────────────────────────────────────
+  // ── Main Body (17) ──────────────────────────────────────────────────
   "GROSS_RECEIPTS",
   "COST_OF_GOODS_SOLD",
   "GROSS_PROFIT",
   "TOTAL_INCOME",
+  "TOTAL_DEDUCTIONS",
   "OFFICER_COMPENSATION",
   "SALARIES_WAGES",
   "DEPRECIATION",
@@ -107,6 +113,7 @@ const BTR_INSTRUCTIONS =
   "- COST_OF_GOODS_SOLD: Cost of goods sold (Line 2)\n" +
   "- GROSS_PROFIT: Gross profit (Line 3)\n" +
   "- TOTAL_INCOME: Total income (Line 6 or 11)\n" +
+  "- TOTAL_DEDUCTIONS: Total deductions (Form 1120 Line 27; Form 1065 Line 21; Form 1120S Line 20). The single 'Total deductions' subtotal line — do NOT sum the individual deduction lines yourself.\n" +
   "- OFFICER_COMPENSATION: Compensation of officers (Line 12)\n" +
   "- SALARIES_WAGES: Salaries and wages (Line 13)\n" +
   "- DEPRECIATION: Depreciation (Line 20)\n" +

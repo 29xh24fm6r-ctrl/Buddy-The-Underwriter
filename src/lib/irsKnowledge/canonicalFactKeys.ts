@@ -70,8 +70,10 @@ export const EXTRACTOR_TO_CANONICAL: Record<string, string | string[]> = {
   // SCHC_NET_PROFIT identity (GROSS_PROFIT − TOTAL_DEDUCTIONS = NET_PROFIT;
   // sourceDescription "Schedule C Lines 5, 28, 31"). NOTE: this sources
   // TOTAL_DEDUCTIONS for the Schedule-C context only; the corporate-return
-  // TOTAL_DEDUCTIONS (1120 line 27 / 1065 line 21 / 1120S line 20) is genuinely
-  // not extracted and is restored in Phase 4 — see OPERANDS_PENDING_EXTRACTION.
+  // TOTAL_DEDUCTIONS (1120 line 27 / 1065 line 21 / 1120S line 20) is now
+  // extracted directly by the BTR prompt (v4) under the canonical key
+  // TOTAL_DEDUCTIONS — SPEC-VALIDATION-GATE-RESTORE-PROGRAM-1 Phase 3 (revised) —
+  // so it binds the 1120_TAXABLE_INCOME identity without an alias.
   SCHEDULE_C_TOTAL_EXPENSES: "TOTAL_DEDUCTIONS",
 };
 
@@ -99,9 +101,8 @@ export const CANONICAL_KEYS_EMITTED_VERBATIM: ReadonlySet<string> = new Set([
  *
  * - SCH_E_MORTGAGE_INTEREST: Schedule E line 12; only used by the approximate,
  *   non-required SCH_E_RENTAL_NET check. No extractor key emits it today.
- *   (Corporate-return TOTAL_DEDUCTIONS line 27 is also not extracted, but it has a
- *   Schedule-C source in the alias map and is therefore not listed here; its
- *   corporate variant is restored in Phase 4.)
+ *   (Corporate-return TOTAL_DEDUCTIONS line 27 is now extracted directly by the
+ *   BTR prompt v4 — Phase 3 revised — so it is not pending.)
  */
 export const OPERANDS_PENDING_EXTRACTION: ReadonlySet<string> = new Set([
   "SCH_E_MORTGAGE_INTEREST",
