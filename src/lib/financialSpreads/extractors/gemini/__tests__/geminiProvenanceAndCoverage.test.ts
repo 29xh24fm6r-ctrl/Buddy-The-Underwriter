@@ -116,7 +116,7 @@ test("business tax return prompt covers Schedule L current liabilities / shareho
     assert.ok(prompt.userPrompt.includes(k), `BTR instructions must describe ${k}`);
   }
   assert.ok(prompt.userPrompt.includes('"evidence"'), "BTR prompt requests per-fact evidence");
-  assert.equal(prompt.promptVersion, "gemini_primary_btr_v3");
+  assert.equal(prompt.promptVersion, "gemini_primary_btr_v4");
 });
 
 test("balance sheet prompt covers QuickBooks current-asset and current-liability detail", () => {
