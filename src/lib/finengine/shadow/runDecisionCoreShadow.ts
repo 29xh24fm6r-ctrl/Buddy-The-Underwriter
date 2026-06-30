@@ -16,9 +16,13 @@
  * keys each finengine value at the SAME owner_type + period as the legacy row it diffs
  * against, so a divergence is a real diff — not an all-shadow-only miss.
  *
- * Stress mapping (§0.3 / R4): legacy `DSCR_STRESSED_300BPS` is a pure +300bps rate
- * shock, so the finengine value comes from `rateShock` (not `stressC`), stressing the
- * same global base as the finengine's base DSCR.
+ * Stress mapping: the finengine `DSCR_STRESSED_300BPS` analog is **Stress C** —
+ * simultaneous +300bps AND −15% revenue compression at the 1.00x floor
+ * (`stress/stressEngine.ts::stressC`), stressing the same global base as the
+ * finengine's base DSCR. Legacy's `DSCR_STRESSED_300BPS` was rate-only (the
+ * revenue-compression half was previously absent); the difference is the documented
+ * Stress-C completion + global-denominator fix, registered INTENDED by
+ * SPEC-FINENGINE-DECISION-CORE-GOLDEN-1.
  *
  * Golden set is the companion spec — here it defaults to `[]`, so the corrected global
  * denominator / Stress-C fixes diff as UNEXPECTED (the gate working). Pure — no DB.
@@ -27,7 +31,8 @@
 import type { CertifiedFactRow } from "@/lib/finengine/shadow/dealInputAdapter";
 import { runGlobalCashFlowShadow } from "@/lib/finengine/shadow/globalCashFlowAdapter";
 import { buildStressInputs } from "@/lib/finengine/shadow/stressInputsAdapter";
-import { rateShock } from "@/lib/finengine/stress/stressEngine";
+import { stressC } from "@/lib/finengine/stress/stressEngine";
+import { decisionCoreGoldenSet } from "@/lib/finengine/shadow/decisionCoreGoldenSet";
 import {
   compareProducers,
   type ShadowValue,
@@ -61,8 +66,12 @@ function primaryLegacyRow(rows: CertifiedFactRow[], key: string): CertifiedFactR
 export function runDecisionCoreShadow(
   dealId: string,
   rows: CertifiedFactRow[],
-  goldenSet: GoldenSetEntry[] = [],
+  goldenSet?: GoldenSetEntry[],
 ): DecisionCoreShadowResult {
+  // SPEC-FINENGINE-DECISION-CORE-GOLDEN-1 §2 — self-classifying out of the box: when
+  // the caller omits a golden set, build the registry (corrected global denominator +
+  // Stress C, from INDEPENDENT derivations). An explicit argument (incl. `[]`) wins.
+  const golden = goldenSet ?? decisionCoreGoldenSet(dealId, rows);
   const warnings: string[] = [];
 
   // ── finengine producers ─────────────────────────────────────────────────────
@@ -72,7 +81,7 @@ export function runDecisionCoreShadow(
 
   const stress = buildStressInputs(dealId, rows, inputs.analysisPeriod, result.globalCashBeforeDebt, result.globalDebtService);
   warnings.push(...stress.warnings);
-  const stressedDSCR = rateShock(stress.stressInputs).dscr;
+  const stressedDSCR = stressC(stress.stressInputs).dscr;
 
   const finengineValue = (key: string): number | null =>
     key === "DSCR" ? globalDSCR : key === "DSCR_STRESSED_300BPS" ? stressedDSCR : null;
@@ -92,7 +101,7 @@ export function runDecisionCoreShadow(
     shadow.push({ dealId, factKey: key, ownerType: leg.owner_type, fiscalPeriodEnd: leg.fact_period_end, value: finengineValue(key) });
   }
 
-  const report = compareProducers(legacy, shadow, goldenSet);
+  const report = compareProducers(legacy, shadow, golden);
 
   return { dealId, analysisPeriod: inputs.analysisPeriod, globalDSCR, stressedDSCR, report, warnings };
 }

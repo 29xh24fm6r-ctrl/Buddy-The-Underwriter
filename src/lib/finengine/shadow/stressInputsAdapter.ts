@@ -5,12 +5,13 @@
  * `StressInputs` the unified stress engine consumes. Used by the decision-core shadow
  * harness to produce the finengine's `DSCR_STRESSED_300BPS` analog.
  *
- * Base/DS definition (R4): the legacy `DSCR_STRESSED_300BPS = cashFlowAvailable /
- * stressedAds` is a PURE +300bps rate shock (numerator unchanged). The harness pairs
- * it with the finengine `rateShock` (not `stressC`, which also compresses revenue).
- * The finengine stresses its GLOBAL base (cash-before-debt / global debt service) —
- * the same base its global DSCR uses — so the stressed comparison carries the same
- * documented denominator fix as the base DSCR, consistently, not a new artifact.
+ * Base/DS definition: legacy `DSCR_STRESSED_300BPS = cashFlowAvailable / stressedAds`
+ * was rate-only (the revenue-compression half was previously absent). The finengine
+ * analog is **Stress C** — simultaneous +300bps AND −15% revenue at 1.00x — which is
+ * why the assembled inputs carry `baseRevenue` + `grossMarginPct` (the revenue half).
+ * The finengine stresses its GLOBAL base (cash-before-debt / global debt service), the
+ * same base its global DSCR uses; the divergence vs legacy is the documented Stress-C
+ * completion + global-denominator fix (registered INTENDED by the golden spec).
  *
  * `debtServiceStressed300` is left undefined in v1 (no amortization-engine stressed-DS
  * value is persisted), so the stress engine applies its conservative +12% fallback;
