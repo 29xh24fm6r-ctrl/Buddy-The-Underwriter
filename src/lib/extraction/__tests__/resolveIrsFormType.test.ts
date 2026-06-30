@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 import {
   resolveIrsFormType,
   isTaxReturnDocument,
+  isBalanceSheetDocument,
+  isValidatableDocument,
   TAX_RETURN_CANONICAL_TYPES,
 } from "@/lib/extraction/resolveIrsFormType";
 
@@ -203,4 +205,42 @@ test("[evw-v2-d] returns false for null and unknown strings", () => {
 
 test("[evw-v2-e] TAX_RETURN_CANONICAL_TYPES has 17 entries (matches spec V-2)", () => {
   assert.equal(TAX_RETURN_CANONICAL_TYPES.size, 17);
+});
+
+// ── SPEC-BALANCE-SHEET-INTEGRITY-GATE-1 §4: balance-sheet resolver predicates ──
+
+test("[bsi-r1] isBalanceSheetDocument true for BALANCE_SHEET (case-insensitive), false otherwise", () => {
+  assert.equal(isBalanceSheetDocument({ canonical_type: "BALANCE_SHEET" }), true);
+  assert.equal(isBalanceSheetDocument({ canonical_type: "balance_sheet" }), true);
+  assert.equal(isBalanceSheetDocument({ canonical_type: "BUSINESS_TAX_RETURN" }), false);
+  assert.equal(isBalanceSheetDocument({ canonical_type: "PERSONAL_FINANCIAL_STATEMENT" }), false);
+  assert.equal(isBalanceSheetDocument({ canonical_type: null }), false);
+});
+
+test("[bsi-r2] isValidatableDocument true for a 1120 row AND a balance-sheet row", () => {
+  assert.equal(isValidatableDocument({ canonical_type: "BUSINESS_TAX_RETURN" }), true);
+  assert.equal(isValidatableDocument({ canonical_type: "BALANCE_SHEET" }), true);
+  // Still false for unrelated non-validatable docs
+  assert.equal(isValidatableDocument({ canonical_type: "BANK_STATEMENT" }), false);
+  assert.equal(isValidatableDocument({ canonical_type: "PERSONAL_FINANCIAL_STATEMENT" }), false);
+});
+
+test("[bsi-r3] resolveIrsFormType returns BALANCE_SHEET for a balance-sheet row (no ai_form_numbers)", () => {
+  assert.equal(
+    resolveIrsFormType({
+      canonical_type: "BALANCE_SHEET",
+      ai_form_numbers: null,
+      document_type: null,
+    }),
+    "BALANCE_SHEET",
+  );
+});
+
+test("[bsi-r4] resolveIrsFormType unchanged for tax-return rows (no regression)", () => {
+  assert.equal(
+    resolveIrsFormType({ canonical_type: "TAX_RETURN_1120", ai_form_numbers: null, document_type: null }),
+    "FORM_1120",
+  );
+  // A balance sheet is NOT a tax return
+  assert.equal(isTaxReturnDocument({ canonical_type: "BALANCE_SHEET" }), false);
 });

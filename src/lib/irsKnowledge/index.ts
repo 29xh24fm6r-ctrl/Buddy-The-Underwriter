@@ -5,12 +5,14 @@ export { getForm1120Spec, getForm1120SSpec } from "./formSpecs/form1120";
 export { getScheduleCSpec } from "./formSpecs/scheduleC";
 export { getForm1040Spec, FORM_1040_SPECS } from "./formSpecs/form1040";
 export { getScheduleESpec, SCHEDULE_E_SPECS } from "./formSpecs/scheduleE";
+export { getBalanceSheetSpec } from "./formSpecs/balanceSheet";
 
 import { getForm1065Spec } from "./formSpecs/form1065";
 import { getForm1120Spec, getForm1120SSpec } from "./formSpecs/form1120";
 import { getScheduleCSpec } from "./formSpecs/scheduleC";
 import { getForm1040Spec } from "./formSpecs/form1040";
 import { getScheduleESpec } from "./formSpecs/scheduleE";
+import { getBalanceSheetSpec } from "./formSpecs/balanceSheet";
 import type { IrsFormType, FormSpecification } from "./types";
 
 export function getFormSpec(
@@ -24,6 +26,7 @@ export function getFormSpec(
     case "SCHEDULE_C":  return getScheduleCSpec(taxYear);
     case "FORM_1040":   return getForm1040Spec(taxYear);
     case "SCHEDULE_E":  return getScheduleESpec(taxYear);
+    case "BALANCE_SHEET": return getBalanceSheetSpec(taxYear);
     default: return null;
   }
 }

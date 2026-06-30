@@ -153,7 +153,8 @@ export type IrsFormType =
   | "SCHEDULE_L" | "SCHEDULE_M1" | "SCHEDULE_M2"
   | "FORM_1125A" | "FORM_4562" | "FORM_8825"
   | "AUDITED_FINANCIALS" | "REVIEWED_FINANCIALS"
-  | "COMPILED_FINANCIALS" | "INTERIM_FINANCIALS" | "BANK_STATEMENTS";
+  | "COMPILED_FINANCIALS" | "INTERIM_FINANCIALS" | "BANK_STATEMENTS"
+  | "BALANCE_SHEET";
 
 // When same value exists in multiple docs, higher trust wins
 export const DOCUMENT_TRUST_LEVEL: Record<IrsFormType, number> = {
@@ -166,6 +167,9 @@ export const DOCUMENT_TRUST_LEVEL: Record<IrsFormType, number> = {
   SCHEDULE_L: 50, SCHEDULE_M1: 50, SCHEDULE_M2: 50,
   FORM_1125A: 50, FORM_4562: 50, FORM_8825: 50,
   INTERIM_FINANCIALS: 40,
+  // Standalone business balance-sheet document (Statement of Assets, Liabilities
+  // and Equity). Management/bookkeeping-prepared, ranks alongside interim financials.
+  BALANCE_SHEET: 40,
   BANK_STATEMENTS: 30,
 };
 
@@ -189,6 +193,15 @@ export type IdentityCheck = {
   toleranceDollars: number;
   requiredForValidation: boolean;
   sourceDescription: string;
+  /**
+   * SPEC-BALANCE-SHEET-INTEGRITY-GATE-1 §3 — per-check failure severity.
+   * Additive and backward-compatible: when unset, a failing required check
+   * defaults to "block" semantics (BLOCKED when it's the only required check),
+   * preserving all existing tax-return forms. A "flag"-severity required check
+   * that fails degrades the document to FLAGGED (analyst sign-off) instead of
+   * hard-blocking spread generation.
+   */
+  severity?: "block" | "flag";
 };
 
 export type FormSpecification = {

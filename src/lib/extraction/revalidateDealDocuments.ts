@@ -2,7 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { writeEvent } from "@/lib/ledger/writeEvent";
-import { isTaxReturnDocument, resolveIrsFormType } from "./resolveIrsFormType";
+import { isValidatableDocument, resolveIrsFormType } from "./resolveIrsFormType";
 import { runPostExtractionValidation } from "./postExtractionValidator";
 import {
   resolveDocTaxYear,
@@ -115,10 +115,11 @@ export async function revalidateDealDocuments(
       formType,
       taxYear,
       status,
-      // The validator persists a row for every tax-return doc (validation result
-      // or audit SKIPPED) except under the deal-level validation_disabled escape
-      // hatch; non-tax docs self-gate with no row.
-      rowWritten: isTaxReturnDocument(doc),
+      // The validator persists a row for every validatable doc — tax return OR
+      // balance sheet (SPEC-BALANCE-SHEET-INTEGRITY-GATE-1) — whether a validation
+      // result or an audit SKIPPED, except under the deal-level validation_disabled
+      // escape hatch; non-validatable docs self-gate with no row.
+      rowWritten: isValidatableDocument(doc),
     });
   }
 
