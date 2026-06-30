@@ -11,6 +11,7 @@ import {
   type PeriodFact,
 } from "@/lib/financialFacts/cashFlowWaterfallInput";
 import { reconcileFinancialFacts, type ReconcileFact } from "@/lib/financialFacts/reconcileFinancialFacts";
+import { computeQoEMaterialityFlagsFromFacts } from "@/lib/spreads/qoeMaterialityFlag";
 
 /**
  * SPEC-CANONICAL-NCADS-WATERFALL-WIRING-1 (Step 1) — canonical NCADS writer.
@@ -48,6 +49,10 @@ const INPUT_FACT_KEYS = [
   // waterfall input directly).
   "COST_OF_GOODS_SOLD",
   "GROSS_PROFIT",
+  // SPEC-QOE-OWNERBENEFIT-ACTIVATION-1 (interim): rolled-up non-recurring buckets
+  // read ONLY for the advisory QoE materiality flag — never fed to the waterfall.
+  "OTHER_INCOME",
+  "OTHER_DEDUCTIONS",
 ];
 
 export type ComputeCashFlowWaterfallResult =
@@ -148,6 +153,34 @@ export async function computeCashFlowWaterfallFacts(args: {
       }
       periodRows.sort((a, b) => Number(b.confidence ?? 0) - Number(a.confidence ?? 0));
       factMap[k] = periodRows[0].fact_value_num !== null ? Number(periodRows[0].fact_value_num) : null;
+    }
+
+    // SPEC-QOE-OWNERBENEFIT-ACTIVATION-1 (interim "fast partial"): surface
+    // material rolled-up non-recurring buckets (>5% of revenue) for analyst
+    // review. ADVISORY ONLY — this never feeds the waterfall arithmetic or NCADS,
+    // and it cannot auto-classify PPP/EIDL/ERC (granular capture is Phase 0).
+    try {
+      const materiality = computeQoEMaterialityFlagsFromFacts(factMap);
+      if (materiality.flags.length > 0) {
+        void writeEvent({
+          dealId,
+          kind: "deal.compute.qoe_materiality_flag",
+          meta: {
+            severity: "info",
+            period,
+            confidence: materiality.confidence,
+            flags: materiality.flags.map((f) => ({
+              line_item: f.lineItem,
+              amount: f.amount,
+              pct_of_revenue: f.pctOfRevenue,
+              documentation_required: f.documentationRequired,
+              note: f.note,
+            })),
+          },
+        }).catch(() => {});
+      }
+    } catch {
+      // Advisory flag must never affect NCADS computation.
     }
 
     // 3. Build waterfall input (reuses ebitdaEngine base + ownerCompTreatment).
