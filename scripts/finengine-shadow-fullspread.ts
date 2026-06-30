@@ -71,6 +71,15 @@ async function main() {
         `total=${report.total} ZERO=${report.zero} INTENDED=${report.intended} UNEXPECTED=${report.unexpected}  ` +
         `cutoverBlocked=${report.cutoverBlocked}`,
     );
+    // Per-metric one-line summary for each overlapping (gated) metric.
+    const gatedKeys = [...new Set(report.divergences.map((d) => d.factKey))].sort();
+    for (const key of gatedKeys) {
+      const ds = report.divergences.filter((d) => d.factKey === key);
+      const z = ds.filter((d) => d.classification === "ZERO").length;
+      const i = ds.filter((d) => d.classification === "INTENDED").length;
+      const u = ds.filter((d) => d.classification === "UNEXPECTED").length;
+      console.log(`   ${key}: ZERO=${z} INTENDED=${i} UNEXPECTED=${u}`);
+    }
     for (const d of report.divergences) {
       console.log(
         `   ${d.classification.padEnd(10)} ${d.factKey} ${d.fiscalPeriodEnd} [${d.ownerType}]  ` +
