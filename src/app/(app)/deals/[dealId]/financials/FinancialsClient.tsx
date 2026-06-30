@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSpreadOutput } from "@/hooks/useSpreadOutput";
 import { ClassicSpreadDownloadLink } from "@/components/deals/ClassicSpreadDownloadLink";
+import FinengineBalanceSheetPanel from "./FinengineBalanceSheetPanel";
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────
 
@@ -529,6 +530,9 @@ export default function FinancialsClient({ dealId }: { dealId: string }) {
           &#x27F3; Refresh
         </button>
       </div>
+
+      {/* ── Panel F: Balance-Sheet Analysis — Finengine (gated, dark by default) ── */}
+      <FinengineBalanceSheetPanel dealId={dealId} />
     </div>
   );
 }
