@@ -70,12 +70,28 @@ export function isBalanceSheetDocument(row: { canonical_type: string | null }): 
 }
 
 /**
- * A document is validatable by the IRS-identity gate when it is either a tax
- * return OR a standalone balance sheet. `isTaxReturnDocument` stays semantically
- * a tax-return predicate; this is the combined self-gate the validator uses.
+ * SPEC-INCOME-STATEMENT-INTEGRITY-GATE-1 §4 — canonical_type values that denote an
+ * actual business income statement (Statement of Revenues and Expenses), where the
+ * two P&L identities (Revenue − COGS = Gross Profit, Gross Profit − OpEx = Operating
+ * Income) are real integrity checks. The classifier normalizes every P&L synonym
+ * ("Operating Statement", "P&L", "Income Statement", "Financial Statement") to the
+ * single canonical type "INCOME_STATEMENT" (tier2Structural / tier3LLM /
+ * classifyDocumentSpine), so that is the only member.
+ */
+export const INCOME_STATEMENT_CANONICAL_TYPES = new Set<string>(["INCOME_STATEMENT"]);
+
+export function isIncomeStatementDocument(row: { canonical_type: string | null }): boolean {
+  return !!row.canonical_type && INCOME_STATEMENT_CANONICAL_TYPES.has(row.canonical_type.toUpperCase());
+}
+
+/**
+ * A document is validatable by the IRS-identity gate when it is a tax return, a
+ * standalone balance sheet, OR a standalone income statement. `isTaxReturnDocument`
+ * stays semantically a tax-return predicate; this is the combined self-gate the
+ * validator uses.
  */
 export function isValidatableDocument(row: { canonical_type: string | null }): boolean {
-  return isTaxReturnDocument(row) || isBalanceSheetDocument(row);
+  return isTaxReturnDocument(row) || isBalanceSheetDocument(row) || isIncomeStatementDocument(row);
 }
 
 /**
@@ -117,6 +133,11 @@ export function resolveIrsFormType(row: DocRow): IrsFormType | null {
   // ai_form_numbers and is not in the tax-return SPECIFIC_MAP, so it falls past
   // both loops above; resolve it to its own form type here.
   if (isBalanceSheetDocument(row)) return "BALANCE_SHEET";
+
+  // SPEC-INCOME-STATEMENT-INTEGRITY-GATE-1 §4 — an income-statement document carries
+  // no ai_form_numbers and is not in the tax-return SPECIFIC_MAP, so it falls past
+  // both loops above; resolve it to its own form type here.
+  if (isIncomeStatementDocument(row)) return "INCOME_STATEMENT";
 
   return null;
 }

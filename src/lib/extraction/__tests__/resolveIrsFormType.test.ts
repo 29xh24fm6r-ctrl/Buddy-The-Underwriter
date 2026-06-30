@@ -11,6 +11,7 @@ import {
   resolveIrsFormType,
   isTaxReturnDocument,
   isBalanceSheetDocument,
+  isIncomeStatementDocument,
   isValidatableDocument,
   TAX_RETURN_CANONICAL_TYPES,
 } from "@/lib/extraction/resolveIrsFormType";
@@ -243,4 +244,47 @@ test("[bsi-r4] resolveIrsFormType unchanged for tax-return rows (no regression)"
   );
   // A balance sheet is NOT a tax return
   assert.equal(isTaxReturnDocument({ canonical_type: "BALANCE_SHEET" }), false);
+});
+
+// ── SPEC-INCOME-STATEMENT-INTEGRITY-GATE-1 §4: income-statement resolver predicates ──
+
+test("[isi-r1] isIncomeStatementDocument true for INCOME_STATEMENT (case-insensitive), false otherwise", () => {
+  assert.equal(isIncomeStatementDocument({ canonical_type: "INCOME_STATEMENT" }), true);
+  assert.equal(isIncomeStatementDocument({ canonical_type: "income_statement" }), true);
+  assert.equal(isIncomeStatementDocument({ canonical_type: "BALANCE_SHEET" }), false);
+  assert.equal(isIncomeStatementDocument({ canonical_type: "BUSINESS_TAX_RETURN" }), false);
+  assert.equal(isIncomeStatementDocument({ canonical_type: null }), false);
+});
+
+test("[isi-r2] isValidatableDocument true for tax-return, balance-sheet, AND income-statement rows", () => {
+  assert.equal(isValidatableDocument({ canonical_type: "BUSINESS_TAX_RETURN" }), true);
+  assert.equal(isValidatableDocument({ canonical_type: "BALANCE_SHEET" }), true);
+  assert.equal(isValidatableDocument({ canonical_type: "INCOME_STATEMENT" }), true);
+  // Still false for unrelated non-validatable docs
+  assert.equal(isValidatableDocument({ canonical_type: "BANK_STATEMENT" }), false);
+  assert.equal(isValidatableDocument({ canonical_type: "PERSONAL_FINANCIAL_STATEMENT" }), false);
+});
+
+test("[isi-r3] resolveIrsFormType returns INCOME_STATEMENT for an income-statement row (no ai_form_numbers)", () => {
+  assert.equal(
+    resolveIrsFormType({
+      canonical_type: "INCOME_STATEMENT",
+      ai_form_numbers: null,
+      document_type: null,
+    }),
+    "INCOME_STATEMENT",
+  );
+});
+
+test("[isi-r4] resolveIrsFormType unchanged for tax-return and balance-sheet rows (no regression)", () => {
+  assert.equal(
+    resolveIrsFormType({ canonical_type: "TAX_RETURN_1120", ai_form_numbers: null, document_type: null }),
+    "FORM_1120",
+  );
+  assert.equal(
+    resolveIrsFormType({ canonical_type: "BALANCE_SHEET", ai_form_numbers: null, document_type: null }),
+    "BALANCE_SHEET",
+  );
+  // An income statement is NOT a tax return
+  assert.equal(isTaxReturnDocument({ canonical_type: "INCOME_STATEMENT" }), false);
 });

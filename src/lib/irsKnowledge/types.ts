@@ -26,7 +26,7 @@ export type CanonicalFactKey =
   | "M1_NET_INCOME_PER_BOOKS" | "M1_DEPRECIATION_TIMING"
   | "M1_MEALS_ENTERTAINMENT" | "M1_OTHER_NONDEDUCTIBLE"
   | "EBITDA" | "EBIT" | "NET_OPERATING_PROFIT" | "CASH_FLOW_AVAILABLE"
-  | "TOTAL_REVENUE" | "TOTAL_OPERATING_EXPENSES"
+  | "TOTAL_REVENUE" | "TOTAL_OPERATING_EXPENSES" | "OPERATING_INCOME"
   | "REVENUE_GROWTH_PCT" | "EBITDA_GROWTH_PCT"
   // K-1 keys (Schedule K-1 — 1120-S and 1065)
   | "K1_OWNER_NAME" | "K1_ENTITY_EIN"
@@ -154,7 +154,7 @@ export type IrsFormType =
   | "FORM_1125A" | "FORM_4562" | "FORM_8825"
   | "AUDITED_FINANCIALS" | "REVIEWED_FINANCIALS"
   | "COMPILED_FINANCIALS" | "INTERIM_FINANCIALS" | "BANK_STATEMENTS"
-  | "BALANCE_SHEET";
+  | "BALANCE_SHEET" | "INCOME_STATEMENT";
 
 // When same value exists in multiple docs, higher trust wins
 export const DOCUMENT_TRUST_LEVEL: Record<IrsFormType, number> = {
@@ -170,6 +170,9 @@ export const DOCUMENT_TRUST_LEVEL: Record<IrsFormType, number> = {
   // Standalone business balance-sheet document (Statement of Assets, Liabilities
   // and Equity). Management/bookkeeping-prepared, ranks alongside interim financials.
   BALANCE_SHEET: 40,
+  // Standalone business income statement (Statement of Revenues and Expenses).
+  // Management/bookkeeping-prepared interim P&L, same tier as BALANCE_SHEET.
+  INCOME_STATEMENT: 40,
   BANK_STATEMENTS: 30,
 };
 
