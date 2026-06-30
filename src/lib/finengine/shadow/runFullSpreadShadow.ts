@@ -33,6 +33,7 @@ import {
   type GoldenSetEntry,
   type ShadowReport,
 } from "@/lib/finengine/shadow/reconcile";
+import { fullSpreadGoldenSet } from "@/lib/finengine/shadow/fullSpreadGoldenSet";
 
 /**
  * The gated set — metrics the legacy engine also persists as canonical facts.
@@ -71,8 +72,14 @@ export type FullSpreadShadowResult = {
 export function runFullSpreadShadow(
   dealId: string,
   rows: CertifiedFactRow[],
-  goldenSet: GoldenSetEntry[] = [],
+  goldenSet?: GoldenSetEntry[],
 ): FullSpreadShadowResult {
+  // SPEC-FINENGINE-FULL-SPREAD-GOLDEN-1 §2 — self-classifying out of the box: when
+  // the caller omits a golden set, build the registry (EBITDA intended-divergence
+  // entries from the INDEPENDENT derivation). An explicit argument — including an
+  // explicit `[]` — still wins, so fixtures can drive classification deterministically.
+  const golden = goldenSet ?? fullSpreadGoldenSet(dealId, rows);
+
   const spread = computeDealSpread(dealId, rows);
 
   // SHADOW side: finengine cells whose metric is in the overlapping set. The cell
@@ -105,7 +112,7 @@ export function runFullSpreadShadow(
       value: r.fact_value_num,
     }));
 
-  const report = compareProducers(legacy, shadow, goldenSet);
+  const report = compareProducers(legacy, shadow, golden);
 
   // ADDITIVE: every net-new metric the engine produces (the credit-measurement
   // universe). Constructed from the COMPLEMENT of OVERLAPPING_METRICS, so it can
