@@ -54,6 +54,31 @@ export function isTaxReturnDocument(row: { canonical_type: string | null }): boo
 }
 
 /**
+ * SPEC-BALANCE-SHEET-INTEGRITY-GATE-1 §4 — canonical_type values that denote an
+ * actual business balance-sheet document (Statement of Assets, Liabilities and
+ * Equity), where the A = L + E identity is a real integrity check. The classifier
+ * normalizes "Statement of Financial Position" to the single canonical type
+ * "BALANCE_SHEET" (tier3LLM/classifyByRules), so that is the only member.
+ *
+ * Deliberately EXCLUDES PERSONAL_FINANCIAL_STATEMENT / PFS — a different identity
+ * (net worth, not A = L + E) and out of scope.
+ */
+export const BALANCE_SHEET_CANONICAL_TYPES = new Set<string>(["BALANCE_SHEET"]);
+
+export function isBalanceSheetDocument(row: { canonical_type: string | null }): boolean {
+  return !!row.canonical_type && BALANCE_SHEET_CANONICAL_TYPES.has(row.canonical_type.toUpperCase());
+}
+
+/**
+ * A document is validatable by the IRS-identity gate when it is either a tax
+ * return OR a standalone balance sheet. `isTaxReturnDocument` stays semantically
+ * a tax-return predicate; this is the combined self-gate the validator uses.
+ */
+export function isValidatableDocument(row: { canonical_type: string | null }): boolean {
+  return isTaxReturnDocument(row) || isBalanceSheetDocument(row);
+}
+
+/**
  * Resolve a document row to its IRS form type for validation routing.
  *
  * Priority:
@@ -87,6 +112,11 @@ export function resolveIrsFormType(row: DocRow): IrsFormType | null {
     SCHEDULE_C: "SCHEDULE_C",
   };
   if (SPECIFIC_MAP[ct]) return SPECIFIC_MAP[ct];
+
+  // SPEC-BALANCE-SHEET-INTEGRITY-GATE-1 §4 — a balance-sheet document carries no
+  // ai_form_numbers and is not in the tax-return SPECIFIC_MAP, so it falls past
+  // both loops above; resolve it to its own form type here.
+  if (isBalanceSheetDocument(row)) return "BALANCE_SHEET";
 
   return null;
 }

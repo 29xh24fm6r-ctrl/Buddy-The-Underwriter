@@ -49,27 +49,29 @@ test("[evw-v3-a] validation_disabled self-gate exists and returns SKIPPED withou
   );
 });
 
-test("[evw-v3-b] non-tax-return self-gate exists and returns SKIPPED without persisting", () => {
+test("[evw-v3-b] non-validatable self-gate exists and returns SKIPPED without persisting", () => {
+  // SPEC-BALANCE-SHEET-INTEGRITY-GATE-1 §5 widened self-gate 2 from tax-return-only
+  // to validatable (tax return OR balance sheet).
   assert.match(
     VALIDATOR,
-    /isTaxReturnDocument/,
-    "validator must self-gate on isTaxReturnDocument",
+    /isValidatableDocument/,
+    "validator must self-gate on isValidatableDocument",
   );
   assert.match(
     VALIDATOR,
-    /Not a tax-return document/,
-    "validator must use the canonical 'Not a tax-return document' summary",
+    /Not a validatable document/,
+    "validator must use the canonical 'Not a validatable document' summary",
   );
 
-  // The non-tax branch does NOT call persistSkipped
-  const nonTaxBranch = VALIDATOR.match(
-    /if \(!isTaxReturnDocument\(docRow\)\)[\s\S]*?return \{[\s\S]*?\};\s*\}/,
+  // The non-validatable branch does NOT call persistSkipped
+  const nonValidatableBranch = VALIDATOR.match(
+    /if \(!isValidatableDocument\(docRow\)\)[\s\S]*?return \{[\s\S]*?\};\s*\}/,
   );
-  assert.ok(nonTaxBranch, "isTaxReturnDocument branch must exist");
+  assert.ok(nonValidatableBranch, "isValidatableDocument branch must exist");
   assert.equal(
-    /persistSkipped/.test(nonTaxBranch![0]),
+    /persistSkipped/.test(nonValidatableBranch![0]),
     false,
-    "non-tax branch must NOT persist a SKIPPED row",
+    "non-validatable branch must NOT persist a SKIPPED row",
   );
 });
 
@@ -207,21 +209,21 @@ test("[evw-v5-a] validation_disabled is read by validator, not by caller", () =>
 });
 
 test("[evw-v5-b] validation_disabled check happens BEFORE any other validator work", () => {
-  // The validation_disabled check must precede the isTaxReturnDocument check and form resolution.
+  // The validation_disabled check must precede the validatable self-gate and form resolution.
   const disabledIdx = VALIDATOR.indexOf("validation_disabled");
-  const isTaxIdx = VALIDATOR.indexOf("isTaxReturnDocument(docRow)");
+  const validatableIdx = VALIDATOR.indexOf("isValidatableDocument(docRow)");
   const resolveIdx = VALIDATOR.indexOf("resolveIrsFormType(docRow)");
 
   assert.ok(disabledIdx > 0, "validation_disabled reference must exist");
-  assert.ok(isTaxIdx > 0, "isTaxReturnDocument call must exist");
+  assert.ok(validatableIdx > 0, "isValidatableDocument call must exist");
   assert.ok(resolveIdx > 0, "resolveIrsFormType call must exist");
   assert.ok(
-    disabledIdx < isTaxIdx,
-    "validation_disabled check must come before isTaxReturnDocument",
+    disabledIdx < validatableIdx,
+    "validation_disabled check must come before isValidatableDocument",
   );
   assert.ok(
-    isTaxIdx < resolveIdx,
-    "isTaxReturnDocument check must come before resolveIrsFormType",
+    validatableIdx < resolveIdx,
+    "isValidatableDocument check must come before resolveIrsFormType",
   );
 });
 

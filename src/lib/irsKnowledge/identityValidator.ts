@@ -79,12 +79,20 @@ function determineStatus(results: IdentityCheckResult[], spec: FormSpecification
   const requiredPassed = requiredResults.filter(r => !r.skipped && r.passed);
   const requiredSkipped = requiredResults.filter(r => r.skipped);
 
-  // All required checks failed — block
-  if (requiredFailed.length > 0 && requiredPassed.length === 0) {
+  // SPEC-BALANCE-SHEET-INTEGRITY-GATE-1 §3 — per-check severity. A check without
+  // an explicit severity defaults to "block", so existing tax-return forms behave
+  // identically. Only a BLOCK-severity required failure (with no required pass) can
+  // reach BLOCKED; a FLAG-severity required failure can never hard-block.
+  const sevOf = (id: string) =>
+    spec.identityChecks.find(c => c.id === id)?.severity ?? "block";
+  const requiredFailedBlock = requiredFailed.filter(r => sevOf(r.checkId) === "block");
+
+  // All required block-severity checks failed — block
+  if (requiredFailedBlock.length > 0 && requiredPassed.length === 0) {
     return "BLOCKED";
   }
 
-  // Some required checks failed — flag for analyst
+  // Any remaining required failure (block-severity with some pass, or flag-severity) — flag for analyst
   if (requiredFailed.length > 0) {
     return "FLAGGED";
   }

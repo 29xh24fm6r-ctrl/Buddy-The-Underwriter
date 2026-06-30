@@ -5,7 +5,7 @@ import { writeEvent } from "@/lib/ledger/writeEvent";
 import { getFormSpec, validateDocumentFacts, isSpreadGenerationAllowed } from "@/lib/irsKnowledge";
 import { canonicalizeFactMap } from "@/lib/irsKnowledge/canonicalFactKeys";
 import type { ValidationStatus } from "@/lib/irsKnowledge/types";
-import { resolveIrsFormType, isTaxReturnDocument } from "./resolveIrsFormType";
+import { resolveIrsFormType, isValidatableDocument } from "./resolveIrsFormType";
 
 // ── Return type ─────────────────────────────────────────────────────
 
@@ -27,8 +27,9 @@ export type PostExtractionValidationResult = {
  * canonical-type string. Three self-gates run before any work:
  *
  *   1. deals.validation_disabled = true  →  SKIPPED, no row.
- *   2. Document is not a tax return       →  SKIPPED, no row.
- *   3. Tax-return doc, unresolved form    →  SKIPPED + persisted audit row.
+ *   2. Document is not validatable        →  SKIPPED, no row.
+ *      (validatable = tax return OR balance sheet; SPEC-BALANCE-SHEET-INTEGRITY-GATE-1)
+ *   3. Validatable doc, unresolved form   →  SKIPPED + persisted audit row.
  *
  * CRITICAL: Never throws. Returns SKIPPED on any error.
  * Validation must never break extraction.
@@ -63,12 +64,13 @@ export async function runPostExtractionValidation(
       };
     }
 
-    // Self-gate 2: only tax-return documents get IRS identity validation. No row for non-tax docs.
-    if (!isTaxReturnDocument(docRow)) {
+    // Self-gate 2: only validatable documents (tax return OR balance sheet) get IRS
+    // identity validation. No row for anything else (bank statements, PFS, AR aging, …).
+    if (!isValidatableDocument(docRow)) {
       return {
         documentId,
         status: "SKIPPED",
-        summary: `Not a tax-return document (canonical_type=${docRow.canonical_type})`,
+        summary: `Not a validatable document (canonical_type=${docRow.canonical_type})`,
         spreadGenerationAllowed: true,
         requiresAnalystSignOff: false,
       };
