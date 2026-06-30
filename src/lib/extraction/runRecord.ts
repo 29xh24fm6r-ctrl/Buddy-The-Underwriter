@@ -267,6 +267,30 @@ export async function finalizeExtractionRun(args: FinalizeRunArgs): Promise<void
     })();
   }
 
+  // SPEC-VALIDATION-GATE-RESTORE-PROGRAM-1 Phase 2b: when the deal's extraction
+  // goes quiescent (no queued/running runs remain) revalidate the whole deal so
+  // the gate reflects the COMPLETE fact set, not a mid-flight per-doc snapshot.
+  // Runs on EVERY finalize (any terminal status — a failed/routed doc also
+  // reduces the in-flight count and must not block the deal). This run is already
+  // terminal at check time (the status update above precedes this block), so it
+  // does not count itself. Fire-and-forget; revalidateDealDocuments is idempotent
+  // (upsert onConflict document_id) and never throws — must never break extraction.
+  void (async () => {
+    try {
+      const { count } = await (sb as any)
+        .from("deal_extraction_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", args.dealId)
+        .in("status", ["queued", "running"]);
+
+      const { shouldTriggerDealRevalidation } = await import("./revalidationSummary");
+      if (shouldTriggerDealRevalidation(count ?? 0)) {
+        const { revalidateDealDocuments } = await import("./revalidateDealDocuments");
+        await revalidateDealDocuments(args.dealId);
+      }
+    } catch { /* must never break extraction */ }
+  })();
+
   // Determine event kind
   const eventKind =
     args.status === "succeeded"

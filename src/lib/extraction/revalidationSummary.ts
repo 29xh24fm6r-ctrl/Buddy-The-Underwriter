@@ -49,6 +49,20 @@ export type RevalidationSummary = {
 };
 
 /**
+ * SPEC-VALIDATION-GATE-RESTORE-PROGRAM-1 Phase 2b — completion predicate.
+ *
+ * Deal-level revalidation should fire when the deal's extraction goes quiescent,
+ * i.e. no queued/running runs remain. The finalizing run is already terminal at
+ * check time, so it does not count itself; when the last in-flight run finalizes
+ * the count reaches 0 and revalidation fires once.
+ *
+ * Strict === 0 is negative- and NaN-safe (both compare false).
+ */
+export function shouldTriggerDealRevalidation(inFlightCount: number): boolean {
+  return inFlightCount === 0;
+}
+
+/**
  * Resolve a document's tax year for validation routing.
  * SPEC §Scope: ai_tax_year ?? doc_year (null-safe; the tax-year column on
  * deal_documents is ai_tax_year/doc_year, NOT tax_year).
