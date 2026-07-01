@@ -27,7 +27,7 @@ async function loadRows(dealId: string): Promise<CertifiedFactRow[]> {
   const { data, error } = await (sb as any)
     .from("deal_financial_facts")
     .select(
-      "fact_key, fact_value_num, fact_period_end, owner_type, is_superseded, source_canonical_type, confidence, provenance, source_document_id, created_at",
+      "fact_key, fact_value_num, fact_period_end, fact_period_start, owner_type, is_superseded, source_canonical_type, confidence, provenance, source_document_id, created_at",
     )
     .eq("deal_id", dealId);
   if (error) throw new Error(`load ${dealId}: ${error.message}`);
@@ -35,6 +35,7 @@ async function loadRows(dealId: string): Promise<CertifiedFactRow[]> {
     fact_key: r.fact_key,
     fact_value_num: r.fact_value_num,
     fact_period_end: r.fact_period_end,
+    fact_period_start: r.fact_period_start ?? null,
     owner_type: r.owner_type,
     is_superseded: r.is_superseded,
     source_canonical_type: r.source_canonical_type ?? null,
@@ -59,7 +60,7 @@ async function main() {
     }
 
     const { inputs, result } = runGlobalCashFlowShadow(dealId, rows);
-    console.log(`[${dealId.slice(0, 8)}] analysisPeriod=${inputs.analysisPeriod}`);
+    console.log(`[${dealId.slice(0, 8)}] analysisPeriod=${inputs.analysisPeriod} (${inputs.analysisPeriodBasis})`);
 
     console.log(`\n  ── BUSINESS node(s) ──`);
     for (const b of inputs.business) {

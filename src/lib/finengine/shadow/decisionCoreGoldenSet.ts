@@ -25,10 +25,10 @@
 
 import {
   buildCertifiedSnapshots,
-  SENTINEL_PERIOD,
   type CertifiedFactRow,
   type CertifiedPeriodSnapshot,
 } from "@/lib/finengine/shadow/dealInputAdapter";
+import { selectAnalysisPeriod, periodDaysFromSnapshot } from "@/lib/finengine/shadow/selectAnalysisPeriod";
 import { goldenConservativeEbitda } from "@/lib/finengine/shadow/ebitdaGoldenSet";
 import type { GoldenSetEntry } from "@/lib/finengine/shadow/reconcile";
 
@@ -74,8 +74,10 @@ type Globals = {
 function deriveGlobals(dealId: string, rows: CertifiedFactRow[]): Globals {
   const snaps = buildCertifiedSnapshots(dealId, rows);
   const businessSnaps = snaps.filter((s) => s.entityScope === "BUSINESS");
-  const realBusiness = businessSnaps.filter((s) => s.fiscalPeriodEnd !== SENTINEL_PERIOD);
-  const analysisPeriod = realBusiness.length > 0 ? realBusiness[realBusiness.length - 1].fiscalPeriodEnd : businessSnaps[0]?.fiscalPeriodEnd ?? SENTINEL_PERIOD;
+  // SAME shared selection policy as the assembler (SPEC-…-ANALYSIS-PERIOD-SELECTION-1):
+  // income-bearing full-annual-cycle period → engine and golden stay on the same period
+  // so the corrected DSCR classifies INTENDED, not a false UNEXPECTED (R1).
+  const analysisPeriod = selectAnalysisPeriod(businessSnaps, periodDaysFromSnapshot).period;
   const bizSnap = businessSnaps.find((s) => s.fiscalPeriodEnd === analysisPeriod) ?? businessSnaps[0];
 
   // Business operating cash = INDEPENDENT conservative EBITDA (pre-distribution).

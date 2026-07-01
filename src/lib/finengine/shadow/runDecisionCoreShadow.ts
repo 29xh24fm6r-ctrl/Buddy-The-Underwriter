@@ -49,6 +49,7 @@ export const DECISION_CORE_OVERLAPPING: ReadonlySet<string> = new Set([
 export type DecisionCoreShadowResult = {
   dealId: string;
   analysisPeriod: string;
+  analysisPeriodBasis: "annual" | "stub-fallback" | "none";
   globalDSCR: number | null;
   stressedDSCR: number | null;
   report: ShadowReport; // GATED diff over DECISION_CORE_OVERLAPPING only
@@ -103,5 +104,5 @@ export function runDecisionCoreShadow(
 
   const report = compareProducers(legacy, shadow, golden);
 
-  return { dealId, analysisPeriod: inputs.analysisPeriod, globalDSCR, stressedDSCR, report, warnings };
+  return { dealId, analysisPeriod: inputs.analysisPeriod, analysisPeriodBasis: inputs.analysisPeriodBasis, globalDSCR, stressedDSCR, report, warnings };
 }
