@@ -29,11 +29,11 @@
 
 import {
   buildCertifiedSnapshots,
-  SENTINEL_PERIOD,
   type CertifiedFactRow,
   type CertifiedPeriodSnapshot,
 } from "@/lib/finengine/shadow/dealInputAdapter";
 import { coreOperatingEarnings } from "@/lib/finengine/methods/foundation";
+import { selectAnalysisPeriod, periodDaysFromSnapshot } from "@/lib/finengine/shadow/selectAnalysisPeriod";
 import { buildEntityGraph, type EntityGraph, type EntityEdge } from "@/lib/finengine/entityGraph";
 import {
   computeGlobalCashFlow,
@@ -51,6 +51,8 @@ export type GlobalCashFlowInputs = {
   business: BusinessEntityCashFlow[];
   personal: PersonalGuarantorCashFlow[];
   analysisPeriod: string;
+  /** How the analysis period was chosen (annual cycle, sub-annual stub fallback, or none). */
+  analysisPeriodBasis: "annual" | "stub-fallback" | "none";
   warnings: string[]; // every gap named, never papered over (mirrors the EBITDA adapter)
 };
 
@@ -94,17 +96,14 @@ export function buildGlobalCashFlowInputs(
   const warnings: string[] = [];
   const snaps = buildCertifiedSnapshots(dealId, rows);
 
-  // ── analysis period: latest real BUSINESS period (never invented) ──────────
+  // ── analysis period: latest INCOME-BEARING, FULL-ANNUAL-CYCLE business period ──
+  // (shared policy — the golden imports the SAME helper so engine and golden agree;
+  //  never picks an AR-aging / balance-sheet-only date, never annualizes a stub.)
   const businessSnaps = snaps.filter((s) => s.entityScope === "BUSINESS");
-  const realBusiness = businessSnaps.filter((s) => s.fiscalPeriodEnd !== SENTINEL_PERIOD);
-  const analysisPeriod =
-    opts?.analysisPeriod ??
-    (realBusiness.length > 0
-      ? realBusiness[realBusiness.length - 1].fiscalPeriodEnd // snaps are period-ascending, sentinel last
-      : businessSnaps[0]?.fiscalPeriodEnd ?? SENTINEL_PERIOD);
-  if (realBusiness.length === 0) {
-    warnings.push("no real BUSINESS period — analysis period falls back to sentinel/empty (business cash flow may be 0).");
-  }
+  const selection = selectAnalysisPeriod(businessSnaps, periodDaysFromSnapshot, opts);
+  const analysisPeriod = selection.period;
+  const analysisPeriodBasis = selection.basis;
+  if (selection.warning) warnings.push(selection.warning);
 
   // ── BUSINESS node: EBITDA (pre-distribution) + debt service incl. proposed ──
   const bizSnap =
@@ -219,7 +218,7 @@ export function buildGlobalCashFlowInputs(
   }
   const graph = buildEntityGraph(nodes, edges);
 
-  return { graph, business, personal, analysisPeriod, warnings };
+  return { graph, business, personal, analysisPeriod, analysisPeriodBasis, warnings };
 }
 
 /** Latest PERSONAL snapshot that carries any PFS-sourced key (PFS is point-in-time). */
