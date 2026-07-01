@@ -14,37 +14,12 @@
  */
 
 import process from "node:process";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runGlobalCashFlowShadow } from "@/lib/finengine/shadow/globalCashFlowAdapter";
-import type { CertifiedFactRow } from "@/lib/finengine/shadow/dealInputAdapter";
+import { loadCertifiedRows } from "./_loadCertifiedRows";
 
 const OMNICARE = "eefd62b3-4ae2-4d43-bb80-9953fdca9bcc";
 const dealIds = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const targets = dealIds.length > 0 ? dealIds : [OMNICARE];
-
-async function loadRows(dealId: string): Promise<CertifiedFactRow[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await (sb as any)
-    .from("deal_financial_facts")
-    .select(
-      "fact_key, fact_value_num, fact_period_end, fact_period_start, owner_type, is_superseded, source_canonical_type, confidence, provenance, source_document_id, created_at",
-    )
-    .eq("deal_id", dealId);
-  if (error) throw new Error(`load ${dealId}: ${error.message}`);
-  return (data ?? []).map((r: any) => ({
-    fact_key: r.fact_key,
-    fact_value_num: r.fact_value_num,
-    fact_period_end: r.fact_period_end,
-    fact_period_start: r.fact_period_start ?? null,
-    owner_type: r.owner_type,
-    is_superseded: r.is_superseded,
-    source_canonical_type: r.source_canonical_type ?? null,
-    confidence: r.confidence ?? null,
-    extractor: r.provenance?.extractor ?? null,
-    source_document_id: r.source_document_id ?? null,
-    created_at: r.created_at ?? null,
-  })) as CertifiedFactRow[];
-}
 
 function fmt(n: number | null): string {
   return n == null ? "—" : n.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -53,7 +28,7 @@ function fmt(n: number | null): string {
 async function main() {
   console.log(`\n=== finengine GLOBAL cash flow run (read-only) — ${targets.length} deal(s) ===\n`);
   for (const dealId of targets) {
-    const rows = await loadRows(dealId);
+    const rows = await loadCertifiedRows(dealId);
     if (rows.length === 0) {
       console.log(`[${dealId.slice(0, 8)}] no facts on file — skipped.`);
       continue;
