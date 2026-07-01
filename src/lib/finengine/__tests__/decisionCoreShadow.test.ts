@@ -15,7 +15,7 @@ import {
 } from "@/lib/finengine/shadow/runDecisionCoreShadow";
 import { runGlobalCashFlowShadow } from "@/lib/finengine/shadow/globalCashFlowAdapter";
 import { buildStressInputs } from "@/lib/finengine/shadow/stressInputsAdapter";
-import { rateShock } from "@/lib/finengine/stress/stressEngine";
+import { stressC } from "@/lib/finengine/stress/stressEngine";
 import type { GoldenSetEntry } from "@/lib/finengine/shadow/reconcile";
 import type { CertifiedFactRow } from "@/lib/finengine/shadow/dealInputAdapter";
 
@@ -82,9 +82,9 @@ describe("[dcs] decision-core shadow — gating correctness", () => {
     assert.equal(report.cutoverBlocked, false);
   });
 
-  it("[dcs-3] divergent without golden → UNEXPECTED, cutoverBlocked=true (the gate working pre-golden)", () => {
+  it("[dcs-3] divergent with an EXPLICIT empty golden → UNEXPECTED, cutoverBlocked=true (gate working pre-golden)", () => {
     const rows = [...BASE_ROWS, legacyDscr("DSCR", 2.026), legacyDscr("DSCR_STRESSED_300BPS", 1.402)];
-    const { report } = runDecisionCoreShadow(DEAL, rows);
+    const { report } = runDecisionCoreShadow(DEAL, rows, []); // explicit [] overrides the registry default
     assert.equal(report.unexpected, 2);
     assert.equal(report.cutoverBlocked, true);
     for (const d of report.divergences) assert.ok(DECISION_CORE_OVERLAPPING.has(d.factKey));
@@ -92,7 +92,7 @@ describe("[dcs] decision-core shadow — gating correctness", () => {
 
   it("[dcs-4] stressed DSCR gates independently — base ZERO, stressed UNEXPECTED → blocked", () => {
     const rows = [...BASE_ROWS, legacyDscr("DSCR", FIN_DSCR), legacyDscr("DSCR_STRESSED_300BPS", 1.402)];
-    const { report } = runDecisionCoreShadow(DEAL, rows);
+    const { report } = runDecisionCoreShadow(DEAL, rows, []); // explicit empty golden
     assert.equal(report.zero, 1);
     assert.equal(report.unexpected, 1);
     assert.equal(report.cutoverBlocked, true);
@@ -104,7 +104,7 @@ describe("[dcs] decision-core shadow — gating correctness", () => {
 describe("[dcs] decision-core shadow — key alignment (R3)", () => {
   it("[dcs-5] legacy DEAL/period keys join the finengine side — a real pair, not all-shadow-only", () => {
     const rows = [...BASE_ROWS, legacyDscr("DSCR", 2.026), legacyDscr("DSCR_STRESSED_300BPS", 1.402)];
-    const { report } = runDecisionCoreShadow(DEAL, rows);
+    const { report } = runDecisionCoreShadow(DEAL, rows, []); // empty golden — focus on the join, not classification
     assert.equal(report.total, 2); // two pairs, not four shadow-only + legacy-only entries
     for (const d of report.divergences) {
       assert.equal(d.ownerType, "DEAL");
@@ -122,22 +122,24 @@ describe("[dcs] decision-core shadow — key alignment (R3)", () => {
 });
 
 describe("[dcs] decision-core shadow — stress mapping", () => {
-  it("[dcs-7] StressInputs use the +12% fallback; stressed DSCR = globalCash / (globalDS × 1.12)", () => {
+  it("[dcs-7] StressInputs use the +12% fallback; Stress C = (globalCash − rev×15%×margin) / (globalDS × 1.12)", () => {
     const { result } = runGlobalCashFlowShadow(DEAL, BASE_ROWS);
     const stress = buildStressInputs(DEAL, BASE_ROWS, "2024-12-31", result.globalCashBeforeDebt, result.globalDebtService);
     assert.equal(stress.stressedDsPath, "fallback_12pct");
     assert.equal(stress.stressInputs.debtServiceStressed300, undefined);
-    const expected = result.globalCashBeforeDebt / (result.globalDebtService * 1.12);
-    assert.ok(Math.abs(rateShock(stress.stressInputs).dscr! - expected) < 1e-9);
     // grossMargin resolved from GROSS_PROFIT / revenue.
-    assert.ok(Math.abs(stress.stressInputs.grossMarginPct - 3533599 / 28767069) < 1e-9);
+    const margin = 3533599 / 28767069;
+    assert.ok(Math.abs(stress.stressInputs.grossMarginPct - margin) < 1e-9);
+    // Stress C: simultaneous +300bps (DS ×1.12) AND −15% revenue compression.
+    const expected = (result.globalCashBeforeDebt - 28767069 * 0.15 * margin) / (result.globalDebtService * 1.12);
+    assert.ok(Math.abs(stressC(stress.stressInputs).dscr! - expected) < 1e-9);
   });
 });
 
 describe("[dcs] decision-core shadow — net-new never gates (firewall)", () => {
   it("[dcs-8] the report contains ONLY DECISION_CORE_OVERLAPPING keys", () => {
     const rows = [...BASE_ROWS, legacyDscr("DSCR", 2.026), legacyDscr("DSCR_STRESSED_300BPS", 1.402)];
-    const { report } = runDecisionCoreShadow(DEAL, rows);
+    const { report } = runDecisionCoreShadow(DEAL, rows, []);
     for (const d of report.divergences) {
       assert.ok(DECISION_CORE_OVERLAPPING.has(d.factKey), `${d.factKey} must be an overlapping decision number`);
     }

@@ -68,6 +68,14 @@ async function main() {
 
     console.log(`\n  ── GATED diff vs legacy (DECISION_CORE_OVERLAPPING) ──`);
     console.log(`     total=${report.total} ZERO=${report.zero} INTENDED=${report.intended} UNEXPECTED=${report.unexpected}  cutoverBlocked=${report.cutoverBlocked}`);
+    for (const key of ["DSCR", "DSCR_STRESSED_300BPS"]) {
+      const ds = report.divergences.filter((d) => d.factKey === key);
+      if (ds.length === 0) continue;
+      const z = ds.filter((d) => d.classification === "ZERO").length;
+      const i = ds.filter((d) => d.classification === "INTENDED").length;
+      const u = ds.filter((d) => d.classification === "UNEXPECTED").length;
+      console.log(`     ${key}: ZERO=${z} INTENDED=${i} UNEXPECTED=${u}`);
+    }
     for (const d of report.divergences) {
       console.log(
         `     ${d.classification.padEnd(10)} ${d.factKey} ${d.fiscalPeriodEnd} [${d.ownerType}]  ` +
