@@ -54,6 +54,16 @@ export type LoadFinengineMemoOpts = {
   loadNaics?: (dealId: string) => Promise<string | null>;
 };
 
+/**
+ * Load a deal's certified fact rows (the `computeDealSpread` / finengine input). The
+ * canonical loader, exported so other read-only finengine routes (e.g. the balance-
+ * sheet panel) reuse it instead of duplicating the fact-loading projection. Lazy
+ * supabaseAdmin import keeps this module unit-testable. Read-only.
+ */
+export async function loadCertifiedFactRows(dealId: string): Promise<CertifiedFactRow[]> {
+  return defaultLoadRows(dealId);
+}
+
 async function defaultLoadRows(dealId: string): Promise<CertifiedFactRow[]> {
   const { supabaseAdmin } = await import("@/lib/supabase/admin");
   const sb = supabaseAdmin();
