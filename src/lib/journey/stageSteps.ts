@@ -1,9 +1,9 @@
 /**
- * SPEC-GUIDED-STAGE-RAIL-1 — pure projection: LifecycleState → per-stage step checklist.
- * A "step" is a blocker gated to a stage (blockerGatesStage), labeled by its FixAction.
- * Pure: no IO. The model layer (blockers/fix actions) is the single source of truth.
+ * SPEC-GUIDED-STAGE-RAIL-1 / -1B — pure projection: LifecycleState → current-stage step checklist.
+ * A "step" is an open, non-infrastructure blocker (blockerGatesStage !== null), labeled by its
+ * FixAction. Pure: no IO. The model layer (blockers/fix actions) is the single source of truth.
  */
-import type { LifecycleBlocker, LifecycleStage, LifecycleState } from "@/buddy/lifecycle/model";
+import type { LifecycleBlocker, LifecycleState } from "@/buddy/lifecycle/model";
 import { blockerGatesStage } from "@/buddy/lifecycle/blockerToStage";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
 import {
@@ -19,17 +19,22 @@ export type StageStep = {
   open: boolean;          // true = still blocking (undone)
 };
 
-/** Open steps for one stage, ordered by underwriting workstream where applicable. */
-export function stepsForStage(
+/**
+ * SPEC-GUIDED-STAGE-RAIL-1B — the current stage's checklist is EVERY open,
+ * non-infrastructure blocker (all remaining work on the path), ordered by
+ * banker workstream then blocker order. blockerGatesStage(code) === null
+ * (infra/fetch errors) are excluded — the rail-level banner owns those.
+ * The first item always agrees with buildJourneyPrimaryAction's top pick.
+ */
+export function stepsForCurrentStage(
   state: LifecycleState,
-  stage: LifecycleStage,
   dealId: string,
 ): StageStep[] {
-  const gated = state.blockers.filter((b) => {
-    try { return blockerGatesStage(b.code) === stage; } catch { return false; }
+  const work = state.blockers.filter((b) => {
+    try { return blockerGatesStage(b.code) !== null; } catch { return false; }
   });
 
-  const ordered = [...gated].sort((a, b) => {
+  const ordered = [...work].sort((a, b) => {
     const wa = workstreamForBlocker(a.code);
     const wb = workstreamForBlocker(b.code);
     const ia = wa ? UNDERWRITING_WORKSTREAM_ORDER.indexOf(wa) : Number.MAX_SAFE_INTEGER;
