@@ -112,6 +112,22 @@ const CODE_TO_WORKSTREAM: Partial<Record<LifecycleBlockerCode, UnderwritingWorks
   attestation_missing: "committee",
 };
 
+/**
+ * SPEC-RAIL-STEP-DEDUP-AND-ORDERING-1 — within the financial_computation workstream,
+ * blockers have a dependency chain. Upstream must clear before downstream can succeed.
+ * Lower index = do first. Codes not listed here sort after all listed codes (stable).
+ */
+export const INTRA_WORKSTREAM_PRIORITY: Partial<Record<LifecycleBlockerCode, number>> = {
+  // financial_computation dependency chain: business → debt service → GCF → DSCR
+  missing_business_cash_flow: 0,
+  financial_snapshot_missing: 1,
+  financial_snapshot_build_failed: 1,
+  financial_snapshot_stale_recovery: 1,
+  missing_debt_service_facts: 2,
+  missing_global_cash_flow: 3,
+  missing_dscr: 4,
+};
+
 /** Test/consumer helper: the workstream a blocker code belongs to (or null if unmapped). */
 export function workstreamForBlocker(code: LifecycleBlockerCode): UnderwritingWorkstream | null {
   return CODE_TO_WORKSTREAM[code] ?? null;
@@ -151,11 +167,22 @@ export function buildJourneyPrimaryAction(state: LifecycleState, dealId: string)
     return getNextAction(state, dealId);
   }
 
-  // First blocker seen (in lifecycle order) per workstream — preserves a meaningful message/href.
+  // Highest-priority blocker per workstream. SPEC-RAIL-STEP-DEDUP-AND-ORDERING-1: within a
+  // workstream, prefer the upstream dependency (lower INTRA_WORKSTREAM_PRIORITY) as the CTA so
+  // the banker is sent to e.g. financial analysis (business cash flow) before the GCF page that
+  // can't compute yet. Codes with no explicit priority keep first-seen (lifecycle) order.
   const firstByWorkstream = new Map<UnderwritingWorkstream, LifecycleBlocker>();
   for (const b of state.blockers) {
     const ws = CODE_TO_WORKSTREAM[b.code];
-    if (ws && !firstByWorkstream.has(ws)) firstByWorkstream.set(ws, b);
+    if (!ws) continue;
+    const existing = firstByWorkstream.get(ws);
+    if (!existing) {
+      firstByWorkstream.set(ws, b);
+    } else {
+      const existingPri = INTRA_WORKSTREAM_PRIORITY[existing.code] ?? Number.MAX_SAFE_INTEGER;
+      const newPri = INTRA_WORKSTREAM_PRIORITY[b.code] ?? Number.MAX_SAFE_INTEGER;
+      if (newPri < existingPri) firstByWorkstream.set(ws, b);
+    }
   }
 
   // No recognized underwriting workstream blockers → keep the existing stage action

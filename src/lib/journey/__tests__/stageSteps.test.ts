@@ -94,6 +94,60 @@ describe("stepsForCurrentStage", () => {
     const s = state("underwrite_ready", [b("snapshot_fetch_failed"), b("data_fetch_failed")]);
     assert.deepEqual(stepsForCurrentStage(s, DEAL), []);
   });
+
+  // SPEC-RAIL-STEP-DEDUP-AND-ORDERING-1
+  it("deduplicates blockers that share a fix action (label+href) into one step", () => {
+    // missing_business_description + missing_revenue_model both → "Complete borrower story".
+    const s = state("underwrite_in_progress", [
+      b("missing_business_description"),
+      b("missing_revenue_model"),
+      b("missing_management_profile"),
+    ]);
+    const steps = stepsForCurrentStage(s, DEAL);
+    assert.equal(steps.length, 2, "two duplicate borrower-story blockers collapse to one step");
+    assert.deepEqual(
+      steps.map((x) => x.label),
+      ["Complete borrower story", "Add management profile"],
+      "borrower story appears once; management profile is a distinct step",
+    );
+    assert.equal(
+      steps.filter((x) => x.label === "Complete borrower story").length,
+      1,
+      "no duplicate borrower-story rows",
+    );
+  });
+
+  it("orders the financial_computation workstream by dependency, then dedupes", () => {
+    // Dependency chain: business cash flow → GCF → DSCR. missing_business_cash_flow and
+    // missing_dscr share the "Run financial analysis" fix, so DSCR collapses into the
+    // upstream business-cash-flow step; GCF sits between them by priority.
+    const s = state("underwrite_in_progress", [
+      b("missing_global_cash_flow"),
+      b("missing_business_cash_flow"),
+      b("missing_dscr"),
+    ]);
+    const steps = stepsForCurrentStage(s, DEAL);
+    assert.deepEqual(
+      steps.map((x) => x.label),
+      ["Run financial analysis", "Review Global Cash Flow"],
+      "upstream business cash flow first (absorbing DSCR), then GCF",
+    );
+    assert.equal(steps[0].href, `/deals/${DEAL}/financials`, "top step routes to financial analysis, not the GCF dead-end");
+  });
+
+  it("primary CTA picks the upstream financial dependency, not GCF", () => {
+    const s = state("underwrite_in_progress", [
+      b("missing_global_cash_flow"),
+      b("missing_business_cash_flow"),
+      b("missing_dscr"),
+    ]);
+    const primary = buildJourneyPrimaryAction(s, DEAL);
+    assert.equal(primary.label, "Run financial analysis", "CTA is the upstream-most financial step");
+    assert.equal(primary.href, `/deals/${DEAL}/financials`);
+    // Invariant: first step still agrees with the primary CTA after dedup+ordering.
+    assert.equal(stepsForCurrentStage(s, DEAL)[0].label, primary.label);
+    assert.equal(stepsForCurrentStage(s, DEAL)[0].href, primary.href);
+  });
 });
 
 describe("stageClearForAdvance", () => {

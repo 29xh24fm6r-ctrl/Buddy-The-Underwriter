@@ -7,6 +7,7 @@ import type { LifecycleBlocker, LifecycleState } from "@/buddy/lifecycle/model";
 import { blockerGatesStage } from "@/buddy/lifecycle/blockerToStage";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
 import {
+  INTRA_WORKSTREAM_PRIORITY,
   UNDERWRITING_WORKSTREAM_ORDER,
   workstreamForBlocker,
 } from "@/lib/journey/journeyActionProjection";
@@ -35,23 +36,41 @@ export function stepsForCurrentStage(
   });
 
   const ordered = [...work].sort((a, b) => {
+    // Primary: banker workstream order.
     const wa = workstreamForBlocker(a.code);
     const wb = workstreamForBlocker(b.code);
     const ia = wa ? UNDERWRITING_WORKSTREAM_ORDER.indexOf(wa) : Number.MAX_SAFE_INTEGER;
     const ib = wb ? UNDERWRITING_WORKSTREAM_ORDER.indexOf(wb) : Number.MAX_SAFE_INTEGER;
-    return ia - ib;
+    if (ia !== ib) return ia - ib;
+    // Secondary: intra-workstream dependency order (e.g. business cash flow before GCF before DSCR).
+    const pa = INTRA_WORKSTREAM_PRIORITY[a.code] ?? Number.MAX_SAFE_INTEGER;
+    const pb = INTRA_WORKSTREAM_PRIORITY[b.code] ?? Number.MAX_SAFE_INTEGER;
+    return pa - pb;
   });
 
-  return ordered.map((b) => {
+  // Deduplicate by label+href — two blockers with identical fix actions
+  // (e.g. missing_business_description + missing_revenue_model both →
+  // "Complete borrower story"; missing_business_cash_flow + missing_dscr both →
+  // "Run financial analysis") render as one step. First occurrence wins, so the
+  // dependency-ordered sort above decides which code represents the merged step.
+  const seen = new Set<string>();
+  const deduped: StageStep[] = [];
+  for (const b of ordered) {
     const fix = getBlockerFixAction(b, dealId);
-    return {
+    const step: StageStep = {
       code: b.code,
       label: fix?.label ?? b.message,
       message: b.message,
       href: fix && "href" in fix && typeof fix.href === "string" ? fix.href : null,
       open: true,
     };
-  });
+    const dedupKey = `${step.label}||${step.href ?? ""}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    deduped.push(step);
+  }
+
+  return deduped;
 }
 
 /** True when the current stage has zero gated blockers AND zero infra blockers — safe to auto-advance. */
