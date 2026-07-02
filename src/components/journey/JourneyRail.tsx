@@ -3,7 +3,7 @@
 import type { LifecycleBlocker, LifecycleStage, LifecycleState } from "@/buddy/lifecycle/model";
 import { buildJourneyPrimaryAction } from "@/lib/journey/journeyActionProjection";
 import { blockerGatesStage } from "@/buddy/lifecycle/blockerToStage";
-import { stepsForStage } from "@/lib/journey/stageSteps";
+import { stepsForCurrentStage } from "@/lib/journey/stageSteps";
 import { useJourneyState } from "@/hooks/useJourneyState";
 import { useAutoAdvance } from "@/hooks/useAutoAdvance";
 import { stageCanonicalRoute } from "./stageRoutes";
@@ -225,12 +225,12 @@ export function JourneyRail({
           // We still render it for visibility, dimmed.
           const stageBlockers =
             status === "locked" ? perStage.get(stage) ?? [] : [];
-          // SPEC-GUIDED-STAGE-RAIL-1: expand the current and next stages into their
-          // real step checklist, projected purely from the blocker/fix-action catalogs.
+          // SPEC-GUIDED-STAGE-RAIL-1B: the current stage's checklist is every open,
+          // non-infra blocker (all remaining work on the path), projected purely from the
+          // blocker/fix-action catalogs. Next-stage lists were dead on real deals (blockers
+          // gate entry into earlier/later stages, never the "next" one) — dropped.
           const steps =
-            (status === "current" || status === "next") && state
-              ? stepsForStage(state, stage, dealId)
-              : [];
+            status === "current" && state ? stepsForCurrentStage(state, dealId) : [];
           return (
             <StageRow
               key={stage}
