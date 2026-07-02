@@ -1,20 +1,26 @@
 "use client";
 // SPEC-GUIDED-STAGE-RAIL-1 — clickable step checklist under current/next stage rows.
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { StageStep } from "@/lib/journey/stageSteps";
 
+type MemoRow = StageStep & { open: boolean };
+
 export function StageStepList({ steps, stageKey }: { steps: StageStep[]; stageKey: string }) {
-  // Session memo of steps seen for this stage → resolved steps render green.
+  // Session memo of steps seen for this stage → a step that was present and is now
+  // gone renders green (resolved) for the rest of the session. The ref accumulates the
+  // memo; the effect (never render) is the only place we read/mutate refs, and it
+  // publishes the projected rows into state so React re-renders on the "turn green"
+  // transition. Refs are intentionally not read during render (react-hooks/refs).
   const seen = useRef<Map<string, StageStep>>(new Map());
   const memoKey = useRef(stageKey);
+  const [rows, setRows] = useState<MemoRow[]>([]);
   useEffect(() => {
     if (memoKey.current !== stageKey) { seen.current = new Map(); memoKey.current = stageKey; }
     for (const s of steps) seen.current.set(s.code, s);
+    const openCodes = new Set(steps.map((s) => s.code));
+    setRows([...seen.current.values()].map((s) => ({ ...s, open: openCodes.has(s.code) })));
   }, [steps, stageKey]);
-
-  const openCodes = new Set(steps.map((s) => s.code));
-  const rows = [...seen.current.values()].map((s) => ({ ...s, open: openCodes.has(s.code) }));
 
   if (rows.length === 0) return null;
   return (
