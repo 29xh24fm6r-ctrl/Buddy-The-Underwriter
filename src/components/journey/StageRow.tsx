@@ -5,6 +5,8 @@ import type { LifecycleBlocker, LifecycleStage } from "@/buddy/lifecycle/model";
 import { STAGE_LABELS } from "@/buddy/lifecycle/model";
 import type { NextAction } from "@/buddy/lifecycle/nextAction";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
+import type { StageStep } from "@/lib/journey/stageSteps";
+import { StageStepList } from "./StageStepList";
 
 export type StageStatus = "complete" | "current" | "next" | "locked" | "skipped";
 
@@ -26,6 +28,12 @@ export type StageRowProps = {
    * instead of rendering every downstream blocker fix action.
    */
   suppressBlockerActions?: boolean;
+  /**
+   * SPEC-GUIDED-STAGE-RAIL-1: clickable step checklist for the current/next stage,
+   * projected purely from the blocker→stage / blocker→fix-action catalogs. Rendered
+   * under the row content in the vertical variant only.
+   */
+  steps?: StageStep[];
   variant?: "vertical" | "horizontal";
 };
 
@@ -127,6 +135,7 @@ export function StageRow({
   blockers,
   action,
   suppressBlockerActions = false,
+  steps,
   variant = "vertical",
 }: StageRowProps) {
   const label = STAGE_LABELS[stage] ?? stage;
@@ -220,6 +229,9 @@ export function StageRow({
               ))}
             </div>
           )
+        ) : null}
+        {(status === "current" || status === "next") && steps && steps.length > 0 ? (
+          <StageStepList steps={steps} stageKey={stage} />
         ) : null}
       </span>
     </>

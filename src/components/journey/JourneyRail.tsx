@@ -3,7 +3,9 @@
 import type { LifecycleBlocker, LifecycleStage, LifecycleState } from "@/buddy/lifecycle/model";
 import { buildJourneyPrimaryAction } from "@/lib/journey/journeyActionProjection";
 import { blockerGatesStage } from "@/buddy/lifecycle/blockerToStage";
+import { stepsForStage } from "@/lib/journey/stageSteps";
 import { useJourneyState } from "@/hooks/useJourneyState";
+import { useAutoAdvance } from "@/hooks/useAutoAdvance";
 import { stageCanonicalRoute } from "./stageRoutes";
 import { StageRow, type StageStatus } from "./StageRow";
 import { RailHeader } from "./RailHeader";
@@ -118,6 +120,9 @@ export function JourneyRail({
   borrowerName,
 }: JourneyRailProps) {
   const { state, loading, error } = useJourneyState(dealId, { initialState });
+  // SPEC-GUIDED-STAGE-RAIL-1: when the current stage's blockers reach zero, advance once.
+  // Server remains the guard (/lifecycle/advance re-derives and refuses if actually blocked).
+  useAutoAdvance(dealId, state);
   const currentStage: LifecycleStage | null = isKnownStage(state?.stage)
     ? (state!.stage as LifecycleStage)
     : null;
@@ -220,6 +225,12 @@ export function JourneyRail({
           // We still render it for visibility, dimmed.
           const stageBlockers =
             status === "locked" ? perStage.get(stage) ?? [] : [];
+          // SPEC-GUIDED-STAGE-RAIL-1: expand the current and next stages into their
+          // real step checklist, projected purely from the blocker/fix-action catalogs.
+          const steps =
+            (status === "current" || status === "next") && state
+              ? stepsForStage(state, stage, dealId)
+              : [];
           return (
             <StageRow
               key={stage}
@@ -231,6 +242,7 @@ export function JourneyRail({
               blockers={stageBlockers}
               action={status === "current" ? action : null}
               suppressBlockerActions={!!action}
+              steps={steps}
             />
           );
         })}
