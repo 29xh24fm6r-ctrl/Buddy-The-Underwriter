@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { pickLatestPhoneByDeal } from "./pickLatestPhoneByDeal";
 
 /**
  * Candidate for reminder automation
@@ -33,13 +34,11 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
       used_at,
       deals!inner (
         id,
-        name,
-        borrower_phone
+        display_name
       )
     `)
     .is("used_at", null)
-    .gt("expires_at", new Date().toISOString())
-    .not("deals.borrower_phone", "is", null);
+    .gt("expires_at", new Date().toISOString());
 
   if (linksErr) {
     console.error("selectReminderCandidates links error:", linksErr);
@@ -50,12 +49,32 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
     return [];
   }
 
+  // Borrower phone lives in borrower_phone_links, not deals. Batch-resolve the
+  // latest phone_e164 per deal (newest created_at wins).
+  const dealIds = [...new Set(links.map((l) => l.deal_id))];
+
+  const { data: phoneRows, error: phoneErr } = await sb
+    .from("borrower_phone_links")
+    .select("deal_id, phone_e164, created_at")
+    .in("deal_id", dealIds)
+    .order("created_at", { ascending: false });
+
+  if (phoneErr) {
+    console.error("selectReminderCandidates phone links error:", phoneErr);
+    throw new Error(`Failed to resolve borrower phones: ${phoneErr.message}`);
+  }
+
+  const phoneByDeal = pickLatestPhoneByDeal(phoneRows ?? []);
+
   const candidates: ReminderCandidate[] = [];
 
   // For each link, check if deal has missing items
   for (const link of links) {
     const deal = (link as any).deals;
-    if (!deal || !deal.borrower_phone) continue;
+    if (!deal) continue;
+
+    const phone = phoneByDeal.get(link.deal_id);
+    if (!phone) continue;
 
     // Check for missing required checklist items
     const { data: items, error: itemsErr } = await sb
@@ -79,8 +98,11 @@ export async function selectReminderCandidates(): Promise<ReminderCandidate[]> {
 
       candidates.push({
         dealId: link.deal_id,
-        dealName: deal.name || "Your loan application",
-        borrowerPhone: deal.borrower_phone,
+        // Leak guard: only display_name or a generic fallback ever reaches
+        // borrower SMS — never the internal deal or applicant name fields,
+        // which hold fixture strings on at least one prod deal.
+        dealName: deal.display_name || "Your loan application",
+        borrowerPhone: phone,
         uploadUrl,
         missingItemsCount: missingCount,
       });
