@@ -7,6 +7,9 @@
  * maps to a mitigant. Pure — reads signals, produces concerns; never writes.
  */
 
+import type { PolicyContext } from "@/lib/finengine/contracts";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+
 export type ConcernCategory =
   | "trend"
   | "repayment"
@@ -47,6 +50,8 @@ export type OfficerInput = {
   aggressiveAddbacks?: boolean;
   collateralCoverage?: number | null;
   industryKeyRisks?: string[];
+  /** Policy resolution context (product/tenant) — resolves LGD coverage band via the registry (NG4). */
+  ctx?: PolicyContext;
 };
 
 const SEVERITY_RANK: Record<ConcernSeverity, number> = { low: 1, moderate: 2, high: 3 };
@@ -223,10 +228,12 @@ export function detectConcerns(input: OfficerInput): CreditConcern[] {
 
   // 12. Collateral shortfall (collateral).
   if (input.collateralCoverage != null && input.collateralCoverage < 1) {
+    // Elevated-LGD boundary resolved from the registry (NG4) — never hardcoded here.
+    const lgdWeakBand = resolvePolicy("lgd_coverage_weak", input.ctx).effective ?? 0.75;
     out.push(concern(input, {
       code: "collateral_shortfall",
       category: "collateral",
-      severity: input.collateralCoverage < 0.75 ? "high" : "moderate",
+      severity: input.collateralCoverage < lgdWeakBand ? "high" : "moderate",
       title: "Loan is not fully secured",
       supportingMetrics: { collateralCoverage: input.collateralCoverage },
       recommendedMitigant: "Take all available collateral and/or additional guarantor support.",
