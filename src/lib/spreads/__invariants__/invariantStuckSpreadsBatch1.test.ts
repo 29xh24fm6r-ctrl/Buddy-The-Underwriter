@@ -146,3 +146,79 @@ describe("STUCK-SPREADS Batch 1 — invariants", () => {
     );
   });
 });
+
+/**
+ * SPEC-SPREAD-PIPELINE-RECOVERY-1 — source-inspection invariants.
+ *
+ * Proves:
+ *   1. cleanupStuckJobs fails RUNNING jobs (never writes SUCCEEDED or queued),
+ *      guarding its UPDATE with a RUNNING status check.
+ *   2. The find_orphan_spreads hardening migration excludes deals with a recent
+ *      SUCCEEDED job (grace window), so a completed job's queued spreads are not
+ *      false-positive orphaned.
+ *   3. The worker tick runs cleanupStuckJobs BEFORE cleanupOrphanSpreads in both
+ *      the SPREADS and ALL branches.
+ */
+describe("SPEC-SPREAD-PIPELINE-RECOVERY-1 — invariants", () => {
+  test("cleanupStuckJobs: fails RUNNING jobs, never writes SUCCEEDED or queued", () => {
+    const path = "src/lib/spreads/janitor/cleanupStuckJobs.ts";
+    assert.ok(existsSync(resolve(ROOT, path)), `${path} must exist`);
+
+    const src = readSource(path);
+    assert.ok(src.includes('.eq("status", "RUNNING")'), "must select/guard on status=RUNNING");
+    assert.ok(src.includes('status: "FAILED"'), "must mark stuck jobs FAILED");
+    assert.ok(
+      !src.includes('status: "SUCCEEDED"') && !src.includes('status: "queued"'),
+      "must never write SUCCEEDED or queued status",
+    );
+    assert.ok(
+      src.includes('.from("deal_spread_jobs")'),
+      "must operate on deal_spread_jobs",
+    );
+  });
+
+  test("find_orphan_spreads hardening migration: excludes recent SUCCEEDED jobs", () => {
+    const path = "supabase/migrations/20260702_harden_find_orphan_spreads_succeeded_exclusion.sql";
+    assert.ok(existsSync(resolve(ROOT, path)), `${path} must exist`);
+
+    const sql = readSource(path);
+    assert.ok(
+      sql.includes("succeeded_grace_minutes"),
+      "must add a decoupled grace-window parameter",
+    );
+    assert.ok(
+      sql.includes("status = 'SUCCEEDED'"),
+      "must exclude spreads whose deal has a SUCCEEDED job",
+    );
+    assert.ok(
+      /DROP FUNCTION IF EXISTS find_orphan_spreads/.test(sql),
+      "must drop the old 1-arg overload before recreating (avoids ambiguous rpc())",
+    );
+  });
+
+  test("worker tick: cleanupStuckJobs runs BEFORE cleanupOrphanSpreads (both branches)", () => {
+    const src = readSource("src/app/api/jobs/worker/tick/route.ts");
+    assert.ok(
+      src.includes('import { cleanupStuckJobs }'),
+      "worker tick must import cleanupStuckJobs",
+    );
+
+    // Every cleanupOrphanSpreads() invocation must be preceded by a
+    // cleanupStuckJobs() invocation within the same branch. Check ordering by
+    // index of each call site.
+    let searchFrom = 0;
+    let orphanCalls = 0;
+    while (true) {
+      const orphanIdx = src.indexOf("cleanupOrphanSpreads()", searchFrom);
+      if (orphanIdx < 0) break;
+      orphanCalls += 1;
+      const priorStuckIdx = src.lastIndexOf("cleanupStuckJobs()", orphanIdx);
+      assert.ok(
+        priorStuckIdx >= 0 && priorStuckIdx < orphanIdx,
+        `cleanupStuckJobs() must precede cleanupOrphanSpreads() at index ${orphanIdx}`,
+      );
+      searchFrom = orphanIdx + 1;
+    }
+    assert.ok(orphanCalls >= 2, "expected both SPREADS and ALL branch janitor calls");
+  });
+});

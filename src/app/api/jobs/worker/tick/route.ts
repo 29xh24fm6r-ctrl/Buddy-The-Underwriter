@@ -7,6 +7,7 @@ import { processNextClassifyJob } from "@/lib/jobs/processors/classifyProcessor"
 import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
 import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads";
+import { cleanupStuckJobs } from "@/lib/spreads/janitor/cleanupStuckJobs";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 import {
   WORKER_LOCK_KEYS,
@@ -111,13 +112,18 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // SPEC-SPREAD-PIPELINE-RECOVERY-1: fail wedged RUNNING jobs BEFORE orphan
+      // reconciliation so orphan detection runs on clean state (a stuck active
+      // job otherwise suppresses both new work and orphan cleanup for the deal).
+      const stuckResult = await cleanupStuckJobs();
+
       // Orphan janitor must run on every SPREADS tick — not just type=ALL.
       // The SPREADS cron is the only cron that fires for spreads, so this is
       // the only path where queued `deal_spreads` rows with no backing job
       // get reconciled.
       const janitorResult = await cleanupOrphanSpreads();
 
-      return NextResponse.json({ ...locked, janitor: janitorResult });
+      return NextResponse.json({ ...locked, stuckJobs: stuckResult, janitor: janitorResult });
     }
 
     for (let i = 0; i < batchSize; i++) {
@@ -158,6 +164,13 @@ export async function POST(req: NextRequest) {
       if (spreadResult.ok && spreadResult.processed > 0) {
         beat();
         results.push({ type: "SPREADS", ...spreadResult });
+      }
+
+      // SPEC-SPREAD-PIPELINE-RECOVERY-1: fail wedged RUNNING jobs first so the
+      // orphan janitor below reconciles on clean state.
+      const stuckResult = await cleanupStuckJobs();
+      if (stuckResult.cleaned > 0) {
+        results.push({ type: "SPREAD_STUCK_JOBS", ...stuckResult });
       }
 
       // Orphan-spread janitor (STUCK-SPREADS Batch 1, 2026-04-23).
