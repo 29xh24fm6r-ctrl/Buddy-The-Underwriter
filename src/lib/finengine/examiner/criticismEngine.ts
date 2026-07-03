@@ -10,6 +10,9 @@
  * that triggered it.
  */
 
+import type { PolicyContext } from "@/lib/finengine/contracts";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+
 export type CriticismSeverity = "low" | "moderate" | "high";
 
 export type CriticismCategory =
@@ -50,6 +53,8 @@ export type ExaminerInput = {
   };
   /** Optional caller-supplied mitigants keyed by criticism code. */
   mitigants?: Record<string, string[]>;
+  /** Policy resolution context (product/tenant) — resolves DSCR floor via the registry (NG4). */
+  ctx?: PolicyContext;
 };
 
 const SEVERITY_RANK: Record<CriticismSeverity, number> = { low: 1, moderate: 2, high: 3 };
@@ -105,8 +110,11 @@ export function detectDocumentationWeakness(input: ExaminerInput): Criticism[] {
 
 export function detectRepaymentWeakness(input: ExaminerInput): Criticism[] {
   const out: Criticism[] = [];
+  // DSCR floor resolved from the registry (NG4) — never hardcoded here.
+  const dscrFloor = resolvePolicy("dscr_floor", input.ctx).effective ?? 1.2;
+  const dscrThinCeiling = dscrFloor + 0.1;
   if (input.dscr != null) {
-    if (input.dscr < 1.15) {
+    if (input.dscr < dscrFloor) {
       out.push(
         finalize(input, {
           code: "repayment:weak_dscr",
@@ -114,10 +122,10 @@ export function detectRepaymentWeakness(input: ExaminerInput): Criticism[] {
           severity: "high",
           criticism: `Debt service coverage is weak at ${input.dscr.toFixed(2)}x.`,
           evidence: [`dscr=${input.dscr.toFixed(2)}`],
-          recommendedCondition: "Require additional cash-flow support or reduce debt to restore ≥1.20x coverage.",
+          recommendedCondition: `Require additional cash-flow support or reduce debt to restore ≥${dscrThinCeiling.toFixed(2)}x coverage.`,
         }),
       );
-    } else if (input.dscr < 1.25) {
+    } else if (input.dscr < dscrThinCeiling) {
       out.push(
         finalize(input, {
           code: "repayment:thin_dscr",
