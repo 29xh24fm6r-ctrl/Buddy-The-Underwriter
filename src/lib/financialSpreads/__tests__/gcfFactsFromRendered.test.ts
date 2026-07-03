@@ -101,7 +101,10 @@ test("render path awaits GCF materialization and surfaces failures (not fire-and
     "persistence failures must surface a visible Aegis system event",
   );
   assert.ok(
-    /extractGcfFactsFromRendered/.test(src),
-    "render path must use the shared extractor (writes the legacy alias too)",
+    // Direct call, or delegated through the PR19 circular-writer guard
+    // (`planGcfFactWrites`), which itself resolves to the shared extractor —
+    // see gcfCircularWriterGuard.test.ts for that contract.
+    /extractGcfFactsFromRendered|planGcfFactWrites/.test(src),
+    "render path must use the shared extractor (writes the legacy alias too), directly or via the circular-writer guard",
   );
 });
