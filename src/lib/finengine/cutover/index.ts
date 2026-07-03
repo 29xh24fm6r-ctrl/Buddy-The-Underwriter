@@ -3,3 +3,4 @@
  * Barrel.
  */
 export * from "@/lib/finengine/cutover/legacyProducerAdapters";
+export * from "@/lib/finengine/cutover/productCutoverFlags";
