@@ -5,7 +5,7 @@ import { getSpreadTemplate } from "@/lib/financialSpreads/templates";
 import { SENTINEL_UUID, upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
 import { reconcileAegisFindingsForSpread } from "@/lib/aegis/reconcileSpreadFindings";
 import { writeSystemEvent } from "@/lib/aegis";
-import { extractGcfFactsFromRendered } from "@/lib/financialSpreads/gcfFactsFromRendered";
+import { planGcfFactWrites } from "@/lib/finengine/gcf/circularWriterGuard";
 import type { RenderedSpread, RentRollRow, SpreadType } from "@/lib/financialSpreads/types";
 
 function emptyErrorSpread(type: SpreadType, message: string): RenderedSpread {
@@ -179,7 +179,21 @@ export async function renderSpread(args: {
         bankId: args.bankId,
         rendered,
       });
-      if (!res.ok || res.written.length === 0) {
+      if (res.quarantined) {
+        // PR19 kill switch: the circular rendered-spread→facts writer is
+        // quarantined by explicit flag. No canonical facts written by design —
+        // this is not an incomplete-materialization failure.
+        void writeSystemEvent({
+          event_type: "info",
+          severity: "info",
+          source_system: "spreads_processor",
+          deal_id: args.dealId,
+          bank_id: args.bankId,
+          error_code: "GCF_CIRCULAR_WRITER_QUARANTINED",
+          error_message: "GCF circular writer quarantined by flag; no rendered-derived canonical facts materialized.",
+          payload: {},
+        });
+      } else if (!res.ok || res.written.length === 0) {
         void writeSystemEvent({
           event_type: "warning",
           severity: res.written.length === 0 ? "error" : "warning",
@@ -223,9 +237,16 @@ async function persistGcfComputedFacts(args: {
   dealId: string;
   bankId: string;
   rendered: RenderedSpread;
-}): Promise<{ ok: boolean; written: string[]; errors: Array<{ factKey: string; message: string }> }> {
+}): Promise<{ ok: boolean; written: string[]; errors: Array<{ factKey: string; message: string }>; quarantined: boolean }> {
+  // PR19: gate the circular rendered-spread→facts writer behind the kill switch.
+  // Default ENABLED (no live change); when quarantined, plan.writes is empty so
+  // no canonical fact is materialized from the rendered spread.
+  const plan = planGcfFactWrites(args.rendered);
+  if (plan.quarantined) {
+    return { ok: true, written: [], errors: [], quarantined: true };
+  }
   // Canonical keys + legacy alias, extracted with cell-shape tolerance.
-  const facts = extractGcfFactsFromRendered(args.rendered);
+  const facts = plan.writes;
   const written: string[] = [];
   const errors: Array<{ factKey: string; message: string }> = [];
 
@@ -255,7 +276,7 @@ async function persistGcfComputedFacts(args: {
     }
   }
 
-  return { ok: errors.length === 0, written, errors };
+  return { ok: errors.length === 0, written, errors, quarantined: false };
 }
 
 /**
