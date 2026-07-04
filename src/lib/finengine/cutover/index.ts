@@ -4,3 +4,4 @@
  */
 export * from "@/lib/finengine/cutover/legacyProducerAdapters";
 export * from "@/lib/finengine/cutover/productCutoverFlags";
+export * from "@/lib/finengine/cutover/ciTermDscrCutover";
