@@ -150,4 +150,56 @@ describe("buildFinancialModel", () => {
     assert.equal(period.income.payroll, 150000);
     assert.equal(period.income.rent, 42000);
   });
+
+  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 — QuickBooks AR/OCA double-count
+  it("suppresses Other Current Assets when it equals Accounts Receivable (QB nesting)", () => {
+    const facts: FactInput[] = [
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_AR_GROSS", fact_value_num: 2393922, fact_period_end: "2025-12-31" },
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_OTHER_CURRENT_ASSETS", fact_value_num: 2393922, fact_period_end: "2025-12-31" },
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_CASH", fact_value_num: 739144, fact_period_end: "2025-12-31" },
+    ];
+    const period = buildFinancialModel("deal-qb", facts).periods[0];
+    assert.equal(period.balance.accountsReceivable, 2393922);
+    assert.equal(period.balance.otherCurrentAssets, undefined, "OCA suppressed as duplicate of AR");
+    assert.equal(period.balance.cash, 739144);
+    // Derived TCA = cash + AR (+ 0 inventory + 0 suppressed OCA) — no double-count.
+    assert.equal(period.balance.totalCurrentAssets, 3133066);
+  });
+
+  it("keeps Other Current Assets when it genuinely differs from AR", () => {
+    const facts: FactInput[] = [
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_AR_GROSS", fact_value_num: 2000000, fact_period_end: "2025-12-31" },
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_OTHER_CURRENT_ASSETS", fact_value_num: 500000, fact_period_end: "2025-12-31" },
+    ];
+    const period = buildFinancialModel("deal-qb2", facts).periods[0];
+    assert.equal(period.balance.accountsReceivable, 2000000);
+    assert.equal(period.balance.otherCurrentAssets, 500000);
+  });
+
+  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 — long-term debt accumulation
+  it("maps a single shareholder-loan fact to longTermDebt", () => {
+    const facts: FactInput[] = [
+      { fact_type: "TAX_RETURN", fact_key: "SL_LOANS_FROM_SHAREHOLDERS", fact_value_num: 1503500, fact_period_end: "2022-12-31" },
+    ];
+    const period = buildFinancialModel("deal-ltd1", facts).periods[0];
+    assert.equal(period.balance.longTermDebt, 1503500);
+  });
+
+  it("de-dupes identical long-term-debt values reported on two Schedule L lines", () => {
+    const facts: FactInput[] = [
+      { fact_type: "TAX_RETURN", fact_key: "SL_LOANS_FROM_SHAREHOLDERS", fact_value_num: 1730705, fact_period_end: "2023-12-31" },
+      { fact_type: "TAX_RETURN", fact_key: "SL_MORTGAGES_NOTES_BONDS", fact_value_num: 1730705, fact_period_end: "2023-12-31" },
+    ];
+    const period = buildFinancialModel("deal-ltd2", facts).periods[0];
+    assert.equal(period.balance.longTermDebt, 1730705, "same loan on two lines is not doubled");
+  });
+
+  it("sums genuinely distinct long-term-debt sources", () => {
+    const facts: FactInput[] = [
+      { fact_type: "TAX_RETURN", fact_key: "SL_LOANS_FROM_SHAREHOLDERS", fact_value_num: 200000, fact_period_end: "2024-12-31" },
+      { fact_type: "TAX_RETURN", fact_key: "SL_MORTGAGES_NOTES_BONDS", fact_value_num: 1730705, fact_period_end: "2024-12-31" },
+    ];
+    const period = buildFinancialModel("deal-ltd3", facts).periods[0];
+    assert.equal(period.balance.longTermDebt, 1930705, "distinct debts sum");
+  });
 });

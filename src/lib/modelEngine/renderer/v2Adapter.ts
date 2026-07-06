@@ -119,6 +119,7 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
   if (period.balance.totalAssets !== undefined) map["TOTAL_ASSETS"] = period.balance.totalAssets;
   if (period.balance.accountsPayable !== undefined) map["ACCOUNTS_PAYABLE"] = period.balance.accountsPayable;
   if (period.balance.otherCurrentLiabilities !== undefined) map["OTHER_CURRENT_LIABILITIES"] = period.balance.otherCurrentLiabilities;
+  if (period.balance.accruedLiabilities !== undefined) map["ACCRUED_LIABILITIES"] = period.balance.accruedLiabilities;
   if (period.balance.totalCurrentLiabilities !== undefined) map["TOTAL_CURRENT_LIABILITIES"] = period.balance.totalCurrentLiabilities;
   if (period.balance.shortTermDebt !== undefined) map["ST_LOANS_PAYABLE"] = period.balance.shortTermDebt;
   if (period.balance.longTermDebt !== undefined) map["LONG_TERM_DEBT"] = period.balance.longTermDebt;

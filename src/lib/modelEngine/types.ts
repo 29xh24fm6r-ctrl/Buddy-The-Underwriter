@@ -49,6 +49,7 @@ export interface FinancialPeriod {
     totalCurrentAssets?: number;
     accountsPayable?: number;
     otherCurrentLiabilities?: number;
+    accruedLiabilities?: number;
     totalCurrentLiabilities?: number;
     retainedEarnings?: number;
     commonStock?: number;
