@@ -109,6 +109,7 @@ export const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
   TOTAL_ASSETS: "totalAssets",
   ACCOUNTS_PAYABLE: "accountsPayable",
   OTHER_CURRENT_LIABILITIES: "otherCurrentLiabilities",
+  ACCRUED_LIABILITIES: "accruedLiabilities",
   TOTAL_CURRENT_LIABILITIES: "totalCurrentLiabilities",
   SHORT_TERM_DEBT: "shortTermDebt",
   LONG_TERM_DEBT: "longTermDebt",
@@ -117,6 +118,10 @@ export const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
   RETAINED_EARNINGS: "retainedEarnings",
   COMMON_STOCK: "commonStock",
   PAID_IN_CAPITAL: "paidInCapital",
+  // SPEC-FINENGINE-COMPLETE-DERIVATION-1: fixed-asset lines feed Net Fixed Assets.
+  PPE_GROSS: "ppeGross",
+  ACCUMULATED_DEPRECIATION: "accumulatedDepreciation",
+  NET_FIXED_ASSETS: "netFixedAssets",
 };
 
 const CASHFLOW_MAP: Record<string, keyof FinancialPeriod["cashflow"]> = {
@@ -224,6 +229,26 @@ export function buildFinancialModel(
       (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0),
     );
 
+    // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1: QuickBooks balance sheets nest
+    // Accounts Receivable UNDER "Other Current Assets," so the extractor emits
+    // both SL_AR_GROSS and SL_OTHER_CURRENT_ASSETS with identical values —
+    // double-counting Total Current Assets. When AR === OCA for the period,
+    // suppress the OCA slot (AR is the real line; OCA is the redundant parent).
+    const normalizedValues = new Map<string, number>();
+    for (const f of sorted) {
+      if (f.fact_value_num === null) continue;
+      normalizedValues.set(normalizeFactKey(f.fact_key), f.fact_value_num);
+    }
+    const arValue = normalizedValues.get("ACCOUNTS_RECEIVABLE");
+    const ocaValue = normalizedValues.get("OTHER_CURRENT_ASSETS");
+    const suppressOca = arValue !== undefined && ocaValue !== undefined && arValue === ocaValue;
+
+    // Distinct LONG_TERM_DEBT source values already summed this period. Multiple
+    // Schedule L lines (L19 shareholder loans, L20 mortgages/notes) both map to
+    // LONG_TERM_DEBT; sum DISTINCT values but de-dupe identical ones (the same
+    // loan reported on two lines — e.g. 2023 both = $1,730,705).
+    const ltdSeen = new Set<number>();
+
     for (const f of sorted) {
       // SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1: normalize extraction-vocabulary
       // keys (SL_CASH, SALARIES_WAGES_IS …) to canonical model keys ONCE, then
@@ -242,6 +267,15 @@ export function buildFinancialModel(
 
       const balanceField = BALANCE_MAP[key];
       if (balanceField) {
+        // Suppress QuickBooks OCA double-count (SPEC-…-RECONCILIATION-1 §1b).
+        if (balanceField === "otherCurrentAssets" && suppressOca) continue;
+        // Accumulate long-term debt across distinct Schedule L lines (§1c).
+        if (balanceField === "longTermDebt") {
+          if (ltdSeen.has(f.fact_value_num!)) continue; // same loan on two lines
+          ltdSeen.add(f.fact_value_num!);
+          period.balance.longTermDebt = (period.balance.longTermDebt ?? 0) + f.fact_value_num!;
+          continue;
+        }
         period.balance[balanceField] = f.fact_value_num!;
         continue;
       }
@@ -309,8 +343,53 @@ function deriveComputedValues(period: FinancialPeriod): void {
     cashflow.ebitda = income.revenue - cogs - opex + dep + ie;
   }
 
-  // Equity = totalAssets - totalLiabilities (if not provided)
-  if (balance.equity === undefined && balance.totalAssets !== undefined && balance.totalLiabilities !== undefined) {
+  // SPEC-FINENGINE-COMPLETE-DERIVATION-1: comprehensive balance-sheet
+  // derivations. Each fires ONLY when no raw fact supplied the value, so an
+  // authoritative extracted aggregate always wins. Ordered so upstream subtotals
+  // (net fixed assets, total liabilities) exist before the totals that need them.
+
+  // ── Net Fixed Assets = PPE gross − accumulated depreciation ──────────
+  if (balance.netFixedAssets === undefined
+      && balance.ppeGross !== undefined
+      && balance.accumulatedDepreciation !== undefined) {
+    balance.netFixedAssets = balance.ppeGross - balance.accumulatedDepreciation;
+  }
+
+  // ── Total Non-Current Assets (net fixed assets; intangibles/LT receivables
+  //    fold in once those fields are modeled) ──
+  if (balance.totalNonCurrentAssets === undefined && balance.netFixedAssets !== undefined) {
+    balance.totalNonCurrentAssets = balance.netFixedAssets;
+  }
+
+  // ── Current subtotals — OCA is already de-duped against AR upstream, so the
+  //    sum never double-counts (SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 §1f) ──
+  if (balance.totalCurrentAssets === undefined) {
+    const tca = (balance.cash ?? 0) + (balance.accountsReceivable ?? 0)
+      + (balance.inventory ?? 0) + (balance.otherCurrentAssets ?? 0);
+    if (tca > 0) balance.totalCurrentAssets = tca;
+  }
+  if (balance.totalCurrentLiabilities === undefined) {
+    const tcl = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
+      + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0);
+    if (tcl > 0) balance.totalCurrentLiabilities = tcl;
+  }
+
+  // ── Total Liabilities = current liabilities + long-term debt ──────────
+  // Derived from components (AP + other-current + accrued + short-term + LTD).
+  // Long-term debt carries the Schedule L shareholder-loan / mortgage lines.
+  if (balance.totalLiabilities === undefined) {
+    const tl = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
+      + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0)
+      + (balance.longTermDebt ?? 0);
+    if (tl > 0) balance.totalLiabilities = tl;
+  }
+
+  // ── Net Worth = Total Assets − Total Liabilities ─────────────────────
+  // Runs AFTER the Total Liabilities derivation above so it fires for periods
+  // whose liabilities were assembled from components (not a single raw fact).
+  if (balance.equity === undefined
+      && balance.totalAssets !== undefined
+      && balance.totalLiabilities !== undefined) {
     balance.equity = balance.totalAssets - balance.totalLiabilities;
   }
 

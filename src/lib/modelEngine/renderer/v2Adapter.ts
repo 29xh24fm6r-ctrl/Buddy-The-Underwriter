@@ -119,6 +119,7 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
   if (period.balance.totalAssets !== undefined) map["TOTAL_ASSETS"] = period.balance.totalAssets;
   if (period.balance.accountsPayable !== undefined) map["ACCOUNTS_PAYABLE"] = period.balance.accountsPayable;
   if (period.balance.otherCurrentLiabilities !== undefined) map["OTHER_CURRENT_LIABILITIES"] = period.balance.otherCurrentLiabilities;
+  if (period.balance.accruedLiabilities !== undefined) map["ACCRUED_LIABILITIES"] = period.balance.accruedLiabilities;
   if (period.balance.totalCurrentLiabilities !== undefined) map["TOTAL_CURRENT_LIABILITIES"] = period.balance.totalCurrentLiabilities;
   if (period.balance.shortTermDebt !== undefined) map["ST_LOANS_PAYABLE"] = period.balance.shortTermDebt;
   if (period.balance.longTermDebt !== undefined) map["LONG_TERM_DEBT"] = period.balance.longTermDebt;
@@ -127,6 +128,11 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
   if (period.balance.retainedEarnings !== undefined) map["RETAINED_EARNINGS"] = period.balance.retainedEarnings;
   if (period.balance.commonStock !== undefined) map["COMMON_STOCK"] = period.balance.commonStock;
   if (period.balance.paidInCapital !== undefined) map["PAID_IN_CAPITAL"] = period.balance.paidInCapital;
+  // Fixed assets (SPEC-FINENGINE-COMPLETE-DERIVATION-1)
+  if (period.balance.ppeGross !== undefined) map["PPE_GROSS"] = period.balance.ppeGross;
+  if (period.balance.accumulatedDepreciation !== undefined) map["ACCUMULATED_DEPRECIATION"] = period.balance.accumulatedDepreciation;
+  if (period.balance.netFixedAssets !== undefined) map["FIXED_ASSETS_NET"] = period.balance.netFixedAssets;
+  if (period.balance.totalNonCurrentAssets !== undefined) map["TOTAL_NONCURRENT_ASSETS"] = period.balance.totalNonCurrentAssets;
 
   // Cashflow → standard keys
   if (period.cashflow.ebitda !== undefined) map["EBITDA"] = period.cashflow.ebitda;
@@ -180,10 +186,16 @@ function formatPeriodLabel(periodEnd: string): string {
  *
  * @param model - FinancialModel from buildFinancialModel()
  * @param dealId - Deal ID (for traceability — model.dealId is the canonical source)
+ * @param overrides - SPEC-FINENGINE-COMPLETE-DERIVATION-1: cross-period injections
+ *   the model itself cannot carry. `annualDebtService` (the proposed loan's ADS
+ *   from deal_structural_pricing) is injected into every period's fact map so the
+ *   Annual Debt Service, DSCR, and Excess Cash Flow rows compute per period
+ *   (historical coverage analysis). Read-only callers (diff/parity) omit it.
  */
 export function renderFromFinancialModel(
   model: FinancialModel,
   dealId?: string,
+  overrides?: { annualDebtService?: number | null },
 ): SpreadViewModel {
   const effectiveDealId = dealId ?? model.dealId;
   const generatedAt = new Date().toISOString();
@@ -235,6 +247,18 @@ export function renderFromFinancialModel(
       // Merge raw facts + all previously computed values (cross-statement)
       const enrichedFacts = { ...factsMap, ...globalComputed.get(period.periodEnd)! };
 
+      // SPEC-FINENGINE-COMPLETE-DERIVATION-1: inject the proposed loan's Annual
+      // Debt Service (same value across periods) so DSCR / ADS / Excess Cash Flow
+      // rows populate. Only when the model didn't already carry a per-period ADS.
+      if (overrides?.annualDebtService != null) {
+        if (enrichedFacts["ANNUAL_DEBT_SERVICE"] === undefined) {
+          enrichedFacts["ANNUAL_DEBT_SERVICE"] = overrides.annualDebtService;
+        }
+        if (enrichedFacts["CF_ANNUAL_DEBT_SERVICE"] === undefined) {
+          enrichedFacts["CF_ANNUAL_DEBT_SERVICE"] = overrides.annualDebtService;
+        }
+      }
+
       // Pre-compute helper metrics needed by ratio formulas
       for (const hid of HELPER_METRIC_IDS) {
         if (enrichedFacts[hid] === undefined) {
@@ -243,14 +267,24 @@ export function renderFromFinancialModel(
         }
       }
 
-      let value: number | null = null;
-
-      if (row.formulaId) {
+      // SPEC-FINENGINE-COMPLETE-DERIVATION-1: raw values carried by the financial
+      // model are AUTHORITATIVE aggregates (e.g. TOTAL_OPERATING_EXPENSES from a
+      // tax return's TOTAL_DEDUCTIONS, TOTAL_ASSETS from Schedule L). A formula
+      // that re-sums individually-extracted line items necessarily undercounts
+      // when a component (e.g. "Other deductions") was not itemized — which is
+      // what produced the $588K vs $1.98M operating-expense contradiction and the
+      // impossible Net Profit ($1.4M) > EBITDA ($151K). So a raw value WINS over
+      // the formula; the formula is the fallback for rows with no raw value
+      // (ratios, computed subtotals like GROSS_PROFIT / NET_OPERATING_PROFIT,
+      // which are never emitted into the period fact map and so fall through).
+      const rawValue = enrichedFacts[row.key] ?? null;
+      let value: number | null;
+      if (rawValue !== null) {
+        value = rawValue;
+      } else if (row.formulaId) {
         value = evaluateStandardFormula(row.formulaId, enrichedFacts);
-      }
-      // Fallback: if formula returned null or no formula, try direct fact lookup
-      if (value === null) {
-        value = enrichedFacts[row.key] ?? null;
+      } else {
+        value = null;
       }
 
       // Store in global accumulator for downstream formulas

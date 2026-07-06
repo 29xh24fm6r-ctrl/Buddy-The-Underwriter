@@ -147,9 +147,8 @@ const KNOWN_EXTRACTION_KEYS: ReadonlySet<string> = new Set([
  * INVARIANT (guarded by factKeyNormalization.test.ts): every RHS value is a real
  * downstream slot — a canonical metric key, a BALANCE_MAP key, or an
  * INCOME_PRIORITY key. A target with no slot is dead vocabulary and is rejected.
- * That is why source-line keys without a model slot (SL_PPE_GROSS,
- * SL_ACCUMULATED_DEPRECIATION, SL_LOANS_FROM_SHAREHOLDERS, SL_WAGES_PAYABLE) are
- * intentionally absent — they pass through unchanged until a slot exists for them.
+ * A source-line key gains an entry here only once a model slot exists for it;
+ * unmapped keys pass through `normalizeFactKey` unchanged.
  */
 export const EXTRACTION_TO_CANONICAL: Record<string, string> = {
   // ── Balance Sheet (SL_ source-line → BALANCE_MAP canonical) ──────────────
@@ -167,6 +166,20 @@ export const EXTRACTION_TO_CANONICAL: Record<string, string> = {
   SL_RETAINED_EARNINGS:             "RETAINED_EARNINGS",
   SL_COMMON_STOCK:                  "COMMON_STOCK",
   SL_PAID_IN_CAPITAL:               "PAID_IN_CAPITAL",
+
+  // ── Liability classification (Schedule L lines 17-21) ────────────────────
+  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1. Loans-from-shareholders (L19)
+  // and mortgages/notes ≥1yr (L20) are non-current debt; wages payable is an
+  // accrued liability. When two keys both resolve to LONG_TERM_DEBT for one
+  // period, buildFinancialModel sums DISTINCT values and de-dupes identical
+  // ones (same loan reported on two Schedule L lines).
+  SL_LOANS_FROM_SHAREHOLDERS:       "LONG_TERM_DEBT",
+  SL_MORTGAGES_NOTES_BONDS:         "LONG_TERM_DEBT",
+  SL_WAGES_PAYABLE:                 "ACCRUED_LIABILITIES",
+
+  // ── Fixed assets (SPEC-FINENGINE-COMPLETE-DERIVATION-1) — feed Net Fixed Assets ─
+  SL_PPE_GROSS:                     "PPE_GROSS",
+  SL_ACCUMULATED_DEPRECIATION:      "ACCUMULATED_DEPRECIATION",
 
   // ── Income Statement (source-line _IS suffix → INCOME_PRIORITY canonical) ─
   SALARIES_WAGES_IS:                "PAYROLL",
