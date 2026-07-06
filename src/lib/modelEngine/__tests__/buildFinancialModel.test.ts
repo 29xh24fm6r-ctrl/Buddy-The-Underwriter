@@ -129,4 +129,25 @@ describe("buildFinancialModel", () => {
     assert.equal(model.periods.length, 0);
     assert.equal(model.dealId, "deal-10");
   });
+
+  // SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1 — source-line keys normalize into slots
+  it("normalizes a source-line balance key (SL_CASH) into balance.cash", () => {
+    const facts: FactInput[] = [
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_CASH", fact_value_num: 198692.59, fact_period_end: "2025-12-31" },
+      { fact_type: "BALANCE_SHEET", fact_key: "SL_TOTAL_ASSETS", fact_value_num: 3342586, fact_period_end: "2025-12-31" },
+    ];
+    const period = buildFinancialModel("deal-bridge-1", facts).periods[0];
+    assert.equal(period.balance.cash, 198692.59);
+    assert.equal(period.balance.totalAssets, 3342586);
+  });
+
+  it("normalizes a source-line income key (SALARIES_WAGES_IS) into income.payroll", () => {
+    const facts: FactInput[] = [
+      { fact_type: "INCOME_STATEMENT", fact_key: "SALARIES_WAGES_IS", fact_value_num: 150000, fact_period_end: "2025-12-31" },
+      { fact_type: "INCOME_STATEMENT", fact_key: "RENT_EXPENSE_IS", fact_value_num: 42000, fact_period_end: "2025-12-31" },
+    ];
+    const period = buildFinancialModel("deal-bridge-2", facts).periods[0];
+    assert.equal(period.income.payroll, 150000);
+    assert.equal(period.income.rent, 42000);
+  });
 });

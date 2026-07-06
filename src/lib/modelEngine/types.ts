@@ -23,6 +23,16 @@ export interface FinancialPeriod {
     depreciation?: number;
     interest?: number;
     netIncome?: number;
+    // Operating-expense detail lines (SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1).
+    // Display-only — they do not feed EBITDA (operatingExpenses owns that).
+    officerComp?: number;
+    payroll?: number;
+    rent?: number;
+    repairs?: number;
+    insurance?: number;
+    advertising?: number;
+    utilities?: number;
+    professionalFees?: number;
   };
 
   balance: {
@@ -34,6 +44,15 @@ export interface FinancialPeriod {
     longTermDebt?: number;
     totalLiabilities?: number;
     equity?: number;
+    // Additional balance-sheet detail (SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1).
+    otherCurrentAssets?: number;
+    totalCurrentAssets?: number;
+    accountsPayable?: number;
+    otherCurrentLiabilities?: number;
+    totalCurrentLiabilities?: number;
+    retainedEarnings?: number;
+    commonStock?: number;
+    paidInCapital?: number;
   };
 
   cashflow: {

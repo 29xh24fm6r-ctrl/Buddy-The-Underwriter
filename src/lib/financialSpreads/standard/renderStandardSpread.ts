@@ -2,6 +2,7 @@ import "server-only";
 
 import { STANDARD_ROWS, type StandardRow, type StandardStatement } from "@/lib/financialSpreads/standard/mapping";
 import { STANDARD_FORMULAS } from "@/lib/financialSpreads/standard/formulas/registry";
+import { normalizeFactKey } from "@/lib/finengine/factKeyRegistry";
 import { evaluateMetric } from "@/lib/metrics/evaluateMetric";
 import type { FinancialFact, RenderedSpread, RenderedSpreadCellV2, SpreadColumnV2 } from "@/lib/financialSpreads/types";
 
@@ -83,7 +84,11 @@ function buildFactsMap(
   const byKey = new Map<string, FinancialFact[]>();
   for (const f of facts) {
     if (f.fact_value_num === null && f.fact_value_text === null) continue;
-    const k = f.fact_key;
+    // SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1: normalize extraction keys to
+    // canonical vocabulary as the PRIMARY bridge. FACT_KEY_ALIASES below stays
+    // as a SECONDARY fallback for semantic aliases (NET_PROFIT ← NET_INCOME,
+    // TOTAL_REVENUE ← GROSS_RECEIPTS) that are not extraction→canonical.
+    const k = normalizeFactKey(f.fact_key);
     if (!byKey.has(k)) byKey.set(k, []);
     byKey.get(k)!.push(f);
   }

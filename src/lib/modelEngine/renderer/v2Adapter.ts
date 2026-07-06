@@ -100,16 +100,33 @@ function periodToFactMap(period: FinancialPeriod): Record<string, number | null>
     map["NET_INCOME"] = period.income.netIncome;
     map["ORDINARY_BUSINESS_INCOME"] = period.income.netIncome; // alias for string-registry EBITDA formula
   }
+  // Operating-expense detail lines (SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1)
+  if (period.income.officerComp !== undefined) map["OFFICER_COMPENSATION"] = period.income.officerComp;
+  if (period.income.payroll !== undefined) map["PAYROLL"] = period.income.payroll;
+  if (period.income.rent !== undefined) map["RENT_EXPENSE"] = period.income.rent;
+  if (period.income.repairs !== undefined) map["REPAIRS_MAINTENANCE"] = period.income.repairs;
+  if (period.income.insurance !== undefined) map["INSURANCE_EXPENSE"] = period.income.insurance;
+  if (period.income.advertising !== undefined) map["ADVERTISING"] = period.income.advertising;
+  if (period.income.utilities !== undefined) map["UTILITIES"] = period.income.utilities;
+  if (period.income.professionalFees !== undefined) map["PROFESSIONAL_FEES"] = period.income.professionalFees;
 
   // Balance → standard keys
   if (period.balance.cash !== undefined) map["CASH_AND_EQUIVALENTS"] = period.balance.cash;
   if (period.balance.accountsReceivable !== undefined) map["ACCOUNTS_RECEIVABLE"] = period.balance.accountsReceivable;
   if (period.balance.inventory !== undefined) map["INVENTORY"] = period.balance.inventory;
+  if (period.balance.otherCurrentAssets !== undefined) map["OTHER_CURRENT_ASSETS"] = period.balance.otherCurrentAssets;
+  if (period.balance.totalCurrentAssets !== undefined) map["TOTAL_CURRENT_ASSETS"] = period.balance.totalCurrentAssets;
   if (period.balance.totalAssets !== undefined) map["TOTAL_ASSETS"] = period.balance.totalAssets;
+  if (period.balance.accountsPayable !== undefined) map["ACCOUNTS_PAYABLE"] = period.balance.accountsPayable;
+  if (period.balance.otherCurrentLiabilities !== undefined) map["OTHER_CURRENT_LIABILITIES"] = period.balance.otherCurrentLiabilities;
+  if (period.balance.totalCurrentLiabilities !== undefined) map["TOTAL_CURRENT_LIABILITIES"] = period.balance.totalCurrentLiabilities;
   if (period.balance.shortTermDebt !== undefined) map["ST_LOANS_PAYABLE"] = period.balance.shortTermDebt;
   if (period.balance.longTermDebt !== undefined) map["LONG_TERM_DEBT"] = period.balance.longTermDebt;
   if (period.balance.totalLiabilities !== undefined) map["TOTAL_LIABILITIES"] = period.balance.totalLiabilities;
   if (period.balance.equity !== undefined) map["NET_WORTH"] = period.balance.equity;
+  if (period.balance.retainedEarnings !== undefined) map["RETAINED_EARNINGS"] = period.balance.retainedEarnings;
+  if (period.balance.commonStock !== undefined) map["COMMON_STOCK"] = period.balance.commonStock;
+  if (period.balance.paidInCapital !== undefined) map["PAID_IN_CAPITAL"] = period.balance.paidInCapital;
 
   // Cashflow → standard keys
   if (period.cashflow.ebitda !== undefined) map["EBITDA"] = period.cashflow.ebitda;
