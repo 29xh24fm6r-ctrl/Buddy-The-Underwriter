@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { FinancialFactProvenance } from "@/lib/financialFacts/keys";
 import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { reconcileTotalLiabilities } from "./totalLiabilitiesReconciliation";
 
 
 // ---------------------------------------------------------------------------
@@ -147,7 +148,12 @@ export async function writeFactsBatch(args: {
 
   const cappedItems = capItemsToDocumentPeriod(args.items, args.documentPeriodEnd);
 
-  const writes = cappedItems.map((item) =>
+  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 Layer 2: recompute
+  // SL_TOTAL_LIABILITIES from its components before write, correcting the
+  // Schedule L line-28 (Total L&E) capture bug. Form-agnostic, idempotent.
+  const reconciledItems = reconcileTotalLiabilities(cappedItems);
+
+  const writes = reconciledItems.map((item) =>
     upsertDealFinancialFact({
       dealId: args.dealId,
       bankId: args.bankId,

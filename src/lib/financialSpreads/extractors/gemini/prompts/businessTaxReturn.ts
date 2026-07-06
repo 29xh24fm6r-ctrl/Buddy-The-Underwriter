@@ -122,7 +122,7 @@ const BTR_INSTRUCTIONS =
   "- RENT_EXPENSE: Rents (Line 16)\n" +
   "- TAXES_PAID: Taxes and licenses (Line 17)\n" +
   "- ORDINARY_BUSINESS_INCOME: Ordinary business income/loss (Line 21 or 22)\n" +
-  "- NET_INCOME: Net income (taxable income before NOL, Line 30 on 1120)\n" +
+  "- NET_INCOME: Net income (taxable income BEFORE the NOL deduction and special deductions — Form 1120 Line 28, NOT the post-NOL Line 30, which can read $0 after a loss carryforward)\n" +
   "- NET_RENTAL_RE_INCOME: Net rental real estate income (from Schedule K)\n" +
   "- GUARANTEED_PAYMENTS: Guaranteed payments to partners (1065 only, Schedule K)\n" +
   "- DISTRIBUTIONS: Distributions paid (Schedule K or M-2)\n\n" +
