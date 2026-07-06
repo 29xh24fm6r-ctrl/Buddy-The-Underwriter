@@ -54,6 +54,11 @@ export interface FinancialPeriod {
     retainedEarnings?: number;
     commonStock?: number;
     paidInCapital?: number;
+    // Fixed-asset detail + non-current subtotal (SPEC-FINENGINE-COMPLETE-DERIVATION-1).
+    ppeGross?: number;
+    accumulatedDepreciation?: number;
+    netFixedAssets?: number;
+    totalNonCurrentAssets?: number;
   };
 
   cashflow: {
