@@ -50,16 +50,16 @@ describe("stepsForCurrentStage", () => {
   it("lists every open non-infra blocker, workstream-ordered; infra excluded", () => {
     // eefd62b3-shaped: open work gates other stages, plus one infra blocker.
     const s = state("underwrite_in_progress", [
-      b("missing_global_cash_flow"),   // financial_computation (idx 2), gates underwrite_ready
+      b("missing_global_cash_flow"),   // financial_computation, gates underwrite_ready
       b("risk_pricing_not_finalized"), // risk_pricing (idx 6), gates closing_in_progress
-      b("missing_management_profile"), // memo_inputs (idx 4), gates memo_inputs_required
+      b("missing_management_profile"), // memo_inputs, gates memo_inputs_required
       b("snapshot_fetch_failed"),      // infra → blockerGatesStage null → excluded
     ]);
     const steps = stepsForCurrentStage(s, DEAL);
     assert.deepEqual(
       steps.map((x) => x.code),
-      ["missing_global_cash_flow", "missing_management_profile", "risk_pricing_not_finalized"],
-      "all 3 non-infra blockers, ordered financial_computation → memo_inputs → risk_pricing",
+      ["missing_management_profile", "missing_global_cash_flow", "risk_pricing_not_finalized"],
+      "all 3 non-infra blockers, ordered memo_inputs → financial_computation → risk_pricing",
     );
     assert.ok(
       !steps.some((x) => x.code === "snapshot_fetch_failed"),
@@ -79,6 +79,19 @@ describe("stepsForCurrentStage", () => {
     assert.equal(steps[0].href, primary.href);
   });
 
+  it("puts memo narrative before financial computation and pricing gates", () => {
+    const s = state("underwrite_in_progress", [
+      b("missing_global_cash_flow"),
+      b("missing_business_description"),
+      b("risk_pricing_not_finalized"),
+    ]);
+    const steps = stepsForCurrentStage(s, DEAL);
+    assert.deepEqual(
+      steps.map((x) => x.label),
+      ["Complete borrower story", "Global cash flow", "Finalize Pricing"],
+    );
+  });
+
   it("action-only fixes get href null; href-backed fixes keep their href", () => {
     const s = state("underwrite_ready", [
       b("financial_snapshot_missing"), // { action } only → null
@@ -87,7 +100,18 @@ describe("stepsForCurrentStage", () => {
     const byCode = new Map(stepsForCurrentStage(s, DEAL).map((x) => [x.code, x]));
     assert.equal(byCode.get("financial_snapshot_missing")!.href, null);
     assert.equal(byCode.get("financial_snapshot_missing")!.label, "Generate Snapshot");
+    assert.equal(byCode.get("financial_snapshot_missing")!.system, true);
     assert.equal(byCode.get("spreads_incomplete")!.href, `/deals/${DEAL}/spreads`);
+  });
+
+  it("marks system-computed blockers so passive rows can render differently", () => {
+    const s = state("underwrite_in_progress", [
+      b("missing_global_cash_flow"),
+      b("missing_management_profile"),
+    ]);
+    const byCode = new Map(stepsForCurrentStage(s, DEAL).map((x) => [x.code, x]));
+    assert.equal(byCode.get("missing_global_cash_flow")!.system, true);
+    assert.equal(byCode.get("missing_management_profile")!.system, false);
   });
 
   it("returns an empty list when only infra blockers remain", () => {
@@ -129,7 +153,7 @@ describe("stepsForCurrentStage", () => {
     const steps = stepsForCurrentStage(s, DEAL);
     assert.deepEqual(
       steps.map((x) => x.label),
-      ["Run financial analysis", "Review Global Cash Flow"],
+      ["Run financial analysis", "Global cash flow"],
       "upstream business cash flow first (absorbing DSCR), then GCF",
     );
     assert.equal(steps[0].href, `/deals/${DEAL}/financials`, "top step routes to financial analysis, not the GCF dead-end");
@@ -145,6 +169,19 @@ describe("stepsForCurrentStage", () => {
     assert.equal(primary.label, "Run financial analysis", "CTA is the upstream-most financial step");
     assert.equal(primary.href, `/deals/${DEAL}/financials`);
     // Invariant: first step still agrees with the primary CTA after dedup+ordering.
+    assert.equal(stepsForCurrentStage(s, DEAL)[0].label, primary.label);
+    assert.equal(stepsForCurrentStage(s, DEAL)[0].href, primary.href);
+  });
+
+  it("primary CTA prefers the first actionable memo step over system-computed GCF", () => {
+    const s = state("underwrite_in_progress", [
+      b("missing_global_cash_flow"),
+      b("missing_business_description"),
+      b("risk_pricing_not_finalized"),
+    ]);
+    const primary = buildJourneyPrimaryAction(s, DEAL);
+    assert.equal(primary.label, "Complete borrower story");
+    assert.equal(primary.href, `/deals/${DEAL}/memo-inputs#borrower-story`);
     assert.equal(stepsForCurrentStage(s, DEAL)[0].label, primary.label);
     assert.equal(stepsForCurrentStage(s, DEAL)[0].href, primary.href);
   });

@@ -8,6 +8,7 @@ import { blockerGatesStage } from "@/buddy/lifecycle/blockerToStage";
 import { getBlockerFixAction } from "@/buddy/lifecycle/nextAction";
 import {
   INTRA_WORKSTREAM_PRIORITY,
+  SYSTEM_COMPUTED_BLOCKERS,
   UNDERWRITING_WORKSTREAM_ORDER,
   workstreamForBlocker,
 } from "@/lib/journey/journeyActionProjection";
@@ -18,6 +19,7 @@ export type StageStep = {
   message: string;        // blocker.message (secondary line)
   href: string | null;    // FixAction href; null for action-only/unmapped fixes
   open: boolean;          // true = still blocking (undone)
+  system: boolean;        // true = Buddy-computed, not a banker action
 };
 
 /**
@@ -45,7 +47,12 @@ export function stepsForCurrentStage(
     // Secondary: intra-workstream dependency order (e.g. business cash flow before GCF before DSCR).
     const pa = INTRA_WORKSTREAM_PRIORITY[a.code] ?? Number.MAX_SAFE_INTEGER;
     const pb = INTRA_WORKSTREAM_PRIORITY[b.code] ?? Number.MAX_SAFE_INTEGER;
-    return pa - pb;
+    if (pa !== pb) return pa - pb;
+    // Tertiary: system-computed steps sort below actionable banker steps
+    // within the same workstream position.
+    const sa = SYSTEM_COMPUTED_BLOCKERS.has(a.code) ? 1 : 0;
+    const sb = SYSTEM_COMPUTED_BLOCKERS.has(b.code) ? 1 : 0;
+    return sa - sb;
   });
 
   // Deduplicate by label+href — two blockers with identical fix actions
@@ -63,6 +70,7 @@ export function stepsForCurrentStage(
       message: b.message,
       href: fix && "href" in fix && typeof fix.href === "string" ? fix.href : null,
       open: true,
+      system: SYSTEM_COMPUTED_BLOCKERS.has(b.code),
     };
     const dedupKey = `${step.label}||${step.href ?? ""}`;
     if (seen.has(dedupKey)) continue;

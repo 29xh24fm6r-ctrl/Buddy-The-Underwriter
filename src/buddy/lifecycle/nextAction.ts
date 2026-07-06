@@ -366,7 +366,7 @@ export function getBlockerFixAction(
     // ready (SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1), so this is never a dead-end.
     case "missing_global_cash_flow":
       return {
-        label: "Review Global Cash Flow",
+        label: "Global cash flow",
         href: `/deals/${dealId}/spreads/global-cash-flow`,
       };
 
