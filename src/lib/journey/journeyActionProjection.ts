@@ -32,9 +32,9 @@ import { getNextAction, getBlockerFixAction, type NextAction } from "@/buddy/lif
 export type UnderwritingWorkstream =
   | "loan_request"          // a genuinely missing/incomplete loan request still comes first
   | "documents"             // a. document / intake reconciliation
-  | "financial_computation" // b. spread / financial computation readiness
+  | "memo_inputs"           // b. memo input completeness
   | "spread_evidence"       // c. source-evidence / spread review
-  | "memo_inputs"           // d. memo input completeness
+  | "financial_computation" // d. spread / financial computation readiness
   | "financial_validation"  // e. financial validation
   | "risk_pricing"          // f. risk pricing finalization (LATE gate)
   | "committee";            // g. committee packet / decision readiness (LATE gate)
@@ -42,13 +42,33 @@ export type UnderwritingWorkstream =
 export const UNDERWRITING_WORKSTREAM_ORDER: UnderwritingWorkstream[] = [
   "loan_request",
   "documents",
-  "financial_computation",
-  "spread_evidence",
   "memo_inputs",
+  "spread_evidence",
+  "financial_computation",
   "financial_validation",
   "risk_pricing",
   "committee",
 ];
+
+/**
+ * SPEC-RAIL-WORKSTREAM-RESEQUENCE-1 — blocker codes that represent system-computed
+ * outputs the banker cannot directly act on. These sort below actionable banker
+ * steps within the same workstream and render as status indicators rather than CTAs.
+ */
+export const SYSTEM_COMPUTED_BLOCKERS = new Set<LifecycleBlockerCode>([
+  "missing_global_cash_flow",
+  "missing_business_cash_flow",
+  "missing_dscr",
+  "missing_debt_service_facts",
+  "financial_snapshot_missing",
+  "financial_snapshot_build_failed",
+  "financial_snapshot_stale_recovery",
+  "research_stalled",
+  "documents_processing_stalled",
+  "artifacts_processing_stalled",
+  "memo_prefill_stale",
+  "collateral_extraction_needed",
+]);
 
 /** Map each lifecycle blocker code to its banker workstream. Unmapped codes are ignored here and the
  *  projection falls back to getNextAction (preserves existing behavior for infra/error blockers). */

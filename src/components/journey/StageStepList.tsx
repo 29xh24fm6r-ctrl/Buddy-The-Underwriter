@@ -27,7 +27,12 @@ export function StageStepList({ steps, stageKey }: { steps: StageStep[]; stageKe
     <ol role="list" className="mt-1 space-y-0.5 pl-6" data-testid="stage-step-list">
       {rows.map((s) => (
         <li key={s.code} data-testid={`stage-step-${s.code}`} data-open={s.open}>
-          {s.open && s.href ? (
+          {s.open && s.system ? (
+            <span className="block px-2 py-1 text-[11px] text-white/40 italic">
+              <span className="mr-1 inline-block h-2 w-2 animate-pulse rounded-full border border-white/20 align-middle" aria-hidden />
+              {s.label}
+            </span>
+          ) : s.open && s.href ? (
             <Link
               href={s.href}
               className="block rounded-md px-2 py-1 text-[11px] text-white/80 hover:bg-white/5"

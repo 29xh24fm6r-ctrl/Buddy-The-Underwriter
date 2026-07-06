@@ -27,3 +27,10 @@ test("[step-list-2] resolved steps render green (emerald) with a strikethrough",
 test("[step-list-3] StageStepList does not import from deriveLifecycleState (model layer untouched)", () => {
   assert.doesNotMatch(read(STEP_LIST), /deriveLifecycleState/);
 });
+
+test("[step-list-4] system-computed open steps render as passive dimmed status rows", () => {
+  const body = read(STEP_LIST);
+  assert.match(body, /s\.open && s\.system/, "system-owned open steps must branch before clickable links");
+  assert.match(body, /animate-pulse/, "system-owned open steps must show a pulsing indicator");
+  assert.match(body, /italic/, "system-owned open steps must render in italic");
+});
