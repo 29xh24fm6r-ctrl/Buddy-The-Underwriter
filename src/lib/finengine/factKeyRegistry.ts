@@ -134,6 +134,60 @@ const KNOWN_EXTRACTION_KEYS: ReadonlySet<string> = new Set([
   "TOTAL_TAX",
 ]);
 
+/**
+ * SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1 — the ONE canonical map from
+ * extraction-level fact keys to the metric/model-level keys the financial model
+ * (buildFinancialModel) and spread templates (renderStandardSpread) expect.
+ * Every consumer normalizes through `normalizeFactKey` — no separate alias maps.
+ *
+ * Direction: extractor-written key → canonical metric/model key.
+ * Keys already canonical (TOTAL_REVENUE, COST_OF_GOODS_SOLD) are NOT listed here;
+ * they pass through `normalizeFactKey` unchanged.
+ *
+ * INVARIANT (guarded by factKeyNormalization.test.ts): every RHS value is a real
+ * downstream slot — a canonical metric key, a BALANCE_MAP key, or an
+ * INCOME_PRIORITY key. A target with no slot is dead vocabulary and is rejected.
+ * That is why source-line keys without a model slot (SL_PPE_GROSS,
+ * SL_ACCUMULATED_DEPRECIATION, SL_LOANS_FROM_SHAREHOLDERS, SL_WAGES_PAYABLE) are
+ * intentionally absent — they pass through unchanged until a slot exists for them.
+ */
+export const EXTRACTION_TO_CANONICAL: Record<string, string> = {
+  // ── Balance Sheet (SL_ source-line → BALANCE_MAP canonical) ──────────────
+  SL_CASH:                          "CASH_AND_EQUIVALENTS",
+  SL_AR_GROSS:                      "ACCOUNTS_RECEIVABLE",
+  SL_INVENTORY:                     "INVENTORY",
+  SL_OTHER_CURRENT_ASSETS:          "OTHER_CURRENT_ASSETS",
+  SL_TOTAL_CURRENT_ASSETS:          "TOTAL_CURRENT_ASSETS",
+  SL_TOTAL_ASSETS:                  "TOTAL_ASSETS",
+  SL_ACCOUNTS_PAYABLE:              "ACCOUNTS_PAYABLE",
+  SL_OPERATING_CURRENT_LIABILITIES: "OTHER_CURRENT_LIABILITIES",
+  SL_TOTAL_CURRENT_LIABILITIES:     "TOTAL_CURRENT_LIABILITIES",
+  SL_TOTAL_LIABILITIES:             "TOTAL_LIABILITIES",
+  SL_TOTAL_EQUITY:                  "TOTAL_EQUITY",
+  SL_RETAINED_EARNINGS:             "RETAINED_EARNINGS",
+  SL_COMMON_STOCK:                  "COMMON_STOCK",
+  SL_PAID_IN_CAPITAL:               "PAID_IN_CAPITAL",
+
+  // ── Income Statement (source-line _IS suffix → INCOME_PRIORITY canonical) ─
+  SALARIES_WAGES_IS:                "PAYROLL",
+  RENT_EXPENSE_IS:                  "RENT_EXPENSE",
+  REPAIRS_MAINTENANCE_IS:           "REPAIRS_MAINTENANCE",
+  INSURANCE_EXPENSE_IS:             "INSURANCE_EXPENSE",
+  ADVERTISING_IS:                   "ADVERTISING",
+  UTILITIES_IS:                     "UTILITIES",
+  PROFESSIONAL_FEES_IS:             "PROFESSIONAL_FEES",
+  OFFICERS_COMPENSATION:            "OFFICER_COMPENSATION",
+};
+
+/**
+ * Normalize a fact key from extraction vocabulary to canonical model vocabulary.
+ * Returns the canonical key when a mapping exists, else the original key unchanged.
+ * PURE, no IO, never throws.
+ */
+export function normalizeFactKey(factKey: string): string {
+  return EXTRACTION_TO_CANONICAL[factKey] ?? factKey;
+}
+
 /** PURE, NON-THROWING. Classify a fact key for report-only validation. */
 export function classifyFactKey(factKey: string): FactKeyClass {
   if (CANONICAL_METRIC_KEYS.has(factKey)) return "canonical_metric";

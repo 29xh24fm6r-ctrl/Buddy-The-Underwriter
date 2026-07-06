@@ -13,6 +13,7 @@
  */
 
 import type { FinancialModel, FinancialPeriod, PeriodType } from "./types";
+import { normalizeFactKey } from "@/lib/finengine/factKeyRegistry";
 
 // ---------------------------------------------------------------------------
 // Sentinel dates that indicate "no real date" — skip these
@@ -65,7 +66,7 @@ function isSentinelDate(d: string | null | undefined): boolean {
  * Within the same priority tier, the first fact encountered wins (stable).
  */
 type IncomeSlot = { field: keyof FinancialPeriod["income"]; priority: number };
-const INCOME_PRIORITY: Record<string, IncomeSlot> = {
+export const INCOME_PRIORITY: Record<string, IncomeSlot> = {
   // ── revenue ───────────────────────────────────────────────────────────
   TOTAL_REVENUE:             { field: "revenue", priority: 10 },
   GROSS_RECEIPTS:            { field: "revenue", priority: 10 }, // 1065 line 1c / 1120 line 1c
@@ -85,17 +86,37 @@ const INCOME_PRIORITY: Record<string, IncomeSlot> = {
   NET_INCOME:                { field: "netIncome", priority: 8 },
   TAXABLE_INCOME:            { field: "netIncome", priority: 5 },  // 1040 line 15
   ADJUSTED_GROSS_INCOME:     { field: "netIncome", priority: 3 },  // 1040 line 11 — lowest
+  // ── operating-expense line items (SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1) ─
+  // Display-only detail lines (they do not feed EBITDA — TOTAL_OPERATING_EXPENSES
+  // owns that). Fed from normalized source-line _IS keys so the standard spread's
+  // expense rows populate instead of dashing.
+  OFFICER_COMPENSATION:      { field: "officerComp", priority: 10 },
+  PAYROLL:                   { field: "payroll", priority: 10 },
+  RENT_EXPENSE:              { field: "rent", priority: 10 },
+  REPAIRS_MAINTENANCE:       { field: "repairs", priority: 10 },
+  INSURANCE_EXPENSE:         { field: "insurance", priority: 10 },
+  ADVERTISING:               { field: "advertising", priority: 10 },
+  UTILITIES:                 { field: "utilities", priority: 10 },
+  PROFESSIONAL_FEES:         { field: "professionalFees", priority: 10 },
 };
 
-const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
+export const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
   CASH_AND_EQUIVALENTS: "cash",
   ACCOUNTS_RECEIVABLE: "accountsReceivable",
   INVENTORY: "inventory",
+  OTHER_CURRENT_ASSETS: "otherCurrentAssets",
+  TOTAL_CURRENT_ASSETS: "totalCurrentAssets",
   TOTAL_ASSETS: "totalAssets",
+  ACCOUNTS_PAYABLE: "accountsPayable",
+  OTHER_CURRENT_LIABILITIES: "otherCurrentLiabilities",
+  TOTAL_CURRENT_LIABILITIES: "totalCurrentLiabilities",
   SHORT_TERM_DEBT: "shortTermDebt",
   LONG_TERM_DEBT: "longTermDebt",
   TOTAL_LIABILITIES: "totalLiabilities",
   TOTAL_EQUITY: "equity",
+  RETAINED_EARNINGS: "retainedEarnings",
+  COMMON_STOCK: "commonStock",
+  PAID_IN_CAPITAL: "paidInCapital",
 };
 
 const CASHFLOW_MAP: Record<string, keyof FinancialPeriod["cashflow"]> = {
@@ -204,7 +225,12 @@ export function buildFinancialModel(
     );
 
     for (const f of sorted) {
-      const slot = INCOME_PRIORITY[f.fact_key];
+      // SPEC-FINENGINE-CANONICAL-FACT-BRIDGE-1: normalize extraction-vocabulary
+      // keys (SL_CASH, SALARIES_WAGES_IS …) to canonical model keys ONCE, then
+      // use the normalized key for every slot lookup.
+      const key = normalizeFactKey(f.fact_key);
+
+      const slot = INCOME_PRIORITY[key];
       if (slot) {
         const cur = fieldPriority[slot.field] ?? -1;
         if (slot.priority > cur) {
@@ -214,13 +240,13 @@ export function buildFinancialModel(
         continue;
       }
 
-      const balanceField = BALANCE_MAP[f.fact_key];
+      const balanceField = BALANCE_MAP[key];
       if (balanceField) {
         period.balance[balanceField] = f.fact_value_num!;
         continue;
       }
 
-      const cashflowField = CASHFLOW_MAP[f.fact_key];
+      const cashflowField = CASHFLOW_MAP[key];
       if (cashflowField) {
         period.cashflow[cashflowField] = f.fact_value_num!;
         continue;
