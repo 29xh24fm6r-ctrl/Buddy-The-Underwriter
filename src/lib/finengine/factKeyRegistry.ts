@@ -168,6 +168,16 @@ export const EXTRACTION_TO_CANONICAL: Record<string, string> = {
   SL_COMMON_STOCK:                  "COMMON_STOCK",
   SL_PAID_IN_CAPITAL:               "PAID_IN_CAPITAL",
 
+  // ── Liability classification (Schedule L lines 17-21) ────────────────────
+  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1. Loans-from-shareholders (L19)
+  // and mortgages/notes ≥1yr (L20) are non-current debt; wages payable is an
+  // accrued liability. When two keys both resolve to LONG_TERM_DEBT for one
+  // period, buildFinancialModel sums DISTINCT values and de-dupes identical
+  // ones (same loan reported on two Schedule L lines).
+  SL_LOANS_FROM_SHAREHOLDERS:       "LONG_TERM_DEBT",
+  SL_MORTGAGES_NOTES_BONDS:         "LONG_TERM_DEBT",
+  SL_WAGES_PAYABLE:                 "ACCRUED_LIABILITIES",
+
   // ── Income Statement (source-line _IS suffix → INCOME_PRIORITY canonical) ─
   SALARIES_WAGES_IS:                "PAYROLL",
   RENT_EXPENSE_IS:                  "RENT_EXPENSE",
