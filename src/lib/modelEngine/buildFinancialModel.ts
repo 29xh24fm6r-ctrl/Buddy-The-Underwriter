@@ -118,6 +118,10 @@ export const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
   RETAINED_EARNINGS: "retainedEarnings",
   COMMON_STOCK: "commonStock",
   PAID_IN_CAPITAL: "paidInCapital",
+  // SPEC-FINENGINE-COMPLETE-DERIVATION-1: fixed-asset lines feed Net Fixed Assets.
+  PPE_GROSS: "ppeGross",
+  ACCUMULATED_DEPRECIATION: "accumulatedDepreciation",
+  NET_FIXED_ASSETS: "netFixedAssets",
 };
 
 const CASHFLOW_MAP: Record<string, keyof FinancialPeriod["cashflow"]> = {
@@ -339,14 +343,26 @@ function deriveComputedValues(period: FinancialPeriod): void {
     cashflow.ebitda = income.revenue - cogs - opex + dep + ie;
   }
 
-  // Equity = totalAssets - totalLiabilities (if not provided)
-  if (balance.equity === undefined && balance.totalAssets !== undefined && balance.totalLiabilities !== undefined) {
-    balance.equity = balance.totalAssets - balance.totalLiabilities;
+  // SPEC-FINENGINE-COMPLETE-DERIVATION-1: comprehensive balance-sheet
+  // derivations. Each fires ONLY when no raw fact supplied the value, so an
+  // authoritative extracted aggregate always wins. Ordered so upstream subtotals
+  // (net fixed assets, total liabilities) exist before the totals that need them.
+
+  // ── Net Fixed Assets = PPE gross − accumulated depreciation ──────────
+  if (balance.netFixedAssets === undefined
+      && balance.ppeGross !== undefined
+      && balance.accumulatedDepreciation !== undefined) {
+    balance.netFixedAssets = balance.ppeGross - balance.accumulatedDepreciation;
   }
 
-  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 §1f: derive current-asset and
-  // current-liability subtotals ONLY when no raw fact supplied them. OCA is
-  // already de-duped against AR upstream, so the sum never double-counts.
+  // ── Total Non-Current Assets (net fixed assets; intangibles/LT receivables
+  //    fold in once those fields are modeled) ──
+  if (balance.totalNonCurrentAssets === undefined && balance.netFixedAssets !== undefined) {
+    balance.totalNonCurrentAssets = balance.netFixedAssets;
+  }
+
+  // ── Current subtotals — OCA is already de-duped against AR upstream, so the
+  //    sum never double-counts (SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 §1f) ──
   if (balance.totalCurrentAssets === undefined) {
     const tca = (balance.cash ?? 0) + (balance.accountsReceivable ?? 0)
       + (balance.inventory ?? 0) + (balance.otherCurrentAssets ?? 0);
@@ -356,6 +372,25 @@ function deriveComputedValues(period: FinancialPeriod): void {
     const tcl = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
       + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0);
     if (tcl > 0) balance.totalCurrentLiabilities = tcl;
+  }
+
+  // ── Total Liabilities = current liabilities + long-term debt ──────────
+  // Derived from components (AP + other-current + accrued + short-term + LTD).
+  // Long-term debt carries the Schedule L shareholder-loan / mortgage lines.
+  if (balance.totalLiabilities === undefined) {
+    const tl = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
+      + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0)
+      + (balance.longTermDebt ?? 0);
+    if (tl > 0) balance.totalLiabilities = tl;
+  }
+
+  // ── Net Worth = Total Assets − Total Liabilities ─────────────────────
+  // Runs AFTER the Total Liabilities derivation above so it fires for periods
+  // whose liabilities were assembled from components (not a single raw fact).
+  if (balance.equity === undefined
+      && balance.totalAssets !== undefined
+      && balance.totalLiabilities !== undefined) {
+    balance.equity = balance.totalAssets - balance.totalLiabilities;
   }
 
   // CFADS = EBITDA - capex (simplified Phase 1)

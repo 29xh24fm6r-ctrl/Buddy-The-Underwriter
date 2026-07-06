@@ -147,7 +147,7 @@ export async function computeAuthoritativeEngine(
   const riskResult = evaluateRisk(computedMetrics);
 
   // 5. Render view model
-  const viewModel = renderFromFinancialModel(financialModel, dealId);
+  const viewModel = renderFromFinancialModel(financialModel, dealId, { annualDebtService });
 
   // 6. Persist snapshot (authoritative — only this function may do this)
   let snapshotId: string | null = null;
