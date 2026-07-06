@@ -30,6 +30,16 @@ describe("normalizeFactKey", () => {
     assert.equal(normalizeFactKey("UNKNOWN_KEY_XYZ"), "UNKNOWN_KEY_XYZ");
   });
 
+  // SPEC-FINENGINE-EXTRACTION-RECONCILIATION-1 — liability classification
+  it("maps shareholder loans and mortgages/notes to LONG_TERM_DEBT", () => {
+    assert.equal(normalizeFactKey("SL_LOANS_FROM_SHAREHOLDERS"), "LONG_TERM_DEBT");
+    assert.equal(normalizeFactKey("SL_MORTGAGES_NOTES_BONDS"), "LONG_TERM_DEBT");
+  });
+
+  it("maps wages payable to ACCRUED_LIABILITIES", () => {
+    assert.equal(normalizeFactKey("SL_WAGES_PAYABLE"), "ACCRUED_LIABILITIES");
+  });
+
   it("every canonical target resolves to a real slot (no dead vocabulary)", () => {
     const slots = new Set<string>([
       ...CANONICAL_METRIC_KEYS,
