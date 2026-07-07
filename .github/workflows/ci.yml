@@ -31,6 +31,12 @@ jobs:
         run: pnpm -s guard:all
       - name: SPEC-13.5 — no legacy deal_memo_overrides writes
         run: bash scripts/check-no-legacy-overrides-writes.sh
+      # SPEC-CI-1: the invariants suite (supersession filtering, spread concurrency,
+      # observer auto-heal) was defined but invoked by no workflow. Runs after guards,
+      # before the broader unit suite — highest safety-signal per second. Must never
+      # be continue-on-error.
+      - name: Safety invariants (CI-blocking)
+        run: pnpm -s test:invariants
       - name: Unit tests (CI-blocking)
         run: pnpm -s test:unit
       - name: Check cockpit polling guardrail

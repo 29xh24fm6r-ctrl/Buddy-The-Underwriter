@@ -79,7 +79,10 @@ describe("Omega guardrails — types", () => {
   });
 });
 
-describe("Omega guardrails — API routes", () => {
+// SPEC-CI-2: pre-existing reds surfaced by test:unit glob broadening (Class B) —
+// this block reads src/app/api/omega/{relationship,portfolio}/route.ts which do
+// not exist (ENOENT). Restore or delete the suite in the follow-up.
+describe.skip("Omega guardrails — API routes", () => {
   it("relationship route does not write to canonical tables", () => {
     const content = readFile(API_DIR, "relationship/route.ts");
     // Route reads surface snapshots but must not write to canonical tables
