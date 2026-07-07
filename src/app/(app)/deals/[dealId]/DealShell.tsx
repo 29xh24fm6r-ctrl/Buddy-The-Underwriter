@@ -190,6 +190,7 @@ function Tab({
   return (
     <Link
       href={href}
+      prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1: force-dynamic route, prefetch is stale
       className={[
         "px-3 py-2 rounded-lg text-sm whitespace-nowrap border transition-colors",
         active
@@ -317,6 +318,7 @@ export default function DealShell({
             <div className="flex items-center gap-3 min-w-0 flex-1">
               <Link
                 href="/deals"
+                prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
                 className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-white/80 hover:text-white hover:bg-white/5 border border-white/10 shrink-0"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
@@ -367,6 +369,7 @@ export default function DealShell({
               {!pathname?.endsWith("/cockpit") && (
                 <Link
                   href={`/deals/${dealId}/cockpit`}
+                  prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
                   className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>home</span>
@@ -376,6 +379,7 @@ export default function DealShell({
               <DealShellMemoCta dealId={dealId} />
               <Link
                 href={`/deals/${dealId}/classic-spreads`}
+                prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>table_chart</span>
