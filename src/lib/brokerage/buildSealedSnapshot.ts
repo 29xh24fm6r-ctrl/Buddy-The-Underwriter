@@ -28,6 +28,20 @@ export type SealedSnapshotResult = {
   piiContext: PiiScanContext;
 };
 
+/**
+ * Thrown when the snapshot cannot be assembled without fabricating a
+ * business-critical value (loan term / amount). The seal route maps this to a
+ * 400 not_sealable rather than sealing a listing with made-up terms (audit L2).
+ */
+export class SealSnapshotError extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`seal_snapshot_${reason}`);
+    this.name = "SealSnapshotError";
+    this.reason = reason;
+  }
+}
+
 export async function buildSealedSnapshot(args: {
   dealId: string;
   sb: SupabaseClient;
@@ -120,14 +134,20 @@ export async function buildSealedSnapshot(args: {
       string,
       unknown
     >;
-  const termMonths =
-    typeof loanImpact.termMonths === "number"
-      ? (loanImpact.termMonths as number)
-      : 120;
+  // Audit L2: do NOT fabricate a term/amount — a sealed listing must not
+  // advertise a made-up 10-year term or a $0 loan. Fail sealing instead; the
+  // seal route surfaces this as not_sealable so the borrower confirms the terms.
   const loanAmount =
     typeof loanImpact.loanAmount === "number"
       ? (loanImpact.loanAmount as number)
       : Number(deal?.loan_amount ?? 0);
+  if (typeof loanImpact.termMonths !== "number" || loanImpact.termMonths <= 0) {
+    throw new SealSnapshotError("missing_loan_term");
+  }
+  if (!(loanAmount > 0)) {
+    throw new SealSnapshotError("missing_loan_amount");
+  }
+  const termMonths = loanImpact.termMonths as number;
 
   // Round-5: franchise resolution via feasibility.is_franchise.
   const isFranchise = feasibility?.is_franchise === true;

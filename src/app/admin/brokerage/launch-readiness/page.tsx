@@ -51,26 +51,39 @@ async function checkBrokerageSingleton(): Promise<Check> {
 
 async function checkRlsEnabled(): Promise<Check[]> {
   const sb = supabaseAdmin();
-  // pg_tables.rowsecurity is exposed by Supabase; query it via pg.policies
-  // is not portable. We use a lightweight functional check: try a SELECT
-  // through the admin client (works regardless of RLS), and rely on the
-  // CI guard for the real invariant. This view reports whether the
-  // migrations have been applied by checking the columns/rels.
-  const tables = ["borrower_session_tokens", "rate_limit_counters"] as const;
-  const checks: Check[] = [];
-  for (const t of tables) {
-    const { error } = await sb.from(t).select("*", { count: "exact", head: true });
-    checks.push({
+  // Audit H4: the prior check did a service-role SELECT — which BYPASSES RLS —
+  // so it reported "ok" whenever the table was readable, regardless of whether
+  // RLS was actually enabled (a fake green on a GLBA-critical invariant). Now
+  // query the real pg state via get_rls_status_for_tables(): RLS is "ok" only
+  // when rowsecurity is enabled AND at least one policy exists.
+  const tables = ["borrower_session_tokens", "rate_limit_counters"];
+  const { data, error } = await sb.rpc("get_rls_status_for_tables", {
+    p_table_names: tables,
+  });
+  if (error) {
+    return tables.map((t) => ({
       id: `rls_${t}`,
       label: `RLS — ${t}`,
-      // Admin client always works; the negative path is anon access which
-      // ops verifies out-of-band. This check confirms the table is
-      // readable by the admin client (smoke), not that RLS is enabled.
-      status: error ? "fail" : "ok",
-      value: error ? `admin access failed: ${error.message}` : "admin readable (smoke)",
-    });
+      status: "fail" as const,
+      value: `rls status query failed: ${error.message}`,
+    }));
   }
-  return checks;
+  const byName = new Map(
+    ((data ?? []) as any[]).map((r) => [r.table_name, r]),
+  );
+  return tables.map((t) => {
+    const row: any = byName.get(t);
+    if (!row) {
+      return { id: `rls_${t}`, label: `RLS — ${t}`, status: "fail" as const, value: "table not found" };
+    }
+    const enabled = row.rls_enabled === true && Number(row.policy_count) > 0;
+    return {
+      id: `rls_${t}`,
+      label: `RLS — ${t}`,
+      status: enabled ? ("ok" as const) : ("fail" as const),
+      value: `rls_enabled=${row.rls_enabled}, policies=${row.policy_count}`,
+    };
+  });
 }
 
 async function checkBrokerageAnonymousNoCookieAnchor(): Promise<Check> {

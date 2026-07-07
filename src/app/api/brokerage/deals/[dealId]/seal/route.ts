@@ -18,7 +18,7 @@ import { canSeal } from "@/lib/brokerage/sealingGate";
 import { matchLendersToDeal } from "@/lib/brokerage/matchLenders";
 import { buildKFS } from "@/lib/brokerage/buildKFS";
 import { computeListingCadence } from "@/lib/brokerage/cadence";
-import { buildSealedSnapshot } from "@/lib/brokerage/buildSealedSnapshot";
+import { buildSealedSnapshot, SealSnapshotError } from "@/lib/brokerage/buildSealedSnapshot";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,31 +44,26 @@ export async function POST(
     );
   }
 
-  const snapshot = await buildSealedSnapshot({ dealId, sb });
-
-  const { data: sealedRow, error: sealErr } = await sb
-    .from("buddy_sealed_packages")
-    .insert({
-      deal_id: dealId,
-      bank_id: session.bank_id,
-      sealed_snapshot: snapshot.full,
-    })
-    .select("id")
-    .single();
-  if (sealErr || !sealedRow) {
-    return NextResponse.json(
-      { ok: false, error: "seal_insert_failed", detail: sealErr?.message },
-      { status: 500 },
-    );
+  let snapshot;
+  try {
+    snapshot = await buildSealedSnapshot({ dealId, sb });
+  } catch (err) {
+    if (err instanceof SealSnapshotError) {
+      // Missing loan term/amount — surface rather than sealing a fabricated KFS (L2).
+      return NextResponse.json(
+        { ok: false, error: "not_sealable", reasons: [err.reason] },
+        { status: 400 },
+      );
+    }
+    throw err;
   }
 
-  const kfs = await buildKFS({
-    snapshot: snapshot.forRedactor,
-    piiContext: snapshot.piiContext,
-  });
-
-  const matchResult = await matchLendersToDeal({ dealId, sb });
-
+  // ── All reads / pure compute FIRST, before any write ────────────────────
+  // Previously the sealed-package row was inserted before the rate-card lookup,
+  // so a rate_card_miss (500) left an orphaned sealed package that made canSeal
+  // report "already sealed" on retry — permanently bricking the deal with no
+  // listing (SPEC audit H3). Every fallible read now runs up front; writes happen
+  // last, close together, with compensation if the listing insert fails.
   const loanTier = bucketLoanAmount(snapshot.forRedactor.deal.loan_amount);
   const termTier = bucketTerm(snapshot.forRedactor.deal.term_months);
   const { data: rateRow } = await sb
@@ -93,8 +88,30 @@ export async function POST(
     );
   }
 
+  const kfs = await buildKFS({
+    snapshot: snapshot.forRedactor,
+    piiContext: snapshot.piiContext,
+  });
+  const matchResult = await matchLendersToDeal({ dealId, sb });
   const { previewOpensAt, claimOpensAt, claimClosesAt } =
     computeListingCadence(new Date());
+
+  // ── Writes (last, close together) ───────────────────────────────────────
+  const { data: sealedRow, error: sealErr } = await sb
+    .from("buddy_sealed_packages")
+    .insert({
+      deal_id: dealId,
+      bank_id: session.bank_id,
+      sealed_snapshot: snapshot.full,
+    })
+    .select("id")
+    .single();
+  if (sealErr || !sealedRow) {
+    return NextResponse.json(
+      { ok: false, error: "seal_insert_failed", detail: sealErr?.message },
+      { status: 500 },
+    );
+  }
 
   const { data: listingRow, error: listingErr } = await sb
     .from("marketplace_listings")
@@ -118,6 +135,14 @@ export async function POST(
     .select("id")
     .single();
   if (listingErr || !listingRow) {
+    // Compensate: unseal the package so the deal is not bricked as "already sealed".
+    await sb
+      .from("buddy_sealed_packages")
+      .update({
+        unsealed_at: new Date().toISOString(),
+        unseal_reason: "listing_insert_failed",
+      })
+      .eq("id", sealedRow.id);
     return NextResponse.json(
       {
         ok: false,
@@ -129,6 +154,25 @@ export async function POST(
   }
 
   await sb.from("deals").update({ status: "sealed" }).eq("id", dealId);
+
+  // Notify matched lenders that a preview is open (best-effort, non-fatal).
+  try {
+    const { queueLenderMessage } = await import("@/lib/brokerage/lenderComms");
+    for (const lenderBankId of matchResult.matched) {
+      await queueLenderMessage(
+        "marketplace_preview_open",
+        { dealId, listingId: listingRow.id, lenderBankId, stage: "preview" },
+        "email",
+        sb,
+      );
+    }
+  } catch (err) {
+    console.warn("[seal] lender preview notify failed (non-fatal)", {
+      dealId,
+      listingId: listingRow.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   return NextResponse.json({
     ok: true,

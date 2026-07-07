@@ -8,6 +8,7 @@
 import { enqueueBorrowerNudges } from "@/lib/brokerage/borrowerNudges";
 import { enqueueBankerAlerts, type BankerAlertPurpose } from "@/lib/brokerage/bankerAlerts";
 import { processDueCommsOutbox } from "@/lib/brokerage/commsOutbox";
+import { buildOutboxAdapterFactory } from "@/lib/brokerage/commsAdapters";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -105,10 +106,11 @@ export async function runBrokerageCommsForDeal(
       if (ar.skipReason) warnings.push(`banker_alert: ${ar.skipReason}`);
     }
 
-    // 3. Outbox processing
+    // 3. Outbox processing — send through the env-mode-resolved adapters
+    // (audit H2: was a hardcoded stub that marked messages "sent" without
+    // sending). BROKERAGE_COMMS_MODE=stub still stubs; =live actually sends.
     if (plan.doOutbox) {
-      const stubAdapter = async () => ({ ok: true as const, providerMessageId: `stub-${Date.now()}` });
-      const or = await processDueCommsOutbox(sb, () => stubAdapter, opts?.limit ?? 10);
+      const or = await processDueCommsOutbox(sb, buildOutboxAdapterFactory(), opts?.limit ?? 10);
       outbox = { processed: or.processed, sent: or.sent, failed: or.failed, retryScheduled: or.retried, exhausted: or.exhausted, skipped: 0 };
     }
 
@@ -171,10 +173,9 @@ export async function runBrokerageCommsBatch(
     warnings.push(...r.warnings);
   }
 
-  // Optionally process outbox after all deals enqueued
+  // Optionally process outbox after all deals enqueued — real env-mode adapters.
   if (opts?.processOutbox) {
-    const stubAdapter = async () => ({ ok: true as const, providerMessageId: `stub-${Date.now()}` });
-    await processDueCommsOutbox(sb, () => stubAdapter, opts?.limit ?? 20);
+    await processDueCommsOutbox(sb, buildOutboxAdapterFactory(), opts?.limit ?? 20);
   }
 
   return { dealsProcessed: activeDeals.length, results, totalEnqueued, totalSkipped, warnings };
