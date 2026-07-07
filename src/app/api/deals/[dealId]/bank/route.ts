@@ -2,12 +2,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
 // 10s default for cold-start auth + multi-step Supabase I/O.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+// route-class: CLERK (SPEC-SEC-1)
 
 export async function GET(
   _req: NextRequest,
@@ -21,6 +24,10 @@ export async function GET(
         { status: 400 },
       );
     }
+
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before returning
+    // the bank record (full record was previously readable cross-tenant).
+    await assertDealAccess(dealId);
 
     const supabase = getSupabaseServerClient();
 
@@ -39,10 +46,12 @@ export async function GET(
       );
     }
 
-    // Load the bank record (guaranteed to exist by FK)
+    // Load the bank record (guaranteed to exist by FK).
+    // SPEC-SEC-1 §3.5: narrowed from select("*") to the fields the UI consumes
+    // (BankDocsCard uses only bank_id; id/name cover any label use).
     const { data: bank, error: e2 } = await supabase
       .from("banks")
-      .select("*")
+      .select("id, name")
       .eq("id", deal.bank_id)
       .single();
 
@@ -50,6 +59,8 @@ export async function GET(
 
     return NextResponse.json({ ok: true, bank_id: deal.bank_id, bank });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
       { status: 500 },

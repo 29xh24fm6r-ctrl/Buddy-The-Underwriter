@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generatePricingQuote } from "@/lib/pricing/generatePricingQuote";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
+
+// route-class: CLERK (SPEC-SEC-1)
 
 /**
  * POST /api/deals/[dealId]/pricing-quotes/create
@@ -13,6 +17,8 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before creating a quote.
+    await assertDealAccess(dealId);
     const body = await req.json();
     const { snapshotId, riskFactsId } = body;
 
@@ -66,6 +72,8 @@ export async function POST(
 
     return NextResponse.json({ pricing_quote: pricingQuote });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("Error creating pricing quote:", error);
     return NextResponse.json(
       { error: "Internal server error" },

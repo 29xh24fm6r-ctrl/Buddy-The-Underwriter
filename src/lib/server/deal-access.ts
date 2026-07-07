@@ -11,25 +11,13 @@ import "server-only";
 
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { DealAccessDeniedError, AuthenticationRequiredError } from "./access-errors";
+import { dealAccessResultToError } from "./dealAccessResult";
+import type { DealAccessResult } from "./dealAccessResult";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type DealAccessResult =
-  | {
-      accessible: true;
-      dealId: string;
-      bankId: string;
-      userId: string;
-      source: "membership";
-    }
-  | {
-      accessible: false;
-      reason: "not_found" | "deal_not_found" | "tenant_mismatch" | "unauthorized";
-      detail?: string;
-    };
+// Re-export the pure result type + status mapper (defined in a server-only-free
+// module so the fail-closed matrix is unit testable). See dealAccessResult.ts.
+export type { DealAccessResult } from "./dealAccessResult";
+export { dealAccessResultToError } from "./dealAccessResult";
 
 // ---------------------------------------------------------------------------
 // resolveDealAccess — non-throwing, returns result object
@@ -66,7 +54,9 @@ export async function resolveDealAccess(dealId: string): Promise<DealAccessResul
 
 /**
  * Assert the current user can access a deal.
- * Throws typed AccessError on failure.
+ * Throws typed AccessError on failure. Fails closed: any non-accessible
+ * result (including an unexpected error swallowed by ensureDealBankAccess)
+ * throws — the helper never returns on a denied path.
  * Use in routes where you want early-exit error handling.
  */
 export async function assertDealAccess(
@@ -75,14 +65,9 @@ export async function assertDealAccess(
   const result = await resolveDealAccess(dealId);
 
   if (!result.accessible) {
-    if (result.reason === "unauthorized") {
-      throw new AuthenticationRequiredError(result.detail);
-    }
-    const isNotFound = result.reason === "not_found" || result.reason === "deal_not_found";
-    throw new DealAccessDeniedError(
-      isNotFound ? "not_found" : "tenant_mismatch",
-      result.detail,
-    );
+    // Non-null by construction: dealAccessResultToError only returns null for
+    // an accessible result, which is excluded here.
+    throw dealAccessResultToError(result)!;
   }
 
   return {

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateCreditMemoJson } from "@/lib/memo/generateCreditMemoJson";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
+
+// route-class: CLERK (SPEC-SEC-1)
 
 /**
  * POST /api/deals/[dealId]/memos/generate
@@ -13,6 +17,8 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before generating a memo.
+    await assertDealAccess(dealId);
     const body = await req.json();
     const { snapshotId, riskFactsId, pricingQuoteId } = body;
 
@@ -94,6 +100,8 @@ export async function POST(
 
     return NextResponse.json({ generated_document: generatedDoc });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("Error generating memo:", error);
     return NextResponse.json(
       { error: "Internal server error" },

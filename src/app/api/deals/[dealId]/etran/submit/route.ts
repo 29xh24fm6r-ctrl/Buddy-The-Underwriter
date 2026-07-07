@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildEtranXml } from "@/lib/etran/xml";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// route-class: CLERK (SPEC-SEC-1)
 
 export async function POST(
   _: Request,
@@ -11,6 +14,8 @@ export async function POST(
 ) {
   try {
     const { dealId } = await context.params;
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before staging a submission.
+    await assertDealAccess(dealId);
     const sb = supabaseAdmin();
 
     // Load required data
@@ -67,6 +72,8 @@ export async function POST(
         "E-Tran submission prepared - requires human approval to send to SBA",
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? "etran_submission_failed" },
       { status: 500 },
@@ -81,10 +88,11 @@ export async function PATCH(
 ) {
   try {
     const { dealId } = await context.params;
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before approving.
+    // SPEC-SEC-2: role-gate approve (underwriter) — assertDealAccess only
+    // enforces bank membership here, not the underwriter role.
+    const { userId } = await assertDealAccess(dealId);
     const sb = supabaseAdmin();
-
-    // TODO: Add authentication/authorization check here
-    // Only authorized underwriters can approve E-Tran submissions
 
     // Update status to SUBMITTED (actual send would happen here)
     const { data } = await (sb as any)
@@ -92,7 +100,7 @@ export async function PATCH(
       .update({
         status: "SUBMITTED",
         submitted_at: new Date().toISOString(),
-        submitted_by: "system", // TODO: Get actual user
+        submitted_by: userId,
       })
       .eq("application_id", dealId)
       .eq("status", "PENDING_APPROVAL")
@@ -115,6 +123,8 @@ export async function PATCH(
       message: "E-Tran submission approved and sent to SBA",
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? "approval_failed" },
       { status: 500 },

@@ -1,6 +1,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { requireUnderwriterOnDeal } from "@/lib/deals/participants";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -8,15 +9,7 @@ export const runtime = "nodejs";
 // 10s default for cold-start auth + multi-step Supabase I/O.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
-
-function authzError(err: any) {
-  const msg = String(err?.message ?? err);
-  if (msg === "unauthorized")
-    return { status: 401, body: { ok: false, error: "unauthorized" } };
-  if (msg === "forbidden")
-    return { status: 403, body: { ok: false, error: "forbidden" } };
-  return null;
-}
+// route-class: CLERK (SPEC-SEC-1)
 
 /**
  * GET /api/deals/[dealId]/signals
@@ -47,9 +40,8 @@ export async function GET(
 ) {
   try {
     const { dealId } = await ctx.params;
-    // TODO: Re-enable auth when Clerk is properly configured
-    // Enforce underwriter access
-    // await requireUnderwriterOnDeal(dealId);
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before any admin read.
+    await assertDealAccess(dealId);
 
     const supabase = supabaseAdmin();
 
@@ -177,8 +169,8 @@ export async function GET(
       draftRequestsPending: draftRequestsPending || 0,
     });
   } catch (err: any) {
-    const a = authzError(err);
-    if (a) return NextResponse.json(a.body, { status: a.status });
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
       { status: 500 },

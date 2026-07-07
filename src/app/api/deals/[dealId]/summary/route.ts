@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { aiJson } from "@/lib/ai/openai";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
+
+// route-class: CLERK (SPEC-SEC-1)
+// Residual risk (SPEC-SEC-1 §3.3): this route is unmetered — the OpenAI call is
+// rate-limited only by Clerk auth, not per-user throttling. Rate limiting is
+// tracked separately and out of scope for SPEC-SEC-1.
 
 type SummaryResponse =
   | {
@@ -37,6 +44,10 @@ export async function POST(
     if (!dealId) {
       return NextResponse.json({ ok: false, error: "dealId required" }, { status: 400 });
     }
+
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before the ledger
+    // read and the OpenAI call (tenant leak + cost amplification).
+    await assertDealAccess(dealId);
 
     const sb = supabaseAdmin();
 
@@ -124,6 +135,9 @@ TONE: Helpful, professional, never anxious or uncertain.`,
       },
     });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    // Body is { ok:false, error } — matches the SummaryResponse failure shape.
+    if (accessRes) return accessRes as NextResponse<SummaryResponse>;
     console.error("[summary] Unexpected error:", e);
     return NextResponse.json(
       {
