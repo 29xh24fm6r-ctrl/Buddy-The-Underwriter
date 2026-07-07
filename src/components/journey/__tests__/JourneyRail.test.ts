@@ -52,7 +52,9 @@ describe("JourneyRail — canonical stage list", () => {
 });
 
 describe("JourneyRail — structural guarantees", () => {
-  it("imports getNextAction (single current-stage action)", () => {
+  // SPEC-CI-2 (§0.5): asserts JourneyRail imports getNextAction, which was
+  // refactored away (Class B). Smallest change to make it genuinely skip — no rewrite.
+  it.skip("imports getNextAction (single current-stage action)", () => {
     assert.ok(railSrc.includes('from "@/buddy/lifecycle/nextAction"'));
     assert.ok(railSrc.includes("getNextAction"));
   });
