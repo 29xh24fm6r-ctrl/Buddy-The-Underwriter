@@ -91,6 +91,7 @@ function ActionButton({ action, dealId }: { action: NextAction; dealId: string }
   return (
     <Link
       href={href}
+      prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
       className={`${baseClasses} bg-blue-600 text-white hover:bg-blue-500`}
       aria-label={action.label}
     >
@@ -112,7 +113,7 @@ function BlockerChip({
 
   if (fix && "href" in fix && fix.href) {
     return (
-      <Link href={fix.href} className={`${baseClasses} hover:bg-amber-500/20`}>
+      <Link href={fix.href} prefetch={false} className={`${baseClasses} hover:bg-amber-500/20`}>
         <span className="font-semibold">{blocker.message}</span>
         <span className="ml-1 text-amber-300/80">→ {fix.label}</span>
       </Link>
@@ -174,6 +175,7 @@ export function StageRow({
     return (
       <Link
         href={href}
+        prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
         className={compactClasses}
         aria-current={status === "current" ? "step" : undefined}
         aria-label={`${label} — ${status}`}
@@ -254,6 +256,7 @@ export function StageRow({
   return (
     <Link
       href={href}
+      prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
       className={`${baseRowClasses} ${interactiveClasses}`}
       aria-current={status === "current" ? "step" : undefined}
       aria-label={`${label} — ${status}`}

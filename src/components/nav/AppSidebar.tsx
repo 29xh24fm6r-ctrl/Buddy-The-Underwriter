@@ -54,6 +54,7 @@ export default function AppSidebar() {
                   <Link
                     key={p.slug}
                     href={href}
+                    prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
                     className={[
                       "block rounded-lg px-3 py-2 text-sm",
                       "hover:bg-white/5 hover:text-white",

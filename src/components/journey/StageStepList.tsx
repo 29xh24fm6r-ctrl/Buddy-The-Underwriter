@@ -35,6 +35,7 @@ export function StageStepList({ steps, stageKey }: { steps: StageStep[]; stageKe
           ) : s.open && s.href ? (
             <Link
               href={s.href}
+              prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
               className="block rounded-md px-2 py-1 text-[11px] text-white/80 hover:bg-white/5"
             >
               <span className="mr-1 inline-block h-2 w-2 rounded-full border border-white/40 align-middle" aria-hidden />
