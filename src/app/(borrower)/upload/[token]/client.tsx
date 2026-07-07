@@ -34,30 +34,54 @@ export function UploadPageClient({ token }: { token: string }) {
     setErr(null);
 
     try {
-      // 1. Init upload
-      const { upload_url, upload_id } = await j<{ upload_url: string; upload_id: string; path: string }>(
-        `/api/portal/${token}/upload-init`,
-        {
-          method: "POST",
-          body: JSON.stringify({ filename: file.name, size: file.size, mime_type: file.type }),
-        }
-      );
+      // SPEC-PORTAL-1: the borrower upload path is /api/portal/upload/prepare +
+      // /commit (the maintained, token-in-body routes). The prior /upload-init +
+      // /upload-complete routes never existed, so every upload here 404'd. Contract
+      // mirrors the working consumer in src/app/portal/[token]/ui.tsx.
 
-      // 2. Upload to the secure destination returned by the portal
-      const uploadRes = await fetch(upload_url, {
+      // 1. Prepare — get a signed storage URL + upload session
+      const prep = await j<{
+        signedUrl: string;
+        path: string;
+        bucket: string;
+        uploadSessionId: string;
+        fileId: string;
+      }>(`/api/portal/upload/prepare`, {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          requestId: null,
+          filename: file.name,
+          mimeType: file.type,
+        }),
+      });
+
+      // 2. Upload bytes directly to the secure storage destination from prepare
+      const uploadRes = await fetch(prep.signedUrl, {
         method: "PUT",
         body: file,
-        headers: { "content-type": file.type },
+        headers: { "content-type": file.type || "application/octet-stream" },
       });
 
       if (!uploadRes.ok) throw new Error("Upload failed");
 
       setProgress(80);
 
-      // 3. Mark complete
-      await j(`/api/portal/${token}/upload-complete`, {
+      // 3. Commit — record the upload and materialize the document
+      await j(`/api/portal/upload/commit`, {
         method: "POST",
-        body: JSON.stringify({ upload_id }),
+        headers: prep.uploadSessionId
+          ? { "x-buddy-upload-session-id": prep.uploadSessionId }
+          : {},
+        body: JSON.stringify({
+          token,
+          path: prep.path,
+          filename: file.name,
+          mimeType: file.type,
+          sizeBytes: file.size,
+          uploadSessionId: prep.uploadSessionId,
+          fileId: prep.fileId,
+        }),
       });
 
       setProgress(100);

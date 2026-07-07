@@ -21,8 +21,14 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(process.cwd());
-const SRC = join(ROOT, "src");
-const API_DIR = join(SRC, "app", "api");
+// SPEC-PORTAL-1 §5: SRC/API dirs are overridable so the guard can run against a
+// fixture tree in tests (defaults are the real repo paths).
+const SRC = process.env.FETCH_GUARD_SRC_DIR
+  ? resolve(process.env.FETCH_GUARD_SRC_DIR)
+  : join(ROOT, "src");
+const API_DIR = process.env.FETCH_GUARD_API_DIR
+  ? resolve(process.env.FETCH_GUARD_API_DIR)
+  : join(SRC, "app", "api");
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -152,6 +158,13 @@ const KNOWN_STALE_PENDING_FIX = new Map([
     "/api/deals/${dealId}/underwriting/refresh",
     "AnalystWorkbench expects a /refresh sub-path that was removed (TODO)",
   ],
+  [
+    // SPEC-PORTAL-1 §4c: surfaced once the wrapper-aware needle began scanning
+    // useSWR()/j() calls. Pre-existing dead deals route, out of scope for the
+    // borrower portal fix (TODO: restore /uploads/status or repoint UploadStatusCard).
+    "/api/deals/${dealId}/uploads/status",
+    "UploadStatusCard polls a removed per-deal uploads/status route (TODO)",
+  ],
 ]);
 
 // Files / directories to skip entirely. Stitch activation modules build
@@ -164,7 +177,11 @@ const SKIP_FILE_PATTERNS = [
 const matches = [];
 const knownStaleHits = [];
 
-const NEEDLE = /(?:fetch|axios\.(?:get|post|put|patch|delete))\s*\(\s*([`"'])(\/api\/[^`"']+)\1/g;
+// SPEC-PORTAL-1 §4c: also scan common URL-first wrappers whose first argument is
+// an /api literal — the borrower upload client hid its dead-route calls inside a
+// `j()` JSON wrapper, which the fetch/axios-only needle missed. `\bj(?:<...>)?`
+// matches `j(` and `j<Generic>(` without matching identifiers like `obj(`/`json(`.
+const NEEDLE = /(?:fetch|axios\.(?:get|post|put|patch|delete)|\bj(?:<[^>]*>)?|\buseSWR)\s*\(\s*([`"'])(\/api\/[^`"']+)\1/g;
 
 const FILES = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f));
 for (const file of FILES) {

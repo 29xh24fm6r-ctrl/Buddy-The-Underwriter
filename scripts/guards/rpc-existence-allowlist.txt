@@ -1,0 +1,17 @@
+# SPEC-PORTAL-1 §4a — RPC-existence allowlist. Entries may only be REMOVED, never added.
+# Names called via supabase.rpc() that are NOT defined by a CREATE FUNCTION in
+# supabase/migrations/*.sql: Postgres/Supabase built-ins and functions authored
+# outside the migrations tree (dashboard/seed/diagnostics). Generated 2026-07-07.
+assert_spread_invariant
+buddy_table_exists
+claim_marketplace_listing
+detect_systemic_failures
+exec_sql
+find_confirmed_deals_without_live_outbox
+find_dead_lettered_confirmed_deals
+find_stuck_or_failed_jobs
+get_rls_status_for_tables
+intake_detach_and_rebind_slot
+persist_underwrite_artifact
+pg_terminate_backend_holding_advisory_lock
+set_default_bank
