@@ -1,0 +1,17 @@
+# SPEC-PORTAL-1 §4b — internal-links allowlist. Entries may only be REMOVED, never added.
+# Pre-existing dead links (audit medium findings + demo/placeholder targets),
+# deferred to SPEC-DEADLINK-CLEANUP-1. The guard exists to block NEW dead links,
+# not to repair this pile (Principle #13). Generated 2026-07-07.
+/admin/brokerage
+/banker/deals/deal-1/orchestration
+/banker/deals/deal-1/outreach
+/banker/deals/deal-1/submit
+/banker/deals/deal-123/request
+/capture/discovery
+/capture/note
+/capture/voice
+/portal/t/business
+/privacy
+/share/test-id
+/tenant/create
+/terms

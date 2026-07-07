@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { createClient } from "@supabase/supabase-js";
 import { BorrowerChecklistSection } from "@/components/borrower/BorrowerChecklistSection";
 import { BorrowerEmptyState } from "@/components/borrower/BorrowerEmptyState";
 import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectationCard";
@@ -59,10 +58,9 @@ import { buildBorrowerTrustReviewViewModel } from "@/lib/borrower/buildBorrowerT
 import { BorrowerTrustReviewCenter } from "@/components/borrower/trust-review/BorrowerTrustReviewCenter";
 import { cn } from "@/lib/cn";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-);
+// SPEC-PORTAL-1: the browser Supabase client is no longer used — all four portal
+// operations now go through token-scoped /api/portal/[token]/* routes instead of
+// RPCs that are absent from prod. Import removed below.
 
 type Deal = {
   id: string;
@@ -613,9 +611,13 @@ export function PortalClient({ token }: { token: string }) {
   );
 
   const refreshDocs = React.useCallback(async () => {
-    const { data, error } = await supabase.rpc("portal_list_uploads", { p_token: token });
-    if (error) throw new Error(error.message);
-    const nextDocs = (data as Doc[]) ?? [];
+    // SPEC-PORTAL-1: portal_list_uploads RPC is absent from prod; the maintained
+    // token-scoped route GET /api/portal/[token]/docs returns the same uploads
+    // (validates the token against borrower_portal_links directly).
+    const response = await fetch(`/api/portal/${token}/docs`, { method: "GET", cache: "no-store" });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
+    const nextDocs = (json.docs as Doc[]) ?? [];
     setDocs(nextDocs);
     setActiveUploadId((current) => {
       if (current && nextDocs.some((doc) => doc.upload_id === current)) return current;
@@ -625,12 +627,15 @@ export function PortalClient({ token }: { token: string }) {
 
   const refreshFields = React.useCallback(
     async (uploadId: string) => {
-      const { data, error } = await supabase.rpc("portal_get_doc_fields", {
-        p_token: token,
-        p_upload_id: uploadId,
+      // SPEC-PORTAL-1: portal_get_doc_fields RPC is absent; use the token-scoped
+      // route GET /api/portal/[token]/docs/[uploadId]/fields.
+      const response = await fetch(`/api/portal/${token}/docs/${uploadId}/fields`, {
+        method: "GET",
+        cache: "no-store",
       });
-      if (error) throw new Error(error.message);
-      setFields((data as Field[]) ?? []);
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
+      setFields((json.fields as Field[]) ?? []);
     },
     [token],
   );
@@ -667,9 +672,15 @@ export function PortalClient({ token }: { token: string }) {
     try {
       setLoading(true);
       setErr(null);
-      const { data, error } = await supabase.rpc("portal_get_context", { p_token: token });
-      if (error) throw new Error(error.message);
-      setDeal((data as any).deal ?? null);
+      // SPEC-PORTAL-1: portal_get_context RPC is absent; use the token-scoped
+      // route GET /api/portal/[token]/context which returns { token, deal, link }.
+      const response = await fetch(`/api/portal/${token}/context`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
+      setDeal(json.deal ?? null);
       await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity()]);
     } catch (error) {
       setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
@@ -719,11 +730,18 @@ export function PortalClient({ token }: { token: string }) {
     setBusy(true);
     setActionMessage(null);
     try {
-      const { error } = await supabase.rpc("portal_confirm_and_submit_document", {
-        p_token: token,
-        p_upload_id: activeUploadId,
+      // SPEC-PORTAL-1: portal_confirm_and_submit_document RPC is absent; use the
+      // token-scoped route POST /api/portal/[token]/docs/[uploadId]/submit, which
+      // enforces no-remaining-needs_attention and is idempotent.
+      const response = await fetch(`/api/portal/${token}/docs/${activeUploadId}/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
       });
-      if (error) throw new Error(error.message);
+      if (!response.ok) {
+        const json = await response.json().catch(() => null);
+        throw new Error(json?.error || "submit_failed");
+      }
       setActionMessage("Buddy received that document and added it to your package.");
       await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity(), refreshFields(activeUploadId)]);
     } catch (error) {
