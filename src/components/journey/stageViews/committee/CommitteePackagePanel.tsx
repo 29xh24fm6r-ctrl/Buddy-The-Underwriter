@@ -85,6 +85,7 @@ export function CommitteePackagePanel({ dealId }: { dealId: string }) {
         ) : null}
         <Link
           href={`/deals/${dealId}/committee-studio`}
+          prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
           className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/80 hover:bg-white/10"
         >
           Committee Studio

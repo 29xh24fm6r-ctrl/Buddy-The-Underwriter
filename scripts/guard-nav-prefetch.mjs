@@ -16,14 +16,24 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 
-// Hardcoded inventory — the §0 nav surfaces that fire prefetch on deal page load.
+// Hardcoded inventory — the nav surfaces that fire prefetch on deal page load:
+// the persistent shell/rail chrome AND the cockpit stage-view body (the deal
+// landing redirects to /cockpit, whose primary body mounts these panels).
 // Keep in sync with src/lib/navigation/__tests__/navPrefetchInvariant.test.ts.
 const FILES = [
+  // Persistent deal-nav chrome
   "src/app/(app)/deals/[dealId]/DealShell.tsx",
+  "src/app/(app)/deals/layout.tsx",
+  "src/components/nav/AppSidebar.tsx",
+  "src/components/deals/DealShellMemoCta.tsx",
+  // Journey rail
   "src/components/journey/StageRow.tsx",
   "src/components/journey/StageStepList.tsx",
-  "src/components/deals/DealShellMemoCta.tsx",
-  "src/components/nav/AppSidebar.tsx",
+  // Cockpit stage-view body (primary deal surface)
+  "src/components/journey/stageViews/_shared/StatusListPanel.tsx",
+  "src/components/journey/stageViews/_shared/CockpitAdvisorPanel.tsx",
+  "src/components/journey/stageViews/WorkoutStageView.tsx",
+  "src/components/journey/stageViews/committee/CommitteePackagePanel.tsx",
 ];
 
 const ALLOW_MARKER = "guard-allow-prefetch";
@@ -31,13 +41,35 @@ const ALLOW_MARKER = "guard-allow-prefetch";
 // Find each `<Link` opening tag and return { index, tag } where tag is the text
 // from `<Link` through the closing `>` of the opening tag. `<Link` must be a JSX
 // element open (followed by whitespace or `>`), not a substring like `<LinkFoo`.
+//
+// The terminating `>` is found by a brace/paren/quote-aware scan, NOT the first
+// `>` — otherwise an inline arrow handler (`onClick={(e) => ...}`) or a JSX
+// comparison (`{n > 0 ? ...}`) would truncate the tag before `prefetch` and
+// false-positive a correctly-authored Link. A `>` only terminates the tag when
+// it sits at brace/paren depth 0 and outside any string/template literal.
 function findLinkOpenTags(text) {
   const tags = [];
   const re = /<Link(?=[\s/>])/g;
   let m;
   while ((m = re.exec(text)) !== null) {
     const start = m.index;
-    const end = text.indexOf(">", start);
+    let depth = 0; // {} and () nesting inside the opening tag
+    let quote = null; // active string/template delimiter: ' " `
+    let end = -1;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (quote) {
+        if (c === quote && text[i - 1] !== "\\") quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "{" || c === "(") depth++;
+      else if (c === "}" || c === ")") depth--;
+      else if (c === ">" && depth === 0) {
+        end = i;
+        break;
+      }
+    }
     const tag = end === -1 ? text.slice(start) : text.slice(start, end + 1);
     tags.push({ index: start, tag });
   }

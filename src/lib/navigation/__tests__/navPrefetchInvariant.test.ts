@@ -22,24 +22,51 @@ import path from "node:path";
 const ROOT = process.cwd();
 
 const FILES = [
+  // Persistent deal-nav chrome
   "src/app/(app)/deals/[dealId]/DealShell.tsx",
+  "src/app/(app)/deals/layout.tsx",
+  "src/components/nav/AppSidebar.tsx",
+  "src/components/deals/DealShellMemoCta.tsx",
+  // Journey rail
   "src/components/journey/StageRow.tsx",
   "src/components/journey/StageStepList.tsx",
-  "src/components/deals/DealShellMemoCta.tsx",
-  "src/components/nav/AppSidebar.tsx",
+  // Cockpit stage-view body (deal landing redirects to /cockpit)
+  "src/components/journey/stageViews/_shared/StatusListPanel.tsx",
+  "src/components/journey/stageViews/_shared/CockpitAdvisorPanel.tsx",
+  "src/components/journey/stageViews/WorkoutStageView.tsx",
+  "src/components/journey/stageViews/committee/CommitteePackagePanel.tsx",
 ];
 
 const ALLOW_MARKER = "guard-allow-prefetch";
 
 // Each `<Link` opening tag parsed to its closing `>` (multiline-safe). `<Link`
-// must open a JSX element (followed by whitespace or `>`), not `<LinkFoo`.
+// must open a JSX element (followed by whitespace or `>`), not `<LinkFoo`. The
+// terminator is found by a brace/paren/quote-aware scan (mirrors
+// scripts/guard-nav-prefetch.mjs) so a `>` inside a prop expression (an arrow
+// `=>` or comparison) can't truncate the tag and false-positive a valid Link.
 function findLinkOpenTags(text: string): { line: number; tag: string }[] {
   const tags: { line: number; tag: string }[] = [];
   const re = /<Link(?=[\s/>])/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const start = m.index;
-    const end = text.indexOf(">", start);
+    let depth = 0;
+    let quote: string | null = null;
+    let end = -1;
+    for (let i = start; i < text.length; i++) {
+      const c = text[i];
+      if (quote) {
+        if (c === quote && text[i - 1] !== "\\") quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "{" || c === "(") depth++;
+      else if (c === "}" || c === ")") depth--;
+      else if (c === ">" && depth === 0) {
+        end = i;
+        break;
+      }
+    }
     const tag = end === -1 ? text.slice(start) : text.slice(start, end + 1);
     const line = text.slice(0, start).split("\n").length;
     tags.push({ line, tag });

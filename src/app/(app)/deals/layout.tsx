@@ -20,6 +20,7 @@ function NavItem({
   return (
     <Link
       href={href}
+      prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1: persistent deal-nav rail, force-dynamic targets
       className={[
         "flex flex-col items-center gap-1 group w-full px-1 relative",
         active ? "opacity-100" : "opacity-80 hover:opacity-100",

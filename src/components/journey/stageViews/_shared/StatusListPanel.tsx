@@ -134,6 +134,7 @@ export function StatusListPanel({
                 {r.href ? (
                   <Link
                     href={r.href}
+                    prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
                     className="text-[11px] font-semibold text-blue-300 hover:text-blue-200"
                   >
                     Open
@@ -155,6 +156,7 @@ export function StatusListPanel({
             <Link
               key={l.href}
               href={l.href}
+              prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
               className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/80 hover:bg-white/10"
             >
               {l.label}

@@ -663,6 +663,7 @@ function AdvisorActionButton({
     return (
       <Link
         href={action.href}
+        prefetch={false} // SPEC-DEAL-NAV-PREFETCH-SUPPRESSION-1
         className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
         data-testid="advisor-action"
       >
