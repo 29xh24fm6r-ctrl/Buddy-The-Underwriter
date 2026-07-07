@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 // 10s default for cold-start auth + multi-step Supabase I/O.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+// route-class: CLERK (SPEC-SEC-1)
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
@@ -15,6 +16,8 @@ function json(status: number, body: any) {
 }
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 /**
  * GET /api/deals/[dealId]/entities
@@ -31,6 +34,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     if (!dealId) {
       return json(400, { ok: false, error: "Missing dealId" });
     }
+
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before listing entities.
+    const { userId } = await assertDealAccess(dealId);
 
     const supabase = await getSupabaseClient();
 
@@ -86,7 +92,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
           const groupEntity = {
             id: randomUUID(),
             deal_id: dealId,
-            user_id: "dev-user",
+            user_id: userId, // SPEC-SEC-1: authenticated Clerk user, not 'dev-user'
             name: "Group (Combined)",
             entity_kind: "GROUP",
             legal_name: "Combined Group Entity",
@@ -121,6 +127,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       }
     }
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[entities] GET error:", e);
     return json(500, { ok: false, error: e.message });
   }
@@ -138,6 +146,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     if (!dealId) {
       return json(400, { ok: false, error: "Missing dealId" });
     }
+
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access; capture userId to
+    // stamp the real creator instead of the hardcoded 'dev-user' placeholder.
+    const { userId } = await assertDealAccess(dealId);
 
     let body: any;
     try {
@@ -168,7 +180,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const entity = {
       id: entityId,
       deal_id: dealId,
-      user_id: "dev-user", // TODO: Replace with actual user from auth
+      user_id: userId, // SPEC-SEC-1: authenticated Clerk user, not 'dev-user'
       name,
       entity_kind,
       legal_name: legal_name || null,
@@ -208,6 +220,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return json(201, { ok: true, entity });
     }
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[entities] POST error:", e);
     return json(500, { ok: false, error: e.message });
   }

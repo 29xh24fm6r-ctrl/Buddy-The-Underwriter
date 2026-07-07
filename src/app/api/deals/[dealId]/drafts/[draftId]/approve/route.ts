@@ -1,11 +1,13 @@
 // src/app/api/deals/[dealId]/drafts/[draftId]/approve/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// route-class: CLERK (SPEC-SEC-1)
 
 type DraftRow = {
   id: string;
@@ -39,19 +41,15 @@ export async function POST(
       );
     }
 
-    const user = await clerkCurrentUser();
-    if (!user) {
-      return NextResponse.json(
-        { ok: false, error: "not_authenticated" },
-        { status: 401 },
-      );
-    }
+    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access (previously only
+    // authenticated — any bank could approve another bank's draft).
+    const { userId } = await assertDealAccess(dealId);
 
     const sb = supabaseAdmin();
 
     const patch: Record<string, any> = {
       status: "approved",
-      approved_by: user.id,
+      approved_by: userId,
       approved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -86,6 +84,8 @@ export async function POST(
 
     return NextResponse.json({ ok: true, draft });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
       { status: 500 },
