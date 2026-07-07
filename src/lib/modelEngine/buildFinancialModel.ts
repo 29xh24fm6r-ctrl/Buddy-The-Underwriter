@@ -368,20 +368,58 @@ function deriveComputedValues(period: FinancialPeriod): void {
       + (balance.inventory ?? 0) + (balance.otherCurrentAssets ?? 0);
     if (tca > 0) balance.totalCurrentAssets = tca;
   }
-  if (balance.totalCurrentLiabilities === undefined) {
-    const tcl = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
-      + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0);
-    if (tcl > 0) balance.totalCurrentLiabilities = tcl;
+  // Current-liabilities component sum (AP + other-current + accrued + short-term).
+  // shortTermDebt is a current liability and is included in the extracted
+  // totalCurrentLiabilities subtotal by convention, so it is NOT re-added when
+  // the subtotal branch is used for Total Liabilities below (SPEC-FIN-TL-1 R2).
+  const clComponentSum = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
+    + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0);
+
+  // Whether the subtotal came in as an extracted raw fact, captured BEFORE we
+  // backfill it from components — needed for the disagreement check below.
+  const extractedCurrentLiabilities = balance.totalCurrentLiabilities;
+
+  if (balance.totalCurrentLiabilities === undefined && clComponentSum > 0) {
+    balance.totalCurrentLiabilities = clComponentSum;
+  }
+
+  // SPEC-FIN-TL-1 §3: when BOTH an extracted subtotal and a non-zero component
+  // sum are present and they disagree materially, surface it. The chosen value
+  // is still the subtotal (issuer-authored subtotal is authoritative); this only
+  // records that extraction produced two inconsistent readings. Threshold mirrors
+  // the small-value floor used elsewhere: max($1000, 5% × subtotal).
+  if (extractedCurrentLiabilities !== undefined && clComponentSum > 0) {
+    const delta = Math.abs(extractedCurrentLiabilities - clComponentSum);
+    const materialThreshold = Math.max(1000, 0.05 * extractedCurrentLiabilities);
+    if (delta > materialThreshold) {
+      period.qualityFlags.push(
+        "BALANCE_SHEET_SUBTOTAL_DISAGREEMENT:totalCurrentLiabilities" +
+          `:subtotal=${extractedCurrentLiabilities}:components=${clComponentSum}` +
+          `:delta=${delta}:chosen=subtotal`,
+      );
+    }
   }
 
   // ── Total Liabilities = current liabilities + long-term debt ──────────
-  // Derived from components (AP + other-current + accrued + short-term + LTD).
-  // Long-term debt carries the Schedule L shareholder-loan / mortgage lines.
+  // SPEC-FIN-TL-1: prefer the extracted/resolved totalCurrentLiabilities subtotal
+  // over re-summing itemized components. On a summarized balance sheet (Schedule L
+  // shape) every itemized component is 0 and the old component-sum silently
+  // collapsed Total Liabilities to just longTermDebt — understating leverage with
+  // no imbalance flag, because equity is derived as assets − liabilities so the
+  // balance identity held by construction. Long-term debt carries the Schedule L
+  // shareholder-loan / mortgage lines and is added on top of current liabilities.
   if (balance.totalLiabilities === undefined) {
-    const tl = (balance.accountsPayable ?? 0) + (balance.otherCurrentLiabilities ?? 0)
-      + (balance.accruedLiabilities ?? 0) + (balance.shortTermDebt ?? 0)
-      + (balance.longTermDebt ?? 0);
-    if (tl > 0) balance.totalLiabilities = tl;
+    const ltd = balance.longTermDebt ?? 0;
+    if (balance.totalCurrentLiabilities !== undefined) {
+      balance.totalLiabilities = balance.totalCurrentLiabilities + ltd;
+    } else if (ltd > 0) {
+      // Neither a current-liabilities subtotal nor components exist — Total
+      // Liabilities is a floor (long-term debt only), not a complete figure.
+      // Surface it so the memo does not read a partial TL as a clean fact.
+      balance.totalLiabilities = ltd;
+      period.qualityFlags.push("MISSING_CURRENT_LIABILITIES");
+    }
+    // else: no liabilities data at all → leave undefined (checkQuality flags).
   }
 
   // ── Net Worth = Total Assets − Total Liabilities ─────────────────────
