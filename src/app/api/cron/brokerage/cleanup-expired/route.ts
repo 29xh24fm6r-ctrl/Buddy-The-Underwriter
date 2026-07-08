@@ -11,6 +11,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { secretEquals } from "@/lib/brokerage/secretEquals";
 
 export const runtime = "nodejs";
 
@@ -22,7 +23,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 500 },
     );
   }
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
+  const provided = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!secretEquals(provided, secret)) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 

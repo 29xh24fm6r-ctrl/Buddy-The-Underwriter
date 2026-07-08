@@ -29,6 +29,7 @@ import { MODEL_CONCIERGE_EXTRACTION } from "@/lib/ai/models";
 import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
+import { secretEquals } from "@/lib/brokerage/secretEquals";
 
 export const runtime = "nodejs";
 // Trident preview generation runs synchronously on intent match (PDF
@@ -48,7 +49,7 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> },
 ): Promise<NextResponse> {
   const provided = req.headers.get("x-gateway-secret");
-  if (!GATEWAY_SECRET || !provided || provided !== GATEWAY_SECRET) {
+  if (!secretEquals(provided, GATEWAY_SECRET)) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 

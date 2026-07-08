@@ -4,6 +4,7 @@
  * Cron-compatible logic for batch comms orchestration + outbox processing.
  * Separated from the route so it's testable with stubs.
  */
+import { secretEquals } from "@/lib/brokerage/secretEquals";
 
 import { assertCommsEnvReady, getCommsMode } from "@/lib/brokerage/commsAdapters";
 import { redactResponseSecrets } from "@/lib/brokerage/commsAuth";
@@ -30,16 +31,16 @@ export function verifyCronSecret(request: Request): CronAuthResult {
   const expected = process.env.CRON_SECRET;
   if (!expected) return { authorized: false, error: "CRON_SECRET not configured" };
 
-  // Check Authorization: Bearer <secret>
+  // Check Authorization: Bearer <secret> (constant-time — audit L6)
   const authHeader = request.headers.get("authorization");
   if (authHeader) {
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    if (token === expected) return { authorized: true };
+    if (secretEquals(token, expected)) return { authorized: true };
   }
 
   // Check x-cron-secret header
   const cronHeader = request.headers.get("x-cron-secret");
-  if (cronHeader === expected) return { authorized: true };
+  if (secretEquals(cronHeader, expected)) return { authorized: true };
 
   return { authorized: false, error: "invalid_secret" };
 }
