@@ -22,13 +22,20 @@ export async function captureLead(input: { email?: string; phone?: string; first
   return { ok: true, leadId: String(ins.id), existing: false };
 }
 
+/**
+ * @deprecated Prefer session.ts:getOrCreateBorrowerSession (claim_brokerage_session
+ * RPC) — the canonical, advisory-locked draft creator used by the live concierge
+ * route. This helper is retained for the funnel scaffolding; audit M1: it now
+ * anchors the draft with brokerage_session_token_hash so it can no longer produce
+ * an orphan brokerage_anonymous deal with no session-token anchor.
+ */
 export async function startBrokerageSession(input: { brokerageBankId: string; leadId?: string; source?: string }, sb: SB): Promise<StartSessionResult> {
   const dealId = crypto.randomUUID();
-  const { error: de } = await sb.from("deals").insert({ id: dealId, bank_id: input.brokerageBankId, deal_type: "SBA", origin: "brokerage_anonymous", display_name: "New borrower inquiry", status: "active" });
-  if (de) return { ok: false, error: `deal: ${de.message}` };
   const raw = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
   const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
   const tokenHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  const { error: de } = await sb.from("deals").insert({ id: dealId, bank_id: input.brokerageBankId, deal_type: "SBA", origin: "brokerage_anonymous", display_name: "New borrower inquiry", status: "active", brokerage_session_token_hash: tokenHash });
+  if (de) return { ok: false, error: `deal: ${de.message}` };
   const { error: te } = await sb.from("borrower_session_tokens").insert({ token_hash: tokenHash, deal_id: dealId, bank_id: input.brokerageBankId, expires_at: new Date(Date.now() + 90 * 24 * 3_600_000).toISOString() });
   if (te) return { ok: false, error: `token: ${te.message}` };
   let leadId = input.leadId ?? null;
