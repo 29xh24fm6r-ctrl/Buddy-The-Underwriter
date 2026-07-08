@@ -14,11 +14,17 @@
  * confidence bug in the adapter would surface as a mismatch. Pure — no DB.
  */
 
-import type { CertifiedFactRow, EntityScope } from "@/lib/finengine/shadow/dealInputAdapter";
+import {
+  sourceCanonicalTypeToTrust,
+  type CertifiedFactRow,
+  type EntityScope,
+} from "@/lib/finengine/shadow/dealInputAdapter";
 
 /** Independent scope → source_canonical_type sets (defined separately from the adapter's). */
 const SCOPE_SOURCES: Record<EntityScope, ReadonlySet<string>> = {
-  BUSINESS: new Set(["BUSINESS_TAX_RETURN", "INCOME_STATEMENT", "BALANCE_SHEET", "AR_AGING", "AP_AGING", "DEBT_SCHEDULE", "FINANCIAL_STATEMENT", "BANK_STATEMENT"]),
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: include audited/reviewed/compiled statements so this
+  // independent oracle sees the same authoritative business sources the adapter now partitions.
+  BUSINESS: new Set(["AUDITED_FINANCIALS", "REVIEWED_FINANCIALS", "COMPILED_FINANCIALS", "BUSINESS_TAX_RETURN", "INCOME_STATEMENT", "BALANCE_SHEET", "AR_AGING", "AP_AGING", "DEBT_SCHEDULE", "FINANCIAL_STATEMENT", "BANK_STATEMENT"]),
   PERSONAL: new Set(["PERSONAL_TAX_RETURN", "PFS", "PERSONAL_FINANCIAL_STATEMENT"]),
   AFFILIATE: new Set<string>(),
 };
@@ -45,7 +51,16 @@ export function independentRawSelect(
       sources.has(r.source_canonical_type),
   );
   if (cand.length === 0) return { value: null, extractor: null, source: null };
-  cand.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0) || Math.abs(b.fact_value_num!) - Math.abs(a.fact_value_num!));
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: rank document-TRUST first (matching the adapter's
+  // selectCertifiedValue: trust → confidence → |value|). Confidence-only ranking made this oracle
+  // disagree with the adapter whenever a higher-trust source (e.g. an audited statement) carried lower
+  // extractor confidence than a lower-trust one — producing false selection-mismatch failures.
+  cand.sort(
+    (a, b) =>
+      sourceCanonicalTypeToTrust(b.source_canonical_type) - sourceCanonicalTypeToTrust(a.source_canonical_type) ||
+      (b.confidence ?? 0) - (a.confidence ?? 0) ||
+      Math.abs(b.fact_value_num!) - Math.abs(a.fact_value_num!),
+  );
   const win = cand[0];
   return { value: win.fact_value_num, extractor: win.extractor ?? null, source: win.source_canonical_type ?? null };
 }

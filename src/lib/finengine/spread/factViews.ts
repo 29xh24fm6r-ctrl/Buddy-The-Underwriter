@@ -64,6 +64,25 @@ function pick(facts: Record<string, number | null>, keys: string[]): { value: nu
   return { value: null, key: null };
 }
 
+/**
+ * SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: sum the present component keys (absent → treated as 0),
+ * returning null ONLY when EVERY component is absent — so a missing subtotal is derived from its
+ * Schedule-L components (matching classicSpread's getTCA/getTCL) instead of collapsing to null and
+ * silently dropping the whole liquidity family. Never fabricates a 0 from all-absent components.
+ */
+function sumComponents(facts: Record<string, number | null>, keys: string[]): number | null {
+  let sum = 0;
+  let anyPresent = false;
+  for (const k of keys) {
+    const v = n(facts[k]);
+    if (v != null) {
+      sum += v;
+      anyPresent = true;
+    }
+  }
+  return anyPresent ? sum : null;
+}
+
 export function canonicalView(facts: Record<string, number | null>): CanonicalView {
   const src: CanonicalView["src"] = {};
   const set = (field: keyof CanonicalInputs, chain: string[]): number | null => {
@@ -72,7 +91,10 @@ export function canonicalView(facts: Record<string, number | null>): CanonicalVi
     return value;
   };
 
-  const revenue = set("revenue", ["GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME", "NET_SALES_REVENUE"]);
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: same revenue base as the printed line and the
+  // classic-spread ratios — NET_SALES_REVENUE → GROSS_RECEIPTS → TOTAL_REVENUE. TOTAL_INCOME is
+  // forbidden (a business 1120/1065 TOTAL_INCOME overstates sales; a personal TOTAL_INCOME contaminates).
+  const revenue = set("revenue", ["NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE"]);
   const cogs = set("cogs", ["COST_OF_GOODS_SOLD", "F1125A_COGS"]);
   let grossProfit = set("grossProfit", ["GROSS_PROFIT"]);
   if (grossProfit == null && revenue != null && cogs != null) {
@@ -101,8 +123,35 @@ export function canonicalView(facts: Record<string, number | null>): CanonicalVi
   const totalAssets = set("totalAssets", ["SL_TOTAL_ASSETS", "TOTAL_ASSETS"]);
   const totalLiabilities = set("totalLiabilities", ["SL_TOTAL_LIABILITIES", "TOTAL_LIABILITIES"]);
   const equity = set("equity", ["SL_TOTAL_EQUITY", "TOTAL_EQUITY"]);
-  const currentAssets = set("currentAssets", ["TOTAL_CURRENT_ASSETS"]);
-  const currentLiabilities = set("currentLiabilities", ["TOTAL_CURRENT_LIABILITIES"]);
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: prefer the direct total, then the SL_ subtotal, then
+  // a component sum (the common tax-return case where only Schedule-L line items were extracted). Without
+  // this fallback both fields resolved to null and the ENTIRE liquidity family (current/quick/cash ratio,
+  // NWC, WC-to-sales) silently vanished from the panel — divergent from classicSpread and modelEngine.
+  let currentAssets = set("currentAssets", ["TOTAL_CURRENT_ASSETS", "SL_TOTAL_CURRENT_ASSETS"]);
+  if (currentAssets == null) {
+    const arNet = (() => {
+      const gross = n(facts["SL_AR_GROSS"]);
+      if (gross == null) return null;
+      return gross - (n(facts["SL_AR_ALLOWANCE"]) ?? 0);
+    })();
+    const otherCa = sumComponents(facts, [
+      "SL_CASH", "SL_INVENTORY", "SL_US_GOV_OBLIGATIONS", "SL_TAX_EXEMPT_SECURITIES", "SL_OTHER_CURRENT_ASSETS",
+    ]);
+    if (arNet != null || otherCa != null) {
+      currentAssets = (arNet ?? 0) + (otherCa ?? 0);
+      src.currentAssets = "derived(Σ components)";
+    }
+  }
+  let currentLiabilities = set("currentLiabilities", ["TOTAL_CURRENT_LIABILITIES", "SL_TOTAL_CURRENT_LIABILITIES"]);
+  if (currentLiabilities == null) {
+    const comp = sumComponents(facts, [
+      "SL_ACCOUNTS_PAYABLE", "SL_WAGES_PAYABLE", "SL_SHORT_TERM_DEBT", "SL_OPERATING_CURRENT_LIABILITIES",
+    ]);
+    if (comp != null) {
+      currentLiabilities = comp;
+      src.currentLiabilities = "derived(Σ components)";
+    }
+  }
   const cash = set("cash", ["SL_CASH"]);
   const accountsReceivable = set("accountsReceivable", ["SL_AR_GROSS", "AR_TOTAL"]);
   const inventory = set("inventory", ["SL_INVENTORY", "F1125A_END_INVENTORY"]);
@@ -116,7 +165,25 @@ export function canonicalView(facts: Record<string, number | null>): CanonicalVi
   }
   const intangibles = set("intangibles", ["SL_INTANGIBLES_GROSS"]);
   const retainedEarnings = set("retainedEarnings", ["SL_RETAINED_EARNINGS", "M2_RETAINED_EARNINGS_END", "RETAINED_EARNINGS"]);
-  const fundedDebt = set("fundedDebt", ["SL_MORTGAGES_NOTES_BONDS"]);
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: funded debt is the DISTINCT sum of mortgages/notes/
+  // bonds (Sch-L line 20) AND loans from shareholders (line 19) — both are non-current interest-bearing
+  // debt per policy (factKeyRegistry maps both to LONG_TERM_DEBT). Reading only L20 understated funded
+  // debt and biased leverage low vs modelEngine/classicSpread. De-dupe identical values (the same loan
+  // reported on both lines), mirroring buildFinancialModel's distinct-sum.
+  const fundedDebt = (() => {
+    const mortgages = n(facts["SL_MORTGAGES_NOTES_BONDS"]);
+    const shareholderLoans = n(facts["SL_LOANS_FROM_SHAREHOLDERS"]);
+    const parts: number[] = [];
+    if (mortgages != null) parts.push(mortgages);
+    if (shareholderLoans != null && shareholderLoans !== mortgages) parts.push(shareholderLoans);
+    if (parts.length === 0) return null;
+    if (parts.length > 1) {
+      src.fundedDebt = "SL_MORTGAGES_NOTES_BONDS+SL_LOANS_FROM_SHAREHOLDERS";
+    } else {
+      src.fundedDebt = mortgages != null ? "SL_MORTGAGES_NOTES_BONDS" : "SL_LOANS_FROM_SHAREHOLDERS";
+    }
+    return parts.reduce((a, b) => a + b, 0);
+  })();
   const beginningEquity = set("beginningEquity", ["M2_BALANCE_BOY"]);
   const endingEquity = set("endingEquity", ["M2_BALANCE_EOY"]);
   const distributions = set("distributions", ["M2_DISTRIBUTIONS"]);

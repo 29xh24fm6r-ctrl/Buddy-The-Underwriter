@@ -391,15 +391,20 @@ function deriveInlineRatios(
     const ads = toNumSafe(facts[`cf_annual_debt_service_${year}`]);
     const interestExpense = toNumSafe(facts[`INTEREST_EXPENSE_${year}`]);
 
-    // DSCR = EBITDA / ADS (or cf_ncads / ADS)
+    // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: per-year DSCR uses the year's institutional
+    // NCADS over the year's ACTUAL debt service. EBITDA / ADS is NOT DSCR — never fabricate a DSCR
+    // (headline or per-year) from EBITDA; when only EBITDA exists, store an EBITDA-coverage figure
+    // under a distinct key so it can never be rendered as DSCR.
     if (ads !== null && ads > 0) {
-      const ncads = toNumSafe(facts[`cf_ncads_${year}`]) ?? ebitda;
+      const ncads = toNumSafe(facts[`cf_ncads_${year}`]);
       if (ncads !== null) {
         const dscr = Math.round((ncads / ads) * 100) / 100;
         ratios[`DSCR_${year}`] = dscr;
-        // Also set the latest year as the headline DSCR
+        // Promote the latest NCADS-based year to the headline DSCR (canonical numerator only).
         ratios["DSCR"] = dscr;
         ratios["ratio_dscr_final"] = dscr;
+      } else if (ebitda !== null) {
+        ratios[`EBITDA_COVERAGE_${year}`] = Math.round((ebitda / ads) * 100) / 100;
       }
     }
 

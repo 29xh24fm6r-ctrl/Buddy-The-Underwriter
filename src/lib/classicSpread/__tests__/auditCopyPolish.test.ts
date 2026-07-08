@@ -182,8 +182,8 @@ describe("certification status lines stay present and ASCII-safe", () => {
 
 // ── render version + cache rejection ──────────────────────────────────────────────────────────────
 describe("render version", () => {
-  it("CLASSIC_PDF_RENDER_VERSION is bumped to 20", () => {
-    assert.equal(CLASSIC_PDF_RENDER_VERSION, 20);
+  it("CLASSIC_PDF_RENDER_VERSION is bumped to 21", () => {
+    assert.equal(CLASSIC_PDF_RENDER_VERSION, 21);
   });
   it("rejects a cached prior-version (v16) blob", () => {
     const isRejected = (renderVersion: number | undefined) => (renderVersion ?? 0) !== CLASSIC_PDF_RENDER_VERSION;
