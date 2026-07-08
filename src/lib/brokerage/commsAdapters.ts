@@ -198,3 +198,20 @@ export function createBrokerageCommsAdaptersFromEnv(): CommsAdapters {
     slack: createSlackAdapter(),
   };
 }
+
+/**
+ * Channel-aware adapter factory for processDueCommsOutbox / lender comms.
+ * Single source of the (channel) → adapter mapping so the outbox-process route,
+ * the comms orchestrator, and the lender comms cycle all send through the same
+ * env-mode-resolved adapters (audit M3 — no more divergent stub vs real senders).
+ * Honors BROKERAGE_COMMS_MODE (stub | dry_run | live) — it is NOT a hardcoded stub.
+ */
+export function buildOutboxAdapterFactory(
+  adapters: CommsAdapters = createBrokerageCommsAdaptersFromEnv(),
+): (channel: "email" | "sms" | "slack") => (msg: any) => Promise<SendResult> {
+  return (channel) => {
+    if (channel === "sms") return (msg: any) => adapters.sms(msg);
+    if (channel === "slack") return (msg: any) => adapters.slack(msg);
+    return (msg: any) => adapters.email(msg);
+  };
+}

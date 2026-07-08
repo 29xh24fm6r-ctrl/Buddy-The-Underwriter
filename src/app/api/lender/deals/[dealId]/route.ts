@@ -1,22 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/lender/deals/[dealId]
- * 
+ *
  * Lender-Facing Data (Read-Only)
- * 
- * - No mutations allowed
- * - No tenant gating (lenders see across banks)
- * - Minimal, trustable data contract
- * - Ledger-derived explanations
+ * - Requires an authenticated lender (a bank with an active marketplace
+ *   agreement). Previously unauthenticated — it returned borrower deal data
+ *   (name, amount, documents, timeline) to any caller; the honest security gate
+ *   (audit C3) surfaced it.
+ * - Lenders are cross-tenant by design; the gate is "is a lender at all".
+ * - No mutations allowed.
  */
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ dealId: string }> }
 ) {
+  const lender = await resolveLenderIdentity();
+  if (!lender) {
+    return NextResponse.json({ ok: false, error: "not_a_lender" }, { status: 403 });
+  }
+
   const { dealId } = await context.params;
   const sb = supabaseAdmin();
 

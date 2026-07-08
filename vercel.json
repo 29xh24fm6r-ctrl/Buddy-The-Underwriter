@@ -5,6 +5,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/brokerage/marketplace/run",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/jobs/worker/tick?type=SPREADS&batch_size=3",
       "schedule": "*/10 * * * *"
     },

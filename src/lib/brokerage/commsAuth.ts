@@ -13,8 +13,14 @@ export async function requireBrokerageCommsAdmin(): Promise<CommsAuthResult> {
   } catch (err: any) {
     const msg = String(err?.message ?? "unauthorized");
     if (msg === "auth_not_configured") {
-      // Dev/test fallback — allow when Clerk not configured
-      return { authorized: true, userId: "dev-fallback" };
+      // Dev/test fallback ONLY outside production. In production this gate is the
+      // sole protection on 7 comms/timeline routes that send real email/SMS/Slack
+      // and return borrower/lender PII — a missing/placeholder Clerk config must
+      // fail CLOSED, never open (audit H1).
+      if (process.env.NODE_ENV !== "production") {
+        return { authorized: true, userId: "dev-fallback" };
+      }
+      return { authorized: false, error: "auth_not_configured" };
     }
     return { authorized: false, error: msg };
   }

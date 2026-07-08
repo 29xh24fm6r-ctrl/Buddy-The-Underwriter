@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { processDueCommsOutbox } from "@/lib/brokerage/commsOutbox";
-import { createBrokerageCommsAdaptersFromEnv } from "@/lib/brokerage/commsAdapters";
+import { buildOutboxAdapterFactory } from "@/lib/brokerage/commsAdapters";
 import { requireBrokerageCommsAdmin, redactResponseSecrets } from "@/lib/brokerage/commsAuth";
 
 export const runtime = "nodejs";
@@ -27,14 +27,9 @@ export async function POST(request: Request) {
     }
 
     const limit = typeof body.limit === "number" && body.limit > 0 ? Math.min(body.limit, 100) : 25;
-    const adapters = createBrokerageCommsAdaptersFromEnv();
     const sb = supabaseAdmin() as any;
 
-    const result = await processDueCommsOutbox(sb, (channel) => {
-      if (channel === "sms") return (msg: any) => adapters.sms(msg);
-      if (channel === "slack") return (msg: any) => adapters.slack(msg);
-      return (msg: any) => adapters.email(msg);
-    }, limit);
+    const result = await processDueCommsOutbox(sb, buildOutboxAdapterFactory(), limit);
 
     return NextResponse.json(redactResponseSecrets({ ok: true, ...result }));
   } catch (err: any) {

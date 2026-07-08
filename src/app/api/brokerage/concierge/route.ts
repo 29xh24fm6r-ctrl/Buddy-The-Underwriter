@@ -161,7 +161,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // behind lender pick — never released in chat.
     const tridentIntent = detectTridentIntent(body.userMessage);
     if (tridentIntent.matched) {
-      console.log("TRIDENT_INTENT_TRIGGERED", body.userMessage);
+      // Audit L5: do NOT log the raw borrower utterance (contains name/email/
+      // phone/financials → PII in log sinks). Log the intent + length only.
+      console.log("TRIDENT_INTENT_TRIGGERED", { chars: body.userMessage?.length ?? 0 });
 
       // generateSBAPackage (called by the trident generator) gates on a
       // confirmed buddy_sba_assumptions row. Borrowers in the brokerage
