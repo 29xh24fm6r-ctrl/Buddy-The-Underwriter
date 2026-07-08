@@ -23,16 +23,24 @@ function m(metric: string, value: number | null, inputs: Record<string, number>,
 // Liquidity completion
 // ---------------------------------------------------------------------------
 
-export function cashRatio(cashAndEquivalents: number | null, currentLiabilities: number | null, ctx?: PolicyContext): MetricResult {
-  return withFloor(
-    m("CASH_RATIO", div(cashAndEquivalents, currentLiabilities), { cashAndEquivalents: z(cashAndEquivalents), currentLiabilities: z(currentLiabilities) },
-      "Cash ratio = (cash + equivalents) ÷ current liabilities — cash-only coverage of near-term obligations."),
-    "quick_ratio_min", ctx,
-  );
+// SPEC-CURRENT-STAGE-AUDIT-FIX-2: the cash ratio is a DIAGNOSTIC metric (interpret.ts carries no
+// policyAxis for CASH_RATIO — only descriptive bands). It previously resolved its pass/fail floor
+// against `quick_ratio_min`, the WRONG axis: the cash ratio (cash-only, typically ~0.2–0.5) is far
+// stricter than the quick ratio (cash + receivables, floor ~1.0), so every deal spuriously breached.
+// No cash_ratio_min axis exists, so return a plain diagnostic result with no floor. The `ctx` param
+// is retained for signature stability with the other liquidity metrics.
+export function cashRatio(cashAndEquivalents: number | null, currentLiabilities: number | null, _ctx?: PolicyContext): MetricResult {
+  return m("CASH_RATIO", div(cashAndEquivalents, currentLiabilities),
+    { cashAndEquivalents: z(cashAndEquivalents), currentLiabilities: z(currentLiabilities) },
+    "Cash ratio = (cash + equivalents) ÷ current liabilities — cash-only coverage of near-term obligations.");
 }
 
 export function netWorkingCapital(currentAssets: number | null, currentLiabilities: number | null): MetricResult {
-  const value = currentAssets == null && currentLiabilities == null ? null : z(currentAssets) - z(currentLiabilities);
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: NWC is a DIFFERENCE — coercing a MISSING component to 0 (via z())
+  // reports NWC = current assets when current liabilities are simply unknown, materially overstating
+  // the cushion. Return null (N/A) whenever EITHER component is missing; an explicit 0 still computes.
+  const value =
+    currentAssets == null || currentLiabilities == null ? null : currentAssets - currentLiabilities;
   return m("NET_WORKING_CAPITAL", value, { currentAssets: z(currentAssets), currentLiabilities: z(currentLiabilities) },
     "Net working capital = current assets − current liabilities (dollar cushion funding the operating cycle).");
 }

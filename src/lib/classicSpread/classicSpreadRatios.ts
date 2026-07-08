@@ -13,6 +13,7 @@
  */
 
 import type { CashFlowRow, RatioSection } from "./types";
+import { classicTraditionalEbitda } from "./classicEbitda";
 
 export type PeriodMaps = Map<string, Map<string, number | null>>;
 
@@ -305,11 +306,9 @@ export function buildRatioSections(
       rows: [
         {
           label: "EBITDA",
-          values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            if (ni == null) return null;
-            return ni + (g(p, "INTEREST_EXPENSE") ?? 0) + (g(p, "DEPRECIATION") ?? 0) + (g(p, "AMORTIZATION") ?? 0);
-          }),
+          // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: canonical EBITDA base (C-corp income-tax
+          // add-back applied consistently) instead of the after-tax NET_INCOME + add-backs formula.
+          values: ratioVals((p) => classicTraditionalEbitda((key) => g(p, key))),
           format: "currency", decimals: 0,
         },
         {
@@ -323,19 +322,24 @@ export function buildRatioSections(
           format: "ratio", decimals: 2,
         },
         {
-          label: "DSCR (Traditional)",
+          // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: this row divides by INTEREST EXPENSE ONLY
+          // (no principal), so it is interest-only coverage — NOT DSCR. Canonical DSCR is
+          // CF_NCADS / ANNUAL_DEBT_SERVICE (a deal-level metric on the snapshot); a per-period tax
+          // return carries interest but not principal, so it cannot yield a true DSCR. Renamed +
+          // numerator routed through the canonical EBITDA base.
+          label: "Interest-Only Coverage (EBITDA)",
           values: ratioVals((p) => {
-            const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
-            const dep = g(p, "DEPRECIATION") ?? 0;
+            const ebitda = classicTraditionalEbitda((key) => g(p, key));
             const ie = g(p, "INTEREST_EXPENSE");
-            if (ni == null || ie == null) return "N/A";
-            if (ie === 0) return "N/A";
-            return (ni + dep + ie) / ie;
+            if (ebitda == null || ie == null || ie === 0) return "N/A";
+            return ebitda / ie;
           }),
           format: "ratio", decimals: 2,
         },
         {
-          label: "UCA Cash Flow DSCR",
+          // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: UCA operating cash flow ÷ INTEREST ONLY is
+          // interest-only coverage, not DSCR (no principal in the denominator). Renamed.
+          label: "Interest-Only Coverage (UCA Cash Flow)",
           values: ratioVals((_, i) => {
             const cfo = getCfo(i);
             const ie = g(periods[i]!, "INTEREST_EXPENSE");
@@ -352,7 +356,7 @@ export function buildRatioSections(
         {
           label: "Gross Margin %",
           values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+            const rev = g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
             const gp = g(p, "GROSS_PROFIT") ?? (rev != null ? rev - (g(p, "COST_OF_GOODS_SOLD") ?? 0) : null);
             if (rev == null || gp == null || rev === 0) return null;
             return (gp / rev) * 100;
@@ -362,7 +366,7 @@ export function buildRatioSections(
         {
           label: "Operating Profit Margin %",
           values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+            const rev = g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
             if (rev == null || rev === 0) return null;
             const gp = g(p, "GROSS_PROFIT") ?? (rev - (g(p, "COST_OF_GOODS_SOLD") ?? 0));
             const opex = getOpex(p);
@@ -374,7 +378,7 @@ export function buildRatioSections(
         {
           label: "Net Margin %",
           values: ratioVals((p) => {
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+            const rev = g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
             const ni = g(p, "NET_INCOME", "ORDINARY_BUSINESS_INCOME");
             if (rev == null || ni == null || rev === 0) return null;
             return (ni / rev) * 100;
@@ -410,7 +414,7 @@ export function buildRatioSections(
           label: "AR Days",
           values: ratioVals((p) => {
             const ar = g(p, "SL_AR_GROSS");
-            const rev = g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME");
+            const rev = g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE");
             if (ar == null || rev == null || rev === 0) return null;
             return (ar / rev) * 365;
           }),
@@ -438,12 +442,12 @@ export function buildRatioSections(
         },
         {
           label: "Net Sales / Total Assets",
-          values: ratioVals((p) => safeDiv(g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"), g(p, "SL_TOTAL_ASSETS"))),
+          values: ratioVals((p) => safeDiv(g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE"), g(p, "SL_TOTAL_ASSETS"))),
           format: "ratio", decimals: 2,
         },
         {
           label: "Net Sales / Net Worth",
-          values: ratioVals((p) => safeDiv(g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME"), getEquity(p))),
+          values: ratioVals((p) => safeDiv(g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE"), getEquity(p))),
           format: "ratio", decimals: 2,
         },
       ],
@@ -453,7 +457,7 @@ export function buildRatioSections(
       rows: [
         {
           label: "Net Sales Growth %",
-          values: yoyGrowth((p) => g(p, "GROSS_RECEIPTS", "TOTAL_REVENUE", "TOTAL_INCOME")),
+          values: yoyGrowth((p) => g(p, "NET_SALES_REVENUE", "GROSS_RECEIPTS", "TOTAL_REVENUE")),
           format: "percent", decimals: 1,
         },
         {

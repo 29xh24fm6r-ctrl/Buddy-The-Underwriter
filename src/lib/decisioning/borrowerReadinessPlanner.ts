@@ -67,18 +67,41 @@ async function loadDeal(
   return data as DealInfo | null;
 }
 
+// SPEC-CURRENT-STAGE-AUDIT-FIX-2: extract a flat metric from financial_snapshots.snapshot_json
+// (metrics nested as { <metric>: { value_num } }); tolerant of a flat numeric shape too.
+function pickSnapshotMetric(json: Record<string, unknown>, key: string): number | null {
+  const v = json[key];
+  if (v == null) return null;
+  const raw = typeof v === "object" ? (v as { value_num?: unknown }).value_num : v;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function loadSnapshot(
   sb: SupabaseClient,
   dealId: string,
 ): Promise<SnapshotInfo | null> {
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: real table is financial_snapshots (deal_financial_snapshots does
+  // not exist, so this always returned null). Metrics live in snapshot_json, not as flat columns.
   const { data } = await sb
-    .from("deal_financial_snapshots")
-    .select("dscr, ltv, debt_yield, current_ratio")
+    .from("financial_snapshots")
+    .select("snapshot_json")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return data as SnapshotInfo | null;
+  const json = (data as { snapshot_json?: unknown } | null)?.snapshot_json;
+  if (!json || typeof json !== "object") return null;
+  const metrics = json as Record<string, unknown>;
+  return {
+    dscr: pickSnapshotMetric(metrics, "dscr"),
+    ltv:
+      pickSnapshotMetric(metrics, "ltv_net") ??
+      pickSnapshotMetric(metrics, "ltv") ??
+      pickSnapshotMetric(metrics, "ltv_gross"),
+    debt_yield: pickSnapshotMetric(metrics, "debt_yield"),
+    current_ratio: pickSnapshotMetric(metrics, "current_ratio"),
+  };
 }
 
 async function loadMissingDocCount(

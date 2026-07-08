@@ -65,8 +65,10 @@ export async function computeRiskPricing(
     const sb = supabaseAdmin();
 
     // Load latest financial snapshot
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: read the real table financial_snapshots — deal_financial_snapshots
+    // does not exist, so this query silently returned null on every deal.
     const { data: snapRow, error: snapErr } = await (sb as any)
-      .from("deal_financial_snapshots")
+      .from("financial_snapshots")
       .select("snapshot_json")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })

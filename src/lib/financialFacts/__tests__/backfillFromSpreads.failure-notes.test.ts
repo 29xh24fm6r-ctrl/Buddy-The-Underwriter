@@ -34,8 +34,9 @@ test("[pr5e-1] backfillFromSpreads failure return type includes notes", () => {
 
 test("[pr5e-2] backfillFromSpreads all-failed return includes notes array", () => {
   const body = readBackfill();
-  // The "All N fact writes failed" return must include notes
-  const allFailedIdx = body.indexOf("All ${writes.length} fact writes failed");
+  // The all-failed return must include notes. SPEC-CURRENT-STAGE-AUDIT-FIX-2 reworded the message
+  // to "All ${failed} attempted fact writes failed" (period/null skips no longer counted as writes).
+  const allFailedIdx = body.indexOf("attempted fact writes failed");
   assert.ok(allFailedIdx > 0, "All-failed return not found");
   const context = body.slice(allFailedIdx - 100, allFailedIdx + 200);
   assert.match(

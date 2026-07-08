@@ -121,20 +121,52 @@ export async function computeBusinessEbitdaFacts(args: {
 
     const perEntity: Array<{ entityId: string; adjustedEbitda: number | null; addBackCount: number }> = [];
     let factsWritten = 0;
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: today's extraction writes EBITDA input facts at DEAL level
+    // (SENTINEL owner), not per-entity. The old query ignored owner scope, so EVERY OPCO entity
+    // computed the SAME deal-level EBITDA and wrote its own ENTITY-scoped copy — which the
+    // aggregator then SUMS, inflating NCADS/DSCR ~N-fold on any multi-OPCO deal. We now prefer this
+    // entity's OWN facts (future-proof for when extraction is entity-scoped) and fall back to the
+    // deal-level facts only ONCE, so a multi-OPCO deal with deal-level inputs yields exactly one
+    // EBITDA row (no N× overcount) instead of N identical ones.
+    let dealLevelInputsConsumed = false;
 
     for (const entity of entities as any[]) {
       const entityId = String(entity.id);
 
-      // Read entity-scoped tax-return-derived facts
-      const { data: factRows } = await (sb as any)
+      // Prefer this entity's own (ENTITY-scoped) input facts.
+      let factRows: any[] | null = null;
+      const { data: entityFactRows } = await (sb as any)
         .from("deal_financial_facts")
         .select("fact_key, fact_value_num, fact_period_end")
         .eq("deal_id", dealId)
         .eq("bank_id", bankId)
+        .eq("owner_type", "ENTITY")
+        .eq("owner_entity_id", entityId)
         .eq("is_superseded", false)
         .neq("resolution_status", "rejected")
         .in("fact_key", EBITDA_INPUT_KEYS)
         .order("fact_period_end", { ascending: false });
+
+      if (entityFactRows && entityFactRows.length > 0) {
+        factRows = entityFactRows;
+      } else if (!dealLevelInputsConsumed) {
+        // No entity-scoped facts — fall back to the deal-level (DEAL-owned) inputs, but only for the
+        // first entity that needs them, so identical deal-level values are not summed across OPCOs.
+        const { data: dealFactRows } = await (sb as any)
+          .from("deal_financial_facts")
+          .select("fact_key, fact_value_num, fact_period_end")
+          .eq("deal_id", dealId)
+          .eq("bank_id", bankId)
+          .eq("owner_type", "DEAL")
+          .eq("is_superseded", false)
+          .neq("resolution_status", "rejected")
+          .in("fact_key", EBITDA_INPUT_KEYS)
+          .order("fact_period_end", { ascending: false });
+        if (dealFactRows && dealFactRows.length > 0) {
+          factRows = dealFactRows;
+          dealLevelInputsConsumed = true;
+        }
+      }
 
       if (!factRows || factRows.length === 0) {
         perEntity.push({ entityId, adjustedEbitda: null, addBackCount: 0 });

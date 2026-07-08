@@ -57,7 +57,7 @@ const INPUT_FACT_KEYS = [
 
 export type ComputeCashFlowWaterfallResult =
   | { ok: true; period: string; ncads: number | null; wrote: number }
-  | { ok: false; reason: "no_complete_fiscal_year" | "no_ncads" | "query_failed"; detail?: string };
+  | { ok: false; reason: "no_complete_fiscal_year" | "no_ncads" | "query_failed" | "persist_failed"; detail?: string };
 
 export async function computeCashFlowWaterfallFacts(args: {
   dealId: string;
@@ -246,6 +246,9 @@ export async function computeCashFlowWaterfallFacts(args: {
 
     // 4. Persist CF_NCADS + the canonical CASH_FLOW_AVAILABLE (idempotent sentinel period,
     // high confidence so the institutional value wins over crude fallbacks).
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: these are intentional DEAL-LEVEL derived scalars — they
+    // must opt into the sentinel period (allowSentinelPeriod) or writeFact's MIN_VALID_PERIOD_DATE
+    // guard silently rejects them, which defeated the whole "institutional waterfall wins" contract.
     let wrote = 0;
     for (const factKey of ["CF_NCADS", "CASH_FLOW_AVAILABLE"]) {
       const res = await upsertDealFinancialFact({
@@ -261,8 +264,15 @@ export async function computeCashFlowWaterfallFacts(args: {
         ownerEntityId: SENTINEL_UUID,
         factPeriodStart: SENTINEL_DATE,
         factPeriodEnd: SENTINEL_DATE,
+        allowSentinelPeriod: true,
       });
       if (res.ok) wrote += 1;
+    }
+
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: fail loud when a non-null NCADS was computed but nothing
+    // persisted — a silent wrote===0 is exactly how this defect hid in production.
+    if (ncads != null && wrote === 0) {
+      return { ok: false, reason: "persist_failed", detail: "CF_NCADS/CASH_FLOW_AVAILABLE were computed but no fact persisted (period guard?)" };
     }
 
     return { ok: true, period, ncads, wrote };

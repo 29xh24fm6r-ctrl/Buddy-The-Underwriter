@@ -35,8 +35,11 @@ export default function DscrWowCard({
 
   return (
     <div className="rounded-lg border p-4">
+      {/* SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: this is an interactive WHAT-IF sensitivity —
+          a CFADS proxy over a user-entered debt service — NOT the certified canonical DSCR
+          (CF_NCADS / ANNUAL_DEBT_SERVICE). Labeled so it can't be mistaken for the headline DSCR. */}
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold">DSCR</div>
+        <div className="text-sm font-semibold">DSCR — What-If Sensitivity</div>
         <div className="text-xs text-muted-foreground">{spread.tax_year ? `TY ${spread.tax_year}` : ""}</div>
       </div>
 

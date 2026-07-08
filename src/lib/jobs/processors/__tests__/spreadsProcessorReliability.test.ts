@@ -131,8 +131,10 @@ test("preflight backoff is exponential (not fixed 30s)", () => {
 
 test("backfillFromSpreads returns ok:false when all writes fail", () => {
   const src = readFile("src/lib/financialFacts/backfillFromSpreads.ts");
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: the guard now keys on genuinely-attempted (non-skipped) writes
+  // so legitimate period/null skips are not counted as writes or misreported as failures.
   assert.ok(
-    src.includes("writes.length > 0 && factsWritten === 0"),
+    src.includes("attempted > 0 && factsWritten === 0"),
     "Must check for all-writes-failed condition",
   );
   assert.ok(

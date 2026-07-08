@@ -2,6 +2,7 @@ import "server-only";
 
 import React from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { computeDscrLikeRatio, dscrDisplayLabel } from "@/lib/financialFacts/dscrRegistry";
 
 // ── Fact keys we care about ──────────────────────────────────────────────
 
@@ -14,11 +15,16 @@ const DSCR_FACT_KEYS = [
   "DEPRECIATION",
   "AMORTIZATION",
   "INTEREST_EXPENSE",
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: the headline DSCR numerator is the institutional
+  // CF_NCADS (mirrored to CASH_FLOW_AVAILABLE), NOT EBITDA.
+  "CF_NCADS",
+  "CASH_FLOW_AVAILABLE",
   "ANNUAL_DEBT_SERVICE",
   "ANNUAL_DEBT_SERVICE_PROPOSED",
   "ANNUAL_DEBT_SERVICE_EXISTING",
   "DSCR",
   "DSCR_STRESSED_300BPS",
+  "PROPOSED_LOAN_COVERAGE",
   "GCF_DSCR",
   "GCF_CASH_AVAILABLE",
   "GCF_TOTAL_OBLIGATIONS",
@@ -88,13 +94,18 @@ export default async function DebtServiceCoverageSection({
         (amortization ?? 0)
       : null);
 
-  const annualDebtService =
-    latest.ANNUAL_DEBT_SERVICE ?? latest.ANNUAL_DEBT_SERVICE_PROPOSED ?? null;
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: canonical headline DSCR = CF_NCADS / TOTAL annual
+  // debt service. NEVER derive DSCR from EBITDA, and never silently substitute proposed-only debt
+  // service and still call it DSCR — coverage of the proposed loan only is a distinct, separately
+  // labeled metric (Proposed Loan Coverage).
+  const ncads = latest.CF_NCADS ?? latest.CASH_FLOW_AVAILABLE ?? null;
+  const totalDebtService = latest.ANNUAL_DEBT_SERVICE ?? null;
+  const proposedDebtService = latest.ANNUAL_DEBT_SERVICE_PROPOSED ?? null;
   const existingDebtService = latest.ANNUAL_DEBT_SERVICE_EXISTING ?? null;
 
-  const dscr = latest.DSCR ?? (derivedEbitda !== null && annualDebtService !== null && annualDebtService > 0
-    ? derivedEbitda / annualDebtService
-    : null);
+  const dscr = latest.DSCR ?? computeDscrLikeRatio(ncads, totalDebtService);
+  const proposedLoanCoverage =
+    latest.PROPOSED_LOAN_COVERAGE ?? computeDscrLikeRatio(ncads, proposedDebtService);
 
   const dscrStressed = latest.DSCR_STRESSED_300BPS ?? null;
   const gcfDscr = latest.GCF_DSCR ?? null;
@@ -102,7 +113,12 @@ export default async function DebtServiceCoverageSection({
   const gcfTotalObligations = latest.GCF_TOTAL_OBLIGATIONS ?? null;
 
   // Need at least EBITDA or debt service to render something meaningful
-  if (derivedEbitda === null && annualDebtService === null && dscr === null) {
+  if (
+    derivedEbitda === null &&
+    totalDebtService === null &&
+    proposedDebtService === null &&
+    dscr === null
+  ) {
     return null;
   }
 
@@ -119,18 +135,20 @@ export default async function DebtServiceCoverageSection({
 
   // Debt service section
   if (existingDebtService !== null) rows.push({ label: "Existing Debt Service", value: fmt(existingDebtService) });
-  if (annualDebtService !== null) rows.push({ label: "Total Annual Debt Service", value: fmt(annualDebtService), bold: true });
+  if (proposedDebtService !== null) rows.push({ label: "Proposed Debt Service", value: fmt(proposedDebtService) });
+  if (totalDebtService !== null) rows.push({ label: "Total Annual Debt Service", value: fmt(totalDebtService), bold: true });
 
-  // Coverage ratios
-  if (dscr !== null) rows.push({ label: "Debt Service Coverage Ratio", value: fmtRatio(dscr), bold: true });
-  if (dscrStressed !== null) rows.push({ label: "Stressed DSCR (+300 bps)", value: fmtRatio(dscrStressed) });
+  // Coverage ratios — each distinctly labeled from the registry (no bare/mislabeled DSCR).
+  if (dscr !== null) rows.push({ label: dscrDisplayLabel("DSCR"), value: fmtRatio(dscr), bold: true });
+  if (dscrStressed !== null) rows.push({ label: dscrDisplayLabel("DSCR_STRESSED_300BPS"), value: fmtRatio(dscrStressed) });
+  if (proposedLoanCoverage !== null) rows.push({ label: dscrDisplayLabel("PROPOSED_LOAN_COVERAGE"), value: fmtRatio(proposedLoanCoverage) });
 
   // Global cash flow section
   if (gcfCashAvailable !== null || gcfTotalObligations !== null || gcfDscr !== null) {
     rows.push({ label: "", value: "" }); // spacer
     if (gcfCashAvailable !== null) rows.push({ label: "Global Cash Available for Debt Service", value: fmt(gcfCashAvailable) });
     if (gcfTotalObligations !== null) rows.push({ label: "Global Total Obligations", value: fmt(gcfTotalObligations) });
-    if (gcfDscr !== null) rows.push({ label: "Global Cash Flow DSCR", value: fmtRatio(gcfDscr), bold: true });
+    if (gcfDscr !== null) rows.push({ label: dscrDisplayLabel("GCF_DSCR"), value: fmtRatio(gcfDscr), bold: true });
   }
 
   if (rows.length === 0) return null;
