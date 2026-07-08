@@ -63,10 +63,11 @@ async function loadDealState(
 
 // SPEC-CURRENT-STAGE-AUDIT-FIX-2: extract flat metrics from a financial_snapshots.snapshot_json
 // (metrics are nested as { <metric>: { value_num } }); tolerant of a flat numeric shape too.
-function pickSnapshotMetric(json: Record<string, any>, key: string): number | undefined {
+function pickSnapshotMetric(json: Record<string, unknown>, key: string): number | undefined {
   const v = json[key];
   if (v == null) return undefined;
-  const n = typeof v === "object" ? Number(v.value_num) : Number(v);
+  const raw = typeof v === "object" ? (v as { value_num?: unknown }).value_num : v;
+  const n = Number(raw);
   return Number.isFinite(n) ? n : undefined;
 }
 
@@ -83,16 +84,17 @@ async function loadLatestSnapshot(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const json = (data as any)?.snapshot_json;
+  const json = (data as { snapshot_json?: unknown } | null)?.snapshot_json;
   if (!json || typeof json !== "object") return null;
+  const metrics = json as Record<string, unknown>;
   return {
-    dscr: pickSnapshotMetric(json, "dscr"),
+    dscr: pickSnapshotMetric(metrics, "dscr"),
     ltv:
-      pickSnapshotMetric(json, "ltv_net") ??
-      pickSnapshotMetric(json, "ltv") ??
-      pickSnapshotMetric(json, "ltv_gross"),
-    debt_yield: pickSnapshotMetric(json, "debt_yield"),
-    current_ratio: pickSnapshotMetric(json, "current_ratio"),
+      pickSnapshotMetric(metrics, "ltv_net") ??
+      pickSnapshotMetric(metrics, "ltv") ??
+      pickSnapshotMetric(metrics, "ltv_gross"),
+    debt_yield: pickSnapshotMetric(metrics, "debt_yield"),
+    current_ratio: pickSnapshotMetric(metrics, "current_ratio"),
   };
 }
 
