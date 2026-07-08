@@ -108,5 +108,15 @@
  *         blocker made the PDF read "1 open review action(s)" while the panel showed 2)
  *         (BUGFIX-CLASSIC-SPREAD-CERTIFICATION-OPEN-ACTION-COUNT-PARITY-1). A v19 blob shows the
  *         under-counted value and must be rejected.
+ *   v21 — Tier-5 financial-definition unification (SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1):
+ *         (1) EBITDA now routes through the canonical base resolver so a C-corp's income-tax add-back
+ *         is applied consistently (printed EBITDA reconciles to the canonical EBITDA fact instead of
+ *         understating it by the tax provision); (2) the two interest-only coverage rows previously
+ *         mislabeled "DSCR (Traditional)" / "UCA Cash Flow DSCR" are renamed to "Interest-Only
+ *         Coverage (EBITDA)" / "Interest-Only Coverage (UCA Cash Flow)" — a per-period return has no
+ *         principal, so it cannot yield a true DSCR; (3) profitability/activity/growth ratios now use
+ *         the same NET_SALES_REVENUE → GROSS_RECEIPTS → TOTAL_REVENUE base as the printed Revenue line
+ *         (the forbidden TOTAL_INCOME fallback is dropped). The rendered EBITDA, coverage labels, and
+ *         ratio values change, so a v20 blob must be rejected.
  */
-export const CLASSIC_PDF_RENDER_VERSION = 20;
+export const CLASSIC_PDF_RENDER_VERSION = 21;

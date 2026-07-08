@@ -9,6 +9,7 @@ import type {
   StatementPeriod,
 } from "./types";
 import { loadPersonalIncome } from "./personalIncomeLoader";
+import { classicTraditionalEbitda } from "./classicEbitda";
 import {
   buildRatioSections,
   deriveTotalEquity,
@@ -477,13 +478,12 @@ function buildIncomeStatementRows(
     return dep + amort > 0 ? dep + amort : null;
   });
 
-  const ebitda = deriveValues(periods, (p) => {
-    const ni = getVal(byPeriod, p, "NET_INCOME") ?? getVal(byPeriod, p, "ORDINARY_BUSINESS_INCOME");
-    const ie = getVal(byPeriod, p, "INTEREST_EXPENSE") ?? 0;
-    const dep = getVal(byPeriod, p, "DEPRECIATION") ?? 0;
-    const amort = getVal(byPeriod, p, "AMORTIZATION") ?? 0;
-    return ni != null ? ni + ie + dep + amort : null;
-  });
+  // SPEC-TIER5-FINANCIAL-DEFINITION-UNIFICATION-1: route EBITDA through the canonical base resolver so
+  // a C-corp's income-tax add-back is applied consistently — the old NET_INCOME-first formula omitted
+  // it, understating the printed EBITDA vs the canonical fact for the same period.
+  const ebitda = deriveValues(periods, (p) =>
+    classicTraditionalEbitda((key) => getVal(byPeriod, p, key)),
+  );
 
   const rows: FinancialRow[] = [
     { label: "Sales / Revenues", indent: 0, isBold: true, values: revenue, showPct: true, pctBase: revenue },
