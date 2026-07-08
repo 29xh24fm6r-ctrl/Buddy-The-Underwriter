@@ -41,5 +41,9 @@ export async function materializeDebtServiceFact(args: {
     },
     ownerType: "DEAL",
     ownerEntityId: SENTINEL_UUID,
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: deal-level derived ADS scalar (no statement period) —
+    // opt into the sentinel period so writeFact's MIN_VALID_PERIOD_DATE guard doesn't silently
+    // reject it. Confidence 0.7 keeps it a fallback behind the spread-derived ADS.
+    allowSentinelPeriod: true,
   });
 }

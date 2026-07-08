@@ -3,7 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { RenderedSpread, SpreadType } from "@/lib/financialSpreads/types";
 import { CANONICAL_FACTS } from "@/lib/financialFacts/keys";
-import { upsertDealFinancialFact } from "@/lib/financialFacts/writeFact";
+import { upsertDealFinancialFact, MIN_VALID_PERIOD_DATE } from "@/lib/financialFacts/writeFact";
 import { isT12CanonicalFactSource } from "@/lib/spreads/t12Eligibility";
 
 function norm(s: string) {
@@ -174,15 +174,35 @@ export async function backfillCanonicalFactsFromSpreads(args: {
 
     async function gatedUpsert(
       upsertArgs: Parameters<typeof upsertDealFinancialFact>[0],
-    ) {
+    ): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
       if (
         BACKFILL_NULL_GATE &&
         (upsertArgs.factValueNum == null ||
           !Number.isFinite(upsertArgs.factValueNum))
       ) {
-        return { ok: true }; // Skip null writes, report as non-failure
+        return { ok: true, skipped: true }; // Skip null writes — NOT a persisted fact
       }
-      return upsertDealFinancialFact(upsertArgs);
+      // SPEC-CURRENT-STAGE-AUDIT-FIX-2: every backfill write already carries its period in
+      // provenance.as_of_date, but none passed it as factPeriodEnd — so all defaulted to the
+      // sentinel and were silently rejected by the MIN_VALID_PERIOD_DATE guard (the whole
+      // spread→fact layer produced ZERO facts). Resolve a valid period from the explicit
+      // factPeriodEnd, else provenance.as_of_date. If none is resolvable, SKIP (a period-less
+      // backfilled fact would create phantom spread columns — the guard's original purpose — and
+      // the value is redundant with the other canonical writers), never force the sentinel.
+      const rawAsOf =
+        upsertArgs.factPeriodEnd ??
+        ((upsertArgs.provenance as { as_of_date?: string | null })?.as_of_date ?? null);
+      const asOf = rawAsOf ? String(rawAsOf).slice(0, 10) : null;
+      const validAsOf =
+        asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) && asOf > MIN_VALID_PERIOD_DATE ? asOf : null;
+      if (!validAsOf) {
+        return { ok: true, skipped: true }; // no resolvable period — skip, don't phantom
+      }
+      return upsertDealFinancialFact({
+        ...upsertArgs,
+        factPeriodEnd: validAsOf,
+        factPeriodStart: upsertArgs.factPeriodStart ?? validAsOf,
+      });
     }
 
     const gcf = await getLatestSpreadRow({ dealId: args.dealId, bankId: args.bankId, spreadType: "GLOBAL_CASH_FLOW" });
@@ -908,16 +928,25 @@ export async function backfillCanonicalFactsFromSpreads(args: {
     }
 
     const results = await Promise.all(writes);
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: count ONLY actually-persisted rows. Null/period skips are
+    // legitimate non-writes (not failures, not successes); real rejections/DB errors are failures.
+    let attempted = 0;
+    let failed = 0;
     for (const r of results) {
+      if (r?.ok && r?.skipped) continue; // legitimate skip — neither written nor failed
+      attempted += 1;
       if (r?.ok) factsWritten += 1;
-      else notes.push(`fact_upsert_failed:${r?.error ?? "unknown"}`);
+      else {
+        failed += 1;
+        notes.push(`fact_upsert_failed:${r?.error ?? "unknown"}`);
+      }
     }
 
-    // If we attempted writes but ALL failed, report as error (not false green)
-    if (writes.length > 0 && factsWritten === 0) {
+    // If we genuinely attempted writes but ALL failed, report as error (not false green).
+    if (attempted > 0 && factsWritten === 0) {
       // SPEC-FOUNDATION-V1 PR5e — include per-write notes so ledger captures
       // the actual database error per upsert, not just the aggregated count.
-      return { ok: false as const, error: `All ${writes.length} fact writes failed`, notes };
+      return { ok: false as const, error: `All ${failed} attempted fact writes failed`, notes };
     }
 
     return { ok: true, factsWritten, notes };

@@ -60,6 +60,19 @@ export async function upsertDealFinancialFact(args: {
   ownerType?: string;
   ownerEntityId?: string | null;
   sourceCanonicalType?: string | null;
+
+  /**
+   * SPEC-CURRENT-STAGE-AUDIT-FIX-2 (finengine audit): intentional deal-level DERIVED
+   * facts (CF_NCADS, CASH_FLOW_AVAILABLE, ANNUAL_DEBT_SERVICE, GCF_*, DSCR …) are
+   * deal-scoped scalar aggregates that do NOT belong to any statement period — they
+   * are stamped at the SENTINEL period by convention (the raw-upsert path in
+   * runCashFlowAggregator proves this). The period guard below was built to reject
+   * EXTRACTION facts with an unknown period (which would create phantom spread
+   * columns); it must NOT silently void these intentional derived writes. When this
+   * flag is set, the EXACT sentinel period is permitted (any other sub-minimum/garbage
+   * date is still rejected). Extraction writers never set this, so the guard is intact.
+   */
+  allowSentinelPeriod?: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string; skipped?: boolean }> {
   try {
     const sb = supabaseAdmin();
@@ -73,7 +86,12 @@ export async function upsertDealFinancialFact(args: {
     // Reject sentinel and invalid period dates — a fact with no valid period
     // is worse than no fact. Sentinel 1900-01-01 means the extractor couldn't
     // determine the period; writing it pollutes spreads with phantom columns.
-    if (!periodEnd || periodEnd <= MIN_VALID_PERIOD_DATE) {
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: an intentional deal-level derived fact opts in
+    // via allowSentinelPeriod — the EXACT sentinel is permitted for those; every other
+    // sub-minimum date is still rejected, and unflagged sentinel writes (extraction) too.
+    const isIntentionalSentinel =
+      args.allowSentinelPeriod === true && periodEnd === SENTINEL_DATE;
+    if (!isIntentionalSentinel && (!periodEnd || periodEnd <= MIN_VALID_PERIOD_DATE)) {
       console.warn("[upsertDealFinancialFact] Skipping fact with invalid period date", {
         factKey: args.factKey,
         factType: args.factType,

@@ -218,7 +218,9 @@ async function loadSnapshotAgeHours(
 ): Promise<number | null> {
   try {
     const { data } = await (sb as any)
-      .from("deal_financial_snapshots")
+      // SPEC-CURRENT-STAGE-AUDIT-FIX-2: real table is financial_snapshots (deal_financial_snapshots
+      // does not exist — snapshot age always read as null, so self-heal never saw a stale snapshot).
+      .from("financial_snapshots")
       .select("created_at")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })

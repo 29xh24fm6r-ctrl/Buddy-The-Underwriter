@@ -99,19 +99,21 @@ const RULES: Record<string, Rule> = {
   WC_TURNOVER: { meaning: "Revenue generated per dollar of working capital.", favorable: "neutral" },
 
   // ---- Balance-sheet leverage / solvency ----
-  DEBT_TO_EQUITY: { meaning: "Creditor money vs owner money.", favorable: "lower", policyAxis: "debt_to_equity_max", bands: { strong: 1.0, adequate: 2.0, weak: 3.0 } },
-  DEBT_TO_WORTH: { meaning: "Loss cushion behind creditors.", favorable: "lower", policyAxis: "debt_to_worth_max", bands: { strong: 1.5, adequate: 3.0, weak: 4.0 } },
+  // flagWhenNegative marks favorable-lower ratios whose negative value can ONLY mean a negative
+  // denominator (negative equity/net-worth or negative EBITDA) — an insolvent/cash-burning obligor.
+  DEBT_TO_EQUITY: { meaning: "Creditor money vs owner money.", favorable: "lower", policyAxis: "debt_to_equity_max", bands: { strong: 1.0, adequate: 2.0, weak: 3.0 }, flagWhenNegative: true },
+  DEBT_TO_WORTH: { meaning: "Loss cushion behind creditors.", favorable: "lower", policyAxis: "debt_to_worth_max", bands: { strong: 1.5, adequate: 3.0, weak: 4.0 }, flagWhenNegative: true },
   DEBT_TO_ASSETS: { meaning: "Share of assets financed by funded debt.", favorable: "lower", policyAxis: "debt_to_assets_max", bands: { strong: 0.4, adequate: 0.6, weak: 0.8 } },
   LIABILITIES_TO_ASSETS: { meaning: "Share of assets financed by all liabilities.", favorable: "lower", bands: { strong: 0.4, adequate: 0.6, weak: 0.8 } },
   DEBT_TO_CAPITAL: { meaning: "Debt share of total capitalization.", favorable: "lower", bands: { strong: 0.3, adequate: 0.5, weak: 0.6 } },
   LTD_TO_CAPITAL: { meaning: "Long-term debt share of permanent capital.", favorable: "lower", bands: { strong: 0.3, adequate: 0.4, weak: 0.5 } },
-  EQUITY_RATIO: { meaning: "Owner-funded share of the balance sheet.", favorable: "higher", bands: { strong: 0.5, adequate: 0.3, weak: 0.2 } },
-  EQUITY_MULTIPLIER: { meaning: "The leverage factor in DuPont ROE.", favorable: "lower", bands: { strong: 1.5, adequate: 2.5, weak: 4.0 } },
-  DEBT_TO_ETNW: { meaning: "Truest liquidation-scenario leverage (debt ÷ effective TNW).", favorable: "lower", policyAxis: "debt_to_etnw_max", bands: { strong: 0.75, adequate: 1.0, weak: 1.3 } },
-  DEBT_TO_TANGIBLE_NET_WORTH: { meaning: "Leverage against tangible net worth.", favorable: "lower", bands: { strong: 1.5, adequate: 3.0, weak: 4.0 } },
-  LEVERAGE_TOTAL: { meaning: "Total debt ÷ EBITDA — years of cash flow to repay all debt.", favorable: "lower", policyAxis: "leverage_max", bands: { strong: 2.0, adequate: 3.5, weak: 4.5 } },
+  EQUITY_RATIO: { meaning: "Owner-funded share of the balance sheet.", favorable: "higher", bands: { strong: 0.5, adequate: 0.3, weak: 0.2 }, flagWhenNegative: true },
+  EQUITY_MULTIPLIER: { meaning: "The leverage factor in DuPont ROE.", favorable: "lower", bands: { strong: 1.5, adequate: 2.5, weak: 4.0 }, flagWhenNegative: true },
+  DEBT_TO_ETNW: { meaning: "Truest liquidation-scenario leverage (debt ÷ effective TNW).", favorable: "lower", policyAxis: "debt_to_etnw_max", bands: { strong: 0.75, adequate: 1.0, weak: 1.3 }, flagWhenNegative: true },
+  DEBT_TO_TANGIBLE_NET_WORTH: { meaning: "Leverage against tangible net worth.", favorable: "lower", bands: { strong: 1.5, adequate: 3.0, weak: 4.0 }, flagWhenNegative: true },
+  LEVERAGE_TOTAL: { meaning: "Total debt ÷ EBITDA — years of cash flow to repay all debt.", favorable: "lower", policyAxis: "leverage_max", bands: { strong: 2.0, adequate: 3.5, weak: 4.5 }, flagWhenNegative: true },
   LEVERAGE_TOTAL_NET: { meaning: "Cash-netted leverage (debt − cash) ÷ EBITDA.", favorable: "lower", policyAxis: "leverage_max", bands: { strong: 1.5, adequate: 3.0, weak: 4.5 } },
-  LEVERAGE_SENIOR: { meaning: "Senior debt ÷ EBITDA.", favorable: "lower", policyAxis: "leverage_max", bands: { strong: 1.5, adequate: 2.5, weak: 3.5 } },
+  LEVERAGE_SENIOR: { meaning: "Senior debt ÷ EBITDA.", favorable: "lower", policyAxis: "leverage_max", bands: { strong: 1.5, adequate: 2.5, weak: 3.5 }, flagWhenNegative: true },
 
   // ---- Coverage ----
   DSCR: { meaning: "Cash available ÷ GLOBAL debt service.", favorable: "higher", policyAxis: "dscr_floor", bands: { strong: 1.5, adequate: 1.25, weak: 1.1 } },
@@ -202,6 +204,14 @@ function altman(r: Interpretable): Pick<Interpretation, "rating" | "signal" | "r
 // ---------------------------------------------------------------------------
 
 function rateByBands(value: number, rule: Rule): Rating {
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: for favorable-lower leverage/solvency ratios (debt÷EBITDA,
+  // debt÷equity, assets÷equity), a NEGATIVE value can only arise from a negative denominator —
+  // negative EBITDA or negative equity — i.e. the single worst credit scenario. The favorable-lower
+  // band test (value <= b.strong) would otherwise read that negative number as "better than strong",
+  // labelling an insolvent / cash-burning obligor as the best credit. Rules that opt in via
+  // flagWhenNegative force the worst rating instead. (Net-debt ratios are NOT marked, because a
+  // negative there can legitimately mean a net-cash position.)
+  if (rule.flagWhenNegative && value < 0) return "flag";
   const b = rule.bands;
   if (!b) return rule.favorable === "neutral" ? "n/a" : value >= 0 || rule.favorable === "lower" ? "adequate" : "flag";
   if (rule.favorable === "higher") {

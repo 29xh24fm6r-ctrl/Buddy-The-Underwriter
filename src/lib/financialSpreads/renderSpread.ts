@@ -231,7 +231,7 @@ async function persistGcfComputedFacts(args: {
 
   for (const f of facts) {
     try {
-      await upsertDealFinancialFact({
+      const res = await upsertDealFinancialFact({
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: SENTINEL_UUID,
@@ -247,8 +247,17 @@ async function persistGcfComputedFacts(args: {
         },
         ownerType: "DEAL",
         ownerEntityId: SENTINEL_UUID,
+        // SPEC-CURRENT-STAGE-AUDIT-FIX-2: deal-level derived GCF scalar — opt into the sentinel
+        // period so the MIN_VALID_PERIOD_DATE guard persists it instead of silently skipping.
+        allowSentinelPeriod: true,
       });
-      written.push(f.factKey);
+      // SPEC-CURRENT-STAGE-AUDIT-FIX-2: the guarded writer returns {ok:false} (it does NOT throw)
+      // when it rejects a write — count it as an error, never a silent success.
+      if (res.ok) {
+        written.push(f.factKey);
+      } else {
+        errors.push({ factKey: f.factKey, message: (res as { error: string }).error });
+      }
     } catch (err: any) {
       // Collected and surfaced by the caller — NOT swallowed silently.
       errors.push({ factKey: f.factKey, message: err?.message ?? String(err) });

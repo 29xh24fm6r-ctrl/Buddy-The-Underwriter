@@ -130,10 +130,13 @@ export async function persistGlobalCashFlow(args: {
           factKey: "CASH_FLOW_AVAILABLE",
         });
 
-      const depreciation = findFact({
-        factType: "TAX_RETURN",
-        factKey: "DEPRECIATION",
-      });
+      // SPEC-CURRENT-STAGE-AUDIT-FIX-2: `netIncome` here is sourced from NOI_TTM / EBITDA /
+      // CASH_FLOW_AVAILABLE — every one of which ALREADY reflects the depreciation add-back (EBITDA
+      // is before D&A; NOI is before depreciation; CASH_FLOW_AVAILABLE/NCADS already added it back).
+      // computeGlobalCashFlow does grossCashFlow = netIncome + depreciation + interest, so re-adding
+      // depreciation here double-counts a large non-cash item and inflates GCF/global DSCR (the
+      // lender-dangerous direction). The base is already grossed up → depreciation must be null.
+      const depreciation = null;
 
       const interestExpense = null;
 
@@ -176,15 +179,20 @@ export async function persistGlobalCashFlow(args: {
         const ownershipPct =
           typeof ent.ownership_pct === "number" ? ent.ownership_pct / 100 : 1.0;
 
-        const netIncome =
-          findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" }) ??
-          findFact({ factType: "TAX_RETURN", factKey: "NET_INCOME" }) ??
-          findFact({ factType: "TAX_RETURN", factKey: "GROSS_RECEIPTS" });
+        // SPEC-CURRENT-STAGE-AUDIT-FIX-2: track the source so the D&A add-back is applied ONLY when
+        // the base is raw net income. Previously this chained EBITDA (already adjusted) → NET_INCOME
+        // (raw) → GROSS_RECEIPTS, then unconditionally added depreciation — double-counting D&A on the
+        // EBITDA base, and (worse) treating GROSS_RECEIPTS top-line REVENUE as profit. Drop the
+        // gross-receipts fallback entirely and only add depreciation to raw net income.
+        const ebitdaBase = findFact({ factType: "FINANCIAL_ANALYSIS", factKey: "EBITDA" });
+        const rawNetIncome = findFact({ factType: "TAX_RETURN", factKey: "NET_INCOME" });
+        const netIncomeIsRaw = ebitdaBase === null && rawNetIncome !== null;
+        const netIncome = ebitdaBase ?? rawNetIncome;
 
-        const depreciation = findFact({
-          factType: "TAX_RETURN",
-          factKey: "DEPRECIATION",
-        });
+        // EBITDA already includes the D&A add-back — only raw net income needs it re-added.
+        const depreciation = netIncomeIsRaw
+          ? findFact({ factType: "TAX_RETURN", factKey: "DEPRECIATION" })
+          : null;
 
         const debtService = findFact({
           factType: "FINANCIAL_ANALYSIS",
@@ -439,6 +447,9 @@ export async function persistGlobalCashFlow(args: {
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
+        // SPEC-CURRENT-STAGE-AUDIT-FIX-2: deal-level derived GCF scalar (no statement period) —
+        // opt into the sentinel period so writeFact's MIN_VALID_PERIOD_DATE guard persists it.
+        allowSentinelPeriod: true,
         factType: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_type,
         factKey: CANONICAL_FACTS.GCF_GLOBAL_CASH_FLOW.fact_key,
         factValueNum: result.globalCashFlowAvailable,
@@ -467,6 +478,9 @@ export async function persistGlobalCashFlow(args: {
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
+        // SPEC-CURRENT-STAGE-AUDIT-FIX-2: deal-level derived GCF scalar (no statement period) —
+        // opt into the sentinel period so writeFact's MIN_VALID_PERIOD_DATE guard persists it.
+        allowSentinelPeriod: true,
         factType: CANONICAL_FACTS.GCF_DSCR.fact_type,
         factKey: CANONICAL_FACTS.GCF_DSCR.fact_key,
         factValueNum: result.globalDscr,
@@ -493,6 +507,9 @@ export async function persistGlobalCashFlow(args: {
         dealId: args.dealId,
         bankId: args.bankId,
         sourceDocumentId: null,
+        // SPEC-CURRENT-STAGE-AUDIT-FIX-2: deal-level derived GCF scalar (no statement period) —
+        // opt into the sentinel period so writeFact's MIN_VALID_PERIOD_DATE guard persists it.
+        allowSentinelPeriod: true,
         factType: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_type,
         factKey: CANONICAL_FACTS.GLOBAL_CASH_FLOW.fact_key,
         factValueNum: result.globalCashFlowAvailable,
