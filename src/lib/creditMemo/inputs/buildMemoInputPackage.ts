@@ -416,7 +416,9 @@ async function loadLatestSnapshot(
   dealId: string,
 ): Promise<unknown> {
   const { data } = await (sb as any)
-    .from("deal_financial_snapshots")
+    // SPEC-CURRENT-STAGE-AUDIT-FIX-2: real table is financial_snapshots — deal_financial_snapshots
+    // does not exist, so the credit-memo input package was built on a null snapshot on every deal.
+    .from("financial_snapshots")
     .select("snapshot_json, created_at")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })

@@ -156,8 +156,10 @@ async function loadFactCandidates(
   }
 
   // 3. Latest financial snapshot — system of record post-spread.
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: real table is financial_snapshots (deal_financial_snapshots
+  // does not exist — reconciliation never saw the persisted snapshot).
   const { data: snapshot } = await (sb as any)
-    .from("deal_financial_snapshots")
+    .from("financial_snapshots")
     .select("snapshot_json, created_at")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })

@@ -165,8 +165,13 @@ export async function computeAuthoritativeEngine(
   }
 
   // 7. Persist rendered output to deal_spreads (authoritative — envelope format)
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: this is the ONE write the authority boundary reserves to itself
+  // ("only this function may write deal_spreads"), yet it was fire-and-forget (void … .then().catch()),
+  // so the function returned before it resolved and any failure was invisible. Await it so the
+  // authoritative spread is actually persisted before we report success (still non-fatal — a persist
+  // failure logs and returns a null-ish snapshot rather than throwing).
   const SENTINEL_UUID = "00000000-0000-0000-0000-000000000000";
-  void (sb as any)
+  await (sb as any)
     .from("deal_spreads")
     .upsert(
       {

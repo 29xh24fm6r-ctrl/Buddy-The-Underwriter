@@ -93,7 +93,14 @@ export function computePD(s: ObligorSignals, ctx?: PolicyContext): PdResult {
 
   // Capital / leverage overlay.
   const levMax = resolvePolicy("leverage_max", ctx).effective ?? 4.5;
-  if (s.leverage != null && s.leverage > levMax) {
+  // SPEC-CURRENT-STAGE-AUDIT-FIX-2: a NEGATIVE leverage (debt ÷ EBITDA) means negative EBITDA — the
+  // obligor generates no cash flow to repay debt at all, the worst leverage case. The old `> levMax`
+  // test silently skipped it (a negative number is not > the cap), letting negative-EBITDA borrowers
+  // escape the leverage penalty. Treat negative leverage as a cap breach.
+  if (s.leverage != null && s.leverage < 0) {
+    grade += 1;
+    drivers.push(`Negative leverage (${s.leverage.toFixed(1)}x) — negative EBITDA; no cash flow to service debt.`);
+  } else if (s.leverage != null && s.leverage > levMax) {
     grade += 1;
     drivers.push(`Leverage ${s.leverage.toFixed(1)}x exceeds ${levMax.toFixed(1)}x cap.`);
   }
