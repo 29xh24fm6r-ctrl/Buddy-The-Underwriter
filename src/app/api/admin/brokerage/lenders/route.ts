@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
  *          active agreement; the bank row is kept so historical listings,
  *          claims, and audit rows stay intact
  *
- * Auth: requireSuperAdmin() — the admin layout gates pages, not API
+ * Auth: requireBrokerageStaff() — the admin layout gates pages, not API
  * routes, so this route carries its own gate.
  */
 
@@ -86,7 +86,7 @@ function strArray(v: unknown): string[] | null {
 
 async function gate(): Promise<NextResponse | null> {
   try {
-    await requireSuperAdmin();
+    await requireBrokerageStaff();
     return null;
   } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
