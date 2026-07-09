@@ -27,13 +27,15 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         <div className="px-4 py-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <NavLink href="/admin" label="Admin" />
+            <NavLink href="/admin/brokerage" label="Brokerage HQ" />
+            <NavLink href="/admin/brokerage/lenders" label="Lenders" />
+            <NavLink href="/admin/brokerage-owner" label="Owner Command Center" />
             <NavLink href="/admin/audit" label="Audit" />
             <NavLink href="/admin/templates" label="Templates" />
             <NavLink href="/admin/fields" label="Fields" />
             <NavLink href="/admin/merge-fields" label="Merge Fields" />
             <NavLink href="/admin/email-routing" label="Email" />
             <NavLink href="/admin/roles" label="Roles" />
-            <NavLink href="/admin/brokerage-owner" label="Owner Command Center" />
           </div>
           <AdminBankPicker />
         </div>
