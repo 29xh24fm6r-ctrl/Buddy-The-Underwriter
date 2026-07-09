@@ -198,22 +198,38 @@ export async function computeBusinessEbitdaFacts(args: {
         officerCompAdjustedEbitdaImpact: officerCompAnalysis.adjustedEbitdaImpact,
       });
 
+      // Guaranteed-payments double-count guard.
+      // For a Form 1065 partnership, computeEbitda already adds back the FULL
+      // guaranteed payments. When OFFICER_COMPENSATION is absent (the normal
+      // 1065 case), analyzeOfficerComp substitutes those SAME guaranteed-payment
+      // dollars as the officer-comp basis, so the fold-in would add the
+      // excess-over-market portion a SECOND time — inflating EBITDA (and the
+      // downstream NCADS/DSCR). Suppress the fold-in in exactly that case: the
+      // full-GP add-back already subsumes it. When real OFFICER_COMPENSATION
+      // exists the fold-in acts on different dollars and is applied normally.
+      const foldInBasisIsGuaranteedPayments =
+        formType === "FORM_1065" &&
+        factMap.OFFICER_COMPENSATION == null &&
+        factMap.GUARANTEED_PAYMENTS != null;
+      const applyFoldIn = foldInDecision.shouldFold && !foldInBasisIsGuaranteedPayments;
+      const effectiveFoldInAmount = applyFoldIn ? foldInDecision.foldInAmount : 0;
+
       const finalEbitda =
         analysis.adjustedEbitda !== null
-          ? analysis.adjustedEbitda + foldInDecision.foldInAmount
+          ? analysis.adjustedEbitda + effectiveFoldInAmount
           : null;
 
       perEntity.push({
         entityId,
         adjustedEbitda: finalEbitda,
-        addBackCount: analysis.addBacks.length + (foldInDecision.shouldFold ? 1 : 0),
+        addBackCount: analysis.addBacks.length + (applyFoldIn ? 1 : 0),
       });
 
       if (finalEbitda === null) continue;
 
       // SPEC-B4.1.4 — augment provenance with officer_comp axis only when fold-in applied
       const entityMethodologyProvenance: MethodologyProvenance[] = [...methodologyProvenance];
-      if (foldInDecision.shouldFold) {
+      if (applyFoldIn) {
         const officerCompAxisDef = METHODOLOGY_AXES.officer_comp;
         const officerCompVariant = slate.officer_comp;
         entityMethodologyProvenance.push({

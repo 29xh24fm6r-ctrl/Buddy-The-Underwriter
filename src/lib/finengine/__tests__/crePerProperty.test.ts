@@ -54,6 +54,38 @@ describe("Workstream C — per-property CRE metrics + most-restrictive aggregati
     assert.equal(r.portfolio.totalNoi, null); // unknown when any property's NOI is missing
   });
 
+  it("Tier-7: per-property LTV includes senior liens ahead of a junior loan", () => {
+    // 2nd-lien loan of 500k behind a 1M senior on a 2M property: true exposure
+    // LTV = (1M senior + 500k) / 2M = 0.75, NOT 500k/2M = 0.25.
+    const junior: PropertyInput = { id: "J", value: 2_000_000, loanAllocation: 500_000, lienPosition: 2, seniorLienBalance: 1_000_000 };
+    const r = computePerPropertyCre([junior]);
+    approx(r.properties[0].ltv, (1_000_000 + 500_000) / 2_000_000); // 0.75, not 0.25
+    assert.ok(r.flags.some((f) => /junior lien.*senior debt/.test(f)));
+    // blended LTV also reflects the senior lien: (500k loan + 1M senior) / 2M.
+    approx(r.portfolio.blendedLtv, 1_500_000 / 2_000_000);
+  });
+
+  it("Tier-7: a junior lien with no senior balance is flagged as understating leverage", () => {
+    const junior: PropertyInput = { id: "J", value: 2_000_000, loanAllocation: 500_000, lienPosition: 2 };
+    const r = computePerPropertyCre([junior]);
+    // LTV falls back to our own loan only, but the gap is surfaced loudly.
+    approx(r.properties[0].ltv, 500_000 / 2_000_000);
+    assert.ok(r.flags.some((f) => /senior lien balance not provided.*UNDERSTATES/.test(f)));
+  });
+
+  it("Tier-7: missing per-property debt service does NOT inflate blended DSCR", () => {
+    // Property B has NOI but no debt service. The old code summed debt service
+    // with ??0, shrinking the denominator and overstating blended DSCR.
+    const a: PropertyInput = { id: "A", value: 5_000_000, loanAllocation: 3_000_000, noi: 400_000, annualDebtService: 220_000 };
+    const bNoDs: PropertyInput = { id: "B", value: 2_000_000, loanAllocation: 1_700_000, noi: 130_000 };
+    const r = computePerPropertyCre([a, bNoDs]);
+    assert.equal(r.portfolio.blendedDscr, null); // not computable, never overstated
+    assert.ok(r.flags.some((f) => /Blended DSCR not computed/.test(f)));
+    assert.ok(r.flags.some((f) => /debt service not modeled/.test(f)));
+    // per-property DSCR still binds to the one property that has debt service.
+    assert.equal(r.binding.dscr?.id, "A");
+  });
+
   it("a tenant LTV-cap override changes the breach flags (registry-driven, NG4)", () => {
     // strong property LTV 0.60 — clean at the default 0.75 cap…
     assert.ok(!computePerPropertyCre([strong]).flags.some((f) => /Strong tower.*LTV/.test(f)));

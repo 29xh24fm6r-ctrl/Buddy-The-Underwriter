@@ -12,6 +12,21 @@ import type {
 
 export type SnapshotSourceType = "MANUAL" | "SPREAD" | "DOC_EXTRACT" | "STRUCTURAL" | "UNKNOWN";
 
+/**
+ * Snapshot metric registry.
+ *
+ * Tier-9 reporting-visibility note: most of these are credit-critical and are
+ * now surfaced on /financials (via the spread-output route's `credit_metrics`
+ * projection + Panel A2). A small set is intentionally ENGINE-INTERNAL — it
+ * feeds computation and is not given its own banker-facing cell:
+ *   • `depreciation_addback` — an input to the EBITDA/GCF bridge, not a KPI.
+ *   • `excess_cash_flow` — an intermediate of the coverage waterfall.
+ *   • `total_income_ttm` / `noi_ttm` / `opex_ttm` — TTM CRE intermediates that
+ *     roll up into DSCR / GCF; the coverage ratios are what reviewers read.
+ *   • `cash_flow_available` / `annual_debt_service` — surfaced on /financials
+ *     as the `cf_ncads` / `cf_annual_debt_service` rows, not duplicated here.
+ * Everything else is intended to be reviewer-visible.
+ */
 export type SnapshotMetricName =
   | "total_income_ttm"
   | "noi_ttm"

@@ -183,6 +183,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     // /spreads renders a complete report. fire-and-forget: response is not
     // delayed, but snapshot persistence failure is surfaced as a warning.
     let snapshotWarning: string | null = null;
+    // Tier-9: credit-critical snapshot metrics that have no cell on /financials
+    // (GCF, stressed DSCR, working capital, current ratio, D/E, LTV, collateral
+    // coverage, net worth). Extracted from the snapshot built below and surfaced
+    // to the client so they are visible rather than engine-internal.
+    let creditMetrics: Record<string, number | null> = {};
     try {
       const { buildDealFinancialSnapshotForBank, persistCashFlowAvailableFromSnapshot } =
         await import("@/lib/deals/financialSnapshot");
@@ -193,6 +198,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         dealId,
         bankId: access.bankId,
       });
+      creditMetrics = extractCreditMetrics(snapshot);
       await persistCashFlowAvailableFromSnapshot({
         dealId,
         bankId: access.bankId,
@@ -223,6 +229,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
         ratios: ratiosResult,
         years_available: input.years_available,
         flag_report: input.flag_report,
+        // Tier-9: QoE is computed and fed into the composer but was never
+        // surfaced to the client — pass it through so /financials can render it.
+        qoe_report: qoeResult ?? undefined,
+        credit_metrics: creditMetrics,
         trend_report: resolvedTrendReport ?? undefined,
         narrative_report: report.story_panel
           ? {
@@ -230,7 +240,10 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
               resolution_narrative: report.story_panel.resolution_narrative,
               top_risks: report.story_panel.top_risks,
               top_strengths: report.story_panel.top_strengths,
-              ratio_narratives: {},
+              // Tier-9: the deterministic per-ratio narratives are already
+              // composed inside composeSpreadOutput — pass them through instead
+              // of the previous hardcoded {} that left the Analysis panel dead.
+              ratio_narratives: report.ratio_narratives ?? {},
             }
           : undefined,
       },
@@ -334,6 +347,39 @@ async function loadDealMeta(
   } catch {
     return { entity_type: null, meta_facts: null };
   }
+}
+
+/**
+ * Tier-9: pull the credit-critical metrics that previously had no cell on
+ * /financials out of the built snapshot. Each metric is a SnapshotMetricValue
+ * ({ value_num, ... }); we surface only the numeric value, and only when
+ * present (a missing metric is omitted rather than shown as a fabricated 0).
+ */
+function extractCreditMetrics(snapshot: unknown): Record<string, number | null> {
+  const snap = snapshot as Record<string, { value_num?: unknown } | undefined> | null;
+  if (!snap || typeof snap !== "object") return {};
+  const CREDIT_KEYS = [
+    "dscr_stressed_300bps",
+    "global_cash_flow",
+    "gcf_global_cash_flow",
+    "gcf_dscr",
+    "working_capital",
+    "current_ratio",
+    "debt_to_equity",
+    "net_worth",
+    "ltv_net",
+    "ltv_gross",
+    "collateral_coverage",
+    "borrower_equity_pct",
+    "occupancy_pct",
+    "pfs_net_worth",
+  ];
+  const out: Record<string, number | null> = {};
+  for (const key of CREDIT_KEYS) {
+    const v = snap[key]?.value_num;
+    if (typeof v === "number" && Number.isFinite(v)) out[key] = v;
+  }
+  return out;
 }
 
 async function loadQoEReport(

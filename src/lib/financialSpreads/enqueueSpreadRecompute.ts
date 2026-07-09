@@ -133,13 +133,20 @@ export async function enqueueSpreadRecompute(args: {
   // the two steps leaves orphan 'queued' placeholders with no job to process
   // them (STUCK-SPREADS fix, 2026-04-23).
 
-  const { data: existingJob } = await (sb as any)
+  // Find the active job to merge into. Deliberately NOT `.maybeSingle()`:
+  // if two active jobs already exist (e.g. a prior race before the partial
+  // unique index was in place), maybeSingle returns {data:null} and we would
+  // fall through to INSERT and create a THIRD — a runaway. Order + limit(1)
+  // always merges into the oldest active job, stopping duplicate accumulation.
+  const { data: existingJobs } = await (sb as any)
     .from("deal_spread_jobs")
     .select("id, requested_spread_types")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
     .in("status", ["QUEUED", "RUNNING"])
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .limit(1);
+  const existingJob = Array.isArray(existingJobs) ? existingJobs[0] : null;
 
   let targetJobId: string;
   let wasEnqueued: boolean;
@@ -194,14 +201,17 @@ export async function enqueueSpreadRecompute(args: {
 
     if (insertErr) {
       if (insertErr.code === "23505") {
-        // Race: another concurrent enqueue won. Find their job and merge.
-        const { data: raceJob } = await (sb as any)
+        // Race: another concurrent enqueue won (partial unique index rejected
+        // our insert). Find their job and merge. Robust read (see above).
+        const { data: raceJobs } = await (sb as any)
           .from("deal_spread_jobs")
           .select("id, requested_spread_types")
           .eq("deal_id", args.dealId)
           .eq("bank_id", args.bankId)
           .in("status", ["QUEUED", "RUNNING"])
-          .maybeSingle();
+          .order("created_at", { ascending: true })
+          .limit(1);
+        const raceJob = Array.isArray(raceJobs) ? raceJobs[0] : null;
 
         if (raceJob) {
           const merged = uniq([

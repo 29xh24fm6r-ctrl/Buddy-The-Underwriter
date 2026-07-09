@@ -27,6 +27,12 @@ export type PropertyInput = {
   noi?: number | null; // per-property NOI (null when only deal-level NOI exists)
   annualDebtService?: number | null; // per-property P&I (null when only blended exists)
   lienPosition?: number | null;
+  // Dollar balance of any liens SENIOR to this loan (Tier-7). For a junior
+  // (2nd+) position, true exposure LTV must include the senior debt ahead of us:
+  // (seniorLienBalance + loanAllocation) ÷ value. Null/undefined ⇒ unknown; for a
+  // junior position that produces a visible gap flag rather than a silent
+  // understatement of leverage.
+  seniorLienBalance?: number | null;
 };
 
 export type PerPropertyMetrics = {
@@ -73,29 +79,59 @@ export function computePerPropertyCre(properties: PropertyInput[], ctx?: PolicyC
   const perProperty: PerPropertyMetrics[] = properties.map((p) => {
     const label = p.label ?? p.id;
     const noi = p.noi ?? null;
+    const lienPosition = p.lienPosition ?? null;
+    const isJunior = lienPosition != null && lienPosition > 1;
+
+    // Tier-7: LTV must reflect all debt AT OR SENIOR TO this loan, not just our
+    // own allocation. For a junior lien, add the senior balance ahead of us.
+    const seniorLien = p.seniorLienBalance ?? 0;
+    const exposureDebt = p.loanAllocation + seniorLien;
+
     const m: PerPropertyMetrics = {
       id: p.id,
       label,
       value: p.value,
       loanAllocation: p.loanAllocation,
       noi,
-      ltv: ltvRatio(p.loanAllocation, p.value, ctx).value,
+      ltv: ltvRatio(exposureDebt, p.value, ctx).value,
       dscr: noi != null ? dscrRatio(noi, p.annualDebtService ?? null, ctx).value : null,
       debtYield: noi != null ? debtYieldRatio(noi, p.loanAllocation).value : null,
       capRate: noi != null ? capRateRatio(noi, p.value).value : null,
-      lienPosition: p.lienPosition ?? null,
+      lienPosition,
     };
     if (m.ltv != null && m.ltv > ltvMax) flags.push(`${label}: LTV ${(m.ltv * 100).toFixed(0)}% exceeds cap ${(ltvMax * 100).toFixed(0)}%.`);
     if (m.dscr != null && m.dscr < dscrFloor) flags.push(`${label}: DSCR ${m.dscr.toFixed(2)}x below floor ${dscrFloor.toFixed(2)}x.`);
-    if (m.lienPosition != null && m.lienPosition > 1) flags.push(`${label}: junior lien (position ${m.lienPosition}).`);
+    if (isJunior) {
+      // Junior position: LTV is only complete if we know the senior balance.
+      if (p.seniorLienBalance == null) {
+        flags.push(`${label}: junior lien (position ${lienPosition}) — senior lien balance not provided; LTV excludes senior debt and UNDERSTATES leverage.`);
+      } else {
+        flags.push(`${label}: junior lien (position ${lienPosition}) — LTV includes ${Math.round(seniorLien).toLocaleString()} of senior debt.`);
+      }
+    }
+    // Tier-7: a property with no modeled debt service drops out of coverage
+    // entirely — make that explicit so it is not read as "covered".
+    if (p.annualDebtService == null) {
+      flags.push(`${label}: annual debt service not modeled — excluded from coverage (per-property & blended DSCR omit this property).`);
+    }
     return m;
   });
 
   const totalValue = properties.reduce((s, p) => s + p.value, 0);
   const totalLoan = properties.reduce((s, p) => s + p.loanAllocation, 0);
+  // Tier-7: senior liens ahead of our loans are real leverage on the collateral;
+  // include them so blended LTV mirrors the per-property exposure basis.
+  const totalSeniorLien = properties.reduce((s, p) => s + (p.seniorLienBalance ?? 0), 0);
   const anyNoiMissing = perProperty.some((m) => m.noi == null);
   const totalNoi = anyNoiMissing ? null : perProperty.reduce((s, m) => s + (m.noi ?? 0), 0);
+  // Tier-7: treating a missing per-property debt service as $0 shrinks the
+  // blended denominator and OVERSTATES coverage. Mirror the NOI rule — if ANY
+  // property's debt service is unknown, the blended DSCR is not computable.
+  const anyDebtServiceMissing = properties.some((p) => p.annualDebtService == null);
   const totalDebtService = properties.reduce((s, p) => s + (p.annualDebtService ?? 0), 0);
+  if (anyDebtServiceMissing) {
+    flags.push("Blended DSCR not computed — one or more properties have no modeled debt service (treating it as $0 would overstate coverage).");
+  }
 
   // Binding (most-restrictive) across properties.
   const ltvs = perProperty.filter((m) => m.ltv != null);
@@ -117,8 +153,11 @@ export function computePerPropertyCre(properties: PropertyInput[], ctx?: PolicyC
       totalValue,
       totalLoan,
       totalNoi,
-      blendedLtv: div(totalLoan, totalValue),
-      blendedDscr: totalNoi != null && totalDebtService > 0 ? totalNoi / totalDebtService : null,
+      blendedLtv: div(totalLoan + totalSeniorLien, totalValue),
+      blendedDscr:
+        totalNoi != null && !anyDebtServiceMissing && totalDebtService > 0
+          ? totalNoi / totalDebtService
+          : null,
       blendedDebtYield: div(totalNoi, totalLoan),
     },
     binding: {

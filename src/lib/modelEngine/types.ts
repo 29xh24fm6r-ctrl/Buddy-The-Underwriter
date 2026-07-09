@@ -59,6 +59,11 @@ export interface FinancialPeriod {
     accumulatedDepreciation?: number;
     netFixedAssets?: number;
     totalNonCurrentAssets?: number;
+    // Tier-6 provenance: true when `equity` was PLUGGED as (totalAssets −
+    // totalLiabilities) rather than extracted. When set, the A=L+E identity
+    // holds by construction and cannot detect a missing/wrong liability — see
+    // checkQuality's equity-plug reconciliation in buildFinancialModel.ts.
+    equityDerived?: boolean;
   };
 
   cashflow: {

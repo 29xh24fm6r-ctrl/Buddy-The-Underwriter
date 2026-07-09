@@ -72,7 +72,10 @@ export async function triggerCanonicalRecompute(args: {
     dealId,
     bankId,
     reason,
-    spreadTypes = ["GLOBAL_CASH_FLOW"] as SpreadType[],
+    // STANDARD (Financial Analysis) refreshes alongside GCF so canonical
+    // recompute does not leave the Financial Analysis spread stale. Both remain
+    // prerequisite-gated inside enqueueSpreadRecompute (default path).
+    spreadTypes = ["GLOBAL_CASH_FLOW", "STANDARD"] as SpreadType[],
     debounceMs = DEFAULT_DEBOUNCE_MS,
     meta: extraMeta,
   } = args;

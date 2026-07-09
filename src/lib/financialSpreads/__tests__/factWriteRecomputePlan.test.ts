@@ -24,14 +24,27 @@ const read = (rel: string) => fs.readFileSync(path.resolve(root, rel), "utf8");
 
 // ── pure planner ────────────────────────────────────────────────────────────
 
-test("AC1: no T12/monthly source + GCF prereqs missing → only BALANCE_SHEET (no T12, no GCF)", () => {
+test("AC1: no T12/monthly source + GCF prereqs missing → primary spreads only (BALANCE_SHEET + STANDARD)", () => {
   const types = planFactWriteRecomputeSpreadTypes({
     hasT12Source: false,
     gcfPrerequisitesReady: false,
   });
-  assert.deepEqual(types, ["BALANCE_SHEET"]);
+  assert.deepEqual(types.sort(), ["BALANCE_SHEET", "STANDARD"]);
   assert.ok(!types.includes("T12" as SpreadType), "annual-statement fact write must not enqueue T12");
   assert.ok(!types.includes("GLOBAL_CASH_FLOW" as SpreadType), "must not enqueue GCF before prereqs");
+});
+
+test("Tier-8: STANDARD (Financial Analysis) is always a candidate so fact edits keep it fresh", () => {
+  for (const t12 of [false, true]) {
+    for (const gcf of [false, true]) {
+      assert.ok(
+        planFactWriteRecomputeSpreadTypes({ hasT12Source: t12, gcfPrerequisitesReady: gcf }).includes(
+          "STANDARD" as SpreadType,
+        ),
+        "STANDARD (primary document-derived spread) must always be a candidate",
+      );
+    }
+  }
 });
 
 test("AC2: T12 enqueued only when a real T12/monthly source exists", () => {
@@ -61,7 +74,7 @@ test("BALANCE_SHEET is always a candidate; both gates open → all three", () =>
   }
   assert.deepEqual(
     planFactWriteRecomputeSpreadTypes({ hasT12Source: true, gcfPrerequisitesReady: true }).sort(),
-    ["BALANCE_SHEET", "GLOBAL_CASH_FLOW", "T12"],
+    ["BALANCE_SHEET", "GLOBAL_CASH_FLOW", "STANDARD", "T12"],
   );
 });
 

@@ -38,6 +38,7 @@ export function composeSpreadOutput(input: SpreadOutputInput): SpreadOutputRepor
     normalized_spread,
     ratio_scorecard,
     story_panel,
+    ratio_narratives: narratives.ratio_narratives,
     generated_at: new Date().toISOString(),
   };
 }
