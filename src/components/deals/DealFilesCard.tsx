@@ -140,18 +140,25 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 7 }, (_, i) => currentYear - i);
 
-  async function setChecklistKeyWithYear(
+  // Persist a manual classification. The server derives the checklist_key from
+  // the canonical document type (guard-26: the client must NEVER send
+  // checklist_key). We send the canonical type, an explicit `clear` for
+  // unclassify, and an optional tax year.
+  async function saveClassification(
     file: DealFile,
-    checklistKey: string | null,
-    taxYear: number | null,
-    documentType?: string,
+    opts: { canonicalType?: string | null; taxYear?: number | null; clear?: boolean },
   ) {
     const id = file.file_id;
     setSavingById((prev) => ({ ...prev, [id]: true }));
     try {
-      const payload: Record<string, unknown> = { checklist_key: checklistKey };
-      if (documentType) payload.document_type = documentType;
-      if (taxYear !== null) payload.tax_year = taxYear;
+      const payload: Record<string, unknown> = {};
+      if (opts.clear) {
+        payload.clear = true;
+      } else if (opts.canonicalType) {
+        payload.canonical_type = opts.canonicalType;
+      }
+      if (opts.taxYear != null) payload.tax_year = opts.taxYear;
+
       const res = await fetch(
         `/api/deals/${dealId}/documents/${encodeURIComponent(id)}/checklist-key`,
         {
@@ -162,7 +169,7 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) {
-        alert(json?.error || "Failed to update checklist key");
+        alert(json?.error || "Failed to update classification");
         return;
       }
 
@@ -183,8 +190,21 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
     }
   }
 
-  function setChecklistKey(file: DealFile, checklistKey: string | null, documentType?: string) {
-    return setChecklistKeyWithYear(file, checklistKey, null, documentType);
+  // Resolve the canonical document type for a chosen checklist key, plus any year
+  // embedded in the key (e.g. IRS_BUSINESS_2023). Used by the Checklist dropdown,
+  // which lets the banker attach to a slot; the server re-derives the key from
+  // (canonical type + year).
+  function canonicalForChecklistKey(
+    key: string,
+  ): { canonicalType: string | null; taxYear: number | null } {
+    const opt = CHECKLIST_KEY_OPTIONS.find((o) => o.key === key) as
+      | ChecklistKeyOption
+      | undefined;
+    const yearMatch = key.match(/_(\d{4})$/);
+    return {
+      canonicalType: opt?.docType ?? null,
+      taxYear: yearMatch ? Number(yearMatch[1]) : null,
+    };
   }
 
   useEffect(() => {
@@ -495,14 +515,13 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                         value={file.document_type ?? ""}
                         onChange={(e) => {
                           const docType = e.target.value || null;
-                          // Find matching checklist key for this doc type
-                          const match = (checklistOptions.length ? checklistOptions : CHECKLIST_KEY_OPTIONS)
-                            .find((o) => (o as ChecklistKeyOption).docType === docType);
-                          void setChecklistKey(
-                            file,
-                            match?.key ?? file.checklist_key,
-                            docType ?? undefined,
-                          );
+                          // "None" clears; otherwise set the canonical type and
+                          // let the server derive the checklist key.
+                          if (docType) {
+                            void saveClassification(file, { canonicalType: docType });
+                          } else {
+                            void saveClassification(file, { clear: true });
+                          }
                         }}
                         disabled={!!savingById[file.file_id]}
                         title="Manually set document type (overrides AI classification)"
@@ -519,12 +538,21 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                       <select
                         className="rounded-lg border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100"
                         value={file.checklist_key ?? ""}
-                        onChange={(e) =>
-                          void setChecklistKey(
-                            file,
-                            e.target.value ? e.target.value : null,
-                          )
-                        }
+                        onChange={(e) => {
+                          const key = e.target.value || null;
+                          if (!key) {
+                            void saveClassification(file, { clear: true });
+                            return;
+                          }
+                          const { canonicalType, taxYear } =
+                            canonicalForChecklistKey(key);
+                          void saveClassification(file, {
+                            // fall back to the file's existing type if the key
+                            // isn't in the known options table
+                            canonicalType: canonicalType ?? file.document_type ?? null,
+                            taxYear,
+                          });
+                        }}
                         disabled={!!savingById[file.file_id]}
                         title="Manually attach this file to a checklist item"
                       >
@@ -546,7 +574,9 @@ export default function DealFilesCard({ dealId }: { dealId: string }) {
                             value={file.doc_year ?? ""}
                             onChange={(e) => {
                               const year = e.target.value ? Number(e.target.value) : null;
-                              void setChecklistKeyWithYear(file, file.checklist_key, year);
+                              // Year-only edit — server preserves the existing
+                              // type and re-derives the key with the new year.
+                              void saveClassification(file, { taxYear: year });
                             }}
                             disabled={!!savingById[file.file_id]}
                           >

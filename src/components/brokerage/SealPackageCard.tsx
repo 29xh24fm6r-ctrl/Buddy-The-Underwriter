@@ -31,6 +31,7 @@ type SealStatus = {
     claimClosesAt: string;
     matchedLenderCount: number;
   };
+  claims?: Array<{ id: string; lenderName: string; claimedAt: string | null }>;
 };
 
 export function SealPackageCard({ dealId }: { dealId: string }) {
@@ -72,6 +73,33 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
       const data = await res.json();
       if (!data.ok) {
         setError(data.error ?? "Seal failed");
+      } else {
+        await load();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickLender = async (claimId: string) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/brokerage/deals/${dealId}/marketplace/pick`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ claimId }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok) {
+        setError(data.error ?? "Could not select lender");
       } else {
         await load();
       }
@@ -145,6 +173,60 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
           <dt>Matched lenders</dt>
           <dd className="text-slate-900">{l.matchedLenderCount}</dd>
         </dl>
+
+        {/* Borrower "pick a lender" step — the funnel dead-ended here before
+            because there was no UI to select a lender that had claimed. */}
+        {l.status === "awaiting_borrower_pick" && (
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <h4 className="text-sm font-semibold text-slate-900 mb-1">
+              Choose your lender
+            </h4>
+            {status.claims && status.claims.length > 0 ? (
+              <>
+                <p className="text-sm text-slate-600 mb-3">
+                  {status.claims.length === 1
+                    ? "A lender wants to fund your deal. Pick them to share your full package."
+                    : `${status.claims.length} lenders want to fund your deal. Pick one to share your full package.`}
+                </p>
+                <ul className="space-y-2">
+                  {status.claims.map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      <span className="text-sm font-medium text-slate-800">
+                        {c.lenderName}
+                      </span>
+                      <button
+                        onClick={() => pickLender(c.id)}
+                        disabled={busy}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                        type="button"
+                      >
+                        {busy ? "Working…" : "Choose this lender"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="text-sm text-slate-600">
+                Waiting for a lender to claim your deal. We&rsquo;ll notify you as
+                soon as one does.
+              </p>
+            )}
+          </div>
+        )}
+
+        {l.status === "picked" && (
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <p className="text-sm font-medium text-emerald-700">
+              You&rsquo;ve chosen your lender. They now have full access to your
+              package and will be in touch.
+            </p>
+          </div>
+        )}
+
         {l.status === "pending_preview" && (
           <div className="mt-4">
             <button

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDefaultPortalStatus, listChecklist } from "@/lib/portal/checklist";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,18 +26,34 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       .eq("token", token)
       .maybeSingle();
 
-    if (linkErr || !link) {
+    if (linkErr) {
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
       );
     }
 
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
+    // Fall back to a borrower_invites token so the invite flow renders too.
+    let dealId: string | null = link?.deal_id ?? null;
+    if (!link) {
+      try {
+        dealId = (await resolveBorrowerToken(token)).deal_id;
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "Invalid or expired link" },
+          { status: 403 },
+        );
+      }
+    } else if (link.expires_at && new Date(link.expires_at) < new Date()) {
       return NextResponse.json({ ok: false, error: "Link expired" }, { status: 403 });
     }
 
-    const dealId = link.deal_id;
+    if (!dealId) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid or expired link" },
+        { status: 403 },
+      );
+    }
 
     await ensureDefaultPortalStatus(dealId);
 

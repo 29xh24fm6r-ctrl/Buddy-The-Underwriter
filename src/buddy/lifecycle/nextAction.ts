@@ -17,6 +17,16 @@ export type ServerActionType =
   | "send_reminder";
 
 /**
+ * Maps a FixAction.action string (see getBlockerFixAction) to the one-click
+ * ServerActionType the cockpit knows how to execute. Only actions whose
+ * endpoint actually exists are mapped — anything unmapped falls through to a
+ * navigate CTA so the banker is never handed a runnable button that no-ops.
+ */
+const SERVER_ACTION_MAP: Record<string, ServerActionType> = {
+  "financial_snapshot.recompute": "generate_snapshot",
+};
+
+/**
  * The next action a user should take.
  */
 export type NextAction = {
@@ -68,6 +78,21 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     const top = state.blockers[0];
     const fix = getBlockerFixAction(top, dealId);
     if (fix) {
+      // One-click runnable fix (e.g. "Generate Snapshot"). Previously these fell
+      // through to a navigate CTA pointed at /cockpit — the banker clicked a
+      // button labelled "Generate Snapshot" and was silently routed back to the
+      // cockpit with nothing generated. Emit a real runnable action instead.
+      if ("action" in fix && typeof fix.action === "string") {
+        const serverAction = SERVER_ACTION_MAP[fix.action];
+        if (serverAction) {
+          return {
+            label: fix.label,
+            intent: "runnable",
+            serverAction,
+            description: top.message,
+          };
+        }
+      }
       const href =
         "href" in fix && typeof fix.href === "string"
           ? fix.href
@@ -164,7 +189,9 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     case "committee_decisioned":
       return {
         label: "Start Closing",
-        href: `/deals/${dealId}/closing`,
+        // Canonical closing surface is /post-close (see stageRoutes.ts). There is
+        // no /closing page — the old href 404'd.
+        href: `/deals/${dealId}/post-close`,
         intent: "advance",
         shouldAdvance: true,
         description: "Begin closing process",
@@ -173,7 +200,7 @@ export function getNextAction(state: LifecycleState, dealId: string): NextAction
     case "closing_in_progress":
       return {
         label: "Complete Closing",
-        href: `/deals/${dealId}/closing`,
+        href: `/deals/${dealId}/post-close`,
         intent: "navigate",
         description: "Finalize closing documents and fund",
       };
@@ -220,7 +247,8 @@ export function getBlockerFixAction(
     case "committee_packet_missing":
       return {
         label: "Generate Packet",
-        href: `/deals/${dealId}/committee/packet`,
+        // /committee/packet never existed; the packet surface is committee-studio.
+        href: `/deals/${dealId}/committee-studio`,
       };
 
     case "decision_missing":
@@ -232,7 +260,9 @@ export function getBlockerFixAction(
     case "attestation_missing":
       return {
         label: "Complete Attestations",
-        href: `/deals/${dealId}/decision/attestations`,
+        // Attestations are completed inline on the decision page — there is no
+        // /decision/attestations route.
+        href: `/deals/${dealId}/decision`,
       };
 
     case "pricing_quote_missing":
@@ -250,7 +280,7 @@ export function getBlockerFixAction(
     case "closing_docs_missing":
       return {
         label: "Upload Closing Docs",
-        href: `/deals/${dealId}/closing`,
+        href: `/deals/${dealId}/post-close`,
       };
 
     case "loan_request_missing":
@@ -349,7 +379,9 @@ export function getBlockerFixAction(
     case "missing_policy_exception_review":
       return {
         label: "Review policy exceptions",
-        href: `/deals/${dealId}/policy-exceptions`,
+        // No /policy-exceptions route exists. journeyActionProjection maps this
+        // blocker to the memo-inputs surface, where policy exceptions are reviewed.
+        href: `/deals/${dealId}/memo-inputs`,
       };
 
     // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: business cash flow is the earliest
@@ -453,7 +485,8 @@ export function getBlockerFixAction(
     case "policy_exceptions_unresolved":
       return {
         label: "Resolve policy exceptions",
-        href: `/deals/${dealId}/policy-exceptions`,
+        // No /policy-exceptions route — memo-inputs owns policy exception review.
+        href: `/deals/${dealId}/memo-inputs`,
       };
 
     case "schema_mismatch":

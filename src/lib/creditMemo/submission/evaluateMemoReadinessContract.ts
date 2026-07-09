@@ -101,7 +101,8 @@ export function evaluateMemoReadinessContract(args: {
       code: "collateral_value",
       label: "Collateral is not available",
       owner: "banker",
-      fixHref: `/deals/${memo.deal_id}/collateral`,
+      // /collateral is not a route; collateral is edited under memo-inputs.
+      fixHref: `/deals/${memo.deal_id}/memo-inputs#collateral`,
     });
   }
   if (!required.business_description) {

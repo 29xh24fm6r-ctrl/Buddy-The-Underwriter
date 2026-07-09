@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export async function GET(_: Request, ctx: { params: Promise<{ token: string }> }) {
   const sb = supabaseAdmin();
@@ -12,12 +13,21 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
     .maybeSingle();
 
   if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
-  if (!link) return NextResponse.json({ error: "Invalid token" }, { status: 404 });
+
+  // Fall back to a borrower_invites token so the invite flow lists docs too.
+  let dealId: string | null = link?.deal_id ?? null;
+  if (!link) {
+    try {
+      dealId = (await resolveBorrowerToken(token)).deal_id;
+    } catch {
+      return NextResponse.json({ error: "Invalid token" }, { status: 404 });
+    }
+  }
 
   const { data, error } = await sb
     .from("deal_uploads")
     .select("upload_id, checklist_key, doc_type, status, confidence, updated_at, uploads!inner(original_filename, mime_type, bytes, storage_bucket, storage_path, created_at)")
-    .eq("deal_id", link.deal_id)
+    .eq("deal_id", dealId)
     .order("updated_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -43,7 +53,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
   // Existing consumers reading { deal_id, docs } remain unchanged.
   return NextResponse.json({
     ok: true,
-    deal_id: link.deal_id,
+    deal_id: dealId,
     count: docs.length,
     docs,
   });

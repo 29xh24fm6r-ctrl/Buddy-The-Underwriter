@@ -275,7 +275,9 @@ export function evaluateMemoInputReadiness(
       code: "missing_policy_exception_review",
       label: "Policy exceptions must be reviewed",
       owner: "banker",
-      fixPath: `/deals/${dealId}/policy-exceptions`,
+      // /policy-exceptions does not exist; policy exceptions are reviewed on the
+      // memo-inputs surface (see journeyActionProjection).
+      fixPath: `/deals/${dealId}/memo-inputs`,
     });
   }
 

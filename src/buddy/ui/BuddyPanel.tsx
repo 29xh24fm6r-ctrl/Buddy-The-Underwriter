@@ -585,7 +585,7 @@ export function BuddyPanel() {
                               missing: state.readiness.missing,
                             });
                           }
-                          handleNBAAction(a, setLastNudgeAtIso, pushToast);
+                          void handleNBAAction(a, setLastNudgeAtIso, pushToast);
                         }}
                         disabled={disabled}
                       >
@@ -882,30 +882,51 @@ function mark(
   });
 }
 
-function handleNBAAction(
+async function handleNBAAction(
   action: { id: string; payload?: Record<string, any> },
   setLastNudgeAtIso: (iso: string | null) => void,
   pushToast: (text: string) => void
 ) {
-  if (action.id === "upload_docs") {
-    pushToast("Prompted borrower for docs");
-    return;
-  }
-
-  if (action.id === "request_missing_docs") {
-    if (!action.payload?.dealId) return;
-    void fetch(`/api/deals/${action.payload.dealId}/borrower-request/send`, { method: "POST" });
-    pushToast("Missing docs requested");
+  // Comms actions must report the TRUE outcome — previously all three toasted
+  // success unconditionally even when the request 400'd or nothing sent.
+  if (action.id === "upload_docs" || action.id === "request_missing_docs") {
+    const dealId = action.payload?.dealId;
+    if (!dealId) return;
+    try {
+      const res = await fetch(`/api/deals/${dealId}/borrower-request/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: ["email"], missingOnly: true }),
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok) {
+        pushToast("Document request sent to borrower");
+      } else {
+        pushToast(`Couldn't send request${json?.error ? ` — ${json.error}` : ""}`);
+      }
+    } catch {
+      pushToast("Couldn't send request — network error");
+    }
     return;
   }
 
   if (action.id === "send_borrower_nudge") {
     if (!action.payload?.dealId) return;
-    void fetch(`/api/deals/${action.payload.dealId}/borrower-nudge`, {
-      method: "POST",
-    });
-    setLastNudgeAtIso(new Date().toISOString());
-    pushToast("Nudge sent");
+    try {
+      const res = await fetch(`/api/deals/${action.payload.dealId}/borrower-nudge`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok && json?.sent) {
+        setLastNudgeAtIso(new Date().toISOString());
+        pushToast("Nudge sent");
+      } else {
+        const reason = json?.reason === "missing_to_phone" ? "no borrower phone on file" : json?.reason;
+        pushToast(`Couldn't send nudge${reason ? ` — ${reason}` : ""}`);
+      }
+    } catch {
+      pushToast("Couldn't send nudge — network error");
+    }
     return;
   }
 

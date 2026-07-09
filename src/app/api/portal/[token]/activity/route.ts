@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -61,7 +61,7 @@ function normalizeEvent(
 export async function GET(_req: Request, ctx: Ctx) {
   try {
     const { token } = await ctx.params;
-    const invite = await requireValidInvite(token);
+    const invite = await resolveBorrowerToken(token);
     const sb = supabaseAdmin();
 
     const { data, error } = await sb

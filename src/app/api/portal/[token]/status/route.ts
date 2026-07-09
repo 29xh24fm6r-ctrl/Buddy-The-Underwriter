@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 import { isDemoMode, demoState } from "@/lib/demo/demoMode";
 import { mockBorrowerStatus } from "@/lib/demo/mocks";
 
@@ -60,7 +60,7 @@ export async function GET(
   const sb = supabaseAdmin();
 
   try {
-    const invite = await requireValidInvite(token);
+    const invite = await resolveBorrowerToken(token);
     const bank_id = invite.bank_id;
     const deal_id = invite.deal_id;
 

@@ -1,8 +1,6 @@
 import { UploadPageClient } from "./client";
-import {
-  consumeBorrowerPortalLink,
-  PortalLinkError,
-} from "@/lib/portal/portalLinkState";
+import { PortalLinkError } from "@/lib/portal/portalLinkState";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 const TERMINAL_COPY: Record<string, { title: string; body: string }> = {
   link_not_found: {
@@ -43,12 +41,15 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
   const { token } = await params;
 
   try {
-    await consumeBorrowerPortalLink(token);
+    // Validate the token against EITHER token table (invite or portal link)
+    // without consuming it — the borrower still needs it for prepare + commit.
+    await resolveBorrowerToken(token);
   } catch (err) {
     if (err instanceof PortalLinkError) {
       return <ErrorPanel code={err.code} />;
     }
-    return <ErrorPanel code="portal_link_rpc_failed" />;
+    // A bare invite token that isn't a portal link surfaces as link_not_found.
+    return <ErrorPanel code="link_not_found" />;
   }
 
   return <UploadPageClient token={token} />;

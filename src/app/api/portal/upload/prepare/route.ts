@@ -1,7 +1,7 @@
 // src/app/api/portal/upload/prepare/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
@@ -35,7 +35,10 @@ export async function POST(req: Request) {
 
   let invite;
   try {
-    invite = await requireValidInvite(token);
+    // Accept a token from EITHER borrower_invites or borrower_portal_links so
+    // both the deal-workspace invite and the SMS link resolve here (peek — the
+    // link must survive prepare → commit).
+    invite = await resolveBorrowerToken(token);
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Invalid/expired link" },
