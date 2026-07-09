@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 async function gate(): Promise<{ userId: string } | NextResponse> {
   try {
-    return await requireSuperAdmin();
+    return await requireBrokerageStaff();
   } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
