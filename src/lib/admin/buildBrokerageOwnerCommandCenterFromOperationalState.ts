@@ -18,6 +18,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import {
   buildBrokerageOwnerCommandCenterViewModel,
   type BrokerageOwnerCommandCenterInput,
@@ -45,26 +46,41 @@ export type OperationalStateAdapterResult = {
 /**
  * Fetch real operational state from Supabase and build the owner command
  * center view model. Returns honest empty state when no data is available.
+ *
+ * Scoped to the brokerage tenant (bank_kind='brokerage') only. Previously
+ * this queried `deals` with no bank_id filter at all, which meant every
+ * bank tenant's deals (e.g. Old Glory Bank) were mixed into what was
+ * supposed to be brokerage-only operational visibility. deal_events has
+ * no bank_id column, so events are scoped indirectly via deal_id
+ * membership in the brokerage deal set (sequential, not parallel, for
+ * that reason).
  */
 export async function buildBrokerageOwnerCommandCenterFromOperationalState(): Promise<OperationalStateAdapterResult> {
   const sb = supabaseAdmin();
   const evaluatedAt = new Date().toISOString();
 
-  // Parallel fetches — all fail-safe with empty fallback
-  const [dealsResult, eventsResult] = await Promise.all([
-    sb
-      .from("deals")
-      .select("id, borrower_name, business_name, created_by_user_id, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(200),
-    sb
-      .from("deal_events")
-      .select("id, deal_id, kind, created_at, payload")
-      .order("created_at", { ascending: false })
-      .limit(50),
-  ]);
+  const brokerageBankId = await getBrokerageBankId();
+
+  const dealsResult = await sb
+    .from("deals")
+    .select("id, borrower_name, business_name, created_by_user_id, updated_at")
+    .eq("bank_id", brokerageBankId)
+    .order("updated_at", { ascending: false })
+    .limit(200);
 
   const dealRows: DealRow[] = (dealsResult.data as DealRow[] | null) ?? [];
+  const dealIds = dealRows.map((d) => d.id);
+
+  const eventsResult =
+    dealIds.length > 0
+      ? await sb
+          .from("deal_events")
+          .select("id, deal_id, kind, created_at, payload")
+          .in("deal_id", dealIds)
+          .order("created_at", { ascending: false })
+          .limit(50)
+      : { data: [] as DealEventRow[] };
+
   const eventRows: DealEventRow[] =
     (eventsResult.data as DealEventRow[] | null) ?? [];
 
