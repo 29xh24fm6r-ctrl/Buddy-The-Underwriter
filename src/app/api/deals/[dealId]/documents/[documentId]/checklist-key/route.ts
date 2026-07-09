@@ -16,16 +16,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // The document type is authoritative; the stored checklist_key is DERIVED from
-// it internally. `document_type` is the client's alias for `canonical_type` (the
-// Deal Files card sends that key). `checklist_key` is accepted only as an INTENT
-// hint (attach-to-slot / year refinement) — never stamped directly — so that a
-// year-only or checklist-only edit does not get misread as an "unclassify".
+// it internally via resolveChecklistKey() — NEVER accepted from the client
+// (enforced by guard-26). `document_type` is the client's alias for
+// `canonical_type` (the Deal Files card sends that key). `clear` is an explicit
+// "unclassify" signal so that a year-only edit (type omitted) preserves the
+// existing classification instead of being misread as a clear.
 const BodySchema = z.object({
   canonical_type: z.string().trim().min(1).optional().nullable(),
   document_type: z.string().trim().min(1).optional().nullable(),
-  checklist_key: z.string().trim().optional().nullable(),
   tax_year: z.number().int().min(1990).max(2100).optional().nullable(),
   statement_period: z.enum(["YTD", "ANNUAL", "CURRENT", "HISTORICAL"]).optional().nullable(),
+  clear: z.boolean().optional(),
 });
 
 /**
@@ -76,13 +77,10 @@ export async function PATCH(
 
   const taxYear = body.tax_year ?? null;
   const statementPeriod = body.statement_period ?? null;
-  // Client alias: the Deal Files card sends `document_type` (and sometimes a
-  // `checklist_key` hint); `canonical_type` is the same value.
+  // Client alias: the Deal Files card sends `document_type`; `canonical_type` is
+  // the same value. `clear` is an explicit unclassify signal.
   const providedType = body.canonical_type ?? body.document_type ?? null;
-  const checklistHint =
-    typeof body.checklist_key === "string" && body.checklist_key.length > 0
-      ? body.checklist_key
-      : null;
+  const wantsClear = body.clear === true;
 
   const sb = supabaseAdmin();
 
@@ -112,18 +110,18 @@ export async function PATCH(
 
   // Resolve the authoritative canonical type:
   //  1. an explicit type from the Doc Type control, else
-  //  2. if the client only sent a checklist_key / year (attach or year-refine),
-  //     PRESERVE the document's existing classification — never wipe it, else
-  //  3. null → an explicit "unclassify".
+  //  2. if this is a metadata-only edit (e.g. year refinement — no type sent and
+  //     not an explicit clear), PRESERVE the document's existing classification
+  //     rather than wiping it, else
+  //  3. null → an explicit "unclassify" (clear === true).
   // This is the fix for the Deal Files card silently de-classifying documents:
   // the old contract accepted only `canonical_type`, so every client save (which
   // sent `checklist_key`/`document_type`) resolved to null and ran the clearing
   // branch.
   const existingType =
     (currentDoc.data as any).canonical_type ?? currentDoc.data.document_type ?? null;
-  const canonicalType =
-    providedType ?? (checklistHint ? existingType : null);
-  const isClearing = !canonicalType;
+  const canonicalType = providedType ?? (wantsClear ? null : existingType);
+  const isClearing = wantsClear || !canonicalType;
 
   // checklist_key is derived deterministically — never stamped from client input
   const checklistKey = canonicalType ? resolveChecklistKey(canonicalType, taxYear, statementPeriod) : null;
