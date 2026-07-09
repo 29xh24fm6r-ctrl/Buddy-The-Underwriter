@@ -21,6 +21,7 @@ import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
 import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
+import { computeClassicPdfInputsHash } from "@/lib/classicSpread/classicPdfInputsHash";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ export type ClassicPdfWorkerResult = {
   pdfSha256: string;
   pdfSizeBytes: number;
   canonicalFactsTimestamp: string | null;
+  /** True when the render was skipped because inputs_hash matched the cached row. */
+  unchanged?: boolean;
 } | {
   ok: false;
   error: string;
@@ -49,6 +52,8 @@ export type ClassicPdfCachedPayload = {
   generatedAt: string;
   /** SPEC-SPREAD-SOURCE-OF-TRUTH-UNIFICATION-1: code-version stamp — a mismatch busts the blob. */
   renderVersion?: number;
+  /** Tier-8: deterministic content hash of the render-driving inputs (see classicPdfInputsHash). */
+  inputsHash?: string;
   /** SPEC-CLASSIC-SPREAD-CERTIFICATION-INTEGRATION-GATE-1: pre-render certification audit. */
   certificationAudit?: import("@/lib/classicSpread/certification/certifiedSpreadGateCore").ClassicSpreadCertificationAudit | null;
 };
@@ -81,6 +86,58 @@ export async function renderClassicPdfSpread(args: {
     };
   }
 
+  // 2b. Tier-8: compute the real content hash of the render inputs (render
+  // version folded in). If an existing READY cache already carries this exact
+  // hash, the inputs and renderer are unchanged — skip the expensive PDF render
+  // and re-persist. This makes inputs_hash the operative invalidation signal:
+  // a re-render only materializes when the content or render version differs,
+  // rather than blindly re-rendering on every trigger.
+  const inputsHash = computeClassicPdfInputsHash(input);
+  const canonicalFactsTimestampEarly = await getLatestFactsTimestamp(sb, dealId, bankId);
+  const { data: existingRow } = await (sb as any)
+    .from("deal_spreads")
+    .select("inputs_hash, status, rendered_json")
+    .eq("deal_id", dealId)
+    .eq("bank_id", bankId)
+    .eq("spread_type", SPREAD_TYPE)
+    .eq("spread_version", SPREAD_VERSION)
+    .eq("owner_type", OWNER_TYPE)
+    .eq("owner_entity_id", SENTINEL_UUID)
+    .maybeSingle();
+
+  if (
+    existingRow?.status === "ready" &&
+    existingRow?.inputs_hash &&
+    existingRow.inputs_hash === inputsHash &&
+    existingRow.rendered_json?.pdf_base64
+  ) {
+    // Content + renderer unchanged. Refresh only the staleness stamp so the
+    // timestamp-based ensure/cached routes do not re-enqueue in a loop when a
+    // fact's updated_at advanced without any value change. No re-render.
+    const cachedStamp = existingRow.rendered_json?.canonicalFactsTimestamp ?? null;
+    if (canonicalFactsTimestampEarly && canonicalFactsTimestampEarly !== cachedStamp) {
+      await (sb as any)
+        .from("deal_spreads")
+        .update({
+          rendered_json: { ...existingRow.rendered_json, canonicalFactsTimestamp: canonicalFactsTimestampEarly },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("deal_id", dealId)
+        .eq("bank_id", bankId)
+        .eq("spread_type", SPREAD_TYPE)
+        .eq("spread_version", SPREAD_VERSION)
+        .eq("owner_type", OWNER_TYPE)
+        .eq("owner_entity_id", SENTINEL_UUID);
+    }
+    return {
+      ok: true,
+      pdfSha256: existingRow.rendered_json?.pdf_sha256 ?? "",
+      pdfSizeBytes: existingRow.rendered_json?.pdf_size_bytes ?? 0,
+      canonicalFactsTimestamp: canonicalFactsTimestampEarly ?? cachedStamp,
+      unchanged: true,
+    };
+  }
+
   // 3. Generate narrative (optional — graceful fallback)
   const narrative = await generateSpreadNarrative(input).catch(() => null);
 
@@ -99,8 +156,8 @@ export async function renderClassicPdfSpread(args: {
   // 5. Compute SHA-256 for verification
   const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex");
 
-  // 6. Get latest canonical facts timestamp for staleness comparison
-  const canonicalFactsTimestamp = await getLatestFactsTimestamp(sb, dealId, bankId);
+  // 6. Latest canonical facts timestamp for staleness comparison (fetched in 2b).
+  const canonicalFactsTimestamp = canonicalFactsTimestampEarly;
 
   // 7. Build the cached payload
   const generatedAt = new Date().toISOString();
@@ -111,6 +168,7 @@ export async function renderClassicPdfSpread(args: {
     canonicalFactsTimestamp,
     generatedAt,
     renderVersion: CLASSIC_PDF_RENDER_VERSION,
+    inputsHash,
     certificationAudit: input.certificationAudit ?? null,
   };
 
@@ -126,7 +184,7 @@ export async function renderClassicPdfSpread(args: {
         owner_type: OWNER_TYPE,
         owner_entity_id: SENTINEL_UUID,
         status: "ready",
-        inputs_hash: null,
+        inputs_hash: inputsHash,
         rendered_json: payload,
         rendered_html: null,
         rendered_csv: null,

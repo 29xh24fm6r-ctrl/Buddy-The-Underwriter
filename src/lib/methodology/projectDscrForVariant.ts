@@ -57,6 +57,18 @@ export function projectDscrForVariant(input: ProjectionInput): ProjectionResult 
       projectedOfficerCompAddback > 0 ? projectedOfficerCompAddback : null,
   });
 
+  // Guaranteed-payments double-count guard — mirrors computeBusinessEbitdaFacts.
+  // computeEbitda already adds back the full guaranteed payments for a 1065;
+  // when OFFICER_COMPENSATION is absent the fold-in acts on those same dollars,
+  // so applying it would inflate projected NCADS/DSCR a second time. Suppress
+  // the fold-in in that exact case; keep it when real officer comp exists.
+  const foldInBasisIsGuaranteedPayments =
+    formType === "FORM_1065" &&
+    facts.OFFICER_COMPENSATION == null &&
+    facts.GUARANTEED_PAYMENTS != null;
+  const applyFoldIn = foldInDecision.shouldFold && !foldInBasisIsGuaranteedPayments;
+  const effectiveFoldInAmount = applyFoldIn ? foldInDecision.foldInAmount : 0;
+
   const ncadsVariant = effectiveSlate.ncads_source;
   let projectedNcads: number | null = null;
 
@@ -68,7 +80,7 @@ export function projectDscrForVariant(input: ProjectionInput): ProjectionResult 
     // "standard" NCADS — EBITDA → OBI → NI fallback.
     // Officer-comp folds into the EBITDA path only when the helper says so.
     if (projectedEbitda !== null) {
-      projectedNcads = projectedEbitda + foldInDecision.foldInAmount;
+      projectedNcads = projectedEbitda + effectiveFoldInAmount;
     } else if (facts.ORDINARY_BUSINESS_INCOME !== null) {
       projectedNcads = facts.ORDINARY_BUSINESS_INCOME;
     } else if (facts.NET_INCOME !== null) {
@@ -85,9 +97,11 @@ export function projectDscrForVariant(input: ProjectionInput): ProjectionResult 
   // actually exercised the fold-in decision (i.e. ncads_source = "standard").
   const officerCompLabel =
     ncadsVariant === "standard"
-      ? foldInDecision.shouldFold
+      ? applyFoldIn
         ? " (folded)"
-        : " (observational)"
+        : foldInDecision.shouldFold && foldInBasisIsGuaranteedPayments
+          ? " (subsumed by guaranteed-payments add-back)"
+          : " (observational)"
       : "";
 
   const components = [

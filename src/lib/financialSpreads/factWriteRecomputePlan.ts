@@ -8,6 +8,11 @@
  *   • BALANCE_SHEET — the primary document-derived business spread; always a
  *     candidate (enqueueSpreadRecompute still gates it on its own template
  *     prerequisites, so passing it never forces an empty render).
+ *   • STANDARD — the Financial Analysis spread. Like BALANCE_SHEET it is a
+ *     primary document-derived business spread and MUST refresh when facts
+ *     change; previously it was omitted here and only ever produced by a full
+ *     orchestrator run, so incremental fact edits left it stale. Gated on its
+ *     own template prerequisites in enqueueSpreadRecompute (default path).
  *   • T12 — OPTIONAL / never primary (#556). Must NOT be enqueued from annual
  *     statement / tax-return fact writes unless the deal actually supplied a
  *     real T12 / monthly operating-statement source. Passing T12 explicitly here
@@ -27,7 +32,7 @@ export function planFactWriteRecomputeSpreadTypes(opts: {
   hasT12Source: boolean;
   gcfPrerequisitesReady: boolean;
 }): SpreadType[] {
-  const types: SpreadType[] = ["BALANCE_SHEET"];
+  const types: SpreadType[] = ["BALANCE_SHEET", "STANDARD"];
 
   // T12 is the only optional spread today (#556); gate it on a real source.
   if (opts.hasT12Source) types.push("T12");

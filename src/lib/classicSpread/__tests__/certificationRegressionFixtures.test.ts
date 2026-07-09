@@ -301,7 +301,7 @@ describe("no T12 required for an SBA / conventional annual-statement borrower", 
 
   it("Phase-2 internal fact-write plan excludes T12 and GCF for an annual deal with no source / prereqs", () => {
     const plan = planFactWriteRecomputeSpreadTypes({ hasT12Source: false, gcfPrerequisitesReady: false });
-    assert.deepEqual(plan, ["BALANCE_SHEET"]);
+    assert.deepEqual(plan.sort(), ["BALANCE_SHEET", "STANDARD"]);
     assert.ok(!plan.includes("T12" as SpreadType));
     assert.ok(!plan.includes("GLOBAL_CASH_FLOW" as SpreadType));
     assert.deepEqual(plan.filter((t) => isOptionalSpreadType(t)), []);

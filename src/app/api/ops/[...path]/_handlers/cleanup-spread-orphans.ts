@@ -11,8 +11,14 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Valid spread types that the template registry knows about (excludes STANDARD which uses a dedicated route). */
-const VALID_SPREAD_TYPES = ALL_SPREAD_TYPES.filter((t) => t !== "STANDARD");
+/**
+ * Valid spread types the registry knows about. STANDARD (Financial Analysis) is
+ * a first-class registered type enqueued by the orchestrator (orchestrateSpreads
+ * "Always enqueue STANDARD") and persisted to deal_spreads — it must NOT be
+ * treated as an invalid type. Previously STANDARD was filtered out here, which
+ * mislabeled every queued/generating STANDARD row as INVALID_SPREAD_TYPE.
+ */
+const VALID_SPREAD_TYPES = ALL_SPREAD_TYPES;
 
 /**
  * POST /api/ops/cleanup-spread-orphans

@@ -100,7 +100,11 @@ export const INCOME_PRIORITY: Record<string, IncomeSlot> = {
   PROFESSIONAL_FEES:         { field: "professionalFees", priority: 10 },
 };
 
-export const BALANCE_MAP: Record<string, keyof FinancialPeriod["balance"]> = {
+// Numeric balance fields only — excludes the `equityDerived` provenance marker
+// so indexed writes of fact_value_num stay type-safe (Tier-6).
+type NumericBalanceField = Exclude<keyof FinancialPeriod["balance"], "equityDerived">;
+
+export const BALANCE_MAP: Record<string, NumericBalanceField> = {
   CASH_AND_EQUIVALENTS: "cash",
   ACCOUNTS_RECEIVABLE: "accountsReceivable",
   INVENTORY: "inventory",
@@ -429,6 +433,10 @@ function deriveComputedValues(period: FinancialPeriod): void {
       && balance.totalAssets !== undefined
       && balance.totalLiabilities !== undefined) {
     balance.equity = balance.totalAssets - balance.totalLiabilities;
+    // Tier-6: record that equity was PLUGGED, not extracted. checkQuality uses
+    // this so it does not read the (now identically-zero) A=L+E residual as a
+    // clean balance — a plugged equity silently absorbs any liability error.
+    balance.equityDerived = true;
   }
 
   // CFADS = EBITDA - capex (simplified Phase 1)
@@ -445,15 +453,51 @@ function deriveComputedValues(period: FinancialPeriod): void {
 function checkQuality(period: FinancialPeriod): void {
   const { income, balance } = period;
 
-  // Flag if assets don't balance
+  // ── A = L + E integrity ──────────────────────────────────────────────
+  // Tier-6 "equity-plug blindness": when equity was PLUGGED as
+  // (totalAssets − totalLiabilities), the identity holds by construction
+  // (residual ≡ 0), so a naive diff can never detect a missing or understated
+  // liability — the plug silently absorbed the error into equity. Handle the
+  // plugged and extracted cases separately.
+  const totalAssets = balance.totalAssets;
+  const totalLiabilities = balance.totalLiabilities;
+  const equity = balance.equity;
   if (
-    balance.totalAssets !== undefined &&
-    balance.totalLiabilities !== undefined &&
-    balance.equity !== undefined
+    totalAssets !== undefined &&
+    totalLiabilities !== undefined &&
+    equity !== undefined
   ) {
-    const diff = Math.abs(balance.totalAssets - (balance.totalLiabilities + balance.equity));
-    if (diff > 1) { // $1 tolerance for rounding
-      period.qualityFlags.push("BALANCE_SHEET_IMBALANCE");
+    if (balance.equityDerived) {
+      // Surface, for every reviewer, that the balance was only trivially
+      // satisfied because equity is a residual — not an independent reading.
+      period.qualityFlags.push("EQUITY_PLUGGED:equity_derived_from_assets_minus_liabilities");
+
+      // Independent cross-check: if extracted equity components exist (they are
+      // NOT part of the plug), reconcile the plugged equity against their sum.
+      // A material gap means assets or liabilities are wrong and the plug hid it.
+      const equityComponents = [
+        balance.retainedEarnings,
+        balance.commonStock,
+        balance.paidInCapital,
+      ];
+      if (equityComponents.some((v) => v !== undefined)) {
+        const componentEquity = equityComponents.reduce<number>((s, v) => s + (v ?? 0), 0);
+        const gap = Math.abs(equity - componentEquity);
+        const materialThreshold = Math.max(1000, 0.05 * Math.abs(totalAssets));
+        if (gap > materialThreshold) {
+          period.qualityFlags.push(
+            "BALANCE_SHEET_IMBALANCE:equity=plugged" +
+              `:plugged=${Math.round(equity)}:components=${Math.round(componentEquity)}` +
+              `:gap=${Math.round(gap)}`,
+          );
+        }
+      }
+    } else {
+      // Equity was extracted independently — a real A = L + E check with teeth.
+      const diff = Math.abs(totalAssets - (totalLiabilities + equity));
+      if (diff > 1) { // $1 tolerance for rounding
+        period.qualityFlags.push("BALANCE_SHEET_IMBALANCE");
+      }
     }
   }
 

@@ -252,7 +252,7 @@ export default function FinancialsClient({ dealId }: { dealId: string }) {
 
   // ── Ratio narratives ─────────────────────────────────────────────────────
   const narratives = spread?.narrative_report?.ratio_narratives ?? {};
-  const NARRATIVE_KEYS = ["DSCR", "DEBT_TO_EBITDA", "TREND_REVENUE", "TREND_MARGIN"];
+  const NARRATIVE_KEYS = ["DSCR", "DEBT_TO_EBITDA", "DSO", "QOE", "TREND_REVENUE", "TREND_MARGIN"];
   const narrativeEntries = NARRATIVE_KEYS.map((k) => ({
     key: k,
     label: k
@@ -260,6 +260,50 @@ export default function FinancialsClient({ dealId }: { dealId: string }) {
       .replace(/\b\w/g, (c) => c.toUpperCase()),
     text: narratives[k] ?? null,
   })).filter((e) => e.text);
+
+  // ── Credit-critical metrics (Tier-9) ─────────────────────────────────────
+  // Previously engine-internal / no cell on /financials. Render only those the
+  // engine actually produced (missing ones are omitted, never shown as 0).
+  const creditMetrics = spread?.credit_metrics ?? {};
+  const CREDIT_METRIC_SPECS: Array<{ key: string; label: string; fmt: (n: number) => string }> = [
+    { key: "dscr_stressed_300bps", label: "Stressed DSCR (+300bps)", fmt: fmtX },
+    { key: "gcf_dscr", label: "Global DSCR", fmt: fmtX },
+    { key: "gcf_global_cash_flow", label: "Global Cash Flow", fmt: fmtDollars },
+    { key: "global_cash_flow", label: "Global Cash Flow", fmt: fmtDollars },
+    { key: "working_capital", label: "Working Capital", fmt: fmtDollars },
+    { key: "current_ratio", label: "Current Ratio", fmt: fmtX },
+    { key: "debt_to_equity", label: "Debt / Equity", fmt: fmtX },
+    { key: "net_worth", label: "Net Worth", fmt: fmtDollars },
+    { key: "ltv_net", label: "LTV (net)", fmt: fmtPct },
+    { key: "ltv_gross", label: "LTV (gross)", fmt: fmtPct },
+    { key: "collateral_coverage", label: "Collateral Coverage", fmt: fmtX },
+    { key: "borrower_equity_pct", label: "Borrower Equity", fmt: fmtPct },
+    { key: "occupancy_pct", label: "Occupancy", fmt: fmtPct },
+    { key: "pfs_net_worth", label: "PFS Net Worth", fmt: fmtDollars },
+  ];
+  const seenCreditLabels = new Set<string>();
+  const creditMetricCells = CREDIT_METRIC_SPECS.filter((s) => {
+    const v = creditMetrics[s.key];
+    if (typeof v !== "number" || seenCreditLabels.has(s.label)) return false;
+    seenCreditLabels.add(s.label);
+    return true;
+  }).map((s) => ({ label: s.label, value: s.fmt(creditMetrics[s.key] as number) }));
+
+  // ── Risk flags, top risks/strengths, QoE ─────────────────────────────────
+  // Tier-9: these are computed by the engine and shipped to the client but were
+  // never rendered on /financials. Surface the credit-critical ones.
+  const riskFlags = (spread?.flag_report?.flags ?? []).filter(
+    (f) => f.severity === "critical" || f.severity === "elevated",
+  );
+  const topRisks = spread?.narrative_report?.top_risks ?? [];
+  const topStrengths = spread?.narrative_report?.top_strengths ?? [];
+  const qoe = spread?.qoe_report ?? null;
+  const qoeMaterial =
+    qoe != null && Math.abs(qoe.adjustmentTotal ?? 0) > 0
+      ? Math.abs(qoe.adjustmentTotal) / Math.max(1, Math.abs(qoe.reportedEbitda || 0))
+      : 0;
+  const showRiskPanel =
+    riskFlags.length > 0 || topRisks.length > 0 || topStrengths.length > 0 || qoe != null;
 
   // ── Guards ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -321,6 +365,20 @@ export default function FinancialsClient({ dealId }: { dealId: string }) {
         <RatioCell label="Gross Margin" value={fmtPct(latestGrossMargin)} />
         <RatioCell label="Ann. Debt Service" value={fmtDollars(latestAds)} />
       </div>
+
+      {/* ── Panel A2: Credit-Critical Metrics (Tier-9) ────────────────────── */}
+      {creditMetricCells.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-wide text-white/40">
+            Credit Metrics
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {creditMetricCells.map((c) => (
+              <RatioCell key={c.label} label={c.label} value={c.value} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Panel B: Financial Table ──────────────────────────────────────── */}
       <div className="rounded-xl border border-white/10 overflow-hidden">
@@ -504,6 +562,110 @@ export default function FinancialsClient({ dealId }: { dealId: string }) {
               <p className="text-sm text-white/70 leading-relaxed">{e.text}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Panel D2: Risk Flags & Quality of Earnings ────────────────────── */}
+      {showRiskPanel && (
+        <div className="space-y-4">
+          <div className="text-[10px] uppercase tracking-wide text-white/40">
+            Risk &amp; Quality of Earnings
+          </div>
+
+          {riskFlags.length > 0 && (
+            <div className="space-y-2">
+              {riskFlags.map((f) => (
+                <div
+                  key={f.id}
+                  className={`rounded-lg border px-4 py-3 ${
+                    f.severity === "critical"
+                      ? "border-red-500/40 bg-red-500/[0.06]"
+                      : "border-amber-500/40 bg-amber-500/[0.06]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={`text-[10px] uppercase tracking-wide font-semibold ${
+                        f.severity === "critical" ? "text-red-400" : "text-amber-400"
+                      }`}
+                    >
+                      {f.severity}
+                    </span>
+                    <span className="text-sm font-medium text-white/85">{f.banker_summary}</span>
+                  </div>
+                  {f.banker_detail && (
+                    <p className="text-xs text-white/60 leading-relaxed">{f.banker_detail}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {qoe != null && (
+            <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-wide text-white/40 mb-2">
+                Quality of Earnings
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <div className="text-[10px] text-white/40">Reported EBITDA</div>
+                  <div className="text-white/85">{fmtDollars(qoe.reportedEbitda)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-white/40">Adjusted EBITDA</div>
+                  <div className="text-white/85">{fmtDollars(qoe.adjustedEbitda)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-white/40">Net Adjustment</div>
+                  <div className={qoeMaterial > 0.1 ? "text-amber-400" : "text-white/85"}>
+                    {fmtDollars(qoe.adjustmentTotal)}
+                    {qoeMaterial > 0 ? ` (${fmtPct(qoeMaterial)})` : ""}
+                  </div>
+                </div>
+              </div>
+              {(qoe.adjustments?.length ?? 0) > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {qoe.adjustments!.map((a, i) => (
+                    <li key={i} className="text-xs text-white/60">
+                      {a.label ?? "Adjustment"}: {fmtDollars(a.amount ?? 0)}
+                      {a.rationale ? ` — ${a.rationale}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {(topRisks.length > 0 || topStrengths.length > 0) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {topRisks.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-red-400/70 mb-2">Top Risks</div>
+                  <div className="space-y-2">
+                    {topRisks.map((r, i) => (
+                      <div key={i} className="border-l-2 border-red-500/30 pl-3">
+                        <div className="text-sm font-medium text-white/80">{r.title}</div>
+                        <p className="text-xs text-white/55 leading-relaxed">{r.narrative}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {topStrengths.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-emerald-400/70 mb-2">Top Strengths</div>
+                  <div className="space-y-2">
+                    {topStrengths.map((s, i) => (
+                      <div key={i} className="border-l-2 border-emerald-500/30 pl-3">
+                        <div className="text-sm font-medium text-white/80">{s.title}</div>
+                        <p className="text-xs text-white/55 leading-relaxed">{s.narrative}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

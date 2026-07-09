@@ -88,6 +88,12 @@ export interface SpreadOutputReport {
   normalized_spread: NormalizedSpread;
   ratio_scorecard: RatioScorecardReport;
   story_panel: StoryPanel;
+  /**
+   * Tier-9: deterministic per-ratio narrative map (DSCR, DEBT_TO_EBITDA, DSO,
+   * QOE, TREND_*). Composed once and shared across panels; surfaced here so the
+   * spread-output route can pass it to the client instead of a hardcoded {}.
+   */
+  ratio_narratives: Record<string, string>;
   generated_at: string;
 }
 

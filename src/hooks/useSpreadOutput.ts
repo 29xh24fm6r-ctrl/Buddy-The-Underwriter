@@ -25,7 +25,15 @@ export type SpreadOutputReport = {
     final_narrative: string;
   };
   trend_report?: Record<string, unknown>;
-  qoe_report?: unknown;
+  /** Tier-9: credit-critical snapshot metrics with no dedicated cell elsewhere. */
+  credit_metrics?: Record<string, number | null>;
+  qoe_report?: {
+    reportedEbitda: number;
+    adjustedEbitda: number;
+    adjustmentTotal: number;
+    confidence?: string;
+    adjustments?: Array<{ label?: string; amount?: number; rationale?: string; direction?: string }>;
+  } | null;
 };
 
 type UseSpreadOutputResult = {
