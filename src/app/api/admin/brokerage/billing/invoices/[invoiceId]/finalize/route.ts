@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
+import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 
@@ -21,7 +21,7 @@ export async function POST(
   { params }: { params: Promise<{ invoiceId: string }> },
 ) {
   try {
-    await requireSuperAdmin();
+    await requireBrokerageStaff();
   } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
