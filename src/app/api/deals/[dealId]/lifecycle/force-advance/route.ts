@@ -82,6 +82,28 @@ export async function POST(
     }
     const { userId, role } = access;
 
+    // ── Governance gate — mirror /lifecycle/advance's force policy ───────────
+    // This endpoint can write deals.stage directly (incl. terminal/funded) while
+    // skipping every blocker. Without these gates it silently undercut all credit
+    // governance. Force advance is DISABLED unless explicitly enabled, and then
+    // only for super_admin — matching the /advance force path.
+    if (process.env.LIFECYCLE_ALLOW_FORCE_ADVANCE !== "1") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "forbidden",
+          message: "Force advance is disabled. Lifecycle must progress deterministically.",
+        },
+        { status: 403 }
+      );
+    }
+    if (role !== "super_admin") {
+      return NextResponse.json(
+        { ok: false, error: "forbidden", message: "Force advance requires super_admin role" },
+        { status: 403 }
+      );
+    }
+
     // Parse and validate request body
     let body: z.infer<typeof BodySchema>;
     try {
@@ -95,6 +117,31 @@ export async function POST(
     }
 
     const { targetStage, reason, skipBlockers } = body;
+
+    // Meaningful-reason requirement (mirrors /advance).
+    if (!reason || typeof reason !== "string" || reason.trim().length < 10) {
+      return NextResponse.json(
+        { ok: false, error: "bad_request", message: "reason must be at least 10 characters" },
+        { status: 400 }
+      );
+    }
+
+    // Stage cap — never force a deal into closing/funded/closed via this path.
+    const CAPPED_STAGES = new Set([
+      "committee_decisioned",
+      "closing_in_progress",
+      "closed",
+    ]);
+    if (CAPPED_STAGES.has(targetStage)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "forbidden",
+          message: `Force advance is capped before closing. Stage "${targetStage}" exceeds the allowed ceiling.`,
+        },
+        { status: 403 }
+      );
+    }
 
     // Get current state for comparison
     const currentState = await deriveLifecycleState(dealId);

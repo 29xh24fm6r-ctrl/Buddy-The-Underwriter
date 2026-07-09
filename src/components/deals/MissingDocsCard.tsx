@@ -87,10 +87,12 @@ export default function MissingDocsCard({ dealId }: { dealId: string }) {
     setError(null);
 
     try {
-      const res = await fetch(`/api/deals/${dealId}/missing-docs/send`, {
+      // Canonical missing-docs sender lives under /outbound (the bare
+      // /missing-docs/send route never existed and 404'd). The route parses
+      // dealId from the URL and reads the draft + settings server-side.
+      const res = await fetch(`/api/deals/${dealId}/outbound/missing-docs/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Your send route can ignore body if it wants; this is safe.
         body: JSON.stringify({ dealId }),
       });
 

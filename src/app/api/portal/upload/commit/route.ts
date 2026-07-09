@@ -1,7 +1,7 @@
 // src/app/api/portal/upload/commit/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireValidInvite } from "@/lib/portal/auth";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 import { rateLimit } from "@/lib/portal/ratelimit";
 import { recordReceipt } from "@/lib/portal/receipts";
 import { recomputeDealReady } from "@/lib/deals/readiness";
@@ -118,7 +118,8 @@ export async function POST(req: Request) {
 
     let invite;
     try {
-      invite = await requireValidInvite(token);
+      // Accept a token from either borrower_invites or borrower_portal_links.
+      invite = await resolveBorrowerToken(token);
     } catch (e: any) {
       return NextResponse.json(
         { error: e?.message || "Invalid/expired link" },

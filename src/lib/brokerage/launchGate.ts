@@ -23,12 +23,41 @@ export function checkRequiredScripts(): LaunchGateResult { const s=Date.now(); l
 export function checkBuildPresence(opts?:{skip?:boolean}): LaunchGateResult { const s=Date.now(); if (opts?.skip) return lg("production_build","production_build","skip",0,0,0,"Skipped",[]); try { const pkg=JSON.parse(readFileSync(resolve(process.cwd(),"package.json"),"utf-8")); const w: string[]=[]; if (!pkg.scripts?.build) w.push("No build"); if (!pkg.scripts?.typecheck) w.push("No typecheck"); return lg("production_build","production_build",w.length>0?"warn":"pass",Date.now()-s,0,w.length,w.join("; ")||"Present",w); } catch { return lg("production_build","production_build","fail",Date.now()-s,1,0,"package.json missing",[]); } }
 export function checkMigrations(): LaunchGateResult { const s=Date.now(); const dir=resolve(process.cwd(),"supabase/migrations"); if (!existsSync(dir)) return lg("migrations","operations","fail",Date.now()-s,1,0,"Dir missing",[]); const files=readdirSync(dir) as string[]; let w=0; const r: string[]=[]; for (const p of ["sealing_and_listings","brokerage_tenant_model","brokerage_singleton_assert","brk_10e_compliance_package","brk_10h_closing_coordination","brk_10i_revenue_ops"]) if (!files.some(f=>f.includes(p))) {w++;r.push(`Missing ${p}`);} return lg("migrations","operations",w>0?"warn":"pass",Date.now()-s,0,w,w===0?"All present":`${w} missing`,r); }
 
+/**
+ * Provisioning gate — a marketplace with zero onboarded lenders cannot launch.
+ * The other gates only check that CODE exists; this one checks that the
+ * marketplace is actually populated (≥1 active lender agreement AND ≥1 lender
+ * program). Without a `sb` client this is skipped (can't verify offline) — but
+ * when run for a real go/no-go it prevents a false LAUNCH_READY.
+ */
+export async function checkLenderProvisioning(sb?: any): Promise<LaunchGateResult> {
+  const s = Date.now();
+  if (!sb) {
+    return lg("lender_provisioning", "marketplace", "skip", Date.now() - s, 0, 0, "No DB client — provisioning not verified", ["Run launch gate with a Supabase client to verify lenders are onboarded"]);
+  }
+  try {
+    const [agree, programs] = await Promise.all([
+      sb.from("lender_marketplace_agreements").select("id", { count: "exact", head: true }).eq("status", "active"),
+      sb.from("lender_programs").select("id", { count: "exact", head: true }),
+    ]);
+    const agreementCount = agree?.count ?? 0;
+    const programCount = programs?.count ?? 0;
+    let c = 0; const r: string[] = [];
+    if (agreementCount < 1) { c++; r.push("Onboard at least one lender with an active marketplace agreement"); }
+    if (programCount < 1) { c++; r.push("Configure at least one lender program"); }
+    return lg("lender_provisioning", "marketplace", c > 0 ? "fail" : "pass", Date.now() - s, c, 0, `${agreementCount} active agreement(s), ${programCount} program(s)`, r);
+  } catch (e: any) {
+    return lg("lender_provisioning", "marketplace", "fail", Date.now() - s, 1, 0, `Provisioning check failed: ${e?.message ?? e}`, ["Verify lender_marketplace_agreements / lender_programs tables exist"]);
+  }
+}
+
 export async function runLaunchGate(opts?: LaunchOptions): Promise<LaunchResult> {
   const s=Date.now(); const gates: LaunchGateResult[]=[]; const filter=opts?.gate?new Set([opts.gate]):null;
   function inc(n: string) { return !filter||filter.has(n); }
   if (inc("golden_run")) gates.push(checkGoldenRunPresence()); if (inc("integrity_sweep")) gates.push(checkIntegritySweepPresence()); if (inc("race_harness")) gates.push(checkRaceHarnessPresence());
   if (inc("security_audit")) gates.push(runSecurityGate(opts?.dbData)); if (inc("closing_coordination")) gates.push(checkClosingPresence()); if (inc("ops_modules")) gates.push(checkOpsPresence());
   if (inc("env_vars")) gates.push(checkEnvVars()); if (inc("required_scripts")) gates.push(checkRequiredScripts()); if (inc("migrations")) gates.push(checkMigrations());
+  if (inc("lender_provisioning")) gates.push(await checkLenderProvisioning(opts?.sb));
   if (inc("production_build")) gates.push(checkBuildPresence({skip:opts?.skipBuild}));
   const tc=gates.reduce((s,g)=>s+g.critical,0); const tw=gates.reduce((s,g)=>s+g.warning,0);
   let overall: "LAUNCH_READY"|"NOT_LAUNCH_READY" = tc>0?"NOT_LAUNCH_READY":"LAUNCH_READY"; if (opts?.strict&&tw>0) overall="NOT_LAUNCH_READY";

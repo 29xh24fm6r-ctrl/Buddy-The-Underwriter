@@ -44,7 +44,9 @@ export default function DraftMessagesCard({ dealId }: DraftMessagesCardProps) {
   const handleApprove = async (messageId: string) => {
     setApproving(messageId);
     try {
-      const res = await fetch(`/api/deals/${dealId}/messages/${messageId}/approve`, {
+      // There is no /approve route — condition_messages go DRAFT → SENT in one
+      // step. /send flips status and delivers the message ("Approve & Send").
+      const res = await fetch(`/api/deals/${dealId}/messages/${messageId}/send`, {
         method: "POST",
       });
       if (!res.ok) throw new Error("Approval failed");

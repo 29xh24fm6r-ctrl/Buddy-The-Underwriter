@@ -53,6 +53,38 @@ export async function GET(
 
   if (listing) {
     const row = listing as any;
+
+    // Active claims — the lenders who have claimed this listing. The borrower
+    // needs these to pick a lender (the pick step previously had no data source,
+    // so the funnel dead-ended at "awaiting_borrower_pick" forever). The lender's
+    // bank name is safe to show the borrower; borrower identity stays hidden the
+    // other direction.
+    let claims: Array<{ id: string; lenderName: string; claimedAt: string | null }> = [];
+    if (["claiming", "awaiting_borrower_pick"].includes(row.status)) {
+      const { data: claimRows } = await sb
+        .from("marketplace_claims")
+        .select("id, lender_bank_id, created_at, status")
+        .eq("listing_id", row.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true });
+
+      const rows = (claimRows ?? []) as any[];
+      const bankIds = Array.from(new Set(rows.map((c) => c.lender_bank_id).filter(Boolean)));
+      const nameById = new Map<string, string>();
+      if (bankIds.length) {
+        const { data: banks } = await sb
+          .from("banks")
+          .select("id, name")
+          .in("id", bankIds);
+        for (const b of (banks ?? []) as any[]) nameById.set(b.id, b.name);
+      }
+      claims = rows.map((c) => ({
+        id: c.id,
+        lenderName: nameById.get(c.lender_bank_id) ?? "A matched lender",
+        claimedAt: c.created_at ?? null,
+      }));
+    }
+
     return NextResponse.json({
       ok: true,
       sealed: true,
@@ -69,6 +101,7 @@ export async function GET(
           ? row.matched_lender_bank_ids.length
           : 0,
       },
+      claims,
       canSeal: gate.ok,
       gateReasons: gate.ok ? [] : gate.reasons,
     });

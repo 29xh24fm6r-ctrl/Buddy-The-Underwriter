@@ -1,24 +1,31 @@
 // src/app/api/banker/deals/[dealId]/next-actions/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function requireUserId(req: Request) {
-  const userId = req.headers.get("x-user-id");
-  if (!userId) throw new Error("Missing x-user-id header.");
-  return userId;
+function accessStatus(error: string): number {
+  return error === "deal_not_found" ? 404 : error === "tenant_mismatch" ? 403 : 401;
 }
 
 export async function GET(
-  req: Request,
+  _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    requireUserId(req);
-    const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
+    // Real tenant/deal-access check — the old x-user-id header was spoofable and
+    // let any caller read another bank's deal_next_actions.
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: accessStatus(access.error) },
+      );
+    }
+    const sb = supabaseAdmin();
     const { data, error } = await sb
       .from("deal_next_actions")
       .select("*")
@@ -43,9 +50,15 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    requireUserId(req);
-    const sb = supabaseAdmin();
     const { dealId } = await ctx.params;
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: accessStatus(access.error) },
+      );
+    }
+    const sb = supabaseAdmin();
     const body = await req.json();
 
     // { id, status: "open"|"done" }
