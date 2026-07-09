@@ -31,6 +31,15 @@ export default async function AdminHome() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <GlassActionCard
+          icon="storefront"
+          iconColor="text-yellow-400"
+          title="Brokerage HQ"
+          description="Everything for running Buddy Brokerage day to day — deals, lenders, ops health, and the team."
+          href="/admin/brokerage"
+          actionLabel="Open Brokerage HQ"
+        />
+
+        <GlassActionCard
           icon="shield_person"
           iconColor="text-blue-400"
           title="Roles"
