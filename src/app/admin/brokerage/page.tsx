@@ -115,7 +115,7 @@ export default async function BrokerageHomePage() {
         <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
           Do the work
         </h2>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-5">
           <Link
             href="/deals"
             className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
@@ -159,6 +159,28 @@ export default async function BrokerageHomePage() {
             <div className="text-sm text-neutral-400 mt-1">
               Pipeline summary, daily brief, bottlenecks, team workload, and
               activity feed — the business-level view.
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/brokerage/crm"
+            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
+          >
+            <div className="text-lg font-medium">CRM</div>
+            <div className="text-sm text-neutral-400 mt-1">
+              Referral sources and professional partners — organizations,
+              contacts, and a logged activity timeline per relationship.
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/brokerage/billing"
+            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
+          >
+            <div className="text-lg font-medium">Billing</div>
+            <div className="text-sm text-neutral-400 mt-1">
+              Invoice lenders for referral fees on funded deals — draft,
+              finalize, and track payment.
             </div>
           </Link>
         </div>
