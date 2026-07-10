@@ -149,6 +149,12 @@ importers:
       resend:
         specifier: ^6.6.0
         version: 6.6.0
+      rrweb:
+        specifier: ^2.0.0-alpha.4
+        version: 2.1.0
+      rrweb-player:
+        specifier: ^1.0.0-alpha.4
+        version: 1.0.0-alpha.4
       stripe:
         specifier: ^20.1.0
         version: 20.1.0(@types/node@20.19.27)
@@ -2051,6 +2057,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@rrweb/types@2.1.0':
+    resolution: {integrity: sha512-svOHkcuukP6rIjz2umwVsS7uYct+2h0N97+bg+8IJYKIUj5+YjwIvqx5y9NILFKPIu3yk+Mb+KDFfJ8RV+4JlA==}
+
+  '@rrweb/utils@2.1.0':
+    resolution: {integrity: sha512-hU7MT3TSdD+Do7FmMoHrBfPevFCheN5vo2mn97Y4vbXuwemopAmo8dqo5KJeMaA6oQQt7FinHJ0Xqb7k68Ci6Q==}
+
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
 
@@ -2322,6 +2334,9 @@ packages:
     resolution: {integrity: sha512-XCuKFP5PS55gnMVu3dty8KPatLqUoy/ZYzDzAGCQ8JNFCkLXzmI7vNHCR+XpbZaMWQK/vQubr7PkYq8g470J/A==}
     engines: {node: '>= 10'}
 
+  '@tsconfig/svelte@1.0.13':
+    resolution: {integrity: sha512-5lYJP45Xllo4yE/RUBccBT32eBlRDbqN8r1/MIvQbKxW3aFqaYPCNgm8D5V20X4ShHcwvYWNlKg3liDh1MlBoA==}
+
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
 
@@ -2339,6 +2354,9 @@ packages:
 
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
+
+  '@types/css-font-loading-module@0.0.7':
+    resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -2656,6 +2674,9 @@ packages:
   '@webassemblyjs/wast-printer@1.14.1':
     resolution: {integrity: sha512-kPSSXE6De1XOR820C90RIo2ogvZG+c3KiHzqUoO/F34Y2shGzesfqv7o57xrxovZJH/MetF5UjroJ/R/3isoiw==}
 
+  '@xstate/fsm@1.6.5':
+    resolution: {integrity: sha512-b5o1I6aLNeYlU/3CPlj/Z91ybk1gUsKT+5NAJI+2W4UjvS5KLG28K9v5UvNoFVjHV8PajVZ00RH3vnjyQO7ZAw==}
+
   '@xtuc/ieee754@1.2.0':
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}
 
@@ -2850,6 +2871,10 @@ packages:
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
+
+  base64-arraybuffer@1.0.2:
+    resolution: {integrity: sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==}
+    engines: {node: '>= 0.6.0'}
 
   base64-js@0.0.8:
     resolution: {integrity: sha512-3XSA2cR/h/73EzlXXdU6YNycmYI7+kicTxks4eJg2g39biHR84slg2+des+p7iHYhbRg/udIS4TD53WabcOUkw==}
@@ -4479,6 +4504,9 @@ packages:
     resolution: {integrity: sha512-qOOzS1cBTWYF4BH8fVePDBOO9iptMnGUEZwNc/cMWnTV2nVLZ7VoNWEPHkYczZA0pdoA7dl6e7FL659nX9S2aw==}
     engines: {node: '>=16 || 14 >=14.17'}
 
+  mitt@3.0.1:
+    resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
+
   mkdirp@0.5.6:
     resolution: {integrity: sha512-FP+p8RB8OWpF3YZBCrP5gtADmtXApB5AMLn+vdyA+PyxCjrCs00mjyUozssO33cwDeT3wNGdLxJ5M//YqtHAJw==}
     hasBin: true
@@ -5044,6 +5072,18 @@ packages:
   router@2.2.0:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
+
+  rrdom@2.1.0:
+    resolution: {integrity: sha512-d7oaIHzwffxI74UJMZDGq/f97/Yfm3QX4CcTIlQelt2HsLavItLjp8x8nQ0g9Pet5+5wG1RGr9yvsxb1gJlo8A==}
+
+  rrweb-player@1.0.0-alpha.4:
+    resolution: {integrity: sha512-Wlmn9GZ5Fdqa37vd3TzsYdLl/JWEvXNUrLCrYpnOwEgmY409HwVIvvA5aIo7k582LoKgdRCsB87N+f0oWAR0Kg==}
+
+  rrweb-snapshot@2.1.0:
+    resolution: {integrity: sha512-CFjUKWlO+Dl72gk8qwcDcNE/Pj9yr6IvGRAiRAx12pmJaSWaOKFoFgpQQ1j/mW0WKwEZXbHnMJL8M92gIsdwUQ==}
+
+  rrweb@2.1.0:
+    resolution: {integrity: sha512-gGGvd1eXWnOuJpQumH7+gPmBwTXzNrjmQyedWVePcEx0S5fe3VkQW4vw5f5ItY+vuigaaktte9cZKOg0OEvv+w==}
 
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
@@ -7813,6 +7853,10 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.55.1':
     optional: true
 
+  '@rrweb/types@2.1.0': {}
+
+  '@rrweb/utils@2.1.0': {}
+
   '@rtsao/scc@1.1.0': {}
 
   '@sentry-internal/browser-utils@10.32.1':
@@ -8154,6 +8198,8 @@ snapshots:
 
   '@tootallnate/once@2.0.0': {}
 
+  '@tsconfig/svelte@1.0.13': {}
+
   '@tybys/wasm-util@0.10.1':
     dependencies:
       tslib: 2.8.1
@@ -8174,6 +8220,8 @@ snapshots:
   '@types/connect@3.4.38':
     dependencies:
       '@types/node': 20.19.27
+
+  '@types/css-font-loading-module@0.0.7': {}
 
   '@types/d3-array@3.2.2': {}
 
@@ -8530,6 +8578,8 @@ snapshots:
       '@webassemblyjs/ast': 1.14.1
       '@xtuc/long': 4.2.2
 
+  '@xstate/fsm@1.6.5': {}
+
   '@xtuc/ieee754@1.2.0': {}
 
   '@xtuc/long@4.2.2': {}
@@ -8762,6 +8812,8 @@ snapshots:
       '@babel/types': 7.28.5
 
   balanced-match@1.0.2: {}
+
+  base64-arraybuffer@1.0.2: {}
 
   base64-js@0.0.8: {}
 
@@ -10608,6 +10660,8 @@ snapshots:
 
   minipass@7.1.2: {}
 
+  mitt@3.0.1: {}
+
   mkdirp@0.5.6:
     dependencies:
       minimist: 1.2.8
@@ -11214,6 +11268,30 @@ snapshots:
       path-to-regexp: 8.3.0
     transitivePeerDependencies:
       - supports-color
+
+  rrdom@2.1.0:
+    dependencies:
+      rrweb-snapshot: 2.1.0
+
+  rrweb-player@1.0.0-alpha.4:
+    dependencies:
+      '@tsconfig/svelte': 1.0.13
+      rrweb: 2.1.0
+
+  rrweb-snapshot@2.1.0:
+    dependencies:
+      postcss: 8.5.6
+
+  rrweb@2.1.0:
+    dependencies:
+      '@rrweb/types': 2.1.0
+      '@rrweb/utils': 2.1.0
+      '@types/css-font-loading-module': 0.0.7
+      '@xstate/fsm': 1.6.5
+      base64-arraybuffer: 1.0.2
+      mitt: 3.0.1
+      rrdom: 2.1.0
+      rrweb-snapshot: 2.1.0
 
   run-parallel@1.2.0:
     dependencies:
