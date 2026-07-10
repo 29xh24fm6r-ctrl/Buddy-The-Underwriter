@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { RefinedStamp } from "@/components/brokerage/StatusStamp";
 
 type Invoice = {
   id: string;
@@ -16,15 +19,23 @@ type Invoice = {
 
 type Lender = { id: string; name: string; code: string };
 
-const STATUS_COLOR: Record<string, string> = {
-  draft: "text-neutral-400",
-  finalized: "text-amber-400",
-  paid: "text-emerald-400",
-  void: "text-red-400",
-};
+const GRID = "110px 1.4fr 1fr 110px 110px 96px";
 
 function money(n: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
+  return "$" + Math.round(n).toLocaleString("en-US");
+}
+
+function inputStyle(): CSSProperties {
+  return {
+    background: c.ink,
+    border: `1px solid ${c.border}`,
+    borderRadius: 5,
+    padding: "8px 10px",
+    color: c.paper,
+    fontSize: 12,
+    fontFamily: "var(--font-brokerage-sans)",
+    width: "100%",
+  };
 }
 
 export default function BrokerageBillingPage() {
@@ -33,12 +44,11 @@ export default function BrokerageBillingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
-  // Draft form state
   const [lenderBankId, setLenderBankId] = useState("");
   const [description, setDescription] = useState("Referral fee");
   const [amount, setAmount] = useState("");
-  const [memo, setMemo] = useState("");
   const [creating, setCreating] = useState(false);
 
   async function load() {
@@ -53,9 +63,7 @@ export default function BrokerageBillingPage() {
       if (!invRes.ok || !invJson.ok) throw new Error(invJson.error ?? "load failed");
       setInvoices(invJson.invoices ?? []);
       if (lenderRes.ok && lenderJson.ok) {
-        setLenders(
-          (lenderJson.lenders ?? []).map((l: any) => ({ id: l.bankId, name: l.name, code: l.code })),
-        );
+        setLenders((lenderJson.lenders ?? []).map((l: any) => ({ id: l.bankId, name: l.name, code: l.code })));
       }
       setError(null);
     } catch (e: any) {
@@ -69,6 +77,12 @@ export default function BrokerageBillingPage() {
     load();
   }, []);
 
+  const totalOutstanding = invoices
+    .filter((i) => i.status !== "paid" && i.status !== "void")
+    .reduce((s, i) => s + (i.amount - i.amount_paid), 0);
+  const totalPaid = invoices.reduce((s, i) => s + i.amount_paid, 0);
+  const draftCount = invoices.filter((i) => i.status === "draft").length;
+
   async function createDraft() {
     const amt = Number(amount);
     if (!lenderBankId || !Number.isFinite(amt) || amt <= 0) return;
@@ -77,16 +91,12 @@ export default function BrokerageBillingPage() {
       const res = await fetch("/api/admin/brokerage/billing/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lenderBankId,
-          memo: memo || null,
-          lineItems: [{ description, amount: amt }],
-        }),
+        body: JSON.stringify({ lenderBankId, lineItems: [{ description, amount: amt }] }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "create failed");
       setAmount("");
-      setMemo("");
+      setShowForm(false);
       await load();
     } catch (e: any) {
       setError(e?.message ?? "create failed");
@@ -98,9 +108,7 @@ export default function BrokerageBillingPage() {
   async function finalize(id: string) {
     setBusyId(id);
     try {
-      const res = await fetch(`/api/admin/brokerage/billing/invoices/${id}/finalize`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/admin/brokerage/billing/invoices/${id}/finalize`, { method: "POST" });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "finalize failed");
       await load();
@@ -132,122 +140,160 @@ export default function BrokerageBillingPage() {
   }
 
   return (
-    <main className="px-8 py-10 max-w-5xl mx-auto text-neutral-100">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Billing — Lender invoices</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          Invoice lenders for referral fees on funded deals. Draft → Finalize
-          (assigns the invoice number) → record payment when the bank pays.
-        </p>
-      </header>
-
+    <div style={{ padding: "18px 24px 40px" }}>
       {error && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           {error}
         </div>
       )}
 
-      <div className="rounded-md border border-neutral-800 bg-neutral-900 p-4 mb-8">
-        <div className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-          New draft invoice
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: "14px 16px" }}>
+          <div style={{ fontSize: 11, color: c.textSecondary, marginBottom: 7 }}>Outstanding</div>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 22, color: c.brassBright }}>{money(totalOutstanding)}</div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <select
-            className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-            value={lenderBankId}
-            onChange={(e) => setLenderBankId(e.target.value)}
-          >
-            <option value="">Select lender…</option>
-            {lenders.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          <input
-            className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-            placeholder="Line item description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-          <input
-            className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-            placeholder="Amount"
-            type="number"
-            min="0"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          <input
-            className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-            placeholder="Memo (optional)"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-          />
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: "14px 16px" }}>
+          <div style={{ fontSize: 11, color: c.textSecondary, marginBottom: 7 }}>Paid to date</div>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 22, color: c.sage }}>{money(totalPaid)}</div>
         </div>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: "14px 16px" }}>
+          <div style={{ fontSize: 11, color: c.textSecondary, marginBottom: 7 }}>Drafts</div>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 22, color: c.paper }}>{draftCount}</div>
+        </div>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: "14px 16px" }}>
+          <div style={{ fontSize: 11, color: c.textSecondary, marginBottom: 7 }}>Total invoices</div>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 22, color: c.paper }}>{invoices.length}</div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
         <button
-          onClick={createDraft}
-          disabled={creating || !lenderBankId || !amount}
-          className="mt-3 rounded bg-white text-black text-sm font-medium px-4 py-2 disabled:opacity-40"
+          onClick={() => setShowForm((s) => !s)}
+          style={{
+            background: `linear-gradient(150deg, ${c.brassBright}, ${c.brass})`,
+            color: c.brassOnBrass,
+            border: "none",
+            borderRadius: 6,
+            padding: "9px 15px",
+            fontWeight: 600,
+            fontSize: 12.5,
+            cursor: "pointer",
+          }}
         >
-          {creating ? "Creating…" : "Create draft"}
+          {showForm ? "Cancel" : "+ New draft invoice"}
         </button>
       </div>
 
-      {loading ? (
-        <div className="text-sm text-neutral-500">Loading…</div>
-      ) : invoices.length === 0 ? (
-        <div className="text-sm text-neutral-500">No invoices yet.</div>
-      ) : (
-        <div className="grid gap-3">
-          {invoices.map((inv) => {
+      {showForm && (
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.4fr 1fr", gap: 10 }}>
+            <select style={inputStyle()} value={lenderBankId} onChange={(e) => setLenderBankId(e.target.value)}>
+              <option value="">Select lender…</option>
+              {lenders.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <input style={inputStyle()} placeholder="Line item description" value={description} onChange={(e) => setDescription(e.target.value)} />
+            <input style={inputStyle()} placeholder="Amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <button
+            onClick={createDraft}
+            disabled={creating || !lenderBankId || !amount}
+            style={{
+              marginTop: 12,
+              background: c.borderStrong,
+              color: c.paper,
+              border: `1px solid ${c.borderStronger}`,
+              borderRadius: 6,
+              padding: "8px 14px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              opacity: creating || !lenderBankId || !amount ? 0.4 : 1,
+            }}
+          >
+            {creating ? "Creating…" : "Create draft"}
+          </button>
+        </div>
+      )}
+
+      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: GRID,
+            padding: "9px 16px",
+            borderBottom: `1px solid ${c.borderStrong}`,
+            background: c.inkHeader,
+            fontFamily: "var(--font-brokerage-mono)",
+            fontSize: 9.5,
+            letterSpacing: 1,
+            textTransform: "uppercase",
+            color: c.textFaint,
+          }}
+        >
+          <div>Invoice</div>
+          <div>Lender</div>
+          <div>Memo</div>
+          <div style={{ textAlign: "right" }}>Amount</div>
+          <div>Status</div>
+          <div style={{ textAlign: "right" }}>Action</div>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: "54px 20px", textAlign: "center", color: c.textMuted, fontSize: 12 }}>Loading…</div>
+        ) : invoices.length === 0 ? (
+          <div style={{ padding: "54px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>▧</div>
+            <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: "#C9C3B6", marginBottom: 4 }}>No invoices yet</div>
+            <div style={{ fontSize: 12, color: c.textMuted }}>Create a draft invoice once a lender owes you a referral fee.</div>
+          </div>
+        ) : (
+          invoices.map((inv) => {
             const remaining = inv.amount - inv.amount_paid;
             return (
               <div
                 key={inv.id}
-                className="rounded-md border border-neutral-800 bg-neutral-900 p-4"
+                style={{ display: "grid", gridTemplateColumns: GRID, padding: "12px 16px", borderBottom: `1px solid ${c.divider}`, alignItems: "center" }}
               >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">
-                      {inv.invoice_number ?? "(draft — no number yet)"}
-                    </div>
-                    <div className="text-xs text-neutral-500 mt-1">
-                      {inv.lender?.name ?? "Unknown lender"} · {money(inv.amount)}
-                      {inv.amount_paid > 0 && ` · ${money(inv.amount_paid)} paid`}
-                      {inv.memo && ` · ${inv.memo}`}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs uppercase tracking-wide ${STATUS_COLOR[inv.status] ?? ""}`}>
-                      {inv.status}
-                    </span>
-                    {inv.status === "draft" && (
-                      <button
-                        onClick={() => finalize(inv.id)}
-                        disabled={busyId === inv.id}
-                        className="rounded border border-neutral-700 text-sm px-3 py-1.5 hover:border-neutral-500 disabled:opacity-40"
-                      >
-                        Finalize
-                      </button>
-                    )}
-                    {inv.status === "finalized" && remaining > 0 && (
-                      <button
-                        onClick={() => recordFullPayment(inv)}
-                        disabled={busyId === inv.id}
-                        className="rounded border border-neutral-700 text-sm px-3 py-1.5 hover:border-neutral-500 disabled:opacity-40"
-                      >
-                        Mark paid ({money(remaining)})
-                      </button>
-                    )}
-                  </div>
+                <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 11.5, color: c.brass }}>
+                  {inv.invoice_number ?? "draft"}
+                </div>
+                <div style={{ fontSize: 12.5, fontWeight: 500, color: c.paper }}>{inv.lender?.name ?? "Unknown lender"}</div>
+                <div style={{ fontSize: 11.5, color: c.textSecondary }}>{inv.memo ?? "—"}</div>
+                <div style={{ textAlign: "right", fontFamily: "var(--font-brokerage-mono)", fontSize: 12.5, color: c.paper, paddingRight: 12 }}>
+                  {money(inv.amount)}
+                </div>
+                <div>
+                  <RefinedStamp status={inv.status} />
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  {inv.status === "draft" && (
+                    <button
+                      onClick={() => finalize(inv.id)}
+                      disabled={busyId === inv.id}
+                      style={{ background: "transparent", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 5, padding: "5px 10px", fontSize: 11, cursor: "pointer", opacity: busyId === inv.id ? 0.4 : 1 }}
+                    >
+                      Finalize
+                    </button>
+                  )}
+                  {inv.status === "finalized" && remaining > 0 && (
+                    <button
+                      onClick={() => recordFullPayment(inv)}
+                      disabled={busyId === inv.id}
+                      style={{ background: "transparent", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 5, padding: "5px 10px", fontSize: 11, cursor: "pointer", opacity: busyId === inv.id ? 0.4 : 1 }}
+                    >
+                      Mark paid
+                    </button>
+                  )}
                 </div>
               </div>
             );
-          })}
-        </div>
-      )}
-    </main>
+          })
+        )}
+      </div>
+    </div>
   );
 }
