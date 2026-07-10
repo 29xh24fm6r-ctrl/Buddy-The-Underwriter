@@ -1,9 +1,9 @@
 import "server-only";
 
-import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadLastEvents } from "../_components/loadLastEvents";
 import { StuckTable, type StuckRow } from "../_components/StuckTable";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -41,26 +41,14 @@ export default async function BrokeragePackagesPage() {
   });
 
   return (
-    <main className="px-8 py-10 max-w-5xl mx-auto">
-      <header className="mb-6 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Active sealed packages</h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            <code>buddy_sealed_packages.unsealed_at IS NULL</code>. Oldest first.
-          </p>
-        </div>
-        <Link href="/admin/brokerage/listings" className="text-sm underline">
-          Back to overview
-        </Link>
-      </header>
-
+    <div style={{ padding: "18px 24px 40px" }}>
       {error && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           {error.message}
         </div>
       )}
 
       <StuckTable rows={rows} emptyLabel="No active sealed packages." />
-    </main>
+    </div>
   );
 }
