@@ -36,6 +36,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
+    console.error("[buddy/signals/record] unhandled error", {
+      message: e?.message,
+      name: e?.name,
+      stack: e?.stack,
+      cause: e?.cause,
+    });
     return NextResponse.json(
       { ok: false, error: e?.message || "unhandled_error" },
       { status: 500 },
