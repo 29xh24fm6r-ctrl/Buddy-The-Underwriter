@@ -45,6 +45,12 @@ export async function GET(req: NextRequest) {
         })) ?? [],
     });
   } catch (e: any) {
+    console.error("[buddy/signals/latest] unhandled error", {
+      message: e?.message,
+      name: e?.name,
+      stack: e?.stack,
+      cause: e?.cause,
+    });
     return NextResponse.json(
       { ok: false, error: e?.message || "unhandled_error" },
       { status: 500 }
