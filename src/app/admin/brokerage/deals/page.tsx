@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { loadLastEvents } from "../_components/loadLastEvents";
 import { StuckTable, type StuckRow } from "../_components/StuckTable";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -60,45 +61,53 @@ export default async function BrokerageDealsPage({
     };
   });
 
-  const otherOrigin =
-    origin === "brokerage_anonymous" ? "brokerage_claimed" : "brokerage_anonymous";
-
   return (
-    <main className="px-8 py-10 max-w-5xl mx-auto">
-      <header className="mb-6 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">
-            Brokerage deals — <code className="text-base">{origin}</code>
-          </h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Oldest first, capped at 50. Click the deal id for cockpit access.
-          </p>
-        </div>
-        <div className="flex gap-3 text-sm">
-          <Link
-            href={`/admin/brokerage/deals?origin=${otherOrigin}`}
-            className="underline"
-          >
-            {otherOrigin}
-          </Link>
-          <Link href="/admin/brokerage/listings" className="underline">
-            Back to overview
-          </Link>
-        </div>
-      </header>
+    <div style={{ padding: "18px 24px 40px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 16 }}>
+        <Link
+          href={`/admin/brokerage/deals?origin=brokerage_anonymous`}
+          style={{
+            fontSize: 11.5,
+            padding: "6px 12px",
+            borderRadius: 5,
+            border: `1px solid ${origin === "brokerage_anonymous" ? "rgba(184,144,91,.5)" : c.border}`,
+            background: origin === "brokerage_anonymous" ? "rgba(184,144,91,.12)" : "transparent",
+            color: origin === "brokerage_anonymous" ? c.brassBright : c.textSecondary,
+            fontWeight: origin === "brokerage_anonymous" ? 600 : 400,
+            textDecoration: "none",
+          }}
+        >
+          brokerage_anonymous
+        </Link>
+        <Link
+          href={`/admin/brokerage/deals?origin=brokerage_claimed`}
+          style={{
+            fontSize: 11.5,
+            padding: "6px 12px",
+            borderRadius: 5,
+            border: `1px solid ${origin === "brokerage_claimed" ? "rgba(184,144,91,.5)" : c.border}`,
+            background: origin === "brokerage_claimed" ? "rgba(184,144,91,.12)" : "transparent",
+            color: origin === "brokerage_claimed" ? c.brassBright : c.textSecondary,
+            fontWeight: origin === "brokerage_claimed" ? 600 : 400,
+            textDecoration: "none",
+          }}
+        >
+          brokerage_claimed
+        </Link>
+      </div>
 
       {tenantError && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           Tenant: {tenantError}
         </div>
       )}
       {error && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           {error.message}
         </div>
       )}
 
       <StuckTable rows={rows} emptyLabel={`No ${origin} deals.`} />
-    </main>
+    </div>
   );
 }
