@@ -3,7 +3,18 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { RefinedStamp } from "@/components/brokerage/StatusStamp";
+
+/**
+ * CRM command center — not a list, a dashboard. Summary tiles, a
+ * needs-attention queue (relationships gone stale), a cross-organization
+ * activity feed, an open-task queue, then the organizations themselves
+ * with real signal on each row: health status derived from staleness,
+ * and deals-referred / dollars-sourced via deals.referral_source_org_id
+ * (migration crm_deal_attribution) — the piece that ties a relationship
+ * to whether it's actually worth the time.
+ */
 
 type Organization = {
   id: string;
@@ -12,14 +23,49 @@ type Organization = {
   city: string | null;
   state: string | null;
   peopleCount: number;
+  lastActivityAt: string | null;
+  health: "active" | "cooling" | "cold" | "new";
+  dealsReferredCount: number;
+  dealsReferredValue: number;
 };
 
-const GRID = "1.6fr 1fr 1.4fr 90px 120px";
+type Summary = {
+  organizationCount: number;
+  contactCount: number;
+  dealsReferredCount: number;
+  valueSourced: number;
+  needsAttentionCount: number;
+};
+
+type FeedItem = {
+  id: string;
+  kind: string;
+  title: string | null;
+  happens_at: string;
+  due_at: string | null;
+  organizationId: string | null;
+  organizationName: string | null;
+};
+
+const GRID = "1.5fr 1fr 1fr 100px 130px 120px";
 
 const TYPE_LABELS: Record<string, string> = {
   referral_source: "Referral source",
   professional_partner: "Professional partner",
   other: "Other",
+};
+
+const HEALTH_LABEL: Record<string, string> = {
+  active: "active",
+  cooling: "cooling",
+  cold: "cold",
+  new: "new",
+};
+const HEALTH_STATUS_KEY: Record<string, string> = {
+  active: "active",
+  cooling: "neutral",
+  cold: "overdue",
+  new: "neutral",
 };
 
 function inputStyle(): CSSProperties {
@@ -35,8 +81,30 @@ function inputStyle(): CSSProperties {
   };
 }
 
+function daysAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "1d ago";
+  return `${days}d ago`;
+}
+
+function Tile({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: "14px 16px", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: 0, left: 0, width: 3, height: "100%", background: accent }} />
+      <div style={{ fontSize: 11, color: c.textSecondary }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 24, color: c.paper, marginTop: 6 }}>{value}</div>
+    </div>
+  );
+}
+
 export default function BrokerageCrmPage() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [needsAttention, setNeedsAttention] = useState<Organization[]>([]);
+  const [recentActivity, setRecentActivity] = useState<FeedItem[]>([]);
+  const [openTasks, setOpenTasks] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -54,6 +122,10 @@ export default function BrokerageCrmPage() {
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "load failed");
       setOrgs(json.organizations ?? []);
+      setSummary(json.summary ?? null);
+      setNeedsAttention(json.needsAttention ?? []);
+      setRecentActivity(json.recentActivity ?? []);
+      setOpenTasks(json.openTasks ?? []);
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "load failed");
@@ -96,6 +168,74 @@ export default function BrokerageCrmPage() {
           {error}
         </div>
       )}
+
+      {/* Summary tiles */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
+        <Tile label="Organizations" value={summary ? String(summary.organizationCount) : "—"} accent={c.brass} />
+        <Tile label="Contacts" value={summary ? String(summary.contactCount) : "—"} accent={c.brass} />
+        <Tile label="Deals sourced" value={summary ? String(summary.dealsReferredCount) : "—"} accent={c.sage} />
+        <Tile label="Value sourced" value={summary ? fmtMoney(summary.valueSourced) : "—"} accent={c.sage} />
+        <Tile label="Needs attention" value={summary ? String(summary.needsAttentionCount) : "—"} accent={summary && summary.needsAttentionCount > 0 ? c.brick : c.textFaint} />
+      </div>
+
+      {/* Needs attention + feeds */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 12, marginBottom: 20 }}>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ padding: "11px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14 }}>
+            Needs attention
+          </div>
+          {needsAttention.length === 0 ? (
+            <div style={{ padding: 20, fontSize: 12, color: c.textMuted, textAlign: "center" }}>Nothing's gone cold — every relationship has recent activity.</div>
+          ) : (
+            needsAttention.map((o) => (
+              <Link
+                key={o.id}
+                href={`/admin/brokerage/crm/${o.id}`}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 16px", borderBottom: `1px solid ${c.divider}`, textDecoration: "none", color: "inherit" }}
+              >
+                <div>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{o.name}</span>
+                  <span style={{ fontSize: 11, color: c.textMuted }}> · last touch {daysAgo(o.lastActivityAt)}</span>
+                </div>
+                <RefinedStamp status={HEALTH_STATUS_KEY[o.health]} label={HEALTH_LABEL[o.health]} />
+              </Link>
+            ))
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "11px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14 }}>
+              Open tasks
+            </div>
+            {openTasks.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 12, color: c.textMuted, textAlign: "center" }}>No open tasks.</div>
+            ) : (
+              openTasks.slice(0, 5).map((t) => (
+                <div key={t.id} style={{ padding: "8px 16px", borderBottom: `1px solid ${c.divider}`, fontSize: 11.5 }}>
+                  <span style={{ color: c.paper }}>{t.title ?? "Task"}</span>
+                  {t.organizationName && <span style={{ color: c.textMuted }}> · {t.organizationName}</span>}
+                </div>
+              ))
+            )}
+          </div>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "11px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14 }}>
+              Recent activity
+            </div>
+            {recentActivity.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 12, color: c.textMuted, textAlign: "center" }}>No activity yet.</div>
+            ) : (
+              recentActivity.slice(0, 6).map((a) => (
+                <div key={a.id} style={{ padding: "8px 16px", borderBottom: `1px solid ${c.divider}`, fontSize: 11.5 }}>
+                  <span style={{ color: c.paper }}>{a.title ?? a.kind}</span>
+                  {a.organizationName && <span style={{ color: c.textMuted }}> · {a.organizationName}</span>}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
 
       <div style={{ marginBottom: 14 }}>
         <button
@@ -148,6 +288,7 @@ export default function BrokerageCrmPage() {
         </div>
       )}
 
+      {/* Organizations table */}
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
         <div
           style={{
@@ -165,9 +306,10 @@ export default function BrokerageCrmPage() {
         >
           <div>Organization</div>
           <div>Type</div>
-          <div>Location</div>
+          <div>Deals sourced</div>
           <div style={{ textAlign: "right" }}>Contacts</div>
-          <div style={{ textAlign: "right" }}>Added</div>
+          <div>Last touch</div>
+          <div>Health</div>
         </div>
 
         {loading ? (
@@ -197,11 +339,22 @@ export default function BrokerageCrmPage() {
             >
               <div style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{o.name}</div>
               <div style={{ fontSize: 11.5, color: c.textSecondary }}>{TYPE_LABELS[o.organization_type] ?? o.organization_type}</div>
-              <div style={{ fontSize: 11.5, color: "#C9C3B6" }}>{[o.city, o.state].filter(Boolean).join(", ") || "—"}</div>
+              <div style={{ fontSize: 11.5, color: "#C9C3B6" }}>
+                {o.dealsReferredCount > 0 ? (
+                  <>
+                    {o.dealsReferredCount} · <span style={{ fontFamily: "var(--font-brokerage-mono)", color: c.brassBright }}>{fmtMoney(o.dealsReferredValue)}</span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </div>
               <div style={{ textAlign: "right", fontFamily: "var(--font-brokerage-mono)", fontSize: 12.5, color: c.brassBright }}>
                 {o.peopleCount}
               </div>
-              <div style={{ textAlign: "right", fontSize: 11, color: c.textMuted, fontFamily: "var(--font-brokerage-mono)" }}>—</div>
+              <div style={{ fontSize: 11, color: c.textMuted, fontFamily: "var(--font-brokerage-mono)" }}>{daysAgo(o.lastActivityAt)}</div>
+              <div>
+                <RefinedStamp status={HEALTH_STATUS_KEY[o.health]} label={HEALTH_LABEL[o.health]} />
+              </div>
             </Link>
           ))
         )}
