@@ -5,9 +5,14 @@
  *
  * Columns: id, display name (NULL-safe), age (server-rendered), last
  * event action (NULL-safe), age in seconds. Empty state is explicit.
+ *
+ * Shared by uploads, packages, and the stuck-deals-by-origin diagnostic
+ * page — restyling this one component in the ink/brass system covers
+ * all three at once.
  */
 
 import Link from "next/link";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 export type StuckRow = {
   id: string;
@@ -27,44 +32,70 @@ export function StuckTable({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-md border border-neutral-800 bg-neutral-900 p-6 text-center text-neutral-500 text-sm">
+      <div
+        style={{
+          background: c.card,
+          border: `1px solid ${c.border}`,
+          borderRadius: 8,
+          padding: 24,
+          textAlign: "center",
+          color: c.textMuted,
+          fontSize: 12,
+        }}
+      >
         {emptyLabel}
       </div>
     );
   }
   return (
-    <table className="w-full text-sm border-collapse">
-      <thead>
-        <tr className="text-left text-neutral-400 border-b border-neutral-800">
-          <th className="py-2 pr-4">ID</th>
-          <th className="py-2 pr-4">Display name</th>
-          <th className="py-2 pr-4">Age</th>
-          <th className="py-2 pr-4">Last event</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className="border-b border-neutral-900">
-            <td className="py-2 pr-4 font-mono text-xs">
-              {r.detail_href ? (
-                <Link href={r.detail_href} className="underline">
-                  {r.id.slice(0, 8)}
-                </Link>
-              ) : (
-                r.id.slice(0, 8)
-              )}
-            </td>
-            <td className="py-2 pr-4">{r.display_name ?? "—"}</td>
-            <td className="py-2 pr-4 text-neutral-400" title={r.age_iso}>
-              {formatAge(r.age_seconds)}
-            </td>
-            <td className="py-2 pr-4 text-neutral-400">
-              {r.last_event_action ?? "—"}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "90px 1fr 90px 1fr",
+          padding: "9px 16px",
+          borderBottom: `1px solid ${c.borderStrong}`,
+          background: c.inkHeader,
+          fontFamily: "var(--font-brokerage-mono)",
+          fontSize: 9.5,
+          letterSpacing: 1,
+          textTransform: "uppercase",
+          color: c.textFaint,
+        }}
+      >
+        <div>ID</div>
+        <div>Display name</div>
+        <div>Age</div>
+        <div>Last event</div>
+      </div>
+      {rows.map((r) => (
+        <div
+          key={r.id}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "90px 1fr 90px 1fr",
+            padding: "10px 16px",
+            borderBottom: `1px solid ${c.divider}`,
+            alignItems: "center",
+          }}
+        >
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 11, color: c.brass }}>
+            {r.detail_href ? (
+              <Link href={r.detail_href} style={{ color: c.brass }}>
+                {r.id.slice(0, 8)}
+              </Link>
+            ) : (
+              r.id.slice(0, 8)
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: c.paper }}>{r.display_name ?? "—"}</div>
+          <div style={{ fontSize: 11, color: c.textMuted, fontFamily: "var(--font-brokerage-mono)" }} title={r.age_iso}>
+            {formatAge(r.age_seconds)}
+          </div>
+          <div style={{ fontSize: 11.5, color: c.textSecondary }}>{r.last_event_action ?? "—"}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 
