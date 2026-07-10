@@ -4,7 +4,7 @@ import { stampColor, type StampStatus } from "./tokens";
  * Refined stamp — brass-framed status mark for dense table rows.
  * Used in deals, lenders, CRM, billing, team lists.
  */
-export function RefinedStamp({ status }: { status: StampStatus }) {
+export function RefinedStamp({ status, label }: { status: StampStatus; label?: string }) {
   const c = stampColor(status);
   return (
     <span
@@ -23,7 +23,7 @@ export function RefinedStamp({ status }: { status: StampStatus }) {
         whiteSpace: "nowrap",
       }}
     >
-      {status}
+      {label ?? status}
     </span>
   );
 }
