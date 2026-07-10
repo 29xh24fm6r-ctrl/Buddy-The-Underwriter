@@ -26,6 +26,7 @@ import { emitPipelineEvent } from "@/lib/pulseMcp/emitPipelineEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
 import { isIntakeConfirmationGateEnabled } from "@/lib/flags/intakeConfirmationGate";
+import { CONFIDENCE_THRESHOLDS } from "@/lib/intake/confirmation/types";
 import { ENTITY_GRAPH_VERSION } from "@/lib/intake/identity/version";
 import type { EntityResolution } from "@/lib/intake/identity/entityResolver";
 import { evaluateDocumentQuality, QUALITY_VERSION } from "@/lib/intake/quality/evaluateDocumentQuality";
@@ -1236,7 +1237,12 @@ export async function processArtifact(
         p_reason: classification.reason,
         p_match_source: "ai_classification",
         p_tax_year: classification.taxYear,
-        p_auto_apply: classification.confidence >= 0.85,
+        // Never auto-apply below the same bar the confirmation gate uses to
+        // treat a classification as trustworthy (deriveIntakeStatus/
+        // CONFIDENCE_THRESHOLDS.GREEN_AT_OR_ABOVE) — a doc the system itself
+        // is routing to human review should not silently attach to a
+        // checklist slot in the meantime.
+        p_auto_apply: classification.confidence >= CONFIDENCE_THRESHOLDS.GREEN_AT_OR_ABOVE,
       });
 
       if (!matchResult.error) {
