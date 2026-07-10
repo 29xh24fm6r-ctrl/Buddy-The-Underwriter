@@ -10,9 +10,11 @@ export const dynamic = "force-dynamic";
 
 /**
  * /api/admin/brokerage/crm/organizations/[orgId] — one organization's detail:
- * its people and its activity timeline (crm_activities where
+ * its people, its activity timeline (crm_activities where
  * target_organization_id = orgId, or target_person_id for any person
- * belonging to this org), newest first — the Twenty TimelineActivity pattern.
+ * belonging to this org), and the deals it's been attributed as the
+ * referral source for — the Twenty TimelineActivity pattern plus the
+ * revenue-attribution piece Twenty doesn't need but a brokerage does.
  */
 
 async function gate(): Promise<{ userId: string } | NextResponse> {
@@ -80,10 +82,22 @@ export async function GET(
     return NextResponse.json({ ok: false, error: actErr.message }, { status: 500 });
   }
 
+  const { data: referredDeals, error: dealsErr } = await sb
+    .from("deals")
+    .select("id, display_name, borrower_name, name, loan_amount, created_at")
+    .eq("bank_id", brokerageBankId)
+    .eq("referral_source_org_id", orgId)
+    .order("created_at", { ascending: false });
+
+  if (dealsErr) {
+    return NextResponse.json({ ok: false, error: dealsErr.message }, { status: 500 });
+  }
+
   return NextResponse.json({
     ok: true,
     organization: org,
     people: people ?? [],
     activities: activities ?? [],
+    referredDeals: referredDeals ?? [],
   });
 }
