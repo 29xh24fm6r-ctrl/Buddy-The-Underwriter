@@ -27,7 +27,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Do the work",
     items: [
       { label: "Command center", href: "/admin/brokerage", icon: "◈" },
-      { label: "Deals", href: "/deals", icon: "▦" },
+      { label: "Deals", href: "/admin/brokerage/pipeline", icon: "▦" },
       { label: "Lenders", href: "/admin/brokerage/lenders", icon: "▤" },
       { label: "CRM", href: "/admin/brokerage/crm", icon: "◇" },
     ],
@@ -51,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 const TITLES: Record<string, [string, string]> = {
   "/admin/brokerage": ["Command center", "Your daily front door"],
-  "/deals": ["Deals pipeline", "The working pipeline"],
+  "/admin/brokerage/pipeline": ["Deals pipeline", "Your brokerage's working deals"],
   "/admin/brokerage/lenders": ["Lenders", "Partner banks · matching criteria & terms"],
   "/admin/brokerage/crm": ["CRM", "Referral organizations"],
   "/admin/brokerage/billing": ["Billing", "Lender referral-fee invoices"],
