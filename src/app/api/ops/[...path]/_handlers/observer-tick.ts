@@ -5,6 +5,7 @@ import { requireSuperAdmin } from "@/lib/auth/requireAdmin";
 import { runObserverTick } from "@/lib/aegis/observerLoop";
 import { writeSystemEvent } from "@/lib/aegis/writeSystemEvent";
 import { hasValidWorkerSecret } from "@/lib/auth/hasValidWorkerSecret";
+import { detectOverrideDrift } from "@/lib/intake/override/detectOverrideDrift";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await runObserverTick();
+
+    // Institutional self-hardening: alert on classification-override drift
+    // spikes on the same cadence as the observer loop. Fire-and-forget —
+    // detectOverrideDrift never throws, so this cannot fail the tick.
+    detectOverrideDrift().catch(() => {});
+
     const durationMs = Date.now() - startedAt;
 
     return NextResponse.json({ ...result, duration_ms: durationMs });

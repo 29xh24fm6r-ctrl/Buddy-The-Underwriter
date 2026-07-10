@@ -23,6 +23,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return (await import("./_handlers/deal-timeline")).GET(req);
     case "intake/funnel":
       return (await import("./_handlers/intake-funnel")).GET(req);
+    case "intake/golden-stubs":
+      return (await import("./_handlers/intake-golden-stubs")).GET(req);
     case "intake/overrides":
       return (await import("./_handlers/intake-overrides")).GET(req);
     case "intake/quality":
