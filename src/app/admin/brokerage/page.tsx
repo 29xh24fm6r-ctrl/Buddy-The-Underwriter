@@ -234,7 +234,7 @@ export default async function BrokerageHomePage() {
           value={activeDeals !== null ? String(activeDeals) : "—"}
           delta={pipelineValue !== null ? `${fmtMoneyCompact(pipelineValue)} in pipeline` : "on this tenant"}
           accent={c.brassBright}
-          href="/deals"
+          href="/admin/brokerage/pipeline"
         />
         <Tile
           label="Active lenders"
