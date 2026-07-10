@@ -6,6 +6,7 @@ import { clerkClient } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { normalizeBuddyRole } from "@/lib/auth/normalizeBuddyRole";
+import { ensureUserProfile } from "@/lib/tenant/ensureUserProfile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,17 +14,19 @@ export const dynamic = "force-dynamic";
 /**
  * /api/admin/brokerage/team — who's actually on the Buddy Brokerage tenant.
  *
- * This is the piece that was missing: /admin/roles only ever managed
- * global Clerk publicMetadata.role, which requireBrokerageStaff doesn't
- * check for bank_admin/underwriter (only for super_admin) — it checks
- * bank_memberships scoped to this tenant specifically. There was no UI
- * anywhere that wrote to bank_memberships; every teammate added so far
- * (including Matt himself) was done by hand via direct SQL.
- *
  * GET  -> current brokerage team (bank_memberships joined with Clerk user
  *         info) + every Clerk user NOT yet on the tenant, so the page can
  *         offer them as add-candidates
  * POST -> add (or change the role of) a teammate on the brokerage tenant
+ *
+ * IMPORTANT: trg_bank_memberships_fill_user_id (DB trigger) resolves
+ * bank_memberships.user_id from profiles.clerk_user_id. A candidate who
+ * has only ever signed into Clerk — and never loaded a page that ran
+ * getCurrentBankId() for their own session — has no profiles row yet,
+ * so the trigger has nothing to match and the insert fails. POST
+ * provisions that row here first (same invariant getCurrentBankId
+ * follows for its own auto-provision path) so brand-new teammates can
+ * be added on the first try.
  */
 
 async function gate(): Promise<{ userId: string } | NextResponse> {
@@ -105,6 +108,54 @@ export async function POST(req: NextRequest) {
   }
 
   const brokerageBankId = await getBrokerageBankId();
+
+  // Provision profiles row FIRST — trg_bank_memberships_fill_user_id needs
+  // it to resolve user_id from clerk_user_id. Without this, adding anyone
+  // who hasn't already resolved bank context in their own session fails
+  // with "bank_memberships.user_id required: provide user_id, or
+  // clerk_user_id matching profiles.clerk_user_id, or use authenticated
+  // Supabase session".
+  const client = await clerkClient();
+  if (!client) {
+    return NextResponse.json({ ok: false, error: "Clerk not configured" }, { status: 503 });
+  }
+
+  let email: string | null = null;
+  let name: string | null = null;
+  try {
+    const targetUser = await client.users.getUser(clerkUserId);
+    email =
+      targetUser.emailAddresses?.find((e) => e.id === targetUser.primaryEmailAddressId)
+        ?.emailAddress ??
+      targetUser.emailAddresses?.[0]?.emailAddress ??
+      null;
+    name = targetUser.firstName
+      ? `${targetUser.firstName}${targetUser.lastName ? ` ${targetUser.lastName}` : ""}`
+      : null;
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: `clerk user lookup failed: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 400 },
+    );
+  }
+
+  const profileResult = await ensureUserProfile({
+    userId: clerkUserId,
+    bankId: brokerageBankId,
+    email,
+    name,
+  });
+
+  if (!profileResult.ok && profileResult.error === "insert_failed") {
+    return NextResponse.json(
+      { ok: false, error: `profile provisioning failed: ${profileResult.detail}` },
+      { status: 500 },
+    );
+  }
+  // "schema_mismatch" is non-fatal here — the base-columns row still exists
+  // and clerk_user_id is set, which is all the trigger needs to resolve
+  // user_id. avatar/display_name backfill can happen later.
+
   const sb = supabaseAdmin();
 
   const { data, error } = await sb
