@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use as usePromise } from "react";
 import Link from "next/link";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 type Activity = {
   id: string;
@@ -9,6 +10,16 @@ type Activity = {
   happens_at: string;
   title: string | null;
   properties: Record<string, unknown>;
+};
+
+const KIND_ICON: Record<string, string> = {
+  note: "✎",
+  task: "☐",
+  call: "☎",
+  email: "✉",
+  meeting: "◔",
+  stage_change: "→",
+  system: "◍",
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -85,105 +96,175 @@ export default function CrmOrganizationDetailPage({
   }
 
   if (loading) {
-    return <main className="px-8 py-10 max-w-4xl mx-auto text-neutral-100">Loading…</main>;
+    return <div style={{ padding: "18px 24px", color: c.textMuted, fontSize: 12 }}>Loading…</div>;
   }
   if (error || !org) {
     return (
-      <main className="px-8 py-10 max-w-4xl mx-auto text-neutral-100">
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4">
+      <div style={{ padding: "18px 24px" }}>
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6 }}>
           {error ?? "Organization not found"}
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="px-8 py-10 max-w-4xl mx-auto text-neutral-100">
-      <Link href="/admin/brokerage/crm" className="text-sm text-neutral-400 hover:underline">
-        ← Organizations
+    <div style={{ padding: "18px 24px 40px", maxWidth: 1120 }}>
+      <Link href="/admin/brokerage/crm" style={{ fontSize: 11.5, color: c.textMuted, marginBottom: 14, display: "inline-block" }}>
+        ← All organizations
       </Link>
 
-      <header className="mt-3 mb-8">
-        <h1 className="text-2xl font-semibold">{org.name}</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          {org.organization_type}
-          {(org.city || org.state) && ` · ${[org.city, org.state].filter(Boolean).join(", ")}`}
-        </p>
-      </header>
-
-      <section className="mb-8">
-        <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-          Contacts ({people.length})
-        </h2>
-        {people.length === 0 ? (
-          <div className="text-sm text-neutral-500">No contacts yet.</div>
-        ) : (
-          <div className="grid gap-2">
-            {people.map((p) => (
-              <div
-                key={p.id}
-                className="rounded border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm"
-              >
-                <span className="font-medium">
-                  {[p.first_name, p.last_name].filter(Boolean).join(" ") || "(unnamed)"}
-                </span>
-                {p.job_title && <span className="text-neutral-500"> · {p.job_title}</span>}
-                {p.email && <span className="text-neutral-500"> · {p.email}</span>}
-              </div>
-            ))}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 20, marginBottom: 22 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 700, fontSize: 26, color: c.paper, lineHeight: 1.1 }}>
+            {org.name}
           </div>
-        )}
-      </section>
+          <div style={{ fontSize: 13, color: c.textSecondary, marginTop: 4 }}>
+            {org.organization_type}
+            {(org.city || org.state) && ` · ${[org.city, org.state].filter(Boolean).join(", ")}`}
+            {" · "}
+            <span style={{ fontFamily: "var(--font-brokerage-mono)", color: c.brassBright }}>{people.length}</span> contacts
+          </div>
+        </div>
+      </div>
 
-      <section>
-        <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">Timeline</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 16 }}>
+        {/* Timeline */}
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>
+            Activity timeline
+          </div>
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ marginBottom: 16 }}>
+              <textarea
+                style={{
+                  width: "100%",
+                  background: c.ink,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: 5,
+                  padding: "8px 10px",
+                  color: c.paper,
+                  fontSize: 12,
+                  fontFamily: "var(--font-brokerage-sans)",
+                  resize: "vertical",
+                }}
+                rows={2}
+                placeholder="Log a note…"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+              />
+              <button
+                onClick={logNote}
+                disabled={saving || !noteText.trim()}
+                style={{
+                  marginTop: 8,
+                  background: "#1B1E23",
+                  border: `1px solid ${c.borderStronger}`,
+                  color: c.paper,
+                  borderRadius: 6,
+                  padding: "8px 14px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  opacity: saving || !noteText.trim() ? 0.4 : 1,
+                }}
+              >
+                {saving ? "Saving…" : "+ Log activity"}
+              </button>
+            </div>
 
-        <div className="rounded-md border border-neutral-800 bg-neutral-900 p-4 mb-4">
-          <textarea
-            className="w-full bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-            rows={2}
-            placeholder="Log a note…"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-          />
-          <button
-            onClick={logNote}
-            disabled={saving || !noteText.trim()}
-            className="mt-2 rounded bg-white text-black text-sm font-medium px-4 py-1.5 disabled:opacity-40"
-          >
-            {saving ? "Saving…" : "Add note"}
-          </button>
+            {activities.length === 0 ? (
+              <div style={{ fontSize: 12, color: c.textMuted, padding: "20px 0", textAlign: "center" }}>No activity yet.</div>
+            ) : (
+              activities.map((a, i) => (
+                <div key={a.id} style={{ display: "flex", gap: 13 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none" }}>
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        background: "rgba(184,144,91,.12)",
+                        border: `1px solid rgba(184,144,91,.4)`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 13,
+                        color: c.brassBright,
+                      }}
+                    >
+                      {KIND_ICON[a.kind] ?? "•"}
+                    </div>
+                    {i < activities.length - 1 && <div style={{ width: 2, flex: 1, background: c.border, minHeight: 14 }} />}
+                  </div>
+                  <div style={{ flex: 1, paddingBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{KIND_LABELS[a.kind] ?? a.kind}</span>
+                      <span style={{ fontSize: 10.5, color: c.textMuted, fontFamily: "var(--font-brokerage-mono)", whiteSpace: "nowrap" }}>
+                        {new Date(a.happens_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                    {a.title && <div style={{ fontSize: 12, color: c.textSecondary, marginTop: 3, lineHeight: 1.45 }}>{a.title}</div>}
+                    {typeof a.properties?.body === "string" && a.properties.body !== a.title && (
+                      <div style={{ fontSize: 12, color: c.textSecondary, marginTop: 3, lineHeight: 1.45 }}>{a.properties.body as string}</div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
-        {activities.length === 0 ? (
-          <div className="text-sm text-neutral-500">No activity yet.</div>
-        ) : (
-          <div className="grid gap-2">
-            {activities.map((a) => (
-              <div
-                key={a.id}
-                className="rounded border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm"
-              >
-                <div className="flex items-baseline justify-between">
-                  <span className="text-xs uppercase tracking-wide text-neutral-500">
-                    {KIND_LABELS[a.kind] ?? a.kind}
-                  </span>
-                  <span className="text-xs text-neutral-500">
-                    {new Date(a.happens_at).toLocaleString(undefined, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </span>
-                </div>
-                {a.title && <div className="mt-1">{a.title}</div>}
-                {typeof a.properties?.body === "string" && a.properties.body !== a.title && (
-                  <div className="mt-1 text-neutral-400">{a.properties.body as string}</div>
-                )}
-              </div>
-            ))}
+        {/* Contacts */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>
+              Contacts
+            </div>
+            {people.length === 0 ? (
+              <div style={{ padding: "20px 16px", fontSize: 12, color: c.textMuted, textAlign: "center" }}>No contacts yet.</div>
+            ) : (
+              people.map((p) => {
+                const displayName = [p.first_name, p.last_name].filter(Boolean).join(" ") || "(unnamed)";
+                const initials = displayName
+                  .split(" ")
+                  .map((s: string) => s[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase();
+                return (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        flex: "none",
+                        borderRadius: "50%",
+                        background: c.borderStrong,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontFamily: "var(--font-brokerage-display)",
+                        fontWeight: 600,
+                        fontSize: 12,
+                        color: c.brassBright,
+                      }}
+                    >
+                      {initials}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 500, color: c.paper }}>{displayName}</div>
+                      <div style={{ fontSize: 10.5, color: c.textMuted }}>
+                        {p.job_title ?? "—"} · {p.email ?? "—"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
-        )}
-      </section>
-    </main>
+        </div>
+      </div>
+    </div>
   );
 }
