@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import type { BuddySignalBase } from "@/buddy/signals";
 
@@ -17,7 +17,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 
-    const bankId = await getCurrentBankId();
+    // Same tenant-resolution states as GET /signals/latest are expected here
+    // (onboarding in progress, multi-bank selection pending, etc.) — not
+    // server errors. Drop the beacon quietly rather than 500.
+    const bankPick = await tryGetCurrentBankId();
+    if (!bankPick.ok) {
+      return NextResponse.json({ ok: false, error: bankPick.reason }, { status: 401 });
+    }
+    const bankId = bankPick.bankId;
     const body = (await req.json().catch(() => null)) as BuddySignalBase | null;
 
     if (!body || !body.type || !body.source) {

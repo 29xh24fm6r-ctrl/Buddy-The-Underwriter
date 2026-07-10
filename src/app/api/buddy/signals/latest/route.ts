@@ -1,7 +1,7 @@
 // src/app/api/buddy/signals/latest/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,17 @@ export async function GET(req: NextRequest) {
     const dealId = url.searchParams.get("dealId");
     const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 200);
 
-    const bankId = await getCurrentBankId();
+    // This widget mounts in the root layout and polls on every page,
+    // including public/unauthenticated ones and the brief window before a
+    // freshly-signed-in session cookie propagates. "No tenant resolved yet"
+    // is an expected, common state here — not a server error — so degrade
+    // to an empty result instead of a hard 500 that spams logs/console for
+    // every anonymous visitor and every pre-hydration poll.
+    const bankPick = await tryGetCurrentBankId();
+    if (!bankPick.ok) {
+      return NextResponse.json({ ok: true, items: [] });
+    }
+    const bankId = bankPick.bankId;
     const sb = supabaseAdmin();
 
     let q = sb
