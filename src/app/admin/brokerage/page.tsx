@@ -240,7 +240,7 @@ export default async function BrokerageHomePage() {
         </h2>
         <div className="grid gap-4 md:grid-cols-3">
           <Link
-            href="/admin/roles"
+            href="/admin/brokerage/team"
             className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
           >
             <div className="text-sm font-medium">Team &amp; roles</div>
