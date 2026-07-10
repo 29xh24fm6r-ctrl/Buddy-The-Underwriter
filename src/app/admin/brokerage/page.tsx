@@ -1,28 +1,24 @@
 import "server-only";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { brokerageColors as c, fmtMoneyCompact } from "@/components/brokerage/tokens";
 
 export const dynamic = "force-dynamic";
 
 /**
  * /admin/brokerage — Buddy Brokerage command center home.
  *
- * This is the front door for running the brokerage business day to day.
- * Before this page existed, every brokerage-specific screen (lenders,
- * listings ops, comms, deals-by-origin, launch readiness, the owner
- * command center) was reachable only by typing its URL directly — none
- * of them were linked from any nav. The comms page's own breadcrumb
- * pointed at "/admin/brokerage" and 404'd, because nothing served it.
+ * Visual system ported from the Claude Design prototype
+ * (Buddy_Brokerage_dc.html): the four-tile "Do the work" row with left
+ * accent bars, grouped sections, ink/brass palette. Real data throughout —
+ * no sample data carried over from the prototype.
  *
- * This page fixes that: one place that links out to every real,
- * working piece of the brokerage operation, grouped by how they're
- * actually used (work deals day-to-day vs. monitor ops health vs.
- * manage the business).
- *
- * Access: admin layout already requires super_admin. We do NOT add a
- * second gate here — single source of truth is the layout.
+ * Structure unchanged from the pre-redesign version (still fixes the same
+ * dead-link/discoverability gap this page was originally built to solve —
+ * see git history) — this pass is the visual layer only.
  */
 
 function errorMessage(e: unknown): string {
@@ -46,6 +42,119 @@ async function safeCount(
   }
 }
 
+async function safeSum(
+  fn: () => PromiseLike<{ data: { loan_amount: number | null }[] | null; error: unknown }>,
+): Promise<number | null> {
+  try {
+    const { data, error } = await fn();
+    if (error || !data) return null;
+    return data.reduce((s, r) => s + (r.loan_amount ?? 0), 0);
+  } catch {
+    return null;
+  }
+}
+
+function Tile({
+  label,
+  value,
+  delta,
+  accent,
+  href,
+}: {
+  label: string;
+  value: string;
+  delta: string;
+  accent: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        background: c.card,
+        border: `1px solid ${c.border}`,
+        borderRadius: 8,
+        padding: "16px 16px 15px",
+        position: "relative",
+        overflow: "hidden",
+        display: "block",
+        textDecoration: "none",
+        color: "inherit",
+      }}
+    >
+      <div style={{ position: "absolute", top: 0, left: 0, width: 3, height: "100%", background: accent }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ fontSize: 11, color: c.textSecondary, letterSpacing: 0.3 }}>{label}</div>
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--font-brokerage-mono)",
+          fontWeight: 600,
+          fontSize: 30,
+          color: c.paper,
+          margin: "9px 0 3px",
+          letterSpacing: -0.5,
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: c.textMuted }}>{delta}</div>
+    </Link>
+  );
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        fontFamily: "var(--font-brokerage-mono)",
+        fontSize: 10,
+        letterSpacing: 2,
+        textTransform: "uppercase",
+        color: c.textMuted,
+        marginBottom: 8,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SmallCard({
+  title,
+  desc,
+  value,
+  href,
+}: {
+  title: string;
+  desc: string;
+  value?: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        background: c.card,
+        border: `1px solid ${c.border}`,
+        borderRadius: 8,
+        padding: 14,
+        display: "block",
+        textDecoration: "none",
+        color: "inherit",
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: c.paper, marginBottom: 4 }}>{title}</div>
+      {value && (
+        <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 22, color: c.paper, margin: "4px 0" }}>
+          {value}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: c.textMuted, lineHeight: 1.5 }}>{desc}</div>
+    </Link>
+  );
+}
+
 export default async function BrokerageHomePage() {
   let brokerageBankId: string | null = null;
   let tenantError: string | null = null;
@@ -57,223 +166,125 @@ export default async function BrokerageHomePage() {
 
   const sb = supabaseAdmin();
 
-  const [activeDeals, lendersLoaded, uploadsStuck, sealedPackages] =
-    await Promise.all([
-      brokerageBankId
-        ? safeCount(() =>
-            sb
-              .from("deals")
-              .select("id", { count: "exact", head: true })
-              .eq("bank_id", brokerageBankId!)
-              .then((r: any) => ({ count: r.count, error: r.error })),
-          )
-        : Promise.resolve(null),
-      safeCount(() =>
-        sb
-          .from("lender_marketplace_agreements")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "active")
-          .then((r: any) => ({ count: r.count, error: r.error })),
-      ),
-      safeCount(() =>
-        sb
-          .from("deal_documents")
-          .select("id", { count: "exact", head: true })
-          .is("finalized_at", null)
-          .then((r: any) => ({ count: r.count, error: r.error })),
-      ),
-      safeCount(() =>
-        sb
-          .from("buddy_sealed_packages")
-          .select("id", { count: "exact", head: true })
-          .is("unsealed_at", null)
-          .then((r: any) => ({ count: r.count, error: r.error })),
-      ),
-    ]);
+  const [activeDeals, pipelineValue, lendersLoaded, uploadsStuck, sealedPackages] = await Promise.all([
+    brokerageBankId
+      ? safeCount(() =>
+          sb
+            .from("deals")
+            .select("id", { count: "exact", head: true })
+            .eq("bank_id", brokerageBankId!)
+            .then((r: any) => ({ count: r.count, error: r.error })),
+        )
+      : Promise.resolve(null),
+    brokerageBankId
+      ? safeSum(() =>
+          sb
+            .from("deals")
+            .select("loan_amount")
+            .eq("bank_id", brokerageBankId!)
+            .then((r: any) => ({ data: r.data, error: r.error })),
+        )
+      : Promise.resolve(null),
+    safeCount(() =>
+      sb
+        .from("lender_marketplace_agreements")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "active")
+        .then((r: any) => ({ count: r.count, error: r.error })),
+    ),
+    safeCount(() =>
+      sb
+        .from("deal_documents")
+        .select("id", { count: "exact", head: true })
+        .is("finalized_at", null)
+        .then((r: any) => ({ count: r.count, error: r.error })),
+    ),
+    safeCount(() =>
+      sb
+        .from("buddy_sealed_packages")
+        .select("id", { count: "exact", head: true })
+        .is("unsealed_at", null)
+        .then((r: any) => ({ count: r.count, error: r.error })),
+    ),
+  ]);
 
   return (
-    <main className="px-8 py-10 max-w-6xl mx-auto">
-      <header className="mb-8">
-        <div className="text-xs uppercase tracking-wide text-neutral-400">
-          Buddy Brokerage
-        </div>
-        <h1 className="text-3xl font-semibold mt-1">Command center</h1>
-        <p className="text-sm text-neutral-400 mt-2 max-w-2xl">
-          Everything for running the brokerage business — working deals,
-          managing lenders, and keeping an eye on ops health — starts here.
-        </p>
-      </header>
-
+    <div style={{ padding: "22px 24px 40px", maxWidth: 1240 }}>
       {tenantError && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div
+          style={{
+            border: `1px solid ${c.brick}`,
+            background: "rgba(168,93,82,.1)",
+            color: c.brick,
+            fontSize: 12,
+            padding: 12,
+            borderRadius: 6,
+            marginBottom: 20,
+          }}
+        >
           Brokerage tenant unavailable: <code>{tenantError}</code>
         </div>
       )}
 
-      {/* ── Do the work ──────────────────────────────────────────── */}
-      <section className="mb-8">
-        <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-          Do the work
-        </h2>
-        <div className="grid gap-4 md:grid-cols-5">
-          <Link
-            href="/deals"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-lg font-medium">Deals</div>
-            <div className="text-sm text-neutral-400 mt-1">
-              The working pipeline — intake, documents, underwriting,
-              pricing, credit memo, servicing.
-            </div>
-            <div className="text-2xl font-semibold mt-3">
-              {activeDeals ?? "—"}
-            </div>
-            <div className="text-xs text-neutral-500">active on this tenant</div>
-            <div className="text-xs text-amber-400 mt-2">
-              Requires the Buddy Brokerage tenant selected — use{" "}
-              <span className="underline">/select-bank</span> if you land on
-              a different bank.
-            </div>
-          </Link>
+      {/* Do the work */}
+      <SectionLabel>Do the work</SectionLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 26 }}>
+        <Tile
+          label="Active deals"
+          value={activeDeals !== null ? String(activeDeals) : "—"}
+          delta={pipelineValue !== null ? `${fmtMoneyCompact(pipelineValue)} in pipeline` : "on this tenant"}
+          accent={c.brassBright}
+          href="/deals"
+        />
+        <Tile
+          label="Active lenders"
+          value={lendersLoaded !== null ? String(lendersLoaded) : "—"}
+          delta="active agreements"
+          accent={c.brass}
+          href="/admin/brokerage/lenders"
+        />
+        <Tile
+          label="Uploads pending OCR"
+          value={uploadsStuck !== null ? String(uploadsStuck) : "—"}
+          delta="awaiting processing"
+          accent={uploadsStuck && uploadsStuck > 0 ? c.brick : c.textFaint}
+          href="/admin/brokerage/uploads"
+        />
+        <Tile
+          label="Sealed packages"
+          value={sealedPackages !== null ? String(sealedPackages) : "—"}
+          delta="active, unsealed"
+          accent={c.sage}
+          href="/admin/brokerage/packages"
+        />
+      </div>
 
-          <Link
-            href="/admin/brokerage/lenders"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-lg font-medium">Lenders</div>
-            <div className="text-sm text-neutral-400 mt-1">
-              Load and manage the banks your brokerage places deals with —
-              matching programs, agreements, referral terms.
-            </div>
-            <div className="text-2xl font-semibold mt-3">
-              {lendersLoaded ?? "—"}
-            </div>
-            <div className="text-xs text-neutral-500">active lender agreements</div>
-          </Link>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 26 }}>
+        <SmallCard title="CRM" desc="Referral sources and professional partners, with a logged activity timeline per relationship." href="/admin/brokerage/crm" />
+        <SmallCard title="Billing" desc="Invoice lenders for referral fees on funded deals — draft, finalize, track payment." href="/admin/brokerage/billing" />
+        <SmallCard title="Owner command center" desc="Pipeline summary, bottlenecks, team workload, activity feed." href="/admin/brokerage-owner" />
+      </div>
 
-          <Link
-            href="/admin/brokerage-owner"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-lg font-medium">Owner command center</div>
-            <div className="text-sm text-neutral-400 mt-1">
-              Pipeline summary, daily brief, bottlenecks, team workload, and
-              activity feed — the business-level view.
-            </div>
-          </Link>
+      {/* Ops health */}
+      <SectionLabel>Ops health</SectionLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 26 }}>
+        <SmallCard title="Listings & sessions" desc="Full ops tile board — sessions, drafts, claimed deals, marketplace listing counts." href="/admin/brokerage/listings" />
+        <SmallCard title="Uploads pending OCR" value={uploadsStuck !== null ? String(uploadsStuck) : "—"} desc="" href="/admin/brokerage/uploads" />
+        <SmallCard title="Sealed packages" value={sealedPackages !== null ? String(sealedPackages) : "—"} desc="active, unsealed" href="/admin/brokerage/packages" />
+        <SmallCard title="Communications" desc="Borrower nudges, banker alerts, outbox processing." href="/admin/brokerage/comms" />
+      </div>
 
-          <Link
-            href="/admin/brokerage/crm"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-lg font-medium">CRM</div>
-            <div className="text-sm text-neutral-400 mt-1">
-              Referral sources and professional partners — organizations,
-              contacts, and a logged activity timeline per relationship.
-            </div>
-          </Link>
+      {/* Run the business */}
+      <SectionLabel>Run the business</SectionLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <SmallCard title="Team & roles" desc="Add partners, assign access." href="/admin/brokerage/team" />
+        <SmallCard title="Launch readiness" desc="Pilot-readiness checklist — what's real vs. still open before a live borrower goes through." href="/admin/brokerage/launch-readiness" />
+        <SmallCard title="Stuck deals (by origin)" desc="Diagnostic view — oldest-first, filterable by anonymous vs. claimed." href="/admin/brokerage/deals" />
+      </div>
 
-          <Link
-            href="/admin/brokerage/billing"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-lg font-medium">Billing</div>
-            <div className="text-sm text-neutral-400 mt-1">
-              Invoice lenders for referral fees on funded deals — draft,
-              finalize, and track payment.
-            </div>
-          </Link>
-        </div>
-      </section>
-
-      {/* ── Ops health ────────────────────────────────────────────── */}
-      <section className="mb-8">
-        <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-          Ops health
-        </h2>
-        <div className="grid gap-4 md:grid-cols-4">
-          <Link
-            href="/admin/brokerage/listings"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Listings &amp; sessions</div>
-            <div className="text-xs text-neutral-500 mt-1">
-              Full ops tile board — sessions, drafts, claimed deals,
-              marketplace listing counts.
-            </div>
-          </Link>
-          <Link
-            href="/admin/brokerage/uploads"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Uploads pending OCR</div>
-            <div className="text-2xl font-semibold mt-2">
-              {uploadsStuck ?? "—"}
-            </div>
-          </Link>
-          <Link
-            href="/admin/brokerage/packages"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Sealed packages</div>
-            <div className="text-2xl font-semibold mt-2">
-              {sealedPackages ?? "—"}
-            </div>
-            <div className="text-xs text-neutral-500">active, unsealed</div>
-          </Link>
-          <Link
-            href="/admin/brokerage/comms"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Communications</div>
-            <div className="text-xs text-neutral-500 mt-1">
-              Borrower nudges, banker alerts, outbox processing.
-            </div>
-          </Link>
-        </div>
-      </section>
-
-      {/* ── Run the business ─────────────────────────────────────── */}
-      <section>
-        <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-          Run the business
-        </h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Link
-            href="/admin/brokerage/team"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Team &amp; roles</div>
-            <div className="text-xs text-neutral-500 mt-1">
-              Add partners, assign access.
-            </div>
-          </Link>
-          <Link
-            href="/admin/brokerage/launch-readiness"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Launch readiness</div>
-            <div className="text-xs text-neutral-500 mt-1">
-              Pilot-readiness checklist — what's real vs. still open before
-              a live borrower goes through.
-            </div>
-          </Link>
-          <Link
-            href="/admin/brokerage/deals"
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 hover:border-neutral-600 transition-colors block"
-          >
-            <div className="text-sm font-medium">Stuck deals (by origin)</div>
-            <div className="text-xs text-neutral-500 mt-1">
-              Diagnostic view — oldest-first, filterable by anonymous vs.
-              claimed.
-            </div>
-          </Link>
-        </div>
-      </section>
-
-      <p className="text-xs text-neutral-500 mt-10">
+      <p style={{ fontSize: 11, color: c.textFaint, marginTop: 32 }}>
         Tenant: <code>{brokerageBankId ?? "(unresolved)"}</code>
       </p>
-    </main>
+    </div>
   );
 }
