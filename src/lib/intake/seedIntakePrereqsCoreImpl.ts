@@ -353,6 +353,19 @@ export async function seedIntakePrereqsCore(
     });
   }
 
+  // initialize_intake and materialize_required_checklist are load-bearing:
+  // if either failed, the deal does not actually have a seeded checklist and
+  // callers must not treat this as success (they previously did, which let
+  // deals proceed through the orchestrator with an empty checklist).
+  const criticalStepFailure = diagnostics.steps.find(
+    (s) => !s.ok && (s.name === "initialize_intake" || s.name === "materialize_required_checklist"),
+  );
+  if (criticalStepFailure) {
+    throw new Error(
+      `seedIntakePrereqsCore: critical step "${criticalStepFailure.name}" failed: ${criticalStepFailure.error}`,
+    );
+  }
+
   return {
     ok: true,
     dealId,

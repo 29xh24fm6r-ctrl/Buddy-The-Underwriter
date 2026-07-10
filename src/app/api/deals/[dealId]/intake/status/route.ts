@@ -201,15 +201,35 @@ export async function GET(_req: Request, ctx: Ctx): Promise<NextResponse<IntakeS
     .order("created_at", { ascending: false })
     .limit(30);
 
-  const errorEvent = (ledger ?? []).find((e: any) => {
+  // Ledger rows are ordered most-recent-first. Walk forward from "now" and
+  // stop at the first event that either IS a failure (report it) or
+  // supersedes any earlier failure with a success (nothing to report) — a
+  // failure event further back in the list has already been resolved and
+  // must not be surfaced as the current lastError.
+  const INTAKE_FAILURE_EVENT_KEYS = new Set([
+    "deal.intake.failed",
+    "pipeline.intake.init_failed",
+    "intake.init_failed",
+  ]);
+  const INTAKE_RESOLVING_EVENT_KEYS = new Set([
+    "pipeline.intake.initialized",
+    "pipeline.intake.already_initialized",
+    "pipeline.checklist.seeded",
+    "deal.checklist.seeded",
+    "deal.checklist.materialized",
+    "intake.initialized",
+  ]);
+  let errorEvent: any = null;
+  for (const e of ledger ?? []) {
     const key = String(e.event_key ?? "");
-    return (
-      key === "deal.intake.failed" ||
-      key === "pipeline.intake.init_failed" ||
-      key === "intake.init_failed" ||
-      key.includes("failed")
-    );
-  });
+    if (INTAKE_FAILURE_EVENT_KEYS.has(key) || key.startsWith("deal.intake.step_failed.")) {
+      errorEvent = e;
+      break;
+    }
+    if (INTAKE_RESOLVING_EVENT_KEYS.has(key)) {
+      break;
+    }
+  }
 
   const lastError = errorEvent
     ? {

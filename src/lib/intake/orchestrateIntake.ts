@@ -3,7 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { seedIntakePrereqsCore } from "@/lib/intake/seedIntakePrereqsCoreImpl";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { normalizeGoogleError } from "@/lib/google/errors";
+import { normalizeGoogleError, isRetryableGoogleErrorCode } from "@/lib/google/errors";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { isOpenAiGatekeeperEnabled } from "@/lib/flags/openaiGatekeeper";
 import { classifyDocumentSpine } from "@/lib/classification/classifyDocumentSpine";
@@ -154,13 +154,22 @@ export async function orchestrateIntake(args: {
       if (CRITICAL_STEPS.has(name)) {
         criticalFailures.push(`${name}: ${message}`);
       }
-      if (normalized.code === "GOOGLE_UNKNOWN") {
+      if (isRetryableGoogleErrorCode(normalized.code)) {
         await logLedgerOnce({
           sb,
           dealId: args.dealId,
           bankId: args.bankId,
           eventKey: "deal.intake.retrying",
           uiMessage: "Intake retrying",
+          meta: { source, error_code: normalized.code, error_message: normalized.message },
+        });
+      } else {
+        await logLedgerOnce({
+          sb,
+          dealId: args.dealId,
+          bankId: args.bankId,
+          eventKey: `deal.intake.step_failed.${name}`,
+          uiMessage: `Intake step failed: ${name}`,
           meta: { source, error_code: normalized.code, error_message: normalized.message },
         });
       }

@@ -21,7 +21,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { normalizeGoogleError } from "@/lib/google/errors";
+import { normalizeGoogleError, isRetryableGoogleErrorCode } from "@/lib/google/errors";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 import { trackDegradedResponse } from "@/lib/api/degradedTracker";
 import {
@@ -224,7 +224,7 @@ async function buildPayload(
         });
         if (!init.ok) {
           const normalized = normalizeGoogleError(init.error);
-          if (normalized.code !== "GOOGLE_UNKNOWN") {
+          if (!isRetryableGoogleErrorCode(normalized.code)) {
             logLedgerEvent({
               dealId,
               bankId: deal.bank_id,

@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { normalizeGoogleError } from "@/lib/google/errors";
+import { normalizeGoogleError, isRetryableGoogleErrorCode } from "@/lib/google/errors";
 import { advanceDealLifecycle } from "@/lib/deals/advanceDealLifecycle";
 import { emitBuilderLifecycleSignal } from "@/lib/buddy/builderSignals";
 
@@ -41,12 +41,28 @@ export async function initializeIntake(
       .maybeSingle();
 
     if (!deal) {
+      await logLedgerEvent({
+        dealId,
+        bankId: resolvedBankId ?? "",
+        eventKey: "deal.intake.failed",
+        uiState: "done",
+        uiMessage: "Intake failed: deal_not_found",
+        meta: { trigger, error_code: "DEAL_NOT_FOUND" },
+      }).catch((logError) => console.error("[intake] failed to log deal_not_found", logError));
       return { ok: false, error: "deal_not_found" } as const;
     }
 
     resolvedBankId = resolvedBankId ?? (deal.bank_id ? String(deal.bank_id) : null);
 
     if (resolvedBankId && deal.bank_id && String(deal.bank_id) !== String(resolvedBankId)) {
+      await logLedgerEvent({
+        dealId,
+        bankId: resolvedBankId ?? "",
+        eventKey: "deal.intake.failed",
+        uiState: "done",
+        uiMessage: "Intake failed: tenant_mismatch",
+        meta: { trigger, error_code: "TENANT_MISMATCH" },
+      }).catch((logError) => console.error("[intake] failed to log tenant_mismatch", logError));
       return { ok: false, error: "tenant_mismatch" } as const;
     }
 
@@ -249,7 +265,7 @@ export async function initializeIntake(
     const normalized = normalizeGoogleError(error);
     const rawMessage = String(error?.message ?? String(error));
     const truncated = rawMessage.length > 400 ? `${rawMessage.slice(0, 399)}…` : rawMessage;
-    const isRetryableUnknown = normalized.code === "GOOGLE_UNKNOWN";
+    const isRetryableUnknown = isRetryableGoogleErrorCode(normalized.code);
     try {
       if (!isRetryableUnknown) {
         await logLedgerEvent({
