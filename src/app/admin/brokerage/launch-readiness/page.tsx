@@ -1,11 +1,11 @@
 import "server-only";
 
-import Link from "next/link";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -246,73 +246,104 @@ export default async function LaunchReadinessPage() {
   const failCount = checks.filter((c) => c.status === "fail").length;
   const warnCount = checks.filter((c) => c.status === "warn").length;
 
-  return (
-    <main className="px-8 py-10 max-w-5xl mx-auto">
-      <header className="mb-6 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Pilot readiness</h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Each row asserts one invariant from SPEC-BROKERAGE-LAUNCH-BLOCKERS-V1
-            §9. Pilot-ready = zero red rows. Yellow rows mean recently
-            verified but worth re-checking.
-          </p>
-        </div>
-        <Link href="/admin/brokerage/listings" className="text-sm underline">
-          Back to overview
-        </Link>
-      </header>
+  const readyCount = checks.length - failCount - warnCount;
 
-      <div className="grid grid-cols-3 gap-3 mb-6 text-sm">
-        <div className="rounded border border-green-700 bg-green-900/30 p-3">
-          <span className="text-green-300">{checks.length - failCount - warnCount}</span>{" "}
-          green
-        </div>
-        <div className="rounded border border-yellow-700 bg-yellow-900/30 p-3">
-          <span className="text-yellow-300">{warnCount}</span> amber
-        </div>
-        <div className="rounded border border-red-700 bg-red-900/30 p-3">
-          <span className="text-red-300">{failCount}</span> red
+  return (
+    <div style={{ padding: "18px 24px 40px" }}>
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <div style={{ height: 6, flex: 1, background: c.ink, borderRadius: 3, overflow: "hidden", display: "flex" }}>
+            <div style={{ height: "100%", width: `${(readyCount / checks.length) * 100}%`, background: c.sage }} />
+            <div style={{ height: "100%", width: `${(warnCount / checks.length) * 100}%`, background: c.brassBright }} />
+            <div style={{ height: "100%", width: `${(failCount / checks.length) * 100}%`, background: c.brick }} />
+          </div>
+          <span style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 11, color: c.textMuted, whiteSpace: "nowrap" }}>
+            {readyCount} / {checks.length} ready
+          </span>
         </div>
       </div>
 
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="text-left text-neutral-400 border-b border-neutral-800">
-            <th className="py-2 pr-4">Check</th>
-            <th className="py-2 pr-4">Status</th>
-            <th className="py-2 pr-4">Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {checks.map((c) => (
-            <tr
-              key={c.id}
-              data-check-id={c.id}
-              data-status={c.status}
-              className="border-b border-neutral-900"
-            >
-              <td className="py-2 pr-4">{c.label}</td>
-              <td className="py-2 pr-4">
-                <StatusBadge status={c.status} />
-              </td>
-              <td className="py-2 pr-4 text-neutral-400">{c.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+        <div style={{ border: `1px solid rgba(90,138,110,.4)`, background: "rgba(90,138,110,.1)", borderRadius: 8, padding: 12, fontSize: 12 }}>
+          <span style={{ color: c.sage, fontFamily: "var(--font-brokerage-mono)", fontWeight: 600 }}>{readyCount}</span>{" "}
+          <span style={{ color: c.textSecondary }}>ready</span>
+        </div>
+        <div style={{ border: `1px solid rgba(184,144,91,.4)`, background: "rgba(184,144,91,.1)", borderRadius: 8, padding: 12, fontSize: 12 }}>
+          <span style={{ color: c.brassBright, fontFamily: "var(--font-brokerage-mono)", fontWeight: 600 }}>{warnCount}</span>{" "}
+          <span style={{ color: c.textSecondary }}>amber</span>
+        </div>
+        <div style={{ border: `1px solid rgba(168,93,82,.4)`, background: "rgba(168,93,82,.1)", borderRadius: 8, padding: 12, fontSize: 12 }}>
+          <span style={{ color: c.brick, fontFamily: "var(--font-brokerage-mono)", fontWeight: 600 }}>{failCount}</span>{" "}
+          <span style={{ color: c.textSecondary }}>red</span>
+        </div>
+      </div>
+
+      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.4fr 100px 1.6fr",
+            padding: "9px 16px",
+            borderBottom: `1px solid ${c.borderStrong}`,
+            background: c.inkHeader,
+            fontFamily: "var(--font-brokerage-mono)",
+            fontSize: 9.5,
+            letterSpacing: 1,
+            textTransform: "uppercase",
+            color: c.textFaint,
+          }}
+        >
+          <div>Check</div>
+          <div>Status</div>
+          <div>Value</div>
+        </div>
+        {checks.map((chk) => (
+          <div
+            key={chk.id}
+            data-check-id={chk.id}
+            data-status={chk.status}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1.4fr 100px 1.6fr",
+              padding: "10px 16px",
+              borderBottom: `1px solid ${c.divider}`,
+              alignItems: "center",
+            }}
+          >
+            <div style={{ fontSize: 12, color: c.paper }}>{chk.label}</div>
+            <div>
+              <StatusBadge status={chk.status} />
+            </div>
+            <div style={{ fontSize: 11, color: c.textSecondary }}>{chk.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
 function StatusBadge({ status }: { status: Status }) {
-  const styles: Record<Status, string> = {
-    ok: "bg-green-800/40 text-green-300",
-    warn: "bg-yellow-800/40 text-yellow-300",
-    fail: "bg-red-800/40 text-red-300",
-    unknown: "bg-neutral-800 text-neutral-400",
+  const colors: Record<Status, { text: string; bg: string }> = {
+    ok: { text: c.sage, bg: "rgba(90,138,110,.12)" },
+    warn: { text: c.brassBright, bg: "rgba(184,144,91,.12)" },
+    fail: { text: c.brick, bg: "rgba(168,93,82,.12)" },
+    unknown: { text: c.textSecondary, bg: "rgba(154,150,140,.07)" },
   };
+  const s = colors[status];
   return (
-    <span className={`px-2 py-0.5 rounded text-xs ${styles[status]}`}>
+    <span
+      style={{
+        display: "inline-flex",
+        fontFamily: "var(--font-brokerage-mono)",
+        fontSize: 9,
+        letterSpacing: 1.2,
+        textTransform: "uppercase",
+        color: s.text,
+        background: s.bg,
+        padding: "3px 7px",
+        borderRadius: 2,
+      }}
+    >
       {status}
     </span>
   );
