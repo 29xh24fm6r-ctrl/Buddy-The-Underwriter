@@ -3,6 +3,7 @@ import "server-only";
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -164,58 +165,40 @@ export default async function AdminBrokerageListingsPage() {
   });
 
   return (
-    <main className="px-8 py-10 max-w-5xl mx-auto">
-      <header className="mb-6 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Brokerage operations</h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Click any tile for the underlying rows. Pilot-readiness is on
-            its own page.
-          </p>
-        </div>
-        <Link
-          href="/admin/brokerage/launch-readiness"
-          className="text-sm underline"
-        >
-          Launch readiness
-        </Link>
-      </header>
-
+    <div style={{ padding: "18px 24px 40px" }}>
       {tenantError && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           Brokerage tenant unavailable: <code>{tenantError}</code>
         </div>
       )}
 
-      <section className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {counts.map((c) => {
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {counts.map((row) => {
           const inner = (
-            <div className="rounded-md border border-neutral-800 bg-neutral-900 p-4 h-full transition-colors hover:border-neutral-600">
-              <div className="text-xs uppercase tracking-wide text-neutral-400">
-                {c.label}
-              </div>
-              {c.error ? (
-                <div className="mt-2 text-xs text-red-400 break-all">
-                  error: {c.error}
-                </div>
+            <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 14, height: "100%" }}>
+              <div style={{ fontSize: 11, color: c.textSecondary, letterSpacing: 0.3 }}>{row.label}</div>
+              {row.error ? (
+                <div style={{ marginTop: 8, fontSize: 11, color: c.brick, wordBreak: "break-all" }}>error: {row.error}</div>
               ) : (
-                <div className="text-3xl font-semibold mt-2">{c.value}</div>
+                <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 26, color: c.paper, marginTop: 8 }}>
+                  {row.value}
+                </div>
               )}
             </div>
           );
-          return c.href ? (
-            <Link key={c.label} href={c.href}>
+          return row.href ? (
+            <Link key={row.label} href={row.href} style={{ textDecoration: "none", color: "inherit" }}>
               {inner}
             </Link>
           ) : (
-            <div key={c.label}>{inner}</div>
+            <div key={row.label}>{inner}</div>
           );
         })}
-      </section>
+      </div>
 
-      <p className="text-xs text-neutral-500 mt-8">
+      <p style={{ fontSize: 11, color: c.textFaint, marginTop: 24 }}>
         Tenant: <code>{brokerageBankId ?? "(unresolved)"}</code>
       </p>
-    </main>
+    </div>
   );
 }
