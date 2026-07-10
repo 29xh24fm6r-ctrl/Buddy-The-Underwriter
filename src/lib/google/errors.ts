@@ -82,5 +82,33 @@ export function normalizeGoogleError(error: unknown): NormalizedGoogleError {
     return { code: "GOOGLE_NOT_FOUND", message: truncateMessage(message), meta };
   }
 
-  return { code: "GOOGLE_UNKNOWN", message: truncateMessage(message), meta };
+  // Transient network/server conditions genuinely worth a silent retry.
+  if (
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    lower.includes("econnreset") ||
+    lower.includes("etimedout") ||
+    lower.includes("socket hang up") ||
+    lower.includes("unavailable") ||
+    lower.includes("deadline exceeded") ||
+    lower.includes("network error")
+  ) {
+    return { code: "GOOGLE_TRANSIENT", message: truncateMessage(message), meta };
+  }
+
+  // Anything else (DB errors, RLS denials, plain application exceptions, etc.)
+  // is NOT a known-transient Google condition and must NOT be treated as
+  // retryable by callers — see isRetryableGoogleErrorCode.
+  return { code: "UNKNOWN_ERROR", message: truncateMessage(message), meta };
+}
+
+// Codes that represent a genuinely transient condition safe to silently
+// retry. Everything else (including UNKNOWN_ERROR) must be surfaced as a
+// hard failure so real bugs don't get swallowed as "waiting".
+const RETRYABLE_CODES = new Set(["GOOGLE_TRANSIENT", "VERTEX_QUOTA"]);
+
+export function isRetryableGoogleErrorCode(code: string): boolean {
+  return RETRYABLE_CODES.has(code);
 }
