@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 type OutboxCounts = { pending: number; sending: number; sent: number; failed: number; retryScheduled: number; exhausted: number };
 type OrchResult = { dealId: string; borrowerNudges: { planned: number; enqueued: number; skipped: number }; bankerAlerts: { planned: number; enqueued: number; skipped: number }; outbox: { processed: number; sent: number; failed: number }; warnings: string[] };
@@ -9,88 +11,192 @@ type LedgerEvent = { event_type: string; channel: string; recipient_masked: stri
 type LifecycleEvent = { event_type: string; outcome: string; deal_id: string | null; channel: string; purpose: string | null; recipient_masked: string; reason: string | null; created_at: string };
 type LifecycleSummary = { totalHookEvents: number; byHookType: Record<string, { received: number; enqueued: number; skipped: number; failed: number }>; latestTimestamp: string | null; latestSkipReasons: string[]; relatedOutbox: { pending: number; sent: number; failed: number; exhausted: number }; relatedNudges: number; relatedAlerts: number; warnings: string[] };
 
+// ── Shared style helpers ─────────────────────────────────────────────────
+
+function cardStyle(): CSSProperties {
+  return { background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16 };
+}
+
+function sectionTitleStyle(): CSSProperties {
+  return {
+    fontFamily: "var(--font-brokerage-mono)",
+    fontSize: 10,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: c.textFaint,
+    marginBottom: 12,
+  };
+}
+
+function inputStyle(): CSSProperties {
+  return {
+    background: c.ink,
+    border: `1px solid ${c.border}`,
+    borderRadius: 5,
+    padding: "8px 10px",
+    color: c.paper,
+    fontSize: 12,
+    fontFamily: "var(--font-brokerage-sans)",
+  };
+}
+
+function buttonStyle(variant: "neutral" | "brass" | "danger", disabled: boolean): CSSProperties {
+  const base: CSSProperties = {
+    borderRadius: 6,
+    padding: "8px 14px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.4 : 1,
+    border: "none",
+  };
+  if (variant === "brass") {
+    return { ...base, background: `linear-gradient(150deg, ${c.brassBright}, ${c.brass})`, color: c.brassOnBrass };
+  }
+  if (variant === "danger") {
+    return { ...base, background: "rgba(168,93,82,.85)", color: "#2A0F0C" };
+  }
+  return { ...base, background: c.borderStrong, color: c.paper, border: `1px solid ${c.borderStronger}` };
+}
+
 // ── Sub-components ──────────────────────────────────────────────────────────
 
 function CommsModeBanner() {
   const mode = "stub" as "stub" | "dry_run" | "live"; // Read from API in production
-  const color = mode === "live" ? "bg-red-900/40 border-red-700 text-red-200" : mode === "dry_run" ? "bg-amber-900/40 border-amber-700 text-amber-200" : "bg-neutral-800 border-neutral-700 text-neutral-300";
+  const styles =
+    mode === "live"
+      ? { border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.12)", color: c.brick }
+      : mode === "dry_run"
+        ? { border: `1px solid ${c.brassBright}`, background: "rgba(184,144,91,.12)", color: c.brassBright }
+        : { border: `1px solid ${c.border}`, background: c.card, color: c.textSecondary };
   return (
-    <div className={`rounded-md border p-3 text-sm ${color}`} data-testid="comms-mode-banner">
+    <div style={{ ...styles, borderRadius: 8, padding: 12, fontSize: 12 }} data-testid="comms-mode-banner">
       Communications mode: <strong>{mode.toUpperCase()}</strong>
-      {mode === "live" && <span className="ml-2 text-xs">(outbox processing will send real messages)</span>}
+      {mode === "live" && <span style={{ marginLeft: 8, fontSize: 11 }}>(outbox processing will send real messages)</span>}
     </div>
   );
 }
 
-function CommsStatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = { pending: "bg-amber-700", sending: "bg-blue-700", sent: "bg-emerald-700", failed: "bg-red-700", retry_scheduled: "bg-amber-600", exhausted: "bg-red-900" };
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium text-white ${colors[status] ?? "bg-neutral-600"}`}>{status}</span>;
-}
+const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
+  pending: { text: c.brassBright, bg: "rgba(184,144,91,.15)" },
+  sending: { text: "#7BAECF", bg: "rgba(55,138,221,.15)" },
+  sent: { text: c.sage, bg: "rgba(90,138,110,.15)" },
+  failed: { text: c.brick, bg: "rgba(168,93,82,.15)" },
+  retry_scheduled: { text: c.brassBright, bg: "rgba(184,144,91,.1)" },
+  exhausted: { text: c.brick, bg: "rgba(168,93,82,.2)" },
+};
 
-function CommsOutboxTable({ items }: { items: Array<{ id: string; channel: string; status: string; recipient_masked: string; trigger_key: string; attempt_count: number }> }) {
-  if (items.length === 0) return <div className="text-sm text-neutral-500 py-4">No outbox items.</div>;
+function CommsStatusBadge({ status }: { status: string }) {
+  const s = STATUS_COLORS[status] ?? { text: c.textSecondary, bg: "rgba(154,150,140,.1)" };
   return (
-    <table className="w-full text-sm text-left" data-testid="outbox-table">
-      <thead className="text-xs text-neutral-400 uppercase border-b border-neutral-800">
-        <tr><th className="py-2 pr-3">Channel</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Recipient</th><th className="py-2 pr-3">Trigger</th><th className="py-2 pr-3">Attempts</th></tr>
-      </thead>
-      <tbody>
-        {items.map(i => (
-          <tr key={i.id} className="border-b border-neutral-800/50">
-            <td className="py-2 pr-3">{i.channel}</td>
-            <td className="py-2 pr-3"><CommsStatusBadge status={i.status} /></td>
-            <td className="py-2 pr-3 text-xs font-mono">{i.recipient_masked}</td>
-            <td className="py-2 pr-3">{i.trigger_key}</td>
-            <td className="py-2 pr-3">{i.attempt_count}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <span
+      style={{
+        display: "inline-flex",
+        fontFamily: "var(--font-brokerage-mono)",
+        fontSize: 9,
+        letterSpacing: 1,
+        textTransform: "uppercase",
+        color: s.text,
+        background: s.bg,
+        padding: "3px 7px",
+        borderRadius: 2,
+      }}
+    >
+      {status}
+    </span>
   );
 }
 
-function CommsLedgerTimeline({ events }: { events: LedgerEvent[] }) {
-  if (events.length === 0) return <div className="text-sm text-neutral-500 py-4">No ledger events.</div>;
+function CommsOutboxTable({ items }: { items: Array<{ id: string; channel: string; status: string; recipient_masked: string; trigger_key: string; attempt_count: number }> }) {
+  if (items.length === 0) return <div style={{ fontSize: 12, color: c.textMuted, padding: "16px 0" }}>No outbox items.</div>;
+  const grid = "90px 100px 1fr 1fr 80px";
   return (
-    <div className="space-y-1 max-h-60 overflow-y-auto" data-testid="ledger-timeline">
-      {events.map((e, i) => (
-        <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-neutral-800/50">
-          <span className="font-medium">{e.event_type}</span>
-          <span>{e.channel}</span>
-          <span className="font-mono">{e.recipient_masked}</span>
-          <span className="text-neutral-500">{e.created_at}</span>
+    <div style={{ border: `1px solid ${c.border}`, borderRadius: 6, overflow: "hidden" }} data-testid="outbox-table">
+      <div style={{ display: "grid", gridTemplateColumns: grid, padding: "7px 12px", background: c.inkHeader, fontFamily: "var(--font-brokerage-mono)", fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: c.textFaint }}>
+        <div>Channel</div><div>Status</div><div>Recipient</div><div>Trigger</div><div>Attempts</div>
+      </div>
+      {items.map((i) => (
+        <div key={i.id} style={{ display: "grid", gridTemplateColumns: grid, padding: "8px 12px", borderTop: `1px solid ${c.divider}`, alignItems: "center", fontSize: 12 }}>
+          <div style={{ color: c.paper }}>{i.channel}</div>
+          <div><CommsStatusBadge status={i.status} /></div>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 11, color: c.textSecondary }}>{i.recipient_masked}</div>
+          <div style={{ color: c.textSecondary }}>{i.trigger_key}</div>
+          <div style={{ color: c.textMuted }}>{i.attempt_count}</div>
         </div>
       ))}
     </div>
   );
 }
 
+function CommsLedgerTimeline({ events }: { events: LedgerEvent[] }) {
+  if (events.length === 0) return <div style={{ fontSize: 12, color: c.textMuted, padding: "16px 0" }}>No ledger events.</div>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflowY: "auto" }} data-testid="ledger-timeline">
+      {events.map((e, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, padding: "6px 0", borderBottom: `1px solid ${c.divider}` }}>
+          <span style={{ fontWeight: 600, color: c.paper }}>{e.event_type}</span>
+          <span style={{ color: c.textSecondary }}>{e.channel}</span>
+          <span style={{ fontFamily: "var(--font-brokerage-mono)", color: c.textSecondary }}>{e.recipient_masked}</span>
+          <span style={{ color: c.textMuted }}>{e.created_at}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const OUTCOME_COLORS: Record<string, { text: string; bg: string }> = {
+  received: { text: "#7BAECF", bg: "rgba(55,138,221,.15)" },
+  enqueued: { text: c.sage, bg: "rgba(90,138,110,.15)" },
+  skipped: { text: c.brassBright, bg: "rgba(184,144,91,.15)" },
+  failed: { text: c.brick, bg: "rgba(168,93,82,.15)" },
+};
+
 function LifecycleOutcomeBadge({ outcome }: { outcome: string }) {
-  const colors: Record<string, string> = { received: "bg-blue-700", enqueued: "bg-emerald-700", skipped: "bg-amber-700", failed: "bg-red-700" };
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium text-white ${colors[outcome] ?? "bg-neutral-600"}`}>{outcome}</span>;
+  const s = OUTCOME_COLORS[outcome] ?? { text: c.textSecondary, bg: "rgba(154,150,140,.1)" };
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        fontFamily: "var(--font-brokerage-mono)",
+        fontSize: 9,
+        letterSpacing: 1,
+        textTransform: "uppercase",
+        color: s.text,
+        background: s.bg,
+        padding: "3px 7px",
+        borderRadius: 2,
+      }}
+    >
+      {outcome}
+    </span>
+  );
 }
 
 function LifecycleHooksTable({ events }: { events: LifecycleEvent[] }) {
-  if (events.length === 0) return <div className="text-sm text-neutral-500 py-4" data-testid="lifecycle-empty">No lifecycle hook events recorded yet.</div>;
+  if (events.length === 0)
+    return (
+      <div style={{ fontSize: 12, color: c.textMuted, padding: "16px 0" }} data-testid="lifecycle-empty">
+        No lifecycle hook events recorded yet.
+      </div>
+    );
+  const grid = "110px 90px 90px 1fr 1fr 1fr 110px";
   return (
-    <table className="w-full text-sm text-left" data-testid="lifecycle-hooks-table">
-      <thead className="text-xs text-neutral-400 uppercase border-b border-neutral-800">
-        <tr><th className="py-2 pr-3">Event</th><th className="py-2 pr-3">Outcome</th><th className="py-2 pr-3">Channel</th><th className="py-2 pr-3">Purpose</th><th className="py-2 pr-3">Recipient</th><th className="py-2 pr-3">Reason</th><th className="py-2 pr-3">Time</th></tr>
-      </thead>
-      <tbody>
-        {events.map((e, i) => (
-          <tr key={i} className="border-b border-neutral-800/50">
-            <td className="py-2 pr-3 text-xs">{e.event_type.replace("comms_lifecycle_hook_", "")}</td>
-            <td className="py-2 pr-3"><LifecycleOutcomeBadge outcome={e.outcome} /></td>
-            <td className="py-2 pr-3">{e.channel}</td>
-            <td className="py-2 pr-3 text-xs">{e.purpose ?? "-"}</td>
-            <td className="py-2 pr-3 text-xs font-mono">{e.recipient_masked}</td>
-            <td className="py-2 pr-3 text-xs text-neutral-400">{e.reason ?? "-"}</td>
-            <td className="py-2 pr-3 text-xs text-neutral-500">{e.created_at}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div style={{ border: `1px solid ${c.border}`, borderRadius: 6, overflow: "hidden" }} data-testid="lifecycle-hooks-table">
+      <div style={{ display: "grid", gridTemplateColumns: grid, padding: "7px 12px", background: c.inkHeader, fontFamily: "var(--font-brokerage-mono)", fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: c.textFaint }}>
+        <div>Event</div><div>Outcome</div><div>Channel</div><div>Purpose</div><div>Recipient</div><div>Reason</div><div>Time</div>
+      </div>
+      {events.map((e, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: grid, padding: "8px 12px", borderTop: `1px solid ${c.divider}`, alignItems: "center", fontSize: 11 }}>
+          <div style={{ color: c.paper }}>{e.event_type.replace("comms_lifecycle_hook_", "")}</div>
+          <div><LifecycleOutcomeBadge outcome={e.outcome} /></div>
+          <div style={{ color: c.textSecondary }}>{e.channel}</div>
+          <div style={{ color: c.textSecondary }}>{e.purpose ?? "-"}</div>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", color: c.textSecondary }}>{e.recipient_masked}</div>
+          <div style={{ color: c.textMuted }}>{e.reason ?? "-"}</div>
+          <div style={{ color: c.textMuted, fontFamily: "var(--font-brokerage-mono)" }}>{e.created_at}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -155,100 +261,124 @@ export default function CommsAdminClient() {
   }
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 980 }}>
       <CommsModeBanner />
 
       {/* Deal comms */}
-      <section className="rounded-md border border-neutral-800 bg-neutral-900 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-400 mb-3">Deal Communications</h3>
-        <div className="flex gap-3 items-end">
-          <div className="flex-1">
-            <label className="text-xs text-neutral-500">Deal ID</label>
-            <input type="text" value={dealId} onChange={e => setDealId(e.target.value)} placeholder="Enter deal ID" className="mt-1 w-full rounded bg-neutral-800 border border-neutral-700 px-3 py-2 text-sm text-neutral-100" />
+      <section style={cardStyle()}>
+        <h3 style={sectionTitleStyle()}>Deal communications</h3>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 10, color: c.textMuted }}>Deal ID</label>
+            <input
+              type="text"
+              value={dealId}
+              onChange={(e) => setDealId(e.target.value)}
+              placeholder="Enter deal ID"
+              style={{ ...inputStyle(), width: "100%", marginTop: 4 }}
+            />
           </div>
-          <button type="button" onClick={() => runDealComms(false)} disabled={busy === "deal" || !dealId.trim()} className="rounded bg-neutral-700 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-600 disabled:opacity-50" data-testid="run-comms-check">
-            {busy === "deal" ? "Running..." : "Run Comms Check"}
+          <button type="button" onClick={() => runDealComms(false)} disabled={busy === "deal" || !dealId.trim()} style={buttonStyle("neutral", busy === "deal" || !dealId.trim())} data-testid="run-comms-check">
+            {busy === "deal" ? "Running…" : "Run comms check"}
           </button>
-          <button type="button" onClick={() => runDealComms(true)} disabled={busy === "deal" || !dealId.trim()} className="rounded bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50" data-testid="run-comms-process">
-            {busy === "deal" ? "..." : "Check + Process"}
+          <button type="button" onClick={() => runDealComms(true)} disabled={busy === "deal" || !dealId.trim()} style={buttonStyle("brass", busy === "deal" || !dealId.trim())} data-testid="run-comms-process">
+            {busy === "deal" ? "…" : "Check + process"}
           </button>
         </div>
         {showConfirm === "deal-outbox" && (
-          <div className="mt-3 rounded bg-amber-900/30 border border-amber-700 p-3 text-sm text-amber-200" data-testid="confirm-dialog">
-            This will process outbox items and may send real messages in live mode. <button type="button" onClick={() => runDealComms(true)} className="underline font-medium">Confirm</button> | <button type="button" onClick={() => setShowConfirm(null)} className="underline">Cancel</button>
+          <div style={{ marginTop: 10, border: `1px solid ${c.brassBright}`, background: "rgba(184,144,91,.1)", color: c.brassBright, borderRadius: 6, padding: 12, fontSize: 12 }} data-testid="confirm-dialog">
+            This will process outbox items and may send real messages in live mode.{" "}
+            <button type="button" onClick={() => runDealComms(true)} style={{ textDecoration: "underline", fontWeight: 600, color: c.brassBright, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              Confirm
+            </button>{" "}
+            |{" "}
+            <button type="button" onClick={() => setShowConfirm(null)} style={{ textDecoration: "underline", color: c.brassBright, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              Cancel
+            </button>
           </div>
         )}
         {result && (
-          <div className="mt-4 rounded bg-neutral-800 p-3 text-sm">
+          <div style={{ marginTop: 14, background: c.ink, border: `1px solid ${c.border}`, borderRadius: 6, padding: 12, fontSize: 12, color: c.textSecondary, lineHeight: 1.7 }}>
             <div>Nudges: {result.borrowerNudges?.enqueued ?? 0} enqueued, {result.borrowerNudges?.skipped ?? 0} skipped</div>
             <div>Alerts: {result.bankerAlerts?.enqueued ?? 0} enqueued, {result.bankerAlerts?.skipped ?? 0} skipped</div>
             {result.outbox?.processed > 0 && <div>Outbox: {result.outbox.sent} sent, {result.outbox.failed} failed</div>}
-            {result.warnings?.length > 0 && <div className="text-amber-400 mt-1">{result.warnings.join("; ")}</div>}
+            {result.warnings?.length > 0 && <div style={{ color: c.brassBright, marginTop: 4 }}>{result.warnings.join("; ")}</div>}
           </div>
         )}
       </section>
 
       {/* Global outbox */}
-      <section className="rounded-md border border-neutral-800 bg-neutral-900 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-400 mb-3">Global Outbox Processing</h3>
-        <div className="flex gap-3 items-end">
+      <section style={cardStyle()}>
+        <h3 style={sectionTitleStyle()}>Global outbox processing</h3>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <div>
-            <label className="text-xs text-neutral-500">Limit</label>
-            <select value={limit} onChange={e => setLimit(Number(e.target.value))} className="mt-1 rounded bg-neutral-800 border border-neutral-700 px-3 py-2 text-sm text-neutral-100" data-testid="limit-selector">
+            <label style={{ fontSize: 10, color: c.textMuted }}>Limit</label>
+            <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle(), marginTop: 4 }} data-testid="limit-selector">
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
           </div>
-          <button type="button" onClick={processGlobalOutbox} disabled={busy === "outbox"} className="rounded bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50" data-testid="process-global-outbox">
-            {busy === "outbox" ? "Processing..." : "Process Global Outbox"}
+          <button type="button" onClick={processGlobalOutbox} disabled={busy === "outbox"} style={buttonStyle("danger", busy === "outbox")} data-testid="process-global-outbox">
+            {busy === "outbox" ? "Processing…" : "Process global outbox"}
           </button>
         </div>
         {showConfirm === "global-outbox" && (
-          <div className="mt-3 rounded bg-red-900/30 border border-red-700 p-3 text-sm text-red-200" data-testid="confirm-dialog">
-            This will send pending messages. In live mode, real emails/SMS will be sent. <button type="button" onClick={processGlobalOutbox} className="underline font-medium">Confirm</button> | <button type="button" onClick={() => setShowConfirm(null)} className="underline">Cancel</button>
+          <div style={{ marginTop: 10, border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, borderRadius: 6, padding: 12, fontSize: 12 }} data-testid="confirm-dialog">
+            This will send pending messages. In live mode, real emails/SMS will be sent.{" "}
+            <button type="button" onClick={processGlobalOutbox} style={{ textDecoration: "underline", fontWeight: 600, color: c.brick, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              Confirm
+            </button>{" "}
+            |{" "}
+            <button type="button" onClick={() => setShowConfirm(null)} style={{ textDecoration: "underline", color: c.brick, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              Cancel
+            </button>
           </div>
         )}
       </section>
 
       {/* Batch */}
-      <section className="rounded-md border border-neutral-800 bg-neutral-900 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-400 mb-3">Batch Orchestration</h3>
-        <button type="button" onClick={() => runBatch(false)} disabled={busy === "batch"} className="rounded bg-neutral-700 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-600 disabled:opacity-50">
-          {busy === "batch" ? "Running..." : `Run Batch (${limit} deals, enqueue only)`}
+      <section style={cardStyle()}>
+        <h3 style={sectionTitleStyle()}>Batch orchestration</h3>
+        <button type="button" onClick={() => runBatch(false)} disabled={busy === "batch"} style={buttonStyle("neutral", busy === "batch")}>
+          {busy === "batch" ? "Running…" : `Run batch (${limit} deals, enqueue only)`}
         </button>
         {batchResult && (
-          <div className="mt-4 rounded bg-neutral-800 p-3 text-sm">
+          <div style={{ marginTop: 14, background: c.ink, border: `1px solid ${c.border}`, borderRadius: 6, padding: 12, fontSize: 12, color: c.textSecondary, lineHeight: 1.7 }}>
             <div>Deals processed: {batchResult.dealsProcessed}</div>
             <div>Total enqueued: {batchResult.totalEnqueued}</div>
             <div>Total skipped: {batchResult.totalSkipped}</div>
-            {batchResult.warnings?.length > 0 && <div className="text-amber-400 mt-1">{batchResult.warnings.slice(0, 5).join("; ")}</div>}
+            {batchResult.warnings?.length > 0 && <div style={{ color: c.brassBright, marginTop: 4 }}>{batchResult.warnings.slice(0, 5).join("; ")}</div>}
           </div>
         )}
       </section>
 
       {/* Lifecycle hooks */}
-      <section className="rounded-md border border-neutral-800 bg-neutral-900 p-4" data-testid="lifecycle-hooks-section">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-400 mb-3">Lifecycle Hooks</h3>
-        <div className="flex gap-3 items-end mb-4">
-          <button type="button" onClick={loadLifecycleHooks} disabled={lifecycleBusy} className="rounded bg-neutral-700 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-600 disabled:opacity-50" data-testid="load-lifecycle">
-            {lifecycleBusy ? "Loading..." : dealId.trim() ? `Load for ${dealId.slice(0, 8)}...` : "Load Recent (Global)"}
+      <section style={cardStyle()} data-testid="lifecycle-hooks-section">
+        <h3 style={sectionTitleStyle()}>Lifecycle hooks</h3>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 14 }}>
+          <button type="button" onClick={loadLifecycleHooks} disabled={lifecycleBusy} style={buttonStyle("neutral", lifecycleBusy)} data-testid="load-lifecycle">
+            {lifecycleBusy ? "Loading…" : dealId.trim() ? `Load for ${dealId.slice(0, 8)}…` : "Load recent (global)"}
           </button>
         </div>
         {lifecycleSummary && (
-          <div className="rounded bg-neutral-800 p-3 text-sm mb-3">
+          <div style={{ background: c.ink, border: `1px solid ${c.border}`, borderRadius: 6, padding: 12, fontSize: 12, color: c.textSecondary, lineHeight: 1.7, marginBottom: 12 }}>
             <div>Total hook events: {lifecycleSummary.totalHookEvents}</div>
             <div>Outbox: {lifecycleSummary.relatedOutbox.pending} pending, {lifecycleSummary.relatedOutbox.sent} sent, {lifecycleSummary.relatedOutbox.failed} failed</div>
             <div>Nudges: {lifecycleSummary.relatedNudges} | Alerts: {lifecycleSummary.relatedAlerts}</div>
-            {lifecycleSummary.latestSkipReasons.length > 0 && <div className="text-amber-400 mt-1">Skip reasons: {lifecycleSummary.latestSkipReasons.join(", ")}</div>}
-            {lifecycleSummary.warnings.length > 0 && <div className="text-amber-400 mt-1">{lifecycleSummary.warnings.join("; ")}</div>}
+            {lifecycleSummary.latestSkipReasons.length > 0 && <div style={{ color: c.brassBright, marginTop: 4 }}>Skip reasons: {lifecycleSummary.latestSkipReasons.join(", ")}</div>}
+            {lifecycleSummary.warnings.length > 0 && <div style={{ color: c.brassBright, marginTop: 4 }}>{lifecycleSummary.warnings.join("; ")}</div>}
           </div>
         )}
         <LifecycleHooksTable events={lifecycleEvents} />
       </section>
 
-      {error && <div className="rounded border border-red-700 bg-red-900/30 p-3 text-sm text-red-200">{error}</div>}
+      {error && (
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, borderRadius: 6, padding: 12, fontSize: 12 }}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }
