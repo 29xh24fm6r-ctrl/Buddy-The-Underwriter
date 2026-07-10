@@ -44,6 +44,24 @@ function isMissingTableError(message: string | null | undefined): boolean {
   );
 }
 
+/**
+ * buddy_advisor_feedback.user_id is `uuid`, but Clerk's userId is a
+ * string like "user_abc123" — not valid uuid input. Resolve to the
+ * profiles.id row instead. getCurrentBankId() already upserts a profile
+ * as part of resolving bank context, so this should normally hit.
+ */
+async function resolveProfileId(
+  sb: ReturnType<typeof supabaseAdmin>,
+  clerkUserId: string,
+): Promise<string | null> {
+  const { data } = await sb
+    .from("profiles")
+    .select("id")
+    .eq("clerk_user_id", clerkUserId)
+    .maybeSingle();
+  return (data as any)?.id ?? null;
+}
+
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const { userId } = await clerkAuth().catch(() => ({ userId: null }));
   if (!userId) {
@@ -63,6 +81,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const { dealId } = await ctx.params;
   const sb = supabaseAdmin();
 
+  // buddy_advisor_feedback.user_id is `uuid` — it stores the profiles.id
+  // row, NOT the raw Clerk userId string (e.g. "user_abc123"), which is
+  // not valid uuid input and would 500 every query below.
+  const profileId = await resolveProfileId(sb, userId);
+  if (!profileId) {
+    return NextResponse.json({ ok: true, feedback: [] });
+  }
+
   // SPEC-11: filter expired snoozes server-side. Active rows are:
   //   state != 'snoozed'
   //   OR snoozed_until IS NULL
@@ -77,12 +103,13 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     )
     .eq("bank_id", bankId)
     .eq("deal_id", dealId)
-    .eq("user_id", userId);
+    .eq("user_id", profileId);
 
   if (res.error) {
     if (isMissingTableError(res.error.message)) {
       return NextResponse.json({ ok: false, error: "table_missing", feedback: [] });
     }
+    console.error("[advisor/feedback] GET query failed", res.error);
     return NextResponse.json(
       { ok: false, error: res.error.message, feedback: [] },
       { status: 500 },
@@ -116,6 +143,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   }
 
   const { dealId } = await ctx.params;
+  const sbForProfile = supabaseAdmin();
+  const profileId = await resolveProfileId(sbForProfile, userId);
+  if (!profileId) {
+    return NextResponse.json({ ok: false, error: "no_profile" }, { status: 403 });
+  }
+
   const body = await req.json().catch(() => null);
 
   const signalKey = String(body?.signalKey ?? "").trim();
@@ -138,7 +171,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     );
   }
 
-  const sb = supabaseAdmin();
+  const sb = sbForProfile;
 
   // SPEC-11 — read existing row first so we can server-side track
   // dismiss_count + auto-snooze on the third dismissal.
@@ -150,12 +183,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     .select("id, dismiss_count, last_dismissed_at, state, snoozed_until")
     .eq("bank_id", bankId)
     .eq("deal_id", dealId)
-    .eq("user_id", userId)
+    .eq("user_id", profileId)
     .eq("signal_key", signalKey)
     .maybeSingle();
 
-  if (existingRes.error && isMissingTableError(existingRes.error.message)) {
-    return NextResponse.json({ ok: false, error: "table_missing" });
+  if (existingRes.error) {
+    if (isMissingTableError(existingRes.error.message)) {
+      return NextResponse.json({ ok: false, error: "table_missing" });
+    }
+    console.error("[advisor/feedback] POST existingRes query failed", existingRes.error);
+    return NextResponse.json(
+      { ok: false, error: existingRes.error.message },
+      { status: 500 },
+    );
   }
 
   const previous = existingRes.data ?? null;
@@ -186,7 +226,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       {
         bank_id: bankId,
         deal_id: dealId,
-        user_id: userId,
+        user_id: profileId,
         signal_key: signalKey,
         signal_kind: signalKind,
         signal_source: signalSource,
@@ -208,6 +248,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     if (isMissingTableError(upsert.error.message)) {
       return NextResponse.json({ ok: false, error: "table_missing" });
     }
+    console.error("[advisor/feedback] POST upsert failed", upsert.error);
     return NextResponse.json(
       { ok: false, error: upsert.error.message },
       { status: 500 },
