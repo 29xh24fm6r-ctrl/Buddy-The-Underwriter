@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
+import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { RefinedStamp } from "@/components/brokerage/StatusStamp";
 
 type Member = {
   membershipId: string;
@@ -22,6 +25,19 @@ type Candidate = {
 function displayName(p: { email: string | null; firstName: string | null; lastName: string | null }) {
   const name = [p.firstName, p.lastName].filter(Boolean).join(" ");
   return name || p.email || "(unnamed)";
+}
+
+function inputStyle(): CSSProperties {
+  return {
+    background: c.ink,
+    border: `1px solid ${c.border}`,
+    borderRadius: 5,
+    padding: "8px 10px",
+    color: c.paper,
+    fontSize: 12,
+    fontFamily: "var(--font-brokerage-sans)",
+    width: "100%",
+  };
 }
 
 export default function BrokerageTeamPage() {
@@ -75,53 +91,41 @@ export default function BrokerageTeamPage() {
   }
 
   return (
-    <main className="px-8 py-10 max-w-3xl mx-auto text-neutral-100">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Team — Buddy Brokerage</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          Who has access to Deals, Lenders, CRM, and Billing for this
-          tenant. A partner needs a Clerk account first (sign up at{" "}
-          <code>app.buddytheunderwriter.com</code>) — they'll show up in
-          the list below once they've signed in at least once.
-        </p>
-      </header>
+    <div style={{ padding: "18px 24px 40px", maxWidth: 780 }}>
+      <p style={{ fontSize: 12, color: c.textMuted, marginBottom: 16, lineHeight: 1.6 }}>
+        Who has access to Deals, Lenders, CRM, and Billing for this tenant. A
+        partner needs a Clerk account first (sign up at{" "}
+        <code style={{ color: c.textSecondary }}>app.buddytheunderwriter.com</code>) —
+        they'll show up below once they've signed in at least once.
+      </p>
 
       {error && (
-        <div className="rounded border border-red-700 bg-red-900/30 text-red-200 text-sm p-4 mb-6">
+        <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           {error}
         </div>
       )}
 
-      <div className="rounded-md border border-neutral-800 bg-neutral-900 p-4 mb-8">
-        <div className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
+      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 24 }}>
+        <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: c.textFaint, marginBottom: 10 }}>
           Add teammate
         </div>
         {candidates.length === 0 && !loading ? (
-          <div className="text-sm text-neutral-500">
-            No signed-up accounts available to add — have your partner sign
-            up first, then refresh this page.
+          <div style={{ fontSize: 12, color: c.textMuted }}>
+            No signed-up accounts available to add — have your partner sign up first, then refresh this page.
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <select
-                className="md:col-span-2 bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-              >
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1.3fr", gap: 10 }}>
+              <select style={inputStyle()} value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
                 <option value="">Select a signed-up user…</option>
-                {candidates.map((c) => (
-                  <option key={c.clerkUserId} value={c.clerkUserId}>
-                    {displayName(c)}
-                    {c.email ? ` (${c.email})` : ""}
+                {candidates.map((cand) => (
+                  <option key={cand.clerkUserId} value={cand.clerkUserId}>
+                    {displayName(cand)}
+                    {cand.email ? ` (${cand.email})` : ""}
                   </option>
                 ))}
               </select>
-              <select
-                className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-              >
+              <select style={inputStyle()} value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="bank_admin">Bank admin — full access</option>
                 <option value="underwriter">Underwriter — works deals, no admin config</option>
               </select>
@@ -129,7 +133,18 @@ export default function BrokerageTeamPage() {
             <button
               onClick={addTeammate}
               disabled={adding || !selectedUserId}
-              className="mt-3 rounded bg-white text-black text-sm font-medium px-4 py-2 disabled:opacity-40"
+              style={{
+                marginTop: 12,
+                background: `linear-gradient(150deg, ${c.brassBright}, ${c.brass})`,
+                color: c.brassOnBrass,
+                border: "none",
+                borderRadius: 6,
+                padding: "9px 15px",
+                fontWeight: 600,
+                fontSize: 12.5,
+                cursor: "pointer",
+                opacity: adding || !selectedUserId ? 0.4 : 1,
+              }}
             >
               {adding ? "Adding…" : "Add to Buddy Brokerage"}
             </button>
@@ -137,29 +152,46 @@ export default function BrokerageTeamPage() {
         )}
       </div>
 
-      <div className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-        Current team ({team.length})
-      </div>
-      {loading ? (
-        <div className="text-sm text-neutral-500">Loading…</div>
-      ) : (
-        <div className="grid gap-2">
-          {team.map((m) => (
+      <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 130px",
+            padding: "9px 16px",
+            borderBottom: `1px solid ${c.borderStrong}`,
+            background: c.inkHeader,
+            fontFamily: "var(--font-brokerage-mono)",
+            fontSize: 9.5,
+            letterSpacing: 1,
+            textTransform: "uppercase",
+            color: c.textFaint,
+          }}
+        >
+          <div>Team ({team.length})</div>
+          <div>Access</div>
+        </div>
+        {loading ? (
+          <div style={{ padding: "40px 20px", textAlign: "center", color: c.textMuted, fontSize: 12 }}>Loading…</div>
+        ) : (
+          team.map((m) => (
             <div
               key={m.membershipId}
-              className="rounded border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm flex items-center justify-between"
+              style={{ display: "grid", gridTemplateColumns: "1fr 130px", padding: "11px 16px", borderBottom: `1px solid ${c.divider}`, alignItems: "center" }}
             >
               <div>
-                <span className="font-medium">{displayName(m)}</span>
-                {m.email && <span className="text-neutral-500"> · {m.email}</span>}
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{displayName(m)}</span>
+                {m.email && <span style={{ fontSize: 11, color: c.textMuted }}> · {m.email}</span>}
               </div>
-              <span className="text-xs uppercase tracking-wide text-neutral-400">
-                {m.role === "bank_admin" ? "Bank admin" : m.role === "underwriter" ? "Underwriter" : m.role}
-              </span>
+              <div>
+                <RefinedStamp
+                  status={m.role === "bank_admin" ? "active" : "neutral"}
+                  label={m.role === "bank_admin" ? "Bank admin" : m.role === "underwriter" ? "Underwriter" : m.role}
+                />
+              </div>
             </div>
-          ))}
-        </div>
-      )}
-    </main>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
