@@ -52,7 +52,19 @@ async function renderText(
     }
     glyphs += "\n";
   }
-  return glyphs + "\n" + ascii;
+  // Deliberately NOT appending the raw `ascii` (undecoded PDF binary —
+  // compressed streams, xref table, embedded fonts, /CreationDate) to the
+  // returned haystack. It used to be tacked on here, and the "must NOT
+  // render" assertions below scan the whole haystack with permissive regexes
+  // ($X,XXXK / X.XXx patterns) — raw binary bytes interpreted as latin1
+  // text occasionally coincide with those patterns by chance, since byte
+  // offsets shift run-to-run (PDFKit embeds a creation timestamp), causing
+  // this test to fail intermittently in CI on inputs that never actually
+  // render anything. `glyphs` alone already contains every real text run
+  // PDFKit draws (that's what the hex/stream decoding above recovers), so
+  // it's sufficient for both the positive `.includes(...)` and negative
+  // `.match(...) === null` assertions in this file.
+  return glyphs;
 }
 
 test("renders a non-empty PDF buffer", async () => {
