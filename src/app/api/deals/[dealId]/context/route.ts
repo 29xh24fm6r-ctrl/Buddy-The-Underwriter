@@ -20,8 +20,6 @@ import type { DealContext } from "@/lib/deals/contextTypes";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { emitBuddySignalServer } from "@/buddy/emitBuddySignalServer";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
-import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
-import { normalizeGoogleError, isRetryableGoogleErrorCode } from "@/lib/google/errors";
 import { sanitizeErrorForEvidence } from "@/buddy/lifecycle/jsonSafe";
 import { trackDegradedResponse } from "@/lib/api/degradedTracker";
 import {
@@ -218,22 +216,16 @@ async function buildPayload(
     // === Phase 6: Initialize intake (non-blocking, non-fatal) ===
     if (bankId && deal.bank_id) {
       try {
+        // initializeIntake already logs deal.intake.failed / deal.intake.retrying
+        // internally (in its own catch block) on non-ok returns — logging here
+        // too would double-write the ledger for every failure, muddying it as
+        // an evidence source. Just note it locally.
         const init = await initializeIntake(dealId, deal.bank_id, {
           reason: "context_load",
           trigger: "context",
         });
         if (!init.ok) {
-          const normalized = normalizeGoogleError(init.error);
-          if (!isRetryableGoogleErrorCode(normalized.code)) {
-            logLedgerEvent({
-              dealId,
-              bankId: deal.bank_id,
-              eventKey: "deal.intake.failed",
-              uiState: "done",
-              uiMessage: `Intake init failed: ${normalized.code}`,
-              meta: { trigger: "context", error_code: normalized.code, correlationId },
-            }).catch(() => {});
-          }
+          console.warn(`[context] correlationId=${correlationId} dealId=${dealId} initializeIntake returned not-ok: ${init.error}`);
         }
       } catch (e: unknown) {
         console.warn(`[context] correlationId=${correlationId} dealId=${dealId} initializeIntake failed: ${(e as Error)?.message}`);

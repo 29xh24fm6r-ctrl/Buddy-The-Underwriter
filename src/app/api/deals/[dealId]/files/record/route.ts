@@ -381,8 +381,6 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
-    await initializeIntake(dealId, bankId, { reason: "banker_upload" });
-
     if (!deal.stage || deal.stage === "created") {
       await igniteDeal({
         dealId,

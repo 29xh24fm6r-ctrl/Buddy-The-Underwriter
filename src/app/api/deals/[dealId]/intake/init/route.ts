@@ -3,7 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { seedIntakePrereqsCore } from "@/lib/intake/seedIntakePrereqsCore";
+import { seedIntakePrereqsCore } from "@/lib/intake/seedIntakePrereqsCoreImpl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

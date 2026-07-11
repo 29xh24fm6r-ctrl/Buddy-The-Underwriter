@@ -127,5 +127,36 @@
   "profiles": [
     "id", "clerk_user_id", "bank_id", "last_bank_id",
     "bank_selected_at", "updated_at"
+  ],
+  "deal_document_slots": [
+    "id", "deal_id", "bank_id", "slot_key", "slot_group",
+    "required", "required_doc_type", "required_tax_year",
+    "owner_id", "owner_display_name", "status", "validation_reason",
+    "sort_order", "created_at", "updated_at",
+    "slot_mode", "interactive_kind", "help_title", "help_reason",
+    "help_examples", "help_alternatives",
+    "required_entity_id", "required_entity_role"
+  ],
+  "deal_document_slot_attachments": [
+    "id", "deal_id", "bank_id", "slot_id", "document_id",
+    "attached_by_role", "attached_by_user_id", "is_active",
+    "replaced_by_id", "created_at"
+  ],
+  "deal_doc_chunks": [
+    "id", "created_at", "deal_id", "upload_id",
+    "original_filename", "storage_bucket", "storage_path",
+    "chunk_index", "page_start", "page_end", "content",
+    "embedding", "source_label"
+  ],
+  "deal_intake_scenario": [
+    "id", "deal_id", "bank_id", "product_type",
+    "borrower_business_stage", "has_business_tax_returns",
+    "has_financial_statements", "has_projections",
+    "entity_age_months", "created_at", "updated_at"
+  ],
+  "document_extracts": [
+    "id", "deal_id", "attachment_id", "provider", "status",
+    "fields_json", "tables_json", "evidence_json", "provider_metrics",
+    "error", "created_at", "updated_at"
   ]
 }

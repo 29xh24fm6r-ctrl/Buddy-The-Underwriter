@@ -104,11 +104,11 @@ async function loadMissingDocTypes(
 ): Promise<string[]> {
   const { data } = await sb
     .from("deal_document_slots")
-    .select("doc_type")
+    .select("required_doc_type")
     .eq("deal_id", dealId)
     .eq("status", "missing");
   if (!data) return [];
-  return data.map((d: { doc_type: string }) => d.doc_type);
+  return data.map((d: { required_doc_type: string }) => d.required_doc_type);
 }
 
 function confidenceFromEvidence(strength: "high" | "medium" | "low"): "high" | "medium" | "low" {
