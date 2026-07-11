@@ -15,7 +15,7 @@ import "server-only";
 import { normalizeDocument } from "./normalizeDocument";
 import { runTier1Anchors } from "./tier1Anchors";
 import { runTier2Structural } from "./tier2Structural";
-import { applyConfidenceGate } from "./confidenceGate";
+import { applyConfidenceGate, passesAutoFillGate } from "./confidenceGate";
 import { runTier3LLM } from "./tier3LLM";
 import { extractTaxYear, extractFormNumbers } from "./textUtils";
 import { calibrateConfidence } from "./calibrateConfidence";
@@ -373,9 +373,49 @@ export async function classifyDocumentSpine(
     // ── Step 2: Tier 1 — Deterministic Anchors ────────────────────────
     const tier1 = runTier1Anchors(doc);
 
-    // ── Step 3: Tier 1 matched → accept ──────────────────────────────
+    // ── Step 3: Tier 1 matched → accept (unless calibration drops it low) ──
     if (tier1.matched) {
-      return finalizeFromTier1(tier1, documentText, doc);
+      const tier1Final = finalizeFromTier1(tier1, documentText, doc);
+      if (passesAutoFillGate(tier1Final.confidence)) {
+        return tier1Final;
+      }
+      // Calibration penalties (ambiguity, year uncertainty, multi-form,
+      // low text density) pushed this "locked" Tier 1 anchor match below the
+      // auto-fill gate. Tier 1 is normally always authoritative, but a
+      // calibrated-low match must not short-circuit the pipeline — fall
+      // through to Tier 2/3 so the match can be corroborated or overridden.
+      // If nothing better is found, we still return this (low-confidence)
+      // Tier 1 result below, so the auto-fill gate in classifyProcessor.ts
+      // correctly withholds checklist_key auto-fill for it.
+      console.warn("[classifyDocumentSpine] Tier 1 calibrated confidence below auto-fill gate — falling through to Tier 2/3", {
+        filename,
+        anchorId: tier1.anchorId,
+        calibratedConfidence: tier1Final.confidence,
+      });
+
+      const tier2ForFallthrough = runTier2Structural(doc);
+      // Force the gate to evaluate Tier 2 on its own merits — Tier 1 is no
+      // longer treated as authoritative once calibration has flagged it.
+      const fallthroughGate = applyConfidenceGate(
+        { ...tier1, matched: false },
+        tier2ForFallthrough,
+      );
+      if (fallthroughGate.accepted) {
+        const gateResult = finalizeFromGate(fallthroughGate, documentText, doc);
+        if (gateResult.confidence > tier1Final.confidence) {
+          return gateResult;
+        }
+      } else {
+        const tier3Fallthrough = await runTier3LLM(doc);
+        if (tier3Fallthrough.matched) {
+          const tier3Result = finalizeFromTier3(tier3Fallthrough, doc);
+          if (tier3Result.confidence > tier1Final.confidence) {
+            return tier3Result;
+          }
+        }
+      }
+
+      return tier1Final;
     }
 
     // ── Step 4: Tier 2 — Structural Patterns ──────────────────────────

@@ -81,16 +81,44 @@ test("Tripwire: Confidence gate checks Tier 1 before Tier 2", () => {
   );
 });
 
-// ─── 4. LLM skipped when Tier 1 matches ─────────────────────────────────────
+// ─── 4. LLM skipped when Tier 1 matches at high confidence ──────────────────
 
-test("Tripwire: Spine returns immediately after Tier 1 match (no LLM)", () => {
+test("Tripwire: Spine returns immediately after HIGH-confidence Tier 1 match (no LLM)", () => {
   const src = readSrc("classifyDocumentSpine.ts");
 
-  // Find the tier1.matched check that returns early
-  const tier1ReturnPattern = /if\s*\(tier1\.matched\)\s*\{[\s\S]*?return\s+finalize/;
+  // Find the tier1.matched check that returns early once calibrated
+  // confidence clears the auto-fill gate.
+  const tier1ReturnPattern =
+    /if\s*\(tier1\.matched\)\s*\{[\s\S]*?passesAutoFillGate\(tier1Final\.confidence\)[\s\S]*?return\s+tier1Final;/;
   assert.ok(
     tier1ReturnPattern.test(src),
-    "Spine must return immediately after tier1.matched — LLM skipped",
+    "Spine must return immediately once a Tier 1 match clears the auto-fill confidence gate — LLM skipped",
+  );
+});
+
+// ─── 4b. Calibrated-low Tier 1 falls through instead of short-circuiting ────
+
+test("Tripwire: Calibrated-low Tier 1 match falls through to Tier 2/3 (not silently accepted)", () => {
+  const src = readSrc("classifyDocumentSpine.ts");
+
+  // A Tier 1 match whose calibrated confidence drops below the auto-fill
+  // gate must not short-circuit the pipeline (audit fix: Tier 1 "locked"
+  // classification must be re-routed, not treated as always-authoritative).
+  const tier1Index = src.indexOf("if (tier1.matched)");
+  assert.ok(tier1Index > -1, "Should find tier1.matched branch");
+  const tier1Block = src.slice(tier1Index, tier1Index + 2500);
+
+  assert.ok(
+    tier1Block.includes("passesAutoFillGate"),
+    "Tier 1 branch must check passesAutoFillGate before short-circuiting",
+  );
+  assert.ok(
+    tier1Block.includes("runTier2Structural(doc)"),
+    "Tier 1 branch must re-run Tier 2 when calibrated confidence is below the gate",
+  );
+  assert.ok(
+    tier1Block.includes("runTier3LLM(doc)"),
+    "Tier 1 branch must be able to escalate to Tier 3 when calibrated confidence is below the gate",
   );
 });
 
