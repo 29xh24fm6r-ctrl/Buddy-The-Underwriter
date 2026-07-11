@@ -67,7 +67,7 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
       const newRunId = crypto.randomUUID();
 
       // Reset run markers via direct update (no CAS — there's no active run to protect)
-      await sb
+      const runIdReset = await sb
         .from("deals")
         .update({
           intake_processing_queued_at: new Date().toISOString(),
@@ -78,6 +78,19 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
         })
         .eq("id", deal.id)
         .eq("intake_phase", "CONFIRMED_READY_FOR_PROCESSING");
+
+      if (runIdReset.error) {
+        // If the run_id reset didn't land, an outbox row carrying newRunId
+        // would mismatch deals.intake_processing_run_id and get skipped as
+        // "skipped_superseded" by the outbox preflight — silently re-entering
+        // recovery every run forever. Skip the enqueue instead and surface it.
+        console.error(
+          "[intake-recovery] run_id reset failed, skipping enqueue:",
+          deal.id,
+          runIdReset.error.message,
+        );
+        continue;
+      }
 
       await insertOutboxEvent({
         kind: "intake.process",
@@ -154,7 +167,7 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
 
       const newRunId = crypto.randomUUID();
 
-      await sb
+      const runIdReset = await sb
         .from("deals")
         .update({
           intake_processing_queued_at: new Date().toISOString(),
@@ -165,6 +178,15 @@ export async function recoverStuckIntakeDeals(): Promise<RecoveryResult> {
         })
         .eq("id", deal.id)
         .eq("intake_phase", "CONFIRMED_READY_FOR_PROCESSING");
+
+      if (runIdReset.error) {
+        console.error(
+          "[intake-recovery] run_id reset failed, skipping enqueue:",
+          deal.id,
+          runIdReset.error.message,
+        );
+        continue;
+      }
 
       await insertOutboxEvent({
         kind: "intake.process",
