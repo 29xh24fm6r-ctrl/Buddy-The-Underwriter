@@ -6,6 +6,58 @@ import { recordAiEvent } from "@/lib/ai/audit";
 
 function nowIso() { return new Date().toISOString(); }
 
+function normalizeForSpanCompare(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Validate an LLM-reported evidence span against the real source text.
+ *
+ * The prompt tells Gemini "offsets must correspond to real substrings" but
+ * nothing previously enforced that — a hallucinated span (out-of-bounds
+ * offsets, or offsets whose text doesn't match the claimed label) would be
+ * persisted to doc_intel_results as trusted evidence. This checks:
+ *   1. start/end are integers with 0 <= start < end <= sourceText.length
+ *   2. the substring at [start, end) is non-empty
+ *   3. if a label was supplied, the substring is consistent with it
+ *      (whitespace/case-normalized, substring-tolerant in either direction
+ *      to allow for the LLM quoting a slightly longer/shorter phrase)
+ */
+function validateEvidenceSpan(
+  span: { start?: unknown; end?: unknown; label?: unknown },
+  sourceText: string,
+): { verified: boolean; reason: string | null } {
+  const start = Number(span?.start);
+  const end = Number(span?.end);
+
+  if (!Number.isInteger(start) || !Number.isInteger(end)) {
+    return { verified: false, reason: "non_integer_offsets" };
+  }
+  if (start < 0 || end <= start || end > sourceText.length) {
+    return { verified: false, reason: "offsets_out_of_bounds" };
+  }
+
+  const actualText = sourceText.slice(start, end);
+  if (!actualText.trim()) {
+    return { verified: false, reason: "empty_span_text" };
+  }
+
+  const label = typeof span?.label === "string" ? span.label : "";
+  if (label.trim()) {
+    const normActual = normalizeForSpanCompare(actualText);
+    const normLabel = normalizeForSpanCompare(label);
+    if (
+      normLabel.length > 0 &&
+      !normActual.includes(normLabel) &&
+      !normLabel.includes(normActual)
+    ) {
+      return { verified: false, reason: "label_text_mismatch" };
+    }
+  }
+
+  return { verified: true, reason: null };
+}
+
 export async function analyzeDocument(args: {
   dealId: string;
   fileId: string;
@@ -81,10 +133,34 @@ export async function analyzeDocument(args: {
 
   const sb = supabaseAdmin();
 
+  // CRITICAL: verify every evidence span actually anchors to real source
+  // text before it's persisted as trusted evidence. The prompt asks Gemini
+  // not to fabricate offsets, but nothing enforced that — a hallucinated
+  // span would otherwise be written to doc_intel_results unchecked.
+  const sourceText = args.extractedText || "";
+  const rawSpans: any[] = Array.isArray(ai.result?.evidence_spans)
+    ? ai.result.evidence_spans.slice(0, 3)
+    : [];
+  const verifiedSpans = rawSpans.map((span) => {
+    const { verified, reason } = validateEvidenceSpan(span, sourceText);
+    return {
+      ...span,
+      evidence_verified: verified,
+      ...(verified ? {} : { verification_failure_reason: reason }),
+    };
+  });
+
   const payloadEvidence = {
-    evidence_spans: Array.isArray(ai.result?.evidence_spans) ? ai.result.evidence_spans.slice(0, 3) : [],
+    evidence_spans: verifiedSpans,
     evidence: Array.isArray(ai.result?.evidence) ? ai.result.evidence.slice(0, 10) : [],
   };
+
+  // If spans were offered but none of them survived verification, the
+  // model's citations are not trustworthy — don't let the LLM-reported
+  // confidence stand unchallenged.
+  const anyUnverified = rawSpans.length > 0 && verifiedSpans.every((s) => !s.evidence_verified);
+  const rawConfidence = Number(ai.result?.confidence ?? ai.confidence ?? 50);
+  const confidence = anyUnverified ? Math.min(rawConfidence, 50) : rawConfidence;
 
   const up = await sb.from("doc_intel_results").upsert({
     deal_id: args.dealId,
@@ -93,7 +169,7 @@ export async function analyzeDocument(args: {
     tax_year: ai.result?.tax_year ?? null,
     extracted_json: ai.result?.extracted ?? {},
     quality_json: ai.result?.quality ?? {},
-    confidence: Number(ai.result?.confidence ?? ai.confidence ?? 50),
+    confidence,
     evidence_json: payloadEvidence,
     created_at: nowIso(),
   }, { onConflict: "deal_id,file_id" });
@@ -104,7 +180,7 @@ export async function analyzeDocument(args: {
     ok: true,
     doc_type: ai.result?.doc_type || "Unknown",
     tax_year: ai.result?.tax_year ?? null,
-    confidence: Number(ai.result?.confidence ?? ai.confidence ?? 50),
+    confidence,
     evidence: payloadEvidence,
   };
 }

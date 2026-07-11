@@ -48,12 +48,41 @@ export type SplitResult =
 // Abort guards (pure, no mutation)
 // ---------------------------------------------------------------------------
 
+/** Extract distinct [Page N] marker numbers from OCR text, sorted ascending. */
+function extractOcrPageNumbers(ocrText: string): number[] {
+  const matches = ocrText.match(/^\[Page\s+(\d+)\]\s*$/gm);
+  if (!matches || matches.length === 0) return [];
+  const nums = matches.map((m) => parseInt(m.replace(/\[Page\s+|\]/g, ""), 10));
+  return [...new Set(nums)].sort((a, b) => a - b);
+}
+
 /** Extract page count from [Page N] markers in OCR text */
 function countOcrPages(ocrText: string): number {
-  const matches = ocrText.match(/^\[Page\s+(\d+)\]\s*$/gm);
-  if (!matches || matches.length === 0) return 1;
-  const nums = matches.map((m) => parseInt(m.replace(/\[Page\s+|\]/g, ""), 10));
+  const nums = extractOcrPageNumbers(ocrText);
+  if (nums.length === 0) return 1;
   return Math.max(...nums);
+}
+
+/**
+ * Detect gaps in the OCR page-marker sequence (e.g. pages 1,2,4 present, 3
+ * missing). This can happen even when the PDF page count and
+ * Math.max(markers) coincidentally agree — e.g. OCR drops exactly one
+ * marker mid-document. Without a contiguity check, the page_count_mismatch
+ * guard never fires and the missing page silently gets copied into the
+ * wrong child segment with no OCR/anchors of its own.
+ *
+ * Returns the missing page numbers (1..max), empty if contiguous or if
+ * there are no markers at all (single-page fallback — not a gap).
+ */
+function findPageNumberGaps(pageNumbers: number[]): number[] {
+  if (pageNumbers.length === 0) return [];
+  const max = Math.max(...pageNumbers);
+  const present = new Set(pageNumbers);
+  const missing: number[] = [];
+  for (let p = 1; p <= max; p++) {
+    if (!present.has(p)) missing.push(p);
+  }
+  return missing;
 }
 
 /** Validate that segment page ranges are non-overlapping and cover all pages */
@@ -170,12 +199,25 @@ export async function splitPdfIntoSegments(
   }
 
   const pdfPageCount = pdfDoc.getPageCount();
+  const ocrPageNumbers = extractOcrPageNumbers(ctx.ocrText);
   const ocrPageCount = countOcrPages(ctx.ocrText);
 
   if (pdfPageCount !== ocrPageCount) {
     return {
       ok: false,
       reason: `page_count_mismatch: pdf=${pdfPageCount} ocr=${ocrPageCount}`,
+    };
+  }
+
+  // Gap check: the two length-based counts above can coincidentally agree
+  // even when a marker was dropped mid-document (e.g. pages 1,2,4 present,
+  // 3 missing but max() still equals the true PDF page count). Catch that
+  // case explicitly rather than trusting the aggregate counts alone.
+  const pageGaps = findPageNumberGaps(ocrPageNumbers);
+  if (pageGaps.length > 0) {
+    return {
+      ok: false,
+      reason: `page_marker_gap: missing OCR page marker(s) ${pageGaps.join(", ")} (pdf has ${pdfPageCount} pages)`,
     };
   }
 

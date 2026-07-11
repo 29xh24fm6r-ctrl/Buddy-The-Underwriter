@@ -154,17 +154,47 @@ export async function POST(req: NextRequest) {
         .eq("status", "queued")
         .lt("created_at", fiveMinAgo);
 
-      const { count: stuckProcessing } = await sb
+      // IMPORTANT: `updated_at` (not `created_at`) is the correct staleness
+      // signal for status='processing' rows. `created_at` is the row's
+      // original queue-insertion timestamp — it never changes once a row
+      // starts processing, so an artifact that merely sat `queued` for
+      // >10 min before being claimed would already be eligible for "stuck"
+      // reset on the very next tick, even though processing had only just
+      // begun. That caused the self-heal to flip an in-flight artifact back
+      // to `queued`, letting it be re-claimed and reprocessed CONCURRENTLY
+      // with the still-running original invocation (duplicate DB writes,
+      // duplicate LLM spend, duplicate downstream triggers).
+      //
+      // `updated_at` is touched both by the document_artifacts_updated_at
+      // trigger and explicitly by claim_next_artifact_for_processing() at
+      // the exact moment a row transitions to 'processing' (see
+      // supabase/migrations/20260124000000_document_artifacts_and_matching.sql),
+      // so it reliably reflects lease/processing-start time instead.
+      const { data: stuckProcessingRows, error: stuckProcessingErr } = await sb
         .from("document_artifacts")
-        .select("id", { count: "exact", head: true })
+        .select("id, deal_id, bank_id")
         .eq("status", "processing")
-        .lt("created_at", tenMinAgo);
+        .lt("updated_at", tenMinAgo);
 
-      const totalStuck = (stuckQueued ?? 0) + (stuckProcessing ?? 0);
+      if (stuckProcessingErr) {
+        console.warn(
+          "[artifacts/process] failed to query stuck-processing artifacts (non-fatal)",
+          { error: stuckProcessingErr.message },
+        );
+      }
+
+      const stuckProcessingList = stuckProcessingRows ?? [];
+      const stuckProcessing = stuckProcessingList.length;
+      const stuckProcessingIds = stuckProcessingList.map((r: any) => r.id);
+
+      const totalStuck = (stuckQueued ?? 0) + stuckProcessing;
 
       if (totalStuck > 0) {
-        stuck = { queued: stuckQueued ?? 0, processing: stuckProcessing ?? 0 };
-        console.warn("[artifacts/process] STUCK ARTIFACTS DETECTED", stuck);
+        stuck = { queued: stuckQueued ?? 0, processing: stuckProcessing };
+        console.warn("[artifacts/process] STUCK ARTIFACTS DETECTED", {
+          ...stuck,
+          stuck_processing_artifact_ids: stuckProcessingIds,
+        });
 
         // Get a sample deal for the ledger event
         const { data: sample } = await sb
@@ -184,9 +214,10 @@ export async function POST(req: NextRequest) {
             uiMessage: `${totalStuck} document(s) stuck in processing queue`,
             meta: {
               stuck_queued: stuckQueued ?? 0,
-              stuck_processing: stuckProcessing ?? 0,
+              stuck_processing: stuckProcessing,
               threshold_queued_min: 5,
               threshold_processing_min: 10,
+              stuck_processing_artifact_ids: stuckProcessingIds,
             },
           });
 
@@ -195,27 +226,34 @@ export async function POST(req: NextRequest) {
             kind: "artifacts.stuck",
             meta: {
               stuck_queued: stuckQueued ?? 0,
-              stuck_processing: stuckProcessing ?? 0,
+              stuck_processing: stuckProcessing,
               total_stuck: totalStuck,
+              stuck_processing_artifact_ids: stuckProcessingIds,
             },
           });
         }
 
-        // Self-heal: reset processing artifacts stuck >10 min back to queued
-        if ((stuckProcessing ?? 0) > 0) {
+        // Self-heal: reset processing artifacts stuck >10 min (by lease/claim
+        // time) back to queued. Scoped to the exact IDs identified above
+        // (rather than re-querying lt("updated_at", ...)) plus a status
+        // guard, so we never reset a row that started processing — or
+        // finished — between the SELECT above and this UPDATE.
+        if (stuckProcessing > 0) {
           const { error: resetErr } = await sb
             .from("document_artifacts")
             .update({ status: "queued" } as any)
-            .eq("status", "processing")
-            .lt("created_at", tenMinAgo);
+            .in("id", stuckProcessingIds)
+            .eq("status", "processing");
 
           if (resetErr) {
             console.error("[artifacts/process] failed to reset stuck artifacts", {
               error: resetErr.message,
+              artifact_ids: stuckProcessingIds,
             });
           } else {
             console.log("[artifacts/process] reset stuck processing artifacts to queued", {
               count: stuckProcessing,
+              artifact_ids: stuckProcessingIds,
             });
           }
         }

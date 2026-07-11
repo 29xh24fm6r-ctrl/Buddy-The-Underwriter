@@ -91,6 +91,10 @@ export async function processConfirmedIntake(
         .update({
           intake_processing_started_at: new Date().toISOString(),
           intake_processing_last_heartbeat_at: new Date().toISOString(),
+          // A run actually starting means stuck-recovery (if any got us here)
+          // worked — clear its cross-lifecycle attempts counter so a later,
+          // unrelated stuck episode starts its own circuit breaker fresh.
+          intake_stuck_recovery_attempts: 0,
         })
         .eq("id", dealId)
         .eq("intake_processing_run_id", runId);
@@ -484,6 +488,7 @@ export async function processConfirmedIntake(
   }
 
   // Process docs in batches of DOC_CONCURRENCY
+  let runSuperseded = false;
   for (let i = 0; i < confirmedDocs.length; i += DOC_CONCURRENCY) {
     // CAS bail-out: verify this run is still the active run before each batch
     if (runId) {
@@ -495,6 +500,7 @@ export async function processConfirmedIntake(
           .maybeSingle();
         if (runCheck && (runCheck as any).intake_processing_run_id !== runId) {
           errors.push("run_superseded_mid_processing");
+          runSuperseded = true;
           break;
         }
       } catch {
@@ -503,9 +509,36 @@ export async function processConfirmedIntake(
     }
 
     const batch = confirmedDocs.slice(i, i + DOC_CONCURRENCY);
-    await Promise.allSettled(batch.map(processOneDoc));
+    await Promise.allSettled(
+      batch.map(async (doc) => {
+        await processOneDoc(doc);
+        // Per-document heartbeat: a batch of 3 docs can take minutes if one
+        // doc is slow, and a heartbeat that only moves once per BATCH can
+        // trip stale-heartbeat detection while the worker is still actively
+        // making progress on the other docs in the batch.
+        if (runId) void stampProcessingHeartbeat(dealId, runId, `doc_${doc.id}`);
+      }),
+    );
 
     if (runId) void stampProcessingHeartbeat(dealId, runId, `batch_${i}`);
+  }
+
+  // A newer run now owns this deal — stop touching shared deal-level state
+  // (checklist, document snapshot, lifecycle, readiness, naming). Those
+  // writes aren't individually CAS'd against run_id, so without this bail-out
+  // an orphaned run could still clobber state the newer run is producing.
+  // The newer run will redo this finalization work itself.
+  if (runSuperseded) {
+    console.warn("[processConfirmedIntake] run superseded mid-processing — skipping deal-level finalization", {
+      dealId, runId,
+    });
+    return {
+      ok: false,
+      docsProcessed: confirmedDocs.length,
+      matchResults,
+      extractResults,
+      errors,
+    };
   }
 
   // ── E2: Fan-out parallel extraction Lambdas ────────────────────────

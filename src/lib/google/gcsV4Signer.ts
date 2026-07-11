@@ -12,6 +12,13 @@ export type V4SignedPutOptions = {
   serviceAccountEmail: string;
   host?: string;
   now?: Date;
+  /**
+   * When provided, adds an X-Goog-Content-Length-Range extension header
+   * condition to the signature so GCS itself rejects a PUT whose body
+   * exceeds this size. The caller MUST send the returned
+   * "X-Goog-Content-Length-Range" header verbatim on the PUT.
+   */
+  maxSizeBytes?: number;
   signBlob: (bytes: Uint8Array) => Promise<Uint8Array>;
 };
 
@@ -59,16 +66,23 @@ export async function createV4SignedPutUrl(opts: V4SignedPutOptions): Promise<{
 
   const canonicalUri = `/${encodeRFC3986(opts.bucket)}/${encodeUriPath(opts.objectKey)}`;
 
+  const contentLengthRange = opts.maxSizeBytes != null ? `0,${opts.maxSizeBytes}` : null;
+  const signedHeaders = contentLengthRange
+    ? "content-type;host;x-goog-content-length-range"
+    : "content-type;host";
+
   const queryParams = {
     "X-Goog-Algorithm": "GOOG4-RSA-SHA256",
     "X-Goog-Credential": credential,
     "X-Goog-Date": dateTime,
     "X-Goog-Expires": String(opts.expiresSeconds),
-    "X-Goog-SignedHeaders": "content-type;host",
+    "X-Goog-SignedHeaders": signedHeaders,
   };
 
-  const canonicalHeaders = `content-type:${opts.contentType}\n` + `host:${host}\n`;
-  const signedHeaders = "content-type;host";
+  const canonicalHeaders =
+    `content-type:${opts.contentType}\n` +
+    `host:${host}\n` +
+    (contentLengthRange ? `x-goog-content-length-range:${contentLengthRange}\n` : "");
   const payloadHash = "UNSIGNED-PAYLOAD";
 
   const canonicalRequest = [
@@ -93,9 +107,12 @@ export async function createV4SignedPutUrl(opts: V4SignedPutOptions): Promise<{
   const finalQuery = `${canonicalQuery(queryParams)}&X-Goog-Signature=${signature}`;
   const url = `https://${host}${canonicalUri}?${finalQuery}`;
 
+  const headers: Record<string, string> = { "Content-Type": opts.contentType };
+  if (contentLengthRange) headers["X-Goog-Content-Length-Range"] = contentLengthRange;
+
   return {
     url,
-    headers: { "Content-Type": opts.contentType },
+    headers,
     objectKey: opts.objectKey,
   };
 }

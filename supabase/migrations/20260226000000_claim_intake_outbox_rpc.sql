@@ -3,7 +3,7 @@
 -- Uses FOR UPDATE SKIP LOCKED to allow concurrent consumers without
 -- row contention. Only claims rows with kind = 'intake.process'.
 --
--- Called by: /api/workers/intake-outbox (Vercel Cron, every 1 min)
+-- Called by: /api/workers/intake-outbox (Vercel Cron, every 5 min)
 -- NOT called by: buddy-core-worker (Pulse forwarding — excludes intake.process)
 
 CREATE OR REPLACE FUNCTION claim_intake_outbox_batch(

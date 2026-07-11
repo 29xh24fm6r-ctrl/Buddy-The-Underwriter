@@ -5,7 +5,7 @@
  * Runs extractByDocType() for each claimed doc.
  * After each success: triggers deal-level recomputation (spreads, facts, readiness).
  *
- * Called by: /api/workers/doc-extraction (Vercel Cron, every 1 min)
+ * Called by: /api/workers/doc-extraction (Vercel Cron, every 2 min)
  */
 
 import "server-only";

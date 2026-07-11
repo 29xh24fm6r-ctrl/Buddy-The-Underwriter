@@ -12,6 +12,7 @@ import { enqueueExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { resolveDocTypeRouting } from "@/lib/documents/docTypeRouting";
 import { normalizeToCanonical } from "@/lib/documents/normalizeType";
 import { resolveChecklistKey, PERIOD_REQUIRED_TYPES } from "@/lib/docTyping/resolveChecklistKey";
+import { passesAutoFillGate } from "@/lib/classification/confidenceGate";
 
 /**
  * Classification Job Processor
@@ -48,6 +49,8 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
     classifierReasons?: any;
     classifierTaxYear?: number | null;
     classifierPeriodEnd?: string | null;
+    /** Spine classifier confidence, 0-1 scale, post-calibration (SpineClassificationResult.confidence). */
+    spineConfidence?: number | null;
   }) {
     try {
       const docRes = await (supabase as any)
@@ -162,6 +165,12 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       const taxYear = args.classifierTaxYear ?? inferred.doc_year ?? null;
       const checklist_key = resolveChecklistKey(canonical_type, taxYear, statementPeriod);
 
+      // Confidence gate: never auto-fill a checklist slot from a low-confidence
+      // classification. document_type/canonical_type/confidence are still
+      // recorded for visibility; checklist_key is withheld and the slot (if
+      // any) is routed to review instead.
+      const autoFillAllowed = passesAutoFillGate(Number(args.spineConfidence ?? 0));
+
       const attempt1 = await (supabase as any)
         .from("deal_documents")
         .update({
@@ -173,7 +182,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
           match_source: "ocr",
           canonical_type,
           routing_class,
-          ...(checklist_key ? { checklist_key } : {}),
+          ...(checklist_key && autoFillAllowed ? { checklist_key } : {}),
         })
         .eq("id", args.attachmentId);
 
@@ -190,6 +199,27 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
               match_source: "ocr",
             })
             .eq("id", args.attachmentId);
+        }
+      }
+
+      // Low confidence: don't let the doc silently sit unmatched — route the
+      // slot it would have filled to review, reusing the same "needs_review"
+      // checklist item status the engine already uses for mid-confidence AI
+      // mappings (see reconcileChecklistForDeal in checklist/engine.ts).
+      // Best-effort / non-fatal.
+      if (checklist_key && !autoFillAllowed) {
+        try {
+          const reviewUpd = await (supabase as any)
+            .from("deal_checklist_items")
+            .update({ status: "needs_review" } as any)
+            .eq("deal_id", args.dealId)
+            .eq("checklist_key", checklist_key)
+            .not("status", "in", "(received,satisfied,waived)");
+          if (reviewUpd.error) {
+            console.warn("[classifyProcessor] low-confidence needs_review stamp failed (non-fatal)", reviewUpd.error.message);
+          }
+        } catch (reviewErr: any) {
+          console.warn("[classifyProcessor] low-confidence needs_review stamp threw (non-fatal)", reviewErr?.message);
         }
       }
 
@@ -317,6 +347,7 @@ export async function processClassifyJob(jobId: string, leaseOwner: string) {
       classifierReasons: (classifyResult as any).reasons ?? null,
       classifierTaxYear: spineResult.taxYear ?? null,
       classifierPeriodEnd: spineResult.periodEnd ?? null,
+      spineConfidence: spineResult.confidence,
     });
 
     // B2: Spread enqueue removed — artifact pipeline is the single path for spread triggers.

@@ -30,9 +30,19 @@ const SCHEDULE_L_ENTITY_MAP: Record<string, string> = {
 };
 
 function extractMoney(e: EntityRow): number | null {
-  const units = e.normalizedValue?.moneyValue?.units;
-  if (typeof units === "number" && Number.isFinite(units)) return units;
-  return null;
+  const money = e.normalizedValue?.moneyValue;
+  const units = money?.units;
+  if (typeof units !== "number" || !Number.isFinite(units)) return null;
+
+  // Proto Money semantics (matches the AR-aging prompt in geminiFlashPrompts.ts):
+  // nanos is a fractional part of `units` expressed in nanos (1e9 nanos = 1 unit,
+  // i.e. nanos = cents * 1e7). Previously only `units` was read, silently
+  // dropping cent-level precision (e.g. $1,234.56 -> $1,234).
+  const nanos = money?.nanos;
+  if (typeof nanos === "number" && Number.isFinite(nanos) && nanos !== 0) {
+    return Math.round((units + nanos / 1_000_000_000) * 100) / 100;
+  }
+  return units;
 }
 
 function buildPeriodEnd(taxYear: number | null): string | null {

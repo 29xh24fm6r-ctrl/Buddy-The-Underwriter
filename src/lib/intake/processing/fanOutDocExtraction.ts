@@ -5,7 +5,7 @@
  * Each invocation hits /api/workers/doc-extraction?max=1, which claims
  * exactly one outbox row via FOR UPDATE SKIP LOCKED — no double-processing.
  *
- * The cron (every 1 min) remains as a safety net for any docs that
+ * The cron (every 2 min) remains as a safety net for any docs that
  * slip through (Lambda cold start failures, transient network errors).
  *
  * Concurrency is capped at MAX_CONCURRENT_EXTRACTIONS to stay within

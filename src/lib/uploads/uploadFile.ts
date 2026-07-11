@@ -26,6 +26,9 @@ export interface SignedUploadResponse {
     checklist_key?: string | null;
     bucket?: string;
     upload_session_id?: string | null;
+    /** Extra headers (e.g. Content-Type, x-goog-content-length-range) that MUST
+     *  be sent verbatim on the storage PUT to match what was signed. */
+    headers?: Record<string, string>;
   };
   deal_id?: string; // For borrower portal
   upload_session_id?: string | null;
@@ -303,7 +306,7 @@ export async function directDealDocumentUpload(
       };
     }
 
-    const { file_id, object_path, signed_url } = signData.upload;
+    const { file_id, object_path, signed_url, headers: uploadHeaders } = signData.upload;
     const uploadSessionId =
       signData.upload?.upload_session_id || signData.upload_session_id || null;
 
@@ -311,7 +314,7 @@ export async function directDealDocumentUpload(
 
     // Step 2: Upload directly to storage
     stage(requestId, onStage, "storage_put_start", { file_id });
-    const uploadResult = await uploadViaSignedUrl(signed_url, file);
+    const uploadResult = await uploadViaSignedUrl(signed_url, file, undefined, uploadHeaders);
     if (!uploadResult.ok) {
       const err = uploadResult as UploadErr;
       stage(requestId, onStage, "storage_put_error", {
@@ -455,12 +458,12 @@ export async function uploadBorrowerFile(
       };
     }
 
-    const { file_id, object_path, signed_url } = signData.upload;
+    const { file_id, object_path, signed_url, headers: uploadHeaders } = signData.upload;
     const uploadSessionId =
       signData.upload?.upload_session_id || signData.upload_session_id || null;
 
     // Step 2: Upload directly to storage
-    const uploadResult = await uploadViaSignedUrl(signed_url, file, onProgress);
+    const uploadResult = await uploadViaSignedUrl(signed_url, file, onProgress, uploadHeaders);
     if (!uploadResult.ok) {
       const err = uploadResult as UploadErr;
       console.warn("[upload] borrower storage failed", { requestId, file_id });

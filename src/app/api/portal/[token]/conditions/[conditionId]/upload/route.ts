@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { processConditionUpload } from "@/lib/conditions/processConditionUpload";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { validateUploadSession } from "@/lib/uploads/uploadSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,22 +27,28 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const {
       file_id,
-      object_path,
-      storage_path,
-      storage_bucket,
       original_filename,
       mime_type,
       size_bytes,
       sha256,
       checklist_key,
+      session_id,
+      upload_session_id,
     } = body;
 
-    const resolvedPath = storage_path || object_path;
-    const resolvedBucket = storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
+    const headerSessionId = req.headers.get("x-buddy-upload-session-id");
+    const resolvedSessionId = headerSessionId || upload_session_id || session_id || null;
 
-    if (!file_id || !resolvedPath || !original_filename) {
+    if (!file_id || !original_filename) {
       return NextResponse.json(
-        { ok: false, error: "Missing required fields: file_id, object_path/storage_path, original_filename" },
+        { ok: false, error: "Missing required fields: file_id, original_filename" },
+        { status: 400 },
+      );
+    }
+
+    if (!resolvedSessionId) {
+      return NextResponse.json(
+        { ok: false, error: "missing_upload_session" },
         { status: 400 },
       );
     }
@@ -123,7 +130,85 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     }
 
-    // 4. Process the upload through canonical pipeline
+    // 4. Validate upload session and resolve the SERVER-RECORDED storage location.
+    // SECURITY: never trust client-supplied storage_path/storage_bucket for the
+    // write into deal_documents — always resolve object_key/bucket from the
+    // deal_upload_session_files row that was created when the signed URL was
+    // issued (scoped to this token's deal), matching the pattern used by
+    // /api/deals/[dealId]/files/record and /api/portal/[token]/files/record.
+    const sessionValidation = await validateUploadSession({
+      sb,
+      sessionId: resolvedSessionId,
+      dealId,
+      bankId,
+    });
+
+    if (!sessionValidation.ok) {
+      console.warn("[portal/conditions/upload] Upload session invalid", {
+        event: "borrower_upload_session_invalid",
+        conditionId,
+        dealId,
+        reason: sessionValidation.error,
+        severity: "warn",
+        timestamp: new Date().toISOString(),
+      });
+      return NextResponse.json(
+        { ok: false, error: sessionValidation.error },
+        { status: 409 },
+      );
+    }
+
+    const { data: sessionFile, error: sessionFileErr } = await sb
+      .from("deal_upload_session_files")
+      .select("id, size_bytes, status, object_key, bucket")
+      .eq("session_id", resolvedSessionId)
+      .eq("file_id", file_id)
+      .maybeSingle();
+
+    if (sessionFileErr || !sessionFile) {
+      console.warn("[portal/conditions/upload] Upload session file missing", {
+        event: "borrower_upload_session_file_missing",
+        conditionId,
+        dealId,
+        fileId: file_id,
+        severity: "warn",
+        timestamp: new Date().toISOString(),
+      });
+      return NextResponse.json(
+        { ok: false, error: "upload_session_file_missing" },
+        { status: 409 },
+      );
+    }
+
+    if (
+      size_bytes != null &&
+      Number((sessionFile as any).size_bytes || 0) !== Number(size_bytes || 0)
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "upload_session_size_mismatch" },
+        { status: 409 },
+      );
+    }
+
+    const serverObjectKey = (sessionFile as any).object_key as string | null;
+    const serverBucket = (sessionFile as any).bucket as string | null;
+
+    if (!serverObjectKey || !serverBucket) {
+      console.error("[portal/conditions/upload] Session file missing object_key/bucket", {
+        event: "borrower_upload_session_file_invalid",
+        conditionId,
+        dealId,
+        fileId: file_id,
+        severity: "error",
+        timestamp: new Date().toISOString(),
+      });
+      return NextResponse.json(
+        { ok: false, error: "upload_session_file_invalid" },
+        { status: 409 },
+      );
+    }
+
+    // 5. Process the upload through canonical pipeline using server-trusted values.
     const result = await processConditionUpload({
       dealId,
       bankId,
@@ -132,8 +217,8 @@ export async function POST(req: NextRequest, ctx: Context) {
         original_filename,
         mimeType: mime_type ?? "application/octet-stream",
         sizeBytes: size_bytes ?? 0,
-        storagePath: resolvedPath,
-        storageBucket: resolvedBucket,
+        storagePath: serverObjectKey,
+        storageBucket: serverBucket,
         sha256: sha256 ?? null,
       },
       source: "borrower_portal",

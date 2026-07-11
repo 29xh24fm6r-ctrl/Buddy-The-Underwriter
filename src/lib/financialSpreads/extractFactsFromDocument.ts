@@ -845,6 +845,125 @@ export async function extractFactsFromDocument(args: {
     console.warn("[extractFactsFromDocument] validation gate failed:", err);
   }
 
+  // ── E2: Entity conflict guard ────────────────────────────────────────
+  // Compare EIN/SSN extracted from THIS document's structured JSON against
+  // the entity already resolved for the document's bound intake slot (if
+  // any). detectEntityConflict/extractEinFromStructured/extractSsnFromStructured
+  // were fully implemented but never wired into the write path — a document
+  // belonging to a different legal entity than the one bound to the deal
+  // would silently have its facts persisted. Best-effort / non-fatal: if we
+  // can't resolve a bound entity, there's nothing to compare against.
+  if (structuredJson && factsWritten > 0) {
+    try {
+      const { detectEntityConflict, extractEinFromStructured, extractSsnFromStructured } =
+        await import("@/lib/extraction");
+
+      const digitsOnly = (v: string | null | undefined) => (v ? v.replace(/\D/g, "") : null);
+
+      const extractedEin = digitsOnly(extractEinFromStructured(structuredJson));
+      const extractedSsnFull = extractSsnFromStructured(structuredJson);
+      const extractedSsnLast4 = extractedSsnFull ? digitsOnly(extractedSsnFull)?.slice(-4) ?? null : null;
+
+      if (extractedEin || extractedSsnLast4) {
+        const { data: attachment } = await (sb as any)
+          .from("deal_document_slot_attachments")
+          .select("slot_id")
+          .eq("document_id", args.documentId)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        let resolvedEin: string | null = null;
+        let resolvedSsnLast4: string | null = null;
+
+        if (attachment?.slot_id) {
+          const { data: slot } = await (sb as any)
+            .from("deal_document_slots")
+            .select("required_entity_id")
+            .eq("id", attachment.slot_id)
+            .maybeSingle();
+
+          if (slot?.required_entity_id) {
+            const { data: entityRow } = await (sb as any)
+              .from("deal_entities")
+              .select("ein, meta")
+              .eq("id", slot.required_entity_id)
+              .maybeSingle();
+            resolvedEin = digitsOnly(entityRow?.ein ?? null);
+            resolvedSsnLast4 = digitsOnly(entityRow?.meta?.ssn_last4 ?? null);
+          }
+        }
+
+        if (resolvedEin || resolvedSsnLast4) {
+          const conflict = detectEntityConflict({
+            extractedEin,
+            resolvedEin,
+            extractedSsn: extractedSsnLast4,
+            resolvedSsn: resolvedSsnLast4,
+          });
+
+          if (conflict.hasConflict) {
+            console.warn(
+              "[extractFactsFromDocument] Entity conflict detected — deleting extracted facts, routing to review",
+              {
+                documentId: args.documentId,
+                dealId: args.dealId,
+                conflictType: conflict.conflictType,
+                detail: conflict.detail,
+              },
+            );
+
+            await (sb as any)
+              .from("deal_financial_facts")
+              .delete()
+              .eq("deal_id", args.dealId)
+              .eq("source_document_id", args.documentId)
+              .neq("fact_type", "EXTRACTION_HEARTBEAT");
+
+            factsWritten = 0;
+
+            await (sb as any)
+              .from("deal_documents")
+              .update({ extraction_quality_status: "SUSPECT" })
+              .eq("id", args.documentId);
+
+            await (sb as any).from("deal_extraction_exceptions").insert({
+              document_id: args.documentId,
+              deal_id: args.dealId,
+              failed_gates: ["entity_conflict"],
+              all_attempts: [
+                {
+                  attempt: 1,
+                  failedGates: ["entity_conflict"],
+                  status: conflict.conflictType,
+                  detail: conflict.detail,
+                },
+              ],
+              status: "open",
+            });
+
+            const { writeEvent } = await import("@/lib/ledger/writeEvent");
+            void writeEvent({
+              dealId: args.dealId,
+              kind: "extraction.entity_conflict",
+              scope: "extraction",
+              action: "entity_conflict_detected",
+              requiresHumanReview: true,
+              meta: {
+                document_id: args.documentId,
+                doc_type: normDocType,
+                conflict_type: conflict.conflictType,
+                detail: conflict.detail,
+              },
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal — entity conflict check must never break extraction.
+      console.warn("[extractFactsFromDocument] entity conflict check failed:", err);
+    }
+  }
+
   // Trigger gap recompute after every extraction
   try {
     const { computeDealGaps } = await import("@/lib/gapEngine/computeDealGaps");

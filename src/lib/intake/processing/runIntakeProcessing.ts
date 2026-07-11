@@ -83,6 +83,18 @@ export async function runIntakeProcessing(
     });
 
     // ── Durable processing with soft deadline guard ─────────────────────
+    // Promise.race does NOT cancel the loser: if the soft-deadline branch
+    // "wins", enqueueDealProcessing keeps running in the background and can
+    // still write state later. Since it shares the same run_id, its later
+    // writes would otherwise pass every downstream CAS check unchanged and
+    // silently overwrite the terminal state we're about to write here.
+    //
+    // Fix: retire run_id (set it to null) as part of the same CAS'd write
+    // that records the soft-deadline terminal phase. Every downstream write
+    // in the orphaned execution (updateDealIfRunOwner, stampProcessingHeartbeat,
+    // and the mid-batch run-ownership check in processConfirmedIntake) keys
+    // off "current run_id === runId" — once run_id is retired, all of those
+    // become no-ops for the orphan, without needing true task cancellation.
     const result = await Promise.race([
       enqueueDealProcessing(dealId, bankId, runId),
       (async () => {
@@ -100,10 +112,16 @@ export async function runIntakeProcessing(
           },
         });
 
-        await updateDealIfRunOwner(dealId, runId, computeDealPhasePatch(
-          "PROCESSING_COMPLETE_WITH_ERRORS",
-          { errorSummary: `soft_deadline: processing exceeded ${SOFT_DEADLINE_MS}ms` },
-        ));
+        await updateDealIfRunOwner(dealId, runId, {
+          ...computeDealPhasePatch(
+            "PROCESSING_COMPLETE_WITH_ERRORS",
+            { errorSummary: `soft_deadline: processing exceeded ${SOFT_DEADLINE_MS}ms` },
+          ),
+          // Retire run_id atomically with the terminal phase write — see
+          // comment above. The orphaned enqueueDealProcessing execution can
+          // no longer CAS-match this (now-superseded) run_id.
+          intake_processing_run_id: null,
+        });
 
         throw new Error("SOFT_DEADLINE_EXCEEDED");
       })(),

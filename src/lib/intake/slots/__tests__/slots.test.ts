@@ -154,10 +154,17 @@ test("processArtifact validates slot attachment after extraction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. validateSlotAttachment — informational only, never rejects
+// 4. validateSlotAttachment — flags type mismatches so the UI can surface them
 // ---------------------------------------------------------------------------
+//
+// A type mismatch must NOT be swallowed into the same "attached" status as a
+// normal, unproblematic attachment — CoreDocumentsPanel keys its amber
+// "Mismatch" warning and excludes-from-completeness-count logic specifically
+// off status === "rejected". The document stays attached to the slot (a
+// banker can still confirm it) — this is still informational, not a hard
+// block — but it must be visibly flagged, not silently invisible.
 
-test("validateSlotAttachment checks doc type and year, never rejects", () => {
+test("validateSlotAttachment flags type mismatches as status='rejected'", () => {
   const src = readFile("src/lib/intake/slots/validateSlotAttachment.ts");
 
   assert.ok(
@@ -172,10 +179,11 @@ test("validateSlotAttachment checks doc type and year, never rejects", () => {
     src.includes('"validated"'),
     "Must set status to validated on match",
   );
-  // Mismatch produces informational status, never "rejected"
+  // Mismatch must be flagged as "rejected" — this is the status CoreDocumentsPanel
+  // keys its mismatch warning off of (see CoreDocumentsPanel.tsx status union).
   assert.ok(
-    !src.includes('status: "rejected"') && !src.includes("status: 'rejected'"),
-    "Must NEVER set status to rejected — slots are informational only",
+    src.includes('status: "rejected"') || src.includes("status: 'rejected'"),
+    "Must set status to 'rejected' on type mismatch so the UI warning fires",
   );
   assert.ok(
     src.includes("mismatch_info"),
@@ -185,10 +193,11 @@ test("validateSlotAttachment checks doc type and year, never rejects", () => {
     src.includes("validation_reason"),
     "Must set validation_reason on mismatch",
   );
-  // Never returns validated: false
+  // Mismatch must report validated: false — a mismatched doc must not read
+  // as a normal successful validation.
   assert.ok(
-    !src.includes("validated: false"),
-    "Must NEVER return validated: false — slots never reject",
+    src.includes("validated: false"),
+    "Must return validated: false on type mismatch",
   );
 });
 
