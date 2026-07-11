@@ -10,6 +10,7 @@
  * (/portal/owner/[token], /portal/share/[token]) are listed here.
  */
 const PUBLIC_BORROWER_PREFIXES = [
+  "/brokerage",
   "/start",
   "/for-banks",
   "/pricing",
