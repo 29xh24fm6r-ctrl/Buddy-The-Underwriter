@@ -14,7 +14,7 @@
  *   - Failure: attempts incremented, exponential backoff via next_attempt_at
  *   - Dead letter: attempts >= 5 → dead_lettered_at set, no further retries
  *
- * Called by: /api/workers/intake-outbox (Vercel Cron, every 1 min)
+ * Called by: /api/workers/intake-outbox (Vercel Cron, every 5 min)
  */
 
 import "server-only";

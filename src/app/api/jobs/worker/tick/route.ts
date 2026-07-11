@@ -8,6 +8,7 @@ import { processNextExtractJob } from "@/lib/jobs/processors/extractProcessor";
 import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
 import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads";
 import { cleanupStuckJobs } from "@/lib/spreads/janitor/cleanupStuckJobs";
+import { cleanupStuckDocumentJobs } from "@/lib/jobs/janitor/cleanupStuckDocumentJobs";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 import {
   WORKER_LOCK_KEYS,
@@ -124,6 +125,16 @@ export async function POST(req: NextRequest) {
       const janitorResult = await cleanupOrphanSpreads();
 
       return NextResponse.json({ ...locked, stuckJobs: stuckResult, janitor: janitorResult });
+    }
+
+    // Legacy document_jobs queue (OCR/CLASSIFY/EXTRACT): reclaim rows stuck
+    // in RUNNING past their lease before attempting to claim new work, so a
+    // just-reclaimed job can be picked up in this same tick. Mirrors the
+    // stuck-job reclaim done for deal_spread_jobs below/in the SPREADS
+    // branch. Cheap no-op when nothing is stuck.
+    const stuckDocJobsResult = await cleanupStuckDocumentJobs();
+    if (stuckDocJobsResult.cleaned > 0) {
+      results.push({ type: "DOC_JOB_STUCK_JOBS", ...stuckDocJobsResult });
     }
 
     for (let i = 0; i < batchSize; i++) {

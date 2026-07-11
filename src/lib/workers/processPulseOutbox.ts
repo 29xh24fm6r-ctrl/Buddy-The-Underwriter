@@ -5,7 +5,7 @@
  * manual_override, and any other non-intake outbox events.
  *
  * Uses the same claim/deliver pattern as processIntakeOutbox.
- * Never throws. Called by /api/workers/pulse-outbox (Vercel Cron, every 2 min).
+ * Never throws. Called by /api/workers/pulse-outbox (Vercel Cron, every 5 min).
  */
 
 import "server-only";
