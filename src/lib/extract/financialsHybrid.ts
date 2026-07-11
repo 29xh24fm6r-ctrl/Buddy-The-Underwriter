@@ -9,10 +9,17 @@ export async function extractFinancialsHybrid(params: {
   azureOcrJson?: any; // optional (loaded by docId in the API)
 }) {
   // 1) PDFJS tokens (placeholder until coordinate modules exist)
+  // NOT IMPLEMENTED: pdfTextCoords doesn't exist yet, so this is hardcoded to
+  // []. That used to be silent — downstream code sees "0 tokens" and returns
+  // an empty-but-"successful" extraction with no signal anything's wrong.
+  // buildFinancialsTablesFromTokens() now throws loudly for non-empty input,
+  // so if this is re-wired to a real loader without also implementing the
+  // coordinate-reconstruction pipeline, it fails fast instead of silently
+  // dropping data.
   const pdfItems: Array<{ str: string; page: number; x: number; y: number }> = [];
   // TODO: Uncomment when pdfTextCoords module exists
   // const pdfItems = await readPdfTextCoords(params.filePath);
-  
+
   const quality = scoreTextLayer(pdfItems);
 
   const pdfBuilt = buildFinancialsTablesFromTokens(pdfItems);
@@ -42,10 +49,12 @@ export async function extractFinancialsHybrid(params: {
   }
 
   // 3) OCR tokens path (placeholder until azureToCoords exists)
+  // NOT IMPLEMENTED: azureToCoords doesn't exist yet — see pdfItems comment
+  // above for why this is hardcoded to [] rather than silently "working".
   const ocrItems: Array<{ str: string; page: number; x: number; y: number }> = [];
   // TODO: Uncomment when azureToCoords module exists
   // const ocrItems = azureReadToTextCoords(params.azureOcrJson);
-  
+
   const ocrBuilt = buildFinancialsTablesFromTokens(ocrItems);
   const ocrTableQuals = ocrBuilt.tables.map(scoreTableQuality);
   const ocrBest = bestQuality(ocrTableQuals);

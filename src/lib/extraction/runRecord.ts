@@ -186,6 +186,27 @@ export async function createExtractionRun(
     .single();
 
   if (error || !newRun) {
+    // Race recovery: two concurrent calls can both pass the existing-row
+    // check above and then both attempt to insert. The loser hits the
+    // uq_extraction_run_dedup unique constraint (document_id, input_hash,
+    // engine_version) — Postgres error code 23505. That's not a real
+    // failure, it means the other caller already created the row we wanted;
+    // re-select it and reuse it idempotently instead of throwing. Any other
+    // error code is a genuine failure and still throws.
+    if (error?.code === "23505") {
+      const { data: raceWinner } = await (sb as any)
+        .from("deal_extraction_runs")
+        .select("*")
+        .eq("document_id", args.documentId)
+        .eq("input_hash", inputHash)
+        .eq("engine_version", EXTRACTION_ENGINE_VERSION)
+        .maybeSingle();
+
+      if (raceWinner) {
+        return { run: raceWinner as ExtractionRunRow, reused: true };
+      }
+    }
+
     throw new Error(`create_extraction_run_failed: ${error?.message ?? "unknown"}`);
   }
 

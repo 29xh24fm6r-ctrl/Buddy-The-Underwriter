@@ -21,6 +21,7 @@ export {
   computeDeterministicConfidence,
   hashSnippet,
   buildFactEvidence,
+  verifyMatchedTextInSource,
   type ExtractionSource,
   type FactEvidence,
 } from "./evidence";
