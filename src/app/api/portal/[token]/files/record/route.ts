@@ -11,6 +11,7 @@ import { isBorrowerUploadAllowed } from "@/lib/deals/lifecycleGuards";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
+import { gcsObjectExists } from "@/lib/storage/gcs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,8 +54,11 @@ export async function POST(req: NextRequest, ctx: Context) {
     const headerSessionId = req.headers.get("x-buddy-upload-session-id");
     const resolvedSessionId = headerSessionId || upload_session_id || session_id || null;
 
-    const resolvedPath = storage_path || object_path;
-    const resolvedBucket =
+    // NOTE: reassigned below once the upload session's server-recorded
+    // object_key/bucket is looked up — the client-submitted values are
+    // never trusted for the actual write (see SECURITY comment below).
+    let resolvedPath = storage_path || object_path;
+    let resolvedBucket =
       storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
     let dealIdForLog: string | null = null;
@@ -191,7 +195,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     const existingFile = await sb
       .from("deal_upload_session_files")
-      .select("id, size_bytes")
+      .select("id, size_bytes, object_key, bucket")
       .eq("session_id", resolvedSessionId)
       .eq("file_id", file_id)
       .maybeSingle();
@@ -242,6 +246,49 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
+    // SECURITY: never trust the client-submitted storage_path/storage_bucket.
+    // Always resolve the object location from the server-recorded session-file
+    // row (stamped when the signed URL was issued in /files/sign), so a
+    // caller cannot point deal_documents at an arbitrary object it didn't
+    // actually upload to.
+    const sessionObjectKey = (existingFile.data as any).object_key as string | null;
+    const sessionBucket = (existingFile.data as any).bucket as string | null;
+
+    if (!sessionObjectKey || !sessionBucket) {
+      await logLedgerEvent({
+        dealId,
+        bankId: deal.bank_id,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: session file missing object key",
+        meta: {
+          file_id,
+          upload_session_id: resolvedSessionId,
+          reason: "upload_session_object_key_missing",
+          source: "borrower_portal",
+        },
+      });
+      return NextResponse.json(
+        { ok: false, error: "upload_session_object_key_missing" },
+        { status: 409 },
+      );
+    }
+
+    if (sessionObjectKey !== resolvedPath || sessionBucket !== resolvedBucket) {
+      console.warn("[portal/files/record] client-submitted path differs from server-recorded session file; using server value", {
+        dealId,
+        fileId: file_id,
+        uploadSessionId: resolvedSessionId,
+        clientPath: resolvedPath,
+        clientBucket: resolvedBucket,
+        serverPath: sessionObjectKey,
+        serverBucket: sessionBucket,
+      });
+    }
+
+    resolvedPath = sessionObjectKey;
+    resolvedBucket = sessionBucket;
+
     await sb
       .from("deal_upload_session_files")
       .update({
@@ -291,8 +338,20 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Verify file exists in storage (optional but recommended)
-    if (resolvedBucket !== process.env.GCS_BUCKET) {
+    // Verify file exists in storage.
+    // GCS path: authoritative — reject if the object is confirmed absent.
+    if (resolvedBucket === process.env.GCS_BUCKET) {
+      const exists = await gcsObjectExists({ bucket: resolvedBucket, key: resolvedPath });
+      if (!exists) {
+        console.error("[portal/files/record] object not found in GCS", {
+          object_path: resolvedPath,
+        });
+        return NextResponse.json(
+          { ok: false, error: "File not found in storage" },
+          { status: 404 },
+        );
+      }
+    } else {
       const { data: fileExists, error: checkErr } = await sb.storage
         .from(resolvedBucket)
         .list(resolvedPath.split("/").slice(0, -1).join("/"), {

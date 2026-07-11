@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { constantTimeEqual, hashPassword, sha256 } from "@/lib/security/tokens";
+import { sha256 as sha256Bytes } from "@/lib/storage/adminStorage";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
 import { recordBorrowerUploadAndMaterialize } from "@/lib/uploads/recordBorrowerUploadAndMaterialize";
@@ -8,6 +9,7 @@ import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/sto
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { writeEvent } from "@/lib/ledger/writeEvent";
+import { ALLOWED_MIME_TYPES, MAX_UPLOAD_BYTES } from "@/lib/uploads/signDealUpload";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -157,14 +159,38 @@ export async function POST(req: Request) {
     chaosPoint(req, "before_storage_upload");
     chaosPoint(req, "before_storage_upload");
 
+    // Bank-safe guardrails (same allowlist/cap used by every other upload path —
+    // see src/lib/uploads/signDealUpload.ts). Reject before buffering the body.
+    if (f.type && !ALLOWED_MIME_TYPES.has(f.type)) {
+      return NextResponse.json(
+        { ok: false, error: `Unsupported file type: ${f.type}` },
+        { status: 415 },
+      );
+    }
+    if (typeof f.size === "number" && f.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: "File too large (max 50MB)" },
+        { status: 413 },
+      );
+    }
+
     const arrayBuffer = await f.arrayBuffer();
     const bytes = Buffer.from(arrayBuffer);
+
+    if (bytes.length > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: "File too large (max 50MB)" },
+        { status: 413 },
+      );
+    }
 
     const safeName = (f.name || "upload").replace(/[^\w.\-()+\s]/g, "_");
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const random = sha256(`${safeName}:${ts}:${Math.random()}`).slice(0, 12);
 
-    const sha = sha256(bytes.toString("hex"));
+    // Content hash MUST be over the raw bytes (matches adminStorage.ts /
+    // contentHashGate.ts), not the hex-string representation.
+    const sha = sha256Bytes(bytes);
     let storagePath = `deals/${dealId}/borrower/${ts}_${random}_${safeName}`;
     let storageBucket = bucket;
 
@@ -206,11 +232,15 @@ export async function POST(req: Request) {
           key: storagePath,
           contentType: f.type || "application/octet-stream",
           expiresSeconds: Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900"),
+          maxSizeBytes: MAX_UPLOAD_BYTES,
         });
 
         const uploadRes = await fetch(signedUploadUrl, {
           method: "PUT",
-          headers: { "Content-Type": f.type || "application/octet-stream" },
+          headers: {
+            "Content-Type": f.type || "application/octet-stream",
+            "x-goog-content-length-range": `0,${MAX_UPLOAD_BYTES}`,
+          },
           body: bytes,
         });
 

@@ -26,6 +26,7 @@ import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { canTransitionIntakeState, type DealIntakeState } from "@/lib/deals/intakeState";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 import { getBaseUrl } from "@/lib/net/getBaseUrl";
+import { gcsObjectExists } from "@/lib/storage/gcs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,8 +165,11 @@ export async function POST(req: NextRequest, ctx: Context) {
     const headerSessionId = req.headers.get("x-buddy-upload-session-id");
     const resolvedSessionId = headerSessionId || upload_session_id || session_id || null;
 
-    const resolvedPath = storage_path || object_path;
-    const resolvedBucket =
+    // NOTE: these are reassigned below (see SECURITY comment) once the
+    // upload session's server-recorded object_key/bucket is looked up —
+    // the client-submitted values are never trusted for the actual write.
+    let resolvedPath = storage_path || object_path;
+    let resolvedBucket =
       storage_bucket || process.env.SUPABASE_UPLOAD_BUCKET || "deal-files";
 
     console.log("[UPLOAD RECORD ROUTE HIT]", {
@@ -501,7 +505,7 @@ export async function POST(req: NextRequest, ctx: Context) {
 
       const fileRes = await sb
         .from("deal_upload_session_files")
-        .select("id, size_bytes, status")
+        .select("id, size_bytes, status, object_key, bucket")
         .eq("session_id", resolvedSessionId)
         .eq("file_id", file_id)
         .maybeSingle();
@@ -550,6 +554,48 @@ export async function POST(req: NextRequest, ctx: Context) {
           { status: 409 },
         );
       }
+
+      // SECURITY: never trust the client-submitted storage_path/storage_bucket.
+      // Always resolve the object location from the server-recorded session-file
+      // row (stamped when the signed URL was issued in /files/sign), so a
+      // caller cannot point deal_documents at an arbitrary object it didn't
+      // actually upload to.
+      const sessionObjectKey = fileRow.object_key as string | null;
+      const sessionBucket = fileRow.bucket as string | null;
+
+      if (!sessionObjectKey || !sessionBucket) {
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "upload.rejected",
+          uiState: "done",
+          uiMessage: "Upload rejected: session file missing object key",
+          meta: {
+            file_id,
+            upload_session_id: resolvedSessionId,
+            reason: "upload_session_object_key_missing",
+          },
+        });
+        return NextResponse.json(
+          { ok: false, error: "upload_session_object_key_missing", request_id: requestId },
+          { status: 409 },
+        );
+      }
+
+      if (sessionObjectKey !== resolvedPath || sessionBucket !== resolvedBucket) {
+        console.warn("[files/record] client-submitted path differs from server-recorded session file; using server value", {
+          dealId,
+          fileId: file_id,
+          uploadSessionId: resolvedSessionId,
+          clientPath: resolvedPath,
+          clientBucket: resolvedBucket,
+          serverPath: sessionObjectKey,
+          serverBucket: sessionBucket,
+        });
+      }
+
+      resolvedPath = sessionObjectKey;
+      resolvedBucket = sessionBucket;
 
       if (fileRow.status !== "completed") {
         await sb
@@ -627,12 +673,23 @@ export async function POST(req: NextRequest, ctx: Context) {
       },
     });
 
-    // Verify file exists in storage (optional but recommended)
-    // This MUST be best-effort and bounded; do not block the upload UX.
+    // Verify file exists in storage.
+    // GCS path: authoritative — if the object is confirmed absent, reject
+    // rather than materialize a deal_documents row pointing at nothing.
+    // Supabase path: best-effort (list/search is known to be flaky), so a
+    // miss there is logged but non-fatal.
     let fileExists: any[] | null = null;
     let checkErr: any = null;
+    let gcsObjectConfirmedMissing = false;
     try {
-      if (resolvedBucket !== process.env.GCS_BUCKET) {
+      if (resolvedBucket === process.env.GCS_BUCKET) {
+        const exists = await withTimeout(
+          gcsObjectExists({ bucket: resolvedBucket, key: resolvedPath }),
+          5_000,
+          "gcsExists",
+        );
+        if (!exists) gcsObjectConfirmedMissing = true;
+      } else {
         const res = await withTimeout(
           sb.storage
             .from(resolvedBucket)
@@ -647,6 +704,27 @@ export async function POST(req: NextRequest, ctx: Context) {
       }
     } catch (e: any) {
       checkErr = e;
+    }
+
+    if (gcsObjectConfirmedMissing) {
+      await logLedgerEvent({
+        dealId,
+        bankId,
+        eventKey: "upload.rejected",
+        uiState: "done",
+        uiMessage: "Upload rejected: object not found in GCS",
+        meta: {
+          file_id,
+          upload_session_id: resolvedSessionId,
+          reason: "gcs_object_not_found",
+          storage_path: resolvedPath,
+          storage_bucket: resolvedBucket,
+        },
+      });
+      return NextResponse.json(
+        { ok: false, error: "object_not_found_in_storage", request_id: requestId },
+        { status: 404 },
+      );
     }
 
     // Best-effort only: signed upload succeeded client-side, so we should still

@@ -336,6 +336,7 @@ export async function POST(req: NextRequest, ctx: Context) {
           checklist_key,
           bucket: signResult.upload.bucket,
           upload_session_id: uploadSessionId,
+          headers: signResult.upload.headers,
         },
       });
     }

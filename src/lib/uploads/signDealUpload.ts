@@ -100,6 +100,7 @@ export async function signDealUpload(
         objectKey,
         contentType: mimeType || "application/octet-stream",
         expiresSeconds: Number(process.env.GCS_SIGN_TTL_SECONDS || "900"),
+        maxSizeBytes: MAX_UPLOAD_BYTES,
       });
 
       return {
