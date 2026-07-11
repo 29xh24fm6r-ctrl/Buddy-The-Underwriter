@@ -66,6 +66,32 @@ export async function attachDocumentToSlot(
     .eq("slot_id", slotId)
     .eq("is_active", true);
 
+  // 2b. Deactivate any OTHER active attachment for this document, regardless
+  // of which slot it currently lives on. Without this, a document can end up
+  // active on two slots at once (e.g. a manual re-attach or auto-match that
+  // doesn't first release the document's prior slot). This runs for every
+  // caller of attachDocumentToSlot — callers must not have to remember to
+  // release the old slot themselves.
+  const { data: releasedOtherAttachments } = await sb
+    .from("deal_document_slot_attachments")
+    .update({ is_active: false } as any)
+    .eq("document_id", documentId)
+    .neq("slot_id", slotId)
+    .eq("is_active", true)
+    .select("slot_id");
+
+  // Reset status on any slot(s) this document was just moved off of, so they
+  // don't keep showing "attached" for a document that no longer lives there.
+  const releasedOtherSlotIds = [
+    ...new Set((releasedOtherAttachments ?? []).map((r: any) => r.slot_id as string)),
+  ];
+  if (releasedOtherSlotIds.length > 0) {
+    await sb
+      .from("deal_document_slots")
+      .update({ status: "empty", validation_reason: null } as any)
+      .in("id", releasedOtherSlotIds);
+  }
+
   // 3. Insert new active attachment
   const { data: attachment, error: insertErr } = await sb
     .from("deal_document_slot_attachments")

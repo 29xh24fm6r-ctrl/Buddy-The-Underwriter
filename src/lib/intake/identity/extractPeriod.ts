@@ -468,23 +468,49 @@ export function extractPeriod(text: string, filename?: string): PeriodExtraction
       }
     }
 
-    // Weak text year (first 500 chars, most recent)
+    // Weak text year (first 500 chars) — no primary date pattern matched.
+    //
+    // Prefer a year found near tax-period-indicating context words (e.g.
+    // "tax year", "period ending", "for the year ended") over blindly
+    // picking the largest 20xx number: a due date printed on the same page
+    // is often a LATER year than the actual tax period, so "largest number"
+    // skews toward the wrong year. If no such context is found, fall back
+    // to the FIRST occurring year rather than the largest — a due date
+    // tends to appear later in the doc/page than the tax-period year, so
+    // "first" is more likely correct than "largest".
     if (taxYear === null) {
       const weakWindow = text.slice(0, 500);
       const weakRe = /\b(20[0-3]\d)\b/g;
+      const CONTEXT_WINDOW_CHARS = 40;
+      const TAX_PERIOD_CONTEXT_RE =
+        /\b(tax\s+year|period\s+end(?:ing|ed)?|for\s+the\s+year|fiscal\s+year|year\s+ended|taxable\s+year)\b/i;
+
+      const yearMatches: { year: number; index: number }[] = [];
       let weakMatch: RegExpExecArray | null;
-      let bestYear = 0;
       while ((weakMatch = weakRe.exec(weakWindow)) !== null) {
-        const y = parseInt(weakMatch[1], 10);
-        if (y > bestYear) bestYear = y;
+        yearMatches.push({ year: parseInt(weakMatch[1], 10), index: weakMatch.index });
       }
-      if (bestYear > 0) {
-        taxYear = bestYear;
-        taxYearConfidence = 0.50;
+
+      let contextYear: number | null = null;
+      for (const ym of yearMatches) {
+        const start = Math.max(0, ym.index - CONTEXT_WINDOW_CHARS);
+        const end = Math.min(weakWindow.length, ym.index + CONTEXT_WINDOW_CHARS);
+        if (TAX_PERIOD_CONTEXT_RE.test(weakWindow.slice(start, end))) {
+          contextYear = ym.year;
+          break; // first context-anchored year wins
+        }
+      }
+
+      const firstYear = yearMatches.length > 0 ? yearMatches[0].year : null;
+      const chosenYear = contextYear ?? firstYear;
+
+      if (chosenYear !== null) {
+        taxYear = chosenYear;
+        taxYearConfidence = contextYear !== null ? 0.65 : 0.50;
         evidence.push({
-          signal: "weak_text_year",
-          matchedText: String(bestYear),
-          confidence: 0.50,
+          signal: contextYear !== null ? "context_anchored_weak_year" : "weak_text_year",
+          matchedText: String(chosenYear),
+          confidence: taxYearConfidence,
         });
       }
     }

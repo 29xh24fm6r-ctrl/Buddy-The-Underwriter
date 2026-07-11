@@ -18,26 +18,36 @@ function readFile(relPath: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// 1. validateSlotAttachment never sets status: "rejected"
+// 1. validateSlotAttachment flags mismatches as status: "rejected" (UI-only)
 // ---------------------------------------------------------------------------
+//
+// "Slots are UX-only" means slot state never feeds BACK into routing,
+// extraction, spread selection, readiness, or lifecycle (see tests below,
+// and matchEngine.ts / recomputeDealDocumentState.ts, neither of which read
+// deal_document_slots.status). It does NOT mean a type mismatch must be
+// invisible: CoreDocumentsPanel.tsx has dedicated rendering for
+// status === "rejected" (an informational "Mismatch" banner) that must
+// actually be reachable — a mismatched doc still gets attached and can
+// still be banker-confirmed, but must not silently look identical to a
+// clean attachment in the UI.
 
-test("validateSlotAttachment never sets status to rejected", () => {
+test("validateSlotAttachment sets status to rejected on type mismatch", () => {
   const src = readFile("src/lib/intake/slots/validateSlotAttachment.ts");
   assert.ok(
-    !src.includes('status: "rejected"') && !src.includes("status: 'rejected'"),
-    "validateSlotAttachment must NEVER set status to rejected",
+    src.includes('status: "rejected"') || src.includes("status: 'rejected'"),
+    "validateSlotAttachment must set status to 'rejected' on type mismatch so the UI warning fires",
   );
 });
 
 // ---------------------------------------------------------------------------
-// 2. validateSlotAttachment never returns validated: false
+// 2. validateSlotAttachment returns validated: false on type mismatch
 // ---------------------------------------------------------------------------
 
-test("validateSlotAttachment never returns validated: false", () => {
+test("validateSlotAttachment returns validated: false on type mismatch", () => {
   const src = readFile("src/lib/intake/slots/validateSlotAttachment.ts");
   assert.ok(
-    !src.includes("validated: false"),
-    "validateSlotAttachment must NEVER return validated: false",
+    src.includes("validated: false"),
+    "validateSlotAttachment must return validated: false on type mismatch",
   );
 });
 

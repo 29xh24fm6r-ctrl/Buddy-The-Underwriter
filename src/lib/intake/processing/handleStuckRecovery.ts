@@ -32,6 +32,16 @@ import type { StuckVerdict } from "./detectStuckProcessing";
 // signal is visible rather than masked behind unbounded reenqueues.
 const WORKER_NOT_CLAIMING_THRESHOLD_MS = 5 * 60 * 1000;
 
+// Circuit breaker: max total reenqueue attempts for a deal across its whole
+// queued_never_started stuck-recovery lifecycle (see intake_stuck_recovery_attempts
+// column). Each reenqueue creates a fresh outbox row/run_id, so without this
+// cross-cycle counter the per-row/per-run staleness checks above never
+// accumulate and recovery could reenqueue indefinitely. Aligned with (not
+// imported from — worker/outbox internals are out of scope here)
+// processIntakeOutbox.ts's DEAD_LETTER_THRESHOLD, so the pipeline converges
+// on one shared "give up after 5" convention.
+const MAX_STUCK_RECOVERY_ATTEMPTS = 5;
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 export type RecoveryOutcome = {
@@ -78,6 +88,41 @@ async function reenqueueProcessing(
   verdict: StuckVerdict & { stuck: true },
   staleRunId: string | undefined,
 ): Promise<RecoveryOutcome> {
+  // ── Pre-flight: circuit breaker on total reenqueue attempts ───────────
+  // Track attempts across the WHOLE stuck-recovery lifecycle for this deal
+  // (not just this row/run), so a systemic failure (worker permanently down,
+  // or the same deal deterministically failing every attempt) converges to a
+  // terminal, manually-actionable state instead of reenqueuing forever.
+  const sbAttempts = supabaseAdmin();
+  const { data: dealAttemptsRow } = await sbAttempts
+    .from("deals")
+    .select("intake_stuck_recovery_attempts")
+    .eq("id", dealId)
+    .maybeSingle();
+  const priorAttempts = (dealAttemptsRow as any)?.intake_stuck_recovery_attempts ?? 0;
+
+  if (priorAttempts >= MAX_STUCK_RECOVERY_ATTEMPTS) {
+    void writeEvent({
+      dealId,
+      kind: "intake.processing_stuck_recovery_exhausted",
+      scope: "intake",
+      requiresHumanReview: true,
+      meta: {
+        reason: verdict.reason,
+        prior_attempts: priorAttempts,
+        max_attempts: MAX_STUCK_RECOVERY_ATTEMPTS,
+        observability_version: PROCESSING_OBSERVABILITY_VERSION,
+      },
+    });
+
+    // Distinct exhaustion event already emitted above for observability;
+    // fall through to the existing terminal-error path (unchanged verdict —
+    // the underlying stuck reason is still accurate) so this converges on
+    // the same PROCESSING_COMPLETE_WITH_ERRORS / manual-intervention state
+    // recoverStuckIntakeDeals.ts already uses for its own exhausted paths.
+    return transitionToError(dealId, verdict, staleRunId);
+  }
+
   // ── Pre-flight: detect a broken claim path before piling on rows ──────
   // If the latest live intake.process row has been sitting at attempts=0
   // claimed_at=null past WORKER_NOT_CLAIMING_THRESHOLD_MS, the worker is
@@ -140,12 +185,17 @@ async function reenqueueProcessing(
   try {
     // Reset run markers with new run_id. CAS on the stale run_id ensures
     // we don't clobber a run that was concurrently started by another path.
+    // Circuit breaker: bump the cross-lifecycle attempts counter so it keeps
+    // accumulating across reenqueues instead of resetting with each fresh
+    // run_id/outbox row — see the pre-flight check above and the migration
+    // comment on deals.intake_stuck_recovery_attempts.
     const resetPayload: Record<string, unknown> = {
       intake_processing_queued_at: now,
       intake_processing_started_at: null,
       intake_processing_run_id: newRunId,
       intake_processing_last_heartbeat_at: null,
       intake_processing_error: null,
+      intake_stuck_recovery_attempts: priorAttempts + 1,
     };
 
     const casUpdated = await updateDealIfRunOwner(dealId, staleRunId, resetPayload);

@@ -162,17 +162,22 @@ export async function validateSlotAttachmentIfAny(
     return { validated: true, slotId };
   }
 
-  // Type mismatch — informational only, never reject
+  // Type mismatch — surface it as "rejected" so the UI's mismatch warning
+  // actually fires (CoreDocumentsPanel keys its amber "Mismatch" banner and
+  // excludes the slot from its attached/complete counts on status ===
+  // "rejected"). Despite the status name, this is still informational —
+  // the document stays attached to the slot and a banker can still confirm
+  // it — but it must not silently count as a normal, unproblematic attachment.
   const reason = `Expected ${slot.required_doc_type}, got ${classifiedDocType}`;
 
   await sb
     .from("deal_document_slots")
-    .update({ status: "attached", validation_reason: `mismatch_info: ${reason}` } as any)
+    .update({ status: "rejected", validation_reason: `mismatch_info: ${reason}` } as any)
     .eq("id", slotId);
 
-  console.log("[validateSlotAttachment] mismatch (informational only)", {
+  console.log("[validateSlotAttachment] mismatch (flagged, not silently attached)", {
     documentId, slotId, reason,
   });
 
-  return { validated: true, slotId, reason };
+  return { validated: false, slotId, reason };
 }
