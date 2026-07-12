@@ -1,6 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
+import { isPublicBorrowerPortalRoute } from "@/lib/portal/isPublicBorrowerPortalRoute";
 
 /**
  * HARD RULE:
@@ -13,15 +14,18 @@ import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
  * /portal namespace splits into auth and token routes:
  *   - bare /portal               → banker AppShell (auth-gated, NOT here)
  *   - /portal/deals/...          → banker subroutes  (auth-gated, NOT here)
+ *   - /portal/documents          → banker subroute   (auth-gated, NOT here)
  *   - /portal/owner/[token]      → token-gated (public, listed below)
  *   - /portal/share/[token]      → token-gated (public, listed below)
+ *   - /portal/<token>(/...)      → borrower magic-link portal (public, listed below)
  *
  * The borrower magic-link portal at `(borrower)/portal/[token]/page.tsx`
- * resolves to `/portal/<token>` URL and currently collides with the bare
- * banker /portal tree. That structural collision is tracked separately
- * (see Sprint A.1 PR description). This matcher does NOT gate the
- * collision either way; it only opens the two intentionally-public token
- * subroutes.
+ * resolves to `/portal/<token>`. Next.js resolves the static banker
+ * subsegments (deals, documents, owner, share) before the dynamic
+ * `[token]` segment, so there's no runtime collision — but the borrower
+ * regex below still excludes those reserved words defensively so a
+ * literal `/portal/deals` etc. can never be misrouted into the public
+ * matcher.
  */
 const isPublicRoute = createRouteMatcher([
   "/",
@@ -34,6 +38,7 @@ const isPublicRoute = createRouteMatcher([
   "/apply(.*)",
   "/portal/owner/(.*)",
   "/portal/share/(.*)",
+  isPublicBorrowerPortalRoute,
   "/upload(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",

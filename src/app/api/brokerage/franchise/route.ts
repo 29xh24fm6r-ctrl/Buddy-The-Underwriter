@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSessionFromRequest } from "@/lib/brokerage/session";
 import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
+import { seedFranchiseChecklist } from "@/lib/franchise/seedFranchiseChecklist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,12 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     console.error("[PATCH /api/brokerage/franchise]", upsertErr);
     return NextResponse.json({ ok: false, error: "update_failed" }, { status: 500 });
   }
+
+  await seedFranchiseChecklist(sb, {
+    dealId: session.deal_id,
+    bankId: session.bank_id,
+    brandName: brand.brand_name,
+  });
 
   try {
     await sb.from("ai_events").insert({

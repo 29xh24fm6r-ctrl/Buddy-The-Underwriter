@@ -12,6 +12,7 @@ import { assertDealAccess } from "@/lib/server/deal-access";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { seedFranchiseChecklist } from "@/lib/franchise/seedFranchiseChecklist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
       uiMessage: `Franchise brand set: ${brand.brand_name}`,
       meta: { deal_id: dealId, brand_id: brand.id, brand_name: brand.brand_name },
     });
+
+    await seedFranchiseChecklist(sb, { dealId, bankId: access.bankId, brandName: brand.brand_name });
 
     return NextResponse.json({ ok: true, brandId: brand.id, brandName: brand.brand_name });
   } catch (error) {
