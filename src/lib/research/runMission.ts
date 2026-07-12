@@ -901,6 +901,7 @@ export async function runMission(
                 hasLoanRequest: !!(subject.loan_purpose || subject.loan_amount),
                 privateCompanyMode: subject.private_company_mode ?? false,
               },
+              annualRevenue: subject.annual_revenue ?? null,
             });
             console.log(
               `[runMission] completion gate: trust_grade=${gateResult.trust_grade}, ` +

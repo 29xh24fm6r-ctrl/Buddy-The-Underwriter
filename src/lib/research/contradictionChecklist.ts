@@ -71,12 +71,77 @@ export type ContradictionContext = {
   hasTransactionThread: boolean;
   hasRevenue: boolean;
   namedCompetitors: number;
+  /**
+   * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now
+   * wired): the loan-file/banker-stated annual revenue figure, used to
+   * cross-check against dollar amounts actually mentioned in the borrower
+   * research narrative (see borrowerScaleText / extractMentionedRevenueFigures).
+   * Optional — when omitted, scale_plausibility falls back to its prior
+   * presence-only behavior.
+   */
+  annualRevenue?: number | null;
+  /**
+   * Concatenated borrower-thread prose (company_overview, customer_base_and_reach,
+   * etc.) scanned for mentioned dollar figures to diff against annualRevenue.
+   * This is real cross-thread numeric comparison, not the LLM grading its own
+   * "contradictions_and_uncertainties" self-report (contradictionsText).
+   */
+  borrowerScaleText?: string | null;
 };
 
 function flagged(key: ContradictionCheckKey, text: string): boolean {
   if (!text || text.trim().length === 0) return false;
   return CHECK_FLAG_PATTERNS[key].some((p) => p.test(text));
 }
+
+/** Formats a raw dollar number compactly, e.g. 12_500_000 -> "$12.5M". */
+function formatDollars(n: number): string {
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${Math.round(n)}`;
+}
+
+const DOLLAR_FIGURE_PATTERN = /\$\s?([\d,]+(?:\.\d+)?)\s?(billion|million|thousand|[bmk])?\b/gi;
+const UNIT_MULTIPLIERS: Record<string, number> = {
+  billion: 1_000_000_000, b: 1_000_000_000,
+  million: 1_000_000, m: 1_000_000,
+  thousand: 1_000, k: 1_000,
+};
+
+/**
+ * Extract dollar figures mentioned in free-text research narrative (e.g.
+ * "generates approximately $12 million in annual revenue"), normalized to
+ * raw numbers. Pure, regex-based — deliberately simple (no NLP dependency);
+ * false negatives (a figure phrased in a way the regex misses) just fall
+ * back to the existing presence-only check, never producing a false
+ * "contradiction" from a parsing miss.
+ */
+export function extractMentionedRevenueFigures(text: string | null | undefined): number[] {
+  if (!text) return [];
+  const figures: number[] = [];
+  const re = new RegExp(DOLLAR_FIGURE_PATTERN);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const raw = Number(m[1].replace(/,/g, ""));
+    if (!Number.isFinite(raw) || raw <= 0) continue;
+    const unit = (m[2] ?? "").toLowerCase();
+    const multiplier = UNIT_MULTIPLIERS[unit] ?? 1;
+    figures.push(raw * multiplier);
+  }
+  return figures;
+}
+
+/** Ratio of the larger to the smaller of two positive numbers (>= 1). */
+function magnitudeRatio(a: number, b: number): number {
+  return Math.max(a, b) / Math.min(a, b);
+}
+
+// A mentioned figure more than 5x (or less than 1/5x) the loan-file revenue
+// is treated as an implausible scale mismatch worth flagging for review —
+// wide enough to tolerate "revenue" vs. "gross bookings"-style loose prose,
+// narrow enough to catch a genuinely different-scale business.
+const SCALE_IMPLAUSIBLE_RATIO = 5;
 
 /**
  * Build the full 8-check contradiction checklist. Every check is emitted; a
@@ -118,12 +183,10 @@ export function buildContradictionChecklist(ctx: ContradictionContext): Contradi
       ? mk("geography_mismatch", "clear", "info", "public_web", false, "Market research aligned to the borrower's HQ geography.")
       : mk("geography_mismatch", "insufficient_evidence", "info", "loan_file", false, "Geography taken from the loan file; not externally cross-checked."));
 
-  // 4. scale_plausibility
-  checks.push(flagged("scale_plausibility", t)
-    ? mk("scale_plausibility", "flagged", "warn", "loan_file", true, "Revenue/scale plausibility concern raised in synthesis.")
-    : ctx.hasRevenue && ctx.hasBorrowerThread
-      ? mk("scale_plausibility", "clear", "info", "loan_file", false, "Stated revenue is consistent with the described business scale.")
-      : mk("scale_plausibility", "insufficient_evidence", "info", "insufficient", false, "Insufficient financial/scale detail to assess plausibility."));
+  // 4. scale_plausibility — real cross-thread numeric diffing when possible,
+  // instead of trusting only the LLM's own self-reported "contradictions"
+  // text or a presence-only (no actual comparison) fallback.
+  checks.push(scalePlausibilityCheck(ctx, t));
 
   // 5. management_history_conflict
   if (flagged("management_history_conflict", t)) {
@@ -163,6 +226,64 @@ export function buildContradictionChecklist(ctx: ContradictionContext): Contradi
       : mk("repayment_story_conflict", "insufficient_evidence", "warn", "insufficient", true, "Transaction/repayment analysis unavailable to cross-check."));
 
   return checks;
+}
+
+/**
+ * Real cross-thread numeric diff for scale_plausibility: compares the
+ * loan-file/banker-stated annual revenue against dollar figures actually
+ * mentioned in the borrower research narrative. Falls back to the prior
+ * self-report-or-presence-only behavior when a numeric comparison isn't
+ * possible (no stated revenue, or no comparable figure mentioned in the
+ * narrative) — never invents a contradiction from missing data.
+ */
+function scalePlausibilityCheck(ctx: ContradictionContext, contradictionsText: string): ContradictionCheck {
+  const stated = ctx.annualRevenue ?? null;
+  const mentioned = extractMentionedRevenueFigures(ctx.borrowerScaleText);
+  const hasNumericComparison = stated != null && stated > 0 && mentioned.length > 0;
+
+  if (hasNumericComparison) {
+    // Compare against whichever mentioned figure is CLOSEST in magnitude to
+    // the stated revenue, not just the largest — a narrative often mentions
+    // multiple dollar figures (e.g. a specific contract value alongside
+    // overall revenue), and comparing the wrong one would produce a false
+    // mismatch.
+    let closest = mentioned[0];
+    let closestRatio = magnitudeRatio(closest, stated!);
+    for (const figure of mentioned) {
+      const ratio = magnitudeRatio(figure, stated!);
+      if (ratio < closestRatio) {
+        closest = figure;
+        closestRatio = ratio;
+      }
+    }
+
+    if (closestRatio > SCALE_IMPLAUSIBLE_RATIO) {
+      return mk(
+        "scale_plausibility", "flagged", "warn", "public_web", true,
+        `Revenue scale mismatch (cross-thread numeric check): loan file states ~${formatDollars(stated!)}, ` +
+        `research narrative mentions ~${formatDollars(closest)} — ${closestRatio.toFixed(1)}x apart.`,
+      );
+    }
+    return mk(
+      "scale_plausibility", "clear", "info", "public_web", false,
+      `Revenue scale consistent (cross-thread numeric check): loan file ~${formatDollars(stated!)} vs. ` +
+      `research narrative ~${formatDollars(closest)} (${closestRatio.toFixed(1)}x).`,
+    );
+  }
+
+  // No numeric comparison possible — fall back to the LLM self-report signal,
+  // then the old presence-only "consistent" claim (honestly relabeled as
+  // insufficient rather than "clear" when no real comparison ever happened).
+  if (flagged("scale_plausibility", contradictionsText)) {
+    return mk("scale_plausibility", "flagged", "warn", "loan_file", true, "Revenue/scale plausibility concern raised in synthesis.");
+  }
+  if (ctx.hasRevenue && ctx.hasBorrowerThread) {
+    return mk(
+      "scale_plausibility", "insufficient_evidence", "info", "loan_file", false,
+      "Revenue stated on file, but the research narrative did not mention a comparable dollar figure to cross-check.",
+    );
+  }
+  return mk("scale_plausibility", "insufficient_evidence", "info", "insufficient", false, "Insufficient financial/scale detail to assess plausibility.");
 }
 
 function basis(ctx: ContradictionContext): ContradictionEvidenceBasis {

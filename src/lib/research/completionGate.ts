@@ -161,6 +161,13 @@ export function evaluateCompletionGate(
     borrowerDomain?: string | null;
     /** Phase 5/6: granular loan-file / banker-certified evidence signals. */
     evidenceSignals?: EvidenceSignals;
+    /**
+     * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now wired:
+     * loan-file/banker-stated annual revenue, used for real cross-thread
+     * numeric diffing in the scale_plausibility contradiction check (see
+     * contradictionChecklist.ts's extractMentionedRevenueFigures).
+     */
+    annualRevenue?: number | null;
   },
 ): CompletionGateResult {
   const checks: GateCheckResult[] = [];
@@ -386,6 +393,18 @@ export function evaluateCompletionGate(
     hasTransactionThread: !!bieResult.transaction,
     hasRevenue: !!bankerCertified?.hasFinancials,
     namedCompetitors: bieResult.competitive?.direct_competitors?.length ?? 0,
+    // Real cross-thread numeric diffing for scale_plausibility (specs/audits/
+    // RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now wired): compare the
+    // loan-file/banker-stated revenue against dollar figures the borrower
+    // thread's own narrative actually mentions.
+    annualRevenue: opts?.annualRevenue ?? null,
+    borrowerScaleText: bieResult.borrower
+      ? [
+          bieResult.borrower.company_overview,
+          bieResult.borrower.customer_base_and_reach,
+          bieResult.borrower.recent_news,
+        ].filter(Boolean).join(" ")
+      : null,
   });
   const contradictionSummary = summarizeContradictionChecklist(contradictionChecklist);
   const contradictionCommitteeBlockers = contradictionSummary.committeeBlockers.length;
