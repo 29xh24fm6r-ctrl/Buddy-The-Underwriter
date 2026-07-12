@@ -55,6 +55,22 @@
     {
       "path": "/api/observability/banker-analysis/alerts",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/sba-checks?check=irs-transcripts",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/sba-checks?check=stale-signatures",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/sba-checks?check=third-party-overdue",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/sba-checks?check=etran-cert-expiry",
+      "schedule": "0 13 * * *"
     }
   ]
 }

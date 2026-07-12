@@ -3,12 +3,27 @@
  * per spec addendum; this function + its tests are the mandatory part).
  * No "server-only" — injectable client, same testable pattern as the rest
  * of this arc's service modules.
+ *
+ * ARC-00 Phase 6C — AP-3 finding: prod's live `deal_gap_queue` requires
+ * `bank_id` and `fact_type` (both NOT NULL) and has a full (non-partial)
+ * UNIQUE constraint on (deal_id, fact_type, fact_key, gap_type, status) —
+ * this diverges from the table's own migration file (`bank_id`/`fact_type`
+ * were declared NOT NULL there too, but this function never set them; the
+ * unique index there is also declared partial `WHERE status='open'`, prod
+ * has no WHERE clause). `writeStaleSignatureGaps` originally omitted
+ * `bank_id`/`fact_type` entirely and used a plain `.insert()`, so every
+ * call against real prod would have failed on the NOT NULL constraint,
+ * and even after adding those columns, calling it a second time for a
+ * still-unresolved gap would hit the UNIQUE constraint. Fixed inline here
+ * — blocks this phase's cron gate, since this function is about to be
+ * wired into an actually-repeating cron job for the first time.
  */
 
 export type StaleSignatureCheckerClient = { from: (table: string) => any };
 
 export type StaleSignature = {
   deal_id: string;
+  bank_id: string;
   form_code: string;
   signer_id: string | null;
   expires_at: string;
@@ -30,11 +45,12 @@ export async function findStaleSignatures(sb: StaleSignatureCheckerClient): Prom
 
   const { data } = await sb
     .from("signed_documents")
-    .select("deal_id, form_code, signer_ownership_entity_id, expires_at")
+    .select("deal_id, bank_id, form_code, signer_ownership_entity_id, expires_at")
     .lte("expires_at", cutoff);
 
   const rows = (data ?? []) as Array<{
     deal_id: string;
+    bank_id: string;
     form_code: string;
     signer_ownership_entity_id: string | null;
     expires_at: string;
@@ -42,6 +58,7 @@ export async function findStaleSignatures(sb: StaleSignatureCheckerClient): Prom
 
   return rows.map((r) => ({
     deal_id: r.deal_id,
+    bank_id: r.bank_id,
     form_code: r.form_code,
     signer_id: r.signer_ownership_entity_id,
     expires_at: r.expires_at,
@@ -50,12 +67,13 @@ export async function findStaleSignatures(sb: StaleSignatureCheckerClient): Prom
 }
 
 /**
- * Inserts one deal_gap_queue row per stale finding so the banker sees
+ * Upserts one deal_gap_queue row per stale finding so the banker sees
  * "Form 1919 expires in 8 days — re-sign before submission" in the Story
- * tab's gap-resolution flow. Idempotent-ish: callers running this daily
- * will re-insert a new gap row each run unless deal_gap_queue gets a
- * dedup constraint — out of scope here (cron deployment itself is
- * deferred per spec addendum; this is the library function only).
+ * tab's gap-resolution flow. Uses onConflict on the real unique key
+ * (deal_id, fact_type, fact_key, gap_type, status) so a daily cron
+ * re-running against a still-unresolved gap updates the existing row
+ * (fresh days_remaining/description) instead of throwing a duplicate-key
+ * error.
  */
 export async function writeStaleSignatureGaps(
   sb: StaleSignatureCheckerClient,
@@ -65,7 +83,9 @@ export async function writeStaleSignatureGaps(
 
   const rows = findings.map((f) => ({
     deal_id: f.deal_id,
+    bank_id: f.bank_id,
     gap_type: "sba_signature_stale",
+    fact_type: "sba_form_signature",
     fact_key: `signed_documents.${f.form_code}`,
     owner_entity_id: f.signer_id,
     description:
@@ -77,6 +97,6 @@ export async function writeStaleSignatureGaps(
     status: "open",
   }));
 
-  await sb.from("deal_gap_queue").insert(rows);
+  await sb.from("deal_gap_queue").upsert(rows, { onConflict: "deal_id,fact_type,fact_key,gap_type,status" });
   return rows.length;
 }

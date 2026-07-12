@@ -45,6 +45,10 @@ import { generatePdfForFillRun } from "@/lib/forms/pdfFill/generatePdfForFillRun
 import { assembleTenTabPackage } from "@/lib/sba/package/assembleTenTabPackage";
 import { ensureSbaLoanAndMilestones } from "@/lib/sba/servicing/seedMilestones";
 import { recomputeSbaServicing } from "@/lib/sba/servicing/evaluateServicing";
+import { submitToSba } from "@/lib/etran/submitter";
+import { generateETranXML } from "@/lib/etran/generator";
+import { getEtranCredentials } from "@/lib/etran/credentials";
+import { postToSbaEtran } from "@/lib/etran/etranHttpClient";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // generate-package action is long-running
@@ -280,6 +284,8 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
         return generatePackageRunPdfAction(dealId, body);
       case "assemble-package":
         return assemblePackageAction(dealId, body);
+      case "submit-etran":
+        return submitEtranAction(dealId, access.bankId, access.userId, body);
 
       // Servicing
       case "recompute-servicing":
@@ -1509,6 +1515,58 @@ async function assemblePackageAction(
     itemCount: result.itemCount,
     missingItems: result.missingItems,
   });
+}
+
+/**
+ * SPEC S5 B-5 (ARC-00 Phase 6) — real SBA E-Tran submission.
+ *
+ * PERMANENT HUMAN-APPROVAL GATE (principle #25, SR 11-7 wall): approvedBy
+ * comes ONLY from the authenticated Clerk session resolved by
+ * ensureDealBankAccess above — never from the request body. There is no
+ * "auto-submit when ready" path anywhere in this arc.
+ */
+async function submitEtranAction(
+  dealId: string,
+  bankId: string,
+  approvedByUserId: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  void body; // no body-driven inputs accepted for this action — see docstring above
+
+  const result = await submitToSba(
+    { dealId, bankId, approvedByUserId },
+    {
+      sb: supabaseAdmin(),
+      generateXml: (args) => generateETranXML(args),
+      getCredentials: getEtranCredentials,
+      postToSba: postToSbaEtran,
+      sandboxEndpoint: process.env.SBA_ETRAN_SANDBOX_ENDPOINT ?? process.env.SBA_ETRAN_MOCK_ENDPOINT ?? "",
+      productionEndpoint: process.env.SBA_ETRAN_PROD_ENDPOINT ?? "",
+    },
+  );
+
+  if (result.ok) {
+    return NextResponse.json({
+      ok: true,
+      sba_application_number: result.sba_application_number,
+      submission_id: result.submission_id,
+    });
+  }
+
+  const statusByReason: Record<string, number> = {
+    VALIDATION_FAILED: 422,
+    REQUIRED_SIGNED_FORMS_MISSING: 422,
+    ETRAN_CREDENTIALS_MISSING: 503,
+    SBA_REJECTED: 502,
+    NETWORK_ERROR: 502,
+    DB_INSERT_FAILED: 500,
+  };
+  const status = statusByReason[result.reason] ?? 500;
+
+  return NextResponse.json(
+    { ok: false, error: result.reason, detail: result.details },
+    { status },
+  );
 }
 
 async function recomputeServicingAction(
