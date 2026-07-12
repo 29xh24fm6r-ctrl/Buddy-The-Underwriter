@@ -22,6 +22,7 @@ import {
 import {
   evaluateSectionSourceStatuses,
   summarizeSectionStatuses,
+  hasAuthoritativeAdverseSource,
   type SectionSourceStatus,
   type SectionSourceContext,
 } from "./sectionSourceStatus";
@@ -241,12 +242,20 @@ export function evaluateCompletionGate(
   ];
   const threadsSucceeded = coreThreads.filter(Boolean).length;
   const threadsFailed = coreThreads.filter((t) => t === null).length;
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a management thread
+  // built entirely from the deterministic file-based fallback (never
+  // web-verified — see managementRepair.ts) previously counted identically
+  // toward the STRUCTURAL committee-grade thread-coverage requirement as a
+  // fully-grounded thread. groundedThreadsSucceeded discounts it there,
+  // while the informational check below still honestly reports "N/6
+  // completed" (the thread DID complete — just not via live research).
+  const groundedThreadsSucceeded = managementIsFallback ? threadsSucceeded - 1 : threadsSucceeded;
 
   checks.push({
     gate_id: "thread_coverage",
     label: "Research Thread Coverage",
     status: threadsSucceeded >= 5 ? "pass" : threadsSucceeded >= 3 ? "warn" : "fail",
-    reason: `${threadsSucceeded}/6 research threads completed${threadsFailed > 0 ? ` (${threadsFailed} failed: ${getMissingThreads(bieResult).join(", ")})` : ""}`,
+    reason: `${threadsSucceeded}/6 research threads completed${managementIsFallback ? ` (${groundedThreadsSucceeded}/6 web-grounded — management via file-based fallback)` : ""}${threadsFailed > 0 ? ` (${threadsFailed} failed: ${getMissingThreads(bieResult).join(", ")})` : ""}`,
     severity: threadsSucceeded < 3 ? "error" : threadsSucceeded < 5 ? "warn" : "info",
   });
 
@@ -259,6 +268,17 @@ export function evaluateCompletionGate(
   const primarySources = allSourceUrls.filter((url) =>
     primaryInstitutional.has(classifySourceUrl(url, classifyOpts)),
   ).length;
+
+  // Adverse/litigation screen (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1):
+  // an authoritative adverse-record source cited SPECIFICALLY by the
+  // borrower/litigation thread — not just anywhere in the mission's source
+  // pool. Feeds both the Litigation and Risk section status and the
+  // committee_eligible hard requirement below.
+  const litigationSourceUrls = bieResult.thread_sources?.borrower ?? [];
+  const litigationSourceTypesForScreen = new Set<SourceType>(
+    litigationSourceUrls.map((u) => classifySourceUrl(u, classifyOpts)),
+  );
+  const hasAdverseScreen = hasAuthoritativeAdverseSource(litigationSourceTypesForScreen);
 
   // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: for a private/
   // banker-certified borrower, weak PUBLIC source coverage is expected and must
@@ -463,6 +483,7 @@ export function evaluateCompletionGate(
     publicSourceCount: allSourceUrls.length,
     primaryInstitutionalCount: primarySources,
     publicQualityScore: sourceQuality,
+    hasAdverseScreen,
     privateCompanyMode: sig.privateCompanyMode ?? (isPrivateEntity || managementIsFallback),
   });
 
@@ -473,7 +494,7 @@ export function evaluateCompletionGate(
 
   // committee structural conditions — institutional, public, validated.
   const committeeStructural =
-    threadsSucceeded >= THRESHOLDS.committee_grade.min_threads_succeeded &&
+    groundedThreadsSucceeded >= THRESHOLDS.committee_grade.min_threads_succeeded &&
     entityConfidence >= THRESHOLDS.committee_grade.min_entity_confidence &&
     allSourceUrls.length >= THRESHOLDS.committee_grade.min_source_count &&
     sourceQuality >= THRESHOLDS.committee_grade.min_source_quality_score &&
@@ -613,8 +634,18 @@ function buildSectionContext(
   const sourceTypes = new Set<SourceType>(
     allUrls.map((u) => classifySourceUrl(u, args.classifyOpts)),
   );
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md): litigationAndRisk()
+  // must check sources the BORROWER thread itself cited, not the whole
+  // mission's flattened source pool — otherwise an Industry thread citing an
+  // unrelated regulatory news article makes Litigation and Risk look
+  // committee-grade-backed with zero sources of its own.
+  const litigationUrls = bieResult.thread_sources?.borrower ?? [];
+  const litigationSourceTypes = new Set<SourceType>(
+    litigationUrls.map((u) => classifySourceUrl(u, args.classifyOpts)),
+  );
   return {
     sourceTypes,
+    litigationSourceTypes,
     entityConflict: args.entityConflict,
     entityConfirmedPublicly: args.entityConfirmedPublicly,
     hasBorrowerOfficialSource: sourceTypes.has("borrower_official_website"),

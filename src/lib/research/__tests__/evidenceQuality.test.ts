@@ -35,6 +35,7 @@ function input(over: Partial<EvidenceQualityInput> = {}): EvidenceQualityInput {
     publicSourceCount: 0,
     primaryInstitutionalCount: 0,
     publicQualityScore: 0,
+    hasAdverseScreen: false,
     privateCompanyMode: false,
     ...over,
   };
@@ -105,8 +106,25 @@ test("[evidence] committee eligible needs public verification + institutional so
     publicSourceCount: 12,
     primaryInstitutionalCount: 4,
     publicQualityScore: 0.7,
+    hasAdverseScreen: true,
   }));
   assert.equal(r.committee_eligible, true);
+});
+
+// Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1: adverse
+// screening was never a hard requirement for committee_grade — a borrower
+// with a publicly-verifiable owner and strong sources could reach
+// committee_grade with ZERO adverse/litigation record search ever run.
+test("[evidence] committee_eligible is false without an adverse screen, even with everything else strong", () => {
+  const r = scoreEvidenceQuality(goodPrivateFile({
+    entityLockConfirmedPublicly: true,
+    managementPubliclyConfirmed: true,
+    publicSourceCount: 12,
+    primaryInstitutionalCount: 4,
+    publicQualityScore: 0.7,
+    hasAdverseScreen: false,
+  }));
+  assert.equal(r.committee_eligible, false);
 });
 
 test("[evidence] wrong entity → both eligibility flags hard false", () => {
