@@ -31,6 +31,7 @@ import {
   buildManagementFallback,
   MANAGEMENT_REPAIR_STRATEGY,
 } from "./managementRepair";
+import { repairGenericJson, GENERIC_JSON_REPAIR_STRATEGY } from "./geminiJsonRepair";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -209,6 +210,12 @@ export async function callGeminiGrounded<T>(args: {
   if (!args.useGrounding) {
     generationConfig.responseMimeType = "application/json";
   }
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): no maxOutputTokens
+  // was ever set. A verbose entity (exactly the newsworthy/high-litigation-
+  // content case) that hit the model's default output ceiling produced
+  // truncated-but-nonempty JSON that was previously indistinguishable from
+  // any other malformed-JSON failure — see the MAX_TOKENS handling below.
+  generationConfig.maxOutputTokens = 8192;
 
   const body: Record<string, unknown> = {
     contents: [{ role: "user", parts: [{ text: args.prompt }] }],
@@ -218,21 +225,46 @@ export async function callGeminiGrounded<T>(args: {
     body.tools = [{ google_search: {} }];
   }
 
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): no timeout on the
+  // raw fetch() to Gemini — a single slow/hung call could block the whole
+  // BIE pass with no bound of its own (the only backstop was the calling
+  // route's maxDuration, which just kills the whole mission with no
+  // per-thread diagnostic). 60s per call — generous for a single grounded
+  // generation, well under the 300s mission-level route budget.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a 404 from this
+      // endpoint most often means the pinned model id has been retired/
+      // renamed by Google — this codebase has already been burned by exactly
+      // this once (see models.ts's history comment: a preview model 404'd on
+      // Vertex and was silently masked by an unrelated fallback for weeks).
+      // Tag it distinctly and loudly so it doesn't read as a generic/
+      // transient HTTP failure indistinguishable from a rate limit or outage.
+      const likelyModelRetirement = res.status === 404;
+      if (likelyModelRetirement) {
+        console.error(
+          `[BIE:${args.logTag}] Gemini 404 for model "${GEMINI_MODEL}" — likely RETIRED/RENAMED, ` +
+          `not a transient failure. Check @/lib/ai/models.ts. Response: ${errText.slice(0, 300)}`,
+        );
+      } else {
+        console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
+      }
       return emptyWith(baseDiag({
         ok: false,
         error_type: "http_error",
         http_status: res.status,
-        raw_text_preview: errText.slice(0, 300) || null,
+        raw_text_preview: (likelyModelRetirement ? `[likely model retirement — model="${GEMINI_MODEL}"] ` : "") + (errText.slice(0, 300) || ""),
       }));
     }
 
@@ -298,7 +330,14 @@ export async function callGeminiGrounded<T>(args: {
     try {
       result = JSON.parse(clean) as T;
     } catch (pe: any) {
-      console.warn(`[BIE:${args.logTag}] JSON parse error:`, pe?.message);
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a verbose entity
+      // hitting maxOutputTokens produces truncated-but-nonempty JSON that
+      // fails to parse — previously reported identically to any other
+      // malformed-JSON failure, losing the actionable "raise the token
+      // limit" signal. Tag it explicitly when finishReason confirms it.
+      const truncated = finishReason === "MAX_TOKENS";
+      const parseErrorMsg = (truncated ? "[likely truncated by maxOutputTokens] " : "") + String(pe?.message ?? pe);
+      console.warn(`[BIE:${args.logTag}] JSON parse error${truncated ? " (MAX_TOKENS truncation)" : ""}:`, pe?.message);
       // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: one safe
       // repair attempt. On success the ORIGINAL parse diagnostic is preserved
       // (error_type=json_parse_error, raw_text_preview, json_parse_error) and
@@ -321,7 +360,7 @@ export async function callGeminiGrounded<T>(args: {
               error_type: "json_parse_error",
               http_status: res.status,
               finish_reason: finishReason,
-              json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+              json_parse_error: parseErrorMsg.slice(0, 200),
               raw_text_preview: clean.slice(0, 300),
               response_chars: text.length,
               source_count: chunkUrls.length,
@@ -336,7 +375,7 @@ export async function callGeminiGrounded<T>(args: {
         error_type: "json_parse_error",
         http_status: res.status,
         finish_reason: finishReason,
-        json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+        json_parse_error: parseErrorMsg.slice(0, 200),
         raw_text_preview: clean.slice(0, 300),
         response_chars: text.length,
         source_count: chunkUrls.length,
@@ -357,12 +396,15 @@ export async function callGeminiGrounded<T>(args: {
       }),
     };
   } catch (e: any) {
-    console.warn(`[BIE:${args.logTag}] failed:`, e?.message);
+    const timedOut = e?.name === "AbortError";
+    console.warn(`[BIE:${args.logTag}] failed${timedOut ? " (timeout)" : ""}:`, e?.message);
     return emptyWith(baseDiag({
       ok: false,
       error_type: "network_error",
-      json_parse_error: String(e?.message ?? e).slice(0, 200),
+      json_parse_error: timedOut ? "gemini_call_timeout_60s" : String(e?.message ?? e).slice(0, 200),
     }));
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -736,6 +778,7 @@ Return ONLY valid JSON:
     logTag: "entity-lock",
     thread: "entity_lock",
     useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
 
   return { lock: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
@@ -801,6 +844,7 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<BorrowerIntelligence>({
     prompt, apiKey, sources, logTag: "borrower", thread: "borrower", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
@@ -954,6 +998,7 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<CompetitiveIntelligence>({
     prompt, apiKey, sources, logTag: "competitive", thread: "competitive", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
@@ -1004,6 +1049,7 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<MarketIntelligence>({
     prompt, apiKey, sources, logTag: "market", thread: "market", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
@@ -1053,6 +1099,7 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<IndustryIntelligence>({
     prompt, apiKey, sources, logTag: "industry", thread: "industry", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
   return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
 }
