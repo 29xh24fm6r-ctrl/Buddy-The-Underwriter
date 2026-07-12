@@ -14,6 +14,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { BIEResult } from "./buddyIntelligenceEngine";
 import { classifySourceUrl } from "./sourcePolicy";
+import { fetchUrlSnapshot } from "./sourceSnapshot";
 
 export type ClaimLayer = "fact" | "inference" | "narrative";
 
@@ -299,6 +300,75 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
   return claims;
 }
 
+export type ClaimSourceSnapshot = {
+  content_hash: string | null;
+  http_status: number | null;
+  byte_size: number | null;
+  ok: boolean;
+  snapshotted_at: string;
+};
+
+const MAX_URLS_TO_SNAPSHOT = 20;
+const SNAPSHOT_CONCURRENCY = 3;
+
+// Sections whose source citations carry the highest audit/liability
+// stakes — prioritized when the unique-URL set is capped.
+const HIGH_PRIORITY_SNAPSHOT_SECTIONS = new Set([
+  "Litigation and Risk",
+  "Borrower Profile",
+  "Management Intelligence",
+  "Entity Identification",
+]);
+
+/**
+ * Resolve, hash, and record a bounded set of claim source URLs.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now
+ * wired): claim source_uris were raw, unresolved Gemini grounding-redirect
+ * URIs with no hash and no captured bytes — a citation next to an adverse
+ * claim proved nothing about that specific claim being independently
+ * re-verifiable later. Bounded to MAX_URLS_TO_SNAPSHOT (prioritizing the
+ * highest-liability sections first) and fetched at limited concurrency to
+ * stay well within the mission's overall time budget — this is a
+ * best-effort audit-trail enhancement, never a gate input, and must never
+ * block or materially slow mission completion. Uses fetchUrlSnapshot (the
+ * generic, non-task-coupled connector — no domain guard, unlike the
+ * borrower-website-only connector) since these are arbitrary web citations,
+ * not a banker-attached committee-task source.
+ */
+async function snapshotClaimSources(claims: ClaimRecord[]): Promise<Map<string, ClaimSourceSnapshot>> {
+  const priorityByUrl = new Map<string, number>(); // 0 = highest priority
+  for (const c of claims) {
+    const priority = HIGH_PRIORITY_SNAPSHOT_SECTIONS.has(c.section) ? 0 : 1;
+    for (const url of c.source_uris) {
+      const existing = priorityByUrl.get(url);
+      if (existing === undefined || priority < existing) priorityByUrl.set(url, priority);
+    }
+  }
+
+  const urls = [...priorityByUrl.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, MAX_URLS_TO_SNAPSHOT)
+    .map(([url]) => url);
+
+  const results = new Map<string, ClaimSourceSnapshot>();
+  for (let i = 0; i < urls.length; i += SNAPSHOT_CONCURRENCY) {
+    const batch = urls.slice(i, i + SNAPSHOT_CONCURRENCY);
+    const snapshots = await Promise.all(batch.map((url) => fetchUrlSnapshot(url)));
+    batch.forEach((url, idx) => {
+      const snap = snapshots[idx];
+      results.set(url, {
+        content_hash: snap.content_hash,
+        http_status: snap.http_status,
+        byte_size: snap.byte_size,
+        ok: snap.ok,
+        snapshotted_at: new Date().toISOString(),
+      });
+    });
+  }
+  return results;
+}
+
 /**
  * Extract claim records from a BIEResult and persist them to buddy_research_evidence.
  * Called after BIE completes, before marking the mission complete.
@@ -315,6 +385,15 @@ export async function persistClaimLedger(
     return { ok: true, claims_written: 0 };
   }
 
+  let sourceSnapshots = new Map<string, ClaimSourceSnapshot>();
+  try {
+    sourceSnapshots = await snapshotClaimSources(claims);
+    const okCount = [...sourceSnapshots.values()].filter((s) => s.ok).length;
+    console.log(`[claimLedger] snapshotted ${okCount}/${sourceSnapshots.size} claim source URL(s)`);
+  } catch (snapErr: any) {
+    console.warn("[claimLedger] source snapshot pass failed (non-fatal):", snapErr?.message);
+  }
+
   // Write to buddy_research_evidence in batches of 50
   let written = 0;
   const BATCH_SIZE = 50;
@@ -322,7 +401,17 @@ export async function persistClaimLedger(
     const batch = claims.slice(i, i + BATCH_SIZE);
     // SPEC-CLAIM-LEDGER-EVIDENCE-TYPE-MAPPING-1: map claim_layer → DB-allowed
     // evidence_type and populate first-class provenance columns.
-    const rows = batch.map(toEvidenceRow);
+    const rows = batch.map((c) => {
+      const row = toEvidenceRow(c);
+      const snaps = c.source_uris.filter((u) => sourceSnapshots.has(u));
+      if (snaps.length > 0) {
+        (row.supporting_data as Record<string, unknown>).source_snapshots = snaps.map((u) => ({
+          url: u,
+          ...sourceSnapshots.get(u)!,
+        }));
+      }
+      return row;
+    });
 
     const { error } = await sb.from("buddy_research_evidence").insert(rows);
     if (error) {

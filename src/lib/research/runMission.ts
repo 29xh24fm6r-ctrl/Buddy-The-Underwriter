@@ -513,6 +513,47 @@ export async function runMission(
       }
     }
 
+    // 9b. Verification + provenance layers (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md
+    // deferred item, now wired): these fully-built, tested modules had zero
+    // production call sites — verification.ts's source-hygiene/corroboration/
+    // freshness/contradiction/usability checks and provenance.ts's source-trust
+    // → fact/inference confidence chain never ran. Both operate on the legacy
+    // pipeline's own data (persistedSources/persistedFacts/persistedInferences),
+    // which is already in scope here. Wired additively — this persists new
+    // diagnostic evidence rows; it does NOT mutate the stored fact/inference
+    // confidence values that compileNarrative/flagFromResearchInferences read,
+    // to avoid silently shifting behavior calibrated against the original scale.
+    // Non-fatal by the same convention as every other supplementary step below.
+    try {
+      const { runVerification, persistVerificationEvidence } = await import("./verification");
+      const verificationReport = runVerification(missionId, persistedSources, persistedFacts, persistedInferences);
+      await persistVerificationEvidence(supabaseAdmin(), missionId, verificationReport);
+      if (!verificationReport.overallPass) {
+        console.warn(
+          `[runMission] verification layer: score=${verificationReport.score}/100 — failing checks: ` +
+          verificationReport.checks.filter((c) => c.severity === "fail").map((c) => c.message).join("; "),
+        );
+      }
+    } catch (verifyErr: any) {
+      console.warn("[runMission] verification layer failed (non-fatal):", verifyErr?.message);
+    }
+
+    try {
+      const { generateProvenanceReport } = await import("./provenance");
+      const provenanceReport = generateProvenanceReport(persistedSources, persistedFacts, persistedInferences);
+      if (provenanceReport.sources.length > 0) {
+        await supabaseAdmin().from("buddy_research_evidence").insert({
+          mission_id: missionId,
+          evidence_type: "fact",
+          claim: `Provenance chain-of-trust: ${provenanceReport.sources.length} source(s), avg source trust ${Math.round(provenanceReport.summary.avg_source_trust * 100)}%, avg fact confidence ${Math.round(provenanceReport.summary.avg_fact_confidence * 100)}%, avg inference confidence ${Math.round(provenanceReport.summary.avg_inference_confidence * 100)}%`,
+          supporting_data: { kind: "provenance_summary", summary: provenanceReport.summary },
+          confidence: provenanceReport.summary.avg_source_trust,
+        });
+      }
+    } catch (provErr: any) {
+      console.warn("[runMission] provenance layer failed (non-fatal):", provErr?.message);
+    }
+
     // 10. Compile narrative
     const narrativeResult = compileNarrative(persistedFacts, persistedInferences, persistedSources);
 
