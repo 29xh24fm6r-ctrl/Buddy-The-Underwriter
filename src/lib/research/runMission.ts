@@ -130,6 +130,43 @@ async function updateMissionStatus(
 }
 
 /**
+ * Write an unconditional degraded quality-gate row.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a BIE crash or a
+ * trust-layer (claim ledger / completion gate) crash previously left the
+ * mission at status="complete" with NO buddy_research_quality_gates row at
+ * all — indistinguishable in the UI/DB from a genuinely un-gated mission
+ * except by the *absence* of a row. This mirrors the existing subject-lock
+ * failure write (below) so every terminal BIE/trust-layer failure leaves an
+ * explicit, queryable "gate_passed=false" record rather than silence. Never
+ * throws — a diagnostic write must not itself become a new failure mode.
+ */
+export async function writeDegradedQualityGate(
+  missionId: string,
+  dealId: string,
+  gateId: string,
+  reason: string
+): Promise<void> {
+  try {
+    const sb = supabaseAdmin();
+    await (sb as any).from("buddy_research_quality_gates").upsert(
+      {
+        mission_id: missionId,
+        deal_id: dealId,
+        trust_grade: "manual_review_required",
+        gate_passed: false,
+        quality_score: 0,
+        gate_failures: [{ gate_id: gateId, reason }],
+        evaluated_at: new Date().toISOString(),
+      },
+      { onConflict: "mission_id" },
+    );
+  } catch (e: any) {
+    console.warn(`[runMission] writeDegradedQualityGate failed for ${gateId} (non-fatal):`, e?.message);
+  }
+}
+
+/**
  * Persist sources to the database.
  */
 async function persistSources(
@@ -289,6 +326,42 @@ export async function runMission(
   // non-racy path; createMission()'s unique-constraint handling below is the
   // race-safe backstop for concurrent requests that both pass this check.
   const runKey = generateRunKey({ deal_id: dealId, mission_type: missionType, subject, depth });
+
+  // GOVERNANCE (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): the AI Use
+  // Case Registry's "restricted" designation was previously enforced only on
+  // the autonomous planner's execution path (runPlanner.ts) — any direct
+  // caller (POST /api/deals/[dealId]/research/run, POST /api/research/start)
+  // could execute a mission type the registry marks restricted. Enforcing the
+  // hard block here means every entry point gets it. We deliberately do NOT
+  // enforce the softer "requires_approval" (human_in_loop / pending_review)
+  // semantics here — those exist for the planner's proactive auto-triggering
+  // model; a banker manually invoking "Run Research" already IS the human
+  // approval for that entry point.
+  try {
+    const { checkMissionGovernance } = await import("./governance/useCaseRegistry");
+    const governance = await checkMissionGovernance(missionType);
+    if (!governance.allowed) {
+      console.warn(`[runMission] Blocked by governance: ${governance.reason}`);
+      return {
+        ok: false,
+        mission_id: "",
+        sources_count: 0,
+        facts_count: 0,
+        inferences_count: 0,
+        narrative_sections: 0,
+        error: `governance_blocked: ${governance.reason}`,
+        duration_ms: Date.now() - startTime,
+      };
+    }
+  } catch (e: any) {
+    // Governance check failure must never silently allow a restricted
+    // mission through — but must also never permanently wedge legitimate
+    // research if the registry table/lookup itself is unavailable. Log
+    // loudly and fail open, matching checkExistingMission's documented
+    // fail-open posture for the same class of infrastructure failure.
+    console.warn("[runMission] governance check failed (failing open):", e?.message);
+  }
+
   if (!opts?.forceRerun) {
     const existingCheck = await checkExistingMission(supabaseAdmin(), dealId, runKey, false);
     if (existingCheck.skip && existingCheck.existingMissionId) {
@@ -472,7 +545,25 @@ export async function runMission(
     }
 
     // 12. Mark mission as complete
-    await updateMissionStatus(missionId, "complete");
+    //
+    // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): previously this
+    // unconditionally marked "complete" with no distinguishing signal even
+    // when every source failed to fetch and the mission produced zero facts
+    // and zero narrative sections — indistinguishable in the DB from a
+    // genuinely successful mission except by an operator manually comparing
+    // counts. status stays "complete" (the process legitimately finished
+    // without throwing), but error_message now records the degraded-output
+    // signal so it's queryable/visible without inventing a new status value
+    // (the DB CHECK constraint on `status` doesn't allow one without a
+    // migration, which this fix deliberately avoids).
+    const hadNoOutput = persistedFacts.length === 0 && narrativeResult.sections.length === 0;
+    await updateMissionStatus(
+      missionId,
+      "complete",
+      hadNoOutput
+        ? `degraded: 0 facts, 0 narrative sections from ${persistedSources.length} source(s) — legacy pipeline produced no usable output`
+        : undefined,
+    );
 
     // 12b. Buddy Intelligence Engine — runs after mission is marked complete (non-fatal)
     try {
@@ -511,8 +602,12 @@ export async function runMission(
             })),
             evaluated_at: new Date().toISOString(),
           }, { onConflict: "mission_id" });
-        } catch {
-          // Non-fatal — quality gate persistence failure
+        } catch (e: any) {
+          // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): this bare
+          // catch previously logged nothing at all — a subject-lock-failure
+          // mission whose quality-gate write ALSO failed left zero trace
+          // anywhere (no log line, no DB row) for an operator to find.
+          console.warn("[runMission] subject-lock quality-gate persistence failed (non-fatal):", e?.message);
         }
       }
 
@@ -834,6 +929,10 @@ export async function runMission(
           } catch (trustErr: any) {
             // Non-fatal — claim ledger and gate failures must never block mission completion
             console.warn("[runMission] trust layer failed (non-fatal):", trustErr?.message);
+            await writeDegradedQualityGate(
+              missionId, dealId, "trust_layer_exception",
+              `Claim ledger / completion gate threw before persisting: ${trustErr?.message ?? "unknown error"}`,
+            );
           }
 
           // SPEC-BIE-SOURCE-SNAPSHOT-LEDGER-AND-OFFICIAL-SOURCE-CONNECTORS-1:
@@ -868,6 +967,16 @@ export async function runMission(
       }
     } catch (bieErr: any) {
       console.warn("[runMission] BIE step failed (non-fatal):", bieErr?.message);
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): previously a BIE
+      // crash left the mission at status="complete" with no trust_grade and
+      // no quality_gates row at all — a banker sees a "complete" research
+      // mission with none of the differentiated BIE analysis and nothing
+      // telling them so. Write an explicit degraded row so this state is
+      // queryable, not just an absence.
+      await writeDegradedQualityGate(
+        missionId, dealId, "bie_exception",
+        `Buddy Intelligence Engine threw before completion: ${bieErr?.message ?? "unknown error"}`,
+      );
     }
 
     // 12c. Trigger gap recompute after BIE completes (non-fatal)
