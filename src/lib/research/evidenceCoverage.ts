@@ -13,6 +13,45 @@ export type EvidenceCoverageResult = {
   }>;
 };
 
+export type ResearchTrace = {
+  sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number; total_claim_count?: number }>;
+};
+
+const MIN_EVIDENCE_FOR_SUPPORTED = 1;
+
+/**
+ * Pure computation extracted from computeEvidenceCoverage() so it's directly
+ * unit-testable without mocking Supabase (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md
+ * P1 — this module previously had no test file at all, including no coverage
+ * of the zero-real-evidence scenario that computeEvidenceCoverage's 85%
+ * committee_grade threshold gates on).
+ *
+ * `evidence_count` (see memoEvidenceResolver.ts's buildResearchTrace) already
+ * excludes zero-source claim rows — this function just aggregates it into a
+ * ratio, but is kept separate so future changes to that aggregation logic
+ * get real test coverage independent of the DB round-trip.
+ */
+export function computeEvidenceCoverageFromTrace(trace: ResearchTrace | null | undefined): EvidenceCoverageResult | null {
+  if (!trace?.sections?.length) return null;
+
+  const breakdown = trace.sections.map((s) => ({
+    sectionKey: s.section_key,
+    evidenceCount: s.evidence_count,
+    supported: s.evidence_count >= MIN_EVIDENCE_FOR_SUPPORTED,
+  }));
+
+  const totalSections = breakdown.length;
+  const supportedSections = breakdown.filter((s) => s.supported).length;
+
+  return {
+    totalSections,
+    supportedSections,
+    unsupportedSections: totalSections - supportedSections,
+    supportRatio: totalSections > 0 ? supportedSections / totalSections : 0,
+    sectionBreakdown: breakdown,
+  };
+}
+
 /**
  * Compute evidence coverage from research_trace_json on the latest generated memo.
  * Uses section-level evidence counts — no NLP sentence matching required.
@@ -35,27 +74,5 @@ export async function computeEvidenceCoverage(
 
   if (!data?.research_trace_json) return null;
 
-  const trace = data.research_trace_json as {
-    sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number }>;
-  };
-
-  if (!trace.sections?.length) return null;
-
-  const MIN_EVIDENCE_FOR_SUPPORTED = 1;
-  const breakdown = trace.sections.map((s) => ({
-    sectionKey: s.section_key,
-    evidenceCount: s.evidence_count,
-    supported: s.evidence_count >= MIN_EVIDENCE_FOR_SUPPORTED,
-  }));
-
-  const totalSections = breakdown.length;
-  const supportedSections = breakdown.filter((s) => s.supported).length;
-
-  return {
-    totalSections,
-    supportedSections,
-    unsupportedSections: totalSections - supportedSections,
-    supportRatio: totalSections > 0 ? supportedSections / totalSections : 0,
-    sectionBreakdown: breakdown,
-  };
+  return computeEvidenceCoverageFromTrace(data.research_trace_json as ResearchTrace);
 }
