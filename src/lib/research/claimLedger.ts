@@ -13,8 +13,30 @@
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { BIEResult } from "./buddyIntelligenceEngine";
-import { classifySourceUrl } from "./sourcePolicy";
+import { classifySourceUrl, computeSourceQualityScore } from "./sourcePolicy";
 import { fetchUrlSnapshot } from "./sourceSnapshot";
+
+/**
+ * Weight a claim's confidence by the trust of its own specific sources.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now
+ * wired): confidence was previously a hardcoded per-section constant (e.g.
+ * 0.80 for every Industry Overview claim) regardless of whether that
+ * claim's sources were a .gov filing or an unclassifiable blog — two claims
+ * in the same section with wildly different source quality got identical
+ * confidence. Source trust can only DISCOUNT confidence, never boost it
+ * above the base (same "never inflate trust" direction as provenance.ts's
+ * adjusted_confidence, which is also always <= original_confidence) — a
+ * claim with no sources at all (e.g. Credit Thesis, Contradictions,
+ * Underwriting Questions, which are persisted with source_uris always
+ * empty by construction) is discounted to half its base confidence, not
+ * silently kept at the section's full confidence.
+ */
+function weightConfidenceBySourceTrust(baseConfidence: number, sourceUrls: string[]): number {
+  const quality = computeSourceQualityScore(sourceUrls); // 0 when sourceUrls is empty
+  const weighted = baseConfidence * (0.5 + 0.5 * quality);
+  return Math.round(weighted * 100) / 100;
+}
 
 export type ClaimLayer = "fact" | "inference" | "narrative";
 
@@ -117,6 +139,7 @@ function makeClaimRecords(
   memoFields: string[],
   extra?: Partial<ClaimRecord>,
 ): ClaimRecord[] {
+  const cappedSources = sourceUrls.slice(0, 10);
   return texts
     .filter((t): t is string => !!t && t.trim().length > 10)
     .map((text) => ({
@@ -125,9 +148,9 @@ function makeClaimRecords(
       claim_text: text.slice(0, 2000),  // cap at 2000 chars per claim
       claim_layer: layer,
       thread_origin: thread,
-      source_uris: sourceUrls.slice(0, 10),
-      source_types: sourceUrls.slice(0, 10).map((u) => classifySourceUrl(u)),
-      confidence,
+      source_uris: cappedSources,
+      source_types: cappedSources.map((u) => classifySourceUrl(u)),
+      confidence: weightConfidenceBySourceTrust(confidence, cappedSources),
       supports_memo_fields: memoFields,
       ...extra,
     }));
@@ -211,15 +234,16 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       ["competitive_positioning"],
     ));
     for (const comp of result.competitive.direct_competitors) {
+      const competitorSources = ts.competitive.slice(0, 5);
       claims.push({
         mission_id: missionId,
         section: "Competitive Landscape",
         claim_text: `${comp.name}: ${comp.description}. Strengths: ${comp.strengths}. Position: ${comp.market_position}`,
         claim_layer: "fact",
         thread_origin: "competitive",
-        source_uris: ts.competitive.slice(0, 5),
-        source_types: ts.competitive.slice(0, 5).map((u) => classifySourceUrl(u)),
-        confidence: 0.65,
+        source_uris: competitorSources,
+        source_types: competitorSources.map((u) => classifySourceUrl(u)),
+        confidence: weightConfidenceBySourceTrust(0.65, competitorSources),
         supports_memo_fields: ["competitive_positioning"],
       });
     }
@@ -277,7 +301,11 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
         thread_origin: "synthesis",
         source_uris: [],
         source_types: [],
-        confidence: 0.75,
+        // Always zero-source by construction (synthesized, not directly
+        // cited) — weightConfidenceBySourceTrust discounts this to half the
+        // base 0.75 rather than storing the full section confidence for a
+        // claim with no independently checkable source.
+        confidence: weightConfidenceBySourceTrust(0.75, []),
         supports_memo_fields: ["contradictions"],
         adversarial_check_id: "synthesis_contradiction",
       });
@@ -291,7 +319,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
         thread_origin: "synthesis",
         source_uris: [],
         source_types: [],
-        confidence: 0.70,
+        confidence: weightConfidenceBySourceTrust(0.70, []),
         supports_memo_fields: ["underwriting_questions"],
       });
     }

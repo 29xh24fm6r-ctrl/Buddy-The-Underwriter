@@ -171,3 +171,31 @@ test("[persistence] first-class columns populated; narrative claim_layer preserv
   assert.ok(borrowerRow, "borrower claim should carry source_uris");
   assert.equal(borrowerRow!.source_uris.length, borrowerRow!.source_types.length);
 });
+
+// ── Per-claim confidence weighted by source trust ────────────────────────────
+// Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md: confidence was
+// previously a hardcoded per-section constant regardless of that specific
+// claim's source quality — a zero-source claim (Credit Thesis, Contradictions,
+// Underwriting Questions, always empty by construction) stored the same
+// confidence as a claim backed by a .gov filing.
+
+test("[confidence] zero-source claim (Credit Thesis) is discounted to half its base confidence", () => {
+  const rows = buildClaimRecords("m-test", fakeBIE()).map(toEvidenceRow);
+  const creditThesis = rows.find((r) => r.section === "Credit Thesis");
+  assert.ok(creditThesis, "fakeBIE should produce a Credit Thesis claim");
+  assert.equal(creditThesis!.source_uris.length, 0);
+  // base confidence for Credit Thesis is 0.70; zero-source discount is *0.5.
+  assert.equal(creditThesis!.confidence, 0.35);
+});
+
+test("[confidence] sourced claim scores higher than a zero-source claim with the same base confidence", () => {
+  const rows = buildClaimRecords("m-test", fakeBIE()).map(toEvidenceRow);
+  const borrowerRow = rows.find((r) => r.thread_origin === "borrower" && r.source_uris.length > 0);
+  assert.ok(borrowerRow);
+  // Borrower Profile claims use base confidence = borrower.entity_confidence (0.9 in fakeBIE).
+  // With at least one source, the weighted confidence must exceed the pure
+  // zero-source floor (0.9 * 0.5 = 0.45) — i.e. source trust actually moved the number.
+  assert.ok(borrowerRow!.confidence > 0.45, `expected confidence > 0.45 (zero-source floor), got ${borrowerRow!.confidence}`);
+  // And must never exceed the base — source trust only discounts, never boosts.
+  assert.ok(borrowerRow!.confidence <= 0.9, `confidence must never exceed the base confidence, got ${borrowerRow!.confidence}`);
+});
