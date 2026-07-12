@@ -25,7 +25,7 @@
 import "server-only";
 
 import type { NarrativeSection } from "./types";
-import { MODEL_RESEARCH, isGemini3Model } from "@/lib/ai/models";
+import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK, isGemini3Model } from "@/lib/ai/models";
 import {
   repairManagementJson,
   buildManagementFallback,
@@ -37,7 +37,10 @@ import { repairGenericJson, GENERIC_JSON_REPAIR_STRATEGY } from "./geminiJsonRep
 // Gemini API caller — returns grounding metadata alongside parsed result
 // ============================================================================
 
-const GEMINI_MODEL = MODEL_RESEARCH;
+// Typed as `string` (not narrowed to the literal) so it can be compared
+// against MODEL_RESEARCH_FALLBACK at runtime in callGeminiGrounded()'s
+// retry-loop guard without a spurious "no overlap" type error.
+const GEMINI_MODEL: string = MODEL_RESEARCH;
 
 type GroundingSegment = {
   text: string;        // exact text segment that was grounded
@@ -161,8 +164,7 @@ type GeminiGroundedResult<T> = {
   diagnostic: BIEThreadDiagnostic; // Phase 1: never-silent failure record
 };
 
-// Exported for Phase 1 diagnostic tests (mock global.fetch). Internal otherwise.
-export async function callGeminiGrounded<T>(args: {
+type CallGeminiGroundedArgs<T> = {
   prompt: string;
   apiKey: string;
   sources: string[];   // accumulated source list across all threads
@@ -174,7 +176,17 @@ export async function callGeminiGrounded<T>(args: {
   // text; returns a salvaged value or null. The original parse diagnostic is
   // preserved either way.
   repair?: { strategy: string; fn: (clean: string) => T | null };
-}): Promise<GeminiGroundedResult<T>> {
+};
+
+/**
+ * Call Gemini for a single BIE thread against a specific model. Internal —
+ * callers use callGeminiGrounded() below, which adds the model-retirement
+ * fallback retry.
+ */
+async function callGeminiGroundedWithModel<T>(
+  model: string,
+  args: CallGeminiGroundedArgs<T>,
+): Promise<GeminiGroundedResult<T>> {
   const promptChars = args.prompt.length;
   // SPEC-BIE-...-MEGA-1 Phase 1: build a diagnostic for EVERY return path.
   const baseDiag = (
@@ -190,7 +202,7 @@ export async function callGeminiGrounded<T>(args: {
     response_chars: null,
     source_count: 0,
     prompt_chars: promptChars,
-    model: GEMINI_MODEL,
+    model,
     created_at: new Date().toISOString(),
     ...over,
   });
@@ -200,11 +212,11 @@ export async function callGeminiGrounded<T>(args: {
     segments: [],
     diagnostic,
   });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${args.apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${args.apiKey}`;
 
   // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
   const generationConfig: Record<string, unknown> = {};
-  if (!isGemini3Model(GEMINI_MODEL)) {
+  if (!isGemini3Model(model)) {
     generationConfig.temperature = 0.1;
   }
   if (!args.useGrounding) {
@@ -254,7 +266,7 @@ export async function callGeminiGrounded<T>(args: {
       const likelyModelRetirement = res.status === 404;
       if (likelyModelRetirement) {
         console.error(
-          `[BIE:${args.logTag}] Gemini 404 for model "${GEMINI_MODEL}" — likely RETIRED/RENAMED, ` +
+          `[BIE:${args.logTag}] Gemini 404 for model "${model}" — likely RETIRED/RENAMED, ` +
           `not a transient failure. Check @/lib/ai/models.ts. Response: ${errText.slice(0, 300)}`,
         );
       } else {
@@ -264,7 +276,7 @@ export async function callGeminiGrounded<T>(args: {
         ok: false,
         error_type: "http_error",
         http_status: res.status,
-        raw_text_preview: (likelyModelRetirement ? `[likely model retirement — model="${GEMINI_MODEL}"] ` : "") + (errText.slice(0, 300) || ""),
+        raw_text_preview: (likelyModelRetirement ? `[likely model retirement — model="${model}"] ` : "") + (errText.slice(0, 300) || ""),
       }));
     }
 
@@ -406,6 +418,54 @@ export async function callGeminiGrounded<T>(args: {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Call Gemini for a single BIE thread, with a one-shot fallback retry
+ * against MODEL_RESEARCH_FALLBACK when the primary model returns HTTP 404.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now
+ * wired): a 404 here most often means the pinned model id has been
+ * retired/renamed by Google — this codebase has already been burned by
+ * exactly this once (see GEMINI_FLASH's history comment in models.ts: a
+ * preview model 404'd on Vertex and was silently masked by an unrelated
+ * fallback for weeks). Previously a 404 just failed the thread outright,
+ * indistinguishable from any other HTTP error, with no retry. Only retries
+ * on 404 specifically (not on rate limits/5xx/timeouts, which are already
+ * transient and shouldn't be masked by silently switching models) and only
+ * once (never against the fallback's own 404, to avoid a retry loop).
+ *
+ * Exported for Phase 1 diagnostic tests (mock global.fetch).
+ */
+export async function callGeminiGrounded<T>(
+  args: CallGeminiGroundedArgs<T>,
+): Promise<GeminiGroundedResult<T>> {
+  const primary = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, args);
+
+  const isLikelyModelRetirement =
+    !primary.diagnostic.ok &&
+    primary.diagnostic.error_type === "http_error" &&
+    primary.diagnostic.http_status === 404;
+
+  if (!isLikelyModelRetirement || GEMINI_MODEL === MODEL_RESEARCH_FALLBACK) {
+    return primary;
+  }
+
+  console.warn(
+    `[BIE:${args.logTag}] retrying against fallback model "${MODEL_RESEARCH_FALLBACK}" ` +
+    `after primary model "${GEMINI_MODEL}" 404'd (likely retired/renamed)`,
+  );
+  const fallback = await callGeminiGroundedWithModel<T>(MODEL_RESEARCH_FALLBACK, args);
+  return {
+    ...fallback,
+    diagnostic: {
+      ...fallback.diagnostic,
+      // Preserve the fact that a fallback retry happened, distinct from a
+      // JSON-repair "repaired" flag — both can be true simultaneously.
+      raw_text_preview:
+        `[fallback retry after primary model 404] ${fallback.diagnostic.raw_text_preview ?? ""}`.trim(),
+    },
+  };
 }
 
 // ============================================================================
