@@ -37,6 +37,8 @@ export type Form1919BuildResult = {
   signature: {
     has_valid_signature: boolean;
     signed_at: string | null;
+    expires_at: string | null;
+    needs_resignature: boolean;
   };
 };
 
@@ -74,7 +76,9 @@ export function buildForm1919(input: Form1919Input): Form1919BuildResult {
     },
     triggers_form_912: triggersForm912,
     is_complete: isComplete,
-    // E-sign ceremony ships in S3 — hardcoded false until wired (spec non-goal).
-    signature: { has_valid_signature: false, signed_at: null },
+    // buildForm1919() stays pure — no DB call. Signature status defaults to
+    // "not signed"; buildForm1919WithSignature(dealId, sb) (SPEC S3 D-2)
+    // looks up the real signed_documents row and overrides this.
+    signature: { has_valid_signature: false, signed_at: null, expires_at: null, needs_resignature: false },
   };
 }

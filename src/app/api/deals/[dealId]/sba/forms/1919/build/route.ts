@@ -1,12 +1,15 @@
 import "server-only";
 
-/** SPEC S2 D-5 — GET /api/deals/[dealId]/sba/forms/1919/build */
+/**
+ * SPEC S2 D-5 / SPEC S3 D-2 — GET /api/deals/[dealId]/sba/forms/1919/build
+ * Uses the signature-aware wrapper so `result.signature` reflects a real
+ * signed_documents row when one exists, not just the pure default.
+ */
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
-import { buildForm1919Input } from "@/lib/sba/forms/form1919/inputBuilder";
-import { buildForm1919 } from "@/lib/sba/forms/form1919/build";
+import { buildForm1919WithSignature } from "@/lib/sba/forms/form1919/buildWithSignature";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 
 export const runtime = "nodejs";
@@ -21,8 +24,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     const { dealId } = await requireDealAccess(rawDealId);
 
     const sb = supabaseAdmin();
-    const input = await buildForm1919Input(dealId, sb);
-    const result = buildForm1919(input);
+    const result = await buildForm1919WithSignature(dealId, sb);
 
     return NextResponse.json({ ok: true, dealId, ...result });
   } catch (e: unknown) {

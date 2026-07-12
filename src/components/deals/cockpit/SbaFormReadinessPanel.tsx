@@ -113,14 +113,9 @@ export default function SbaFormReadinessPanel({ dealId }: { dealId: string }) {
               </div>
             ) : null,
           )}
-          <button
-            type="button"
-            disabled
-            title="Available after identity verification (Sprint 3)"
-            className="mt-3 rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white/30 cursor-not-allowed"
-          >
-            Sign Form 1919
-          </button>
+          <div className="mt-3 text-[11px] text-white/30">
+            Signing requires IAL2 identity verification first — see SBA Signing Status below.
+          </div>
         </div>
 
         <div className="rounded-lg border border-white/8 bg-black/20 p-3">
