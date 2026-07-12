@@ -174,6 +174,25 @@ export async function buildSbaEligibilityInput(
     .eq("deal_id", dealId)
     .maybeSingle();
 
+  // ---- Federal screens (S4) --------------------------------------------
+  const { data: caivrsChecks } = await sb
+    .from("borrower_caivrs_checks")
+    .select("hit_count, hit_details")
+    .eq("deal_id", dealId);
+
+  const { data: signed4506c } = await sb
+    .from("signed_documents")
+    .select("id")
+    .eq("deal_id", dealId)
+    .eq("form_code", "FORM_4506C")
+    .limit(1)
+    .maybeSingle();
+
+  const { data: irsTranscriptRequests } = await sb
+    .from("borrower_irs_transcript_requests")
+    .select("status")
+    .eq("deal_id", dealId);
+
   const franchiseBrandId =
     (dealFranchise as { brand_id?: string } | null)?.brand_id ??
     (loanRequest as { franchise_brand_id?: string } | null)?.franchise_brand_id ??
@@ -289,6 +308,27 @@ export async function buildSbaEligibilityInput(
   const totalOwners = owners.filter((o) => (o.ownership_pct ?? 0) > 0);
   const isSingleOwnerBusiness = totalOwners.length > 0 ? totalOwners.length === 1 : null;
 
+  // ---- Federal screens (S4) ----------------------------------------------
+  const caivrsRows = (caivrsChecks ?? []) as Array<{ hit_count: number | null; hit_details: unknown }>;
+  const caivrsChecked = caivrsRows.length > 0;
+  const caivrsHits = caivrsChecked ? caivrsRows.reduce((sum, r) => sum + (r.hit_count ?? 0), 0) : null;
+  const borrowerHasPriorSbaLoss = caivrsChecked
+    ? caivrsRows.some(
+        (r) =>
+          Array.isArray(r.hit_details) &&
+          (r.hit_details as Array<Record<string, unknown>>).some(
+            (h) => typeof h?.program === "string" && /sba/i.test(h.program as string),
+          ),
+      )
+    : null;
+
+  const form4506cSigned = Boolean(signed4506c);
+  const irsRequestRows = (irsTranscriptRequests ?? []) as Array<{ status: string }>;
+  const taxTranscriptsReceivedOrPending =
+    irsRequestRows.length > 0
+      ? irsRequestRows.some((r) => ["submitted", "received", "reconciled", "pending_signature"].includes(r.status))
+      : null;
+
   return {
     loan_amount: loanAmount,
     is_7a_small_loan: is7aSmallLoan,
@@ -312,12 +352,12 @@ export async function buildSbaEligibilityInput(
     // a gap, not guessed at.
     ineligible_owner_in_lookback_window: null,
 
-    caivrs_checked: null,
-    caivrs_hits: null,
-    borrower_has_prior_sba_loss: null,
+    caivrs_checked: caivrsChecked,
+    caivrs_hits: caivrsHits,
+    borrower_has_prior_sba_loss: borrowerHasPriorSbaLoss,
 
-    form_4506c_signed: null,
-    tax_transcripts_received_or_pending: null,
+    form_4506c_signed: form4506cSigned,
+    tax_transcripts_received_or_pending: taxTranscriptsReceivedOrPending,
 
     // banks has no `settings` column in prod (verified via
     // information_schema during this build) — no source for this field yet.

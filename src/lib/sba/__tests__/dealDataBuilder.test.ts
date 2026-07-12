@@ -52,6 +52,9 @@ class FakeDb {
       financial_snapshots: [],
       deal_franchises: [],
       franchise_brands: [],
+      borrower_caivrs_checks: [],
+      signed_documents: [],
+      borrower_irs_transcript_requests: [],
       ...seed,
     };
   }
@@ -205,10 +208,67 @@ test("single owner -> is_single_owner_business = true", async () => {
 test("fields not yet computable return null, not fabricated defaults", async () => {
   const db = new FakeDb({ deals: [{ id: "d1", deal_type: "sba_7a" }] });
   const r = await buildSbaEligibilityInput("d1", db as any);
-  assert.equal(r.caivrs_checked, null);
+  // caivrs_checked/form_4506c_signed are booleans ("has this run yet?"),
+  // so their unset state is false, not null — matches is_franchise_deal's
+  // existing null-vs-false convention. caivrs_hits/borrower_has_prior_sba_loss
+  // stay null: there's no data yet to compute a number/verdict from.
+  assert.equal(r.caivrs_checked, false);
   assert.equal(r.caivrs_hits, null);
   assert.equal(r.borrower_has_prior_sba_loss, null);
-  assert.equal(r.form_4506c_signed, null);
+  assert.equal(r.form_4506c_signed, false);
+  assert.equal(r.tax_transcripts_received_or_pending, null);
   assert.equal(r.lender_is_federally_regulated, null);
   assert.equal(r.screening_uses_sbss, false);
+});
+
+test("S4: CAIVRS checked with no hits -> caivrs_checked=true, caivrs_hits=0, borrower_has_prior_sba_loss=false", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    borrower_caivrs_checks: [{ deal_id: "d1", hit_count: 0, hit_details: [] }],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.caivrs_checked, true);
+  assert.equal(r.caivrs_hits, 0);
+  assert.equal(r.borrower_has_prior_sba_loss, false);
+});
+
+test("S4: CAIVRS hit with SBA program in hit_details -> caivrs_hits summed, borrower_has_prior_sba_loss=true", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    borrower_caivrs_checks: [
+      { deal_id: "d1", hit_count: 2, hit_details: [{ program: "SBA 7(a)" }, { program: "FHA" }] },
+      { deal_id: "d1", hit_count: 0, hit_details: [] },
+    ],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.caivrs_checked, true);
+  assert.equal(r.caivrs_hits, 2);
+  assert.equal(r.borrower_has_prior_sba_loss, true);
+});
+
+test("S4: signed FORM_4506C exists -> form_4506c_signed=true", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    signed_documents: [{ deal_id: "d1", form_code: "FORM_4506C" }],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.form_4506c_signed, true);
+});
+
+test("S4: IRS transcript request submitted -> tax_transcripts_received_or_pending=true", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    borrower_irs_transcript_requests: [{ deal_id: "d1", status: "submitted" }],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.tax_transcripts_received_or_pending, true);
+});
+
+test("S4: IRS transcript request expired (no submitted/received/reconciled/pending_signature) -> false", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    borrower_irs_transcript_requests: [{ deal_id: "d1", status: "expired" }],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.tax_transcripts_received_or_pending, false);
 });
