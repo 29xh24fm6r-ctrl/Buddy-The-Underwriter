@@ -51,9 +51,27 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
 
   if (dealErr) return NextResponse.json({ error: dealErr.message }, { status: 500 });
 
+  let franchiseBrandName: string | null = null;
+  if (dealId) {
+    const { data: franchiseLink } = await sb
+      .from("deal_franchises")
+      .select("brand_id")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    if (franchiseLink?.brand_id) {
+      const { data: brand } = await sb
+        .from("franchise_brands")
+        .select("brand_name")
+        .eq("id", franchiseLink.brand_id)
+        .maybeSingle();
+      franchiseBrandName = brand?.brand_name ?? null;
+    }
+  }
+
   return NextResponse.json({
     token,
     deal,
     link: linkMeta,
+    franchise: franchiseBrandName ? { brandName: franchiseBrandName } : null,
   });
 }

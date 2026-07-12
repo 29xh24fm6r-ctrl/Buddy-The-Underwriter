@@ -11,10 +11,10 @@ function read(rel: string): string {
 const homepage = read("src/components/marketing/BrokerageLandingPage.tsx");
 const homepageRoute = read("src/app/page.tsx");
 
-test("homepage primary headline mentions Buddy Brokerage", () => {
+test("homepage primary headline mentions the SBA loan package", () => {
   assert.ok(
-    homepage.includes("Buddy Brokerage"),
-    "Homepage hero must say Buddy Brokerage",
+    homepage.includes("SBA loan package"),
+    "Homepage hero must mention the SBA loan package",
   );
 });
 

@@ -566,6 +566,7 @@ function buildConfidenceCopy(params: {
 
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
+  const [franchiseBrandName, setFranchiseBrandName] = React.useState<string | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
   const [activeUploadId, setActiveUploadId] = React.useState<string | null>(null);
   const [fields, setFields] = React.useState<Field[]>([]);
@@ -681,6 +682,7 @@ export function PortalClient({ token }: { token: string }) {
       const json = await response.json();
       if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
       setDeal(json.deal ?? null);
+      setFranchiseBrandName(json.franchise?.brandName ?? null);
       await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity()]);
     } catch (error) {
       setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
@@ -1126,6 +1128,9 @@ export function PortalClient({ token }: { token: string }) {
               label: "Business",
               value: deal?.name || "Your SBA request",
             },
+            ...(franchiseBrandName
+              ? [{ label: "Financing type", value: `Franchise — ${franchiseBrandName}` }]
+              : []),
             {
               label: "Documents received",
               value: checklistStats ? `${checklistStats.received} of ${checklistStats.required}` : "Updating now",

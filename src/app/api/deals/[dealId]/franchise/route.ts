@@ -8,13 +8,16 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { seedFranchiseChecklist } from "@/lib/franchise/seedFranchiseChecklist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+// route-class: CLERK (SPEC-SEC-1)
 
 type Params = Promise<{ dealId: string }>;
 
@@ -22,13 +25,7 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
   try {
     const { dealId } = await ctx.params;
 
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
-    }
+    await assertDealAccess(dealId);
 
     const sb = supabaseAdmin();
     const { data: link } = await sb
@@ -54,6 +51,8 @@ export async function GET(_req: NextRequest, ctx: { params: Params }) {
     });
   } catch (error) {
     rethrowNextErrors(error);
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("[GET /api/deals/[dealId]/franchise]", error);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -69,13 +68,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
       return NextResponse.json({ ok: false, error: "brand_id_required" }, { status: 400 });
     }
 
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
-    }
+    const access = await assertDealAccess(dealId);
 
     const sb = supabaseAdmin();
 
@@ -113,9 +106,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Params }) {
       meta: { deal_id: dealId, brand_id: brand.id, brand_name: brand.brand_name },
     });
 
+    await seedFranchiseChecklist(sb, { dealId, bankId: access.bankId, brandName: brand.brand_name });
+
     return NextResponse.json({ ok: true, brandId: brand.id, brandName: brand.brand_name });
   } catch (error) {
     rethrowNextErrors(error);
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("[PATCH /api/deals/[dealId]/franchise]", error);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -125,13 +122,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Params }) {
   try {
     const { dealId } = await ctx.params;
 
-    const access = await ensureDealBankAccess(dealId);
-    if (!access.ok) {
-      return NextResponse.json(
-        { ok: false, error: access.error },
-        { status: access.error === "deal_not_found" ? 404 : 403 },
-      );
-    }
+    const access = await assertDealAccess(dealId);
 
     const sb = supabaseAdmin();
     const { error } = await sb.from("deal_franchises").delete().eq("deal_id", dealId);
@@ -153,6 +144,8 @@ export async function DELETE(_req: NextRequest, ctx: { params: Params }) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     rethrowNextErrors(error);
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("[DELETE /api/deals/[dealId]/franchise]", error);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
