@@ -8,13 +8,25 @@
 //
 // Exclusions:
 //   - node_modules
-//   - paths containing `(` or `[` — Next route-group / dynamic-segment dirs. node
-//     --test cannot resolve these (runs 0 tests silently, memory #30); they are
-//     unreachable-by-runner regardless of glob. A separate structural fix is needed.
 //   - __invariants__ — owned by the `test:invariants` runner, not test:unit.
 //   - QUARANTINE — individually named files that cannot run under node --test
 //     (import errors). Each carries a SPEC-CI-2 reason and is inventoried in
 //     specs/ci-2/backlog.md. This list is remove-only.
+//
+// FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): paths containing `[`
+// or `]` (Next.js dynamic-segment dirs, e.g. `[dealId]`) were previously
+// excluded entirely with the comment "node --test cannot resolve these (runs
+// 0 tests silently, memory #30)". That's half-true: `node --test <path>`
+// treats its positional args as glob patterns, and `[dealId]` parses as a
+// glob character class rather than a literal directory name — so the file
+// resolves to nothing and node --test silently reports "0 tests, 0 fail"
+// instead of erroring, with zero signal that a real test file was skipped.
+// The actual fix is to escape each literal `[`/`]` as the single-char glob
+// class `[[]`/`[]]` in the printed path (verified: 9 test files across the
+// repo, 54 tests total, were dead this way — all pass once escaped). Paths
+// containing `(` (Next.js route groups, e.g. `(app)`) were also excluded but
+// were never actually a problem — `(`/`)` aren't glob metacharacters here;
+// removing that exclusion needed no escaping to work.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -30,10 +42,22 @@ const QUARANTINE = new Set([
 
 function isExcludedPath(rel) {
   if (rel.includes("node_modules")) return true;
-  if (rel.includes("(") || rel.includes("[")) return true; // unreachable-by-runner
   if (rel.includes("__invariants__")) return true;
   if (QUARANTINE.has(rel)) return true;
   return false;
+}
+
+/** Escape literal `[`/`]` as single-char glob classes so node --test's
+ * glob-pattern argument parsing resolves them as literal directory names
+ * instead of (mis)parsing them as character classes. */
+function escapeForNodeTestGlob(rel) {
+  let out = "";
+  for (const ch of rel) {
+    if (ch === "[") out += "[[]";
+    else if (ch === "]") out += "[]]";
+    else out += ch;
+  }
+  return out;
 }
 
 function walk(dir, out = []) {
@@ -54,6 +78,7 @@ function walk(dir, out = []) {
 const files = SCAN_DIRS.flatMap((d) => walk(d))
   .map((f) => f.split(path.sep).join("/"))
   .filter((rel) => !isExcludedPath(rel))
-  .sort();
+  .sort()
+  .map(escapeForNodeTestGlob);
 
 process.stdout.write(files.join("\n") + "\n");
