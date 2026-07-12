@@ -2,6 +2,83 @@
 
 **Auditor**: Claude (Sonnet 5), 6 parallel deep-dive subagents
 **Date**: 2026-07-12
+
+---
+
+## Remediation status (2026-07-12, same-day follow-up)
+
+All 6 P0 items and all 9 tracked P1 items below were fixed, tested, and
+pushed to this branch in the commits following this audit. Summary:
+
+**P0 — fixed:**
+- P0-1 (cross-tenant auth gaps): `ensureDealBankAccess` / authenticated
+  ownership checks added to every research route that was missing one.
+- P0-2 (no rate limiting): per-deal/per-bank cooldowns added to every
+  mission-triggering endpoint, including the borrower-portal one.
+- P0-3 (no hallucination guard on Litigation and Risk): extended the
+  Management Intelligence scrub pattern to Borrower Profile/Litigation and
+  Risk, keyed off the deterministic `wrong_entity_risk` classification.
+- P0-4 (classifyEntity mismatch-check bypass): the name-mismatch check now
+  runs unconditionally, not gated to the `[0.5, 0.7)` confidence band.
+- P0-5 (dropped SPEC-13.6 investigation): root-caused to a dead threshold
+  (`THRESHOLDS.preliminary.min_entity_confidence` was declared but never
+  read) — fixed in completionGate.ts's grade-assignment branch.
+- P0-6 (fake memo-research stub): replaced with an authenticated, honest
+  `not_implemented` response.
+
+**P1 — fixed:** mission idempotency (`run_key` end-to-end), `ingestSource.ts`
+routed through the already-built retrying/allowlisted `fetchSource()` (plus
+~25 registry entries added to cover domains `sourceDiscovery.ts` actually
+fetches), degraded-output signaling on empty missions, unconditional
+degraded quality-gate writes on BIE/trust-layer exceptions, stale-mission
+sweep wired into the worker-tick job, governance registry enforcement moved
+into `runMission()` itself, adverse-screen made a hard `committee_eligible`
+requirement (with per-thread litigation source attribution instead of the
+whole-mission pool), fallback-thread discounting in thread-coverage,
+zero-source claims no longer counted as evidence coverage (+ new test file —
+this module had none), 9 previously-dead bracket-path test files reactivated
+(54 tests) via a `discover-tests.mjs` fix, the `yacht-charter-regression`
+golden-set case's accidental self-exclusion fixed, the golden-set eval wired
+into CI, and JSON-repair/timeout/token-limit/model-retirement-diagnostic
+hardening extended to all 6 grounded BIE threads (previously only
+`management` had it).
+
+Full repo test suite: 11187/11197 pass (was 11168/11178 before this pass),
+with the one remaining failure confirmed pre-existing and unrelated (present
+identically on the unmodified branch).
+
+**Deliberately deferred** — larger, more architecturally invasive, or
+requiring infrastructure/decisions beyond this pass's scope:
+- Wiring the fully-built-but-dead `verification.ts`/`provenance.ts` modules
+  into the live claim-ledger write path, or removing them.
+- Snapshotting every BIE-cited URL (resolve → hash → immutable artifact) via
+  the existing `fetchUrlSnapshot`/`ensureSourceArtifactForSnapshot`
+  machinery — currently only wired into the manually-pasted-URL flow.
+- `brieRuntime.ts`'s checkpoint/retry/heartbeat system: still fully
+  disconnected from `runMission.ts`. This pass wired the *effects* it was
+  meant to provide (idempotency, stale-mission recovery, degraded-state
+  writes) directly into `runMission.ts` using simpler mechanisms, rather
+  than adopting `brieRuntime.ts`'s more complex resumable-checkpoint design
+  wholesale — that remains a real architectural decision (wire it in fully,
+  or delete it) for the team to make deliberately.
+- A real gate re-evaluation trigger when committee evidence tasks are
+  resolved (today `evaluateCompletionGate` runs exactly once, at BIE
+  completion) — `applyCommitteeReadinessTransition` remains permanently
+  disabled by design, with no substitute wired in.
+- Replacing self-graded contradiction detection with real cross-thread
+  numeric diffing (e.g. comparing a stated revenue figure against the
+  loan-file figure) for the checks that are mechanically checkable.
+- Automatic model-fallback retry on a detected "likely retired" 404 (this
+  pass added the loud, distinct diagnostic tag; it does not yet retry
+  against a second pinned model).
+- Per-claim confidence weighted by that claim's own source trust in
+  `claimLedger.ts` (currently a hardcoded per-section constant).
+- Real external alerting/paging on BIE/trust-layer exceptions (this pass
+  makes those failures loud in logs and queryable in the DB; it does not
+  wire them to PagerDuty/Slack/etc., which requires infra this environment
+  doesn't have visibility into).
+
+---
 **Scope**: The entire research system — mission orchestration (`runMission.ts`), the
 Buddy Intelligence Engine (`buddyIntelligenceEngine.ts`, 8-thread Gemini-grounded
 pipeline), the evidence/claim-ledger/provenance layer, the completion-gate/trust-grade
