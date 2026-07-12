@@ -6,6 +6,7 @@
 // bars with expandable sub-dimensions, flag panel, action bar.
 
 import { useCallback, useEffect, useState } from "react";
+import FranchiseBrandSelector from "./FranchiseBrandSelector";
 
 interface DimensionScoreLite {
   score: number;
@@ -198,6 +199,7 @@ export default function FeasibilityDashboard({ dealId }: Props) {
   if (!study) {
     return (
       <div className="space-y-5">
+        <FranchiseBrandSelector dealId={dealId} />
         {generating && (
           <FeasibilityProgressOverlay
             step={progressStep}
@@ -267,6 +269,7 @@ export default function FeasibilityDashboard({ dealId }: Props) {
 
   return (
     <div className="space-y-5">
+      <FranchiseBrandSelector dealId={dealId} />
       {generating && (
         <FeasibilityProgressOverlay step={progressStep} pct={progressPct} />
       )}

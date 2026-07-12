@@ -100,14 +100,25 @@ export async function initializeIntake(
         insertPayload.bank_id = resolvedBankId;
       }
 
-      const insert = await sb.from("deal_intake").insert(insertPayload as any);
+      // upsert + ignoreDuplicates (not insert) — deal_intake.deal_id is the
+      // PRIMARY KEY and multiple entry points (context/route, files/record,
+      // portal upload commit, auto-seed, underwrite/start) can race to
+      // initialize the same deal concurrently. A plain insert 500s the loser
+      // with "duplicate key value violates unique constraint
+      // deal_intake_pkey"; ignoreDuplicates makes the loser a no-op instead.
+      const insert = await sb
+        .from("deal_intake")
+        .upsert(insertPayload as any, { onConflict: "deal_id", ignoreDuplicates: true, defaultToNull: false });
       if (insert.error) {
         const msg = String(insert.error.message || "");
         if (msg.toLowerCase().includes("bank_id") && msg.toLowerCase().includes("does not exist")) {
-          await sb.from("deal_intake").insert({
-            deal_id: dealId,
-            loan_type: loanType,
-          } as any);
+          await sb.from("deal_intake").upsert(
+            {
+              deal_id: dealId,
+              loan_type: loanType,
+            } as any,
+            { onConflict: "deal_id", ignoreDuplicates: true, defaultToNull: false },
+          );
         } else {
           throw insert.error;
         }

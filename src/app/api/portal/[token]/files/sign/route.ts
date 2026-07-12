@@ -238,10 +238,15 @@ export async function POST(req: NextRequest, ctx: Context) {
         key: objectPath,
         contentType: mime_type || "application/octet-stream",
         expiresSeconds,
+        maxSizeBytes: MAX_BYTES,
       });
 
       const bucket = getGcsBucketName();
       const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
+      const uploadHeaders: Record<string, string> = {
+        "Content-Type": mime_type || "application/octet-stream",
+        "x-goog-content-length-range": `0,${MAX_BYTES}`,
+      };
 
       if (uploadSessionId) {
         await upsertUploadSessionFile({
@@ -275,6 +280,7 @@ export async function POST(req: NextRequest, ctx: Context) {
           checklist_key,
           bucket,
           upload_session_id: uploadSessionId,
+          headers: uploadHeaders,
         },
       });
     }

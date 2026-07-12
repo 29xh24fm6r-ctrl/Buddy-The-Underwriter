@@ -177,8 +177,28 @@ export async function generateFeasibilityStudy(params: {
     .eq("deal_id", dealId);
   const guarantorCF = (guarantorCFraw ?? []) as GuarantorRow[];
 
-  // ── 9. Franchise detection (v1: always false) ──────────────────
-  const isFranchise = false;
+  // ── 9. Franchise detection ───────────────────────────────────────
+  // deal_franchises links a deal to its franchise_brands row (one brand per
+  // deal). Table added 2026-07-12 — previously this lookup target didn't
+  // exist and isFranchise was hardcoded false, so the franchise comparator
+  // and franchiseQuality score never activated regardless of the deal.
+  const { data: franchiseLink } = await sb
+    .from("deal_franchises")
+    .select("brand_id")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+  const franchiseBrandId: string | null = franchiseLink?.brand_id ?? null;
+  const isFranchise = Boolean(franchiseBrandId);
+
+  let franchiseBrandName: string | null = null;
+  if (franchiseBrandId) {
+    const { data: brandRow } = await sb
+      .from("franchise_brands")
+      .select("brand_name")
+      .eq("id", franchiseBrandId)
+      .maybeSingle();
+    franchiseBrandName = brandRow?.brand_name ?? null;
+  }
 
   // ── 10. Trade area data from BIE (Phase 2 Gap A) ───────────────
   // In v1 this was always null; in v2 we use the BIE-extracted numeric
@@ -363,12 +383,17 @@ export async function generateFeasibilityStudy(params: {
     isFranchise,
   });
 
-  // ── 13. Franchise comparison (always null in v1) ──────────────
-
+  // ── 13. Franchise comparison ────────────────────────────────────
+  // borrowerEquity is still 0 here — no equity-injection figure is loaded
+  // in this function today (would need a buddy_sba_assumptions query this
+  // orchestrator doesn't currently make). The comparator falls back to
+  // matching by the proposed brand's own investment range when equity is 0,
+  // so this degrades gracefully rather than breaking, but a real equity
+  // figure would tighten the match. Separate follow-up.
   const franchiseComparison = isFranchise
     ? await runFranchiseComparison({
-        proposedBrandId: null,
-        proposedBrandName: null,
+        proposedBrandId: franchiseBrandId,
+        proposedBrandName: franchiseBrandName,
         naicsCode,
         borrowerEquity: 0,
         borrowerExperienceYears: Math.max(
@@ -395,7 +420,7 @@ export async function generateFeasibilityStudy(params: {
     franchiseComparison,
     research,
     isFranchise,
-    brandName: null,
+    brandName: franchiseBrandName,
     managementTeam,
   });
 
@@ -416,7 +441,7 @@ export async function generateFeasibilityStudy(params: {
       narratives,
       franchiseComparison,
       isFranchise,
-      brandName: null,
+      brandName: franchiseBrandName,
       generatedAt: new Date().toISOString(),
     });
 

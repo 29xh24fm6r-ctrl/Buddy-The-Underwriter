@@ -94,17 +94,34 @@ export async function signGcsUploadUrl(args: {
   key: string;
   contentType: string;
   expiresSeconds?: number;
+  /**
+   * When provided, adds an X-Goog-Content-Length-Range extension header
+   * condition to the V4 signature so GCS itself rejects a PUT whose body
+   * exceeds this size, instead of relying solely on the client-declared
+   * size checked at sign time. The caller MUST send the identical
+   * "x-goog-content-length-range: 0,<maxSizeBytes>" header on the PUT.
+   */
+  maxSizeBytes?: number;
 }): Promise<string> {
   const storage = await getGcsStorage();
   const bucket = getGcsBucketName();
   const expires = Date.now() + (args.expiresSeconds ?? DEFAULT_SIGN_TTL_SECONDS) * 1000;
 
-  const [url] = await storage.bucket(bucket).file(args.key).getSignedUrl({
-    version: "v4",
-    action: "write",
-    expires,
-    contentType: args.contentType,
-  });
+  const extensionHeaders =
+    args.maxSizeBytes != null
+      ? { "x-goog-content-length-range": `0,${args.maxSizeBytes}` }
+      : undefined;
+
+  const [url] = await storage
+    .bucket(bucket)
+    .file(args.key)
+    .getSignedUrl({
+      version: "v4",
+      action: "write",
+      expires,
+      contentType: args.contentType,
+      ...(extensionHeaders ? { extensionHeaders } : {}),
+    });
 
   return url;
 }
@@ -124,4 +141,16 @@ export async function signGcsReadUrl(args: {
   });
 
   return url;
+}
+
+/**
+ * Verify an object actually exists in GCS. Used after a client reports a
+ * direct-to-storage upload as complete, so we don't materialize a
+ * deal_documents row pointing at nothing (mirrors the Supabase Storage
+ * list/search check used for the Supabase-backed upload path).
+ */
+export async function gcsObjectExists(args: { bucket: string; key: string }): Promise<boolean> {
+  const storage = await getGcsStorage();
+  const [exists] = await storage.bucket(args.bucket).file(args.key).exists();
+  return exists;
 }

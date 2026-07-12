@@ -8,13 +8,35 @@
  * 1. Tier 1 matched → accept (always authoritative)
  * 2. Tier 2 matched AND confidence ≥ 0.80 → accept
  * 3. Else → escalate to Tier 3
- * 4. Low confidence (< 0.65) never auto-fills slots (enforced in orchestrator)
+ * 4. Low confidence (< 0.65) never auto-fills slots (enforced via
+ *    AUTO_FILL_MIN_CONFIDENCE / passesAutoFillGate below, called from
+ *    classifyProcessor.ts and classifyDocumentSpine.ts)
  */
 
 import type { Tier1Result, Tier2Result, GateDecision } from "./types";
 
 /** Minimum Tier 2 confidence to accept without LLM escalation */
 const TIER2_ACCEPT_THRESHOLD = 0.80;
+
+/**
+ * Minimum (post-calibration) confidence required before a classification
+ * result may auto-fill a checklist slot / document type. Below this, callers
+ * must still record the doc_type + confidence for visibility but withhold
+ * auto-fill and route the document to review instead.
+ *
+ * Enforced in classifyProcessor.ts (auto-fill gate) and classifyDocumentSpine.ts
+ * (Tier 1 fallthrough when calibration drops a locked match below this bar).
+ */
+export const AUTO_FILL_MIN_CONFIDENCE = 0.65;
+
+/**
+ * True when a (possibly calibrated) confidence score clears the auto-fill
+ * gate. Low confidence (< AUTO_FILL_MIN_CONFIDENCE) must never silently
+ * auto-fill a slot.
+ */
+export function passesAutoFillGate(confidence: number): boolean {
+  return confidence >= AUTO_FILL_MIN_CONFIDENCE;
+}
 
 /**
  * Apply confidence gate to Tier 1 and Tier 2 results.

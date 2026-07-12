@@ -21,6 +21,7 @@ import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runIntakeProcessing } from "@/lib/intake/processing/runIntakeProcessing";
+import { updateDealIfRunOwner } from "@/lib/intake/processing/updateDealIfRunOwner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,12 +59,32 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       .eq("id", dealId)
       .maybeSingle();
 
-    runId = (dealData as any)?.intake_processing_run_id ?? undefined;
+    const staleRunId = (dealData as any)?.intake_processing_run_id ?? undefined;
 
-    if (!runId) {
+    if (!staleRunId) {
       return NextResponse.json(
         { ok: false, error: "no_run_id", detail: "Deal has no processing run_id. Confirm intake first." },
         { status: 400 },
+      );
+    }
+
+    // Mint a fresh run_id and CAS-claim off the stale one before processing —
+    // mirrors processing/kick/route.ts. Without this, re-reading and reusing
+    // the existing run_id lets a double-click or concurrent request pass the
+    // same CAS checks twice, running matching/extraction fan-out in duplicate.
+    runId = crypto.randomUUID();
+    const casClaimed = await updateDealIfRunOwner(dealId, staleRunId, {
+      intake_processing_run_id: runId,
+    });
+
+    if (!casClaimed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "already_processing",
+          detail: "Another processing run is already active for this deal.",
+        },
+        { status: 409 },
       );
     }
 

@@ -125,21 +125,27 @@ export function matchDocumentToSlot(
     candidates.push({ slot, constraints, negativeRules });
   }
 
-  // ── Step 2.5: Entity-assisted precision ranking (Layer 2.2 — v1.3 always-on)
-  // Promotes entity-matched candidates to front of the list when entity
-  // resolution has high confidence. Does not alter constraint evaluation.
-  // Constraints remain authoritative — sort only reorders valid candidates.
+  // ── Step 2.5: Entity-assisted precision tiebreaker (Layer 2.2 — v1.3 always-on)
+  // When entity resolution has high confidence AND at least one remaining
+  // candidate is bound to that entity, narrow to the entity-matched
+  // candidate(s) — same pattern as the year-specificity tiebreaker below.
+  // Safe: any candidate reaching this point already passed the
+  // entity_id_match constraint (Step 2b), so a candidate bound to a
+  // DIFFERENT entity than identity.entity was already excluded — this can
+  // only narrow between an entity-matched slot and an entity-agnostic
+  // (requiredEntityId == null) one, never pick the wrong entity.
   if (
     identity.entity?.entityId &&
-    identity.entity.confidence >= ENTITY_PRECISION_THRESHOLD
+    identity.entity.confidence >= ENTITY_PRECISION_THRESHOLD &&
+    candidates.length > 1
   ) {
-    candidates.sort((a, b) => {
-      const aMatch = a.slot.requiredEntityId === identity.entity!.entityId;
-      const bMatch = b.slot.requiredEntityId === identity.entity!.entityId;
-      if (aMatch && !bMatch) return -1;
-      if (!aMatch && bMatch) return 1;
-      return 0;
-    });
+    const entityMatched = candidates.filter(
+      (c) => c.slot.requiredEntityId === identity.entity!.entityId,
+    );
+    if (entityMatched.length > 0) {
+      candidates.length = 0;
+      candidates.push(...entityMatched);
+    }
   }
 
   // ── Step 2.6: Year-specificity tiebreaker ───────────────────────────

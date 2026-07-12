@@ -213,16 +213,33 @@ export async function orchestrateSegmentation(
     strongAnchorCount >= MIN_STRONG_ANCHORS_FOR_SPLIT;
 
   if (splitEligible && storageContext) {
-    // Idempotency: check if already split
+    // Atomic claim: flip segmented false→true FIRST and use the CAS result
+    // (was a row actually updated?) as the single source of truth for "did
+    // I win the race to segment this document" — mirrors the run_id CAS
+    // pattern used elsewhere in the intake orchestrator
+    // (updateDealIfRunOwner). A read-then-check-then-insert guard (either
+    // here or relying solely on splitPdfIntoSegments' internal idempotency
+    // check) leaves a window where two concurrent CLASSIFY dispatches for
+    // the same parent doc can both pass and produce duplicate child
+    // segment sets.
     const sb = supabaseAdmin();
-    const { data: docState } = await (sb as any)
+    const { data: claimedRows, error: claimErr } = await (sb as any)
       .from("deal_documents")
-      .select("segmented")
+      .update({ segmented: true })
       .eq("id", documentId)
-      .maybeSingle();
+      .eq("segmented", false)
+      .select("id");
 
-    if (docState?.segmented === true) {
-      // Already split — skip
+    if (claimErr) {
+      console.warn("[orchestrateSegmentation] segmentation claim failed (fail-open)", {
+        documentId,
+        error: claimErr.message,
+      });
+      return { segmented: false };
+    }
+
+    if (!claimedRows || claimedRows.length === 0) {
+      // Lost the race (or already segmented) — another dispatch owns this.
       return { segmented: false };
     }
 
@@ -241,11 +258,7 @@ export async function orchestrateSegmentation(
       });
 
       if (splitResult.ok) {
-        // Mark original as segmented
-        await (sb as any)
-          .from("deal_documents")
-          .update({ segmented: true })
-          .eq("id", documentId);
+        // Already marked segmented=true by the claim above.
 
         // Step 5b: Emit detection event (physically split)
         writeEvent({
@@ -272,16 +285,32 @@ export async function orchestrateSegmentation(
         };
       }
 
-      // Split failed → fall through to review routing
+      // Split failed → release the claim (no children were created, so this
+      // document must not be left stuck marked "segmented") and fall
+      // through to review routing.
       console.warn("[orchestrateSegmentation] physical split failed (fail-open)", {
         documentId,
         reason: splitResult.reason,
       });
+      await (sb as any)
+        .from("deal_documents")
+        .update({ segmented: false })
+        .eq("id", documentId);
     } catch (splitErr: any) {
       console.warn("[orchestrateSegmentation] split error (fail-open)", {
         documentId,
         error: splitErr?.message,
       });
+      // Release the claim — same reasoning as the splitResult.ok===false path.
+      try {
+        await (sb as any)
+          .from("deal_documents")
+          .update({ segmented: false })
+          .eq("id", documentId);
+      } catch {
+        // Best-effort — a stuck segmented=true with no children is a rare
+        // edge case recoverable via the existing stuck-doc tooling.
+      }
     }
   }
 

@@ -122,7 +122,10 @@ export async function reconcileUploadsForDeal(dealId: string, bankId: string) {
       .eq("bank_id", bankId);
 
     if (dealDocs && dealDocs.length > 0) {
-      await Promise.all(
+      // Use allSettled so one failing queueArtifact call doesn't abort the
+      // rest of the batch — other already-matched documents must still get
+      // queued.
+      const results = await Promise.allSettled(
         dealDocs.map((doc) =>
           queueArtifact({
             dealId,
@@ -132,6 +135,18 @@ export async function reconcileUploadsForDeal(dealId: string, bankId: string) {
           }),
         ),
       );
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === "rejected") {
+          console.error("[reconcileUploadsForDeal] queueArtifact failed (non-fatal)", {
+            dealId,
+            bankId,
+            documentId: dealDocs[i]?.id,
+            error: (result.reason as any)?.message ?? String(result.reason),
+          });
+        }
+      }
     }
   }
 

@@ -21,6 +21,11 @@ import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
 import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 
+// Tier-A (rules-based) acceptance bar — distinct from the intake confirmation
+// gate's CONFIDENCE_THRESHOLDS (src/lib/intake/confirmation/types.ts), which
+// governs UI auto-confirm/review banding, not classifier-tier selection.
+const RULES_TIER_MIN_CONFIDENCE = 0.65;
+
 // ---------------------------------------------------------------------------
 // Document type enum
 // ---------------------------------------------------------------------------
@@ -225,7 +230,7 @@ export async function classifyDocument(
 
   // ── Tier A: Rules-based ────────────────────────────────────────────────
   const rulesResult = classifyByRules(documentText, filename);
-  if (rulesResult && rulesResult.confidence >= 0.65) {
+  if (rulesResult && rulesResult.confidence >= RULES_TIER_MIN_CONFIDENCE) {
     return rulesResultToClassification(rulesResult);
   }
 

@@ -254,16 +254,16 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
     mimeType = mimeType || inferMimeTypeFromName(storedName);
   }
 
-  // 🚀 GEMINI OCR: Use Gemini if enabled (priority over Mistral/Claude/Azure)
-  if (process.env.USE_GEMINI_OCR !== "true") {
-    throw new Error(
-      "Gemini OCR is required. Set USE_GEMINI_OCR=\"true\". (Mistral/Azure DI OCR are disabled.)",
-    );
-  }
-
   {
     const started = Date.now();
     try {
+      // 🚀 GEMINI OCR: Use Gemini if enabled (priority over Mistral/Claude/Azure)
+      if (process.env.USE_GEMINI_OCR !== "true") {
+        throw new Error(
+          "Gemini OCR is required. Set USE_GEMINI_OCR=\"true\". (Mistral/Azure DI OCR are disabled.)",
+        );
+      }
+
       if (!fileBytes) {
         throw new Error("ocr_missing_file_bytes");
       }

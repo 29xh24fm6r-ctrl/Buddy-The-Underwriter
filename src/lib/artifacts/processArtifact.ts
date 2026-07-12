@@ -1172,9 +1172,15 @@ export async function processArtifact(
       });
     }
 
-    // AR Aging heuristic safety net — catch obvious AR aging that slipped through Tier 1-3
+    // AR Aging heuristic safety net — catch obvious AR aging that slipped through Tier 1-3.
+    // AR_AGING_SAFETY_NET_MAX_CONFIDENCE is a distinct, deliberately lower bar
+    // than CONFIDENCE_THRESHOLDS.GREEN_AT_OR_ABOVE (the auto-confirm gate) —
+    // it only decides whether to run the heuristic re-check, not whether to
+    // trust the result.
+    const AR_AGING_SAFETY_NET_MAX_CONFIDENCE = 0.6;
     if (
-      (typingResult.canonical_type === "OTHER" || classification.confidence < 0.60) &&
+      (typingResult.canonical_type === "OTHER" ||
+        classification.confidence < AR_AGING_SAFETY_NET_MAX_CONFIDENCE) &&
       typingResult.canonical_type !== "AR_AGING"
     ) {
       const { detectArAgingHeuristic } = await import("@/lib/classification/arAgingHeuristic");
@@ -1247,6 +1253,27 @@ export async function processArtifact(
 
       if (!matchResult.error) {
         matchedKeys.push(item.checklist_key);
+      } else {
+        console.error("[processArtifact] create_checklist_match RPC failed", {
+          artifactId,
+          dealId,
+          checklistKey: item.checklist_key,
+          error: matchResult.error,
+        });
+        await logLedgerEvent({
+          dealId,
+          bankId,
+          eventKey: "pipeline.checklist_match.failed",
+          uiState: "done",
+          uiMessage: `Checklist match failed for ${item.checklist_key}`,
+          meta: {
+            artifact_id: artifactId,
+            checklist_key: item.checklist_key,
+            error_message: String(matchResult.error?.message ?? matchResult.error),
+          },
+        }).catch((logError) =>
+          console.error("[processArtifact] failed to log checklist_match.failed", logError),
+        );
       }
     }
 

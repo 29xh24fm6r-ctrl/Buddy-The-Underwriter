@@ -182,6 +182,59 @@ async function runAllGates(
   return { certificate, allGatesPassed, failedGates };
 }
 
+/**
+ * Actually re-run extraction for a document so the next gate-check attempt
+ * evaluates FRESH facts instead of the same stale rows already sitting in
+ * deal_financial_facts. Previously this step was simulated (a comment
+ * admitted attempts 2-3 just re-checked the same unchanged facts, which
+ * deterministically fail the same way every time).
+ *
+ * Delegates to extractFactsFromDocument — the real production write path,
+ * which itself calls extractWithGeminiPrimary (createExtractionRun /
+ * markRunRunning / finalizeExtractionRun in runRecord.ts) so retries are
+ * properly recorded as new extraction runs, not just re-reads.
+ *
+ * Never throws. Returns ok:false (with a reason) if re-extraction couldn't
+ * be attempted or failed — callers should treat that as "no fresh facts
+ * available" and fall through to the existing gate/exception-queue logic.
+ */
+async function runRealReExtraction(
+  documentId: string,
+  dealId: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const sb = supabaseAdmin();
+    const { data: doc, error } = await (sb as any)
+      .from("deal_documents")
+      .select("bank_id")
+      .eq("id", documentId)
+      .maybeSingle();
+
+    if (error || !doc?.bank_id) {
+      return { ok: false, reason: "bank_id_unresolved" };
+    }
+
+    const { extractFactsFromDocument } = await import(
+      "@/lib/financialSpreads/extractFactsFromDocument"
+    );
+
+    await extractFactsFromDocument({
+      dealId,
+      bankId: doc.bank_id,
+      documentId,
+    });
+
+    return { ok: true };
+  } catch (err) {
+    console.error("[reExtractionOrchestrator] real re-extraction failed", {
+      documentId,
+      dealId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, reason: err instanceof Error ? err.message : "unknown_error" };
+  }
+}
+
 async function insertException(
   documentId: string,
   dealId: string,
@@ -219,7 +272,8 @@ async function insertException(
  * Orchestrate extraction with re-extraction attempts and all 4 proof-of-correctness gates.
  *
  * Attempt 1: Run gates on existing facts.
- * Attempt 2-3: Simulate re-extraction (actual re-extraction engine wired in future PR).
+ * Attempt 2-3: Actually re-run extraction (extractFactsFromDocument) before
+ *              re-checking gates, so retries see fresh facts.
  * After max attempts: Route to exception queue.
  *
  * CRITICAL: Never throws. Returns EXCEPTION status on unrecoverable failure.
@@ -297,8 +351,17 @@ export async function orchestrateWithReExtraction(params: {
           },
         }).catch(() => {});
 
-        // Simulate re-extraction — in a future PR this will actually re-run extraction.
-        // For now, attempt 2 returns FLAGGED, attempt 3 routes to exception queue.
+        // Actually re-run extraction so the next loop iteration's gate check
+        // evaluates fresh facts instead of re-reading the same stale rows.
+        const reExtraction = await runRealReExtraction(documentId, dealId);
+        if (!reExtraction.ok) {
+          attemptHistory.push({
+            attempt: attempt + 1,
+            failedGates: ["re_extraction_unavailable"],
+            status: reExtraction.reason ?? "RE_EXTRACTION_FAILED",
+          });
+        }
+
         if (attempt === maxAttempts - 1) {
           // Last chance attempt — return FLAGGED
           return { status: "FLAGGED", attempt, certificate };

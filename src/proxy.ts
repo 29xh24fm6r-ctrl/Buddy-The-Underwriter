@@ -28,6 +28,7 @@ const isPublicRoute = createRouteMatcher([
   "/start(.*)",
   "/for-banks(.*)",
   "/pricing(.*)",
+  "/franchise(.*)",
   "/brokerage(.*)",
   "/underwriter(.*)",
   "/apply(.*)",

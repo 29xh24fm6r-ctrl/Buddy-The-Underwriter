@@ -105,13 +105,96 @@ function extractSsnLast4s(text: string): string[] {
   return [...new Set(results)];
 }
 
-/** Token overlap ratio: |intersection| / |smaller set|. */
-function tokenOverlap(a: string[], b: string[]): number {
-  if (a.length === 0 || b.length === 0) return 0;
-  const setB = new Set(b);
-  const intersection = a.filter((t) => setB.has(t));
-  const smaller = Math.min(a.length, b.length);
-  return intersection.length / smaller;
+/**
+ * True if two normalized tokens are "the same word" — exact match, or a
+ * single-edit (typo/OCR-noise) match for tokens long enough that a 1-char
+ * edit is unlikely to collide with an unrelated word.
+ */
+function tokensFuzzyEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  if (Math.abs(a.length - b.length) > 1) return false;
+
+  if (a.length === b.length) {
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) diff++;
+      if (diff > 1) return false;
+    }
+    return diff === 1;
+  }
+
+  // Lengths differ by exactly 1 — check for a single insertion/deletion.
+  const longer = a.length > b.length ? a : b;
+  const shorter = a.length > b.length ? b : a;
+  let i = 0;
+  let j = 0;
+  let skipped = false;
+  while (i < longer.length && j < shorter.length) {
+    if (longer[i] === shorter[j]) {
+      i++;
+      j++;
+    } else {
+      if (skipped) return false;
+      skipped = true;
+      i++;
+    }
+  }
+  return true;
+}
+
+/**
+ * Proximity-based name match: true if a name's tokens appear TOGETHER
+ * (within a small window, tolerating a couple of inserted tokens like a
+ * middle name/initial) somewhere in the document's token stream — as
+ * opposed to being scattered independently anywhere on the page.
+ *
+ * Short names (<=2 tokens) require every token to be present in the
+ * window; longer names tolerate one missing/mismatched token (80%).
+ */
+function findNameProximityMatch(
+  nameTokens: string[],
+  docTokens: string[],
+): boolean {
+  const n = nameTokens.length;
+  if (n === 0 || docTokens.length === 0) return false;
+
+  const threshold = n <= 2 ? 1.0 : 0.8;
+  const requiredMatches = Math.max(1, Math.ceil(n * threshold));
+  // Allow a small number of extra/inserted tokens between name tokens
+  // (e.g. a middle name or initial) without losing the "together" signal.
+  const slack = Math.min(2, Math.max(1, Math.ceil(n / 2)));
+  const windowSize = n + slack;
+
+  // Anchor on doc positions that match any name token — bounds the search
+  // to plausible neighborhoods instead of scanning every window in a
+  // potentially huge OCR text.
+  for (let i = 0; i < docTokens.length; i++) {
+    if (!nameTokens.some((nt) => tokensFuzzyEqual(nt, docTokens[i]))) continue;
+
+    const start = Math.max(0, i - windowSize + 1);
+    const end = Math.min(docTokens.length, i + windowSize);
+    const window = docTokens.slice(start, end);
+
+    // Greedy bipartite match: each name token claims at most one distinct
+    // window token, so repeated filler words can't inflate the count.
+    const usedWindowIdx = new Set<number>();
+    let matchedCount = 0;
+    for (const nt of nameTokens) {
+      for (let w = 0; w < window.length; w++) {
+        if (usedWindowIdx.has(w)) continue;
+        if (tokensFuzzyEqual(nt, window[w])) {
+          usedWindowIdx.add(w);
+          matchedCount++;
+          break;
+        }
+      }
+    }
+
+    if (matchedCount >= requiredMatches) return true;
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +300,16 @@ function matchByNameExact(
   return { tier: "name_exact", candidateIds: matched, evidence };
 }
 
-/** Tier 4: Normalized name fuzzy match (≥80% token overlap, confidence 0.70). */
+/**
+ * Tier 4: Normalized name fuzzy match (confidence 0.70).
+ *
+ * Requires the entity name's tokens to appear TOGETHER — within a bounded
+ * proximity window, tolerant of small OCR typos — rather than scoring
+ * bag-of-words overlap against the whole document. Whole-document overlap
+ * let a short name (e.g. a single surname) "match" purely because its
+ * token happened to co-occur anywhere on the page with unrelated text;
+ * proximity matching requires the name to actually appear as a phrase.
+ */
 function matchByNameFuzzy(
   text: string,
   candidates: EntityCandidate[],
@@ -230,8 +322,7 @@ function matchByNameFuzzy(
 
   for (const c of candidates) {
     if (c.normalizedNameTokens.length === 0) continue;
-    const overlap = tokenOverlap(c.normalizedNameTokens, textTokens);
-    if (overlap >= 0.80) {
+    if (findNameProximityMatch(c.normalizedNameTokens, textTokens)) {
       if (!matched.includes(c.entityId)) {
         matched.push(c.entityId);
       }
@@ -263,8 +354,11 @@ function matchByFilename(
     // Check if meaningful portion of entity name appears in filename
     const nameTokens = c.normalizedNameTokens;
     if (nameTokens.length === 0) continue;
-    // Require at least 2 tokens or the full single-token name
-    const minTokens = nameTokens.length === 1 ? 1 : 2;
+    // Short names (<=3 tokens) require every token to be present — a 2-of-3
+    // threshold let unrelated filenames match on a single shared word.
+    // Longer legal names tolerate dropping ~1 token (e.g. a suffix/abbreviation).
+    const minTokens =
+      nameTokens.length <= 3 ? nameTokens.length : Math.ceil(nameTokens.length * 0.75);
     const matchCount = nameTokens.filter((t) => fnameLower.includes(t)).length;
     if (matchCount >= minTokens) {
       if (!matched.includes(c.entityId)) {

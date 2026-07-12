@@ -195,7 +195,17 @@ function alignRowValues(values: number[], targetLen: number): number[] {
   // If we have more numbers than periods, keep the last N (labels often include a year or ID earlier).
   if (values.length === targetLen) return values;
   if (values.length > targetLen) return values.slice(values.length - targetLen);
-  // If fewer, left-pad with nulls? We'll pad with NaN and later drop row if too sparse.
+  // KNOWN ISSUE (left un-fixed intentionally): left-padding with NaN when a row
+  // has fewer numeric tokens than detected periods silently shifts real values
+  // into the wrong period column instead of aligning by matched period
+  // label/position. This module (extractFinancialsFromPdf) is only reachable
+  // via extractFinancialsLegacy's caller chain, and its only known caller is
+  // src/app/api/docs/upload/route.ts — a demo/legacy route (hardcoded
+  // "DEAL-DEMO-001" fallback, writes to the in-memory src/lib/db/docRecords
+  // store, and is not referenced by any live UI component). Not fixing the
+  // misalignment here to avoid churn on dead code; if this route is ever
+  // revived for production use, alignRowValues must be rewritten to align by
+  // detected period label/position and flag (not silently pad) mismatched rows.
   const pad = Array(targetLen - values.length).fill(NaN);
   return pad.concat(values);
 }

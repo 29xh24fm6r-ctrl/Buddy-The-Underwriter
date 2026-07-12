@@ -176,6 +176,41 @@ Required JSON output:
 }`;
 
 // ---------------------------------------------------------------------------
+// Canonical doc_type validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical doc_type values the Tier 3 prompt instructs the model to choose
+ * from (see the "DOCUMENT TYPES" list in SYSTEM_PROMPT above). A syntactically
+ * valid JSON response with a hallucinated / non-canonical doc_type must not
+ * be trusted — it's treated the same as a parse failure.
+ */
+const VALID_TIER3_DOC_TYPES = new Set([
+  "IRS_BUSINESS",
+  "IRS_PERSONAL",
+  "PFS",
+  "RENT_ROLL",
+  "INCOME_STATEMENT",
+  "BALANCE_SHEET",
+  "BANK_STATEMENT",
+  "K1",
+  "W2",
+  "1099",
+  "DRIVERS_LICENSE",
+  "ARTICLES",
+  "OPERATING_AGREEMENT",
+  "INSURANCE",
+  "APPRAISAL",
+  "COMMERCIAL_LEASE",
+  "CREDIT_MEMO",
+  "AR_AGING",
+  "OTHER",
+]);
+
+/** ~120s per attempt, matching the timeout used for Gemini OCR calls. */
+const TIER3_LLM_TIMEOUT_MS = 120_000;
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -217,7 +252,7 @@ Classify this document and extract key information. Respond with JSON only.`;
         : {}),
     });
 
-    const resp = await ai.models.generateContent({
+    const generatePromise = ai.models.generateContent({
       model: modelName,
       contents: [
         {
@@ -226,6 +261,16 @@ Classify this document and extract key information. Respond with JSON only.`;
         },
       ],
     });
+
+    const resp = await Promise.race([
+      generatePromise,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(
+          () => reject(new Error(`Tier 3 LLM timeout after ${TIER3_LLM_TIMEOUT_MS / 1000}s (model: ${modelName})`)),
+          TIER3_LLM_TIMEOUT_MS,
+        ),
+      ),
+    ]);
 
     // SPEC-VERTEX-SDK-MIGRATION-1: response shape — no `.response` wrapper
     const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
@@ -249,9 +294,36 @@ Classify this document and extract key information. Respond with JSON only.`;
     const parsed = JSON.parse(jsonMatch[0]);
 
     // Validate doc_type — T12 is not allowed from LLM
-    let docType = String(parsed.doc_type || "OTHER");
+    let docType = String(parsed.doc_type || "OTHER").toUpperCase().trim();
     if (docType === "T12") {
       docType = "INCOME_STATEMENT"; // Enforce T12 prohibition
+    }
+
+    // Reject hallucinated / non-canonical doc_type values. A syntactically
+    // valid JSON response is not enough — the doc_type must be one the
+    // pipeline actually understands downstream, or classification silently
+    // "succeeds" with a type nothing else recognizes.
+    if (!VALID_TIER3_DOC_TYPES.has(docType)) {
+      console.error("[tier3LLM] Non-canonical doc_type in LLM response — rejected", {
+        filename: doc.filename,
+        rawDocType: parsed.doc_type,
+      });
+      return {
+        matched: false,
+        docType: "OTHER",
+        confidence: 0.1,
+        reason: `Tier 3 LLM returned non-canonical doc_type: ${String(parsed.doc_type)}`,
+        confusionCandidates: [],
+        evidence: [],
+        taxYear: null,
+        entityName: null,
+        entityType: null,
+        formNumbers: null,
+        issuer: null,
+        periodStart: null,
+        periodEnd: null,
+        model: modelName,
+      };
     }
 
     const confidence = Math.min(

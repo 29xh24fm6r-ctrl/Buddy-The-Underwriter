@@ -245,6 +245,38 @@ export function lookupRequirement(code: string): RequirementDefinition | undefin
   return registryMap.get(code);
 }
 
+/** All concrete (non-wildcard) deal types the registry knows how to scope requirements for. */
+export const KNOWN_DEAL_TYPES: DealType[] = [
+  "conventional",
+  "cre",
+  "sba_7a",
+  "sba_504",
+  "acquisition",
+];
+
+/**
+ * True if `dealType` is a value this registry has explicit requirement
+ * scoping for. Callers should treat "false" as a signal to flag the deal
+ * for review — an unrecognized deal_type silently falls back to only the
+ * dealTypes:["all"] requirements below, which can under-request
+ * deal-type-specific items (e.g. CRE collateral) without any indication
+ * that anything is missing.
+ */
+export function isRecognizedDealType(dealType: string): boolean {
+  return (KNOWN_DEAL_TYPES as string[]).includes(dealType);
+}
+
+/**
+ * Requirements applicable to a given deal type.
+ *
+ * Safe-default behavior: an unrecognized `dealType` still returns every
+ * dealTypes:["all"] requirement (the universal financial/liquidity set is
+ * never silently dropped) — it just can't match any deal-type-scoped
+ * requirement (e.g. CRE collateral) it doesn't recognize. Callers that can
+ * write observability (this module is pure/no-DB) should call
+ * isRecognizedDealType() and flag unknown values rather than assume this
+ * fallback set is complete for the deal.
+ */
 export function getRequirementsForDealType(dealType: string): RequirementDefinition[] {
   return REQUIREMENT_REGISTRY.filter(
     (r) => r.dealTypes.includes("all") || r.dealTypes.includes(dealType as DealType),

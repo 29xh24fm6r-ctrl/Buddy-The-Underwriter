@@ -173,7 +173,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     const upsert = await (sb as any)
       .from("buddy_blocker_observations")
-      .upsert(upsertRows, { onConflict: "bank_id,deal_id,blocker_key" })
+      // defaultToNull: false — supabase-js's upsert() defaults missing bulk-
+      // insert fields to SQL NULL rather than the column's DEFAULT, which is
+      // the opposite of what `first_seen_at: undefined` below intends (let
+      // the table's `default now()` apply on first insert). Without this,
+      // every new blocker row 500s on the not-null constraint.
+      .upsert(upsertRows, { onConflict: "bank_id,deal_id,blocker_key", defaultToNull: false })
       .select();
 
     if (upsert.error) {

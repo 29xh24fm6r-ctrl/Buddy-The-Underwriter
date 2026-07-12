@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
+import BorrowerFranchiseBrandPicker from "@/components/brokerage/BorrowerFranchiseBrandPicker";
 import {
   BrokerageStageStrip,
   deriveBrokerageStage,
@@ -79,6 +80,12 @@ export function StartConciergeClient() {
           >
             Switch to chat
           </button>
+        </div>
+      )}
+
+      {dealId && (
+        <div className="mt-4">
+          <BorrowerFranchiseBrandPicker />
         </div>
       )}
 
