@@ -9,17 +9,27 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type FormStatus = { signed: boolean; expiresAt: string | null };
+type FormStatus = { signed: boolean; expiresAt: string | null; applicable: boolean };
 type SigningRow = {
   ownershipEntityId: string;
   displayName: string | null;
   ial2Status: "verified" | "pending" | "declined" | "not_started";
   forms: Record<string, FormStatus>;
 };
+type DealLevelForm = {
+  formCode: string;
+  label: string;
+  applicable: boolean;
+  signed: boolean;
+  ownershipEntityId: string | null;
+};
 
+/** SPEC S4 H-2 — extended from {1919, 413} to all 5 per-signer forms. */
 const TRACKED_FORMS = [
   { code: "FORM_1919", label: "Form 1919" },
   { code: "FORM_413", label: "Form 413" },
+  { code: "FORM_912", label: "Form 912" },
+  { code: "FORM_4506C", label: "Form 4506-C" },
 ] as const;
 
 const IAL2_LABEL: Record<SigningRow["ial2Status"], string> = {
@@ -31,6 +41,7 @@ const IAL2_LABEL: Record<SigningRow["ial2Status"], string> = {
 
 export default function SbaSigningPanel({ dealId }: { dealId: string }) {
   const [rows, setRows] = useState<SigningRow[]>([]);
+  const [dealLevelForms, setDealLevelForms] = useState<DealLevelForm[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -38,7 +49,10 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
     fetch(`/api/deals/${dealId}/sba/signing-status`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.ok) setRows(data.rows ?? []);
+        if (data.ok) {
+          setRows(data.rows ?? []);
+          setDealLevelForms(data.dealLevelForms ?? []);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -159,7 +173,11 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
                     const status = row.forms[f.code];
                     return (
                       <td key={f.code} className="py-2 pr-3">
-                        {status?.signed ? (
+                        {status && !status.applicable ? (
+                          <span className="text-white/25" title="Not applicable to this owner">
+                            Not applicable
+                          </span>
+                        ) : status?.signed ? (
                           <span className="text-emerald-400">✓ Signed</span>
                         ) : verified ? (
                           <button
@@ -184,6 +202,38 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
           </tbody>
         </table>
       </div>
+      {dealLevelForms.length > 0 && (
+        <div className="mt-4 border-t border-white/8 pt-3">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">
+            Deal-level forms
+          </div>
+          <ul className="space-y-1 text-xs">
+            {dealLevelForms.map((f) => (
+              <li key={f.formCode} className="flex items-center justify-between text-white/70">
+                <span>{f.label}</span>
+                {!f.applicable ? (
+                  <span className="text-white/25">Not applicable</span>
+                ) : f.signed ? (
+                  <span className="text-emerald-400">✓ Signed</span>
+                ) : f.ownershipEntityId ? (
+                  <button
+                    type="button"
+                    onClick={() => sendForSignature(f.ownershipEntityId as string, f.formCode)}
+                    disabled={busyKey === `esign:${f.ownershipEntityId}:${f.formCode}`}
+                    className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    ⏳ Send
+                  </button>
+                ) : (
+                  <span className="text-white/30" title="No signer resolved yet">
+                    — Pending
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
