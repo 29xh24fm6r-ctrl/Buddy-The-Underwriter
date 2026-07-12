@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { buildGcsObjectKey, getGcsBucketName } from "@/lib/storage/gcs";
+import { createGcsV4SignedPutUrl } from "@/lib/storage/gcsSignedPutUrl";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import crypto from "node:crypto";
@@ -185,13 +186,15 @@ export async function POST(req: NextRequest, ctx: Context) {
     });
 
     const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
-    const signedUploadUrl = await signGcsUploadUrl({
-      key: objectPath,
+    const bucket = getGcsBucketName();
+    const signed = await createGcsV4SignedPutUrl({
+      bucket,
+      objectKey: objectPath,
       contentType,
       expiresSeconds,
+      maxSizeBytes: MAX_BYTES,
     });
-
-    const bucket = getGcsBucketName();
+    const signedUploadUrl = signed.url;
     const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
 
     if (uploadSessionId) {
@@ -217,6 +220,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         expiresSeconds,
         uploadSessionId,
         uploadSessionExpiresAt,
+        headers: signed.headers,
       }),
     );
   } catch (error: any) {

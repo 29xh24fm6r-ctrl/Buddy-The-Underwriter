@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { signUploadUrl } from "@/lib/uploads/sign";
-import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
+import { buildGcsObjectKey, getGcsBucketName } from "@/lib/storage/gcs";
+import { createGcsV4SignedPutUrl } from "@/lib/storage/gcsSignedPutUrl";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import {
@@ -234,13 +235,15 @@ export async function POST(req: NextRequest, ctx: Context) {
       });
 
       const expiresSeconds = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS || "900");
-      const signedUploadUrl = await signGcsUploadUrl({
-        key: objectPath,
+      const bucket = getGcsBucketName();
+      const signed = await createGcsV4SignedPutUrl({
+        bucket,
+        objectKey: objectPath,
         contentType: mime_type || "application/octet-stream",
         expiresSeconds,
+        maxSizeBytes: MAX_BYTES,
       });
-
-      const bucket = getGcsBucketName();
+      const signedUploadUrl = signed.url;
       const expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
 
       if (uploadSessionId) {
@@ -277,6 +280,7 @@ export async function POST(req: NextRequest, ctx: Context) {
           mime_type,
           bucket,
           upload_session_id: uploadSessionId,
+          headers: signed.headers,
         },
       });
     }
@@ -348,6 +352,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         checklist_key,
         mime_type,
         upload_session_id: uploadSessionId,
+        headers: { "Content-Type": mime_type || "application/octet-stream" },
       },
     });
   } catch (error: any) {

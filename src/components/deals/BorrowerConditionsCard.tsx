@@ -190,31 +190,48 @@ function ConditionCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
-          content_type: file.type,
+          mime_type: file.type,
           size_bytes: file.size,
         }),
       });
       const signData = await signRes.json();
-      if (!signRes.ok || !signData?.url) {
+      if (!signRes.ok || !signData?.ok) {
         throw new Error(signData?.error ?? "Failed to get upload URL");
       }
+      if (signData.deduped) {
+        throw new Error("This file was already uploaded previously.");
+      }
+      if (!signData?.upload?.signed_url) {
+        throw new Error("Failed to get upload URL");
+      }
 
-      // 2. Upload file bytes
-      await fetch(signData.url, {
+      const { upload, upload_session_id: uploadSessionId } = signData;
+
+      // 2. Upload file bytes — forward any extra headers (e.g.
+      // x-goog-content-length-range) the server signed the URL with.
+      const putHeaders: Record<string, string> = { "Content-Type": file.type };
+      if (upload.headers) {
+        for (const [key, value] of Object.entries(upload.headers as Record<string, string>)) {
+          if (key.toLowerCase() === "content-type") continue;
+          putHeaders[key] = value;
+        }
+      }
+      await fetch(upload.signed_url, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
+        headers: putHeaders,
         body: file,
       });
 
-      // 3. Record via condition-targeted route
+      // 3. Record via condition-targeted route. The route resolves the
+      // storage location from the server-recorded upload session — it does
+      // not trust a client-supplied path — so the upload_session_id is what
+      // actually matters here, not object_path/storage_path.
       const recordRes = await fetch(`/api/portal/${token}/conditions/${condition.id}/upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          file_id: signData.file_id ?? signData.fileId,
-          object_path: signData.object_path ?? signData.storagePath,
-          storage_path: signData.storage_path ?? signData.storagePath,
-          storage_bucket: signData.storage_bucket ?? signData.bucket,
+          file_id: upload.file_id,
+          upload_session_id: uploadSessionId,
           original_filename: file.name,
           mime_type: file.type,
           size_bytes: file.size,
