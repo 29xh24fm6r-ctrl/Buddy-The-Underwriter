@@ -6,6 +6,7 @@ import DealHealthPanel from "@/components/deals/DealHealthPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import { OmegaAdvisoryPanel } from "@/components/deal/OmegaAdvisoryPanel";
+import SbaFormReadinessPanel from "@/components/deals/cockpit/SbaFormReadinessPanel";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 
 const STORY_FIELDS = [
@@ -164,6 +165,9 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
           {showTranscript && <div className="mt-3"><SafeBoundary><TranscriptUploadPanel dealId={dealId} /></SafeBoundary></div>}
         </div>
       </div>
+
+      {/* Section 4: SBA Form Readiness (ARC-00 SPEC S2 F-1) */}
+      <SafeBoundary><SbaFormReadinessPanel dealId={dealId} /></SafeBoundary>
     </div>
   );
 }
