@@ -47,36 +47,99 @@ Full repo test suite: 11187/11197 pass (was 11168/11178 before this pass),
 with the one remaining failure confirmed pre-existing and unrelated (present
 identically on the unmodified branch).
 
-**Deliberately deferred** — larger, more architecturally invasive, or
-requiring infrastructure/decisions beyond this pass's scope:
-- Wiring the fully-built-but-dead `verification.ts`/`provenance.ts` modules
-  into the live claim-ledger write path, or removing them.
-- Snapshotting every BIE-cited URL (resolve → hash → immutable artifact) via
-  the existing `fetchUrlSnapshot`/`ensureSourceArtifactForSnapshot`
-  machinery — currently only wired into the manually-pasted-URL flow.
-- `brieRuntime.ts`'s checkpoint/retry/heartbeat system: still fully
-  disconnected from `runMission.ts`. This pass wired the *effects* it was
-  meant to provide (idempotency, stale-mission recovery, degraded-state
-  writes) directly into `runMission.ts` using simpler mechanisms, rather
-  than adopting `brieRuntime.ts`'s more complex resumable-checkpoint design
-  wholesale — that remains a real architectural decision (wire it in fully,
-  or delete it) for the team to make deliberately.
-- A real gate re-evaluation trigger when committee evidence tasks are
-  resolved (today `evaluateCompletionGate` runs exactly once, at BIE
-  completion) — `applyCommitteeReadinessTransition` remains permanently
-  disabled by design, with no substitute wired in.
-- Replacing self-graded contradiction detection with real cross-thread
-  numeric diffing (e.g. comparing a stated revenue figure against the
-  loan-file figure) for the checks that are mechanically checkable.
-- Automatic model-fallback retry on a detected "likely retired" 404 (this
-  pass added the loud, distinct diagnostic tag; it does not yet retry
-  against a second pinned model).
-- Per-claim confidence weighted by that claim's own source trust in
-  `claimLedger.ts` (currently a hardcoded per-section constant).
-- Real external alerting/paging on BIE/trust-layer exceptions (this pass
-  makes those failures loud in logs and queryable in the DB; it does not
-  wire them to PagerDuty/Slack/etc., which requires infra this environment
-  doesn't have visibility into).
+**Deliberately deferred at the time** — resolved in a second follow-up pass
+the same day (see "Round 2" below), except where noted otherwise.
+
+---
+
+## Round 2 remediation status (2026-07-12, second same-day follow-up)
+
+All items deferred above were revisited. Five were implemented; two were
+investigated and deliberately NOT implemented, with the reasoning recorded
+here rather than silently skipped.
+
+**Implemented:**
+- **verification.ts / provenance.ts wired.** `runMission.ts` now calls
+  `runVerification`/`persistVerificationEvidence` (source hygiene,
+  corroboration, freshness, contradiction, usability checks) and
+  `generateProvenanceReport` (source-trust → fact/inference confidence
+  chain) against the legacy pipeline's own sources/facts/inferences, which
+  are already in scope at that point in `runMission.ts`. Wired additively —
+  new diagnostic `buddy_research_evidence` rows only; does not mutate the
+  stored fact/inference confidence values that other consumers
+  (`compileNarrative`, `flagFromResearchInferences`) read, to avoid silently
+  shifting calibrated thresholds.
+- **Claim source URLs are now snapshotted.** `claimLedger.ts` resolves,
+  hashes, and records a bounded set (top 20, prioritizing Litigation and
+  Risk / Borrower Profile / Management Intelligence / Entity Identification)
+  of each mission's claim source URLs via the existing `fetchUrlSnapshot`
+  connector, at limited concurrency, attaching `content_hash`/`http_status`/
+  `byte_size` onto each claim's `supporting_data.source_snapshots`.
+  Best-effort and non-fatal — never a gate input, never blocks mission
+  completion.
+- **Real cross-thread numeric diffing for `scale_plausibility`.** Added
+  `extractMentionedRevenueFigures()` (regex-based dollar-figure extraction)
+  and wired it to diff the loan-file/banker-stated annual revenue against
+  figures the borrower thread's own narrative actually mentions — a >5x
+  magnitude mismatch is now a real, cited committee blocker instead of a
+  presence-only "consistent" claim. `repayment_story_conflict` was left
+  self-report-based (DSCR-style figures aren't reliably extractable from
+  transaction-thread prose the way revenue is — a numeric diff there risked
+  false positives more than it added signal).
+- **Model-fallback retry on likely-retirement 404.** Added
+  `MODEL_RESEARCH_FALLBACK` (`gemini-3.5-flash`, already GA-validated
+  elsewhere in this codebase) to the model registry; `callGeminiGrounded()`
+  now retries once against it when the primary model 404s, guarded against
+  retrying the fallback's own 404.
+- **Per-claim confidence weighted by that claim's own source trust.** Added
+  `weightConfidenceBySourceTrust()`, blending each claim's base confidence
+  with `computeSourceQualityScore()` of that specific claim's sources
+  (discount-only, never boosts above the base — same direction as
+  `provenance.ts`'s existing `adjusted_confidence <= original_confidence`).
+  A zero-source claim (Credit Thesis, Contradictions, Underwriting
+  Questions — always empty `source_uris` by construction) is now discounted
+  to half its base confidence instead of carrying the full section
+  confidence.
+
+**Investigated, deliberately NOT implemented:**
+- **`brieRuntime.ts`'s checkpoint/retry/heartbeat system** — neither wired
+  in nor deleted. Discovered its resume path is currently broken, not just
+  idle: `executeBrieMission()` passes `resumeFromStage` to the injected
+  `runMission` callback, but the real `runMission()`'s options type has no
+  such field and never branches on one — a genuine architectural rewrite of
+  `runMission.ts`'s sequential pipeline into a resumable stage machine,
+  not a bounded fix, and not something to do silently as part of an audit
+  remediation pass. Added loud top-of-file "NOT WIRED" warnings to
+  `brieRuntime.ts`, `checkpoint.ts`, `threadRuns.ts`, and `failureLibrary.ts`
+  instead, stating plainly which exports are live (`checkpoint.ts`'s
+  `findStaleMissions`, used by `staleMissionSweep.ts`) vs. fully orphaned.
+- **A real gate re-evaluation trigger on committee task resolution** — on
+  inspection, `evaluateCompletionGate` doesn't take committee-task state as
+  an input at all (it scores BIE research output, not human review
+  progress), so "re-run the gate when a task is resolved" doesn't apply
+  literally. More importantly, the codebase has multiple explicit, tested
+  invariants against automatic gate mutation:
+  `committeeTaskReview.ts`'s docstring states it "NEVER changes trust_grade
+  ... NEVER clears a committee blocker," and `applyCommitteeReadinessTransition`
+  is permanently disabled and pinned as such by
+  `committeeReadinessFinalization.test.ts`. The live preview/transition
+  layer (`buildResearchQualityPayload.ts`) already recomputes fresh on every
+  read, so the "staleness" concern is narrower than originally framed — it's
+  the *persisted* `trust_grade` that's frozen, not the banker-facing preview.
+  Building automatic mutation here — even a downgrade-only version — would
+  override a deliberate, repeated safety decision without the standing to
+  make that call unilaterally. Left for the team to decide explicitly.
+
+**Still deferred** (unchanged from the first pass, not revisited this
+round):
+- Real external alerting/paging on BIE/trust-layer exceptions — this
+  environment has no PagerDuty/Slack/etc. webhook configured to wire into;
+  those failures are loud in logs and queryable in the DB (`writeDegradedQualityGate`),
+  but not yet pushed to an external on-call channel.
+
+Full repo test suite after round 2: 11196/11206 pass, same single
+pre-existing unrelated failure as round 1 (confirmed present identically on
+the unmodified branch). Research-specific suite: 576/576 pass.
 
 ---
 **Scope**: The entire research system — mission orchestration (`runMission.ts`), the
