@@ -12,9 +12,10 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { BIEResult } from "./buddyIntelligenceEngine";
+import type { BIEResult, GroundingSegment } from "./buddyIntelligenceEngine";
 import { classifySourceUrl, computeSourceQualityScore } from "./sourcePolicy";
 import { fetchUrlSnapshot } from "./sourceSnapshot";
+import { attributeSegmentsToText } from "./citationAttribution";
 
 /**
  * Weight a claim's confidence by the trust of its own specific sources.
@@ -128,6 +129,16 @@ export function toEvidenceRow(c: ClaimRecord) {
   };
 }
 
+/**
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — citation precision):
+ * every claim in a thread previously carried the same pooled thread-wide
+ * source list, so a Litigation and Risk claim could be "backed" by a source
+ * that actually supported an unrelated Company Overview claim. Segments
+ * (Gemini's per-text-segment grounding attribution) narrow each claim's
+ * source_uris down to only the sources whose cited text actually overlaps
+ * that specific claim, falling back to the pooled list when no segment
+ * matches.
+ */
 function makeClaimRecords(
   missionId: string,
   section: string,
@@ -135,25 +146,28 @@ function makeClaimRecords(
   layer: "fact" | "inference" | "narrative",
   thread: string,
   sourceUrls: string[],
+  segments: GroundingSegment[],
   confidence: number,
   memoFields: string[],
   extra?: Partial<ClaimRecord>,
 ): ClaimRecord[] {
-  const cappedSources = sourceUrls.slice(0, 10);
   return texts
     .filter((t): t is string => !!t && t.trim().length > 10)
-    .map((text) => ({
-      mission_id: missionId,
-      section,
-      claim_text: text.slice(0, 2000),  // cap at 2000 chars per claim
-      claim_layer: layer,
-      thread_origin: thread,
-      source_uris: cappedSources,
-      source_types: cappedSources.map((u) => classifySourceUrl(u)),
-      confidence: weightConfidenceBySourceTrust(confidence, cappedSources),
-      supports_memo_fields: memoFields,
-      ...extra,
-    }));
+    .map((text) => {
+      const attributedSources = attributeSegmentsToText(text, segments, sourceUrls).slice(0, 10);
+      return {
+        mission_id: missionId,
+        section,
+        claim_text: text.slice(0, 2000),  // cap at 2000 chars per claim
+        claim_layer: layer,
+        thread_origin: thread,
+        source_uris: attributedSources,
+        source_types: attributedSources.map((u) => classifySourceUrl(u)),
+        confidence: weightConfidenceBySourceTrust(confidence, attributedSources),
+        supports_memo_fields: memoFields,
+        ...extra,
+      };
+    });
 }
 
 /**
@@ -163,6 +177,7 @@ function makeClaimRecords(
 export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRecord[] {
   const claims: ClaimRecord[] = [];
   const ts = result.thread_sources;
+  const tseg = result.thread_segments;
 
   // Entity lock claims
   if (result.entity_lock) {
@@ -170,7 +185,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
     claims.push(...makeClaimRecords(
       missionId, "Entity Identification",
       [el.confirmed_name, el.disambiguation_notes, el.research_scope],
-      "fact", "entity_lock", ts.entity_lock,
+      "fact", "entity_lock", ts.entity_lock, tseg.entity_lock,
       el.entity_confidence,
       ["entity_confirmation", "borrower_profile"],
     ));
@@ -182,13 +197,13 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
     claims.push(...makeClaimRecords(
       missionId, "Borrower Profile",
       [b.company_overview, b.reputation_and_reviews, b.recent_news, b.customer_base_and_reach],
-      "narrative", "borrower", ts.borrower, b.entity_confidence,
+      "narrative", "borrower", ts.borrower, tseg.borrower, b.entity_confidence,
       ["borrower_profile", "business_summary"],
     ));
     claims.push(...makeClaimRecords(
       missionId, "Litigation and Risk",
       [b.litigation_and_risk],
-      "fact", "borrower", ts.borrower, b.entity_confidence,
+      "fact", "borrower", ts.borrower, tseg.borrower, b.entity_confidence,
       ["litigation_and_risk", "risk_factors"],
     ));
   }
@@ -200,7 +215,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       claims.push(...makeClaimRecords(
         missionId, "Management Intelligence",
         profileTexts,
-        "fact", "management", ts.management,
+        "fact", "management", ts.management, tseg.management,
         profile.identity_confidence ?? 0.5,
         ["management_intelligence"],
         { identity_confirmed: profile.identity_confirmed },
@@ -209,7 +224,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
         claims.push(...makeClaimRecords(
           missionId, "Management Red Flags",
           [profile.red_flags],
-          "fact", "management", ts.management,
+          "fact", "management", ts.management, tseg.management,
           profile.identity_confirmed ? (profile.identity_confidence ?? 0.5) : 0.2,
           ["management_intelligence", "risk_factors"],
           { identity_confirmed: profile.identity_confirmed },
@@ -219,7 +234,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
     claims.push(...makeClaimRecords(
       missionId, "Management Intelligence",
       [result.management.management_depth, result.management.key_person_risk, result.management.ownership_and_governance],
-      "inference", "management", ts.management, 0.7,
+      "inference", "management", ts.management, tseg.management, 0.7,
       ["management_intelligence"],
     ));
   }
@@ -230,15 +245,16 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       missionId, "Competitive Landscape",
       [result.competitive.competitive_dynamics, result.competitive.borrower_positioning,
        result.competitive.barriers_to_entry, result.competitive.pricing_environment],
-      "narrative", "competitive", ts.competitive, 0.7,
+      "narrative", "competitive", ts.competitive, tseg.competitive, 0.7,
       ["competitive_positioning"],
     ));
     for (const comp of result.competitive.direct_competitors) {
-      const competitorSources = ts.competitive.slice(0, 5);
+      const competitorText = `${comp.name}: ${comp.description}. Strengths: ${comp.strengths}. Position: ${comp.market_position}`;
+      const competitorSources = attributeSegmentsToText(competitorText, tseg.competitive, ts.competitive).slice(0, 5);
       claims.push({
         mission_id: missionId,
         section: "Competitive Landscape",
-        claim_text: `${comp.name}: ${comp.description}. Strengths: ${comp.strengths}. Position: ${comp.market_position}`,
+        claim_text: competitorText,
         claim_layer: "fact",
         thread_origin: "competitive",
         source_uris: competitorSources,
@@ -256,7 +272,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       [result.market.local_economic_conditions, result.market.demographic_trends,
        result.market.demand_drivers, result.market.area_specific_risks,
        result.market.real_estate_market],
-      "fact", "market", ts.market, 0.75,
+      "fact", "market", ts.market, tseg.market, 0.75,
       ["market_dynamics"],
     ));
   }
@@ -268,7 +284,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       [result.industry.industry_size_and_growth, result.industry.key_trends,
        result.industry.credit_risk_profile, result.industry.regulatory_landscape,
        result.industry.disruption_risks, result.industry.five_year_outlook],
-      "fact", "industry", ts.industry, 0.80,
+      "fact", "industry", ts.industry, tseg.industry, 0.80,
       ["industry_overview"],
     ));
   }
@@ -279,7 +295,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
       missionId, "Transaction Analysis",
       [result.transaction.primary_repayment_source, result.transaction.repayment_vulnerabilities,
        result.transaction.downside_case, result.transaction.stress_scenario],
-      "inference", "transaction", ts.transaction, 0.65,
+      "inference", "transaction", ts.transaction, tseg.transaction, 0.65,
       ["transaction_analysis", "debt_coverage"],
     ));
   }
@@ -289,7 +305,7 @@ export function buildClaimRecords(missionId: string, result: BIEResult): ClaimRe
     claims.push(...makeClaimRecords(
       missionId, "Credit Thesis",
       [result.synthesis.executive_credit_thesis],
-      "narrative", "synthesis", [], 0.70,
+      "narrative", "synthesis", [], [], 0.70,
       ["credit_thesis"],
     ));
     for (const contradiction of result.synthesis.contradictions_and_uncertainties) {

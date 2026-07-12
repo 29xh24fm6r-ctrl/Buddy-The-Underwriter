@@ -128,6 +128,15 @@ function fakeBIE(): BIEResult {
       industry: [],
       transaction: [],
     },
+    thread_segments: {
+      entity_lock: [],
+      borrower: [],
+      management: [],
+      competitive: [],
+      market: [],
+      industry: [],
+      transaction: [],
+    },
     thread_diagnostics: {} as any,
     compiled_at: "2026-06-03T00:00:00Z",
   };

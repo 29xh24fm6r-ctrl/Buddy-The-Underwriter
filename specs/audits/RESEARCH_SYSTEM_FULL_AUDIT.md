@@ -141,6 +141,57 @@ Full repo test suite after round 2: 11196/11206 pass, same single
 pre-existing unrelated failure as round 1 (confirmed present identically on
 the unmodified branch). Research-specific suite: 576/576 pass.
 
+## Round 3 — citation precision (2026-07-12, third same-day follow-up)
+
+Beyond the P0/P1 punch list, the highest-leverage remaining improvement was
+**per-segment citation precision**: every sentence/claim in a BIE narrative
+section previously carried the *entire thread's* pooled source list, not
+just the sources that actually supported that specific sentence. A
+Litigation and Risk claim could be "backed" by a source that in reality only
+supported an unrelated Company Overview sentence — auditable in the sense
+that sources were attached, but not trustworthy at the individual-claim
+level a committee reviewer or examiner would need.
+
+**Implemented:**
+- **`GroundingSegment`/`thread_segments` threaded through `BIEResult`.**
+  Gemini's grounding metadata already returns `groundingSupports` — a
+  per-text-segment mapping to the specific source chunk(s) that ground it —
+  alongside the coarser `groundingChunks` (source URL list) that was the
+  only thing previously captured. All 6 grounded threads (entity_lock,
+  borrower, management, competitive, market, industry) now also return
+  `segments: GroundingSegment[]`, exposed on `BIEResult.thread_segments`.
+- **`citationAttribution.ts`** — new pure module (`attributeSegmentsToText`):
+  normalizes a claim/sentence's text and each segment's text, matches by
+  substring overlap (segments under 20 chars are ignored as too generic to
+  be a reliable match), and returns the union of matched segment URLs — or
+  the thread-wide pooled list as a fallback when no segment matches (never
+  silently drops citations; a match failure degrades to the old
+  thread-pooled behavior, not to zero sources).
+- **Wired into both narrative sentences and claim-ledger rows.**
+  `buildBIENarrativeSections()`'s `addSection()` now attributes each
+  sentence's citations independently instead of reusing one thread-wide
+  citation list for every sentence in a section (including the
+  Management Intelligence per-profile sentence builder, previously a
+  separate manual code path). `claimLedger.ts`'s `makeClaimRecords()` and
+  the manual competitor-claim construction do the same for `source_uris`/
+  `source_types`/`confidence` on every persisted claim row — so a claim's
+  confidence weighting (`weightConfidenceBySourceTrust`) now reflects the
+  trust of the sources that actually ground *that claim*, not the thread's
+  best or worst source diluting every claim equally.
+
+Regression coverage added: `citationAttribution.test.ts` (6 cases on the
+pure matcher), `narrativeSectionAttribution.test.ts` (2 cases proving two
+sentences in the same section get different, correctly-scoped citations),
+`claimLedgerCitationAttribution.test.ts` (2 cases proving a Litigation and
+Risk claim and a Recent News claim in the same borrower thread no longer
+share each other's sources).
+
+Full repo test suite after round 3: 11206/11216 pass (9 skipped), same
+single pre-existing unrelated failure (`src/lib/deals/__tests__/lifecycleInvariants.test.ts`,
+"banker upload ignites deal" — confirmed present identically via `git stash`
+on the unmodified branch, unrelated to the research system). Research-specific
+suite: 586/586 pass.
+
 ---
 **Scope**: The entire research system — mission orchestration (`runMission.ts`), the
 Buddy Intelligence Engine (`buddyIntelligenceEngine.ts`, 8-thread Gemini-grounded

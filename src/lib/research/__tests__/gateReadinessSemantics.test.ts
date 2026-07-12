@@ -52,6 +52,7 @@ function bie(over: Partial<BIEResult> = {}): BIEResult {
     research_quality: "deep",
     sources_used: ["https://omnicare365.com/about", "https://example.com/a"],
     thread_sources: { borrower: [], management: [], competitive: [], market: [], industry: [], transaction: [], entity_lock: [] },
+    thread_segments: { borrower: [], management: [], competitive: [], market: [], industry: [], transaction: [], entity_lock: [] },
     thread_diagnostics: {} as any,
     compiled_at: "2026-06-03T00:00:00Z",
     ...over,
