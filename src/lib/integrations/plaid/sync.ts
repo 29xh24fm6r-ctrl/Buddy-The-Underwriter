@@ -212,5 +212,15 @@ export async function syncTransactions(connectionId: string, supabase: SupabaseC
     console.error("[plaid/sync] post-sync eligibility re-eval failed (non-fatal):", err);
   }
 
+  // SPEC S4 E-2: fire-and-forget equity seasoning re-verification after a
+  // successful sync — new transaction history can change the seasoning
+  // verdict. Never fatal.
+  try {
+    const { verifyEquitySeasoningForDeal } = await import("@/lib/sba/equitySeasoningService");
+    await verifyEquitySeasoningForDeal(connection.deal_id, connection.bank_id, supabase);
+  } catch (err) {
+    console.error("[plaid/sync] post-sync equity seasoning re-verification failed (non-fatal):", err);
+  }
+
   return { ok: true, added: totalAdded, modified: totalModified, removed: totalRemoved, hasMore: false };
 }

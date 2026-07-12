@@ -1,4 +1,5 @@
 import { detectSBAProgram } from "@/lib/sba/sbaGuarantee";
+import { verifyEquitySeasoning } from "@/lib/sba/equitySeasoning";
 
 /**
  * Deal data builder — derives the flat field record the S1 SOP 50 10 8
@@ -36,6 +37,7 @@ export type SbaEligibilityInputFields = {
   seller_note_used_for_equity: boolean | null;
   seller_note_full_standby_for_loan_term: boolean | null;
   seller_note_pct_of_equity: number | null;
+  equity_seasoning_verified: boolean | null;
 
   // Use of proceeds
   working_capital_pct_of_proceeds: number | null;
@@ -160,6 +162,16 @@ export async function buildSbaEligibilityInput(
     .select("entity_type, citizenship_status, ownership_pct")
     .eq("deal_id", dealId);
 
+  const { data: bankAccounts } = await sb
+    .from("borrower_bank_accounts")
+    .select("id, current_balance")
+    .eq("deal_id", dealId);
+
+  const { data: bankTransactions } = await sb
+    .from("borrower_bank_transactions")
+    .select("posted_date, amount, merchant_name, description")
+    .eq("deal_id", dealId);
+
   const { data: snapshotRow } = await sb
     .from("financial_snapshots")
     .select("snapshot_json")
@@ -248,6 +260,22 @@ export async function buildSbaEligibilityInput(
     loanAmount != null && equityInjectionAmount != null && totalProjectCost != null
       ? Math.abs(loanAmount + equityInjectionAmount - totalProjectCost)
       : null;
+
+  // SPEC S4 E-3: computed live from Plaid-synced accounts/transactions
+  // (no separate persisted column) via the pure verifyEquitySeasoning() —
+  // see equitySeasoningService.ts for the DB-writing sibling that also
+  // emits deal_gap_queue rows on the post-Plaid-sync hook.
+  const accountRows = (bankAccounts ?? []) as Array<{ id: string; current_balance: number | null }>;
+  let equitySeasoningVerified: boolean | null = null;
+  if (equityInjectionAmount != null && equityInjectionAmount > 0 && accountRows.length > 0) {
+    const currentBalance = accountRows.reduce((sum, a) => sum + (a.current_balance ?? 0), 0);
+    const seasoningResult = verifyEquitySeasoning({
+      equityAmount: equityInjectionAmount,
+      currentBalance,
+      transactions: (bankTransactions ?? []) as Array<{ posted_date: string; amount: number; merchant_name?: string | null; description?: string | null }>,
+    });
+    equitySeasoningVerified = seasoningResult.seasoned;
+  }
 
   const sellerNoteEquityPortion = toNum(
     (loanRequest as { seller_note_equity_portion?: number } | null)?.seller_note_equity_portion,
@@ -340,6 +368,7 @@ export async function buildSbaEligibilityInput(
     seller_note_used_for_equity: sellerNoteUsedForEquity,
     seller_note_full_standby_for_loan_term: sellerNoteFullStandby,
     seller_note_pct_of_equity: sellerNotePctOfEquity,
+    equity_seasoning_verified: equitySeasoningVerified,
 
     working_capital_pct_of_proceeds: workingCapitalPctOfProceeds,
     working_capital_justification_present: workingCapitalJustificationPresent,
