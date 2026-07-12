@@ -31,7 +31,6 @@ import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import BankerVoicePanel from "@/components/deals/BankerVoicePanel";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
-import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
 import { evaluateSbaEligibility } from "@/lib/sba/eligibilityEngine";
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 
@@ -151,14 +150,6 @@ export default async function DealCreditMemoPage(props: {
       })
     : null;
 
-  const sba1920 = snapshot
-    ? buildSbaForm1920({
-        snapshot,
-        borrowerName: (deal as any)?.borrower_name ?? (deal as any)?.name ?? null,
-        loanAmount: (loanRequest as any)?.requested_amount ?? null,
-      })
-    : null;
-
   const res = await buildCanonicalCreditMemo({ dealId, bankId });
   if (res.ok) {
     const { data: cachedNarrative } = await sb
@@ -258,47 +249,28 @@ export default async function DealCreditMemoPage(props: {
 
         <SpreadsAppendix dealId={dealId} bankId={bankId} />
 
-        {sba1919 || sba1920 ? (
+        {sba1919 ? (
           <details className="mt-6">
             <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-800">
-              SBA Forms (1919 / 1920)
+              SBA Forms (1919)
             </summary>
             <div className="mt-3 rounded-lg border border-gray-200 bg-white p-4">
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                {sba1919 ? (
-                  <div className="rounded-lg border border-gray-200 p-3">
-                    <div className="text-sm font-semibold text-gray-800">Form 1919</div>
-                    <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1919.missing.length}</div>
-                    {sba1919.missing.length ? (
-                      <div className="mt-2 text-xs text-gray-500">{sba1919.missing.join(", ")}</div>
-                    ) : null}
-                    <div className="mt-3 flex items-center gap-2">
-                      <Link
-                        href={`/api/deals/${dealId}/sba/forms/1919`}
-                        className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
-                      >
-                        Export JSON
-                      </Link>
-                    </div>
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <div className="text-sm font-semibold text-gray-800">Form 1919</div>
+                  <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1919.missing.length}</div>
+                  {sba1919.missing.length ? (
+                    <div className="mt-2 text-xs text-gray-500">{sba1919.missing.join(", ")}</div>
+                  ) : null}
+                  <div className="mt-3 flex items-center gap-2">
+                    <Link
+                      href={`/api/deals/${dealId}/sba/forms/1919`}
+                      className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                    >
+                      Export JSON
+                    </Link>
                   </div>
-                ) : null}
-                {sba1920 ? (
-                  <div className="rounded-lg border border-gray-200 p-3">
-                    <div className="text-sm font-semibold text-gray-800">Form 1920</div>
-                    <div className="mt-1 text-xs text-gray-500">Missing fields: {sba1920.missing.length}</div>
-                    {sba1920.missing.length ? (
-                      <div className="mt-2 text-xs text-gray-500">{sba1920.missing.join(", ")}</div>
-                    ) : null}
-                    <div className="mt-3 flex items-center gap-2">
-                      <Link
-                        href={`/api/deals/${dealId}/sba/forms/1920`}
-                        className="inline-flex items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
-                      >
-                        Export JSON
-                      </Link>
-                    </div>
-                  </div>
-                ) : null}
+                </div>
               </div>
             </div>
           </details>
