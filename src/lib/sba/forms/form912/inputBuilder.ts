@@ -1,5 +1,6 @@
 import type { Form912Input } from "@/lib/sba/forms/form912/build";
 import { buildForm1919Input, type Form1919InputBuilderClient } from "@/lib/sba/forms/form1919/inputBuilder";
+import { buildForm1244Input } from "@/lib/sba/forms/form1244/inputBuilder";
 import { FORM_912_TRIGGER_FIELDS } from "@/lib/sba/forms/form1919/fields";
 
 export type Form912InputBuilderClient = Form1919InputBuilderClient;
@@ -9,21 +10,29 @@ function personTriggers912(fields: Record<string, unknown>): boolean {
 }
 
 /**
- * SPEC S4 G-2 — recomputes which owners trigger Form 912 straight from
- * Form 1919's Section II answers (buildForm1919Input, not a stored flag —
- * keeps this in sync with 1919's current answers rather than a snapshot
- * that could go stale) and, for each triggering person, assembles their
- * Form 912 fields from ownership_entities.evidence_json (same source 1919
- * Section II reads from — Form 912 asks for a superset of narrative detail
- * 1919's yes/no checkboxes don't carry, so most fields here start null
- * pending banker/borrower input regardless of 1919 completeness).
+ * SPEC S4 G-2 / ARC-00 A-S4-3 (504 parity) — recomputes which owners
+ * trigger Form 912 straight from Section II answers on *both* Form 1919
+ * (7a) and Form 1244 (504), not a stored flag — keeps this in sync with
+ * either program's current answers rather than a snapshot that could go
+ * stale. A deal only has one program's loan-request row in practice, but
+ * checking both is cheap and means this function doesn't need to know
+ * which program the deal is before deciding whether 912 applies. For each
+ * triggering person, assembles their Form 912 fields from
+ * ownership_entities.evidence_json (same source both 1919 and 1244
+ * Section II read from — Form 912 asks for a superset of narrative detail
+ * neither form's yes/no checkboxes carry, so most fields here start null
+ * pending banker/borrower input regardless of upstream form completeness).
  */
 export async function buildForm912Input(dealId: string, sb: Form912InputBuilderClient): Promise<Form912Input> {
-  const form1919Input = await buildForm1919Input(dealId, sb);
+  const [form1919Input, form1244Input] = await Promise.all([
+    buildForm1919Input(dealId, sb),
+    buildForm1244Input(dealId, sb),
+  ]);
 
-  const triggeringIds = new Set(
-    form1919Input.sectionII.filter((p) => personTriggers912(p.fields)).map((p) => p.ownership_entity_id),
-  );
+  const triggeringIds = new Set([
+    ...form1919Input.sectionII.filter((p) => personTriggers912(p.fields)).map((p) => p.ownership_entity_id),
+    ...form1244Input.sectionII.filter((p) => personTriggers912(p.fields)).map((p) => p.ownership_entity_id),
+  ]);
 
   if (triggeringIds.size === 0) {
     return { applicable: false, persons: [] };

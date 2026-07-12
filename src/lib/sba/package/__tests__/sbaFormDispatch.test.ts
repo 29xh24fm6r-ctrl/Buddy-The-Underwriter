@@ -42,8 +42,8 @@ class EmptyQuery {
 
 const emptySupabase = { from: () => new EmptyQuery() } as any;
 
-test("isDispatchedSbaTemplateCode: recognizes all 6 ARC-00 form codes, rejects unknown", () => {
-  for (const code of ["SBA_1919", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C"]) {
+test("isDispatchedSbaTemplateCode: recognizes all 7 ARC-00 form codes, rejects unknown", () => {
+  for (const code of ["SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C"]) {
     assert.equal(isDispatchedSbaTemplateCode(code), true);
   }
   assert.equal(isDispatchedSbaTemplateCode("SBA_1920"), false);
@@ -59,6 +59,13 @@ test("renderSbaPackageItem: unknown template code -> no_dispatch_handler", async
 
 test("renderSbaPackageItem: SBA_1919 on empty deal -> form_incomplete, not a fabricated PDF", async () => {
   const result = await renderSbaPackageItem("SBA_1919", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "form_incomplete");
+});
+
+test("renderSbaPackageItem: SBA_1244 on empty deal -> form_incomplete, not a fabricated PDF", async () => {
+  const result = await renderSbaPackageItem("SBA_1244", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "form_incomplete");

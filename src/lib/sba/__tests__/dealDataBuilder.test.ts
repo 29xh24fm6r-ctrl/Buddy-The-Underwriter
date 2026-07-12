@@ -272,3 +272,24 @@ test("S4: IRS transcript request expired (no submitted/received/reconciled/pendi
   const r = await buildSbaEligibilityInput("d1", db as any);
   assert.equal(r.tax_transcripts_received_or_pending, false);
 });
+
+test("Phase 4 (504): creates_or_retains_jobs/meets_public_policy_goal/owner_occupancy_percentage wired from deal_loan_requests", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_504" }],
+    deal_loan_requests: [
+      { ...BASE_LOAN_REQUEST, creates_or_retains_jobs: true, meets_public_policy_goal: false, occupancy_percentage: 60 },
+    ],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.creates_or_retains_jobs, true);
+  assert.equal(r.meets_public_policy_goal, false);
+  assert.equal(r.owner_occupancy_percentage, 60);
+});
+
+test("Phase 4 (504): no loan request -> 504 fields stay null, not fabricated", async () => {
+  const db = new FakeDb({ deals: [{ id: "d1", deal_type: "sba_504" }] });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.creates_or_retains_jobs, null);
+  assert.equal(r.meets_public_policy_goal, null);
+  assert.equal(r.owner_occupancy_percentage, null);
+});

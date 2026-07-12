@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildForm1919WithSignature } from "@/lib/sba/forms/form1919/buildWithSignature";
 import { renderForm1919Pdf } from "@/lib/sba/forms/form1919/render";
+import { buildForm1244WithSignature } from "@/lib/sba/forms/form1244/buildWithSignature";
+import { renderForm1244Pdf } from "@/lib/sba/forms/form1244/render";
 import { buildForm413WithSignature } from "@/lib/sba/forms/form413/buildWithSignature";
 import { renderForm413Pdf } from "@/lib/sba/forms/form413/render";
 import { buildForm912WithSignature } from "@/lib/sba/forms/form912/buildWithSignature";
@@ -39,7 +41,7 @@ export type SbaFormDispatchResult =
   | { ok: true; storagePath: string }
   | { ok: false; reason: string };
 
-const DISPATCHED_TEMPLATE_CODES = new Set(["SBA_1919", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C"]);
+const DISPATCHED_TEMPLATE_CODES = new Set(["SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C"]);
 
 export function isDispatchedSbaTemplateCode(templateCode: string): boolean {
   return DISPATCHED_TEMPLATE_CODES.has(templateCode);
@@ -57,6 +59,13 @@ export async function renderSbaPackageItem(
       const buildResult = await buildForm1919WithSignature(dealId, sb);
       if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
       const rendered = await renderForm1919Pdf({ supabase, buildResult });
+      return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
+    }
+
+    case "SBA_1244": {
+      const buildResult = await buildForm1244WithSignature(dealId, sb);
+      if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
+      const rendered = await renderForm1244Pdf({ supabase, buildResult });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 

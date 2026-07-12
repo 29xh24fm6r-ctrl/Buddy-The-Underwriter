@@ -150,7 +150,7 @@ export async function buildSbaEligibilityInput(
       "requested_amount, purpose, loan_purpose, purpose_category, use_of_proceeds, " +
         "seller_note_equity_portion, seller_note_full_standby, working_capital_justification, " +
         "lien_on_all_fixed_assets, franchise_brand_id, equity_injection_amount, total_project_cost, " +
-        "injection_amount, occupancy_type",
+        "injection_amount, occupancy_type, occupancy_percentage, creates_or_retains_jobs, meets_public_policy_goal",
     )
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
@@ -419,8 +419,10 @@ export async function buildSbaEligibilityInput(
     has_personal_guarantee: null,
     owner_percentage: null,
 
-    creates_or_retains_jobs: null,
-    meets_public_policy_goal: null,
-    owner_occupancy_percentage: null,
+    // ARC-00 Phase 4 (504 fields) — wired from the additive columns in
+    // 20260711_a_deal_loan_requests_504_project_cost.sql.
+    creates_or_retains_jobs: (loanRequest as { creates_or_retains_jobs?: boolean } | null)?.creates_or_retains_jobs ?? null,
+    meets_public_policy_goal: (loanRequest as { meets_public_policy_goal?: boolean } | null)?.meets_public_policy_goal ?? null,
+    owner_occupancy_percentage: toNum((loanRequest as { occupancy_percentage?: number } | null)?.occupancy_percentage),
   };
 }
