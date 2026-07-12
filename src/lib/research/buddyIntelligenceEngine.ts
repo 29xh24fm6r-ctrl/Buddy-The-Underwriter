@@ -601,16 +601,23 @@ export function classifyEntity(args: {
     return { classification: "unconfirmed_needs_banker_identity", confidence: 0 };
   }
 
-  if (modelConfidence >= 0.7) {
-    return { classification: "confirmed_public_entity", confidence: modelConfidence };
-  }
-
   // The model locked onto a real but DIFFERENT entity than our search target.
+  // FIX (P0-4, specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md): this check MUST
+  // run before the modelConfidence >= 0.7 branch below. It previously ran
+  // only in the [0.5, 0.7) band, which meant a model that self-reported HIGH
+  // confidence while having actually grounded onto a similarly-named but
+  // wrong company — the exact failure mode entity lock exists to catch —
+  // bypassed the mismatch check entirely and was auto-classified as a
+  // confirmed match.
   const confirmed = (confirmedName ?? "").trim();
   const lockedOntoSomething = confirmed.length > 0 && confirmed.toUpperCase() !== "UNCONFIRMED";
   const nameMismatch = lockedOntoSomething && !tokensOverlap(confirmed, companySearchName);
   if (modelConfidence >= 0.5 && nameMismatch) {
     return { classification: "wrong_entity_risk", confidence: modelConfidence };
+  }
+
+  if (modelConfidence >= 0.7) {
+    return { classification: "confirmed_public_entity", confidence: modelConfidence };
   }
 
   if (hasBankerCertifiedAnchor) {
@@ -642,10 +649,18 @@ function tokensOverlap(a: string, b: string): boolean {
   const stop = new Set(["llc", "inc", "corp", "co", "ltd", "lp", "the", "company", "group", "holdings", "review", "deal"]);
   const toks = (s: string) =>
     new Set(
-      s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 2 && !stop.has(t)),
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-4 follow-up):
+      // length > 1, not > 2 — the old threshold dropped short-but-real brand
+      // tokens ("3M", "GE") entirely, which could make BOTH token sets empty
+      // for the same short-named entity and cause a false "mismatch".
+      s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 1 && !stop.has(t)),
     );
   const ta = toks(a);
   const tb = toks(b);
+  // If either name has no significant tokens left after filtering, we can't
+  // meaningfully compare them — don't report a "mismatch" we can't actually
+  // detect (that would incorrectly flag a same-entity match as wrong_entity_risk).
+  if (ta.size === 0 || tb.size === 0) return true;
   for (const t of ta) if (tb.has(t)) return true;
   return false;
 }

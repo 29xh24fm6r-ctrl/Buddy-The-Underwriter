@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 // Correlation ID for tracing
 function getCorrelationId(): string {
@@ -94,6 +95,15 @@ export async function GET(
         { ok: false, error: "Invalid deal ID format" },
         { status: 400, headers }
       );
+    }
+
+    // SECURITY: this route returns another bank's mission history, source
+    // URLs/checksums, and error text if not gated — verify tenant ownership
+    // before any query. See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1.
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status, headers });
     }
 
     const supabase = await createSupabaseServerClient();

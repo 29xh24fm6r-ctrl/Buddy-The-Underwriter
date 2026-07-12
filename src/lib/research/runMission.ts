@@ -31,9 +31,19 @@ import { ingestSources } from "./ingestSource";
 import { extractFacts, extractFactsFromSources } from "./extractFacts";
 import { deriveInferences, hasEnoughFactsForInferences } from "./deriveInferences";
 import { compileNarrative } from "./compileNarrative";
+import { generateRunKey, checkExistingMission } from "./orchestration";
 
 /**
  * Create a new research mission in the database.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1 — idempotency): this
+ * previously never set `run_key`, so the unique index on
+ * (deal_id, run_key) WHERE status IN ('queued','running','complete')
+ * (buddy_research_missions_run_key_active_idx) was entirely inert — every
+ * trigger created a brand-new mission, including a full duplicate 8-thread
+ * BIE pass if two requests raced. It now sets a deterministic run_key and
+ * relies on the DB unique constraint as the race-safe backstop (the caller
+ * should also call checkExistingMission() first as a fast, non-racy path).
  */
 async function createMission(
   dealId: string,
@@ -41,8 +51,9 @@ async function createMission(
   subject: MissionSubject,
   depth: MissionDepth,
   bankId?: string | null,
-  userId?: string | null
-): Promise<{ ok: boolean; missionId?: string; error?: string }> {
+  userId?: string | null,
+  runKey?: string
+): Promise<{ ok: boolean; missionId?: string; error?: string; duplicate?: boolean }> {
   const supabase = supabaseAdmin();
 
   const { data, error } = await supabase
@@ -55,11 +66,29 @@ async function createMission(
       depth,
       status: "queued",
       created_by: userId ?? null,
+      run_key: runKey ?? null,
     })
     .select("id")
     .single();
 
   if (error) {
+    // Postgres unique_violation — another request won the race and already
+    // created (or completed) a mission with this exact run_key. Look it up
+    // and return it instead of failing the caller.
+    if (error.code === "23505" && runKey) {
+      const { data: existing } = await supabase
+        .from("buddy_research_missions")
+        .select("id")
+        .eq("deal_id", dealId)
+        .eq("run_key", runKey)
+        .in("status", ["queued", "running", "complete"])
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id) {
+        console.warn(`[runMission] createMission: duplicate run_key race — reusing existing mission ${existing.id}`);
+        return { ok: true, missionId: existing.id, duplicate: true };
+      }
+    }
     console.error("[runMission] createMission DB error:", error.message, error.code, error.details, error.hint);
     return { ok: false, error: error.message };
   }
@@ -245,10 +274,42 @@ export async function runMission(
     depth?: MissionDepth;
     bankId?: string | null;
     userId?: string | null;
+    /** Bypass the run_key idempotency check (explicit "re-run" action). */
+    forceRerun?: boolean;
   }
 ): Promise<MissionExecutionResult> {
   const startTime = Date.now();
   const depth = opts?.depth ?? "overview";
+
+  // Idempotency (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a
+  // deterministic run_key means identical (deal_id, mission_type, subject,
+  // depth) requests reuse an existing queued/running/complete mission
+  // instead of spinning up a brand-new one — including a full duplicate
+  // 8-thread BIE pass — every time. checkExistingMission() is the fast,
+  // non-racy path; createMission()'s unique-constraint handling below is the
+  // race-safe backstop for concurrent requests that both pass this check.
+  const runKey = generateRunKey({ deal_id: dealId, mission_type: missionType, subject, depth });
+  if (!opts?.forceRerun) {
+    const existingCheck = await checkExistingMission(supabaseAdmin(), dealId, runKey, false);
+    if (existingCheck.skip && existingCheck.existingMissionId) {
+      const { data: existingMission } = await supabaseAdmin()
+        .from("buddy_research_missions")
+        .select("sources_count, facts_count, inferences_count")
+        .eq("id", existingCheck.existingMissionId)
+        .maybeSingle();
+      console.log(`[runMission] Reusing existing mission ${existingCheck.existingMissionId} for run_key ${runKey} (idempotent — no new mission created)`);
+      return {
+        ok: true,
+        mission_id: existingCheck.existingMissionId,
+        sources_count: existingMission?.sources_count ?? 0,
+        facts_count: existingMission?.facts_count ?? 0,
+        inferences_count: existingMission?.inferences_count ?? 0,
+        narrative_sections: 0,
+        duration_ms: Date.now() - startTime,
+        duplicate: true,
+      };
+    }
+  }
 
   // 1. Create mission record
   const createResult = await createMission(
@@ -257,8 +318,22 @@ export async function runMission(
     subject,
     depth,
     opts?.bankId,
-    opts?.userId
+    opts?.userId,
+    runKey
   );
+
+  if (createResult.duplicate && createResult.missionId) {
+    return {
+      ok: true,
+      mission_id: createResult.missionId,
+      sources_count: 0,
+      facts_count: 0,
+      inferences_count: 0,
+      narrative_sections: 0,
+      duration_ms: Date.now() - startTime,
+      duplicate: true,
+    };
+  }
 
   if (!createResult.ok || !createResult.missionId) {
     console.error("[runMission] createMission failed:", createResult.error);
@@ -573,6 +648,62 @@ export async function runMission(
             }
           }
           // ── End Management Intelligence Hallucination Guard ─────────────────────
+
+          // ── Layer 2b: Borrower Profile / Litigation and Risk Hallucination Guard ──
+          // SPEC audit P0-3 (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md): unlike
+          // Management Intelligence, these sections previously had NO code-level
+          // hallucination guard at all — only a soft low-confidence caveat attached
+          // to Borrower Profile (never to Litigation and Risk), relying entirely on
+          // prompt-only "entity disambiguation" instructions LLMs don't reliably
+          // follow. A false litigation/adverse-event claim attributed to the wrong
+          // entity is a serious, borrower-damaging error, so it deserves the same
+          // code-level defense as Management.
+          //
+          // Defense: when the deterministic entity classification (computed in
+          // code, not trusted from the model — see classifyEntity()) says BIE
+          // research actually locked onto a DIFFERENT real entity than the one we
+          // searched for (wrong_entity_risk), the entire Borrower Profile +
+          // Litigation and Risk output is untrustworthy — strip both before
+          // storage. Otherwise, make sure the low-confidence caveat is visible on
+          // Litigation and Risk too, not just Borrower Profile.
+          if (bieResult.entity_classification === "wrong_entity_risk") {
+            const SCRUB_TITLES = new Set(["Borrower Profile", "Litigation and Risk"]);
+            const hadSections = bieSections.some((s: any) => SCRUB_TITLES.has(s.title as string));
+            bieSections = bieSections.filter((s: any) => !SCRUB_TITLES.has(s.title as string));
+            if (hadSections) {
+              console.warn(
+                `[runMission] HALLUCINATION GUARD: Borrower Profile + Litigation and Risk ` +
+                `scrubbed for deal ${dealId} — deterministic entity classification is ` +
+                `wrong_entity_risk (research locked onto a different real entity than ` +
+                `"${subject.company_search_name ?? subject.company_name ?? "unknown"}"). Content removed ` +
+                `before DB storage to avoid attributing findings (including any adverse/` +
+                `litigation claims) to the wrong company.`
+              );
+            }
+          } else {
+            const borrowerConfidence = bieResult.borrower?.entity_confidence;
+            if (typeof borrowerConfidence === "number" && borrowerConfidence < 0.7) {
+              const caveat =
+                `NOTE: Entity confidence is ${Math.round(borrowerConfidence * 100)}% — this ` +
+                `content may be incomplete or partially attributed to a similarly-named entity.`;
+              const litigationIdx = bieSections.findIndex(
+                (s: any) => (s.title as string) === "Litigation and Risk"
+              );
+              if (litigationIdx !== -1) {
+                const section = bieSections[litigationIdx] as any;
+                const alreadyCaveated = (section.sentences ?? []).some((s: any) =>
+                  String(s.text ?? "").startsWith("NOTE: Entity confidence")
+                );
+                if (!alreadyCaveated) {
+                  section.sentences = [
+                    { text: caveat, citations: section.sentences?.[0]?.citations ?? [] },
+                    ...(section.sentences ?? []),
+                  ];
+                }
+              }
+            }
+          }
+          // ── End Borrower Profile / Litigation and Risk Hallucination Guard ──────
 
           const sb2 = supabaseAdmin();
           const { error: bieUpsertErr } = await (sb2 as any)

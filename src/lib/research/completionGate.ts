@@ -501,9 +501,29 @@ export function evaluateCompletionGate(
   } else if (errorChecks.length >= 1) {
     // manual_review_required: a single hard (non-entity) error — e.g. missing synthesis.
     trustGrade = "manual_review_required";
-  } else if (evidence.preliminary_eligible && !!synthesis && threadsSucceeded >= THRESHOLDS.preliminary.min_threads_succeeded) {
+  } else if (
+    evidence.preliminary_eligible &&
+    !!synthesis &&
+    threadsSucceeded >= THRESHOLDS.preliminary.min_threads_succeeded &&
+    entityConfidence >= THRESHOLDS.preliminary.min_entity_confidence
+  ) {
     // preliminary: entity lock pass, no hard conflict, enough certified/file
     // evidence, synthesis exists. Public-web weakness alone does NOT block this.
+    //
+    // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-5 / SPEC-13.5-V12
+    // deferred-findings Layer 3): THRESHOLDS.preliminary.min_entity_confidence
+    // was declared in the table above but never actually read anywhere —
+    // combined with entity_lock's "warn" (never "error") severity for
+    // unconfirmed_needs_banker_identity regardless of confidence, an entity
+    // that came back fully UNCONFIRMED at 0% confidence could still reach the
+    // memo-eligible "preliminary" grade purely from self-reported/loan-file
+    // evidence-coverage signals that don't require identity confirmation at
+    // all. This is the most likely root cause of the "quality_score=0 /
+    // gate_passed=false" mission the team flagged as needing investigation
+    // (never filed as SPEC-13.6) — a mission with zero confirmed identity
+    // that nonetheless doesn't clear this bar now correctly falls through to
+    // manual_review_required instead of silently either scoring 0 or, worse,
+    // reaching preliminary on unrelated evidence.
     trustGrade = "preliminary";
   } else {
     // manual_review_required: diagnostics/fallback used or evidence coverage low.

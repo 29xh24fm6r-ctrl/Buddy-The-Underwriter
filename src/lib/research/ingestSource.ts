@@ -6,80 +6,48 @@
  * checksum proves data integrity.
  */
 
-import { createHash } from "crypto";
 import type { DiscoveredSource, ResearchSource, SourceIngestionResult } from "./types";
+import { fetchSource } from "./fetch/fetchSource";
 
 /**
- * Compute SHA-256 checksum of content.
- * Uses canonical JSON stringification for consistency.
- */
-function computeChecksum(content: unknown): string {
-  const canonical = JSON.stringify(content, Object.keys(content as object).sort());
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
-
-/**
- * Fetch a source URL with timeout and error handling.
+ * Fetch a source URL with timeout, retry-with-backoff, allowlist enforcement,
+ * and response size limits.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): this previously used a
+ * bare inline fetch() — a single attempt, no retry, no allowlist check — even
+ * though a fully-built, tested, retrying+allowlisted fetch layer already
+ * existed at ./fetch/fetchSource.ts and was simply never called. Any
+ * transient network blip (a single 503 from a government API) permanently
+ * failed that source for the mission. Delegating to fetchSource() here closes
+ * that gap with no behavior change to callers of ingestSource/ingestSources.
  */
 async function fetchWithTimeout(
   url: string,
   timeoutMs: number = 30_000
-): Promise<{ ok: boolean; data?: unknown; status?: number; error?: string; durationMs: number }> {
-  const start = Date.now();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+): Promise<{ ok: boolean; data?: unknown; status?: number; error?: string; durationMs: number; checksum?: string }> {
+  const result = await fetchSource(url, { timeout_ms: timeoutMs });
 
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "BuddyResearchEngine/1.0 (Commercial Lending Research)",
-      },
-    });
-
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - start;
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        error: `HTTP ${response.status}: ${response.statusText}`,
-        durationMs,
-      };
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-
-    let data: unknown;
-    if (contentType.includes("json")) {
-      data = await response.json();
-    } else {
-      // Store as text for non-JSON responses
-      data = { _raw_text: await response.text(), _content_type: contentType };
-    }
-
-    return {
-      ok: true,
-      data,
-      status: response.status,
-      durationMs,
-    };
-  } catch (error) {
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - start;
-
-    if ((error as Error).name === "AbortError") {
-      return { ok: false, error: `Timeout after ${timeoutMs}ms`, durationMs };
-    }
-
+  if (!result.ok) {
     return {
       ok: false,
-      error: (error as Error).message ?? "Unknown fetch error",
-      durationMs,
+      status: result.http_status,
+      error: result.error_message ?? result.error_code ?? "Unknown fetch error",
+      durationMs: result.duration_ms ?? 0,
     };
   }
+
+  const contentType = result.content_type ?? "";
+  const data: unknown = contentType.includes("json")
+    ? result.body
+    : { _raw_text: result.raw_text ?? "", _content_type: contentType };
+
+  return {
+    ok: true,
+    data,
+    status: result.http_status,
+    durationMs: result.duration_ms ?? 0,
+    checksum: result.checksum,
+  };
 }
 
 /**
@@ -116,8 +84,8 @@ export async function ingestSource(
     return { ok: false, source, error: fetchResult.error };
   }
 
-  // Compute checksum of the raw content
-  const checksum = computeChecksum(fetchResult.data);
+  // Checksum of the raw response body, computed by fetchSource().
+  const checksum = fetchResult.checksum ?? "";
 
   const source: ResearchSource = {
     id: "", // Will be set by DB

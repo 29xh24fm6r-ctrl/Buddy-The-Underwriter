@@ -72,6 +72,23 @@ test("[classify] mid confidence + name mismatch → wrong_entity_risk", () => {
   assert.equal(r.classification, "wrong_entity_risk");
 });
 
+// Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-4: the
+// name-mismatch check previously only ran for modelConfidence in [0.5, 0.7),
+// so a model that confidently (>=0.7) grounded onto a similarly-named but
+// WRONG company bypassed the mismatch check entirely and was auto-classified
+// as a confirmed match. High confidence must not exempt a mismatch.
+test("[classify] HIGH confidence + name mismatch → still wrong_entity_risk, not confirmed", () => {
+  const r = classifyEntity({
+    companySearchName: "OmniCare BPO, Inc.",
+    hasBankerCertifiedAnchor: true,
+    modelConfidence: 0.85,
+    confirmedName: "CVS Health Corporation",
+    alternativeEntitiesFound: ["CVS Health"],
+  });
+  assert.equal(r.classification, "wrong_entity_risk");
+  assert.notEqual(r.classification, "confirmed_public_entity");
+});
+
 test("[classify] no banker anchor + low conf → unconfirmed_needs_banker_identity", () => {
   const r = classifyEntity({
     companySearchName: "Some Co",
@@ -178,4 +195,8 @@ test("[gate] no banker-certified evidence + low public confidence → still fail
   );
   // No banker-certified management → management gate keeps its error on synthesis failure.
   assert.notEqual(r.trust_grade, "committee_grade");
+  // Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-5: a fully
+  // unconfirmed entity (0% confidence) must not reach "preliminary" either —
+  // that grade is sufficient to generate and circulate a full credit memo.
+  assert.notEqual(r.trust_grade, "preliminary");
 });

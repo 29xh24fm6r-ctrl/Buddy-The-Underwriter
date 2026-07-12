@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import type {
   ResearchMission,
   ResearchSource,
@@ -66,6 +67,16 @@ export async function GET(
         { ok: false, error: "Mission not found" },
         { status: 200, headers }
       );
+    }
+
+    // SECURITY: mission UUIDs are not secrets (they appear in UI, browser
+    // history, and API responses) — verify the caller's bank owns the deal
+    // this mission belongs to before returning any data.
+    // See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1.
+    const access = await ensureDealBankAccess(mission.deal_id);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status, headers });
     }
 
     // If mission is still running, return just the mission status

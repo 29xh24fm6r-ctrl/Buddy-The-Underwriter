@@ -13,11 +13,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { runMission } from "@/lib/research/runMission";
 import { buildResearchEntityProfile } from "@/lib/research/buildResearchSubject";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { rateLimit } from "@/lib/api/rateLimit";
 import type { MissionType, MissionDepth } from "@/lib/research/types";
 
 export const runtime = "nodejs";
@@ -28,15 +29,52 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 
 export async function POST(
   req: NextRequest,
-  ctx: { params: Promise<{ dealId: string }> },
+  ctx: { params: Promise<{ dealId: string; action?: string }> },
 ) {
   try {
-    const { dealId } = await ctx.params;
+    const { dealId, action } = await ctx.params;
+    // "rerun"/"re-run" are explicit user intent to start a fresh mission even
+    // if an identical (deal_id, mission_type, subject, depth) mission already
+    // completed — bypass the run_key idempotency short-circuit in that case.
+    // Plain "run" stays idempotent. See
+    // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1 (idempotency).
+    const forceRerun = action === "rerun" || action === "re-run";
 
     if (!uuidRegex.test(dealId)) {
       return NextResponse.json(
         { ok: false, error: "invalid_deal_id" },
         { status: 400 },
+      );
+    }
+
+    // SECURITY: verify the caller's bank owns this deal before doing anything
+    // else — this is the only handler in this directory that was missing this
+    // check, and it's the one that triggers a real, billable multi-minute BIE
+    // mission. See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1.
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
+    }
+    const { bankId, userId } = access;
+
+    // RATE LIMIT: this route triggers a real, up-to-5-minute, multi-Gemini-call
+    // BIE mission per request. Neither the "already queued/running" check below
+    // nor the createMission() run-key dedup guards against rapid *sequential*
+    // re-triggering once a mission completes. See
+    // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-2.
+    const dealCooldown = rateLimit({ key: `research-run:deal:${dealId}`, limit: 1, windowMs: 30_000 });
+    if (!dealCooldown.ok) {
+      return NextResponse.json(
+        { ok: false, error: "rate_limited", detail: "Research was just triggered for this deal — please wait before retrying.", resetAt: dealCooldown.resetAt },
+        { status: 429 },
+      );
+    }
+    const bankCooldown = rateLimit({ key: `research-run:bank:${bankId}`, limit: 20, windowMs: 10 * 60_000 });
+    if (!bankCooldown.ok) {
+      return NextResponse.json(
+        { ok: false, error: "rate_limited", detail: "Too many research missions triggered recently — please wait before retrying.", resetAt: bankCooldown.resetAt },
+        { status: 429 },
       );
     }
 
@@ -52,21 +90,6 @@ export async function POST(
     }
 
     const sb = supabaseAdmin();
-
-    // Load deal
-    const { data: deal, error: dealErr } = await sb
-      .from("deals")
-      .select("id, borrower_id, state")
-      .eq("id", dealId)
-      .maybeSingle();
-
-    if (dealErr) throw dealErr;
-    if (!deal) {
-      return NextResponse.json(
-        { ok: false, error: "deal_not_found" },
-        { status: 404 },
-      );
-    }
 
     // SPEC-RESEARCH-SUBJECT-LOCK-MEMO-INPUT-PARITY-1: resolve the research
     // subject from the canonical builder, which reads borrowers (when attached)
@@ -99,9 +122,10 @@ export async function POST(
       console.warn(`[research/run] Deal ${dealId}: no legal/DBA/website search name (placeholder deal label) — entity lock will not web-search; certification=${certification_level}`);
     }
 
-    const bankId = await getCurrentBankId();
-
-    // Check for existing running/queued mission
+    // Check for existing running/queued/complete mission with the same run key
+    // (idempotency — see P1 fix in runMission.ts's createMission()). This
+    // in-route check remains as a fast-path short-circuit for the common
+    // double-click case; createMission() now also enforces it at the DB level.
     const { data: existing } = await sb
       .from("buddy_research_missions")
       .select("id, status")
@@ -122,7 +146,8 @@ export async function POST(
     const result = await runMission(dealId, missionType, subject, {
       depth,
       bankId,
-      userId: null,
+      userId,
+      forceRerun,
     });
 
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
