@@ -6,6 +6,11 @@
  * - Recognizes known failure patterns
  * - Suggests resolution strategies
  * - Tracks cooldowns for rate-limited sources
+ *
+ * ⚠️ NOT WIRED INTO PRODUCTION — recordFailure()/isSourceInCooldown() are
+ * called only by brieRuntime.ts, which itself has zero production callers.
+ * See brieRuntime.ts's top-of-file note and
+ * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md for the full writeup.
  */
 
 import "server-only";

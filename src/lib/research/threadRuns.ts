@@ -4,6 +4,11 @@
  * Tracks per-stage execution within a mission.
  * Each stage (source_discovery, fact_extraction, etc.) gets its own
  * thread_run record with timing, item counts, and error details.
+ *
+ * ⚠️ NOT WIRED INTO PRODUCTION — used only by brieRuntime.ts's
+ * withStageTracking(), which itself has zero production callers. See
+ * brieRuntime.ts's top-of-file note and
+ * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md for the full writeup.
  */
 
 import "server-only";

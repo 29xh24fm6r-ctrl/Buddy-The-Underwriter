@@ -1,6 +1,45 @@
 /**
  * BRIE Runtime — Buddy Resumable Intelligence Engine (Phase 66A)
  *
+ * ⚠️ NOT WIRED INTO PRODUCTION — DO NOT ASSUME THIS RUNS.
+ * See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md ("brieRuntime.ts" deferred
+ * item) for the full writeup. Summary:
+ *
+ *   - executeBrieMission() has ZERO production callers. The only caller
+ *     anywhere in the repo is its own guard test
+ *     (src/lib/research/__tests__/phase66aGuard.test.ts). The real mission
+ *     entry point is runMission.ts, called directly by every API route.
+ *   - Even if something DID call it, resume would not actually work:
+ *     executeBrieMission() passes `resumeFromStage` to the injected
+ *     `runMission` callback, but the real runMission()'s options type
+ *     (see runMission.ts) has no `resumeFromStage` field and its
+ *     implementation never branches on one — every "resume" would silently
+ *     run the mission from scratch. This module's central feature is
+ *     currently non-functional by construction, not just unused.
+ *   - The PRACTICAL VALUE this module was meant to provide has since been
+ *     ported directly into runMission.ts using simpler mechanisms instead
+ *     of adopting this file's more complex resumable-checkpoint design:
+ *       - Idempotency (run_key + checkExistingMission) — runMission.ts,
+ *         wired directly using the same orchestration.ts primitives this
+ *         file also uses.
+ *       - Stale-mission recovery — src/lib/research/staleMissionSweep.ts,
+ *         using this file's own checkpoint.ts's findStaleMissions() (fixed;
+ *         see that file's docstring), wired into the worker-tick cron job.
+ *       - Degraded-state visibility on BIE/trust-layer exceptions —
+ *         runMission.ts's writeDegradedQualityGate().
+ *   - What remains genuinely unreplicated here: real per-stage checkpoint/
+ *     resume (skip already-completed stages on retry), automatic mission-
+ *     level retry-with-backoff, and per-stage thread-run tracking
+ *     (threadRuns.ts — also currently unused outside this file).
+ *
+ * Deliberately NOT deleted: wiring this in for real would require rewriting
+ * runMission.ts's sequential pipeline into a resumable stage machine (a
+ * genuine architectural change, not a bounded bug fix) — that's a decision
+ * for the team to make deliberately, not something to do silently as part
+ * of an audit remediation pass. If you're reading this deciding whether to
+ * wire it in or delete it: the type mismatch above must be fixed first
+ * either way, since the resume path is currently broken, not just idle.
+ *
  * Wraps the existing runMission pipeline with:
  * - Checkpoint/resume capability
  * - Per-stage thread tracking

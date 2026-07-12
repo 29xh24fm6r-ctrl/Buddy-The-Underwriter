@@ -4,6 +4,14 @@
  * Provides resumable state snapshots for research missions.
  * Checkpoints are saved per-stage so a failed mission can resume
  * from the last successful stage instead of starting over.
+ *
+ * Live in production: findStaleMissions() — used by
+ * src/lib/research/staleMissionSweep.ts (wired into the worker-tick cron).
+ *
+ * ⚠️ NOT WIRED — saveCheckpoint()/loadLatestCheckpoint()/getResumeDecision()/
+ * sendHeartbeat() are called only by brieRuntime.ts, which itself has zero
+ * production callers. See brieRuntime.ts's top-of-file note and
+ * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md for the full writeup.
  */
 
 import "server-only";
