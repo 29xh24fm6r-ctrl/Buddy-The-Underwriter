@@ -8,6 +8,7 @@ import TranscriptUploadPanel from "@/components/deals/TranscriptUploadPanel";
 import { OmegaAdvisoryPanel } from "@/components/deal/OmegaAdvisoryPanel";
 import SbaFormReadinessPanel from "@/components/deals/cockpit/SbaFormReadinessPanel";
 import SbaSigningPanel from "@/components/deals/cockpit/SbaSigningPanel";
+import SbaThirdPartyPanel from "@/components/deals/cockpit/SbaThirdPartyPanel";
 import type { OmegaAdvisoryState } from "@/core/omega/types";
 
 const STORY_FIELDS = [
@@ -172,6 +173,9 @@ export default function StoryPanel({ dealId }: { dealId: string }) {
 
       {/* Section 5: SBA Signing Status — IAL2 + e-sign (ARC-00 SPEC S3 C-1/C-3) */}
       <SafeBoundary><SbaSigningPanel dealId={dealId} /></SafeBoundary>
+
+      {/* Section 6: Third-Party Orders — appraisal/valuation/Phase I/insurance/title/UCC (ARC-00 SPEC S5 A-7) */}
+      <SafeBoundary><SbaThirdPartyPanel dealId={dealId} /></SafeBoundary>
     </div>
   );
 }
