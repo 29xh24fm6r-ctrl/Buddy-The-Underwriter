@@ -98,6 +98,12 @@ export function BrokerageLandingPage() {
             For lenders
           </a>
           <Link
+            href="/franchise"
+            className="hidden text-[15px] font-semibold text-[#3d5674] hover:text-[#1c8de0] sm:inline"
+          >
+            Franchise financing
+          </Link>
+          <Link
             href="/apply"
             className="rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-[22px] py-[11px] text-[15px] font-bold text-white shadow-[0_6px_18px_rgba(28,141,224,0.28)] transition hover:brightness-[1.06]"
           >
@@ -200,6 +206,41 @@ export function BrokerageLandingPage() {
             />
           </div>
         </div>
+      </section>
+
+      {/* FRANCHISE ENTRANCE */}
+      <section className="mx-auto max-w-[1240px] px-6 pt-14 sm:px-10 sm:pt-[70px]">
+        <Link
+          href="/franchise"
+          className="group relative flex flex-wrap items-center justify-between gap-8 overflow-hidden rounded-[22px] border border-[#1c8de0]/[0.15] bg-gradient-to-br from-white to-[#eef6fd] px-7 py-8 shadow-[0_2px_14px_rgba(18,38,63,0.05)] transition hover:shadow-[0_16px_36px_rgba(28,141,224,0.14)] sm:px-12 sm:py-10"
+        >
+          <div
+            className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full opacity-70"
+            style={{
+              background:
+                "radial-gradient(circle, rgba(28,141,224,0.14), transparent 70%)",
+            }}
+          />
+          <div className="relative max-w-[620px]">
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#1c8de0]/[0.1] px-[13px] py-[6px] text-[12.5px] font-bold uppercase tracking-[0.5px] text-[#1c8de0]">
+              Buying a franchise?
+            </div>
+            <h2
+              className="mb-2 mt-3 text-[24px] font-bold tracking-tight text-[#12263f] sm:text-[28px]"
+              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+            >
+              Buddy tracks SBA data on 8,400+ franchise brands
+            </h2>
+            <p className="text-[15.5px] leading-relaxed text-[#5b7189]">
+              SBA certification status, FDD Item 19 performance data, and
+              franchisor support signals — built directly into your SBA
+              Score. Tell Buddy your brand and it already knows the deal.
+            </p>
+          </div>
+          <span className="relative inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-[#12263f] px-6 py-[13px] text-[15px] font-bold text-white transition group-hover:brightness-110">
+            Explore franchise financing →
+          </span>
+        </Link>
       </section>
 
       {/* HOW IT WORKS */}
