@@ -42,6 +42,7 @@ import {
 } from "@/lib/sba/sbaBorrowerStory";
 import { prepareSbaPackage } from "@/lib/sba/package/buildPackage";
 import { generatePdfForFillRun } from "@/lib/forms/pdfFill/generatePdfForFillRun";
+import { assembleTenTabPackage } from "@/lib/sba/package/assembleTenTabPackage";
 import { ensureSbaLoanAndMilestones } from "@/lib/sba/servicing/seedMilestones";
 import { recomputeSbaServicing } from "@/lib/sba/servicing/evaluateServicing";
 
@@ -277,6 +278,8 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
         return preparePackageRunAction(dealId, body);
       case "generate-package-run-pdf":
         return generatePackageRunPdfAction(dealId, body);
+      case "assemble-package":
+        return assemblePackageAction(dealId, body);
 
       // Servicing
       case "recompute-servicing":
@@ -1474,6 +1477,38 @@ async function generatePackageRunPdfAction(
     .eq("id", packageRunId);
 
   return NextResponse.json({ ok: true, packageRunId, results });
+}
+
+/**
+ * SPEC S7 4 (ARC-00 Phase 5) — "SBA 10-tab package assembly... walk all
+ * generated forms + documents into the 10-tab structure... output a
+ * single lender-ready package." Call after generate-package-run-pdf has
+ * produced status='generated' items; merges them into one PDF per
+ * tenTabAssembly.ts's tab order.
+ */
+async function assemblePackageAction(
+  dealId: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const packageRunId = typeof body.packageRunId === "string" ? (body.packageRunId as string) : "";
+  if (!packageRunId) {
+    return NextResponse.json({ ok: false, error: "packageRunId is required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseServerClient();
+  const result = await assembleTenTabPackage({ supabase, dealId, packageRunId });
+
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.reason, detail: result.detail }, { status: result.reason === "PACKAGE_RUN_NOT_FOUND" ? 404 : 422 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    packageRunId,
+    storagePath: result.storagePath,
+    itemCount: result.itemCount,
+    missingItems: result.missingItems,
+  });
 }
 
 async function recomputeServicingAction(

@@ -1,5 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import { buildForm1919WithSignature } from "@/lib/sba/forms/form1919/buildWithSignature";
 import { renderForm1919Pdf } from "@/lib/sba/forms/form1919/render";
@@ -14,6 +16,11 @@ import { renderForm4506cPdf } from "@/lib/sba/forms/form4506c/render";
 import { buildForm155WithSignature } from "@/lib/sba/forms/form155/buildWithSignature";
 import { renderForm155Pdf } from "@/lib/sba/forms/form155/render";
 import { buildForm159PayloadForDeal, tryRenderForm159Pdf } from "@/lib/brokerage/compliancePackage";
+import { buildForm148WithSignature } from "@/lib/sba/forms/form148/buildWithSignature";
+import { renderForm148Pdf } from "@/lib/sba/forms/form148/render";
+import { buildForm601WithSignature } from "@/lib/sba/forms/form601/buildWithSignature";
+import { renderForm601Pdf } from "@/lib/sba/forms/form601/render";
+import { getForm722Status } from "@/lib/sba/forms/form722/service";
 
 /**
  * SPEC S4 H-1 — dispatches an SBA package item's `template_code` to the
@@ -41,7 +48,10 @@ export type SbaFormDispatchResult =
   | { ok: true; storagePath: string }
   | { ok: false; reason: string };
 
-const DISPATCHED_TEMPLATE_CODES = new Set(["SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C"]);
+const DISPATCHED_TEMPLATE_CODES = new Set([
+  "SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C",
+  "SBA_148", "SBA_148L", "SBA_601", "SBA_722",
+]);
 
 export function isDispatchedSbaTemplateCode(templateCode: string): boolean {
   return DISPATCHED_TEMPLATE_CODES.has(templateCode);
@@ -115,6 +125,41 @@ export async function renderSbaPackageItem(
       if (missing.length > 0) return { ok: false, reason: `form_incomplete: ${missing.join(",")}` };
       const storagePath = await tryRenderForm159Pdf(dealId, sb, fields);
       return storagePath ? { ok: true, storagePath } : { ok: false, reason: "template_not_available" };
+    }
+
+    case "SBA_148": {
+      const buildResult = await buildForm148WithSignature(dealId, bankId, sb);
+      const signer = buildResult.input.signers.find((s) => s.guaranteeType === "unconditional");
+      if (!signer) return { ok: false, reason: "not_applicable" };
+      const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
+      return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
+    }
+
+    case "SBA_148L": {
+      const buildResult = await buildForm148WithSignature(dealId, bankId, sb);
+      const signer = buildResult.input.signers.find((s) => s.guaranteeType === "limited");
+      if (!signer) return { ok: false, reason: "not_applicable" };
+      const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
+      return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
+    }
+
+    case "SBA_601": {
+      const buildResult = await buildForm601WithSignature(dealId, bankId, sb);
+      if (!buildResult.applicable) return { ok: false, reason: "not_applicable" };
+      const rendered = await renderForm601Pdf({ supabase, buildResult });
+      return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
+    }
+
+    case "SBA_722": {
+      const status = await getForm722Status(dealId, sb);
+      if (!status.acknowledged) return { ok: false, reason: "not_acknowledged" };
+      if (!status.posterStoragePath) return { ok: false, reason: "template_not_available" };
+      try {
+        const pdfBytes = await readFile(path.join(process.cwd(), "public", status.posterStoragePath));
+        return { ok: true, pdfBytes };
+      } catch {
+        return { ok: false, reason: "template_not_available" };
+      }
     }
 
     default:

@@ -23,6 +23,9 @@ class EmptyQuery {
   eq() {
     return this;
   }
+  in() {
+    return this;
+  }
   order() {
     return this;
   }
@@ -42,8 +45,11 @@ class EmptyQuery {
 
 const emptySupabase = { from: () => new EmptyQuery() } as any;
 
-test("isDispatchedSbaTemplateCode: recognizes all 7 ARC-00 form codes, rejects unknown", () => {
-  for (const code of ["SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C"]) {
+test("isDispatchedSbaTemplateCode: recognizes all 11 ARC-00 form codes, rejects unknown", () => {
+  for (const code of [
+    "SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C",
+    "SBA_148", "SBA_148L", "SBA_601", "SBA_722",
+  ]) {
     assert.equal(isDispatchedSbaTemplateCode(code), true);
   }
   assert.equal(isDispatchedSbaTemplateCode("SBA_1920"), false);
@@ -104,4 +110,32 @@ test("renderSbaPackageItem: IRS_4506C with no signers -> no_signers", async () =
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "no_signers");
+});
+
+test("renderSbaPackageItem: SBA_148 with no unconditional-guarantee owners -> not_applicable", async () => {
+  const result = await renderSbaPackageItem("SBA_148", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "not_applicable");
+});
+
+test("renderSbaPackageItem: SBA_148L with no limited-guarantee owners -> not_applicable", async () => {
+  const result = await renderSbaPackageItem("SBA_148L", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "not_applicable");
+});
+
+test("renderSbaPackageItem: SBA_601 with no construction use-of-proceeds -> not_applicable", async () => {
+  const result = await renderSbaPackageItem("SBA_601", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "not_applicable");
+});
+
+test("renderSbaPackageItem: SBA_722 not yet acknowledged -> not_acknowledged", async () => {
+  const result = await renderSbaPackageItem("SBA_722", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "not_acknowledged");
 });
