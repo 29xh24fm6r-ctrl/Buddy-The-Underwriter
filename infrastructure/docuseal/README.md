@@ -110,9 +110,11 @@ Once the service is live and reachable:
    instance's header differs.
 4. Upload the SBA Form 1919 and Form 413 templates via the admin UI (PDFs
    sourced the same way as `scripts/ingest-sba-templates.ts` — see ARC-00
-   Phase 0.C). Capture each template's ID and set:
-   - `DOCUSEAL_TEMPLATE_FORM_1919`
-   - `DOCUSEAL_TEMPLATE_FORM_413`
+   Phase 0.C). Capture each template's ID and set (no `FORM_` infix — this
+   is what `src/lib/esign/docuseal/service.ts:42` actually reads; an
+   earlier version of this doc had the wrong names):
+   - `DOCUSEAL_TEMPLATE_1919`
+   - `DOCUSEAL_TEMPLATE_413`
 
 ## Version log
 
