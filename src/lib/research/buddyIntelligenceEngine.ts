@@ -33,6 +33,7 @@ import {
 } from "./managementRepair";
 import { repairGenericJson, GENERIC_JSON_REPAIR_STRATEGY } from "./geminiJsonRepair";
 import { attributeSegmentsToText } from "./citationAttribution";
+import { planBIEThreadReuse } from "./bieThreadReuse";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
@@ -91,6 +92,11 @@ export type BIEThreadDiagnostic = {
   // and these two flags record that a repair (or deterministic fallback) ran.
   repaired?: boolean;
   repair_strategy?: string | null;
+  // SPEC-BIE-...-MEGA-1 round 4 (resumable missions + failure learning): set
+  // when this thread's diagnostic reflects a same-invocation retry (the
+  // first attempt failed with a transient error and a second attempt was
+  // made immediately, before returning to the caller).
+  retried?: boolean;
   prompt_chars: number;
   response_chars?: number | null;
   source_count: number;
@@ -155,6 +161,32 @@ export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
       return `${t}: skipped — ${d.raw_text_preview ?? "not applicable for this subject"}.`;
     default:
       return `${t} failed: ${d.error_type}.`;
+  }
+}
+
+/**
+ * Whether a failed thread is worth one immediate same-invocation retry.
+ *
+ * Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md (round 4): a
+ * single flaky Gemini call (a transient 5xx, a dropped connection, an
+ * occasional empty response) previously permanently degraded that thread
+ * for the whole mission — the only recovery path was a full mission retry.
+ * Only genuinely transient categories are retried; `safety_block` and
+ * `json_parse_error` are excluded because a same-prompt retry is unlikely
+ * to change a content-policy refusal or a systematically malformed
+ * response (which already went through a repair pass at generation time).
+ */
+export function isRetryableBIEDiagnostic(d: BIEThreadDiagnostic): boolean {
+  switch (d.error_type) {
+    case "network_error":
+    case "empty_candidate":
+    case "empty_text":
+      return true;
+    case "http_error":
+      return d.http_status == null || d.http_status === 408 || d.http_status === 429 ||
+        (d.http_status >= 500 && d.http_status < 600);
+    default:
+      return false;
   }
 }
 
@@ -1408,7 +1440,42 @@ function emptyBIEResult(): BIEResult {
   };
 }
 
-export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIEResult> {
+export type BIECachedThreadResult<T = unknown> = {
+  result: T | null;
+  sourceUrls: string[];
+  segments: GroundingSegment[];
+  diagnostic: BIEThreadDiagnostic;
+};
+
+/** A previous attempt's per-thread raw output, keyed by thread name — see bieThreadReuse.ts. */
+export type BIEPreviousThreadResults = Partial<Record<BIEThreadName, BIECachedThreadResult>>;
+
+/**
+ * Run a thread once; if it fails with a transient error (per
+ * isRetryableBIEDiagnostic), run it exactly once more before giving up.
+ * See isRetryableBIEDiagnostic's docstring for why only some categories
+ * qualify.
+ */
+async function runWithRetry<T>(
+  runner: () => Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
+): Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
+  const first = await runner();
+  if (!first.diagnostic.ok && isRetryableBIEDiagnostic(first.diagnostic)) {
+    console.warn(`[BIE] ${first.diagnostic.thread} failed retryably (${first.diagnostic.error_type}) — retrying once`);
+    const retry = await runner();
+    if (retry.diagnostic.ok) {
+      console.log(`[BIE] ${retry.diagnostic.thread}: recovered on retry`);
+      return { ...retry, diagnostic: { ...retry.diagnostic, retried: true } };
+    }
+    return retry;
+  }
+  return first;
+}
+
+export async function runBuddyIntelligenceEngine(
+  input: BIEInput,
+  opts?: { previousThreadResults?: BIEPreviousThreadResults },
+): Promise<BIEResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("[BIE] GEMINI_API_KEY missing — skipping BIE");
@@ -1416,40 +1483,75 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   }
 
   const allSources: string[] = [];
+  const previous = opts?.previousThreadResults ?? {};
+  const reusePlan = planBIEThreadReuse(
+    (Object.keys(previous) as BIEThreadName[]).reduce((acc, k) => {
+      acc[k] = { ok: previous[k]!.diagnostic.ok };
+      return acc;
+    }, {} as Partial<Record<BIEThreadName, { ok: boolean }>>),
+  );
+  const reuseNote = (thread: BIEThreadName) =>
+    console.log(`[BIE] ${thread}: reused from previous attempt (cached, not re-run)`);
 
   // ── Thread 0: Entity Lock (sequential first — all other threads depend on it) ──
   let entityLock: EntityLock | null = null;
   let entityLockSources: string[] = [];
   let entityLockSegments: GroundingSegment[] = [];
   let entityLockDiag: BIEThreadDiagnostic = synthDiagnostic("entity_lock", "thread_threw");
-  try {
-    const r = await runEntityLock(input, apiKey, allSources);
-    entityLock = r.lock;
-    entityLockSources = r.sourceUrls;
-    entityLockSegments = r.segments;
-    entityLockDiag = r.diagnostic;
-    if (entityLock) {
-      console.log(
-        `[BIE] Entity lock: "${entityLock.confirmed_name}" confidence=${entityLock.entity_confidence}`,
-        entityLock.alternative_entities_found.length > 0
-          ? `alternatives excluded: ${entityLock.alternative_entities_found.join(", ")}`
-          : "no alternatives found",
-      );
+  if (reusePlan.entity_lock && previous.entity_lock) {
+    reuseNote("entity_lock");
+    entityLock = previous.entity_lock.result as EntityLock | null;
+    entityLockSources = previous.entity_lock.sourceUrls;
+    entityLockSegments = previous.entity_lock.segments;
+    entityLockDiag = previous.entity_lock.diagnostic;
+    allSources.push(...entityLockSources);
+  } else {
+    try {
+      const r = await runWithRetry(async () => {
+        const lockR = await runEntityLock(input, apiKey, allSources);
+        return { result: lockR.lock, sourceUrls: lockR.sourceUrls, segments: lockR.segments, diagnostic: lockR.diagnostic };
+      });
+      entityLock = r.result;
+      entityLockSources = r.sourceUrls;
+      entityLockSegments = r.segments;
+      entityLockDiag = r.diagnostic;
+      if (entityLock) {
+        console.log(
+          `[BIE] Entity lock: "${entityLock.confirmed_name}" confidence=${entityLock.entity_confidence}`,
+          entityLock.alternative_entities_found.length > 0
+            ? `alternatives excluded: ${entityLock.alternative_entities_found.join(", ")}`
+            : "no alternatives found",
+        );
+      }
+    } catch (e: any) {
+      console.warn("[BIE] Entity lock failed (non-fatal):", e?.message);
+      entityLockDiag = synthDiagnostic("entity_lock", "thread_threw", {
+        json_parse_error: String(e?.message ?? e).slice(0, 200),
+      });
     }
-  } catch (e: any) {
-    console.warn("[BIE] Entity lock failed (non-fatal):", e?.message);
-    entityLockDiag = synthDiagnostic("entity_lock", "thread_threw", {
-      json_parse_error: String(e?.message ?? e).slice(0, 200),
-    });
   }
 
-  // ── Threads 1–5: Run in parallel ──
+  // ── Threads 1–5: Run in parallel (skip ones being reused from a previous attempt) ──
+  const runThread1to5 = async <T>(
+    thread: BIEThreadName,
+    shouldReuse: boolean,
+    runner: () => Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
+  ): Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> => {
+    const cached = previous[thread] as BIECachedThreadResult<T> | undefined;
+    if (shouldReuse && cached) {
+      reuseNote(thread);
+      allSources.push(...cached.sourceUrls);
+      return cached;
+    }
+    return runWithRetry(runner);
+  };
+
   const [t1, t2, t3, t4, t5] = await Promise.allSettled([
-    runBorrowerIntelligence(input, entityLock, apiKey, allSources),
-    runManagementIntelligence(input, entityLock, apiKey, allSources),
-    runCompetitiveIntelligence(input, entityLock, apiKey, allSources),
-    runMarketIntelligence(input, apiKey, allSources),
-    runIndustryIntelligence(input, apiKey, allSources),
+    runThread1to5("borrower", reusePlan.borrower, () => runBorrowerIntelligence(input, entityLock, apiKey, allSources)),
+    runThread1to5("management", reusePlan.management, () => runManagementIntelligence(input, entityLock, apiKey, allSources)),
+    runThread1to5("competitive", reusePlan.competitive, () => runCompetitiveIntelligence(input, entityLock, apiKey, allSources)),
+    runThread1to5("market", reusePlan.market, () => runMarketIntelligence(input, apiKey, allSources)),
+    runThread1to5("industry", reusePlan.industry, () => runIndustryIntelligence(input, apiKey, allSources)),
   ]);
 
   // SPEC-BIE-...-MEGA-1 Phase 1: a rejected thread gets a thread_threw diagnostic
@@ -1508,41 +1610,57 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   // ── Thread 6: Transaction (sequential — needs 1–5) ──
   let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic } =
     { result: null, sourceUrls: [], segments: [], diagnostic: synthDiagnostic("transaction", "thread_threw") };
-  try {
-    transactionR = await runTransactionRepaymentIntelligence(
-      input, borrower, management, competitive, market, industry, apiKey, allSources,
-    );
-  } catch (e: any) {
-    console.warn("[BIE] Transaction thread failed:", e?.message);
-    transactionR = {
-      result: null,
-      sourceUrls: [],
-      segments: [],
-      diagnostic: synthDiagnostic("transaction", "thread_threw", {
-        json_parse_error: String(e?.message ?? e).slice(0, 200),
-      }),
-    };
+  if (reusePlan.transaction && previous.transaction) {
+    reuseNote("transaction");
+    transactionR = previous.transaction as typeof transactionR;
+    allSources.push(...transactionR.sourceUrls);
+  } else {
+    try {
+      transactionR = await runWithRetry(() =>
+        runTransactionRepaymentIntelligence(
+          input, borrower, management, competitive, market, industry, apiKey, allSources,
+        ),
+      );
+    } catch (e: any) {
+      console.warn("[BIE] Transaction thread failed:", e?.message);
+      transactionR = {
+        result: null,
+        sourceUrls: [],
+        segments: [],
+        diagnostic: synthDiagnostic("transaction", "thread_threw", {
+          json_parse_error: String(e?.message ?? e).slice(0, 200),
+        }),
+      };
+    }
   }
   const transaction = transactionR.result;
 
   // ── Thread 7: Synthesis + Validation Pass (sequential) ──
   let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic } =
     { result: null, sourceUrls: [], segments: [], diagnostic: synthDiagnostic("synthesis", "thread_threw") };
-  try {
-    synthesisR = await runCreditSynthesis(
-      input, entityLock, borrower, management, competitive, market, industry, transaction,
-      apiKey, allSources,
-    );
-  } catch (e: any) {
-    console.warn("[BIE] Synthesis thread failed:", e?.message);
-    synthesisR = {
-      result: null,
-      sourceUrls: [],
-      segments: [],
-      diagnostic: synthDiagnostic("synthesis", "thread_threw", {
-        json_parse_error: String(e?.message ?? e).slice(0, 200),
-      }),
-    };
+  if (reusePlan.synthesis && previous.synthesis) {
+    reuseNote("synthesis");
+    synthesisR = previous.synthesis as typeof synthesisR;
+    allSources.push(...synthesisR.sourceUrls);
+  } else {
+    try {
+      synthesisR = await runWithRetry(() =>
+        runCreditSynthesis(
+          input, entityLock, borrower, management, competitive, market, industry, transaction,
+          apiKey, allSources,
+        ),
+      );
+    } catch (e: any) {
+      console.warn("[BIE] Synthesis thread failed:", e?.message);
+      synthesisR = {
+        result: null,
+        sourceUrls: [],
+        segments: [],
+        diagnostic: synthDiagnostic("synthesis", "thread_threw", {
+          json_parse_error: String(e?.message ?? e).slice(0, 200),
+        }),
+      };
+    }
   }
   const synthesis = synthesisR.result;
 

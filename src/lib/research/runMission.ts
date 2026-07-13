@@ -32,6 +32,18 @@ import { extractFacts, extractFactsFromSources } from "./extractFacts";
 import { deriveInferences, hasEnoughFactsForInferences } from "./deriveInferences";
 import { compileNarrative } from "./compileNarrative";
 import { generateRunKey, checkExistingMission } from "./orchestration";
+import { saveCheckpoint, getResumeDecision, type CheckpointStage } from "./checkpoint";
+import { createThreadRun, completeThreadRun, failThreadRun } from "./threadRuns";
+import { recordFailure, getActiveCooldownDomains, mapBIEErrorTypeToFailureCategory, classifyFailure } from "./failureLibrary";
+import type { BIECachedThreadResult, BIEThreadName, BIEResult } from "./buddyIntelligenceEngine";
+
+function safeHostname(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Create a new research mission in the database.
@@ -298,6 +310,192 @@ async function persistNarrative(
   return { ok: true };
 }
 
+// ============================================================================
+// Resumable missions + failure learning
+// (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round 4)
+// ============================================================================
+
+/**
+ * Find the most recent FAILED mission for this exact (deal_id, run_key).
+ *
+ * checkExistingMission() deliberately only matches queued/running/complete —
+ * a failed mission is invisible to it, so retrying a failed run_key
+ * previously always created a brand-new mission from scratch. This is the
+ * other half: when found (and forceRerun wasn't requested), the caller
+ * reuses this mission's id and checkpoints instead of starting over.
+ */
+async function findFailedMissionForRunKey(
+  dealId: string,
+  runKey: string,
+): Promise<{ id: string; attempt_count: number } | null> {
+  const supabase = supabaseAdmin();
+  const { data } = await supabase
+    .from("buddy_research_missions")
+    .select("id, attempt_count")
+    .eq("deal_id", dealId)
+    .eq("run_key", runKey)
+    .eq("status", "failed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ? { id: data.id, attempt_count: data.attempt_count ?? 1 } : null;
+}
+
+/** Transition a previously-failed mission row back to running for a retry. */
+async function resumeFailedMission(missionId: string, previousAttemptCount: number): Promise<void> {
+  const supabase = supabaseAdmin();
+  await supabase
+    .from("buddy_research_missions")
+    .update({
+      status: "running",
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      error_message: null,
+      attempt_count: previousAttemptCount + 1,
+    })
+    .eq("id", missionId);
+}
+
+async function loadPersistedSources(missionId: string): Promise<ResearchSource[]> {
+  const { data } = await supabaseAdmin()
+    .from("buddy_research_sources")
+    .select("*")
+    .eq("mission_id", missionId);
+  return (data ?? []) as ResearchSource[];
+}
+
+async function loadPersistedFacts(missionId: string): Promise<ResearchFact[]> {
+  const { data } = await supabaseAdmin()
+    .from("buddy_research_facts")
+    .select("*")
+    .eq("mission_id", missionId);
+  return (data ?? []) as ResearchFact[];
+}
+
+async function loadPersistedInferences(missionId: string): Promise<ResearchInference[]> {
+  const { data } = await supabaseAdmin()
+    .from("buddy_research_inferences")
+    .select("*")
+    .eq("mission_id", missionId);
+  return (data ?? []) as ResearchInference[];
+}
+
+/**
+ * Checkpoint state persisted for the "bie_enrichment" stage.
+ *
+ * Saved TWICE per BIE run: once immediately after runBuddyIntelligenceEngine()
+ * returns (gate_and_claims_persisted: false — so a per-thread result is
+ * durable even if a later step in the same block throws), and again after
+ * the hallucination guard / narrative upsert / claim ledger / completion
+ * gate all finish successfully (gate_and_claims_persisted: true — signals a
+ * resume can skip the whole block, not just reuse thread results).
+ */
+type BieCheckpointState = {
+  thread_results: Partial<Record<BIEThreadName, BIECachedThreadResult>>;
+  gate_and_claims_persisted: boolean;
+};
+
+async function saveBieCheckpoint(
+  missionId: string,
+  threadResults: Partial<Record<BIEThreadName, BIECachedThreadResult>>,
+  gateAndClaimsPersisted: boolean,
+): Promise<void> {
+  try {
+    const state: BieCheckpointState = { thread_results: threadResults, gate_and_claims_persisted: gateAndClaimsPersisted };
+    await saveCheckpoint(supabaseAdmin(), {
+      mission_id: missionId,
+      stage: "bie_enrichment",
+      state_json: state as unknown as Record<string, unknown>,
+    });
+  } catch (e: any) {
+    console.warn("[runMission] bie_enrichment checkpoint save failed (non-fatal):", e?.message);
+  }
+}
+
+async function loadLatestBieCheckpointState(missionId: string): Promise<BieCheckpointState | null> {
+  const { data } = await supabaseAdmin()
+    .from("buddy_research_checkpoints")
+    .select("state_json")
+    .eq("mission_id", missionId)
+    .eq("stage", "bie_enrichment")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.state_json as BieCheckpointState | undefined) ?? null;
+}
+
+/** Pull each thread's raw output out of a BIEResult, for checkpointing. */
+export function extractBieThreadResults(bieResult: BIEResult): Partial<Record<BIEThreadName, BIECachedThreadResult>> {
+  const ts = bieResult.thread_sources;
+  const tseg = bieResult.thread_segments;
+  const td = bieResult.thread_diagnostics;
+  return {
+    entity_lock: { result: bieResult.entity_lock, sourceUrls: ts.entity_lock, segments: tseg.entity_lock, diagnostic: td.entity_lock },
+    borrower: { result: bieResult.borrower, sourceUrls: ts.borrower, segments: tseg.borrower, diagnostic: td.borrower },
+    management: { result: bieResult.management, sourceUrls: ts.management, segments: tseg.management, diagnostic: td.management },
+    competitive: { result: bieResult.competitive, sourceUrls: ts.competitive, segments: tseg.competitive, diagnostic: td.competitive },
+    market: { result: bieResult.market, sourceUrls: ts.market, segments: tseg.market, diagnostic: td.market },
+    industry: { result: bieResult.industry, sourceUrls: ts.industry, segments: tseg.industry, diagnostic: td.industry },
+    transaction: { result: bieResult.transaction, sourceUrls: ts.transaction, segments: tseg.transaction, diagnostic: td.transaction },
+    // Synthesis has no external sources of its own (derived from the other threads).
+    synthesis: { result: bieResult.synthesis, sourceUrls: [], segments: [], diagnostic: td.synthesis },
+  };
+}
+
+/** Record a failure for every non-ok BIE thread ("learn" — round 4). */
+async function recordBieThreadFailures(missionId: string, missionType: MissionType, bieResult: BIEResult): Promise<void> {
+  const sb = supabaseAdmin();
+  for (const [threadName, diag] of Object.entries(bieResult.thread_diagnostics) as Array<
+    [string, BIEResult["thread_diagnostics"][keyof BIEResult["thread_diagnostics"]]]
+  >) {
+    // fallback_used and skipped are intentional, expected outcomes, not failures.
+    if (diag.ok || diag.error_type === "fallback_used" || diag.error_type === "skipped") continue;
+    const category = mapBIEErrorTypeToFailureCategory(diag.error_type, diag.http_status, diag.json_parse_error);
+    await recordFailure(sb, {
+      error: `${threadName}:${diag.error_type}${diag.json_parse_error ? ` — ${diag.json_parse_error}` : ""}`,
+      mission_id: missionId,
+      mission_type: missionType,
+      category,
+      auto_retryable: category === "rate_limited" || category === "source_unavailable" || category === "timeout",
+      cooldown_seconds: category === "rate_limited" ? 900 : undefined,
+    }).catch((e: any) => console.warn(`[runMission] recordFailure (BIE thread ${threadName}) failed (non-fatal):`, e?.message));
+  }
+}
+
+/** Save a small-summary checkpoint for a legacy-pipeline stage (best-effort). */
+async function checkpointStage(
+  missionId: string,
+  stage: CheckpointStage,
+  summary: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await saveCheckpoint(supabaseAdmin(), { mission_id: missionId, stage, state_json: summary });
+  } catch (e: any) {
+    console.warn(`[runMission] checkpoint save failed for stage ${stage} (non-fatal):`, e?.message);
+  }
+}
+
+/** Track a stage's execution in buddy_research_thread_runs (best-effort, never blocks the mission). */
+async function trackStage<T>(
+  missionId: string,
+  stage: CheckpointStage,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const sb = supabaseAdmin();
+  const threadRunId = await createThreadRun(sb, missionId, stage).catch(() => null);
+  try {
+    const result = await fn();
+    if (threadRunId) await completeThreadRun(sb, threadRunId, { items_processed: 1 }).catch(() => {});
+    return result;
+  } catch (err: unknown) {
+    if (threadRunId) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      await failThreadRun(sb, threadRunId, { message: error.message }).catch(() => {});
+    }
+    throw err;
+  }
+}
+
 /**
  * Execute a complete research mission.
  *
@@ -384,133 +582,238 @@ export async function runMission(
     }
   }
 
-  // 1. Create mission record
-  const createResult = await createMission(
-    dealId,
-    missionType,
-    subject,
-    depth,
-    opts?.bankId,
-    opts?.userId,
-    runKey
-  );
+  // Resumable missions (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round 4):
+  // checkExistingMission() above deliberately only matches
+  // queued/running/complete — a FAILED mission for this exact run_key is
+  // invisible to it, so a retry previously always created a brand-new
+  // mission and redid every stage from scratch, including a full duplicate
+  // 8-thread BIE pass even for threads that had already succeeded. When a
+  // failed mission for this run_key exists (and the caller didn't force a
+  // fresh run), reuse its id and checkpoints instead.
+  let missionId: string;
+  let resumeCompletedStages = new Set<CheckpointStage>();
 
-  if (createResult.duplicate && createResult.missionId) {
-    return {
-      ok: true,
-      mission_id: createResult.missionId,
-      sources_count: 0,
-      facts_count: 0,
-      inferences_count: 0,
-      narrative_sections: 0,
-      duration_ms: Date.now() - startTime,
-      duplicate: true,
-    };
+  const failedMission = opts?.forceRerun ? null : await findFailedMissionForRunKey(dealId, runKey);
+
+  if (failedMission) {
+    await resumeFailedMission(failedMission.id, failedMission.attempt_count);
+    missionId = failedMission.id;
+    const decision = await getResumeDecision(supabaseAdmin(), missionId);
+    resumeCompletedStages = new Set(decision.completedStages);
+    console.log(
+      `[runMission] Resuming previously-failed mission ${missionId} for run_key ${runKey} ` +
+      `(attempt ${failedMission.attempt_count + 1}); completed stages: [${decision.completedStages.join(", ") || "none"}]`,
+    );
+  } else {
+    // 1. Create mission record
+    const createResult = await createMission(
+      dealId,
+      missionType,
+      subject,
+      depth,
+      opts?.bankId,
+      opts?.userId,
+      runKey
+    );
+
+    if (createResult.duplicate && createResult.missionId) {
+      return {
+        ok: true,
+        mission_id: createResult.missionId,
+        sources_count: 0,
+        facts_count: 0,
+        inferences_count: 0,
+        narrative_sections: 0,
+        duration_ms: Date.now() - startTime,
+        duplicate: true,
+      };
+    }
+
+    if (!createResult.ok || !createResult.missionId) {
+      console.error("[runMission] createMission failed:", createResult.error);
+      return {
+        ok: false,
+        mission_id: "",
+        sources_count: 0,
+        facts_count: 0,
+        inferences_count: 0,
+        narrative_sections: 0,
+        error: createResult.error ?? "Failed to create mission",
+        duration_ms: Date.now() - startTime,
+      };
+    }
+
+    missionId = createResult.missionId;
   }
 
-  if (!createResult.ok || !createResult.missionId) {
-    console.error("[runMission] createMission failed:", createResult.error);
-    return {
-      ok: false,
-      mission_id: "",
-      sources_count: 0,
-      facts_count: 0,
-      inferences_count: 0,
-      narrative_sections: 0,
-      error: createResult.error ?? "Failed to create mission",
-      duration_ms: Date.now() - startTime,
-    };
-  }
-
-  const missionId = createResult.missionId;
+  const completed = resumeCompletedStages;
 
   try {
     // 2. Mark mission as running
     await updateMissionStatus(missionId, "running");
 
-    // 3. Discover sources
-    const discovered = discoverSources(missionType, subject);
-    if (discovered.length === 0) {
-      await updateMissionStatus(missionId, "failed", "No sources discovered for this subject");
-      return {
-        ok: false,
-        mission_id: missionId,
-        sources_count: 0,
-        facts_count: 0,
-        inferences_count: 0,
-        narrative_sections: 0,
-        error: "No sources discovered for this subject",
-        duration_ms: Date.now() - startTime,
-      };
-    }
-
-    // 4. Ingest sources
-    const ingestionResults = await ingestSources(missionId, discovered, {
-      concurrency: 3,
-      timeoutMs: 30_000,
-    });
-
-    // 5. Persist sources (even failed ones for audit)
-    const sourcesToPersist = ingestionResults.map((r) => ({
-      ...r.source!,
-      mission_id: missionId,
-    }));
-
-    const persistedSourcesResult = await persistSources(sourcesToPersist);
-    if (!persistedSourcesResult.ok) {
-      await updateMissionStatus(missionId, "failed", `Failed to persist sources: ${persistedSourcesResult.error}`);
-      return {
-        ok: false,
-        mission_id: missionId,
-        sources_count: 0,
-        facts_count: 0,
-        inferences_count: 0,
-        narrative_sections: 0,
-        error: persistedSourcesResult.error,
-        duration_ms: Date.now() - startTime,
-      };
-    }
-
-    const persistedSources = persistedSourcesResult.sources;
-
-    // 6. Extract facts from successfully ingested sources
-    const successfulSources = persistedSources.filter(
-      (s) => s.fetch_error === null && s.raw_content !== null
-    );
-
-    const extractedFacts = extractFactsFromSources(successfulSources);
-
-    // 7. Persist facts
-    const persistedFactsResult = await persistFacts(missionId, extractedFacts);
-    if (!persistedFactsResult.ok) {
-      await updateMissionStatus(missionId, "failed", `Failed to persist facts: ${persistedFactsResult.error}`);
-      return {
-        ok: false,
-        mission_id: missionId,
-        sources_count: persistedSources.length,
-        facts_count: 0,
-        inferences_count: 0,
-        narrative_sections: 0,
-        error: persistedFactsResult.error,
-        duration_ms: Date.now() - startTime,
-      };
-    }
-
-    const persistedFacts = persistedFactsResult.facts;
-
-    // 8. Derive inferences
-    let persistedInferences: ResearchInference[] = [];
-    if (hasEnoughFactsForInferences(persistedFacts)) {
-      const derivedInferences = deriveInferences(persistedFacts);
-
-      // 9. Persist inferences
-      const persistedInferencesResult = await persistInferences(missionId, derivedInferences.inferences);
-      if (!persistedInferencesResult.ok) {
-        // Non-fatal: we can still complete the mission without inferences
-        console.warn(`Failed to persist inferences: ${persistedInferencesResult.error}`);
-      } else {
-        persistedInferences = persistedInferencesResult.inferences;
+    // 3–5. Discover, ingest, persist sources — skipped + reloaded from the
+    // canonical table when a resumed mission already completed this stage
+    // (persistSources() is a plain insert, not an upsert, so re-running
+    // this stage on resume would silently duplicate every source row).
+    let persistedSources: ResearchSource[];
+    if (completed.has("source_ingestion")) {
+      persistedSources = await loadPersistedSources(missionId);
+      console.log(`[runMission] Resume: reused ${persistedSources.length} previously-ingested source(s), skipping discovery/ingestion`);
+    } else {
+      // 3. Discover sources
+      const discovered = discoverSources(missionType, subject);
+      if (discovered.length === 0) {
+        await updateMissionStatus(missionId, "failed", "No sources discovered for this subject");
+        return {
+          ok: false,
+          mission_id: missionId,
+          sources_count: 0,
+          facts_count: 0,
+          inferences_count: 0,
+          narrative_sections: 0,
+          error: "No sources discovered for this subject",
+          duration_ms: Date.now() - startTime,
+        };
       }
+      await checkpointStage(missionId, "source_discovery", { discovered_count: discovered.length });
+
+      // Cooldown filtering (round 4, "learn from failure"): skip domains
+      // that recently failed with a rate-limit/unavailable pattern instead
+      // of wasting another network call chasing a known-dead source. Still
+      // persisted below (as an explained skip, not a silent gap).
+      const cooldownDomains = await getActiveCooldownDomains(supabaseAdmin()).catch((e: any) => {
+        console.warn("[runMission] cooldown domain lookup failed (non-fatal, proceeding without it):", e?.message);
+        return new Set<string>();
+      });
+      const inCooldown = (url: string) => {
+        const host = safeHostname(url);
+        return !!host && cooldownDomains.has(host);
+      };
+      const toIngest = discovered.filter((d) => !inCooldown(d.url));
+      const cooldownSkipped = discovered.filter((d) => inCooldown(d.url));
+      if (cooldownSkipped.length > 0) {
+        console.log(
+          `[runMission] Skipping ${cooldownSkipped.length} source(s) whose domain is in cooldown from recent failures: ` +
+          cooldownSkipped.map((d) => safeHostname(d.url)).join(", "),
+        );
+      }
+
+      // 4. Ingest sources
+      const ingestionResults = await trackStage(missionId, "source_ingestion", () =>
+        ingestSources(missionId, toIngest, { concurrency: 3, timeoutMs: 30_000 }),
+      );
+      const cooldownResults = cooldownSkipped.map((d) => ({
+        ok: false,
+        source: {
+          id: "",
+          mission_id: missionId,
+          source_class: d.source_class,
+          source_name: d.source_name,
+          source_url: d.url,
+          raw_content: null as unknown,
+          content_type: null,
+          checksum: "",
+          retrieved_at: new Date().toISOString(),
+          http_status: null,
+          fetch_duration_ms: 0,
+          fetch_error: `domain_in_cooldown: ${safeHostname(d.url) ?? "unknown"}`,
+        } as ResearchSource,
+        error: "domain_in_cooldown",
+      }));
+
+      // 5. Persist sources (even failed ones for audit)
+      const sourcesToPersist = [...ingestionResults, ...cooldownResults].map((r) => ({
+        ...r.source!,
+        mission_id: missionId,
+      }));
+
+      const persistedSourcesResult = await persistSources(sourcesToPersist);
+      if (!persistedSourcesResult.ok) {
+        await updateMissionStatus(missionId, "failed", `Failed to persist sources: ${persistedSourcesResult.error}`);
+        return {
+          ok: false,
+          mission_id: missionId,
+          sources_count: 0,
+          facts_count: 0,
+          inferences_count: 0,
+          narrative_sections: 0,
+          error: persistedSourcesResult.error,
+          duration_ms: Date.now() - startTime,
+        };
+      }
+
+      persistedSources = persistedSourcesResult.sources;
+      await checkpointStage(missionId, "source_ingestion", { persisted_count: persistedSources.length });
+
+      // Learn from real ingestion failures (round 4) — the synthetic
+      // cooldown-skip entries above are already-known failures, not new ones.
+      for (const s of persistedSources) {
+        if (s.fetch_error && !s.fetch_error.startsWith("domain_in_cooldown:")) {
+          const category = classifyFailure(s.fetch_error);
+          await recordFailure(supabaseAdmin(), {
+            error: s.fetch_error,
+            mission_id: missionId,
+            mission_type: missionType,
+            source_url: s.source_url,
+            auto_retryable: category === "rate_limited" || category === "source_unavailable" || category === "timeout",
+            cooldown_seconds: category === "rate_limited" ? 900 : category === "source_unavailable" ? 300 : undefined,
+          }).catch((e: any) => console.warn("[runMission] recordFailure (source) failed (non-fatal):", e?.message));
+        }
+      }
+    }
+
+    // 6–7. Extract + persist facts — skipped + reloaded on resume for the
+    // same duplicate-insert reason as above.
+    let persistedFacts: ResearchFact[];
+    if (completed.has("fact_extraction")) {
+      persistedFacts = await loadPersistedFacts(missionId);
+      console.log(`[runMission] Resume: reused ${persistedFacts.length} previously-extracted fact(s)`);
+    } else {
+      const successfulSources = persistedSources.filter(
+        (s) => s.fetch_error === null && s.raw_content !== null
+      );
+
+      const extractedFacts = extractFactsFromSources(successfulSources);
+
+      const persistedFactsResult = await persistFacts(missionId, extractedFacts);
+      if (!persistedFactsResult.ok) {
+        await updateMissionStatus(missionId, "failed", `Failed to persist facts: ${persistedFactsResult.error}`);
+        return {
+          ok: false,
+          mission_id: missionId,
+          sources_count: persistedSources.length,
+          facts_count: 0,
+          inferences_count: 0,
+          narrative_sections: 0,
+          error: persistedFactsResult.error,
+          duration_ms: Date.now() - startTime,
+        };
+      }
+
+      persistedFacts = persistedFactsResult.facts;
+      await checkpointStage(missionId, "fact_extraction", { persisted_count: persistedFacts.length });
+    }
+
+    // 8–9. Derive + persist inferences — skipped + reloaded on resume.
+    let persistedInferences: ResearchInference[];
+    if (completed.has("inference_derivation")) {
+      persistedInferences = await loadPersistedInferences(missionId);
+      console.log(`[runMission] Resume: reused ${persistedInferences.length} previously-derived inference(s)`);
+    } else {
+      persistedInferences = [];
+      if (hasEnoughFactsForInferences(persistedFacts)) {
+        const derivedInferences = deriveInferences(persistedFacts);
+
+        const persistedInferencesResult = await persistInferences(missionId, derivedInferences.inferences);
+        if (!persistedInferencesResult.ok) {
+          // Non-fatal: we can still complete the mission without inferences
+          console.warn(`Failed to persist inferences: ${persistedInferencesResult.error}`);
+        } else {
+          persistedInferences = persistedInferencesResult.inferences;
+        }
+      }
+      await checkpointStage(missionId, "inference_derivation", { persisted_count: persistedInferences.length });
     }
 
     // 9b. Verification + provenance layers (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md
@@ -554,35 +857,50 @@ export async function runMission(
       console.warn("[runMission] provenance layer failed (non-fatal):", provErr?.message);
     }
 
-    // 10. Compile narrative
-    const narrativeResult = compileNarrative(persistedFacts, persistedInferences, persistedSources);
+    // 10–11. Compile + persist legacy narrative — skipped on resume (mirrors
+    // the other stages: persistNarrative() upserts by mission_id so it's
+    // technically idempotent, but recompiling from already-persisted facts/
+    // inferences is pure waste once this stage is known complete).
+    let narrativeSectionsCount = 0;
+    if (completed.has("narrative_compilation")) {
+      const { data: existingNarrative } = await supabaseAdmin()
+        .from("buddy_research_narratives")
+        .select("sections")
+        .eq("mission_id", missionId)
+        .maybeSingle();
+      narrativeSectionsCount = Array.isArray(existingNarrative?.sections) ? existingNarrative.sections.length : 0;
+      console.log(`[runMission] Resume: legacy narrative already compiled (${narrativeSectionsCount} section(s)), skipping recompile`);
+    } else {
+      const narrativeResult = compileNarrative(persistedFacts, persistedInferences, persistedSources);
+      narrativeSectionsCount = narrativeResult.sections.length;
 
-    // 11. Validate and persist narrative
-    if (narrativeResult.ok && narrativeResult.sections.length > 0) {
-      // Phase 74: validate narrative against output contract (non-fatal)
-      try {
-        const { validateResearchNarrative } = await import(
-          "@/lib/agentWorkflows/contracts/researchNarrative.contract"
-        );
-        const validation = validateResearchNarrative({
-          sections: narrativeResult.sections,
-          version: 1,
-        });
-        if (!validation.ok) {
-          console.warn(
-            `[runMission] narrative contract validation ${validation.severity}:`,
-            validation.errors?.issues?.map((i: any) => i.message).join("; "),
+      if (narrativeResult.ok && narrativeResult.sections.length > 0) {
+        // Phase 74: validate narrative against output contract (non-fatal)
+        try {
+          const { validateResearchNarrative } = await import(
+            "@/lib/agentWorkflows/contracts/researchNarrative.contract"
           );
+          const validation = validateResearchNarrative({
+            sections: narrativeResult.sections,
+            version: 1,
+          });
+          if (!validation.ok) {
+            console.warn(
+              `[runMission] narrative contract validation ${validation.severity}:`,
+              validation.errors?.issues?.map((i: any) => i.message).join("; "),
+            );
+          }
+        } catch {
+          // Contract validation must never block mission
         }
-      } catch {
-        // Contract validation must never block mission
-      }
 
-      const narrativePersistResult = await persistNarrative(missionId, narrativeResult.sections);
-      if (!narrativePersistResult.ok) {
-        // Non-fatal: mission is still successful
-        console.warn(`Failed to persist narrative: ${narrativePersistResult.error}`);
+        const narrativePersistResult = await persistNarrative(missionId, narrativeResult.sections);
+        if (!narrativePersistResult.ok) {
+          // Non-fatal: mission is still successful
+          console.warn(`Failed to persist narrative: ${narrativePersistResult.error}`);
+        }
       }
+      await checkpointStage(missionId, "narrative_compilation", { sections_count: narrativeSectionsCount });
     }
 
     // 12. Mark mission as complete
@@ -597,7 +915,7 @@ export async function runMission(
     // signal so it's queryable/visible without inventing a new status value
     // (the DB CHECK constraint on `status` doesn't allow one without a
     // migration, which this fix deliberately avoids).
-    const hadNoOutput = persistedFacts.length === 0 && narrativeResult.sections.length === 0;
+    const hadNoOutput = persistedFacts.length === 0 && narrativeSectionsCount === 0;
     await updateMissionStatus(
       missionId,
       "complete",
@@ -607,6 +925,16 @@ export async function runMission(
     );
 
     // 12b. Buddy Intelligence Engine — runs after mission is marked complete (non-fatal)
+    //
+    // Resumable missions (round 4): if a previous attempt already ran BIE to
+    // full completion — hallucination guard, narrative upsert, claim ledger,
+    // completion gate all persisted — skip this entire block on a resumed
+    // mission. Nothing downstream (gap_analysis, flag_bridging) reads
+    // bieResult, so there's nothing lost by not reconstructing it.
+    const priorBieCheckpoint = completed.has("bie_enrichment") ? await loadLatestBieCheckpointState(missionId) : null;
+    if (priorBieCheckpoint?.gate_and_claims_persisted) {
+      console.log("[runMission] Resume: BIE + trust layer already fully persisted, skipping bie_enrichment");
+    } else {
     try {
       // Phase 80: Pre-research subject lock — validate entity is sufficiently identified
       const { validateSubjectLock } = await import("./subjectLock");
@@ -683,7 +1011,20 @@ export async function runMission(
           has_banker_certified_anchor: subject.has_banker_certified_anchor ?? false,
         };
 
-        const bieResult = await runBuddyIntelligenceEngine(bieInput);
+        // Resumable BIE (round 4): reuse whichever threads already succeeded
+        // in a previous attempt (per priorBieCheckpoint's raw per-thread
+        // output) instead of re-running all 8 Gemini threads from scratch.
+        const bieResult = await runBuddyIntelligenceEngine(bieInput, {
+          previousThreadResults: priorBieCheckpoint?.thread_results,
+        });
+
+        // Checkpoint the raw per-thread output immediately — before anything
+        // else below has a chance to throw — so a thread that succeeded this
+        // attempt is never lost even if a later step (narrative upsert,
+        // claim ledger) fails. gate_and_claims_persisted is set true only
+        // after everything below finishes without throwing.
+        await saveBieCheckpoint(missionId, extractBieThreadResults(bieResult), false);
+        await recordBieThreadFailures(missionId, missionType, bieResult);
 
         // SPEC-BIE-...-MEGA-1 Phase 1: persist per-thread diagnostics on the
         // mission row unconditionally — especially when research_quality is
@@ -1003,6 +1344,13 @@ export async function runMission(
           } catch {
             // Hook is best-effort.
           }
+
+          // Everything below the raw-thread-result checkpoint above
+          // (hallucination guard, narrative upsert, claim ledger, completion
+          // gate, committee tasks) finished without throwing — mark this
+          // stage fully done so a resumed retry skips the whole block
+          // instead of just reusing thread results.
+          await saveBieCheckpoint(missionId, extractBieThreadResults(bieResult), true);
         } else {
           console.log("[runMission] BIE skipped: minimal quality (no usable company name or NAICS)");
         }
@@ -1020,6 +1368,7 @@ export async function runMission(
         `Buddy Intelligence Engine threw before completion: ${bieErr?.message ?? "unknown error"}`,
       );
     }
+    } // end resumable-mission bie_enrichment skip guard
 
     // 12c. Trigger gap recompute after BIE completes (non-fatal)
     try {
@@ -1052,7 +1401,7 @@ export async function runMission(
       sources_count: persistedSources.length,
       facts_count: persistedFacts.length,
       inferences_count: persistedInferences.length,
-      narrative_sections: narrativeResult.sections.length,
+      narrative_sections: narrativeSectionsCount,
       duration_ms: Date.now() - startTime,
     };
   } catch (error) {

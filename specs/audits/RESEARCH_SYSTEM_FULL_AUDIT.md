@@ -192,6 +192,141 @@ single pre-existing unrelated failure (`src/lib/deals/__tests__/lifecycleInvaria
 on the unmodified branch, unrelated to the research system). Research-specific
 suite: 586/586 pass.
 
+## Round 4 — resumable missions + failure learning (2026-07-13)
+
+User request: "the mission should be able to continue and more importantly
+learn from the failure so that it does not happen again, plus be able to
+continue." This is exactly the gap rounds 1–2 identified and deliberately
+left open: `checkpoint.ts`, `threadRuns.ts`, `failureLibrary.ts`, and
+`brieRuntime.ts` (Phase 66A's "Buddy Resumable Intelligence Engine") existed
+fully built and tested but had **zero production callers** — a failed
+mission always restarted from scratch (re-fetching every source, re-running
+all 8 BIE Gemini threads even the ones that had already succeeded) and
+nothing about *why* it failed was ever recorded. The blocker at the time:
+wiring this in for real meant turning `runMission.ts`'s straight-line
+pipeline into a resumable stage machine — a genuine architectural change.
+That's what this round does.
+
+**Implemented:**
+- **Mission-row reuse on retry.** `checkExistingMission()` only ever matched
+  `queued`/`running`/`complete` for a `run_key` — a `failed` mission was
+  invisible to it, so every retry created a brand-new mission row. Added
+  `findFailedMissionForRunKey()`/`resumeFailedMission()`: a retry of a
+  previously-failed `run_key` now reuses that mission's id (`status:
+  failed → running`, `attempt_count` incremented) instead of starting over,
+  unless the caller passes `forceRerun`.
+- **Real per-stage checkpoint/resume**, using `checkpoint.ts`'s existing
+  `saveCheckpoint()`/`getResumeDecision()` and `CheckpointStage` enum (which
+  already mapped 1:1 onto `runMission.ts`'s actual steps —
+  `source_discovery`/`source_ingestion`/`fact_extraction`/
+  `inference_derivation`/`narrative_compilation`/`bie_enrichment`/
+  `gap_analysis`/`flag_bridging`). On resume, a stage already checkpointed
+  as complete is skipped and its output reloaded from the canonical table
+  (`buddy_research_sources`/`facts`/`inferences`) instead of recomputed —
+  necessary for *correctness*, not just speed: `persistSources`/
+  `persistFacts`/`persistInferences` are plain inserts, not upserts, so
+  re-running an already-completed stage on resume would have silently
+  duplicated every row.
+- **BIE is now resumable per-thread**, not just skippable as a whole unit.
+  `runBuddyIntelligenceEngine()` gained an optional `previousThreadResults`
+  param and a new pure `bieThreadReuse.ts` (`planBIEThreadReuse`) encoding
+  the actual dependency graph between the 8 threads (`entity_lock` has no
+  deps; `borrower`/`management`/`competitive` depend on `entity_lock`;
+  `market`/`industry` are independent; `transaction` depends on all five;
+  `synthesis` depends on everything including `transaction`) — a thread is
+  only reused if it previously succeeded **and** every thread whose output
+  feeds its prompt is also being reused this round, never a thread whose
+  upstream input just changed. `runMission.ts` checkpoints BIE's raw
+  per-thread output (`extractBieThreadResults()`) immediately after every
+  run — before the hallucination guard/narrative-upsert/claim-ledger/gate
+  steps that follow have a chance to throw — and again with a
+  `gate_and_claims_persisted: true` flag once that entire block finishes,
+  so a resume can tell "reuse some threads" from "skip the whole stage,
+  it's already fully done." This also happens to be the only place BIE's
+  raw structured output survives at all — everything else downstream only
+  ever sees merged, hallucination-guard-scrubbed prose.
+- **In-process thread retry** — the fastest, most common "continue" win.
+  `isRetryableBIEDiagnostic()` classifies which failure categories are
+  worth one immediate same-invocation retry (`network_error`,
+  `empty_candidate`/`empty_text`, `http_error` with 429/408/5xx/no status)
+  versus which aren't (`safety_block`, `json_parse_error` — a same-prompt
+  retry is unlikely to change a content-policy refusal or a
+  systematically malformed response that already went through a repair
+  pass). A single flaky Gemini call no longer permanently degrades that
+  thread for the whole mission.
+- **Failure library wired for real** — the "learn" half. `recordFailure()`
+  is now called for every genuine source-fetch failure (with domain, for
+  cooldown tracking) and every non-ok BIE thread diagnostic (via new
+  `mapBIEErrorTypeToFailureCategory()`, which uses the thread diagnostic's
+  already-structured `error_type`/`http_status` instead of re-deriving a
+  category from a raw message string — strictly more precise).
+  `getActiveCooldownDomains()` (new, one bulk query) is consulted before
+  source ingestion: a domain that recently failed with a rate-limit/
+  unavailable pattern is skipped proactively — still persisted as an
+  explained skip (`fetch_error: "domain_in_cooldown: <domain>"`), just
+  without wasting another network call repeating a failure the system
+  already knows about.
+- **`brieRuntime.ts` deleted.** Its role (idempotency + checkpoint
+  orchestration + retry loop wrapping an injected `runMission`) is now
+  implemented for real, directly in `runMission.ts` — the same pattern
+  already used for idempotency and governance in earlier rounds, and the
+  approach rounds 1–2 explicitly favored over reviving this file's more
+  complex wrapper design. It had zero production callers before and its
+  logic is now fully duplicated, not just unused, so keeping it would be
+  pure clutter. `phase66aGuard.test.ts`'s Guard 4 ("BRIE wraps runMission")
+  tested an architecture that no longer exists — replaced with an
+  equivalent guard on the real wiring (`saveCheckpoint`/`getResumeDecision`/
+  `recordFailure`/`findFailedMissionForRunKey` actually present in
+  `runMission.ts`). `checkpoint.ts`, `threadRuns.ts`, `failureLibrary.ts`'s
+  "NOT WIRED" banners updated to describe their real call sites;
+  `stages/index.ts` (a metadata-only stage registry) got one added since it
+  remains genuinely unused — nothing needed its `dependsOn`/`resumable`
+  metadata once resume was implemented directly against
+  `getResumeDecision()`'s own `completedStages` list.
+
+**Scope decisions, stated rather than silently narrowed:**
+- `threadRuns.ts`'s `createThreadRun`/`completeThreadRun`/`failThreadRun`
+  are wired for the `source_ingestion` stage only (the genuinely
+  failure-prone, network-bound one where timing/error data has real value).
+  The other legacy-pipeline stages (`fact_extraction`,
+  `inference_derivation`, `narrative_compilation`) have early-return error
+  paths inline with the mission's own control flow; wrapping them would
+  have required restructuring those returns into thrown exceptions purely
+  for observability on stages that are fast, synchronous, and already
+  checkpointed with a summary. Per-BIE-thread `threadRuns` rows were
+  deliberately not added either — `buddyIntelligenceEngine.ts` has no
+  Supabase dependency today (by design, kept that way in this round too),
+  and `thread_diagnostics` already gives equivalent-or-richer per-thread
+  detail without adding one.
+- Failure-library lookups (`getKnownFailures`) are consulted for the
+  source-domain cooldown case, but the in-process BIE thread retry (§ above)
+  does **not** consult failure history before its one immediate retry —
+  a single retry happening milliseconds after the first attempt, within the
+  same mission, can't yet have "many recent occurrences" to check against;
+  that signal only becomes meaningful across many past missions, which is
+  exactly the cross-invocation cooldown case that *is* wired.
+- Claim-ledger persistence (`persistClaimLedger`) is not fully idempotent —
+  it inserts rows rather than upserting by a natural key. In the narrow
+  case where it partially inserts rows and then genuinely throws (a JS
+  exception, not a normal Postgrest error return, which it already handles
+  gracefully) before the `bie_enrichment` stage's completion checkpoint is
+  saved, a resumed retry could re-insert those rows. Judged low-probability
+  and out of scope for this round; making it upsert-safe is a claim-ledger
+  change unrelated to resumability and would need its own review.
+
+Regression coverage added: `bieThreadReuse.test.ts` (6 cases on the
+dependency-aware reuse planner — the highest-risk logic in this round),
+`bieRetryPredicate.test.ts` (5 cases on which failure categories qualify
+for in-process retry), `extractBieThreadResults.test.ts` (3 cases on the
+BIEResult → checkpoint-cache mapping), `failureLibraryCooldown.test.ts`
+(5 cases on cooldown-window math and BIE error-category mapping), plus
+`phase66aGuard.test.ts`'s rewritten Guard 4.
+
+Full repo test suite after round 4: 11226/11236 pass (9 skipped), same
+single pre-existing unrelated failure as every prior round (confirmed via
+the same file/test name, `lifecycleInvariants.test.ts`'s "banker upload
+ignites deal"). Research-specific suite: 606/606 pass.
+
 ---
 **Scope**: The entire research system — mission orchestration (`runMission.ts`), the
 Buddy Intelligence Engine (`buddyIntelligenceEngine.ts`, 8-thread Gemini-grounded

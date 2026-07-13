@@ -140,31 +140,45 @@ describe("Guard 3: No duplicate ratio logic", () => {
 });
 
 // ============================================================================
-// Guard 4: BRIE wraps, does NOT replace
+// Guard 4: resumable missions + failure learning are wired into runMission.ts
+// directly (superseded design — see below)
 // ============================================================================
+//
+// The original Phase 66A design put checkpoint/resume/retry orchestration in
+// a separate brieRuntime.ts wrapper that took runMission as an injected
+// dependency (kept decoupled from runMission's internals). That module was
+// deleted in specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 4: it never
+// had a production caller, its "resume" path was actually broken (a type
+// mismatch meant every resume silently ran from scratch), and — once
+// resumability was actually needed — the simpler path was wiring checkpoint/
+// resume/failure-library calls directly into runMission.ts itself, the same
+// pattern already used for idempotency and governance in earlier rounds.
+// This guard now checks that the *real* wiring is present, not the
+// superseded wrapper design.
 
-describe("Guard 4: BRIE wraps runMission", () => {
-  const briePath = join(ROOT, "src/lib/research/brieRuntime.ts");
+describe("Guard 4: resumable missions wired directly into runMission.ts", () => {
+  const runMissionPath = join(ROOT, "src/lib/research/runMission.ts");
 
-  it("BRIE runtime exists", () => {
-    assert.ok(existsSync(briePath));
+  it("brieRuntime.ts no longer exists (superseded, fully redundant)", () => {
+    assert.ok(!existsSync(join(ROOT, "src/lib/research/brieRuntime.ts")));
   });
 
-  it("BRIE accepts runMission as injected dependency", () => {
-    const code = readFileSync(briePath, "utf-8");
-    assert.ok(
-      code.includes("runMission:"),
-      "executeBrieMission must accept runMission as an injected function parameter",
-    );
+  it("runMission.ts saves and resumes from real checkpoints", () => {
+    const code = readFileSync(runMissionPath, "utf-8");
+    assert.match(code, /saveCheckpoint/);
+    assert.match(code, /getResumeDecision/);
   });
 
-  it("BRIE does NOT import runMission directly", () => {
-    const code = readFileSync(briePath, "utf-8");
-    // Should NOT have: import { runMission } from "./runMission"
-    assert.ok(
-      !code.includes('from "./runMission"'),
-      "BRIE must NOT directly import runMission — it should be injected",
-    );
+  it("runMission.ts records failures for real, per-source and per-BIE-thread", () => {
+    const code = readFileSync(runMissionPath, "utf-8");
+    assert.match(code, /recordFailure/);
+    assert.match(code, /getActiveCooldownDomains/);
+  });
+
+  it("runMission.ts reuses a previously-failed mission's id instead of always creating a new one", () => {
+    const code = readFileSync(runMissionPath, "utf-8");
+    assert.match(code, /findFailedMissionForRunKey/);
+    assert.match(code, /resumeFailedMission/);
   });
 });
 

@@ -5,13 +5,16 @@
  * Checkpoints are saved per-stage so a failed mission can resume
  * from the last successful stage instead of starting over.
  *
- * Live in production: findStaleMissions() — used by
- * src/lib/research/staleMissionSweep.ts (wired into the worker-tick cron).
- *
- * ⚠️ NOT WIRED — saveCheckpoint()/loadLatestCheckpoint()/getResumeDecision()/
- * sendHeartbeat() are called only by brieRuntime.ts, which itself has zero
- * production callers. See brieRuntime.ts's top-of-file note and
- * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md for the full writeup.
+ * Wired into production (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round
+ * 4, resumable missions + failure learning): `runMission.ts` calls
+ * `saveCheckpoint()` after every real pipeline stage and `getResumeDecision()`
+ * on mission start to decide which stages to skip when resuming a
+ * previously-failed mission for the same run_key. `findStaleMissions()` is
+ * separately used by `staleMissionSweep.ts` (wired into the worker-tick
+ * cron). `sendHeartbeat()`/`loadLatestCheckpoint()` remain available but are
+ * not yet called from the live path — heartbeat writes are cheap to add
+ * later if stale-mid-stage detection needs finer granularity than
+ * `staleMissionSweep.ts`'s existing started_at fallback provides.
  */
 
 import "server-only";
