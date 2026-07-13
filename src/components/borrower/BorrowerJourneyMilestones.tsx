@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { Icon } from "@/components/ui/Icon";
 import { cn } from "@/lib/cn";
 import type {
@@ -24,19 +25,19 @@ const STATUS_STYLES: Record<
   },
   current: {
     dot: "border-amber-300 bg-amber-50 text-amber-800 ring-4 ring-amber-100",
-    label: "text-stone-950 font-semibold",
-    connector: "bg-stone-200",
+    label: "text-slate-900 font-semibold",
+    connector: "bg-slate-200",
   },
   blocked: {
     dot: "border-rose-300 bg-rose-50 text-rose-700 ring-4 ring-rose-100",
     label: "text-rose-800 font-semibold",
-    connector: "bg-stone-200",
+    connector: "bg-slate-200",
     iconName: "error",
   },
   upcoming: {
-    dot: "border-stone-200 bg-stone-50 text-stone-400",
-    label: "text-stone-500",
-    connector: "bg-stone-200",
+    dot: "border-slate-200 bg-slate-50 text-slate-400",
+    label: "text-slate-500",
+    connector: "bg-slate-200",
   },
 };
 
@@ -48,8 +49,12 @@ function MilestoneDot({
   index: number;
 }) {
   const styles = STATUS_STYLES[status];
+  const isCompleted = status === "completed";
   return (
-    <div
+    <motion.div
+      initial={isCompleted ? { scale: 0.5, opacity: 0 } : false}
+      animate={isCompleted ? { scale: 1, opacity: 1 } : undefined}
+      transition={{ type: "spring", stiffness: 400, damping: 22 }}
       className={cn(
         "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all",
         styles.dot,
@@ -60,7 +65,7 @@ function MilestoneDot({
       ) : (
         <span>{index + 1}</span>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -95,11 +100,11 @@ export function BorrowerJourneyMilestones({
   milestones: BorrowerJourneyMilestone[];
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
         Your funding journey
       </div>
-      <h2 className="mt-2 text-lg font-semibold text-stone-950 sm:text-xl">
+      <h2 className="mt-2 font-heading text-lg font-bold text-slate-900 sm:text-xl">
         Milestones toward lender submission
       </h2>
 
@@ -164,7 +169,7 @@ export function BorrowerJourneyMilestones({
                 <div className={cn("text-sm leading-tight", styles.label)}>
                   {m.label}
                 </div>
-                <div className="mt-0.5 text-xs leading-5 text-stone-500">
+                <div className="mt-0.5 text-xs leading-5 text-slate-500">
                   {m.description}
                 </div>
                 <StatusTag status={m.status} />

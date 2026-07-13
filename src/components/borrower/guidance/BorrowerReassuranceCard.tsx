@@ -15,10 +15,10 @@ const TONE_STYLES: Record<
     iconColor: "text-emerald-600",
   },
   neutral: {
-    border: "border-stone-200",
-    bg: "bg-stone-50/40",
+    border: "border-slate-200",
+    bg: "bg-slate-50/40",
     icon: "pending",
-    iconColor: "text-stone-500",
+    iconColor: "text-slate-500",
   },
   attention: {
     border: "border-amber-200/60",
@@ -47,11 +47,11 @@ export function BorrowerReassuranceCard({
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/80">
           <Icon name={style.icon} className={cn("h-4 w-4", style.iconColor)} />
         </div>
-        <h3 className="text-sm font-semibold text-stone-900">
+        <h3 className="font-heading text-sm font-semibold text-slate-900">
           Package Status
         </h3>
       </div>
-      <p className="mt-3 text-sm leading-6 text-stone-700">
+      <p className="mt-3 text-sm leading-6 text-slate-700">
         {reassurance.message}
       </p>
     </section>

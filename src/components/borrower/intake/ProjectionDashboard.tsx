@@ -75,39 +75,39 @@ function DSCRGauge({ dscr, threshold = 1.25 }: { dscr: number; threshold?: numbe
   const passes = dscr >= threshold;
   const color =
     dscr >= threshold * 1.5
-      ? "bg-green-500"
+      ? "bg-emerald-500"
       : dscr >= threshold
         ? "bg-amber-500"
-        : "bg-red-500";
+        : "bg-rose-500";
 
   return (
-    <div className="border border-neutral-800 rounded-xl p-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
       <div className="flex justify-between items-baseline mb-2">
-        <span className="text-sm font-medium text-gray-300">
+        <span className="text-sm font-medium text-slate-600">
           Debt Service Coverage
         </span>
         <span
-          className={`text-2xl font-bold ${passes ? "text-green-400" : "text-red-400"}`}
+          className={`text-2xl font-bold ${passes ? "text-emerald-600" : "text-rose-600"}`}
         >
           {dscr >= 99 ? "—" : `${dscr.toFixed(2)}x`}
         </span>
       </div>
-      <div className="relative h-3 rounded-full bg-neutral-800 overflow-hidden">
+      <div className="relative h-3 rounded-full bg-slate-200 overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 rounded-full ${color} transition-all`}
           style={{ width: `${pct}%` }}
         />
         <div
-          className="absolute inset-y-0 w-0.5 bg-white/60"
+          className="absolute inset-y-0 w-0.5 bg-slate-700/60"
           style={{ left: `${thresholdPct}%` }}
         />
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-600">0x</span>
-        <span className="text-[10px] text-gray-500">SBA min: {threshold}x</span>
-        <span className="text-[10px] text-gray-600">{max.toFixed(1)}x</span>
+        <span className="text-[10px] text-slate-400">0x</span>
+        <span className="text-[10px] text-slate-500">SBA min: {threshold}x</span>
+        <span className="text-[10px] text-slate-400">{max.toFixed(1)}x</span>
       </div>
-      <p className="text-xs mt-2 text-gray-400">
+      <p className="text-xs mt-2 text-slate-500">
         {dscr >= 99
           ? "No debt service — DSCR not applicable"
           : passes
@@ -142,14 +142,14 @@ function IncomeTable({
   const headers = ["Actual", "Year 1", "Year 2", "Year 3"];
 
   return (
-    <div className="border border-neutral-800 rounded-xl p-4 overflow-x-auto">
-      <h3 className="text-sm font-medium text-gray-300 mb-3">Income Summary</h3>
+    <div className="bg-white border border-slate-200 rounded-xl p-4 overflow-x-auto">
+      <h3 className="text-sm font-medium text-slate-600 mb-3">Income Summary</h3>
       <table className="w-full text-xs">
         <thead>
           <tr>
-            <th className="text-left py-1 text-gray-500 font-normal w-32"></th>
+            <th className="text-left py-1 text-slate-400 font-normal w-32"></th>
             {headers.map((h) => (
-              <th key={h} className="text-right py-1 text-gray-500 font-normal">
+              <th key={h} className="text-right py-1 text-slate-400 font-normal">
                 {h}
               </th>
             ))}
@@ -159,9 +159,9 @@ function IncomeTable({
           {INCOME_ROWS.map((row) => (
             <tr
               key={row.key}
-              className={row.key === "dscr" ? "border-t border-neutral-800" : ""}
+              className={row.key === "dscr" ? "border-t border-slate-200" : ""}
             >
-              <td className="py-1.5 text-gray-400">{row.label}</td>
+              <td className="py-1.5 text-slate-500">{row.label}</td>
               {columns.map((col, i) => {
                 const raw = col[row.key] as number | undefined;
                 const text =
@@ -175,7 +175,7 @@ function IncomeTable({
                 return (
                   <td
                     key={i}
-                    className="text-right py-1.5 text-gray-300 font-mono"
+                    className="text-right py-1.5 text-slate-700 font-mono"
                   >
                     {text}
                   </td>
@@ -214,26 +214,27 @@ function CashFlowChart({ monthly }: { monthly: MonthlyProjection[] }) {
   }));
 
   return (
-    <div className="border border-neutral-800 rounded-xl p-4">
-      <h3 className="text-sm font-medium text-gray-300 mb-3">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 className="text-sm font-medium text-slate-600 mb-3">
         Monthly Cash Flow — Year 1
       </h3>
       <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-            <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#888" }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#64748b" }} />
             <YAxis
-              tick={{ fontSize: 10, fill: "#888" }}
+              tick={{ fontSize: 10, fill: "#64748b" }}
               tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}K`}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#1a1a2e",
-                border: "1px solid #333",
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
                 borderRadius: 8,
+                color: "#0f172a",
               }}
-              labelStyle={{ color: "#999" }}
+              labelStyle={{ color: "#334155" }}
               formatter={(value: number | undefined) => [
                 `$${(value ?? 0).toLocaleString()}`,
                 "",
@@ -241,14 +242,14 @@ function CashFlowChart({ monthly }: { monthly: MonthlyProjection[] }) {
             />
             <Bar
               dataKey="netCash"
-              fill="#3b82f6"
+              fill="#1c8de0"
               radius={[4, 4, 0, 0]}
               name="Monthly Net"
             />
             <Line
               type="monotone"
               dataKey="cumulative"
-              stroke="#10b981"
+              stroke="#4db8f0"
               strokeWidth={2}
               dot={false}
               name="Cumulative"
@@ -276,22 +277,22 @@ function BreakEvenAndScenarios({
   const downside = scenarios.find((s) => s.name === "downside");
 
   return (
-    <div className="border border-neutral-800 rounded-xl p-4 space-y-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
       <div>
-        <h3 className="text-sm font-medium text-gray-300">
+        <h3 className="text-sm font-medium text-slate-600">
           Break-Even Analysis
         </h3>
         <div className="mt-2 grid grid-cols-2 gap-3">
-          <div className="bg-neutral-800/50 rounded-lg p-3">
-            <p className="text-[10px] text-gray-500">Break-even Revenue</p>
-            <p className="text-lg font-bold text-gray-200">
+          <div className="bg-slate-50 rounded-lg p-3">
+            <p className="text-[10px] text-slate-500">Break-even Revenue</p>
+            <p className="text-lg font-bold text-slate-800">
               {fmtCurrency(breakEven.breakEvenRevenue)}
             </p>
           </div>
-          <div className="bg-neutral-800/50 rounded-lg p-3">
-            <p className="text-[10px] text-gray-500">Safety Margin</p>
+          <div className="bg-slate-50 rounded-lg p-3">
+            <p className="text-[10px] text-slate-500">Safety Margin</p>
             <p
-              className={`text-lg font-bold ${breakEven.marginOfSafetyPct >= 0.1 ? "text-green-400" : "text-red-400"}`}
+              className={`text-lg font-bold ${breakEven.marginOfSafetyPct >= 0.1 ? "text-emerald-600" : "text-rose-600"}`}
             >
               {(breakEven.marginOfSafetyPct * 100).toFixed(1)}%
             </p>
@@ -300,7 +301,7 @@ function BreakEvenAndScenarios({
       </div>
 
       <div>
-        <h3 className="text-sm font-medium text-gray-300 mb-2">
+        <h3 className="text-sm font-medium text-slate-600 mb-2">
           Scenario Analysis
         </h3>
         <div className="flex gap-1 mb-3">
@@ -311,8 +312,8 @@ function BreakEvenAndScenarios({
               onClick={() => setActiveScenario(s.name)}
               className={`flex-1 py-1.5 text-xs rounded-md transition ${
                 s.name === activeScenario
-                  ? "bg-blue-600 text-white font-medium"
-                  : "bg-neutral-800 text-neutral-500 hover:text-neutral-300"
+                  ? "bg-brand-blue-500 text-white font-medium"
+                  : "bg-slate-100 text-slate-500 hover:text-slate-700"
               }`}
             >
               {s.label}
@@ -327,7 +328,7 @@ function BreakEvenAndScenarios({
           </div>
         )}
         {downside && (
-          <p className="text-xs text-gray-500 mt-2">
+          <p className="text-xs text-slate-500 mt-2">
             {downside.passesSBAThreshold
               ? "Even with 15% revenue decline, DSCR stays above SBA threshold"
               : "A 15% revenue decline would put DSCR below SBA threshold"}
@@ -342,13 +343,13 @@ function ScenarioDscrCell({ label, value }: { label: string; value: number }) {
   const text = value >= 99 ? "—" : `${value.toFixed(2)}x`;
   const color =
     value >= 99
-      ? "text-gray-300"
+      ? "text-slate-600"
       : value >= 1.25
-        ? "text-green-400"
-        : "text-red-400";
+        ? "text-emerald-600"
+        : "text-rose-600";
   return (
-    <div className="bg-neutral-800/50 rounded-lg p-2">
-      <p className="text-[10px] text-gray-500">{label}</p>
+    <div className="bg-slate-50 rounded-lg p-2">
+      <p className="text-[10px] text-slate-500">{label}</p>
       <p className={`text-sm font-bold ${color}`}>{text}</p>
     </div>
   );
@@ -407,8 +408,8 @@ export function ProjectionDashboard({ token, assumptions }: Props) {
   if (!projections) return null;
 
   return (
-    <div className="space-y-3 mt-4 pt-4 border-t border-neutral-800">
-      <h3 className="text-sm font-medium text-gray-400">Live Projections</h3>
+    <div className="space-y-3 mt-4 pt-4 border-t border-slate-200">
+      <h3 className="text-sm font-medium text-slate-500">Live Projections</h3>
       <DSCRGauge dscr={projections.annual[0]?.dscr ?? 0} />
       <IncomeTable
         baseYear={projections.baseYear}

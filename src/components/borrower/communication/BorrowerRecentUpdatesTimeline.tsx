@@ -84,16 +84,16 @@ export function BorrowerRecentUpdatesTimeline({
   updates: BorrowerCommunicationUpdate[];
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-stone-100">
-          <Icon name="history" className="h-4 w-4 text-stone-700" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100">
+          <Icon name="history" className="h-4 w-4 text-slate-700" />
         </div>
-        <h3 className="text-sm font-semibold text-stone-900">Recent updates</h3>
+        <h3 className="font-heading text-sm font-semibold text-slate-900">Recent updates</h3>
       </div>
 
       {updates.length === 0 ? (
-        <p className="mt-3 text-xs text-stone-600">
+        <p className="mt-3 text-xs text-slate-600">
           Buddy will show recent updates here as your package moves forward.
         </p>
       ) : (
@@ -119,17 +119,17 @@ export function BorrowerRecentUpdatesTimeline({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-sm font-semibold text-stone-900">
+                    <span className="text-sm font-semibold text-slate-900">
                       {update.label}
                     </span>
                     {when && (
-                      <span className="text-[11px] font-medium text-stone-500">
+                      <span className="text-[11px] font-medium text-slate-500">
                         {when}
                       </span>
                     )}
                   </div>
                   {update.description && (
-                    <p className="mt-0.5 text-xs leading-5 text-stone-600">
+                    <p className="mt-0.5 text-xs leading-5 text-slate-600">
                       {update.description}
                     </p>
                   )}

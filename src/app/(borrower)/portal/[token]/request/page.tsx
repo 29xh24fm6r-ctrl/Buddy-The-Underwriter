@@ -17,9 +17,9 @@ export default async function PortalLoanRequestPage({
     ctx = await resolvePortalContext(token);
   } catch (err: any) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-        <h1 className="text-xl font-semibold text-white">Invalid Link</h1>
-        <p className="mt-2 text-sm text-neutral-400">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
+        <h1 className="font-heading text-xl font-bold text-slate-900">Invalid Link</h1>
+        <p className="mt-2 text-sm text-slate-500">
           {err?.message ?? "This link is invalid or has expired."}
         </p>
       </div>
@@ -38,12 +38,12 @@ export default async function PortalLoanRequestPage({
   ]);
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-xl font-semibold text-white">
+    <div className="mx-auto min-h-dvh max-w-2xl bg-[#f6f8fb] px-4 py-8">
+      <h1 className="font-heading text-xl font-bold text-slate-900">
         Loan Request
       </h1>
       {deal?.borrower_name && (
-        <p className="mt-1 text-sm text-neutral-400">
+        <p className="mt-1 text-sm text-slate-500">
           For: {deal.borrower_name}
         </p>
       )}

@@ -60,17 +60,20 @@ export function ConfettiBurst(props: { fire: boolean }) {
           }
         }
         /* Give each particle a different background via nth-child */
-        span:nth-child(4n + 1) {
-          background: #111827;
+        span:nth-child(5n + 1) {
+          background: #1c8de0;
         }
-        span:nth-child(4n + 2) {
-          background: #6b7280;
+        span:nth-child(5n + 2) {
+          background: #4db8f0;
         }
-        span:nth-child(4n + 3) {
-          background: #9ca3af;
+        span:nth-child(5n + 3) {
+          background: #10b981;
         }
-        span:nth-child(4n + 4) {
-          background: #d1d5db;
+        span:nth-child(5n + 4) {
+          background: #f59e0b;
+        }
+        span:nth-child(5n + 5) {
+          background: #ffffff;
         }
       `}</style>
     </div>

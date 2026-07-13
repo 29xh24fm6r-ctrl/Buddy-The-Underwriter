@@ -19,13 +19,13 @@ export function BorrowerCommunicationCenter({
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-[1.75rem] border border-stone-200 bg-[linear-gradient(135deg,_rgba(248,250,252,0.8)_0%,_rgba(241,245,249,0.4)_100%)] p-5 sm:p-7">
+      <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-[linear-gradient(135deg,_rgba(248,250,252,0.8)_0%,_rgba(241,245,249,0.4)_100%)] p-5 sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white shadow-sm">
-              <Icon name="auto_awesome" className="h-5 w-5 text-sky-700" />
+              <Icon name="auto_awesome" className="h-5 w-5 text-brand-blue-500" />
             </div>
-            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
               Messages &amp; Updates
             </span>
           </div>
@@ -36,10 +36,10 @@ export function BorrowerCommunicationCenter({
         </div>
 
         <div className="mt-4 space-y-2">
-          <h2 className="font-serif text-2xl leading-tight text-stone-950 sm:text-3xl">
+          <h2 className="font-heading font-bold text-2xl leading-tight text-slate-900 sm:text-3xl">
             {viewModel.headline}
           </h2>
-          <p className="max-w-2xl text-sm leading-6 text-stone-700 sm:text-base">
+          <p className="max-w-2xl text-sm leading-6 text-slate-700 sm:text-base">
             {viewModel.summary}
           </p>
         </div>

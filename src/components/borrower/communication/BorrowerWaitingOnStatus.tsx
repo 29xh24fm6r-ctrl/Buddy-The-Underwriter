@@ -34,15 +34,15 @@ const STYLES: Record<
   },
   next_review_step: {
     icon: "pending",
-    iconColor: "text-stone-600",
-    pillBg: "bg-stone-50",
-    pillText: "text-stone-800",
+    iconColor: "text-slate-600",
+    pillBg: "bg-slate-50",
+    pillText: "text-slate-800",
   },
   unknown: {
     icon: "pending",
-    iconColor: "text-stone-500",
-    pillBg: "bg-stone-50",
-    pillText: "text-stone-700",
+    iconColor: "text-slate-500",
+    pillBg: "bg-slate-50",
+    pillText: "text-slate-700",
   },
 };
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { Icon } from "@/components/ui/Icon";
 import { cn } from "@/lib/cn";
 import type {
@@ -12,11 +13,11 @@ const BAND_STYLES: Record<
   { border: string; bg: string; dot: string; badge: string; badgeBg: string }
 > = {
   early_preparation: {
-    border: "border-stone-200",
-    bg: "bg-stone-50/60",
-    dot: "bg-stone-400",
-    badge: "text-stone-800",
-    badgeBg: "bg-stone-100",
+    border: "border-slate-200",
+    bg: "bg-slate-50/60",
+    dot: "bg-slate-400",
+    badge: "text-slate-800",
+    badgeBg: "bg-slate-100",
   },
   progressing: {
     border: "border-amber-200/70",
@@ -48,9 +49,13 @@ export function BorrowerSubmissionReadinessHero({
 }) {
   const style = BAND_STYLES[viewModel.band];
   const pct = viewModel.readinessPercent;
+  const isReady = viewModel.band === "submission_preparation_ready";
 
   return (
-    <section
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
       role="region"
       aria-label="Submission readiness"
       className={cn(
@@ -64,7 +69,7 @@ export function BorrowerSubmissionReadinessHero({
           className={cn("h-2 w-2 rounded-full", style.dot)}
           aria-hidden="true"
         />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
           Submission readiness
         </span>
         <span
@@ -78,30 +83,37 @@ export function BorrowerSubmissionReadinessHero({
         </span>
       </div>
 
-      <h2 className="mt-4 font-serif text-2xl leading-tight text-stone-950 sm:text-3xl">
-        {viewModel.headline}
-      </h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-700 sm:text-base">
+      <div className="mt-4 flex items-start gap-3">
+        {isReady && (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+            <Icon name="check_circle" className="h-5 w-5 text-emerald-600" />
+          </div>
+        )}
+        <h2 className="font-heading font-bold text-2xl leading-tight text-slate-900 sm:text-3xl">
+          {viewModel.headline}
+        </h2>
+      </div>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700 sm:text-base">
         {viewModel.summary}
       </p>
 
       {pct !== undefined && (
         <div className="mt-5">
           <div
-            className="h-2.5 overflow-hidden rounded-full bg-stone-200/60"
+            className="h-2.5 overflow-hidden rounded-full bg-slate-200/60"
             aria-hidden="true"
           >
             <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-700"
+              className="h-full rounded-full bg-gradient-to-r from-[#1c8de0] to-[#4db8f0] transition-all duration-700"
               style={{ width: `${pct}%` }}
             />
           </div>
-          <div className="mt-1.5 flex items-center justify-between text-xs text-stone-600">
+          <div className="mt-1.5 flex items-center justify-between text-xs text-slate-600">
             <span>Required items received</span>
-            <span className="font-semibold text-stone-900">{pct}%</span>
+            <span className="font-semibold text-slate-900">{pct}%</span>
           </div>
         </div>
       )}
-    </section>
+    </motion.section>
   );
 }

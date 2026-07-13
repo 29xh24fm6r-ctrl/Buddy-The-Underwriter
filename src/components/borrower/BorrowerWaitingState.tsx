@@ -18,7 +18,7 @@ export function BorrowerWaitingState({
           <Icon name="check_circle" className="h-5 w-5 text-emerald-700" />
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-emerald-950">{title}</h2>
+          <h2 className="font-heading text-xl font-bold text-emerald-950">{title}</h2>
           <p className="mt-2 text-sm leading-6 text-emerald-900">{summary}</p>
           <p className="mt-3 text-sm leading-6 text-emerald-900/90">{expectation}</p>
         </div>

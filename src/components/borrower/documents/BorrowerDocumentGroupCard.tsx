@@ -28,23 +28,23 @@ export function BorrowerDocumentGroupCard({
   const hasAttention = group.needsAttentionCount > 0;
 
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100">
-            <Icon name={icon} className="h-5 w-5 text-stone-700" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+            <Icon name={icon} className="h-5 w-5 text-slate-700" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-stone-900 sm:text-base">
+            <h3 className="font-heading text-sm font-semibold text-slate-900 sm:text-base">
               {group.label}
             </h3>
-            <p className="mt-0.5 text-xs leading-5 text-stone-600 sm:text-sm">
+            <p className="mt-0.5 text-xs leading-5 text-slate-600 sm:text-sm">
               {group.description}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-700">
+          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-700">
             {completion}
           </span>
           {hasAttention && (

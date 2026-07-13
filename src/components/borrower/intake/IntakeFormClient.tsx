@@ -5,9 +5,9 @@
 // Phase 85A.2 — Extended from 4 steps to 5 (added Owners as step 3;
 //               loan moved to step 4, review to step 5).
 //
-// CSS note: (borrower)/layout.tsx sets text-neutral-100 on the outer div.
-// All inputs MUST have explicit text-gray-900 bg-white placeholder-gray-400
-// to avoid invisible white-on-white text.
+// CSS note: (borrower)/layout.tsx sets a light theme (bg-white text-slate-900)
+// on the outer div. All inputs MUST have explicit text-gray-900 bg-white
+// placeholder-gray-400 to avoid invisible white-on-white text.
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
@@ -126,7 +126,7 @@ const inputCls =
 const selectCls =
   "w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
 
-const labelCls = "block text-sm font-medium text-gray-300 mb-1.5";
+const labelCls = "block text-sm font-medium text-slate-600 mb-1.5";
 
 // ─── Component ───
 
@@ -314,13 +314,13 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
   if (submitted) {
     return (
       <div className="max-w-lg mx-auto py-12 text-center space-y-4">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-900/30 border border-green-700">
-          <svg className="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 border border-emerald-200">
+          <svg className="h-8 w-8 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-white">Application Submitted</h1>
-        <p className="text-sm text-gray-400">
+        <h1 className="text-2xl font-bold text-slate-900">Application Submitted</h1>
+        <p className="text-sm text-slate-600">
           Your loan application has been submitted successfully. Your banker will review
           it and reach out with next steps.
         </p>
@@ -342,14 +342,14 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
               <div
                 className={`
                   w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
-                  ${isComplete ? "bg-green-600 text-white" : ""}
-                  ${isCurrent ? "bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-2 ring-offset-neutral-950" : ""}
-                  ${!isComplete && !isCurrent ? "bg-neutral-800 text-neutral-500" : ""}
+                  ${isComplete ? "bg-emerald-500 text-white" : ""}
+                  ${isCurrent ? "bg-brand-blue-500 text-white ring-2 ring-brand-blue-400 ring-offset-2 ring-offset-[#f6f8fb]" : ""}
+                  ${!isComplete && !isCurrent ? "bg-slate-200 text-slate-500" : ""}
                 `}
               >
                 {isComplete ? "✓" : stepNum}
               </div>
-              <span className={`text-[10px] mt-1 text-center ${isCurrent ? "text-blue-400 font-medium" : "text-neutral-600"}`}>
+              <span className={`text-[10px] mt-1 text-center ${isCurrent ? "text-brand-blue-500 font-medium" : "text-slate-400"}`}>
                 {label}
               </span>
             </div>
@@ -359,16 +359,16 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
       {/* Error banner */}
       {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 text-sm text-red-300">
+        <div className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600">
           {error}
         </div>
       )}
 
       {/* Step content */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-5">
+      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5 shadow-sm">
         {currentContent === "business" && (
           <>
-            <h2 className="text-lg font-semibold text-white">Business Information</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Business Information</h2>
             <div>
               <label className={labelCls}>Legal Business Name *</label>
               <input className={inputCls} value={business.legal_name}
@@ -413,7 +413,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
         {currentContent === "address" && (
           <>
-            <h2 className="text-lg font-semibold text-white">Business Address</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Business Address</h2>
             <div>
               <label className={labelCls}>Street Address</label>
               <input className={inputCls} value={address.address_line1}
@@ -461,22 +461,22 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
         {currentContent === "owners" && (
           <>
-            <h2 className="text-lg font-semibold text-white">Business Owners</h2>
-            <p className="text-sm text-gray-400">
+            <h2 className="text-lg font-semibold text-slate-900">Business Owners</h2>
+            <p className="text-sm text-slate-500">
               List anyone who owns 20% or more of the business. We&apos;ll need
               personal financial documents from each.
             </p>
 
             {owners.map((owner, idx) => (
-              <div key={owner.id} className="border border-neutral-800 rounded-lg p-4 space-y-3">
+              <div key={owner.id} className="border border-slate-200 rounded-lg p-4 space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-gray-300">Owner {idx + 1}</span>
+                  <span className="text-sm font-medium text-slate-600">Owner {idx + 1}</span>
                   <button
                     type="button"
                     onClick={() =>
                       setOwners((prev) => prev.filter((o) => o.id !== owner.id))
                     }
-                    className="text-xs text-red-400 hover:text-red-300"
+                    className="text-xs text-rose-500 hover:text-rose-600"
                   >
                     Remove
                   </button>
@@ -591,13 +591,13 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                   },
                 ])
               }
-              className="w-full py-3 rounded-lg border border-dashed border-neutral-700 text-gray-400 text-sm hover:border-neutral-500 hover:text-gray-300 transition min-h-[44px]"
+              className="w-full py-3 rounded-lg border border-dashed border-slate-300 text-slate-500 text-sm hover:border-slate-400 hover:text-slate-600 transition min-h-[44px]"
             >
               + Add Owner
             </button>
 
             {owners.length === 0 && (
-              <div className="bg-amber-900/20 border border-amber-800 rounded-lg px-4 py-3 text-xs text-amber-300">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
                 At least one owner is required for loan applications. Add anyone
                 who owns 20% or more of the business.
               </div>
@@ -607,7 +607,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
         {currentContent === "loan" && (
           <>
-            <h2 className="text-lg font-semibold text-white">Loan Request</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Loan Request</h2>
             <div>
               <label className={labelCls}>Loan Type</label>
               <select className={selectCls} value={loan.type}
@@ -630,7 +630,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                 placeholder="Working capital, equipment purchase, etc." />
             </div>
             {["SBA", "sba_7a", "sba_504", "sba_express"].includes(loan.type) && (
-              <div className="bg-blue-900/20 border border-blue-800 rounded-lg px-4 py-3 text-xs text-blue-300">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
                 SBA loans are backed by the U.S. Small Business Administration. Your banker will
                 determine specific program eligibility during underwriting.
               </div>
@@ -648,8 +648,8 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
         {currentContent === "documents" && (
           <>
-            <h2 className="text-lg font-semibold text-white">Upload Documents</h2>
-            <p className="text-sm text-gray-400">
+            <h2 className="text-lg font-semibold text-slate-900">Upload Documents</h2>
+            <p className="text-sm text-slate-500">
               Upload any financial documents you have available. Your banker
               will let you know if anything else is needed.
             </p>
@@ -661,14 +661,14 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
             />
 
             {uploadCount > 0 && (
-              <div className="bg-green-900/20 border border-green-800 rounded-lg px-4 py-3">
-                <p className="text-sm text-green-300 font-medium">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-emerald-700 font-medium">
                   {uploadCount} document{uploadCount !== 1 ? "s" : ""} uploaded so far
                 </p>
               </div>
             )}
 
-            <div className="bg-blue-900/20 border border-blue-800 rounded-lg px-4 py-3 text-xs text-blue-300">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
               Don&apos;t have everything right now? No problem — you can upload more
               documents after submitting your application. Your banker will send
               you a checklist of anything that&apos;s still needed.
@@ -678,36 +678,36 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
         {currentContent === "review" && (
           <>
-            <h2 className="text-lg font-semibold text-white">Review & Submit</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Review & Submit</h2>
             <div className="space-y-4 text-sm">
               <div>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Business</h3>
-                <div className="space-y-1 text-gray-300">
-                  <p><span className="text-gray-500">Legal Name:</span> {business.legal_name || "—"}</p>
-                  {business.dba && <p><span className="text-gray-500">DBA:</span> {business.dba}</p>}
-                  {business.ein && <p><span className="text-gray-500">EIN:</span> {business.ein}</p>}
-                  {business.entity_type && <p><span className="text-gray-500">Type:</span> {business.entity_type}</p>}
-                  {business.naics_code && <p><span className="text-gray-500">NAICS:</span> {business.naics_code}</p>}
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Business</h3>
+                <div className="space-y-1 text-slate-700">
+                  <p><span className="text-slate-500">Legal Name:</span> {business.legal_name || "—"}</p>
+                  {business.dba && <p><span className="text-slate-500">DBA:</span> {business.dba}</p>}
+                  {business.ein && <p><span className="text-slate-500">EIN:</span> {business.ein}</p>}
+                  {business.entity_type && <p><span className="text-slate-500">Type:</span> {business.entity_type}</p>}
+                  {business.naics_code && <p><span className="text-slate-500">NAICS:</span> {business.naics_code}</p>}
                 </div>
               </div>
-              <div className="border-t border-neutral-800 pt-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Address</h3>
-                <div className="text-gray-300">
+              <div className="border-t border-slate-200 pt-3">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Address</h3>
+                <div className="text-slate-700">
                   {address.address_line1 && <p>{address.address_line1}</p>}
                   <p>
                     {[address.city, address.state, address.zip].filter(Boolean).join(", ") || "—"}
                   </p>
                 </div>
               </div>
-              <div className="border-t border-neutral-800 pt-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Owners</h3>
+              <div className="border-t border-slate-200 pt-3">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Owners</h3>
                 {owners.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No owners added</p>
+                  <p className="text-slate-500 text-sm">No owners added</p>
                 ) : (
-                  <div className="space-y-1 text-gray-300">
+                  <div className="space-y-1 text-slate-700">
                     {owners.map((o) => (
                       <p key={o.id}>
-                        <span className="text-gray-500">{o.full_name || "—"}</span>
+                        <span className="text-slate-500">{o.full_name || "—"}</span>
                         {o.ownership_pct && ` — ${o.ownership_pct}%`}
                         {o.title && ` (${o.title})`}
                       </p>
@@ -715,25 +715,25 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                   </div>
                 )}
               </div>
-              <div className="border-t border-neutral-800 pt-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Loan</h3>
-                <div className="space-y-1 text-gray-300">
-                  {loan.type && <p><span className="text-gray-500">Type:</span> {LOAN_TYPE_OPTIONS.find(o => o.value === loan.type)?.label ?? loan.type}</p>}
-                  {loan.amount && <p><span className="text-gray-500">Amount:</span> ${Number(loan.amount.replace(/[^0-9.]/g, "")).toLocaleString()}</p>}
-                  {loan.purpose && <p><span className="text-gray-500">Purpose:</span> {loan.purpose}</p>}
+              <div className="border-t border-slate-200 pt-3">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Loan</h3>
+                <div className="space-y-1 text-slate-700">
+                  {loan.type && <p><span className="text-slate-500">Type:</span> {LOAN_TYPE_OPTIONS.find(o => o.value === loan.type)?.label ?? loan.type}</p>}
+                  {loan.amount && <p><span className="text-slate-500">Amount:</span> ${Number(loan.amount.replace(/[^0-9.]/g, "")).toLocaleString()}</p>}
+                  {loan.purpose && <p><span className="text-slate-500">Purpose:</span> {loan.purpose}</p>}
                 </div>
               </div>
-              <div className="border-t border-neutral-800 pt-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Documents</h3>
-                <p className="text-gray-300 text-sm">
+              <div className="border-t border-slate-200 pt-3">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</h3>
+                <p className="text-slate-700 text-sm">
                   {uploadCount > 0
                     ? `${uploadCount} document${uploadCount !== 1 ? "s" : ""} uploaded`
                     : "No documents uploaded yet"}
                 </p>
               </div>
               {isSba && (
-                <div className="border-t border-neutral-800 pt-3">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <div className="border-t border-slate-200 pt-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                     Your Business Plan
                   </h3>
                   <BorrowerPDFDownload token={token} />
@@ -749,7 +749,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
         {step > 1 && (
           <button
             onClick={goBack}
-            className="flex-1 sm:flex-none px-6 py-3 rounded-lg border border-neutral-700 text-gray-300 text-sm font-medium hover:bg-neutral-800 transition min-h-[44px]"
+            className="flex-1 sm:flex-none px-6 py-3 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 transition min-h-[44px]"
           >
             Back
           </button>
@@ -758,7 +758,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           <button
             onClick={goNext}
             disabled={saving}
-            className="flex-1 px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50 min-h-[44px]"
+            className="brand-gradient-cta flex-1 px-6 py-3 rounded-lg text-white text-sm font-medium hover:brightness-110 transition disabled:opacity-50 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
           >
             {saving ? "Saving…" : "Continue"}
           </button>
@@ -766,7 +766,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           <button
             onClick={handleSubmit}
             disabled={saving}
-            className="flex-1 px-6 py-3 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition disabled:opacity-50 min-h-[44px]"
+            className="brand-gradient-cta flex-1 px-6 py-3 rounded-lg text-white text-sm font-medium hover:brightness-110 transition disabled:opacity-50 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
           >
             {saving ? "Submitting…" : "Submit Application"}
           </button>
@@ -775,7 +775,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
       {/* Save indicator */}
       {saving && (
-        <p className="text-center text-xs text-neutral-600">Saving…</p>
+        <p className="text-center text-xs text-slate-400">Saving…</p>
       )}
     </div>
   );
@@ -829,8 +829,8 @@ function BorrowerPDFDownload({ token }: { token: string }) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-400">
-        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="w-4 h-4 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin" />
         Preparing your business plan…
       </div>
     );
@@ -838,7 +838,7 @@ function BorrowerPDFDownload({ token }: { token: string }) {
 
   if (failed || !pdfUrl) {
     return (
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-slate-500">
         Business plan will be available after your banker reviews your application.
       </p>
     );
@@ -849,7 +849,7 @@ function BorrowerPDFDownload({ token }: { token: string }) {
       href={pdfUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition min-h-[44px]"
+      className="brand-gradient-cta inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium hover:brightness-110 transition min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
     >
       <svg
         className="w-4 h-4"

@@ -11,24 +11,24 @@ function CoachedItem({ item }: { item: BorrowerGuidanceItem }) {
     item.whyItMatters || item.helpfulUploadHint || item.commonIssueToAvoid;
 
   return (
-    <li className="rounded-xl border border-stone-200 bg-white transition-shadow hover:shadow-sm">
+    <li className="rounded-xl border border-slate-200 bg-white transition-shadow hover:shadow-sm">
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <div className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-              <span className="text-sm font-semibold text-stone-900">
+              <span className="text-sm font-semibold text-slate-900">
                 {item.label}
               </span>
             </div>
-            <p className="mt-1 pl-4 text-sm text-stone-600">
+            <p className="mt-1 pl-4 text-sm text-slate-600">
               {item.explanation}
             </p>
           </div>
           {item.href && (
             <a
               href={item.href}
-              className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-stone-800"
+              className="inline-flex shrink-0 items-center gap-1 rounded-xl brand-gradient-cta px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
             >
               Upload
               <Icon name="arrow_forward_ios" className="h-3 w-3 text-current" />
@@ -48,29 +48,29 @@ function CoachedItem({ item }: { item: BorrowerGuidanceItem }) {
       </div>
 
       {expanded && hasDetails && (
-        <div className="border-t border-stone-100 bg-stone-50/50 px-4 py-3 space-y-2">
+        <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-3 space-y-2">
           {item.whyItMatters && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Why it matters
               </div>
-              <p className="mt-0.5 text-xs text-stone-600">{item.whyItMatters}</p>
+              <p className="mt-0.5 text-xs text-slate-600">{item.whyItMatters}</p>
             </div>
           )}
           {item.helpfulUploadHint && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 What a helpful upload looks like
               </div>
-              <p className="mt-0.5 text-xs text-stone-600">{item.helpfulUploadHint}</p>
+              <p className="mt-0.5 text-xs text-slate-600">{item.helpfulUploadHint}</p>
             </div>
           )}
           {item.commonIssueToAvoid && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Common issue to avoid
               </div>
-              <p className="mt-0.5 text-xs text-stone-600">{item.commonIssueToAvoid}</p>
+              <p className="mt-0.5 text-xs text-slate-600">{item.commonIssueToAvoid}</p>
             </div>
           )}
         </div>
@@ -90,7 +90,7 @@ export function BorrowerCoachedItemsCard({
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100">
           <Icon name="description" className="h-4 w-4 text-amber-700" />
         </div>
-        <h3 className="text-sm font-semibold text-amber-900">
+        <h3 className="font-heading text-sm font-semibold text-amber-900">
           Items That Will Help Most
         </h3>
       </div>

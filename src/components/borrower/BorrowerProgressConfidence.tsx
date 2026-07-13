@@ -20,11 +20,11 @@ export function BorrowerProgressConfidence({
 
   return (
     <section className={`rounded-[1.5rem] border p-5 shadow-sm sm:p-6 ${toneClass}`}>
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         Confidence check
       </div>
-      <h2 className="mt-2 text-xl font-semibold text-stone-950">{title}</h2>
-      <ul className="mt-4 space-y-2 text-sm leading-6 text-stone-700">
+      <h2 className="mt-2 font-heading text-xl font-bold text-slate-900">{title}</h2>
+      <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-700">
         {bullets.map((bullet) => (
           <li key={bullet}>{bullet}</li>
         ))}

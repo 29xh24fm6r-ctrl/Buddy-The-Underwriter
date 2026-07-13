@@ -1,4 +1,19 @@
 import type { ReactNode } from "react";
+import { Poppins, Plus_Jakarta_Sans } from "next/font/google";
+
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-poppins",
+  display: "swap",
+});
+
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-jakarta",
+  display: "swap",
+});
 
 /**
  * Borrower route-group layout.
@@ -13,10 +28,15 @@ import type { ReactNode } from "react";
  *   - The `borrower-root` class is the hook for `color-scheme: light` in
  *     globals.css, which prevents UA-rendered controls (scrollbars, native
  *     form inputs) from rendering dark.
+ *   - Poppins/Jakarta match the marketing site's brand fonts (see
+ *     BrokerageLandingPage.tsx) so the borrower app reads as the same
+ *     product, not a different tool bolted on.
  */
 export default function BorrowerLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="borrower-root min-h-dvh bg-white text-slate-900">
+    <div
+      className={`borrower-root min-h-dvh bg-white font-jakarta text-slate-900 ${poppins.variable} ${jakarta.variable}`}
+    >
       {children}
     </div>
   );
