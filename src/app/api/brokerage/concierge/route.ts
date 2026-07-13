@@ -39,9 +39,14 @@ import {
 } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import {
-  propagateConciergeFacts,
-  type ConciergeFacts,
-} from "@/lib/brokerage/propagateConciergeFacts";
+  propagateBorrowerFacts,
+  type BorrowerFacts,
+} from "@/lib/brokerage/propagateBorrowerFacts";
+import {
+  buildBorrowerExtractionPrompt,
+  computeNextCriticalField,
+  mergeExtractedFacts,
+} from "@/lib/brokerage/borrowerConversation";
 import {
   ensureAssumptionsForPreview,
   persistAssumptionsDraft,
@@ -348,10 +353,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       // Confirmation is the strongest signal we get — write the
       // confirmed facts through to the canonical tables now.
-      propagateConciergeFacts({
+      propagateBorrowerFacts({
         dealId: session.deal_id,
         bankId: brokerageBankId,
-        facts: existingFacts as ConciergeFacts,
+        facts: existingFacts as BorrowerFacts,
         sb,
       }).catch((e) => {
         console.warn(
@@ -424,7 +429,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       logTag: "brokerage-concierge-extract",
     });
     const newFacts = extractResult.result ?? {};
-    const mergedFacts = deepMerge(
+    const mergedFacts = mergeExtractedFacts(
       (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
       newFacts,
     );
@@ -467,10 +472,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Write-through: push extracted facts to the canonical tables the
     // score engine and packaging pipeline actually read. Non-fatal —
     // the conversation never breaks because a propagation write failed.
-    propagateConciergeFacts({
+    propagateBorrowerFacts({
       dealId: session.deal_id,
       bankId: brokerageBankId,
-      facts: mergedFacts as ConciergeFacts,
+      facts: mergedFacts as BorrowerFacts,
       sb,
     })
       .then((r) => {
@@ -618,58 +623,29 @@ function readinessHintFromProgress(progressPct: number): string {
 }
 
 // ── Prompt builders ──────────────────────────────────────────────────────
+//
+// Arc 7 — extraction prompt, merge, and the next-critical-field ranker
+// live in @/lib/brokerage/borrowerConversation so text (this route) and
+// voice (/api/brokerage/voice/[sessionId]/dispatch) share exactly the same
+// logic instead of drifting apart. SSN is intentionally last-4 only —
+// Buddy should never ask for or record a full 9-digit SSN.
 
-function buildExtractionPrompt(
-  history: unknown[],
-  userMessage: string,
-): string {
-  return `Extract structured facts from the borrower's latest message, given the conversation history.
-
-CONVERSATION HISTORY:
-${JSON.stringify(history, null, 2)}
-
-BORROWER JUST SAID:
-${userMessage}
-
-Extract facts in this JSON structure. Use null for unknown values. Return ONLY the JSON.
-
-{
-  "borrower": {
-    "first_name": string | null,
-    "last_name": string | null,
-    "email": string | null,
-    "phone": string | null
-  },
-  "business": {
-    "legal_name": string | null,
-    "industry_description": string | null,
-    "naics": string | null,
-    "is_startup": boolean | null,
-    "years_in_business": number | null,
-    "annual_revenue": number | null,
-    "employee_count": number | null,
-    "state": string | null,
-    "is_franchise": boolean | null,
-    "franchise_brand": string | null
-  },
-  "loan": {
-    "amount_requested": number | null,
-    "use_of_proceeds": string | null
-  }
-}`;
-}
+const buildExtractionPrompt = buildBorrowerExtractionPrompt;
 
 function buildResponsePrompt(
   history: unknown[],
   userMessage: string,
   facts: Record<string, any>,
 ): string {
+  const nextCritical = computeNextCriticalField(facts);
+
   return `You are Buddy, a warm and professional SBA loan concierge speaking directly to a prospective borrower on your public website.
 
 Tone:
 - Conversational, plain English, no banker jargon.
 - Encouraging. SBA loans feel intimidating — make them feel capable.
 - Ask ONE question at a time. The minimum next question that moves the process forward.
+- Never ask for a full SSN — last 4 digits only. If a borrower needs to confirm a sensitive detail (date of birth, address) you already have, read it back rather than asking them to repeat it from scratch.
 
 Conversation so far:
 ${JSON.stringify(history, null, 2)}
@@ -694,6 +670,11 @@ Priorities for what to ask next, in order:
 5. If we don't know use of proceeds, ask what the money is for.
 6. If we don't know if they're buying a franchise, ask.
 7. If we don't know their most recent annual revenue, ask for a rough figure.
+${
+  nextCritical
+    ? `8. Once the essentials above are known, the single most valuable next question is about: "${nextCritical.label}" — it's required on ${nextCritical.formsUnlocked} SBA form field(s) still missing it. Ask about it naturally, in plain English (don't say "form field").`
+    : ""
+}
 
 Return ONLY the JSON.`;
 }
@@ -718,25 +699,6 @@ async function updateDealNames(
     .from("deals")
     .update({ display_name: display, borrower_name: personName })
     .eq("id", dealId);
-}
-
-function deepMerge(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...a };
-  for (const [k, v] of Object.entries(b ?? {})) {
-    if (v === null || v === undefined) continue;
-    if (typeof v === "object" && !Array.isArray(v)) {
-      out[k] = deepMerge(
-        (a?.[k] as Record<string, unknown>) ?? {},
-        v as Record<string, unknown>,
-      );
-    } else {
-      out[k] = v;
-    }
-  }
-  return out;
 }
 
 function computeProgress(facts: Record<string, any>): number {

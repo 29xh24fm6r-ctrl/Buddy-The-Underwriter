@@ -16,7 +16,10 @@ export async function buildForm155Input(dealId: string, bankId: string, sb: Form
 
   const { data: loanRequest } = await sb
     .from("deal_loan_requests")
-    .select("requested_amount, seller_note_equity_portion, seller_note_full_standby")
+    .select(
+      "requested_amount, seller_note_equity_portion, seller_note_full_standby, standby_creditor_name, " +
+        "standby_creditor_address, note_date, note_interest_rate, subordination_terms_acknowledged",
+    )
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -44,20 +47,19 @@ export async function buildForm155Input(dealId: string, bankId: string, sb: Form
     .sort((a, b) => (b.ownership_pct ?? 0) - (a.ownership_pct ?? 0));
   const borrowerOwnershipEntityId = individualOwners[0]?.id ?? null;
 
+  const lr = loanRequest as Record<string, any> | null;
+
   const fields: Form155Input = {
     borrower_legal_name: (borrower as { legal_name?: string } | null)?.legal_name ?? null,
     lender_name: (bank as { name?: string } | null)?.name ?? null,
-    loan_amount:
-      (loanRequest as { requested_amount?: number } | null)?.requested_amount ??
-      (deal as { loan_amount?: number } | null)?.loan_amount ??
-      null,
-    standby_creditor_name: null,
-    standby_creditor_address: null,
+    loan_amount: lr?.requested_amount ?? (deal as { loan_amount?: number } | null)?.loan_amount ?? null,
+    standby_creditor_name: lr?.standby_creditor_name ?? null,
+    standby_creditor_address: lr?.standby_creditor_address ?? null,
     note_principal_amount: sellerNoteEquityPortion,
-    note_date: null,
-    note_interest_rate: null,
-    full_standby_for_loan_term: (loanRequest as { seller_note_full_standby?: boolean } | null)?.seller_note_full_standby ?? null,
-    subordination_terms_acknowledged: null,
+    note_date: lr?.note_date ?? null,
+    note_interest_rate: lr?.note_interest_rate ?? null,
+    full_standby_for_loan_term: lr?.seller_note_full_standby ?? null,
+    subordination_terms_acknowledged: lr?.subordination_terms_acknowledged ?? null,
   };
 
   return buildForm155({ applicable: true, fields, borrowerOwnershipEntityId });

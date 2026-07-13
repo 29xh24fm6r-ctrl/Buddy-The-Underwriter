@@ -46,7 +46,11 @@ export async function buildForm1244Input(dealId: string, sb: Form1244InputBuilde
   const { data: borrower } = borrowerId
     ? await sb
         .from("borrowers")
-        .select("legal_name, ein, naics_code, address_line1, city, state, zip, entity_type")
+        .select(
+          "legal_name, ein, naics_code, address_line1, city, state, zip, entity_type, dba, phone, " +
+            "employee_count, year_founded, has_pending_sba_application, has_bankruptcy_history, " +
+            "has_pending_lawsuits, is_engaged_in_lobbying",
+        )
         .eq("id", borrowerId)
         .maybeSingle()
     : { data: null };
@@ -66,19 +70,21 @@ export async function buildForm1244Input(dealId: string, sb: Form1244InputBuilde
 
   const projectAddress = ((loanRequest as { property_address_json?: unknown } | null)?.property_address_json ?? null) as PropertyAddress;
 
+  const b = borrower as Record<string, any> | null;
+
   const sectionI: Form1244Input["sectionI"] = {
-    applicant_legal_name: (borrower as { legal_name?: string } | null)?.legal_name ?? null,
-    applicant_dba: null,
-    applicant_ein: (borrower as { ein?: string } | null)?.ein ?? null,
-    applicant_address_street: (borrower as { address_line1?: string } | null)?.address_line1 ?? null,
-    applicant_address_city: (borrower as { city?: string } | null)?.city ?? null,
-    applicant_address_state: (borrower as { state?: string } | null)?.state ?? null,
-    applicant_address_zip: (borrower as { zip?: string } | null)?.zip ?? null,
-    applicant_phone: null,
-    applicant_business_type: (borrower as { entity_type?: string } | null)?.entity_type ?? null,
-    applicant_naics: (borrower as { naics_code?: string } | null)?.naics_code ?? null,
-    applicant_employee_count: null,
-    applicant_year_founded: null,
+    applicant_legal_name: b?.legal_name ?? null,
+    applicant_dba: b?.dba ?? null,
+    applicant_ein: b?.ein ?? null,
+    applicant_address_street: b?.address_line1 ?? null,
+    applicant_address_city: b?.city ?? null,
+    applicant_address_state: b?.state ?? null,
+    applicant_address_zip: b?.zip ?? null,
+    applicant_phone: b?.phone ?? null,
+    applicant_business_type: b?.entity_type ?? null,
+    applicant_naics: b?.naics_code ?? null,
+    applicant_employee_count: b?.employee_count ?? null,
+    applicant_year_founded: b?.year_founded ?? null,
     project_address_street: projectAddress?.street ?? null,
     project_address_city: projectAddress?.city ?? null,
     project_address_state: projectAddress?.state ?? null,
@@ -98,17 +104,21 @@ export async function buildForm1244Input(dealId: string, sb: Form1244InputBuilde
     is_franchise_deal: Boolean(franchiseBrandId),
     franchise_identifier_code: (franchiseBrand as { sba_directory_id?: string } | null)?.sba_directory_id ?? null,
     franchise_brand_name: (franchiseBrand as { brand_name?: string } | null)?.brand_name ?? null,
-    has_other_sba_application_pending: null,
-    has_been_in_bankruptcy_pending: null,
-    has_pending_lawsuits: null,
-    is_engaged_in_lobbying: null,
+    has_other_sba_application_pending: b?.has_pending_sba_application ?? null,
+    has_been_in_bankruptcy_pending: b?.has_bankruptcy_history ?? null,
+    has_pending_lawsuits: b?.has_pending_lawsuits ?? null,
+    is_engaged_in_lobbying: b?.is_engaged_in_lobbying ?? null,
   };
 
   const { data: ownershipEntities } = await sb
     .from("ownership_entities")
     .select(
       "id, entity_type, display_name, tax_id_last4, ownership_pct, citizenship_status, date_of_birth, " +
-        "place_of_birth, home_address_street, home_address_city, home_address_state, home_address_zip, evidence_json",
+        "place_of_birth, home_address_street, home_address_city, home_address_state, home_address_zip, " +
+        "alien_registration_number, is_us_government_employee, has_other_government_employment, " +
+        "arrested_or_charged_6mo, convicted_or_pleaded, pending_criminal_charges, subject_to_indictment, " +
+        "on_parole_or_probation, entity_ein, entity_address_street, entity_address_city, entity_address_state, " +
+        "entity_address_zip, evidence_json",
     )
     .eq("deal_id", dealId);
 
@@ -128,18 +138,18 @@ export async function buildForm1244Input(dealId: string, sb: Form1244InputBuilde
           is_us_citizen: e.citizenship_status ? e.citizenship_status === "us_citizen" : null,
           is_us_national: e.citizenship_status ? e.citizenship_status === "us_national" : null,
           is_lpr: e.citizenship_status ? e.citizenship_status === "lawful_permanent_resident" : null,
-          alien_registration_number: evidence.alien_registration_number ?? null,
+          alien_registration_number: e.alien_registration_number ?? evidence.alien_registration_number ?? null,
           home_address_street: e.home_address_street ?? evidence.home_address_street ?? null,
           home_address_city: e.home_address_city ?? evidence.home_address_city ?? null,
           home_address_state: e.home_address_state ?? evidence.home_address_state ?? null,
           home_address_zip: e.home_address_zip ?? evidence.home_address_zip ?? null,
-          is_employee_of_us_government: evidence.is_employee_of_us_government ?? null,
-          has_other_government_employment: evidence.has_other_government_employment ?? null,
-          has_been_arrested_or_charged_in_6mo: evidence.has_been_arrested_or_charged_in_6mo ?? null,
-          has_been_convicted_or_pleaded: evidence.has_been_convicted_or_pleaded ?? null,
-          has_pending_criminal_charges: evidence.has_pending_criminal_charges ?? null,
-          is_subject_to_indictment: evidence.is_subject_to_indictment ?? null,
-          has_paroled_or_probation: evidence.has_paroled_or_probation ?? null,
+          is_employee_of_us_government: e.is_us_government_employee ?? evidence.is_employee_of_us_government ?? null,
+          has_other_government_employment: e.has_other_government_employment ?? evidence.has_other_government_employment ?? null,
+          has_been_arrested_or_charged_in_6mo: e.arrested_or_charged_6mo ?? evidence.has_been_arrested_or_charged_in_6mo ?? null,
+          has_been_convicted_or_pleaded: e.convicted_or_pleaded ?? evidence.has_been_convicted_or_pleaded ?? null,
+          has_pending_criminal_charges: e.pending_criminal_charges ?? evidence.has_pending_criminal_charges ?? null,
+          is_subject_to_indictment: e.subject_to_indictment ?? evidence.is_subject_to_indictment ?? null,
+          has_paroled_or_probation: e.on_parole_or_probation ?? evidence.has_paroled_or_probation ?? null,
         },
       };
     });
@@ -152,12 +162,12 @@ export async function buildForm1244Input(dealId: string, sb: Form1244InputBuilde
         ownership_entity_id: String(e.id),
         fields: {
           legal_name: e.display_name ?? null,
-          ein: evidence.ein ?? null,
+          ein: e.entity_ein ?? evidence.ein ?? null,
           entity_type: e.entity_type ?? null,
-          address_street: evidence.address_street ?? null,
-          address_city: evidence.address_city ?? null,
-          address_state: evidence.address_state ?? null,
-          address_zip: evidence.address_zip ?? null,
+          address_street: e.entity_address_street ?? evidence.address_street ?? null,
+          address_city: e.entity_address_city ?? evidence.address_city ?? null,
+          address_state: e.entity_address_state ?? evidence.address_state ?? null,
+          address_zip: e.entity_address_zip ?? evidence.address_zip ?? null,
         },
       };
     });

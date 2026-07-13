@@ -30,6 +30,15 @@ import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 import { secretEquals } from "@/lib/brokerage/secretEquals";
+import {
+  buildBorrowerExtractionPrompt,
+  mergeExtractedFacts,
+} from "@/lib/brokerage/borrowerConversation";
+import {
+  propagateBorrowerFacts,
+  type BorrowerFacts,
+} from "@/lib/brokerage/propagateBorrowerFacts";
+import { redactSsnPatterns } from "@/lib/brokerage/redactSensitive";
 
 export const runtime = "nodejs";
 // Trident preview generation runs synchronously on intent match (PDF
@@ -91,6 +100,11 @@ export async function POST(
 
   switch (body.intent) {
     case "utterance": {
+      // Arc 7: forms in this product only ever need SSN last-4 — a
+      // borrower accidentally speaking a full SSN should never persist in
+      // plaintext (transcript, audit log, or the extraction round trip).
+      const text = redactSsnPatterns(body.text);
+
       await sb.from("voice_session_audits").insert({
         session_id: sessionId,
         deal_id: dealId,
@@ -102,9 +116,10 @@ export async function POST(
           body.speaker === "borrower"
             ? "utterance_borrower"
             : "utterance_assistant",
-        payload: { text: body.text },
+        payload: { text },
       });
 
+      let conversationHistory: unknown[] = [];
       if (conciergeSessionId) {
         const { data: cs } = await sb
           .from("borrower_concierge_sessions")
@@ -112,12 +127,12 @@ export async function POST(
           .eq("id", conciergeSessionId)
           .maybeSingle();
 
-        const existing = ((cs?.conversation_history as unknown[]) ?? []);
+        conversationHistory = (cs?.conversation_history as unknown[]) ?? [];
         const next = [
-          ...existing,
+          ...conversationHistory,
           {
             role: body.speaker === "borrower" ? "user" : "assistant",
-            content: body.text,
+            content: text,
             channel: "voice",
             ts: new Date().toISOString(),
           },
@@ -139,9 +154,9 @@ export async function POST(
       // the canonical "preview package; full unlocks at pick" line —
       // never the "copy/paste into a template" fallback.
       if (body.speaker === "borrower") {
-        const intent = detectTridentIntent(body.text);
+        const intent = detectTridentIntent(text);
         if (intent.matched) {
-          console.log("TRIDENT_INTENT_TRIGGERED", body.text);
+          console.log("TRIDENT_INTENT_TRIGGERED", text);
           // Pull concierge facts to feed the assumptions bootstrap.
           let conciergeFacts: Record<string, unknown> | null = null;
           if (conciergeSessionId) {
@@ -210,19 +225,23 @@ export async function POST(
         }
       }
 
-      // S2-2: ONLY path to confirmed_facts mutation.
+      // S2-2: ONLY path to confirmed_facts mutation. Arc 7 — shares the
+      // exact same extraction prompt and merge logic as the text
+      // concierge (@/lib/brokerage/borrowerConversation), so a fact a
+      // borrower states by voice gets the same coverage as one typed in
+      // chat, instead of the old narrow 12-key allow-list.
       if (body.speaker === "borrower" && conciergeSessionId) {
-        const extracted = await extractBorrowerFacts(body.text);
+        const extracted = await extractBorrowerFacts(text, conversationHistory);
         if (extracted && Object.keys(extracted).length > 0) {
           const { data: cs2 } = await sb
             .from("borrower_concierge_sessions")
             .select("confirmed_facts")
             .eq("id", conciergeSessionId)
             .maybeSingle();
-          const merged = {
-            ...((cs2?.confirmed_facts as Record<string, unknown>) ?? {}),
-            ...extracted,
-          };
+          const merged = mergeExtractedFacts(
+            (cs2?.confirmed_facts as Record<string, unknown>) ?? {},
+            extracted,
+          );
           await sb
             .from("borrower_concierge_sessions")
             .update({
@@ -240,6 +259,22 @@ export async function POST(
             user_id: null,
             event_type: "fact_extracted",
             payload: { keys: Object.keys(extracted) },
+          });
+
+          // Write-through to the canonical form-building tables — closes
+          // the gap where voice-confirmed facts previously only ever
+          // lived in this session-local JSONB column. Non-fatal, same
+          // fire-and-forget pattern the text concierge uses.
+          propagateBorrowerFacts({
+            dealId,
+            bankId,
+            facts: merged as BorrowerFacts,
+            sb,
+          }).catch((e) => {
+            console.warn(
+              "[voice-dispatch] fact propagation failed (non-fatal):",
+              e?.message ?? String(e),
+            );
           });
         }
       }
@@ -305,56 +340,27 @@ export async function POST(
   }
 }
 
-const ALLOWED_FACT_KEYS = new Set([
-  "business_type",
-  "naics_code",
-  "loan_amount_requested",
-  "loan_use",
-  "years_in_operation",
-  "annual_revenue",
-  "owner_industry_experience_years",
-  "business_location_city",
-  "business_location_state",
-  "existing_debt",
-  "equity_available",
-  "fico_estimate",
-]);
-
+/**
+ * Extracts structured facts from a single voice utterance, using the same
+ * registry-driven extraction prompt as the text concierge (@/lib/
+ * brokerage/borrowerConversation). Passing conversationHistory lets the
+ * model resolve pronouns/context across turns the same way text does.
+ */
 async function extractBorrowerFacts(
   text: string,
+  conversationHistory: unknown[],
 ): Promise<Record<string, unknown> | null> {
   if (text.trim().length < 10) return null;
 
+  const prompt = buildBorrowerExtractionPrompt(conversationHistory, text);
   const result = await callGeminiJSON<Record<string, unknown>>({
     model: MODEL_CONCIERGE_EXTRACTION,
     logTag: "borrower-voice-extract",
-    systemInstruction: `You extract structured facts from spoken utterances by SBA loan applicants. Return ONLY a JSON object with the fields you can confidently extract. Omit fields you cannot. Never guess.
-
-Allowed fields:
-  business_type (string)
-  naics_code (string, 6-digit)
-  loan_amount_requested (number, USD)
-  loan_use (string, brief)
-  years_in_operation (number)
-  annual_revenue (number, USD)
-  owner_industry_experience_years (number)
-  business_location_city (string)
-  business_location_state (string, 2-letter)
-  existing_debt (number, USD)
-  equity_available (number, USD)
-  fico_estimate (number)
-
-If the utterance contains no extractable facts, return {}.`,
-    prompt: text,
+    prompt,
   });
 
   if (!result.ok || !result.result) return null;
-
-  const filtered: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(result.result)) {
-    if (ALLOWED_FACT_KEYS.has(k) && v != null) filtered[k] = v;
-  }
-  return Object.keys(filtered).length > 0 ? filtered : null;
+  return Object.keys(result.result).length > 0 ? result.result : null;
 }
 
 // Exported for unit testing.
