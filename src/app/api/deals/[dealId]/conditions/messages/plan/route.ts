@@ -4,6 +4,8 @@ import { evaluateTriggers } from "@/lib/conditions/messaging/triggers";
 import { checkThrottle } from "@/lib/conditions/messaging/throttle";
 import { aiDraftMessage } from "@/lib/conditions/messaging/aiDraft";
 import { queueMessage, skipMessage } from "@/lib/conditions/messaging/queue";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +16,7 @@ export async function POST(
 ) {
   try {
     const { dealId } = await context.params;
+    await assertDealAccess(dealId);
     const sb = supabaseAdmin();
 
     // Load conditions and context
@@ -159,6 +162,8 @@ export async function POST(
       },
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     console.error("Message planning failed:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? "planning_failed" },

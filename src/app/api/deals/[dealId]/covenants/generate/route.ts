@@ -6,6 +6,8 @@ import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildCovenantPackage } from "@/lib/covenants/covenantPackageBuilder";
 import type { DealType } from "@/lib/covenants/covenantTypes";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export async function POST(
   _req: NextRequest,
@@ -15,33 +17,35 @@ export async function POST(
   if (!userId) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const { dealId } = await ctx.params;
-  const sb = supabaseAdmin();
-
-  // Get risk grade
-  const { data: riskRun } = await sb
-    .from("ai_risk_runs")
-    .select("grade")
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const riskGrade = riskRun?.grade ?? "BB";
-
-  // Get deal type + snapshot facts
-  const { data: deal } = await sb.from("deals").select("entity_type").eq("id", dealId).maybeSingle();
-  const dealType = mapDealType(deal?.entity_type);
-
-  const { data: facts } = await sb
-    .from("deal_financial_facts")
-    .select("fact_key, value_num")
-    .eq("deal_id", dealId)
-    .eq("is_superseded", false);
-
-  const fm: Record<string, number | null> = {};
-  for (const f of facts ?? []) fm[f.fact_key] = f.value_num ?? null;
 
   try {
+    await assertDealAccess(dealId);
+    const sb = supabaseAdmin();
+
+    // Get risk grade
+    const { data: riskRun } = await sb
+      .from("ai_risk_runs")
+      .select("grade")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const riskGrade = riskRun?.grade ?? "BB";
+
+    // Get deal type + snapshot facts
+    const { data: deal } = await sb.from("deals").select("entity_type").eq("id", dealId).maybeSingle();
+    const dealType = mapDealType(deal?.entity_type);
+
+    const { data: facts } = await sb
+      .from("deal_financial_facts")
+      .select("fact_key, value_num")
+      .eq("deal_id", dealId)
+      .eq("is_superseded", false);
+
+    const fm: Record<string, number | null> = {};
+    for (const f of facts ?? []) fm[f.fact_key] = f.value_num ?? null;
+
     const pkg = await buildCovenantPackage({
       dealId,
       riskGrade,
@@ -56,6 +60,8 @@ export async function POST(
 
     return NextResponse.json({ ok: true, package: pkg });
   } catch (err) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     console.error("[POST covenants/generate]", err);
     return NextResponse.json({ ok: false, error: "Failed to generate" }, { status: 500 });
   }

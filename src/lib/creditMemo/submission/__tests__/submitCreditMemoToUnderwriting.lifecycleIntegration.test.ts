@@ -136,13 +136,23 @@ test("[lifecycle-integration-5] submit returns ok:true even when lifecycle fails
   // path at the bottom. Verify there's no `return { ok: false }` path
   // gated on the lifecycle result — the lifecycle branch must NOT roll
   // back the snapshot (snapshot is canonical, lifecycle is observability).
-  // The strongest assertion: no path between the snapshot insert and the
-  // final success return contains a return-with-ok-false that references
-  // the lifecycle helper's outcome.
-  const afterInsert = body.split('insertRes.error')[2] ?? "";
-  // The body after `insertRes.error` contains the lifecycle block + the
-  // refresh block + the success return. There should be ONE
-  // `return {` statement in that region: the success return.
+  // The strongest assertion: no path between the persist_failed check and
+  // the final success return contains a return-with-ok-false that
+  // references the lifecycle helper's outcome.
+  //
+  // Anchored on the "Supersede any prior..." comment (rather than the
+  // literal text "insertRes.error") because that comment marks the point
+  // right after the persist_failed if-block closes — i.e. exactly where
+  // the lifecycle + refresh + success-return region begins. Anchoring on
+  // "insertRes.error" is fragile: any legitimate addition inside the
+  // persist_failed block that references insertRes.error (e.g. rejection
+  // instrumentation) shifts the split point and produces a false failure
+  // here without touching the lifecycle branches this test actually cares
+  // about.
+  const afterInsert = body.split("Supersede any prior")[1] ?? "";
+  // The body after that comment contains the supersede block + the
+  // lifecycle block + the refresh block + the success return. There
+  // should be ONE `return {` statement in that region: the success return.
   const returns = afterInsert.match(/\breturn\s*\{/g) ?? [];
   assert.equal(
     returns.length,

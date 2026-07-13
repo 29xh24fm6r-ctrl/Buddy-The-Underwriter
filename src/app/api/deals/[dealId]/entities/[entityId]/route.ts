@@ -1,6 +1,8 @@
 // src/app/api/deals/[dealId]/entities/[entityId]/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -31,6 +33,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     if (!dealId || !entityId) {
       return json(400, { ok: false, error: "Missing dealId or entityId" });
     }
+
+    await assertDealAccess(dealId);
 
     const supabase = await getSupabaseClient();
 
@@ -69,6 +73,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       }
     }
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[entity] GET error:", e);
     return json(500, { ok: false, error: e.message });
   }
@@ -86,6 +92,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     if (!dealId || !entityId) {
       return json(400, { ok: false, error: "Missing dealId or entityId" });
     }
+
+    await assertDealAccess(dealId);
 
     let body: any;
     try {
@@ -168,6 +176,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       }
     }
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[entity] PATCH error:", e);
     return json(500, { ok: false, error: e.message });
   }
@@ -185,6 +195,8 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
     if (!dealId || !entityId) {
       return json(400, { ok: false, error: "Missing dealId or entityId" });
     }
+
+    await assertDealAccess(dealId);
 
     const supabase = await getSupabaseClient();
 
@@ -221,6 +233,8 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
       }
     }
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[entity] DELETE error:", e);
     return json(500, { ok: false, error: e.message });
   }

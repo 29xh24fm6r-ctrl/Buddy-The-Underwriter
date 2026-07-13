@@ -16,6 +16,7 @@ import "server-only";
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadLatestCertifiedFloridaArmorySnapshot } from "@/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot";
 
 export type GenerateDecisionSnapshotInput = {
   dealId: string;
@@ -68,6 +69,28 @@ export async function generateDecisionSnapshot(
       ? "Preliminary decision proposed without a DSCR signal. Banker review required."
       : `Preliminary decision derived from DSCR ${dscr.toFixed(2)}x. Banker review required.`;
 
+  // 2b. Best-effort traceability link to whatever certified credit memo is
+  //     on file right now (see the 20260713220000 migration). This decision
+  //     is still computed independently from financial_snapshots — never
+  //     from the memo — this link only records what the memo said at the
+  //     moment the decision was proposed, for later audit. Must happen
+  //     before the insert below: decision_snapshots becomes immutable once
+  //     status='final', so there is no way to backfill this afterward.
+  let creditMemoSnapshotId: string | null = null;
+  let creditMemoDscr: number | null = null;
+  try {
+    const certified = await loadLatestCertifiedFloridaArmorySnapshot({ dealId, bankId });
+    if (certified.ok) {
+      creditMemoSnapshotId = certified.snapshot.meta.snapshot_id ?? null;
+      creditMemoDscr = readNum(
+        (certified.snapshot.canonical_memo as any)?.financial_analysis?.dscr?.value,
+      );
+    }
+  } catch {
+    // Non-fatal — the decision snapshot must not fail to generate just
+    // because the traceability lookup had trouble.
+  }
+
   // 3. Insert as a proposed snapshot. Defaults from the migration cover
   //    inputs/evidence/policy JSON; we populate inputs_json with the
   //    inputs we used so the source of the decision is traceable.
@@ -79,6 +102,8 @@ export async function generateDecisionSnapshot(
       decision,
       decision_summary: summary,
       confidence,
+      credit_memo_snapshot_id: creditMemoSnapshotId,
+      credit_memo_dscr: creditMemoDscr,
       inputs_json: {
         dscr,
         annual_debt_service: annualDebtService,

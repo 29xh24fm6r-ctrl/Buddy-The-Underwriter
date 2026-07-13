@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runUploadIntel } from "@/lib/intel/run-upload-intel";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 
@@ -10,6 +12,7 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const sb = supabaseAdmin();
 
     const up = await sb
@@ -31,6 +34,8 @@ export async function POST(
     const out = await runUploadIntel(up.data.id);
     return NextResponse.json(out);
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: e?.message ?? "Deal intel run failed" },
       { status: 500 },

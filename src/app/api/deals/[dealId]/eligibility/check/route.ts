@@ -18,6 +18,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { evaluateAllRules, getMissingFacts, getNextCriticalFact } from "@/lib/policy/ruleEngine";
 import { retrieveEvidence } from "@/lib/retrieval/retrievalCore";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 interface EligibilityCheckRequest {
   program: "7a" | "504";
@@ -45,6 +47,7 @@ export async function POST(
 ): Promise<NextResponse<EligibilityCheckResponse>> {
   try {
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const bankId = await getCurrentBankId();
     const body = (await req.json()) as EligibilityCheckRequest;
     const { program, dealFacts = {} } = body;
@@ -179,6 +182,8 @@ export async function POST(
       })),
     });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes as any;
     console.error("Eligibility check error:", error);
     return NextResponse.json({ ok: false, error: String(error) } as any, { status: 500 });
   }

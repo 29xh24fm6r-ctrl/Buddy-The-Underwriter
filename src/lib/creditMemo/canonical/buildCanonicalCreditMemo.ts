@@ -1996,6 +1996,10 @@ export async function buildCanonicalCreditMemo(args: {
           ? [`Management aliases deduped: ${mgmtResult.aliasesDeduped.join(", ")}`]
           : [],
         readiness,
+        deal_classification: {
+          is_cre_deal: condIsCre,
+          is_loc_deal: isLOC,
+        },
         data_completeness: bindings.completeness,
         // Phase 6+9: Filter artifact/placeholder spreads from committee-facing list
         // GCF is excluded when bindings show no meaningful global cash flow data

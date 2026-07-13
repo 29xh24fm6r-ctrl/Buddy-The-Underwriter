@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ export async function POST(
   const sb = supabaseAdmin();
 
   try {
+    await assertDealAccess(dealId);
     const body = await req.json();
     const upload_inbox_id = String(body?.upload_inbox_id || "");
     const request_id = String(body?.request_id || "");
@@ -115,6 +118,8 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: e?.message || "attach_failed" },
       { status: 400 },

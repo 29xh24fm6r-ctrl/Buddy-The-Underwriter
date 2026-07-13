@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +20,7 @@ export async function POST(
   const sb = supabaseAdmin();
 
   try {
+    await assertDealAccess(dealId);
     const body = await req.json().catch(() => ({}));
     const upload_inbox_id = String(body?.upload_inbox_id || "").trim();
     if (!upload_inbox_id) throw new Error("missing_upload_inbox_id");
@@ -47,6 +50,8 @@ export async function POST(
 
     return NextResponse.json({ ok: true, signedUrl: signed.data.signedUrl });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: e?.message || "preview_failed" },
       { status: 400 },

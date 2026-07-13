@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -15,34 +17,43 @@ export async function GET(
 ) {
 
   const { dealId } = await ctx.params;
-  const url = new URL(request.url);
-  const scope = url.searchParams.get("scope");
-  const action = url.searchParams.get("action");
-  const limit = Math.max(
-    1,
-    Math.min(50, Number(url.searchParams.get("limit") || 20)),
-  );
 
-  const sb = supabaseAdmin();
-  let q = sb
-    .from("ai_events")
-    .select(
-      "id, deal_id, scope, action, output_json, confidence, evidence_json, requires_human_review, created_at",
-    )
-    .eq("deal_id", dealId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  try {
+    await assertDealAccess(dealId);
 
-  if (scope) q = q.eq("scope", scope);
-  if (action) q = q.eq("action", action);
-
-  const { data, error } = await q;
-  if (error) {
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      { status: 500 },
+    const url = new URL(request.url);
+    const scope = url.searchParams.get("scope");
+    const action = url.searchParams.get("action");
+    const limit = Math.max(
+      1,
+      Math.min(50, Number(url.searchParams.get("limit") || 20)),
     );
-  }
 
-  return NextResponse.json({ ok: true, events: data ?? [] });
+    const sb = supabaseAdmin();
+    let q = sb
+      .from("ai_events")
+      .select(
+        "id, deal_id, scope, action, output_json, confidence, evidence_json, requires_human_review, created_at",
+      )
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (scope) q = q.eq("scope", scope);
+    if (action) q = q.eq("action", action);
+
+    const { data, error } = await q;
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, events: data ?? [] });
+  } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
+    return NextResponse.json({ ok: false, error: err?.message ?? "internal_error" }, { status: 500 });
+  }
 }

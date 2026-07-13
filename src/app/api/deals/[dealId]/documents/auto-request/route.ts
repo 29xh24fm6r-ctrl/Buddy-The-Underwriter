@@ -19,6 +19,8 @@ import { getOpenAI } from "@/lib/ai/openaiClient";
 import { retrieveEvidence } from "@/lib/retrieval/retrievalCore";
 import { OPENAI_CHAT } from "@/lib/ai/models";
 import { evaluateAllRules, getMissingFacts } from "@/lib/policy/ruleEngine";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 interface DocumentRequest {
   doc_name: string;
@@ -41,6 +43,7 @@ export async function POST(
 ): Promise<NextResponse<AutoRequestResponse>> {
   try {
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const bankId = await getCurrentBankId();
     const body = await req.json();
     const { program = "7a", dealFacts = {} } = body;
@@ -134,6 +137,8 @@ Focus on the 8-12 most important documents. Order by priority.`;
       estimated_time_mins: estimatedTime,
     });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes as any;
     console.error("Auto-request error:", error);
     return NextResponse.json({ ok: false, error: String(error) } as any, { status: 500 });
   }

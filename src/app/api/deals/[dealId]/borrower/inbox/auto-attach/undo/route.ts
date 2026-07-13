@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ export async function POST(
   const sb = supabaseAdmin();
 
   try {
+    await assertDealAccess(dealId);
     const body = await req.json();
     const runId = String(body?.run_id || "").trim();
     if (!runId) throw new Error("missing_run_id");
@@ -142,6 +145,8 @@ export async function POST(
       results,
     });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: e?.message || "undo_failed" },
       { status: 400 },

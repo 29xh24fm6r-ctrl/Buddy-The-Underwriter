@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkCurrentUser } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +31,8 @@ export async function POST(
 ) {
   try {
     const { dealId, draftId } = await ctx.params;
+
+    await assertDealAccess(dealId);
 
     if (!dealId) {
       return NextResponse.json(
@@ -118,6 +122,8 @@ export async function POST(
 
     return NextResponse.json({ ok: true, draft });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
       { status: 500 },

@@ -97,7 +97,7 @@ const routeModule = require(
 const { GET } = routeModule;
 
 function mkReq(): any {
-  return { headers: new Map() };
+  return { headers: new Map(), nextUrl: new URL("https://example.test/route") };
 }
 async function call(dealId: string, kind: string) {
   const res = await GET(mkReq(), {

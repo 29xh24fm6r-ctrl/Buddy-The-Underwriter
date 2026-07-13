@@ -75,7 +75,12 @@ function buildMemoFixture(opts: {
       debt_yield: { value: 0.12, source: "Snapshot", updated_at: null },
       working_capital: { value: 90_000, source: "Snapshot", updated_at: null },
       debt_coverage_table: [],
-      income_statement_table: [],
+      // Populated regardless of product type — this fixture is not testing
+      // the CRE income-statement exemption, so give it real data rather than
+      // couple every test case here to deal_classification.is_cre_deal.
+      income_statement_table: [
+        { label: "FY2025", period_end: "2025-12-31", months: 12, revenue: 2_500_000, net_income: 180_000 },
+      ],
       ratio_analysis: [],
       breakeven: { narrative: "Sufficient revenue cushion." },
       repayment_notes: [],

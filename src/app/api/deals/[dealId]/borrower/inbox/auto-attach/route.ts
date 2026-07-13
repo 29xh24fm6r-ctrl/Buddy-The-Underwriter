@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +26,7 @@ export async function POST(
   const sb = supabaseAdmin();
 
   try {
+    await assertDealAccess(dealId);
     const body = await req.json().catch(() => ({}));
     const threshold = Math.max(0, Math.min(100, Number(body?.threshold ?? 85)));
 
@@ -297,6 +300,8 @@ export async function POST(
       results,
     });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: e?.message || "auto_attach_failed" },
       { status: 400 },

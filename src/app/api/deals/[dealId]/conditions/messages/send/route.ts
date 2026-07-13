@@ -6,6 +6,8 @@ import {
   updateMessageStatus,
 } from "@/lib/notifications/send";
 import { recordMessageSent } from "@/lib/conditions/messaging/throttle";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +18,7 @@ export async function POST(
 ) {
   try {
     const { dealId } = await context.params;
+    await assertDealAccess(dealId);
     const body = await req.json();
     const { message_ids, auto_send } = body;
 
@@ -85,6 +88,8 @@ export async function POST(
       results,
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     console.error("Message send failed:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? "send_failed" },
@@ -100,6 +105,7 @@ export async function PATCH(
 ) {
   try {
     const { dealId } = await context.params;
+    await assertDealAccess(dealId);
     const body = await req.json();
     const { message_ids, approved_by } = body;
 
@@ -131,6 +137,8 @@ export async function PATCH(
       approved: message_ids.length,
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? "approval_failed" },
       { status: 500 },

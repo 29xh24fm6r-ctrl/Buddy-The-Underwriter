@@ -11,12 +11,18 @@
 // corporate-only guarantee, income_statement-style financials for a
 // CRE/NOI-based deal) must NOT get an unconditional warning here, or that
 // entire class of legitimate deals becomes permanently unsubmittable with no
-// escape hatch. That's why several sections below (collateral, new_debt,
-// global_cash_flow, income_statement, repayment_breakeven,
-// personal_financial_statements, policy_exceptions, conditions, debt_coverage)
-// intentionally have no unconditional completeness check — their correct
-// "required-ness" varies by deal type and needs deal-type-aware logic to add
-// safely, which is a product decision beyond this pass.
+// escape hatch.
+//
+// Some of these were later given DEAL-TYPE-AWARE checks (income_statement,
+// collateral, debt_coverage) using memo.meta.deal_classification — narrow
+// is_cre_deal/is_loc_deal flags reused from buildCanonicalCreditMemo.ts's
+// existing condIsCre/isLOC locals. The remaining sections (new_debt,
+// global_cash_flow, repayment_breakeven, personal_financial_statements,
+// policy_exceptions, conditions) still intentionally have no completeness
+// check: reliably detecting "this deal has an individual guarantor" or "this
+// deal is refinancing existing debt" is not currently derivable from the
+// canonical memo without risking false-positive blockers, so they're left
+// for a future pass with better classification data.
 
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import type {
@@ -151,9 +157,21 @@ export function buildSourcesAndUsesSection(input: SectionInput): FloridaArmorySe
 }
 
 export function buildCollateralSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
   const collateral = input.memo.collateral ?? {};
   const rows = ((collateral as any).line_items ?? []) as Array<Record<string, unknown>>;
   const arBb = (collateral as any).ar_borrowing_base;
+
+  // CRE deals are collateral-secured by definition — a CRE memo with no
+  // collateral value, no line items, and no AR borrowing base means the
+  // collateral data pipeline never ran, not a legitimate "no collateral" CRE
+  // deal. Checking gross_value (not just line_items) avoids false-positiving
+  // on a deal that has an aggregate valuation but no itemized line items.
+  const isCreDeal = input.memo.meta?.deal_classification?.is_cre_deal ?? false;
+  const grossValue = (collateral as any).gross_value?.value ?? null;
+  if (isCreDeal && rows.length === 0 && !arBb && grossValue === null) {
+    warnings.push("Collateral analysis missing for a CRE deal");
+  }
 
   const tables: Array<{ key: string; title: string; columns: string[]; rows: Array<Record<string, unknown>> }> = [
     {
@@ -183,6 +201,7 @@ export function buildCollateralSection(input: SectionInput): FloridaArmorySectio
     { collateral },
     tables,
     input.sources,
+    warnings,
   );
 }
 
@@ -247,8 +266,19 @@ export function buildManagementSection(input: SectionInput): FloridaArmorySectio
 }
 
 export function buildDebtCoverageSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
   const financial = input.memo.financial_analysis ?? {};
   const rows = ((financial as any).debt_coverage_table ?? []) as Array<Record<string, unknown>>;
+
+  // No product type legitimately has BOTH a zero-row debt coverage table AND
+  // no computed DSCR value — that combination means repayment capacity was
+  // never analyzed at all, regardless of deal type. (A deal with a populated
+  // table but no single "dscr" scalar, or vice versa, is not flagged here —
+  // only the double-absence, which needs no deal-type detection to be safe.)
+  const dscrValue = (financial as any).dscr?.value ?? null;
+  if (rows.length === 0 && dscrValue === null) {
+    warnings.push("Debt coverage analysis missing — no debt coverage table and no computed DSCR");
+  }
 
   return section(
     "debt_coverage",
@@ -262,6 +292,7 @@ export function buildDebtCoverageSection(input: SectionInput): FloridaArmorySect
       rows,
     }],
     input.sources,
+    warnings,
   );
 }
 
@@ -303,8 +334,18 @@ export function buildGlobalCashFlowSection(input: SectionInput): FloridaArmorySe
 }
 
 export function buildIncomeStatementSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
   const financial = input.memo.financial_analysis ?? {};
   const rows = ((financial as any).income_statement_table ?? []) as Array<Record<string, unknown>>;
+
+  // CRE/NOI-based deals are legitimately exempt (repayment is analyzed via
+  // debt_coverage/NOI, not a multi-period operating income statement). For
+  // every other deal type, an empty income statement means the tax-return/
+  // financial-statement extraction pipeline never ran.
+  const isCreDeal = input.memo.meta?.deal_classification?.is_cre_deal ?? false;
+  if (!isCreDeal && rows.length === 0) {
+    warnings.push("Income statement missing for a non-CRE deal");
+  }
 
   return section(
     "income_statement",
@@ -318,6 +359,7 @@ export function buildIncomeStatementSection(input: SectionInput): FloridaArmoryS
       rows,
     }],
     input.sources,
+    warnings,
   );
 }
 
