@@ -19,8 +19,8 @@
  *   7. real_estate_speculation — scaffolded
  *   8. pyramid_mlm            — scaffolded
  *   9. lending_investment     — scaffolded (simple NAICS prefix check)
- *   10. federal_compliance    — real logic (borrower-disclosed via intake "compliance" step)
- *   11. character             — real logic (borrower-disclosed via intake "compliance" step)
+ *   10. federal_compliance    — real logic (borrower-disclosed via intake "compliance" step; wizard-only, no marketplace equivalent yet)
+ *   11. character             — real logic (intake "compliance" step, OR derived from ownership_entities.convicted_or_pleaded/on_parole_or_probation for marketplace deals — see src/lib/score/inputs.ts)
  *   12. affiliates_disclosed  — informational only (never fails; flags for underwriter review)
  *
  * Pure function. No DB, no I/O. The caller loads inputs and passes them.

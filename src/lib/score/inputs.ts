@@ -108,6 +108,32 @@ function tryNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Any owner true -> true (one bad actor is enough to fail the deal).
+ * Otherwise, only resolve to a definite false once every owner has
+ * explicitly answered false; a mix of false/unknown stays null (pending),
+ * same "not yet disclosed" semantics as the wizard-driven compliance step.
+ */
+export function deriveCharacterFlagsFromOwners(
+  owners: Array<{
+    convicted_or_pleaded: boolean | null;
+    on_parole_or_probation: boolean | null;
+  }>,
+): { felonyConviction: boolean | null; incarceratedOrParole: boolean | null } {
+  if (owners.length === 0) {
+    return { felonyConviction: null, incarceratedOrParole: null };
+  }
+  const resolve = (key: "convicted_or_pleaded" | "on_parole_or_probation"): boolean | null => {
+    if (owners.some((o) => o[key] === true)) return true;
+    if (owners.every((o) => o[key] === false)) return false;
+    return null;
+  };
+  return {
+    felonyConviction: resolve("convicted_or_pleaded"),
+    incarceratedOrParole: resolve("on_parole_or_probation"),
+  };
+}
+
 export async function loadScoreInputs(params: {
   dealId: string;
   sb: SupabaseClient;
@@ -227,10 +253,32 @@ export async function loadScoreInputs(params: {
   const federalDebtDelinquent = complianceBool("federal_debt_delinquent");
   const taxDelinquent = complianceBool("tax_delinquent");
   const samDebarred = complianceBool("sam_debarred");
-  const felonyConviction = complianceBool("felony_conviction");
-  const incarceratedOrParole = complianceBool("incarcerated_or_parole");
   const priorGovLoanDefault = complianceBool("prior_gov_loan_default");
   const hasAffiliates = complianceBool("has_affiliates");
+
+  // Marketplace/brokerage-originated deals never see the intake wizard, so
+  // `complianceSection` is absent for them — but the chat/voice concierge
+  // (Arc 7) may have already captured the two character facts that have a
+  // direct SBA-Form-912 equivalent on ownership_entities. Fall back to those
+  // so a marketplace deal isn't silently exempted from the character gate.
+  // federal_debt_delinquent/tax_delinquent/sam_debarred/prior_gov_loan_default
+  // and has_affiliates have no concierge-side equivalent yet and stay null.
+  let felonyConviction = complianceBool("felony_conviction");
+  let incarceratedOrParole = complianceBool("incarcerated_or_parole");
+  if (!complianceSection) {
+    const { data: ownerRows } = await sb
+      .from("ownership_entities")
+      .select("convicted_or_pleaded, on_parole_or_probation")
+      .eq("deal_id", dealId);
+    const derived = deriveCharacterFlagsFromOwners(
+      (ownerRows ?? []) as Array<{
+        convicted_or_pleaded: boolean | null;
+        on_parole_or_probation: boolean | null;
+      }>,
+    );
+    felonyConviction = derived.felonyConviction;
+    incarceratedOrParole = derived.incarceratedOrParole;
+  }
 
   // ─── Collateral ───────────────────────────────────────────────────────
   const { data: collateral } = await sb
