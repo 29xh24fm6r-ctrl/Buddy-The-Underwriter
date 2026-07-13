@@ -4,10 +4,10 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
 import { runSamCheck } from "@/lib/integrations/samGov/service";
 import { fetchSamExclusions } from "@/lib/integrations/samGov/client";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -18,7 +18,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId, bankId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId } = await assertDealAccess(rawDealId);
 
     const body = await req.json().catch(() => null);
     const ownershipEntityId: string | undefined = body?.ownership_entity_id;
@@ -57,7 +57,8 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true, check_id: result.checkId, status: result.status, hit_count: result.hitCount, reused: result.reused });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/sam/run]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

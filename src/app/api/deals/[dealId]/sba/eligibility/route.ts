@@ -11,10 +11,10 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
 import { buildSbaEligibilityInput } from "@/lib/sba/dealDataBuilder";
 import { evaluateSBAEligibility } from "@/lib/sba/eligibility";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,7 +25,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function POST(_req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId } = await requireDealAccess(rawDealId);
+    const { dealId } = await assertDealAccess(rawDealId);
 
     const sb = supabaseAdmin();
     const input = await buildSbaEligibilityInput(dealId, sb);
@@ -37,7 +37,8 @@ export async function POST(_req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true, report, input });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/sba/eligibility]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

@@ -9,9 +9,9 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
 import { getForm722Status, acknowledgeForm722 } from "@/lib/sba/forms/form722/service";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -22,11 +22,12 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function GET(_req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId } = await requireDealAccess(rawDealId);
+    const { dealId } = await assertDealAccess(rawDealId);
     const status = await getForm722Status(dealId, supabaseAdmin());
     return NextResponse.json({ ok: true, ...status });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/sba/forms/722] GET", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -35,7 +36,7 @@ export async function GET(_req: Request, ctx: Ctx) {
 export async function POST(_req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId, bankId, userId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId, userId } = await assertDealAccess(rawDealId);
     const result = await acknowledgeForm722(dealId, bankId, supabaseAdmin(), { acknowledgedByUserId: userId });
 
     if (!result.ok) {
@@ -43,7 +44,8 @@ export async function POST(_req: Request, ctx: Ctx) {
     }
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/sba/forms/722] POST", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

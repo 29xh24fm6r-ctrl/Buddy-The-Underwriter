@@ -7,10 +7,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
 import { requestSoftPull } from "@/lib/integrations/creditBureau/request";
 import { requestVendorSoftPull, currentVendor } from "@/lib/integrations/creditBureau/client";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,7 +29,7 @@ async function consentTextHash(): Promise<string> {
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId, bankId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId } = await assertDealAccess(rawDealId);
 
     const body = await req.json().catch(() => null);
     const ownershipEntityId = body?.ownership_entity_id;
@@ -89,7 +89,8 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true, pull_id: result.pullId, status: result.status, reused: result.reused, abnormality_count: result.abnormalityCount });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/credit-pull/request]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

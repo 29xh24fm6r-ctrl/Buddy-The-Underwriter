@@ -8,12 +8,12 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
 import { buildForm148WithSignature } from "@/lib/sba/forms/form148/buildWithSignature";
 import { buildForm148Input } from "@/lib/sba/forms/form148/inputBuilder";
 import { buildForm148 } from "@/lib/sba/forms/form148/build";
 import { renderForm148Pdf } from "@/lib/sba/forms/form148/render";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -24,7 +24,7 @@ type Ctx = { params: Promise<{ dealId: string; action: string }> };
 export async function GET(req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId, action } = await ctx.params;
-    const { dealId, bankId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId } = await assertDealAccess(rawDealId);
     const sb = supabaseAdmin();
 
     if (action === "build") {
@@ -56,7 +56,8 @@ export async function GET(req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: false, error: `unsupported_action: ${action}` }, { status: 400 });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/sba/forms/148/[action]]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

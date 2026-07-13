@@ -15,8 +15,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 import { evaluateAndCreateTriggers, dispatchOrder, ingestResult, cancelOrder } from "@/lib/thirdParty/orchestrator";
 import { buildSbaEligibilityInput } from "@/lib/sba/dealDataBuilder";
 import { getEmailProvider } from "@/lib/email/getProvider";
@@ -63,7 +63,7 @@ function buildOrderEmail(args: { orderType: string; vendorName: string; orderMet
 export async function GET(_req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId, action } = await ctx.params;
-    const { dealId } = await requireDealAccess(rawDealId);
+    const { dealId } = await assertDealAccess(rawDealId);
 
     if (action !== "orders") {
       return NextResponse.json({ ok: false, error: `unsupported_action: ${action}` }, { status: 400 });
@@ -73,7 +73,8 @@ export async function GET(_req: Request, ctx: Ctx) {
     const { data: orders } = await sb.from("third_party_orders").select("*").eq("deal_id", dealId).order("triggered_at", { ascending: false });
     return NextResponse.json({ ok: true, orders: orders ?? [] });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/third-party/[action]] GET", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
@@ -82,7 +83,7 @@ export async function GET(_req: Request, ctx: Ctx) {
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId, action } = await ctx.params;
-    const { dealId, bankId, userId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId, userId } = await assertDealAccess(rawDealId);
     const sb = supabaseAdmin();
     const orderId = new URL(req.url).searchParams.get("orderId");
 
@@ -175,7 +176,8 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: false, error: `unsupported_action: ${action}` }, { status: 400 });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/third-party/[action]] POST", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

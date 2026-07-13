@@ -4,10 +4,10 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { assertDealAccess } from "@/lib/server/deal-access";
 import { initiateKyc } from "@/lib/identity/kyc/service";
 import { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink } from "@/lib/identity/kyc/persona";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -18,7 +18,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId, bankId, userId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId, userId } = await assertDealAccess(rawDealId);
 
     const body = await req.json().catch(() => null);
     const ownershipEntityId = body?.ownership_entity_id;
@@ -53,7 +53,8 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true, verification: result.verification, oneTimeLink: result.oneTimeLink, reused: result.reused });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/kyc/initiate]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

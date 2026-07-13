@@ -9,8 +9,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 import { buildForm1919Input } from "@/lib/sba/forms/form1919/inputBuilder";
 import { FORM_912_TRIGGER_FIELDS } from "@/lib/sba/forms/form1919/fields";
 import { buildForm155Input } from "@/lib/sba/forms/form155/inputBuilder";
@@ -35,7 +35,7 @@ function personTriggers912(fields: Record<string, unknown>): boolean {
 export async function GET(_req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId } = await ctx.params;
-    const { dealId, bankId } = await requireDealAccess(rawDealId);
+    const { dealId, bankId } = await assertDealAccess(rawDealId);
 
     const sb = supabaseAdmin();
 
@@ -134,7 +134,8 @@ export async function GET(_req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true, rows, dealLevelForms });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/sba/signing-status]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }

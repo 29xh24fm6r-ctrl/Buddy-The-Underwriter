@@ -4,8 +4,8 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
-import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -16,7 +16,7 @@ type Ctx = { params: Promise<{ dealId: string; ownershipEntityId: string }> };
 export async function GET(_req: Request, ctx: Ctx) {
   try {
     const { dealId: rawDealId, ownershipEntityId } = await ctx.params;
-    const { dealId } = await requireDealAccess(rawDealId);
+    const { dealId } = await assertDealAccess(rawDealId);
 
     const sb = supabaseAdmin();
     const { data } = await sb
@@ -30,7 +30,8 @@ export async function GET(_req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: true, verification: data ?? null });
   } catch (e: unknown) {
-    rethrowNextErrors(e);
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     console.error("[/api/deals/[dealId]/kyc/status/[ownershipEntityId]]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
