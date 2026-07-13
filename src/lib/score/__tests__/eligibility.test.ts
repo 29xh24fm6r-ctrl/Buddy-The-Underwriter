@@ -24,6 +24,13 @@ function baseInputs(overrides: Partial<BuddyEligibilityInputs> = {}): BuddyEligi
     franchiseSbaEligible: null,
     franchiseSbaCertificationStatus: null,
     hardBlockers: [],
+    federalDebtDelinquent: null,
+    taxDelinquent: null,
+    samDebarred: null,
+    felonyConviction: null,
+    incarceratedOrParole: null,
+    priorGovLoanDefault: null,
+    hasAffiliates: null,
     ...overrides,
   };
 }
@@ -224,6 +231,110 @@ test("hard_blockers: each blocker becomes an individual failure entry", () => {
   }));
   const perBlocker = r.failures.filter((f) => f.category === "hard_blocker");
   assert.equal(perBlocker.length, 2);
+});
+
+// ─── 10. Federal compliance ─────────────────────────────────────────────
+
+test("federal_compliance: all null (not yet disclosed) → passes, does not fail the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs());
+  const check = r.checks.find((c) => c.check === "federal_compliance")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /not yet disclosed/i);
+  assert.equal(r.failures.some((f) => f.category === "federal_compliance"), false);
+});
+
+test("federal_compliance: all explicitly false → passes with a definitive detail", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    federalDebtDelinquent: false,
+    taxDelinquent: false,
+    samDebarred: false,
+  }));
+  const check = r.checks.find((c) => c.check === "federal_compliance")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /no federal compliance issues/i);
+});
+
+test("federal_compliance: delinquent federal debt → hard fails the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ federalDebtDelinquent: true }));
+  assert.equal(r.passed, false);
+  const failure = r.failures.find((f) => f.category === "federal_compliance");
+  assert.ok(failure, "expected a federal_compliance failure");
+  assert.match(failure!.reason, /delinquent on a federal debt/i);
+});
+
+test("federal_compliance: SAM.gov debarment alone hard fails the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    federalDebtDelinquent: false,
+    taxDelinquent: false,
+    samDebarred: true,
+  }));
+  assert.equal(r.passed, false);
+  const failure = r.failures.find((f) => f.category === "federal_compliance");
+  assert.match(failure!.reason, /suspended or debarred/i);
+});
+
+// ─── 11. Character ───────────────────────────────────────────────────────
+
+test("character: all null (not yet disclosed) → passes, does not fail the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs());
+  const check = r.checks.find((c) => c.check === "character")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /not yet disclosed/i);
+});
+
+test("character: felony conviction → hard fails the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ felonyConviction: true }));
+  assert.equal(r.passed, false);
+  const failure = r.failures.find((f) => f.category === "character");
+  assert.ok(failure, "expected a character failure");
+  assert.match(failure!.reason, /felony conviction/i);
+});
+
+test("character: currently incarcerated/parole → hard fails the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ incarceratedOrParole: true }));
+  assert.equal(r.passed, false);
+  assert.ok(r.failures.some((f) => f.category === "character"));
+});
+
+test("character: multiple disqualifying answers collapse into one failure entry listing both", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    felonyConviction: true,
+    priorGovLoanDefault: true,
+  }));
+  const characterFailures = r.failures.filter((f) => f.category === "character");
+  assert.equal(characterFailures.length, 1);
+  assert.match(characterFailures[0].reason, /felony conviction/i);
+  assert.match(characterFailures[0].reason, /prior default on a government loan/i);
+});
+
+// ─── 12. Affiliates disclosure (informational, never fails) ────────────
+
+test("affiliates_disclosed: true never fails the deal, but flags for review", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ hasAffiliates: true }));
+  const check = r.checks.find((c) => c.check === "affiliates_disclosed")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /confirm size standard/i);
+  assert.equal(r.failures.some((f) => f.check === "affiliates_disclosed"), false);
+});
+
+test("affiliates_disclosed: false → passes with a definitive detail", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ hasAffiliates: false }));
+  const check = r.checks.find((c) => c.check === "affiliates_disclosed")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /no affiliates/i);
+});
+
+test("a fully clean compliance disclosure does not by itself block an otherwise-eligible deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    federalDebtDelinquent: false,
+    taxDelinquent: false,
+    samDebarred: false,
+    felonyConviction: false,
+    incarceratedOrParole: false,
+    priorGovLoanDefault: false,
+    hasAffiliates: false,
+  }));
+  assert.equal(r.passed, true);
 });
 
 // ─── 9. Lending / investment ───────────────────────────────────────────

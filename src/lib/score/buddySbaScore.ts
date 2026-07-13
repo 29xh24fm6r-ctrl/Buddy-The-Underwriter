@@ -53,6 +53,13 @@ export async function computeBuddySBAScore(params: {
     franchiseSbaEligible: inputs.franchise?.sbaEligible ?? null,
     franchiseSbaCertificationStatus: inputs.franchise?.sbaCertificationStatus ?? null,
     hardBlockers: inputs.riskProfile.hardBlockers,
+    federalDebtDelinquent: inputs.federalDebtDelinquent,
+    taxDelinquent: inputs.taxDelinquent,
+    samDebarred: inputs.samDebarred,
+    felonyConviction: inputs.felonyConviction,
+    incarceratedOrParole: inputs.incarceratedOrParole,
+    priorGovLoanDefault: inputs.priorGovLoanDefault,
+    hasAffiliates: inputs.hasAffiliates,
   });
 
   // Build the score (skips component math for ineligible deals).

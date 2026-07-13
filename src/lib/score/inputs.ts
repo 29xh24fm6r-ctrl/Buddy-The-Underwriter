@@ -84,6 +84,17 @@ export type ScoreInputs = {
   // Management
   managementTeamSize: number | null;
 
+  // Federal-compliance / character / affiliates disclosures (borrower
+  // intake "compliance" step — see src/lib/score/eligibility/evaluate.ts).
+  // null = not yet disclosed.
+  federalDebtDelinquent: boolean | null;
+  taxDelinquent: boolean | null;
+  samDebarred: boolean | null;
+  felonyConviction: boolean | null;
+  incarceratedOrParole: boolean | null;
+  priorGovLoanDefault: boolean | null;
+  hasAffiliates: boolean | null;
+
   // Serializable snapshot for audit trail
   snapshot: Record<string, unknown>;
 
@@ -194,6 +205,32 @@ export async function loadScoreInputs(params: {
 
   if (yearsInBusiness == null) missing.push("years_in_business");
   if (annualRevenueUsd == null) missing.push("annual_revenue");
+
+  // ─── Federal compliance / character / affiliates disclosures ──────────
+  // Borrower-answered on the intake "compliance" step (see
+  // src/components/borrower/intake/IntakeFormClient.tsx). Section is
+  // absent until the borrower reaches that step — all fields resolve to
+  // null ("not yet disclosed"), which evaluateBuddySbaEligibility treats
+  // as a pending pass, not a failure.
+  const { data: complianceSection } = await sb
+    .from("deal_builder_sections")
+    .select("data")
+    .eq("deal_id", dealId)
+    .eq("section_key", "compliance")
+    .maybeSingle();
+
+  function complianceBool(key: string): boolean | null {
+    const v = (complianceSection?.data as Record<string, unknown> | null)?.[key];
+    return typeof v === "boolean" ? v : null;
+  }
+
+  const federalDebtDelinquent = complianceBool("federal_debt_delinquent");
+  const taxDelinquent = complianceBool("tax_delinquent");
+  const samDebarred = complianceBool("sam_debarred");
+  const felonyConviction = complianceBool("felony_conviction");
+  const incarceratedOrParole = complianceBool("incarcerated_or_parole");
+  const priorGovLoanDefault = complianceBool("prior_gov_loan_default");
+  const hasAffiliates = complianceBool("has_affiliates");
 
   // ─── Collateral ───────────────────────────────────────────────────────
   const { data: collateral } = await sb
@@ -360,6 +397,13 @@ export async function loadScoreInputs(params: {
     employeeCount,
     franchise,
     managementTeamSize,
+    federalDebtDelinquent,
+    taxDelinquent,
+    samDebarred,
+    felonyConviction,
+    incarceratedOrParole,
+    priorGovLoanDefault,
+    hasAffiliates,
     snapshot,
     missingInputs: missing,
   };

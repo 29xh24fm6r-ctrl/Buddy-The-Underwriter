@@ -176,6 +176,13 @@ function buildInputs(t: Tune = {}): ScoreInputs {
         }
       : null,
     managementTeamSize: pick(t, "managementSize", 3) as number | null,
+    federalDebtDelinquent: null,
+    taxDelinquent: null,
+    samDebarred: null,
+    felonyConviction: null,
+    incarceratedOrParole: null,
+    priorGovLoanDefault: null,
+    hasAffiliates: null,
     snapshot: { synth: true },
     missingInputs: [],
   };
@@ -194,6 +201,13 @@ function evalFromInputs(inputs: ScoreInputs): EligibilityResult {
     franchiseSbaEligible: inputs.franchise?.sbaEligible ?? null,
     franchiseSbaCertificationStatus: inputs.franchise?.sbaCertificationStatus ?? null,
     hardBlockers: inputs.riskProfile.hardBlockers,
+    federalDebtDelinquent: inputs.federalDebtDelinquent,
+    taxDelinquent: inputs.taxDelinquent,
+    samDebarred: inputs.samDebarred,
+    felonyConviction: inputs.felonyConviction,
+    incarceratedOrParole: inputs.incarceratedOrParole,
+    priorGovLoanDefault: inputs.priorGovLoanDefault,
+    hasAffiliates: inputs.hasAffiliates,
   });
 }
 

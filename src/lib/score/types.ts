@@ -53,6 +53,8 @@ export type EligibilityFailure = {
     | "passive"
     | "franchise"
     | "hard_blocker"
+    | "federal_compliance"
+    | "character"
     | "other";
   reason: string;
   sopReference: string;

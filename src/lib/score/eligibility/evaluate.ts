@@ -9,7 +9,7 @@
  * `evaluateBuddySbaEligibility` here to avoid the collision.
  * ────────────────────────────────────────────────────────────────────
  *
- * 9 SOP 50 10 7.1 categories:
+ * 12 SOP 50 10 7.1 categories:
  *   1. for_profit             — real logic (reads borrower_applications.business_entity_type)
  *   2. size_standard          — real logic (NAICS top-50 table, default-deny on unknown)
  *   3. use_of_proceeds_prohibited — real logic (regex over buddy_sba_packages.use_of_proceeds)
@@ -19,6 +19,9 @@
  *   7. real_estate_speculation — scaffolded
  *   8. pyramid_mlm            — scaffolded
  *   9. lending_investment     — scaffolded (simple NAICS prefix check)
+ *   10. federal_compliance    — real logic (borrower-disclosed via intake "compliance" step)
+ *   11. character             — real logic (borrower-disclosed via intake "compliance" step)
+ *   12. affiliates_disclosed  — informational only (never fails; flags for underwriter review)
  *
  * Pure function. No DB, no I/O. The caller loads inputs and passes them.
  */
@@ -40,6 +43,9 @@ const SOP = {
   real_estate: "SOP 50 10 7.1, Chapter 2 — Real Estate Investment (speculation exclusion)",
   pyramid: "SOP 50 10 7.1, Chapter 2 — Ineligible Businesses (pyramid/MLM)",
   lending: "SOP 50 10 7.1, Chapter 2 — Ineligible Businesses (lending/investment)",
+  federal_compliance: "SOP 50 10 7.1, Chapter 2 — Federal Debt Delinquency (SBA Form 1919)",
+  character: "SOP 50 10 7.1, Chapter 2 — Character Eligibility (SBA Form 912)",
+  affiliates: "SOP 50 10 7.1, Chapter 2 — Affiliation (13 CFR §121.301)",
 } as const;
 
 /** Ineligible entity types — business must be for-profit. */
@@ -82,6 +88,22 @@ export type BuddyEligibilityInputs = {
   franchiseSbaEligible: boolean | null;
   franchiseSbaCertificationStatus: string | null;
   hardBlockers: string[];
+  /**
+   * Borrower-disclosed federal-compliance / character / affiliates
+   * answers (mirror SBA Forms 1919/912), collected on the intake
+   * "compliance" step. `null` means "not yet disclosed" — treated as a
+   * pass-with-pending-detail, NOT a failure, so deals that predate this
+   * step (or haven't reached it yet) aren't retroactively flagged
+   * ineligible. Only an explicit `true` on a disqualifying question
+   * hard-fails.
+   */
+  federalDebtDelinquent: boolean | null;
+  taxDelinquent: boolean | null;
+  samDebarred: boolean | null;
+  felonyConviction: boolean | null;
+  incarceratedOrParole: boolean | null;
+  priorGovLoanDefault: boolean | null;
+  hasAffiliates: boolean | null;
 };
 
 function mkCheck(
@@ -290,6 +312,68 @@ export function evaluateBuddySbaEligibility(
     checks.push(mkCheck("lending_investment", "other", true, SOP.lending,
       "not a lending/investment NAICS"));
   }
+
+  // ─── 10. Federal compliance (delinquent federal debt, taxes, SAM debarment) ──
+  {
+    const flags: Array<[boolean | null, string]> = [
+      [inputs.federalDebtDelinquent, "delinquent on a federal debt"],
+      [inputs.taxDelinquent, "delinquent on federal taxes"],
+      [inputs.samDebarred, "suspended or debarred from federal programs (SAM.gov)"],
+    ];
+    const triggered = flags.filter(([v]) => v === true).map(([, label]) => label);
+    if (triggered.length > 0) {
+      checks.push(mkCheck("federal_compliance", "federal_compliance", false, SOP.federal_compliance,
+        `borrower disclosed: ${triggered.join(", ")}`));
+      failures.push(mkFail("federal_compliance", "federal_compliance",
+        `Borrower disclosed a federal compliance issue: ${triggered.join(", ")}`,
+        SOP.federal_compliance));
+    } else {
+      checks.push(mkCheck("federal_compliance", "federal_compliance", true, SOP.federal_compliance,
+        flags.every(([v]) => v === false)
+          ? "borrower disclosed no federal compliance issues"
+          : "not yet disclosed by borrower"));
+    }
+  }
+
+  // ─── 11. Character (SBA Form 912-style disclosures) ───────────────────
+  {
+    const flags: Array<[boolean | null, string]> = [
+      [inputs.felonyConviction, "felony conviction"],
+      [inputs.incarceratedOrParole, "currently incarcerated, on parole, or on probation"],
+      [inputs.priorGovLoanDefault, "prior default on a government loan"],
+    ];
+    const triggered = flags.filter(([v]) => v === true).map(([, label]) => label);
+    if (triggered.length > 0) {
+      checks.push(mkCheck("character", "character", false, SOP.character,
+        `borrower disclosed: ${triggered.join(", ")}`));
+      failures.push(mkFail("character", "character",
+        `Borrower disclosed a character eligibility issue: ${triggered.join(", ")}`,
+        SOP.character));
+    } else {
+      checks.push(mkCheck("character", "character", true, SOP.character,
+        flags.every(([v]) => v === false)
+          ? "borrower disclosed no character eligibility issues"
+          : "not yet disclosed by borrower"));
+    }
+  }
+
+  // ─── 12. Affiliates disclosure (informational — does not itself fail) ─
+  // Having affiliates isn't disqualifying by itself; it means affiliate
+  // revenue/employees must be included in the size-standard calculation
+  // (check 2 above), which today does not consolidate affiliate
+  // financials. Surfaced as a pass-with-detail so underwriters know to
+  // check manually rather than silently missing it.
+  checks.push(mkCheck(
+    "affiliates_disclosed",
+    "other",
+    true,
+    SOP.affiliates,
+    inputs.hasAffiliates === true
+      ? "borrower disclosed affiliates — confirm size standard includes consolidated affiliate revenue/employees"
+      : inputs.hasAffiliates === false
+        ? "borrower disclosed no affiliates"
+        : "not yet disclosed by borrower",
+  ));
 
   return {
     passed: failures.length === 0,

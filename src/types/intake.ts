@@ -49,13 +49,33 @@ export type IntakeLoanData = {
   type: LoanType | "";
 };
 
-export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+/**
+ * SBA-required federal-compliance / character / affiliates disclosures
+ * (mirror the questions on SBA Forms 1919 and 912). Stored per-answer as
+ * "yes" | "no" | "" (unanswered) client-side; converted to booleans on
+ * save. See src/lib/score/eligibility/evaluate.ts for how these feed the
+ * eligibility engine.
+ */
+export type IntakeComplianceAnswer = "yes" | "no" | "";
+
+export type IntakeComplianceData = {
+  federal_debt_delinquent: IntakeComplianceAnswer;
+  tax_delinquent: IntakeComplianceAnswer;
+  sam_debarred: IntakeComplianceAnswer;
+  felony_conviction: IntakeComplianceAnswer;
+  incarcerated_or_parole: IntakeComplianceAnswer;
+  prior_gov_loan_default: IntakeComplianceAnswer;
+  has_affiliates: IntakeComplianceAnswer;
+};
+
+export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export type IntakeStepKey =
   | "business"
   | "address"
   | "owners"
   | "loan"
+  | "compliance"
   | "projections"
   | "submit";
 
@@ -64,6 +84,7 @@ export type IntakeStepContent =
   | "address"
   | "owners"
   | "loan"
+  | "compliance"
   | "projections"
   | "documents"
   | "review";

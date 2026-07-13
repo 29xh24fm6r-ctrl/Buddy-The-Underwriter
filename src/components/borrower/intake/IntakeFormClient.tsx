@@ -15,6 +15,8 @@ import type {
   IntakeAddressData,
   IntakeOwnerData,
   IntakeLoanData,
+  IntakeComplianceData,
+  IntakeComplianceAnswer,
   IntakeStep,
   IntakeStepKey,
   IntakeStepContent,
@@ -68,6 +70,7 @@ const STEP_LABELS_SBA = [
   "Business Address",
   "Owners",
   "Loan Request",
+  "SBA Compliance",
   "Financial Projections",
   "Documents",
   "Review & Submit",
@@ -79,13 +82,59 @@ function contentAt(s: number, isSba: boolean): IntakeStepContent {
   if (s === 3) return "owners";
   if (s === 4) return "loan";
   if (isSba) {
-    if (s === 5) return "projections";
-    if (s === 6) return "documents";
+    if (s === 5) return "compliance";
+    if (s === 6) return "projections";
+    if (s === 7) return "documents";
     return "review";
   }
   if (s === 5) return "documents";
   return "review";
 }
+
+// SBA-required federal-compliance / character disclosures (SBA Forms
+// 1919 / 912). A "yes" is a real SBA eligibility gate, not a soft flag —
+// see src/lib/score/eligibility/evaluate.ts for how these feed scoring.
+const COMPLIANCE_QUESTIONS: Array<{
+  key: keyof IntakeComplianceData;
+  question: string;
+  helper: string;
+}> = [
+  {
+    key: "federal_debt_delinquent",
+    question: "Is the business, or any owner, currently delinquent on any federal debt (including federal taxes)?",
+    helper: "This includes federal student loans, SBA loans, taxes, and other government debt.",
+  },
+  {
+    key: "tax_delinquent",
+    question: "Is the business, or any owner, currently delinquent on any tax obligation?",
+    helper: "Federal, state, or local taxes.",
+  },
+  {
+    key: "sam_debarred",
+    question: "Is the business, or any owner, suspended or debarred from doing business with the federal government (SAM.gov)?",
+    helper: "",
+  },
+  {
+    key: "felony_conviction",
+    question: "Has any owner been convicted of, pleaded guilty to, or been indicted for a felony?",
+    helper: "",
+  },
+  {
+    key: "incarcerated_or_parole",
+    question: "Is any owner currently incarcerated, on parole, or on probation?",
+    helper: "",
+  },
+  {
+    key: "prior_gov_loan_default",
+    question: "Has any owner ever defaulted on a government loan, resulting in a loss to the government?",
+    helper: "Includes SBA loans, federal student loans, or other government-backed financing.",
+  },
+  {
+    key: "has_affiliates",
+    question: "Does the business have any affiliates (common ownership/control with other businesses)?",
+    helper: "SBA counts affiliate revenue and employees toward the size-standard limit.",
+  },
+];
 
 // ─── Props ───
 
@@ -137,6 +186,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
   const addrSection = sectionData(existingSections, "address");
   const ownersSection = sectionData(existingSections, "owners");
   const loanSection = sectionData(existingSections, "loan");
+  const complianceSection = sectionData(existingSections, "compliance");
 
   const [step, setStep] = useState<IntakeStep>(1);
   const [saving, setSaving] = useState(false);
@@ -172,9 +222,22 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     type: ((app?.loan_type ?? loanSection?.type ?? (deal?.deal_type === "SBA" ? "SBA" : "")) as IntakeLoanData["type"]),
   });
 
+  const boolToAnswer = (v: unknown): IntakeComplianceAnswer =>
+    v === true ? "yes" : v === false ? "no" : "";
+
+  const [compliance, setCompliance] = useState<IntakeComplianceData>({
+    federal_debt_delinquent: boolToAnswer(complianceSection?.federal_debt_delinquent),
+    tax_delinquent: boolToAnswer(complianceSection?.tax_delinquent),
+    sam_debarred: boolToAnswer(complianceSection?.sam_debarred),
+    felony_conviction: boolToAnswer(complianceSection?.felony_conviction),
+    incarcerated_or_parole: boolToAnswer(complianceSection?.incarcerated_or_parole),
+    prior_gov_loan_default: boolToAnswer(complianceSection?.prior_gov_loan_default),
+    has_affiliates: boolToAnswer(complianceSection?.has_affiliates),
+  });
+
   const isSba = SBA_LOAN_TYPES.includes(loan.type);
   const STEP_LABELS = isSba ? STEP_LABELS_SBA : STEP_LABELS_NON_SBA;
-  const TOTAL_STEPS = STEP_LABELS.length as 6 | 7;
+  const TOTAL_STEPS = STEP_LABELS.length as 6 | 7 | 8;
   const currentContent = contentAt(step, isSba);
 
   // Phase 85A.3 — track uploaded document count for Step 5 + review
@@ -260,11 +323,22 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     if (currentContent === "loan") debouncedSave("loan", loan as unknown as Record<string, unknown>);
   }, [loan, currentContent, debouncedSave]);
 
+  useEffect(() => {
+    if (currentContent === "compliance") debouncedSave("compliance", compliance as unknown as Record<string, unknown>);
+  }, [compliance, currentContent, debouncedSave]);
+
   // --- Navigation ---
   const goNext = useCallback(async () => {
     if (step === 1 && !business.legal_name.trim()) {
       setError("Business legal name is required.");
       return;
+    }
+    if (currentContent === "compliance") {
+      const unanswered = COMPLIANCE_QUESTIONS.some((q) => compliance[q.key] === "");
+      if (unanswered) {
+        setError("Please answer every question — these are required on every SBA application.");
+        return;
+      }
     }
     // Phase 85-BPG-A — on leaving the SBA Financial Projections step, mark
     // assumptions as confirmed so the downstream forward model can run.
@@ -281,7 +355,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     }
     if (step < TOTAL_STEPS) setStep((s) => (s + 1) as IntakeStep);
     setError(null);
-  }, [step, business.legal_name, currentContent, token, TOTAL_STEPS]);
+  }, [step, business.legal_name, currentContent, compliance, token, TOTAL_STEPS]);
 
   const goBack = useCallback(() => {
     if (step > 1) setStep((s) => (s - 1) as IntakeStep);
@@ -638,6 +712,40 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
+        {currentContent === "compliance" && (
+          <>
+            <h2 className="text-lg font-semibold text-slate-900">SBA Compliance Questions</h2>
+            <p className="text-sm text-slate-500">
+              The SBA requires every applicant to answer these questions (they mirror SBA Forms
+              1919 and 912). Answer honestly — your banker will go over any &quot;yes&quot;
+              answers with you before your application moves forward.
+            </p>
+
+            {COMPLIANCE_QUESTIONS.map((q) => (
+              <div key={q.key} className="border border-slate-200 rounded-lg p-4 space-y-2">
+                <p className="text-sm font-medium text-slate-800">{q.question}</p>
+                {q.helper && <p className="text-xs text-slate-500">{q.helper}</p>}
+                <div className="flex gap-3 pt-1">
+                  {(["yes", "no"] as const).map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => setCompliance((c) => ({ ...c, [q.key]: choice }))}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition min-h-[44px] ${
+                        compliance[q.key] === choice
+                          ? "brand-gradient-cta border-transparent text-white"
+                          : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      {choice === "yes" ? "Yes" : "No"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
         {currentContent === "projections" && (
           <AssumptionInterview
             token={token}
@@ -723,6 +831,27 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                   {loan.purpose && <p><span className="text-slate-500">Purpose:</span> {loan.purpose}</p>}
                 </div>
               </div>
+              {isSba && (
+                <div className="border-t border-slate-200 pt-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    SBA Compliance
+                  </h3>
+                  <div className="space-y-1 text-slate-700">
+                    {COMPLIANCE_QUESTIONS.map((q) => (
+                      <p key={q.key}>
+                        <span className="text-slate-500">{q.question}</span>{" "}
+                        {compliance[q.key] === "yes" ? (
+                          <span className="font-medium text-amber-700">Yes</span>
+                        ) : compliance[q.key] === "no" ? (
+                          <span className="font-medium text-slate-700">No</span>
+                        ) : (
+                          <span className="text-rose-500">Not answered</span>
+                        )}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="border-t border-slate-200 pt-3">
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Documents</h3>
                 <p className="text-slate-700 text-sm">
