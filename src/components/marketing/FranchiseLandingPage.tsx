@@ -40,6 +40,21 @@ const SCORE_FACTORS = [
   },
 ];
 
+const WHY_BUDDY = [
+  {
+    title: "You're not starting from zero",
+    desc: "Most SBA lenders are meeting your franchise brand for the first time. Buddy already has its certification status, Item 19 data, and royalty structure loaded in — so underwriting starts with answers, not research.",
+  },
+  {
+    title: "No separate franchise-broker fee",
+    desc: "Franchise SBA deals often get routed through a specialized franchise-finance consultant on top of the lender. Buddy folds that expertise into the same package, at the same cost, with nobody extra to pay.",
+  },
+  {
+    title: "Matched to lenders who know your brand",
+    desc: "The marketplace can surface lenders with real experience financing your specific franchise system — not just general SBA capacity.",
+  },
+];
+
 const LOOKUP_FIELDS = [
   "SBA eligibility & certification status",
   "Franchise fee range",
@@ -113,10 +128,11 @@ export function FranchiseLandingPage() {
             SBA financing that already knows your franchise.
           </h1>
           <p className="mx-auto mb-9 mt-5 max-w-[600px] text-[17px] leading-relaxed text-[#b9cbdd] sm:text-[19px]">
-            Buddy tracks SBA eligibility, certification status, and FDD Item
-            19 financial performance data across thousands of franchise
-            brands — and builds it directly into your SBA Score. Tell Buddy
-            your brand, and the deal starts smarter.
+            It's the same SBA 7(a) or 504 loan every borrower gets — Buddy
+            just already knows your brand. We track SBA eligibility,
+            certification status, and FDD Item 19 financial performance data
+            across thousands of franchise brands, and build it directly into
+            your SBA Score from question one.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3.5">
             <Link
@@ -246,6 +262,42 @@ export function FranchiseLandingPage() {
         </div>
       </section>
 
+      {/* WHY BUDDY — makes the case on specificity (brand data, matched
+          lenders, no extra fee), not by putting down the standard SBA
+          7(a)/504 path, which is the exact same loan program. */}
+      <section className="mx-auto max-w-[1100px] px-6 pb-14 sm:px-10 sm:pb-[90px]">
+        <div className="mx-auto mb-12 max-w-[680px] text-center sm:mb-14">
+          <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
+            Why franchise buyers choose Buddy
+          </div>
+          <h2
+            className="mb-3 mt-3.5 text-[26px] font-bold tracking-tight sm:text-[34px]"
+            style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+          >
+            Same SBA program. Extra intelligence built in.
+          </h2>
+          <p className="text-[16px] leading-relaxed text-[#5b7189]">
+            You'll still go through the same SBA 7(a) or 504 process as any
+            borrower, with the same lenders and the same government-backed
+            terms. Buying into a known brand just means Buddy can bring more
+            to the table on day one.
+          </p>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-3">
+          {WHY_BUDDY.map((w) => (
+            <div
+              key={w.title}
+              className="rounded-2xl border border-[#12263f]/[0.07] bg-white p-6 shadow-[0_2px_14px_rgba(18,38,63,0.04)]"
+            >
+              <h3 className="mb-2 text-[17px] font-semibold">{w.title}</h3>
+              <p className="text-[14.5px] leading-relaxed text-[#5b7189]">
+                {w.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* FINAL CTA */}
       <section className="mx-auto max-w-[1240px] px-6 pb-16 pt-2 text-center sm:px-10 sm:pb-[100px]">
         <h2
@@ -264,6 +316,15 @@ export function FranchiseLandingPage() {
         >
           Start your franchise package
         </Link>
+        <p className="mt-5 text-[14px] text-[#5b7189]">
+          Not buying into a franchise?{" "}
+          <Link
+            href="/start?path=standard"
+            className="font-semibold text-[#1c8de0] hover:underline"
+          >
+            Standard SBA 7(a) &amp; 504 financing →
+          </Link>
+        </p>
       </section>
 
       {/* FOOTER */}
