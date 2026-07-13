@@ -1,18 +1,70 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 import BorrowerFranchiseBrandPicker from "@/components/brokerage/BorrowerFranchiseBrandPicker";
 import {
   BrokerageStageStrip,
+  BorrowerJourneyChecklist,
   deriveBrokerageStage,
+  type JourneyStatusInput,
+  type MarketplaceListingStatus,
 } from "@/components/brokerage/BrokerageStageStrip";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "voice";
 
 const MODE_KEY = "buddy.start.mode";
+
+// Journey status refreshes every 20s while a deal exists — cheap enough
+// (single indexed-lookup query) to poll, and it's the only way /start
+// finds out about server-side transitions (sealed, listed, claimed) that
+// don't happen from a borrower action on this page.
+const JOURNEY_POLL_MS = 20_000;
+
+function useJourneyStatus(dealId: string | null): JourneyStatusInput {
+  const [status, setStatus] = useState<JourneyStatusInput>({
+    hasDealId: false,
+    progressPct: 0,
+    documentsUploadedCount: 0,
+    sealed: false,
+    listingStatus: null,
+    matchedLenderCount: 0,
+    claimsCount: 0,
+  });
+
+  const refresh = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/brokerage/deals/${id}/seal-status`);
+      const json = await res.json();
+      if (!json?.ok) return;
+      setStatus({
+        hasDealId: true,
+        progressPct: typeof json.progressPct === "number" ? json.progressPct : 0,
+        documentsUploadedCount: typeof json.documentsUploadedCount === "number" ? json.documentsUploadedCount : 0,
+        sealed: Boolean(json.sealed),
+        listingStatus: (json.listing?.status as MarketplaceListingStatus | undefined) ?? null,
+        matchedLenderCount: json.listing?.matchedLenderCount ?? 0,
+        claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
+      });
+    } catch {
+      // non-fatal — keep showing last known status
+    }
+  }, []);
+
+  useEffect(() => {
+    // dealId starts null (default status already has hasDealId: false) and
+    // is only ever set once the concierge chat resolves a deal — nothing
+    // to fetch, and nothing to reset, until then.
+    if (!dealId) return;
+    void refresh(dealId);
+    const timer = window.setInterval(() => void refresh(dealId), JOURNEY_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [dealId, refresh]);
+
+  return status;
+}
 
 export function StartConciergeClient() {
   const [mode, setMode] = useState<Mode>(() => {
@@ -21,6 +73,7 @@ export function StartConciergeClient() {
     return saved === "voice" ? "voice" : "chat";
   });
   const [dealId, setDealId] = useState<string | null>(null);
+  const journeyStatus = useJourneyStatus(dealId);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -33,11 +86,21 @@ export function StartConciergeClient() {
       <div className="mb-5">
         <BrokerageStageStrip
           activeStage={deriveBrokerageStage({
-            hasDealId: Boolean(dealId),
-            progressPct: 0,
+            hasDealId: journeyStatus.hasDealId,
+            progressPct: journeyStatus.progressPct,
+            sealed: journeyStatus.sealed,
+            listed: journeyStatus.listingStatus === "claiming",
+            claimWindowClosed:
+              journeyStatus.listingStatus === "awaiting_borrower_pick" ||
+              journeyStatus.listingStatus === "picked",
           })}
         />
       </div>
+      {dealId && (
+        <div className="mb-5">
+          <BorrowerJourneyChecklist status={journeyStatus} />
+        </div>
+      )}
       <div className="mb-4 flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1">
         <button
           onClick={() => setMode("chat")}

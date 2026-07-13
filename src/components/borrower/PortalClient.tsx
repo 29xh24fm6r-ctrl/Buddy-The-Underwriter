@@ -33,6 +33,11 @@ import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { Icon } from "@/components/ui/Icon";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
+import {
+  BorrowerJourneyChecklist,
+  type JourneyStatusInput,
+  type MarketplaceListingStatus,
+} from "@/components/brokerage/BrokerageStageStrip";
 import { buildBorrowerJourneyViewModel } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import type { JourneyInput } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import { buildBorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerReadinessViewModel";
@@ -568,6 +573,14 @@ function buildConfidenceCopy(params: {
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [franchiseBrandName, setFranchiseBrandName] = React.useState<string | null>(null);
+  // Only populated when this deal originated from the /start marketplace
+  // flow AND the borrower's buddy_borrower_session cookie is still active
+  // for it (the brokerage upload flow hands off to /portal/[token] — see
+  // /api/brokerage/upload/prepare). Bank-direct-invited borrowers never
+  // have that session, so the fetch below 404s harmlessly and this stays
+  // null — same journey checklist component as /start, shown only when
+  // it's genuinely the same journey.
+  const [journeyStatus, setJourneyStatus] = React.useState<JourneyStatusInput | null>(null);
   const [docs, setDocs] = React.useState<Doc[]>([]);
   const [activeUploadId, setActiveUploadId] = React.useState<string | null>(null);
   const [fields, setFields] = React.useState<Field[]>([]);
@@ -703,6 +716,27 @@ export function PortalClient({ token }: { token: string }) {
       if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
       setDeal(json.deal ?? null);
       setFranchiseBrandName(json.franchise?.brandName ?? null);
+      if (json.deal?.id) {
+        fetch(`/api/brokerage/deals/${json.deal.id}/seal-status`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((sealJson) => {
+            if (!sealJson?.ok) return;
+            setJourneyStatus({
+              hasDealId: true,
+              progressPct: typeof sealJson.progressPct === "number" ? sealJson.progressPct : 0,
+              documentsUploadedCount:
+                typeof sealJson.documentsUploadedCount === "number" ? sealJson.documentsUploadedCount : 0,
+              sealed: Boolean(sealJson.sealed),
+              listingStatus: (sealJson.listing?.status as MarketplaceListingStatus | undefined) ?? null,
+              matchedLenderCount: sealJson.listing?.matchedLenderCount ?? 0,
+              claimsCount: Array.isArray(sealJson.claims) ? sealJson.claims.length : 0,
+            });
+          })
+          .catch(() => {
+            // Not a brokerage-originated deal (or session expired) — no
+            // journey checklist shown, rest of the portal is unaffected.
+          });
+      }
       await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity()]);
     } catch (error) {
       setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
@@ -1207,6 +1241,8 @@ export function PortalClient({ token }: { token: string }) {
             </div>
           )
         ) : null}
+
+        {journeyStatus && <BorrowerJourneyChecklist status={journeyStatus} />}
 
         <BorrowerMobileCommandCenter viewModel={mobileCommandViewModel} />
 

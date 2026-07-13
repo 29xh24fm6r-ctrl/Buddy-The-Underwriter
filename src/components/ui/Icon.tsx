@@ -27,6 +27,7 @@ import {
   User,
   Landmark,
   Globe,
+  Circle,
 } from "lucide-react";
 
 export type IconName =
@@ -56,7 +57,8 @@ export type IconName =
   | "analytics"
   | "person"
   | "account_balance"
-  | "public";
+  | "public"
+  | "radio_button_unchecked";
 
 const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   cloud_upload: CloudUpload,
@@ -86,6 +88,7 @@ const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   person: User,
   account_balance: Landmark,
   public: Globe,
+  radio_button_unchecked: Circle,
 };
 
 export function Icon({
