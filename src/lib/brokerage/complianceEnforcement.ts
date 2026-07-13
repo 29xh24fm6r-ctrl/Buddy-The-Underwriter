@@ -1,11 +1,14 @@
 /**
  * BRK-10F Compliance Enforcement — seal/unlock guards.
  */
+import { buildForm159PayloadForDeal, tryRenderForm159Pdf } from "@/lib/brokerage/compliancePackage";
+
 export type ComplianceBlocker = { code: string; severity: "critical" | "warning"; message: string; action: string };
 export type SealComplianceResult = { ok: true } | { ok: false; blockers: ComplianceBlocker[] };
 export type UnlockComplianceResult = { ok: true } | { ok: false; blockers: ComplianceBlocker[] };
 type Row = Record<string, any>;
-type SB = { from: (t: string) => any };
+// storage is optional — see compliancePackage.ts SB for why (test fakes vs. real client).
+type SB = { from: (t: string) => any; storage?: { from: (bucket: string) => any } };
 function str(v: unknown): string | null { return typeof v === "string" && v.trim() ? v.trim() : null; }
 function b(code: string, sev: "critical"|"warning", msg: string, action: string): ComplianceBlocker { return { code, severity: sev, message: msg, action }; }
 
@@ -47,8 +50,17 @@ export async function buildComplianceBlockers(dealId: string, sb: SB): Promise<C
 export async function ensureForm159ForPickedLender(dealId: string, lenderBankId: string, sb: SB): Promise<{ ok: boolean; recordId?: string; error?: string }> {
   const { data: ex } = await sb.from("sba_form_159_records").select("id, status, lender_bank_id").eq("deal_id", dealId).in("status", ["draft", "generated", "borrower_acknowledged", "fully_acknowledged"]).limit(1).maybeSingle();
   if (ex && str(ex.status) === "locked") return { ok: false, error: "form_159_locked" };
-  if (ex) { if (str(ex.lender_bank_id) !== lenderBankId) await sb.from("sba_form_159_records").update({ lender_bank_id: lenderBankId }).eq("id", ex.id); return { ok: true, recordId: String(ex.id) }; }
-  const { data: ins, error } = await sb.from("sba_form_159_records").insert({ deal_id: dealId, status: "generated", lender_bank_id: lenderBankId, borrower_fee_cents: 100000, generated_at: new Date().toISOString(), generated_payload: {} }).select("id").single();
+  if (ex) {
+    if (str(ex.lender_bank_id) !== lenderBankId) {
+      const { fields } = await buildForm159PayloadForDeal(dealId, sb, lenderBankId);
+      const pdfPath = await tryRenderForm159Pdf(dealId, sb, fields);
+      await sb.from("sba_form_159_records").update({ lender_bank_id: lenderBankId, generated_payload: fields, ...(pdfPath ? { generated_pdf_path: pdfPath } : {}) }).eq("id", ex.id);
+    }
+    return { ok: true, recordId: String(ex.id) };
+  }
+  const { fields } = await buildForm159PayloadForDeal(dealId, sb, lenderBankId);
+  const pdfPath = await tryRenderForm159Pdf(dealId, sb, fields);
+  const { data: ins, error } = await sb.from("sba_form_159_records").insert({ deal_id: dealId, status: "generated", lender_bank_id: lenderBankId, borrower_fee_cents: 100000, generated_at: new Date().toISOString(), generated_payload: fields, generated_pdf_path: pdfPath }).select("id").single();
   return ins ? { ok: true, recordId: String(ins.id) } : { ok: false, error: error?.message ?? "insert_failed" };
 }
 export async function markLenderFeeDisclosedForUnlock(dealId: string, _lenderBankId: string, sb: SB): Promise<void> {

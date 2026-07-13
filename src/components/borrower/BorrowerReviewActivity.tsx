@@ -34,33 +34,33 @@ export function BorrowerReviewActivity({
   items: ActivityItem[];
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         Recent updates
       </div>
-      <h2 className="mt-2 text-xl font-semibold text-stone-950">
+      <h2 className="mt-2 font-heading text-xl font-bold text-slate-900">
         What changed in your SBA package
       </h2>
-      <p className="mt-2 text-sm leading-6 text-stone-600">
+      <p className="mt-2 text-sm leading-6 text-slate-600">
         Buddy only shows borrower-safe updates here. Internal review notes and lender routing are never shown in this portal.
       </p>
       <div className="mt-5 space-y-3">
         {items.length === 0 ? (
-          <div className="rounded-[1rem] border border-dashed border-stone-300 bg-stone-50/80 p-4 text-sm text-stone-600">
+          <div className="rounded-[1rem] border border-dashed border-slate-300 bg-slate-50/80 p-4 text-sm text-slate-600">
             Buddy will list package updates here as your documents are received and reviewed.
           </div>
         ) : (
           items.map((item) => (
-            <div key={item.id} className="flex gap-3 rounded-[1rem] border border-stone-200 bg-stone-50/60 p-4">
+            <div key={item.id} className="flex gap-3 rounded-[1rem] border border-slate-200 bg-slate-50/60 p-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white">
-                <Icon name={kindIcon(item.kind)} className="h-4 w-4 text-stone-700" />
+                <Icon name={kindIcon(item.kind)} className="h-4 w-4 text-slate-700" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="text-sm font-semibold text-stone-900">{item.title}</div>
-                  <div className="shrink-0 text-xs text-stone-500">{timeAgo(item.createdAt)}</div>
+                  <div className="text-sm font-semibold text-slate-900">{item.title}</div>
+                  <div className="shrink-0 text-xs text-slate-500">{timeAgo(item.createdAt)}</div>
                 </div>
-                <p className="mt-1 text-sm leading-6 text-stone-600">{item.detail}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{item.detail}</p>
               </div>
             </div>
           ))

@@ -114,16 +114,19 @@ export function PortalLoanRequestForm({
 
   if (submitted) {
     return (
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center">
-        <div className="text-lg font-semibold text-white">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 mx-auto">
+          <span className="text-emerald-600 text-lg">✓</span>
+        </div>
+        <div className="mt-3 font-heading text-lg font-bold text-slate-900">
           Loan Request Submitted
         </div>
-        <p className="mt-2 text-sm text-neutral-400">
+        <p className="mt-2 text-sm text-slate-600">
           Your loan request has been submitted to the bank for review.
           You will be contacted with next steps.
         </p>
         <button
-          className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-200"
+          className="brand-gradient-cta mt-4 rounded-lg px-4 py-2 text-sm font-medium text-white hover:brightness-110"
           onClick={() => {
             setSubmitted(false);
             setProductType("");
@@ -144,8 +147,8 @@ export function PortalLoanRequestForm({
 
   if (productTypes.length === 0) {
     return (
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center">
-        <div className="text-sm font-medium text-neutral-400">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <div className="text-sm font-medium text-slate-600">
           No loan products are currently available. Please contact the bank for assistance.
         </div>
       </div>
@@ -153,14 +156,14 @@ export function PortalLoanRequestForm({
   }
 
   const inputCls =
-    "mt-1.5 w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-white focus:outline-none";
+    "mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-blue-500 focus:outline-none focus:ring-2 focus:ring-brand-blue-500/30";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Product Type Selection */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-        <label className="block text-sm font-medium text-neutral-300">
-          Loan Product Type <span className="text-red-400">*</span>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <label className="block text-sm font-medium text-slate-700">
+          Loan Product Type <span className="text-rose-500">*</span>
         </label>
         <select
           className={inputCls}
@@ -185,9 +188,9 @@ export function PortalLoanRequestForm({
       </div>
 
       {/* Amount & Purpose */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
         <div>
-          <label className="block text-sm font-medium text-neutral-300">
+          <label className="block text-sm font-medium text-slate-700">
             Requested Loan Amount <span className="text-red-400">*</span>
           </label>
           <input
@@ -201,7 +204,7 @@ export function PortalLoanRequestForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-neutral-300">
+          <label className="block text-sm font-medium text-slate-700">
             Purpose of Loan
           </label>
           <textarea
@@ -213,7 +216,7 @@ export function PortalLoanRequestForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-neutral-300">
+          <label className="block text-sm font-medium text-slate-700">
             Desired Term (months)
           </label>
           <input
@@ -229,12 +232,12 @@ export function PortalLoanRequestForm({
 
       {/* Real Estate Fields */}
       {showRealEstate && (
-        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 space-y-4">
-          <div className="text-sm font-medium text-neutral-400 uppercase tracking-wider">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+          <div className="text-sm font-medium text-slate-500 uppercase tracking-wider">
             Property Details
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-300">
+            <label className="block text-sm font-medium text-slate-700">
               Property Type
             </label>
             <input
@@ -247,7 +250,7 @@ export function PortalLoanRequestForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-neutral-300">
+              <label className="block text-sm font-medium text-slate-700">
                 Property Value
               </label>
               <input
@@ -260,7 +263,7 @@ export function PortalLoanRequestForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-neutral-300">
+              <label className="block text-sm font-medium text-slate-700">
                 Purchase Price
               </label>
               <input
@@ -278,12 +281,12 @@ export function PortalLoanRequestForm({
 
       {/* SBA Fields */}
       {showSba && (
-        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 space-y-4">
-          <div className="text-sm font-medium text-neutral-400 uppercase tracking-wider">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+          <div className="text-sm font-medium text-slate-500 uppercase tracking-wider">
             SBA Details
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-300">
+            <label className="block text-sm font-medium text-slate-700">
               SBA Program
             </label>
             <select
@@ -302,7 +305,7 @@ export function PortalLoanRequestForm({
       )}
 
       {error && (
-        <div className="rounded-lg border border-red-800 bg-red-900/30 p-3 text-sm text-red-300">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
           {error}
         </div>
       )}
@@ -310,7 +313,7 @@ export function PortalLoanRequestForm({
       <button
         type="submit"
         disabled={saving || !productType}
-        className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="brand-gradient-cta w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Submitting..." : "Submit Loan Request"}
       </button>

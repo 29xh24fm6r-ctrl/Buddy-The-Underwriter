@@ -28,9 +28,9 @@ const STATE_STYLES: Record<
   },
   in_progress: {
     eyebrowText: "Today’s focus",
-    border: "border-stone-200",
-    bg: "bg-stone-50/60",
-    dot: "bg-stone-500",
+    border: "border-brand-blue-500/25",
+    bg: "bg-brand-blue-500/5",
+    dot: "bg-brand-blue-500",
   },
   no_action_needed: {
     eyebrowText: "Today’s focus",
@@ -63,15 +63,15 @@ export function BorrowerMobileCommandCenter({
           className={cn("h-2 w-2 rounded-full", style.dot)}
           aria-hidden="true"
         />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
           {style.eyebrowText}
         </span>
       </div>
 
-      <h2 className="mt-3 font-serif text-2xl leading-tight text-stone-950 sm:text-3xl">
+      <h2 className="mt-3 font-heading text-2xl font-bold leading-tight text-slate-900 sm:text-3xl">
         {viewModel.headline}
       </h2>
-      <p className="mt-2 text-sm leading-6 text-stone-700">{viewModel.summary}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-700">{viewModel.summary}</p>
 
       <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Stat label="Progress" value={viewModel.progressLabel} />
@@ -90,13 +90,13 @@ export function BorrowerMobileCommandCenter({
               key={item.id}
               className="flex items-start gap-2 rounded-xl border border-white/80 bg-white/80 px-3 py-2"
             >
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-stone-700" />
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-blue-500" />
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-stone-900">
+                <div className="text-sm font-semibold text-slate-900">
                   {item.label}
                 </div>
                 {item.description && (
-                  <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-stone-600">
+                  <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600">
                     {item.description}
                   </p>
                 )}
@@ -110,7 +110,7 @@ export function BorrowerMobileCommandCenter({
         <a
           href={viewModel.primaryCtaHref}
           aria-label={viewModel.primaryCtaLabel}
-          className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+          className="brand-gradient-cta mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue-500 focus-visible:ring-offset-2"
         >
           <Icon name="arrow_forward_ios" className="h-3.5 w-3.5 text-current" />
           {viewModel.primaryCtaLabel}
@@ -123,10 +123,10 @@ export function BorrowerMobileCommandCenter({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-white/80 bg-white/70 px-3 py-2">
-      <dt className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+      <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm font-semibold text-stone-900">{value}</dd>
+      <dd className="mt-0.5 text-sm font-semibold text-slate-900">{value}</dd>
     </div>
   );
 }

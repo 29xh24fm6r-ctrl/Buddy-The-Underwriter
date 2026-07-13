@@ -36,11 +36,11 @@ export function BorrowerChecklistSection({
 }) {
   if (items.length === 0) {
     return (
-      <section className="rounded-[1.25rem] border border-stone-200 bg-stone-50/60 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-500">
+      <section className="rounded-[1.25rem] border border-slate-200 bg-slate-50/60 p-4">
+        <h3 className="font-heading text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
           {title}
         </h3>
-        <p className="mt-2 text-sm text-stone-600">{summary}</p>
+        <p className="mt-2 text-sm text-slate-600">{summary}</p>
         <div className="mt-4">
           <BorrowerChecklistEmptyState title={emptyTitle} message={emptyMessage} />
         </div>
@@ -50,16 +50,16 @@ export function BorrowerChecklistSection({
 
   if (collapsible) {
     return (
-      <details className="rounded-[1.25rem] border border-stone-200 bg-stone-50/60 p-4">
+      <details className="rounded-[1.25rem] border border-slate-200 bg-slate-50/60 p-4">
         <summary className="cursor-pointer list-none">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-500">
+              <h3 className="font-heading text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
                 {title}
               </h3>
-              <p className="mt-2 text-sm text-stone-600">{summary}</p>
+              <p className="mt-2 text-sm text-slate-600">{summary}</p>
             </div>
-            <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-stone-700">
+            <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
               {items.length}
             </span>
           </div>
@@ -74,11 +74,11 @@ export function BorrowerChecklistSection({
   }
 
   return (
-    <section className="rounded-[1.25rem] border border-stone-200 bg-stone-50/60 p-4">
-      <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-500">
+    <section className="rounded-[1.25rem] border border-slate-200 bg-slate-50/60 p-4">
+      <h3 className="font-heading text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
         {title}
       </h3>
-      <p className="mt-2 text-sm text-stone-600">{summary}</p>
+      <p className="mt-2 text-sm text-slate-600">{summary}</p>
       <div className="mt-4 grid gap-3">
         {items.map((item) => (
           <BorrowerChecklistItem key={item.id} {...item} />

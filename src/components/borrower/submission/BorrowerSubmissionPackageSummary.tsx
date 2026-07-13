@@ -44,14 +44,14 @@ export function BorrowerSubmissionPackageSummary({
       <div className="mt-4 space-y-3">
         {Array.from(grouped.entries()).map(([cat, catItems]) => (
           <div key={cat}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               {CATEGORY_LABELS[cat]}
             </div>
             <ul className="mt-1 space-y-1">
               {catItems.map((item) => (
                 <li
                   key={item.id}
-                  className="flex items-center gap-2 text-sm text-stone-800"
+                  className="flex items-center gap-2 text-sm text-slate-800"
                 >
                   <span className="h-1 w-1 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
                   {item.label}

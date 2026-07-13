@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { BorrowerChecklistHelpText } from "@/components/borrower/BorrowerChecklistHelpText";
 import {
   BorrowerChecklistStatusPill,
@@ -33,18 +34,22 @@ export function BorrowerChecklistItem({
   completedLabel?: string | null;
 }) {
   return (
-    <article
+    <motion.article
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className={cn(
-        "rounded-[1.25rem] border px-4 py-4",
+        "rounded-[1.25rem] border px-4 py-4 transition-colors",
         statusTone === "complete"
           ? "border-emerald-200 bg-emerald-50/55"
-          : "border-stone-200 bg-white",
+          : "border-slate-200 bg-white hover:border-brand-blue-500/30",
       )}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-base font-semibold text-stone-950">{title}</h4>
+            <h4 className="text-base font-semibold text-slate-900">{title}</h4>
             {required ? (
               <BorrowerChecklistStatusPill label="Required" tone="required" />
             ) : (
@@ -52,14 +57,24 @@ export function BorrowerChecklistItem({
             )}
           </div>
           {description ? (
-            <p className="mt-2 text-sm leading-6 text-stone-600">{description}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
           ) : null}
           {completedLabel ? (
-            <div className="mt-2 text-sm text-stone-500">{completedLabel}</div>
+            <div className="mt-2 text-sm text-slate-500">{completedLabel}</div>
           ) : null}
         </div>
         <div className="shrink-0">
-          <BorrowerChecklistStatusPill label={statusLabel} tone={statusTone} />
+          {statusTone === "complete" ? (
+            <motion.div
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 400, damping: 18 }}
+            >
+              <BorrowerChecklistStatusPill label={statusLabel} tone={statusTone} />
+            </motion.div>
+          ) : (
+            <BorrowerChecklistStatusPill label={statusLabel} tone={statusTone} />
+          )}
         </div>
       </div>
       <div className="mt-4">
@@ -71,6 +86,6 @@ export function BorrowerChecklistItem({
           Add this next to keep your package moving.
         </div>
       ) : null}
-    </article>
+    </motion.article>
   );
 }

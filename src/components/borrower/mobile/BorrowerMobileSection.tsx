@@ -24,7 +24,7 @@ export function BorrowerMobileSection({
   return (
     <section
       className={cn(
-        "rounded-[1.25rem] border border-stone-200 bg-white shadow-sm",
+        "rounded-[1.25rem] border border-slate-200 bg-white shadow-sm",
         className,
       )}
     >
@@ -37,14 +37,14 @@ export function BorrowerMobileSection({
         className="flex w-full items-center justify-between gap-3 rounded-[1.25rem] px-4 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
       >
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-stone-900">{title}</div>
+          <div className="text-sm font-semibold text-slate-900">{title}</div>
           {subtitle && (
-            <div className="mt-0.5 text-xs text-stone-600">{subtitle}</div>
+            <div className="mt-0.5 text-xs text-slate-600">{subtitle}</div>
           )}
         </div>
         <Icon
           name={open ? "chevron_left" : "chevron_right"}
-          className="h-4 w-4 shrink-0 text-stone-500"
+          className="h-4 w-4 shrink-0 text-slate-500"
         />
       </button>
       {open && (
@@ -52,7 +52,7 @@ export function BorrowerMobileSection({
           id={panelId}
           role="region"
           aria-labelledby={buttonId}
-          className="border-t border-stone-100 px-4 py-3"
+          className="border-t border-slate-100 px-4 py-3"
         >
           {children}
         </div>

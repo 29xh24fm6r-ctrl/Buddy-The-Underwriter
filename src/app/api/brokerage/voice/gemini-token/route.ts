@@ -19,6 +19,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { randomUUID } from "crypto";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { checkBorrowerVoiceRateLimit } from "@/lib/brokerage/rateLimits";
+import { computeNextCriticalField } from "@/lib/brokerage/borrowerConversation";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -82,9 +83,14 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
           .join("\n")
       : "  (nothing yet)";
 
+  const nextCritical = computeNextCriticalField(knownFacts);
+
   const systemInstruction = buildBorrowerSystemPrompt({
     dealName: (deal as any).display_name ?? "your loan inquiry",
     knownFactsText,
+    nextCriticalText: nextCritical
+      ? `${nextCritical.label} (needed by ${nextCritical.formsUnlocked} SBA form field(s) still missing it)`
+      : null,
   });
 
   const proxyToken = randomUUID();
@@ -160,20 +166,24 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
 function buildBorrowerSystemPrompt(args: {
   dealName: string;
   knownFactsText: string;
+  nextCriticalText: string | null;
 }): string {
   return `You are Buddy, a warm and knowledgeable SBA loan concierge. You are on a voice call with someone exploring a small business loan. They may be a first-time borrower, an experienced operator, or anything in between — adapt to their level.
 
 WHAT I ALREADY KNOW ABOUT THIS CONVERSATION:
 ${args.knownFactsText}
-
+${args.nextCriticalText ? `\nTHE SINGLE MOST VALUABLE NEXT THING TO LEARN:\n${args.nextCriticalText} — ask about it naturally, in plain English, once the basics below are covered.\n` : ""}
 YOUR JOB:
 - Help them understand if an SBA loan fits their situation.
 - Collect the facts that determine matching: business type, loan use, amount needed, time in business, location, owner experience, equity available.
+- Once the basics are covered, Buddy can complete the borrower's SBA paperwork entirely by voice: owner identity (name, date of birth, place of birth, citizenship status, home address), ownership percentage, and the yes/no compliance questions SBA forms require (pending litigation, bankruptcy history, government employment, criminal history). Ask for these the same way you'd ask anything else — naturally, one at a time, never like a form.
+- SSN: only ever ask for and record the LAST 4 DIGITS. Never ask a borrower to say a full 9-digit SSN out loud.
+- If you already have a sensitive detail (date of birth, home address) from earlier in this conversation or a prior session, read it back to confirm rather than asking them to repeat it from scratch.
 - Be patient. They may not know terms like "DSCR" or "personal guarantee" — explain plainly when needed.
 - Never quote rates or guarantee approval. You're not the lender.
 
 WHEN THE BORROWER SHARES A FACT:
-Acknowledge it in the conversation. The platform runs structured extraction on your utterances server-side and records verifiable facts automatically (business_type, naics_code, loan_amount_requested, loan_use, years_in_operation, annual_revenue, owner_industry_experience_years, business_location_city, business_location_state, existing_debt, equity_available, fico_estimate). Only speak to what they actually said — don't infer or estimate.
+Acknowledge it in the conversation. The platform runs structured extraction on your utterances server-side and records verifiable facts automatically — everything from business and loan basics to owner identity, ownership structure, and personal financial statement figures. Only speak to what they actually said — don't infer or estimate.
 
 CONVERSATIONAL STYLE:
 Speak naturally, like a colleague who happens to know SBA lending well. Short sentences. Pause for them to talk. If they go off-topic for a minute, that's fine — they're getting comfortable.

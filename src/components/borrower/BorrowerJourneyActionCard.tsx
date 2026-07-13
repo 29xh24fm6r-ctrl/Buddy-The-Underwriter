@@ -20,7 +20,7 @@ export function BorrowerJourneyActionCard({
             All caught up
           </div>
         </div>
-        <h2 className="mt-3 text-xl font-semibold text-emerald-950 sm:text-2xl">
+        <h2 className="mt-3 font-heading text-xl font-bold text-emerald-950 sm:text-2xl">
           No action needed right now
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-800/80">
@@ -42,7 +42,7 @@ export function BorrowerJourneyActionCard({
           ? "border-amber-200 bg-[linear-gradient(135deg,_#fffdf8_0%,_#fff7ed_100%)]"
           : isRecommended
             ? "border-sky-200/70 bg-[linear-gradient(135deg,_#f0f9ff_0%,_#e0f2fe_100%)]"
-            : "border-stone-200 bg-[linear-gradient(135deg,_#fffdf8_0%,_#fff7ed_100%)]",
+            : "border-slate-200 bg-[linear-gradient(135deg,_#fffdf8_0%,_#fff7ed_100%)]",
       )}
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -63,11 +63,11 @@ export function BorrowerJourneyActionCard({
             {isCritical ? "Your next step" : "Recommended"}
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-stone-950 sm:text-2xl">
+            <h2 className="font-heading text-xl font-bold text-slate-900 sm:text-2xl">
               {action.label}
             </h2>
             {action.description && (
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-700 sm:text-base">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700 sm:text-base">
                 {action.description}
               </p>
             )}
@@ -78,7 +78,7 @@ export function BorrowerJourneyActionCard({
           <div className="w-full max-w-sm">
             <a
               href={action.href}
-              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl brand-gradient-cta px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
             >
               <Icon
                 name="arrow_forward_ios"

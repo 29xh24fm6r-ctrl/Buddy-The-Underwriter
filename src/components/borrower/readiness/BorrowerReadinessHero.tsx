@@ -13,14 +13,14 @@ const BAND_LABELS: Record<BorrowerReadinessScore["band"], string> = {
 };
 
 const BAND_BADGE_STYLES: Record<BorrowerReadinessScore["band"], string> = {
-  early_stage: "bg-stone-100 text-stone-700",
+  early_stage: "bg-slate-100 text-slate-700",
   progressing: "bg-amber-100 text-amber-900",
   strong_progress: "bg-teal-100 text-teal-900",
   near_submission_ready: "bg-emerald-100 text-emerald-900",
 };
 
 const BAND_PANEL_STYLES: Record<BorrowerReadinessScore["band"], string> = {
-  early_stage: "border-stone-200/70 bg-stone-50/60",
+  early_stage: "border-slate-200/70 bg-slate-50/60",
   progressing: "border-amber-200/70 bg-amber-50/40",
   strong_progress: "border-teal-200/70 bg-teal-50/40",
   near_submission_ready: "border-emerald-200/70 bg-emerald-50/40",
@@ -46,7 +46,7 @@ export function BorrowerReadinessHero({
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
               Funding Readiness
             </span>
             <span
@@ -63,7 +63,7 @@ export function BorrowerReadinessHero({
                   "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold",
                   deltaPositive
                     ? "bg-emerald-100 text-emerald-800"
-                    : "bg-stone-100 text-stone-600",
+                    : "bg-slate-100 text-slate-600",
                 )}
               >
                 {deltaPositive ? "+" : ""}
@@ -73,10 +73,10 @@ export function BorrowerReadinessHero({
           </div>
 
           {dealName && (
-            <div className="text-xs font-medium text-stone-500">{dealName}</div>
+            <div className="text-xs font-medium text-slate-500">{dealName}</div>
           )}
 
-          <p className="max-w-xl text-sm leading-6 text-stone-700 sm:text-base">
+          <p className="max-w-xl text-sm leading-6 text-slate-700 sm:text-base">
             {readiness.summary}
           </p>
         </div>
@@ -87,7 +87,7 @@ export function BorrowerReadinessHero({
             band={readiness.band}
             size="lg"
           />
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             Readiness
           </div>
         </div>

@@ -22,7 +22,7 @@ export function BorrowerDealInsightsCard({
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100">
           <Icon name="auto_awesome" className="h-4 w-4 text-emerald-700" />
         </div>
-        <h3 className="text-sm font-semibold text-emerald-900">
+        <h3 className="text-sm font-heading font-semibold text-emerald-900">
           What Improved Your Deal
         </h3>
       </div>
@@ -40,11 +40,11 @@ export function BorrowerDealInsightsCard({
                 className={cn("mt-0.5 h-4 w-4 shrink-0", icon.color)}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium text-stone-900">
+                <div className="text-sm font-medium text-slate-900">
                   {insight.label}
                 </div>
                 {insight.description && (
-                  <div className="mt-0.5 text-xs text-stone-600">
+                  <div className="mt-0.5 text-xs text-slate-600">
                     {insight.description}
                   </div>
                 )}

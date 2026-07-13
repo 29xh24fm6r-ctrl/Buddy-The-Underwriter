@@ -28,10 +28,13 @@ const TERMINAL_COPY: Record<string, { title: string; body: string }> = {
 function ErrorPanel({ code }: { code: string }) {
   const copy = TERMINAL_COPY[code] ?? TERMINAL_COPY.portal_link_rpc_failed;
   return (
-    <div className="min-h-dvh bg-neutral-950 text-neutral-100 flex items-center justify-center">
-      <div className="rounded-2xl bg-white text-neutral-900 p-6 shadow-lg max-w-md">
-        <h1 className="text-lg font-semibold">{copy.title}</h1>
-        <p className="mt-2 text-sm text-neutral-600">{copy.body}</p>
+    <div className="brand-hero-bg flex min-h-dvh items-center justify-center p-4">
+      <div className="max-w-md rounded-[1.75rem] bg-white p-7 text-slate-900 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-100">
+          <span className="text-lg font-bold text-rose-600">!</span>
+        </div>
+        <h1 className="mt-4 font-heading text-lg font-bold text-slate-900">{copy.title}</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{copy.body}</p>
       </div>
     </div>
   );

@@ -10,13 +10,13 @@ export function BorrowerReviewWindow({
   windowLabel: string;
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-[linear-gradient(135deg,_#fffdf8_0%,_#fff7ed_100%)] p-5 shadow-sm sm:p-6">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(135deg,_#f0f7ff_0%,_#f6f8fb_100%)] p-5 shadow-sm sm:p-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         Review window
       </div>
-      <h2 className="mt-2 text-xl font-semibold text-stone-950">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-stone-700">{summary}</p>
-      <div className="mt-4 rounded-[1rem] border border-white/80 bg-white/90 px-4 py-3 text-sm font-semibold text-stone-900">
+      <h2 className="mt-2 font-heading text-xl font-bold text-slate-900">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-700">{summary}</p>
+      <div className="mt-4 rounded-[1rem] border border-white/80 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-900">
         {windowLabel}
       </div>
     </section>

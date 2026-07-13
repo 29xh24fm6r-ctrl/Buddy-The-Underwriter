@@ -125,15 +125,18 @@ function SmallCard({
   desc,
   value,
   href,
+  external,
 }: {
   title: string;
   desc: string;
   value?: string;
   href: string;
+  external?: boolean;
 }) {
   return (
     <Link
       href={href}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       style={{
         background: c.card,
         border: `1px solid ${c.border}`,
@@ -144,7 +147,10 @@ function SmallCard({
         color: "inherit",
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, color: c.paper, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: c.paper, marginBottom: 4 }}>
+        {title}
+        {external && <span style={{ color: c.textMuted, fontWeight: 400 }}> ↗</span>}
+      </div>
       {value && (
         <div style={{ fontFamily: "var(--font-brokerage-mono)", fontWeight: 600, fontSize: 22, color: c.paper, margin: "4px 0" }}>
           {value}
@@ -276,10 +282,16 @@ export default async function BrokerageHomePage() {
 
       {/* Run the business */}
       <SectionLabel>Run the business</SectionLabel>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
         <SmallCard title="Team & roles" desc="Add partners, assign access." href="/admin/brokerage/team" />
         <SmallCard title="Launch readiness" desc="Pilot-readiness checklist — what's real vs. still open before a live borrower goes through." href="/admin/brokerage/launch-readiness" />
         <SmallCard title="Stuck deals (by origin)" desc="Diagnostic view — oldest-first, filterable by anonymous vs. claimed." href="/admin/brokerage/deals" />
+        <SmallCard
+          title="Team Chat"
+          desc="Internal chat, voice, and screen share for the team — separate system, opens in a new tab."
+          href="https://chat.buddytheunderwriter.com"
+          external
+        />
       </div>
 
       <p style={{ fontSize: 11, color: c.textFaint, marginTop: 32 }}>

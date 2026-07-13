@@ -59,19 +59,19 @@ export function BorrowerUnderwriterPreviewCard({
   }
 
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-stone-100">
-          <Icon name="fact_check" className="h-4 w-4 text-stone-600" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100">
+          <Icon name="fact_check" className="h-4 w-4 text-slate-600" />
         </div>
-        <h3 className="text-sm font-semibold text-stone-900">
+        <h3 className="text-sm font-heading font-semibold text-slate-900">
           What a Reviewer Can See So Far
         </h3>
       </div>
-      <p className="mt-2 text-sm text-stone-600">
+      <p className="mt-2 text-sm text-slate-600">
         {headerCopy}
       </p>
-      <p className="mt-1 text-xs text-stone-400">
+      <p className="mt-1 text-xs text-slate-400">
         Some items may change as your banker reviews the file.
       </p>
 
@@ -80,7 +80,7 @@ export function BorrowerUnderwriterPreviewCard({
           const config = TYPE_CONFIG[key];
           return (
             <div key={key}>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                 {config.sectionLabel}
               </div>
               <ul className="mt-2 space-y-2">
@@ -97,11 +97,11 @@ export function BorrowerUnderwriterPreviewCard({
                       className={cn("mt-0.5 h-4 w-4 shrink-0", config.iconColor)}
                     />
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-stone-800">
+                      <div className="text-sm font-medium text-slate-800">
                         {item.label}
                       </div>
                       {item.description && (
-                        <div className="text-xs text-stone-500">
+                        <div className="text-xs text-slate-500">
                           {item.description}
                         </div>
                       )}

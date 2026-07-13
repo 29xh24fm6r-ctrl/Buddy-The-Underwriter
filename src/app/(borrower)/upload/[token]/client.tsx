@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Icon } from "@/components/ui/Icon";
 import { useRouter } from "next/navigation";
 
@@ -16,6 +17,8 @@ export function UploadPageClient({ token }: { token: string }) {
   const [uploading, setUploading] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [err, setErr] = React.useState<string | null>(null);
+  const [dragActive, setDragActive] = React.useState(false);
+  const [done, setDone] = React.useState(false);
 
   function safeUploadError(input: unknown) {
     const text = typeof input === "string" ? input.toLowerCase() : "";
@@ -25,13 +28,11 @@ export function UploadPageClient({ token }: { token: string }) {
     return "Buddy could not finish that upload. Please try the file again or use a clearer copy.";
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  async function uploadFile(file: File) {
     setUploading(true);
     setProgress(0);
     setErr(null);
+    setDone(false);
 
     try {
       // SPEC-PORTAL-1: the borrower upload path is /api/portal/upload/prepare +
@@ -85,9 +86,10 @@ export function UploadPageClient({ token }: { token: string }) {
       });
 
       setProgress(100);
+      setDone(true);
 
       // Redirect to portal
-      setTimeout(() => router.push(`/portal/${token}`), 500);
+      setTimeout(() => router.push(`/portal/${token}`), 700);
     } catch (e: any) {
       setErr(safeUploadError(e?.message ?? "Upload failed"));
     } finally {
@@ -95,47 +97,112 @@ export function UploadPageClient({ token }: { token: string }) {
     }
   }
 
+  function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void uploadFile(file);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void uploadFile(file);
+  }
+
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.14),_transparent_28%),linear-gradient(180deg,_#fffdf8_0%,_#fffaf0_45%,_#f8fafc_100%)] p-4">
-      <div className="w-full max-w-2xl rounded-[2rem] border border-white/70 bg-white/92 p-8 text-neutral-900 shadow-[0_22px_70px_rgba(120,53,15,0.10)]">
+    <div className="brand-hero-bg relative flex min-h-dvh items-center justify-center overflow-hidden p-4">
+      <div
+        className="brand-glow pointer-events-none absolute -right-24 -top-32 h-[460px] w-[460px] rounded-full"
+        aria-hidden="true"
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="relative w-full max-w-2xl rounded-[2rem] bg-white p-8 text-slate-900 shadow-[0_24px_70px_rgba(0,0,0,0.35)]"
+      >
         <div className="mb-6 flex items-center gap-3">
-          <Icon name="cloud_upload" className="h-8 w-8" />
+          <div className="brand-gradient-cta flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl">
+            <Icon name="cloud_upload" className="h-6 w-6 text-white" />
+          </div>
           <div>
-            <h1 className="text-2xl font-semibold">Add the documents Buddy requested</h1>
-            <p className="mt-1 text-sm text-neutral-600">
+            <h1 className="font-heading text-2xl font-bold text-slate-900">Add the documents Buddy requested</h1>
+            <p className="mt-1 text-sm text-slate-600">
               Clear PDFs, scans, spreadsheets, and phone photos are all acceptable for this secure SBA portal.
             </p>
           </div>
         </div>
 
-        <div className="rounded-[1.5rem] border-2 border-dashed border-neutral-300 p-12 text-center">
-          <Icon name="description" className="mx-auto mb-4 h-12 w-12 text-neutral-400" />
-          <label
-            htmlFor="file-upload"
-            className="cursor-pointer inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-neutral-900 px-6 py-3 text-sm font-semibold text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900"
-          >
-            <Icon name="add" className="h-5 w-5 text-white" />
-            Choose a document
-          </label>
-          <input
-            id="file-upload"
-            type="file"
-            accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
-            className="hidden"
-            onChange={handleUpload}
-            disabled={uploading}
-          />
-          <p className="mt-3 text-xs text-neutral-500">PDF, Excel, Word, or images (Max 50MB)</p>
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={handleDrop}
+          className={`rounded-[1.5rem] border-2 border-dashed p-12 text-center transition-colors ${
+            dragActive
+              ? "border-brand-blue-500 bg-brand-blue-500/5"
+              : "border-slate-300 bg-slate-50/50"
+          }`}
+        >
+          <AnimatePresence mode="wait">
+            {done ? (
+              <motion.div
+                key="done"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+                  <Icon name="check_circle" className="h-8 w-8 text-emerald-600" />
+                </div>
+                <p className="text-sm font-semibold text-slate-900">Got it — taking you back to your portal…</p>
+              </motion.div>
+            ) : (
+              <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <motion.div
+                  animate={dragActive ? { y: -4 } : { y: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                >
+                  <Icon
+                    name="description"
+                    className={`mx-auto mb-4 h-12 w-12 ${dragActive ? "text-brand-blue-500" : "text-slate-400"}`}
+                  />
+                </motion.div>
+                <label
+                  htmlFor="file-upload"
+                  className="brand-gradient-cta inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
+                >
+                  <Icon name="add" className="h-5 w-5 text-white" />
+                  Choose a document
+                </label>
+                <input
+                  id="file-upload"
+                  type="file"
+                  accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
+                  className="hidden"
+                  onChange={handleUpload}
+                  disabled={uploading}
+                />
+                <p className="mt-3 text-xs text-slate-500">
+                  or drag a file in here — PDF, Excel, Word, or images (max 50MB)
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {uploading && (
             <div className="mt-6">
-              <div className="h-2 w-full rounded-full bg-neutral-100">
-              <div
-                  className="h-2 rounded-full bg-neutral-900 transition-all"
-                  style={{ width: `${progress}%` }}
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                <motion.div
+                  className="h-2 rounded-full bg-gradient-to-r from-[#1c8de0] to-[#4db8f0]"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progress}%` }}
+                  transition={{ ease: "easeOut" }}
                 />
               </div>
-              <p className="mt-2 text-sm text-neutral-600">
+              <p className="mt-2 text-sm text-slate-600">
                 {progress < 100 ? `Uploading... ${progress}%` : "Buddy is reviewing this file"}
               </p>
             </div>
@@ -153,15 +220,15 @@ export function UploadPageClient({ token }: { token: string }) {
           <button
             type="button"
             onClick={() => router.push(`/portal/${token}`)}
-            className="text-sm text-neutral-600 hover:text-neutral-900"
+            className="text-sm font-medium text-slate-600 hover:text-brand-blue-500"
           >
             ← Back to Portal
           </button>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-slate-500">
             Secure SBA document portal. Files encrypted in transit. Only your SBA team can access these documents.
           </p>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

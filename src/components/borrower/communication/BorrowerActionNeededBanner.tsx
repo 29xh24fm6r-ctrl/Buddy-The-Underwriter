@@ -52,7 +52,7 @@ export function BorrowerActionNeededBanner({
         >
           <Icon name="error" className={`h-4 w-4 ${accent.iconColor}`} />
         </div>
-        <h3 className={`text-sm font-semibold ${accent.title}`}>{headline}</h3>
+        <h3 className={`font-heading text-sm font-semibold ${accent.title}`}>{headline}</h3>
       </div>
 
       {topItems.length > 0 && (
@@ -62,12 +62,12 @@ export function BorrowerActionNeededBanner({
               key={item.id}
               className="flex items-start gap-2 rounded-xl border border-white/80 bg-white/70 px-3 py-2"
             >
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-stone-700" />
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-700" />
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-stone-900">
+                <div className="text-sm font-semibold text-slate-900">
                   {item.label}
                 </div>
-                <p className="mt-0.5 text-xs leading-5 text-stone-700">
+                <p className="mt-0.5 text-xs leading-5 text-slate-700">
                   {item.reason}
                 </p>
               </div>
@@ -79,7 +79,7 @@ export function BorrowerActionNeededBanner({
       {primaryCtaLabel && primaryCtaHref && (
         <a
           href={primaryCtaHref}
-          className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-stone-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
+          className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl brand-gradient-cta px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
         >
           <Icon name="arrow_forward_ios" className="h-3.5 w-3.5 text-current" />
           {primaryCtaLabel}

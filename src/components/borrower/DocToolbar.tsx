@@ -19,20 +19,20 @@ export function DocToolbar({
   onUploadNewVersion?: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 pb-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <Icon name="file" className="h-4 w-4 text-neutral-700" />
+          <Icon name="file" className="h-4 w-4 text-slate-700" />
           <div className="truncate text-sm font-medium">{filename}</div>
         </div>
-        {pageLabel ? <div className="mt-1 text-xs text-neutral-500">{pageLabel}</div> : null}
+        {pageLabel ? <div className="mt-1 text-xs text-slate-500">{pageLabel}</div> : null}
       </div>
 
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={onPrev}
-          className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
           aria-label="Previous page"
         >
           <Icon name="chevron_left" className="h-4 w-4" />
@@ -42,7 +42,7 @@ export function DocToolbar({
         <button
           type="button"
           onClick={onNext}
-          className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
           aria-label="Next page"
         >
           Next
@@ -52,7 +52,7 @@ export function DocToolbar({
         <button
           type="button"
           onClick={onRemove}
-          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
           aria-label="Remove document"
         >
           <Icon name="delete" className="h-4 w-4" />
@@ -62,7 +62,7 @@ export function DocToolbar({
         <button
           type="button"
           onClick={onUploadNewVersion}
-          className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+          className="inline-flex items-center gap-2 rounded-lg brand-gradient-cta px-3 py-2 text-sm text-white hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
         >
           <Icon name="cloud_upload" className="h-4 w-4 text-white" />
           Upload new version

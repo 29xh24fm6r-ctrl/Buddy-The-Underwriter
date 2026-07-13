@@ -9,78 +9,99 @@ export const metadata = {
 
 export default function StartPage() {
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.14),_transparent_28%),linear-gradient(180deg,_#fffdf8_0%,_#fffaf0_42%,_#f8fafc_100%)]">
+    <main className="min-h-screen bg-[#f6f8fb]">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
-        <section className="rounded-[2rem] border border-white/70 bg-white/88 p-6 shadow-[0_22px_70px_rgba(120,53,15,0.10)] backdrop-blur sm:p-8 lg:p-10">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <section className="brand-hero-bg relative overflow-hidden rounded-[2rem] p-6 shadow-[0_24px_70px_rgba(14,35,64,0.35)] sm:p-8 lg:p-10">
+          <div
+            className="brand-glow pointer-events-none absolute -right-24 -top-32 h-[460px] w-[460px] rounded-full"
+            aria-hidden="true"
+          />
+
+          <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
             <div>
-              <div className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-amber-900">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-brand-blue-400">
+                <span className="h-[7px] w-[7px] rounded-full bg-[#4db8f0]" />
                 Buddy SBA concierge
               </div>
-              <h1 className="mt-4 font-serif text-4xl leading-tight text-stone-950 sm:text-5xl">
+              <h1 className="mt-4 font-heading text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
                 Build your SBA package with guidance, not guesswork.
               </h1>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-stone-700 sm:text-lg">
+              <p className="mt-4 max-w-3xl text-base leading-7 text-white/70 sm:text-lg">
                 Buddy turns a scattered borrower checklist into a guided SBA
                 package. Start with chat or voice, let Buddy organize what
                 matters, and keep full lender neutrality from start to finish.
               </p>
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                <div className="rounded-[1.25rem] border border-white/10 bg-white/[0.06] p-4 backdrop-blur-sm">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-blue-400">
                     Guided start
                   </div>
-                  <p className="mt-2 text-sm text-stone-700">
+                  <p className="mt-2 text-sm text-white/70">
                     Tell Buddy what you are financing and get a structured next step.
                   </p>
                 </div>
-                <div className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                <div className="rounded-[1.25rem] border border-white/10 bg-white/[0.06] p-4 backdrop-blur-sm">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-blue-400">
                     Neutral matching
                   </div>
-                  <p className="mt-2 text-sm text-stone-700">
+                  <p className="mt-2 text-sm text-white/70">
                     Up to three lenders can review your package and you choose who wins.
                   </p>
                 </div>
-                <div className="rounded-[1.25rem] border border-stone-200 bg-stone-50/70 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                <div className="rounded-[1.25rem] border border-white/10 bg-white/[0.06] p-4 backdrop-blur-sm">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-blue-400">
                     Secure return
                   </div>
-                  <p className="mt-2 text-sm text-stone-700">
+                  <p className="mt-2 text-sm text-white/70">
                     Your progress stays in this browser so you can come back without starting over.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-[1.5rem] border border-stone-200 bg-[linear-gradient(180deg,_#fffaf0_0%,_#ffffff_100%)] p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.06] p-5 backdrop-blur-sm">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-blue-400">
                 What to expect
               </div>
               <ol className="mt-4 space-y-4">
-                <li>
-                  <div className="text-sm font-semibold text-stone-950">1. Tell Buddy about the deal</div>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">
-                    Share what you are buying, refinancing, or expanding.
-                  </p>
+                <li className="flex gap-3">
+                  <span className="brand-gradient-cta flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white">
+                    1
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-white">Tell Buddy about the deal</div>
+                    <p className="mt-1 text-sm leading-6 text-white/60">
+                      Share what you are buying, refinancing, or expanding.
+                    </p>
+                  </div>
                 </li>
-                <li>
-                  <div className="text-sm font-semibold text-stone-950">2. Build the borrower package</div>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">
-                    Buddy organizes your application, documents, and SBA-ready narrative.
-                  </p>
+                <li className="flex gap-3">
+                  <span className="brand-gradient-cta flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white">
+                    2
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-white">Build the borrower package</div>
+                    <p className="mt-1 text-sm leading-6 text-white/60">
+                      Buddy organizes your application, documents, and SBA-ready narrative.
+                    </p>
+                  </div>
                 </li>
-                <li>
-                  <div className="text-sm font-semibold text-stone-950">3. Move into lender review</div>
-                  <p className="mt-1 text-sm leading-6 text-stone-600">
-                    Once your package is ready, matched lenders can compete for the deal.
-                  </p>
+                <li className="flex gap-3">
+                  <span className="brand-gradient-cta flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white">
+                    3
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-white">Move into lender review</div>
+                    <p className="mt-1 text-sm leading-6 text-white/60">
+                      Once your package is ready, matched lenders can compete for the deal.
+                    </p>
+                  </div>
                 </li>
               </ol>
             </div>
           </div>
 
-          <div className="mt-8">
+          <div className="relative mt-8 rounded-[1.75rem] bg-white p-4 shadow-[0_18px_50px_rgba(0,0,0,0.25)] sm:p-6">
             <StartConciergeClient />
           </div>
         </section>

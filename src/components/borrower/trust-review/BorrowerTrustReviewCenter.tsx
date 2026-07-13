@@ -17,11 +17,11 @@ const STATE_STYLES: Record<
   { border: string; bg: string; dot: string; badge: string; badgeBg: string }
 > = {
   not_ready_to_review: {
-    border: "border-stone-200",
-    bg: "bg-stone-50/60",
-    dot: "bg-stone-400",
-    badge: "text-stone-800",
-    badgeBg: "bg-stone-100",
+    border: "border-slate-200",
+    bg: "bg-slate-50/60",
+    dot: "bg-slate-400",
+    badge: "text-slate-800",
+    badgeBg: "bg-slate-100",
   },
   ready_to_review: {
     border: "border-sky-200/70",
@@ -45,11 +45,11 @@ const STATE_STYLES: Record<
     badgeBg: "bg-emerald-100",
   },
   waiting_on_updates: {
-    border: "border-stone-300",
-    bg: "bg-stone-50/70",
-    dot: "bg-stone-500",
-    badge: "text-stone-900",
-    badgeBg: "bg-stone-100",
+    border: "border-slate-300",
+    bg: "bg-slate-50/70",
+    dot: "bg-slate-500",
+    badge: "text-slate-900",
+    badgeBg: "bg-slate-100",
   },
 };
 
@@ -79,7 +79,7 @@ export function BorrowerTrustReviewCenter({
             className={cn("h-2 w-2 rounded-full", style.dot)}
             aria-hidden="true"
           />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
             Review Your Package
           </span>
           <span
@@ -94,10 +94,10 @@ export function BorrowerTrustReviewCenter({
           </span>
         </div>
 
-        <h2 className="mt-4 font-serif text-2xl leading-tight text-stone-950 sm:text-3xl">
+        <h2 className="mt-4 font-heading font-bold text-2xl leading-tight text-slate-900 sm:text-3xl">
           {viewModel.headline}
         </h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-700 sm:text-base">
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700 sm:text-base">
           {viewModel.summary}
         </p>
 
@@ -106,7 +106,7 @@ export function BorrowerTrustReviewCenter({
             <a
               href={viewModel.primaryCtaHref}
               aria-label={viewModel.primaryCtaLabel}
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-stone-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl brand-gradient-cta px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue-500 focus-visible:ring-offset-2"
             >
               <Icon name="edit" className="h-4 w-4 text-current" />
               {viewModel.primaryCtaLabel}

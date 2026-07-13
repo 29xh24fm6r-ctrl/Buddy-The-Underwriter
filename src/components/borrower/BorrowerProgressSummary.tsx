@@ -78,7 +78,7 @@ function RemainingCard({
                     ? "bg-rose-400"
                     : item.severity === "important"
                       ? "bg-amber-400"
-                      : "bg-stone-300",
+                      : "bg-slate-300",
                 )}
               />
               <div className="min-w-0">

@@ -42,8 +42,16 @@ import {
 } from "@/lib/sba/sbaBorrowerStory";
 import { prepareSbaPackage } from "@/lib/sba/package/buildPackage";
 import { generatePdfForFillRun } from "@/lib/forms/pdfFill/generatePdfForFillRun";
+import { assembleTenTabPackage } from "@/lib/sba/package/assembleTenTabPackage";
 import { ensureSbaLoanAndMilestones } from "@/lib/sba/servicing/seedMilestones";
 import { recomputeSbaServicing } from "@/lib/sba/servicing/evaluateServicing";
+import { submitToSba } from "@/lib/etran/submitter";
+import { generateETranXML } from "@/lib/etran/generator";
+import { getEtranCredentials } from "@/lib/etran/credentials";
+import { postToSbaEtran } from "@/lib/etran/etranHttpClient";
+import { buildForm1919Input } from "@/lib/sba/forms/form1919/inputBuilder";
+import { FORM_912_TRIGGER_FIELDS } from "@/lib/sba/forms/form1919/fields";
+import { buildForm155Input } from "@/lib/sba/forms/form155/inputBuilder";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // generate-package action is long-running
@@ -193,6 +201,8 @@ export async function GET(req: NextRequest, ctx: { params: Params }) {
         return getReview(dealId);
       case "servicing":
         return getServicing(dealId);
+      case "signing-status":
+        return getSigningStatus(dealId, access.bankId);
       case "run-items": {
         const runId = url.searchParams.get("runId");
         if (!runId) {
@@ -277,6 +287,10 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
         return preparePackageRunAction(dealId, body);
       case "generate-package-run-pdf":
         return generatePackageRunPdfAction(dealId, body);
+      case "assemble-package":
+        return assemblePackageAction(dealId, body);
+      case "submit-etran":
+        return submitEtranAction(dealId, access.bankId, access.userId, body);
 
       // Servicing
       case "recompute-servicing":
@@ -673,6 +687,120 @@ async function getServicing(dealId: string): Promise<Response> {
     milestones: milestones ?? [],
     summary,
   });
+}
+
+/**
+ * Aggregation view for SbaSigningPanel (SPEC S3 C-1) — folded in from the
+ * former standalone sba/signing-status/route.ts (route-budget discipline;
+ * see the Drift Log). Owner + IAL2 + per-form signature status in one call.
+ */
+const SIGNING_STATUS_TRACKED_FORMS = ["FORM_1919", "FORM_413", "FORM_912", "FORM_4506C"] as const;
+
+function signingStatusIsIndividual(entityType: string | null | undefined): boolean {
+  return entityType === "individual" || entityType === "person";
+}
+
+function signingStatusPersonTriggers912(fields: Record<string, unknown>): boolean {
+  return FORM_912_TRIGGER_FIELDS.some((key) => fields[key] === true);
+}
+
+async function getSigningStatus(dealId: string, bankId: string): Promise<Response> {
+  const sb = supabaseAdmin();
+
+  const { data: owners } = await sb
+    .from("ownership_entities")
+    .select("id, entity_type, display_name, ownership_pct")
+    .eq("deal_id", dealId);
+
+  const { data: verifications } = await sb
+    .from("borrower_identity_verifications")
+    .select("ownership_entity_id, status, completed_at, created_at")
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false });
+
+  const { data: signedDocs } = await sb
+    .from("signed_documents")
+    .select("signer_ownership_entity_id, form_code, expires_at, signature_completed_at")
+    .eq("deal_id", dealId);
+
+  const individualOwners = ((owners ?? []) as Array<Record<string, any>>).filter((o) => signingStatusIsIndividual(o.entity_type));
+
+  // SPEC S4 H-2: FORM_912 is conditional per-owner (only triggering owners
+  // need it) — reuse the same 1919-answer evaluation form912's own
+  // inputBuilder uses, so this panel and the actual generator never disagree
+  // about who's applicable.
+  const form1919Input = await buildForm1919Input(dealId, sb);
+  const triggering912Ids = new Set(
+    form1919Input.sectionII.filter((p) => signingStatusPersonTriggers912(p.fields)).map((p) => p.ownership_entity_id),
+  );
+
+  const rows = individualOwners.map((owner) => {
+    const latestVerification = (verifications ?? []).find((v: any) => v.ownership_entity_id === owner.id) ?? null;
+    const ial2Status: "verified" | "pending" | "declined" | "not_started" = !latestVerification
+      ? "not_started"
+      : ["completed", "approved"].includes(latestVerification.status)
+        ? "verified"
+        : ["declined", "failed", "expired"].includes(latestVerification.status)
+          ? "declined"
+          : "pending";
+
+    const forms: Record<string, { signed: boolean; expiresAt: string | null; applicable: boolean }> = {};
+    for (const formCode of SIGNING_STATUS_TRACKED_FORMS) {
+      const doc = (signedDocs ?? []).find(
+        (d: any) => d.signer_ownership_entity_id === owner.id && d.form_code === formCode,
+      );
+      forms[formCode] = {
+        signed: Boolean(doc) && (!doc?.expires_at || new Date(doc.expires_at) > new Date()),
+        expiresAt: doc?.expires_at ?? null,
+        applicable: formCode === "FORM_912" ? triggering912Ids.has(owner.id) : true,
+      };
+    }
+
+    return {
+      ownershipEntityId: owner.id,
+      displayName: owner.display_name,
+      ial2Status,
+      forms,
+    };
+  });
+
+  // SPEC S4 H-2: FORM_155/FORM_159 are deal-level (one instance total, not
+  // one per owner) — surfaced separately rather than forced into the
+  // per-owner grid.
+  const form155Result = await buildForm155Input(dealId, bankId, sb);
+  const { data: latestLoanRequest } = await sb
+    .from("deal_loan_requests")
+    .select("agent_used")
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const dealLevelForms = [
+    {
+      formCode: "FORM_155",
+      label: "Form 155 (Standby Creditor's Agreement)",
+      applicable: form155Result.applicable,
+      signed: false,
+      ownershipEntityId: form155Result.applicable ? form155Result.borrower_ownership_entity_id : null,
+    },
+    {
+      formCode: "FORM_159",
+      label: "Form 159 (Fee Disclosure)",
+      applicable: Boolean(latestLoanRequest?.agent_used),
+      signed: false,
+      ownershipEntityId: null,
+    },
+  ];
+
+  if (form155Result.applicable && form155Result.borrower_ownership_entity_id) {
+    const doc = (signedDocs ?? []).find(
+      (d: any) => d.signer_ownership_entity_id === form155Result.borrower_ownership_entity_id && d.form_code === "FORM_155",
+    );
+    dealLevelForms[0].signed = Boolean(doc) && (!doc?.expires_at || new Date(doc.expires_at) > new Date());
+  }
+
+  return NextResponse.json({ ok: true, rows, dealLevelForms });
 }
 
 async function getRunItems(packageRunId: string): Promise<Response> {
@@ -1474,6 +1602,90 @@ async function generatePackageRunPdfAction(
     .eq("id", packageRunId);
 
   return NextResponse.json({ ok: true, packageRunId, results });
+}
+
+/**
+ * SPEC S7 4 (ARC-00 Phase 5) — "SBA 10-tab package assembly... walk all
+ * generated forms + documents into the 10-tab structure... output a
+ * single lender-ready package." Call after generate-package-run-pdf has
+ * produced status='generated' items; merges them into one PDF per
+ * tenTabAssembly.ts's tab order.
+ */
+async function assemblePackageAction(
+  dealId: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const packageRunId = typeof body.packageRunId === "string" ? (body.packageRunId as string) : "";
+  if (!packageRunId) {
+    return NextResponse.json({ ok: false, error: "packageRunId is required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseServerClient();
+  const result = await assembleTenTabPackage({ supabase, dealId, packageRunId });
+
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.reason, detail: result.detail }, { status: result.reason === "PACKAGE_RUN_NOT_FOUND" ? 404 : 422 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    packageRunId,
+    storagePath: result.storagePath,
+    itemCount: result.itemCount,
+    missingItems: result.missingItems,
+  });
+}
+
+/**
+ * SPEC S5 B-5 (ARC-00 Phase 6) — real SBA E-Tran submission.
+ *
+ * PERMANENT HUMAN-APPROVAL GATE (principle #25, SR 11-7 wall): approvedBy
+ * comes ONLY from the authenticated Clerk session resolved by
+ * ensureDealBankAccess above — never from the request body. There is no
+ * "auto-submit when ready" path anywhere in this arc.
+ */
+async function submitEtranAction(
+  dealId: string,
+  bankId: string,
+  approvedByUserId: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  void body; // no body-driven inputs accepted for this action — see docstring above
+
+  const result = await submitToSba(
+    { dealId, bankId, approvedByUserId },
+    {
+      sb: supabaseAdmin(),
+      generateXml: (args) => generateETranXML(args),
+      getCredentials: getEtranCredentials,
+      postToSba: postToSbaEtran,
+      sandboxEndpoint: process.env.SBA_ETRAN_SANDBOX_ENDPOINT ?? process.env.SBA_ETRAN_MOCK_ENDPOINT ?? "",
+      productionEndpoint: process.env.SBA_ETRAN_PROD_ENDPOINT ?? "",
+    },
+  );
+
+  if (result.ok) {
+    return NextResponse.json({
+      ok: true,
+      sba_application_number: result.sba_application_number,
+      submission_id: result.submission_id,
+    });
+  }
+
+  const statusByReason: Record<string, number> = {
+    VALIDATION_FAILED: 422,
+    REQUIRED_SIGNED_FORMS_MISSING: 422,
+    ETRAN_CREDENTIALS_MISSING: 503,
+    SBA_REJECTED: 502,
+    NETWORK_ERROR: 502,
+    DB_INSERT_FAILED: 500,
+  };
+  const status = statusByReason[result.reason] ?? 500;
+
+  return NextResponse.json(
+    { ok: false, error: result.reason, detail: result.details },
+    { status },
+  );
 }
 
 async function recomputeServicingAction(

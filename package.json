@@ -126,6 +126,7 @@
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "5.4.296",
     "pdfkit": "^0.17.2",
+    "plaid": "^43.0.0",
     "posthog-js": "^1.310.1",
     "qrcode": "^1.5.4",
     "react": "19.2.3",

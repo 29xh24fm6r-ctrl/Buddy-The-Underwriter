@@ -156,7 +156,7 @@ export function TridentPreviewCard({ token }: { token: string }) {
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <header className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="font-heading text-lg font-semibold text-slate-900">
             Your Business Plan &amp; Feasibility Preview
           </h2>
           <p className="mt-1 text-sm text-slate-600">
@@ -290,13 +290,13 @@ function PreviewSubCard(props: {
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{props.title}</h3>
+      <h3 className="font-heading text-sm font-semibold text-slate-900">{props.title}</h3>
       <p className="mt-1 text-xs text-slate-500">{props.unlockNote}</p>
       <button
         type="button"
         onClick={onOpen}
         disabled={!props.available || opening}
-        className="mt-auto rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+        className="mt-auto rounded-lg brand-gradient-cta px-3 py-2 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
       >
         {opening
           ? "Opening…"

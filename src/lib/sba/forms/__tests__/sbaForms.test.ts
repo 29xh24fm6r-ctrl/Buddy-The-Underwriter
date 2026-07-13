@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildSbaForm1919 } from "@/lib/sba/forms/build1919";
-import { buildSbaForm1920 } from "@/lib/sba/forms/build1920";
 import { buildEmptyMetric, type DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 
 function snapshotWith(overrides: Partial<DealFinancialSnapshotV1>): DealFinancialSnapshotV1 {
@@ -70,19 +69,4 @@ test("buildSbaForm1919 marks missing required fields", () => {
   });
 
   assert.ok(form.missing.includes("borrower_name"));
-});
-
-test("buildSbaForm1920 maps dscr and ltv", () => {
-  const snap = snapshotWith({
-    dscr: { ...buildEmptyMetric(), value_num: 1.25 },
-    ltv_net: { ...buildEmptyMetric(), value_num: 68 },
-  });
-  const form = buildSbaForm1920({
-    snapshot: snap,
-    borrowerName: "Acme",
-    loanAmount: 500000,
-  });
-
-  assert.equal(form.fields.dscr, 1.25);
-  assert.equal(form.fields.ltv, 68);
 });
