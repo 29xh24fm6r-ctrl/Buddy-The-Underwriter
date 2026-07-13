@@ -105,7 +105,7 @@ const SUB_STEPS: { key: SubStep; label: string }[] = [
 const inputCls =
   "w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 bg-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
 
-const labelCls = "block text-sm font-medium text-gray-300 mb-1.5";
+const labelCls = "block text-sm font-medium text-slate-600 mb-1.5";
 
 export function AssumptionInterview({
   token,
@@ -471,13 +471,13 @@ export function AssumptionInterview({
     return (
       <div className="space-y-4 py-12 text-center">
         <div
-          className="inline-block w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"
+          className="inline-block w-8 h-8 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin"
           aria-hidden
         />
-        <h2 className="text-lg font-semibold text-white">
+        <h2 className="text-lg font-semibold text-slate-900">
           Buddy is researching your industry
         </h2>
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-slate-500">
           Analyzing market data, competitive landscape, and industry
           benchmarks…
         </p>
@@ -489,17 +489,17 @@ export function AssumptionInterview({
   if (phase === "presenting" && researchBriefing) {
     return (
       <div className="space-y-5">
-        <h2 className="text-lg font-semibold text-white">
+        <h2 className="text-lg font-semibold text-slate-900">
           Here&apos;s what I found
         </h2>
 
-        <div className="bg-gradient-to-b from-blue-950/40 to-neutral-900 border border-blue-800/30 rounded-xl p-5 space-y-4">
-          <div className="flex items-center gap-2 text-xs text-blue-400">
-            <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+        <div className="bg-gradient-to-b from-blue-50 to-white border border-blue-100 rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2 text-xs text-brand-blue-500 font-medium">
+            <span className="w-2 h-2 bg-brand-blue-500 rounded-full animate-pulse" />
             Buddy&apos;s Industry Research
           </div>
 
-          <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">
+          <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
             {researchBriefing.narrative}
           </div>
 
@@ -508,7 +508,7 @@ export function AssumptionInterview({
               {researchBriefing.dataSources.map((src) => (
                 <span
                   key={src}
-                  className="text-[10px] px-2 py-1 rounded-full bg-neutral-800 text-gray-400 border border-neutral-700"
+                  className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200"
                 >
                   {src}
                 </span>
@@ -529,7 +529,7 @@ export function AssumptionInterview({
           <button
             type="button"
             onClick={() => setPhase("editing")}
-            className="px-6 py-3 rounded-lg border border-neutral-700 text-gray-300 text-sm font-medium hover:bg-neutral-800 transition min-h-[44px]"
+            className="px-6 py-3 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 transition min-h-[44px]"
           >
             I want to adjust
           </button>
@@ -537,7 +537,7 @@ export function AssumptionInterview({
             type="button"
             onClick={confirmAndContinue}
             disabled={confirming}
-            className="flex-1 px-6 py-3 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition disabled:opacity-60 min-h-[44px]"
+            className="brand-gradient-cta flex-1 px-6 py-3 rounded-lg text-white text-sm font-medium hover:brightness-110 transition disabled:opacity-60 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
           >
             {confirming ? "Confirming…" : "Looks great — continue"}
           </button>
@@ -549,8 +549,8 @@ export function AssumptionInterview({
   // ── Phase: editing (original 5-section form) ───────────────────────────
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-semibold text-white">Financial Projections</h2>
-      <p className="text-sm text-gray-400">
+      <h2 className="text-lg font-semibold text-slate-900">Financial Projections</h2>
+      <p className="text-sm text-slate-500">
         We&apos;ll build 3-year projections for your SBA application. Most
         fields are pre-filled from your documents — just review and adjust.
       </p>
@@ -563,10 +563,10 @@ export function AssumptionInterview({
             onClick={() => setSubStep(s.key)}
             className={`flex-1 py-1.5 text-xs rounded-md transition ${
               s.key === subStep
-                ? "bg-blue-600 text-white font-medium"
+                ? "bg-brand-blue-500 text-white font-medium"
                 : i < subStepIdx
-                  ? "bg-green-900/30 text-green-400"
-                  : "bg-neutral-800 text-neutral-500"
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-slate-100 text-slate-400"
             }`}
           >
             {s.label}
@@ -575,7 +575,7 @@ export function AssumptionInterview({
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 text-sm text-red-300">
+        <div className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600">
           {error}
         </div>
       )}
@@ -583,17 +583,17 @@ export function AssumptionInterview({
       {/* ── Revenue ───────────────────────────────────────────────── */}
       {subStep === "revenue" && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             How does your business make money? We&apos;ve pre-filled based on your
             financial documents.
           </p>
           {revenueStreams.map((stream, idx) => (
             <div
               key={stream.id}
-              className="border border-neutral-800 rounded-lg p-4 space-y-3"
+              className="border border-slate-200 rounded-lg p-4 space-y-3"
             >
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-300">
+                <span className="text-sm font-medium text-slate-600">
                   Revenue Stream {idx + 1}
                 </span>
                 {revenueStreams.length > 1 && (
@@ -604,7 +604,7 @@ export function AssumptionInterview({
                         prev.filter((s) => s.id !== stream.id),
                       )
                     }
-                    className="text-xs text-red-400 hover:text-red-300"
+                    className="text-xs text-rose-500 hover:text-rose-600"
                   >
                     Remove
                   </button>
@@ -727,7 +727,7 @@ export function AssumptionInterview({
                 },
               ])
             }
-            className="w-full py-3 rounded-lg border border-dashed border-neutral-700 text-gray-400 text-sm hover:border-neutral-500 transition min-h-[44px]"
+            className="w-full py-3 rounded-lg border border-dashed border-slate-300 text-slate-500 text-sm hover:border-slate-400 transition min-h-[44px]"
           >
             + Add Revenue Stream
           </button>
@@ -737,7 +737,7 @@ export function AssumptionInterview({
       {/* ── Costs ─────────────────────────────────────────────────── */}
       {subStep === "costs" && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             What does it cost to run your business?
           </p>
           <div className="grid grid-cols-3 gap-3">
@@ -774,7 +774,7 @@ export function AssumptionInterview({
           </div>
 
           <div className="pt-2">
-            <label className="text-sm font-medium text-gray-300 mb-2 block">
+            <label className="text-sm font-medium text-slate-600 mb-2 block">
               Fixed Costs
             </label>
             {fixedCosts.map((fc, idx) => (
@@ -819,7 +819,7 @@ export function AssumptionInterview({
                   onClick={() =>
                     setFixedCosts((prev) => prev.filter((_, i) => i !== idx))
                   }
-                  className="text-xs text-red-400 hover:text-red-300 self-center"
+                  className="text-xs text-rose-500 hover:text-rose-600 self-center"
                 >
                   Remove
                 </button>
@@ -833,14 +833,14 @@ export function AssumptionInterview({
                   { name: "", annualAmount: 0, escalationPctPerYear: 0.03 },
                 ])
               }
-              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+              className="text-xs text-brand-blue-500 hover:text-brand-blue-400 mt-1"
             >
               + Add Fixed Cost
             </button>
           </div>
 
           <div className="pt-2">
-            <label className="text-sm font-medium text-gray-300 mb-2 block">
+            <label className="text-sm font-medium text-slate-600 mb-2 block">
               Planned Hires
             </label>
             {hires.map((h, idx) => (
@@ -903,7 +903,7 @@ export function AssumptionInterview({
                   onClick={() =>
                     setHires((prev) => prev.filter((_, i) => i !== idx))
                   }
-                  className="text-xs text-red-400 hover:text-red-300 self-center"
+                  className="text-xs text-rose-500 hover:text-rose-600 self-center"
                 >
                   Remove
                 </button>
@@ -917,14 +917,14 @@ export function AssumptionInterview({
                   { role: "", startMonth: 1, annualSalary: 0 },
                 ])
               }
-              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+              className="text-xs text-brand-blue-500 hover:text-brand-blue-400 mt-1"
             >
               + Add Hire
             </button>
           </div>
 
           <div className="pt-2">
-            <label className="text-sm font-medium text-gray-300 mb-2 block">
+            <label className="text-sm font-medium text-slate-600 mb-2 block">
               Planned Capital Expenditures
             </label>
             {capex.map((c, idx) => (
@@ -987,7 +987,7 @@ export function AssumptionInterview({
                   onClick={() =>
                     setCapex((prev) => prev.filter((_, i) => i !== idx))
                   }
-                  className="text-xs text-red-400 hover:text-red-300 self-center"
+                  className="text-xs text-rose-500 hover:text-rose-600 self-center"
                 >
                   Remove
                 </button>
@@ -1001,7 +1001,7 @@ export function AssumptionInterview({
                   { description: "", amount: 0, year: 1 },
                 ])
               }
-              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+              className="text-xs text-brand-blue-500 hover:text-brand-blue-400 mt-1"
             >
               + Add Capex
             </button>
