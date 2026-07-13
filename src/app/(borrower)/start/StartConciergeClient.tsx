@@ -11,6 +11,7 @@ import {
   type JourneyStatusInput,
   type MarketplaceListingStatus,
 } from "@/components/brokerage/BrokerageStageStrip";
+import { CapturedFactsPanel } from "@/components/brokerage/CapturedFactsPanel";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "voice";
@@ -183,6 +184,7 @@ function ChatPane({
   const [sending, setSending] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
   const [rateLimited, setRateLimited] = useState(false);
+  const [facts, setFacts] = useState<Record<string, unknown>>({});
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -224,6 +226,7 @@ function ChatPane({
           { role: "assistant", content: data.buddyResponse },
         ]);
         setProgressPct(data.progressPct ?? 0);
+        if (data.extractedFacts) setFacts(data.extractedFacts);
         if (data.dealId) onDealIdResolved(data.dealId);
       } else {
         setMessages((m) => [
@@ -261,6 +264,8 @@ function ChatPane({
           />
         </div>
       </div>
+
+      <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
 
       <div
         ref={listRef}

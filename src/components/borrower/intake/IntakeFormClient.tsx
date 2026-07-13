@@ -233,8 +233,20 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
   const [owners, setOwners] = useState<IntakeOwnerData[]>(() => {
     const list = ownersSection?.owners;
-    if (Array.isArray(list)) return list as IntakeOwnerData[];
-    return [];
+    if (!Array.isArray(list)) return [];
+    // Defensively default email/phone for owners saved before those fields
+    // existed, so the controlled inputs below never flip from uncontrolled
+    // (undefined) to controlled (string) on first edit.
+    return (list as Partial<IntakeOwnerData>[]).map((o) => ({
+      id: o.id ?? "",
+      full_name: o.full_name ?? "",
+      title: o.title ?? "",
+      ownership_pct: o.ownership_pct ?? "",
+      ssn_last4: o.ssn_last4 ?? "",
+      years_in_industry: o.years_in_industry ?? "",
+      email: o.email ?? "",
+      phone: o.phone ?? "",
+    }));
   });
 
   const [loan, setLoan] = useState<IntakeLoanData>({
@@ -671,6 +683,46 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Email</label>
+                    <input
+                      className={inputCls}
+                      value={owner.email}
+                      type="email"
+                      onChange={(e) =>
+                        setOwners((prev) =>
+                          prev.map((o) =>
+                            o.id === owner.id ? { ...o, email: e.target.value } : o,
+                          ),
+                        )
+                      }
+                      placeholder="jane@example.com"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Phone</label>
+                    <input
+                      className={inputCls}
+                      value={owner.phone}
+                      type="tel"
+                      onChange={(e) =>
+                        setOwners((prev) =>
+                          prev.map((o) =>
+                            o.id === owner.id ? { ...o, phone: e.target.value } : o,
+                          ),
+                        )
+                      }
+                      placeholder="(555) 123-4567"
+                    />
+                  </div>
+                </div>
+                {owner.ownership_pct && Number(owner.ownership_pct) >= 20 && (!owner.email || !owner.phone) && (
+                  <p className="text-xs text-amber-700">
+                    Owners of 20% or more need their own financial statement and signature —
+                    an email or phone lets your banker reach them directly.
+                  </p>
+                )}
               </div>
             ))}
 
@@ -689,6 +741,8 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                     ownership_pct: "",
                     ssn_last4: "",
                     years_in_industry: "",
+                    email: "",
+                    phone: "",
                   },
                 ])
               }

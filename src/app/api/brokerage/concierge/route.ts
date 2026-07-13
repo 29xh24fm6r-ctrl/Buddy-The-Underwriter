@@ -46,7 +46,10 @@ import {
   buildBorrowerExtractionPrompt,
   computeNextCriticalField,
   mergeExtractedFacts,
+  deepMerge,
 } from "@/lib/brokerage/borrowerConversation";
+import { correctableFieldFor } from "@/lib/brokerage/correctableFacts";
+import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
 import {
   ensureAssumptionsForPreview,
   persistAssumptionsDraft,
@@ -62,10 +65,22 @@ type ConciergeRequest = {
   source?: "text" | "voice";
 };
 
+type CorrectFactRequest = { factPath: string; value?: unknown };
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const body = (await req.json()) as ConciergeRequest;
-    if (!body?.userMessage || typeof body.userMessage !== "string") {
+    const body = (await req.json()) as ConciergeRequest | CorrectFactRequest;
+
+    // Method-merged onto this route (rather than a new route.ts file) to
+    // stay under the route-slot warning threshold — see
+    // src/lib/routes/__tests__/routeConsolidationGuard.test.ts. Distinct
+    // request shape (factPath, no userMessage) so it never collides with a
+    // real chat turn.
+    if ("factPath" in body && typeof body.factPath === "string") {
+      return handleCorrectFact(body);
+    }
+
+    if (!("userMessage" in body) || !body.userMessage || typeof body.userMessage !== "string") {
       return NextResponse.json(
         { ok: false, error: "userMessage required" },
         { status: 400 },
@@ -680,6 +695,102 @@ Return ONLY the JSON.`;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+function coerceCorrectionValue(raw: unknown, type: "string" | "number" | "boolean"): unknown {
+  if (raw == null) return null;
+  if (type === "number") {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (type === "boolean") return typeof raw === "boolean" ? raw : null;
+  const s = String(raw).trim();
+  return s.length > 0 ? s : null;
+}
+
+/**
+ * Lets a borrower correct a single fact Buddy captured wrong (e.g. Gemini
+ * mis-heard "$250,000" as "$25,000"). See correctableFacts.ts for why the
+ * editable set is a curated subset, not the whole BORROWER_FIELD_REGISTRY.
+ *
+ * Two writes happen:
+ *  1. extracted_facts on borrower_concierge_sessions — always, so the next
+ *     chat turn's mergeExtractedFacts() uses the corrected value instead of
+ *     silently reverting it.
+ *  2. A force-write to the mapped canonical column (borrowers.* or
+ *     deals.loan_amount), bypassing propagateBorrowerFacts's normal
+ *     "fill-if-null" precedence — that precedence exists to stop a later,
+ *     lower-confidence AI guess from clobbering an earlier real answer, but
+ *     an explicit borrower correction IS the real answer and must win even
+ *     if a wrong value was already propagated there. Non-fatal: if there's
+ *     nowhere to write yet (e.g. no borrowers row for this deal), the
+ *     correction still lands in extracted_facts and self-heals into
+ *     borrowers on the next natural propagateBorrowerFacts call.
+ */
+async function handleCorrectFact(body: CorrectFactRequest): Promise<NextResponse> {
+  const session = await getBorrowerSession();
+  if (!session) {
+    // Same convention as the main chat path: no session cookie means "not
+    // found," not "unauthorized" — avoids confirming a session exists.
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const field = correctableFieldFor(body.factPath);
+  if (!field) {
+    return NextResponse.json({ ok: false, error: "field_not_editable" }, { status: 400 });
+  }
+
+  const value = coerceCorrectionValue(body.value, field.type);
+  const sb = supabaseAdmin();
+
+  const { data: conciergeRow } = await sb
+    .from("borrower_concierge_sessions")
+    .select("id, extracted_facts")
+    .eq("deal_id", session.deal_id)
+    .maybeSingle();
+
+  if (!conciergeRow) {
+    return NextResponse.json({ ok: false, error: "session_not_found" }, { status: 404 });
+  }
+
+  const [scope, fieldKey] = body.factPath.split(".");
+  const patch = { [scope]: { [fieldKey]: value } };
+  const updatedFacts = deepMerge(
+    (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
+    patch,
+  );
+
+  const { error: factsErr } = await sb
+    .from("borrower_concierge_sessions")
+    .update({ extracted_facts: updatedFacts, updated_at: new Date().toISOString() })
+    .eq("id", conciergeRow.id);
+
+  if (factsErr) {
+    console.error("[concierge/correct-fact] extracted_facts update failed", factsErr);
+    return NextResponse.json({ ok: false, error: "save_failed" }, { status: 500 });
+  }
+
+  try {
+    if (body.factPath === "loan.amount_requested") {
+      await sb.from("deals").update({ loan_amount: value }).eq("id", session.deal_id);
+    } else if (scope === "business") {
+      const entry = BORROWER_FIELD_REGISTRY.find((f) => f.factPath === body.factPath);
+      if (entry) {
+        const { data: deal } = await sb
+          .from("deals")
+          .select("borrower_id")
+          .eq("id", session.deal_id)
+          .maybeSingle();
+        if (deal?.borrower_id) {
+          await sb.from("borrowers").update({ [entry.sourceColumn]: value }).eq("id", deal.borrower_id);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[concierge/correct-fact] canonical force-write failed (non-fatal)", err);
+  }
+
+  return NextResponse.json({ ok: true, extractedFacts: updatedFacts });
+}
 
 async function updateDealNames(
   sb: ReturnType<typeof supabaseAdmin>,

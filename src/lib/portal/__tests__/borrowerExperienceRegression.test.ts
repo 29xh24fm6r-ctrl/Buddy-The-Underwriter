@@ -124,7 +124,7 @@ test("reassurance, security, and help surfaces stay present", () => {
   assert.match(source, /Secure SBA document portal/);
   assert.match(source, /Files are encrypted in transit/);
   assert.match(source, /Only your SBA team can access these documents/);
-  assert.match(source, /Open secure help/);
+  assert.match(source, /Email your loan officer/);
 });
 
 test("portal maintains one dominant next action and mobile sticky CTA", () => {
