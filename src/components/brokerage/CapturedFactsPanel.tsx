@@ -125,7 +125,7 @@ export function CapturedFactsPanel({
   };
 
   return (
-    <div className="border-b border-slate-200 bg-white px-6 py-3">
+    <div className="rounded-2xl border border-slate-200 bg-white px-6 py-3 shadow-sm">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

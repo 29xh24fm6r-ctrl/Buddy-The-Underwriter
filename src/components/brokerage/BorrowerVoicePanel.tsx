@@ -5,9 +5,14 @@
  *
  * Uses useBuddyVoice with the brokerage token endpoint. No Clerk, no deal
  * context beyond dealId — identity flows via the HTTP-only session cookie.
- * No gap-resolution callback (borrower scope has no gap engine). No fact
- * display (facts are extracted server-side from transcripts; this is a
- * listener-only UI for Sprint 2).
+ * No gap-resolution callback (borrower scope has no gap engine). This panel
+ * itself still doesn't render facts in real time — voice extraction runs
+ * server-side inside the Fly gateway's dispatch call, with no client-visible
+ * event to react to synchronously. Facts captured via voice DO reach the
+ * borrower, just on a ~20s delay: StartConciergeClient's seal-status poll
+ * merges confirmed_facts (voice) with extracted_facts (chat) and renders
+ * both in the shared CapturedFactsPanel above this component, regardless of
+ * which mode is active.
  */
 
 import { useBuddyVoice } from "@/lib/voice/useBuddyVoice";

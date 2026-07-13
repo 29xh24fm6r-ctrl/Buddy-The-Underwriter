@@ -24,7 +24,10 @@ const MODE_KEY = "buddy.start.mode";
 // don't happen from a borrower action on this page.
 const JOURNEY_POLL_MS = 20_000;
 
-function useJourneyStatus(dealId: string | null): JourneyStatusInput {
+function useJourneyStatus(
+  dealId: string | null,
+  onFacts?: (facts: Record<string, unknown>) => void,
+): JourneyStatusInput {
   const [status, setStatus] = useState<JourneyStatusInput>({
     hasDealId: false,
     progressPct: 0,
@@ -35,24 +38,34 @@ function useJourneyStatus(dealId: string | null): JourneyStatusInput {
     claimsCount: 0,
   });
 
-  const refresh = useCallback(async (id: string) => {
-    try {
-      const res = await fetch(`/api/brokerage/deals/${id}/seal-status`);
-      const json = await res.json();
-      if (!json?.ok) return;
-      setStatus({
-        hasDealId: true,
-        progressPct: typeof json.progressPct === "number" ? json.progressPct : 0,
-        documentsUploadedCount: typeof json.documentsUploadedCount === "number" ? json.documentsUploadedCount : 0,
-        sealed: Boolean(json.sealed),
-        listingStatus: (json.listing?.status as MarketplaceListingStatus | undefined) ?? null,
-        matchedLenderCount: json.listing?.matchedLenderCount ?? 0,
-        claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
-      });
-    } catch {
-      // non-fatal — keep showing last known status
-    }
-  }, []);
+  const refresh = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/brokerage/deals/${id}/seal-status`);
+        const json = await res.json();
+        if (!json?.ok) return;
+        setStatus({
+          hasDealId: true,
+          progressPct: typeof json.progressPct === "number" ? json.progressPct : 0,
+          documentsUploadedCount: typeof json.documentsUploadedCount === "number" ? json.documentsUploadedCount : 0,
+          sealed: Boolean(json.sealed),
+          listingStatus: (json.listing?.status as MarketplaceListingStatus | undefined) ?? null,
+          matchedLenderCount: json.listing?.matchedLenderCount ?? 0,
+          claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
+        });
+        // Voice-captured facts only ever reach the browser via this poll —
+        // voice extraction runs server-side inside the Fly gateway's
+        // dispatch call, with no client-visible event. Text chat updates
+        // facts synchronously on each turn (see ChatPane's send()); this
+        // callback is what lets voice-mode corrections/captures show up in
+        // the same CapturedFactsPanel.
+        if (json.facts && typeof json.facts === "object") onFacts?.(json.facts);
+      } catch {
+        // non-fatal — keep showing last known status
+      }
+    },
+    [onFacts],
+  );
 
   useEffect(() => {
     // dealId starts null (default status already has hasDealId: false) and
@@ -78,7 +91,8 @@ export function StartConciergeClient({
     return saved === "voice" ? "voice" : "chat";
   });
   const [dealId, setDealId] = useState<string | null>(null);
-  const journeyStatus = useJourneyStatus(dealId);
+  const [facts, setFacts] = useState<Record<string, unknown>>({});
+  const journeyStatus = useJourneyStatus(dealId, setFacts);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -131,8 +145,19 @@ export function StartConciergeClient({
         </button>
       </div>
 
+      {dealId && (
+        <div className="mb-4">
+          <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
+        </div>
+      )}
+
       {mode === "chat" ? (
-        <ChatPane dealId={dealId} onDealIdResolved={setDealId} initialPath={initialPath} />
+        <ChatPane
+          dealId={dealId}
+          onDealIdResolved={setDealId}
+          initialPath={initialPath}
+          onFactsUpdated={setFacts}
+        />
       ) : dealId ? (
         <BorrowerVoicePanel dealId={dealId} />
       ) : (
@@ -166,10 +191,12 @@ function ChatPane({
   dealId,
   onDealIdResolved,
   initialPath,
+  onFactsUpdated,
 }: {
   dealId: string | null;
   onDealIdResolved: (id: string) => void;
   initialPath?: "franchise" | "standard";
+  onFactsUpdated: (facts: Record<string, unknown>) => void;
 }) {
   const [messages, setMessages] = useState<Msg[]>([
     {
@@ -184,7 +211,6 @@ function ChatPane({
   const [sending, setSending] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
   const [rateLimited, setRateLimited] = useState(false);
-  const [facts, setFacts] = useState<Record<string, unknown>>({});
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -226,7 +252,7 @@ function ChatPane({
           { role: "assistant", content: data.buddyResponse },
         ]);
         setProgressPct(data.progressPct ?? 0);
-        if (data.extractedFacts) setFacts(data.extractedFacts);
+        if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
         if (data.dealId) onDealIdResolved(data.dealId);
       } else {
         setMessages((m) => [
@@ -264,8 +290,6 @@ function ChatPane({
           />
         </div>
       </div>
-
-      <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
 
       <div
         ref={listRef}
