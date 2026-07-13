@@ -36,7 +36,7 @@ works immediately for testing, no request needed).
 - `PLAID_CLIENT_ID`, `PLAID_SECRET`
 - `PLAID_ENV` (`sandbox` → `development` → `production` as you progress)
 - `PLAID_WEBHOOK_URL` (already correct in `.env.example`:
-  `https://buddytheunderwriter.com/api/borrower/plaid/webhook`)
+  `https://buddytheunderwriter.com/api/webhooks/plaid`)
 - `PLAID_ACCESS_TOKEN_ENCRYPTION_KEY` — generate with `openssl rand -base64 32`, not a vendor value
 
 **Verify:** run a Plaid Link flow for a test borrower; confirm
@@ -61,11 +61,11 @@ specifically — not the default IAL1 template).
 - `PERSONA_API_KEY`
 - `PERSONA_TEMPLATE_ID_IAL2` (format `itmpl_...`)
 - `PERSONA_WEBHOOK_SECRET` — configure a Persona webhook pointing at
-  `https://<buddy-app-domain>/api/kyc/persona/webhook`, verifies the
+  `https://<buddy-app-domain>/api/webhooks/persona`, verifies the
   `Persona-Signature` header
 
 **Verify:** initiate identity verification for a test owner
-(`/api/deals/[dealId]/kyc/initiate`), complete the Persona-hosted flow,
+(`POST /api/deals/[dealId]/kyc`), complete the Persona-hosted flow,
 confirm the webhook lands and the owner's verification status flips.
 
 ---
@@ -93,7 +93,7 @@ an account. Full runbook: `infrastructure/docuseal/README.md`.
    for `minScale=1` (keeps one instance warm — avoids cold-start delays
    during a live signing ceremony).
 4. In the DocuSeal admin UI: generate an API token, configure a webhook
-   pointing at `https://<buddy-app-domain>/api/esign/docuseal/webhook`
+   pointing at `https://<buddy-app-domain>/api/webhooks/docuseal`
    with a secret, upload the SBA Form 1919 and Form 413 PDF templates.
 
 **Set:**

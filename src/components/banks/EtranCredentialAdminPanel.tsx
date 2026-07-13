@@ -3,7 +3,7 @@
 /**
  * SPEC S5 B-6 — bank-admin panel to configure/rotate SBA E-Tran mutual-TLS
  * credentials. Displayed metadata is intentionally limited to what
- * /api/banks/[bankId]/etran/credentials GET returns — never the PEM
+ * /api/banks/[bankId]/etran-credentials GET returns — never the PEM
  * contents (the API never sends them back down).
  */
 
@@ -42,7 +42,7 @@ export default function EtranCredentialAdminPanel({ bankId }: { bankId: string }
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/banks/${bankId}/etran/credentials`, { cache: "no-store" });
+      const res = await fetch(`/api/banks/${bankId}/etran-credentials`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
       setConfigured(!!json.configured);
@@ -76,7 +76,7 @@ export default function EtranCredentialAdminPanel({ bankId }: { bankId: string }
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/banks/${bankId}/etran/credentials`, {
+      const res = await fetch(`/api/banks/${bankId}/etran-credentials`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

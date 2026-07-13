@@ -29,7 +29,7 @@ directly to SBA E-Tran.
    `/banks/[bankId]/templates` → "SBA Integration Settings" →
    "Rotate Credentials".
 3. Paste the new cert + key PEM, set `cert_expires_at` from the new cert,
-   save. This calls `POST /api/banks/[bankId]/etran/credentials`, which
+   save. This calls `POST /api/banks/[bankId]/etran-credentials`, which
    calls `storeEtranCredentials()` → `etran_upsert_credentials` RPC →
    `ON CONFLICT (bank_id) DO UPDATE` (one row per bank; rotation overwrites
    in place, `last_rotation_at` stamped).

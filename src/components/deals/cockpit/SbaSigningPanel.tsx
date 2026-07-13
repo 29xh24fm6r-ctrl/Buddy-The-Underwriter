@@ -46,7 +46,7 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    fetch(`/api/deals/${dealId}/sba/signing-status`)
+    fetch(`/api/deals/${dealId}/sba?view=signing-status`)
       .then((r) => r.json())
       .then((data) => {
         if (data.ok) {
@@ -67,7 +67,7 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
       const key = `kyc:${ownershipEntityId}`;
       setBusyKey(key);
       try {
-        const res = await fetch(`/api/deals/${dealId}/kyc/initiate`, {
+        const res = await fetch(`/api/deals/${dealId}/kyc`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ownership_entity_id: ownershipEntityId }),
@@ -89,7 +89,7 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
       const key = `esign:${ownershipEntityId}:${formCode}`;
       setBusyKey(key);
       try {
-        const res = await fetch(`/api/deals/${dealId}/esign/request`, {
+        const res = await fetch(`/api/deals/${dealId}/esign`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
