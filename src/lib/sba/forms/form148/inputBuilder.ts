@@ -17,7 +17,7 @@ export async function buildForm148Input(dealId: string, bankId: string, sb: Form
 
   const { data: loanRequest } = await sb
     .from("deal_loan_requests")
-    .select("requested_amount")
+    .select("requested_amount, limited_guarantee_cap_amount")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -54,7 +54,10 @@ export async function buildForm148Input(dealId: string, bankId: string, sb: Form
         lender_name: (bank as { name?: string } | null)?.name ?? null,
         loan_amount: loanAmount,
         ownership_pct: entity.ownership_pct ?? null,
-        limited_guarantee_cap_amount: null,
+        limited_guarantee_cap_amount:
+          guaranteeType === "limited"
+            ? ((loanRequest as { limited_guarantee_cap_amount?: number } | null)?.limited_guarantee_cap_amount ?? null)
+            : null,
       },
     }));
 

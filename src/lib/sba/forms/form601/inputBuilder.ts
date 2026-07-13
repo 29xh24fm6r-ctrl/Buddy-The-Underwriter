@@ -26,7 +26,7 @@ export async function buildForm601Input(dealId: string, bankId: string, sb: Form
 
   const { data: loanRequest } = await sb
     .from("deal_loan_requests")
-    .select("use_of_proceeds, property_address_json")
+    .select("use_of_proceeds, property_address_json, contractor_name, compliance_certification_acknowledged")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -63,8 +63,9 @@ export async function buildForm601Input(dealId: string, bankId: string, sb: Form
     project_address_state: projectAddress?.state ?? null,
     project_address_zip: projectAddress?.zip ?? null,
     construction_amount: constructionAmount,
-    contractor_name: null,
-    compliance_certification_acknowledged: null,
+    contractor_name: (loanRequest as { contractor_name?: string } | null)?.contractor_name ?? null,
+    compliance_certification_acknowledged:
+      (loanRequest as { compliance_certification_acknowledged?: boolean } | null)?.compliance_certification_acknowledged ?? null,
   };
 
   return buildForm601({ applicable: true, fields, borrowerOwnershipEntityId });

@@ -237,12 +237,12 @@ test("borrower utterance: conversation_history appended with channel='voice' + u
   );
 });
 
-test("borrower utterance with extractable facts: confirmed_facts merged + fact_extracted audit", async () => {
+test("borrower utterance with extractable facts: confirmed_facts merged (nested shape, array-aware) + fact_extracted audit", async () => {
   resetState();
   state.concierge.push({
     id: "c1",
     conversation_history: [],
-    confirmed_facts: { business_type: "prior" },
+    confirmed_facts: { business: { industry_description: "coffee shop" } },
   });
   state.sessions.push({
     id: "s1",
@@ -253,9 +253,12 @@ test("borrower utterance with extractable facts: confirmed_facts merged + fact_e
     borrower_session_token_hash: "h",
     borrower_concierge_session_id: "c1",
   });
+  // Arc 7: extraction now returns the same nested {business, loan, owners,
+  // entities} shape the text concierge uses (registry-driven), not a flat
+  // 12-key dict — voice and text share the exact same extraction prompt.
   state.extractResult = {
-    loan_amount_requested: 280000,
-    business_location_city: "Madison",
+    loan: { amount_requested: 280000 },
+    business: { address_city: "Madison" },
   };
   await call("s1", "test-secret", {
     intent: "utterance",
@@ -263,16 +266,18 @@ test("borrower utterance with extractable facts: confirmed_facts merged + fact_e
     text: "coffee shop in Madison Wisconsin, 280K buildout",
   });
   assert.deepEqual(state.concierge[0].confirmed_facts, {
-    business_type: "prior",
-    loan_amount_requested: 280000,
-    business_location_city: "Madison",
+    business: { industry_description: "coffee shop", address_city: "Madison" },
+    loan: { amount_requested: 280000 },
+    owners: [],
+    entities: [],
   });
   assert.ok(
     state.audits.some(
       (a) =>
         a.event_type === "fact_extracted" &&
         Array.isArray(a.payload?.keys) &&
-        a.payload.keys.includes("loan_amount_requested"),
+        a.payload.keys.includes("loan") &&
+        a.payload.keys.includes("business"),
     ),
   );
 });
@@ -333,7 +338,7 @@ test("session_ended intent marks session state='ended' + emits audit", async () 
   );
 });
 
-test("extraction filters out non-allowlisted keys (prompt-injection defense)", async () => {
+test("SSN-shaped digit sequences in the utterance are redacted before persisting (audit + conversation_history)", async () => {
   resetState();
   state.concierge.push({
     id: "c1",
@@ -349,12 +354,44 @@ test("extraction filters out non-allowlisted keys (prompt-injection defense)", a
     borrower_session_token_hash: "h",
     borrower_concierge_session_id: "c1",
   });
-  // Attacker-controlled utterance tricks Gemini into emitting
-  // non-allowed keys in addition to a legitimate one.
+  state.extractResult = {};
+  await call("s1", "test-secret", {
+    intent: "utterance",
+    speaker: "borrower",
+    text: "my social is 123-45-6789 by the way",
+  });
+  const history = state.concierge[0].conversation_history;
+  assert.ok(!history[0].content.includes("123-45-6789"));
+  assert.ok(history[0].content.includes("***-**-6789"));
+  const utteranceAudit = state.audits.find((a) => a.event_type === "utterance_borrower");
+  assert.ok(utteranceAudit);
+  assert.ok(!utteranceAudit.payload.text.includes("123-45-6789"));
+});
+
+test("registry-driven extraction: unknown/extraneous keys returned by the model are inert (propagation only ever reads known registry fact paths, never arbitrary keys)", async () => {
+  resetState();
+  state.concierge.push({
+    id: "c1",
+    conversation_history: [],
+    confirmed_facts: {},
+  });
+  state.sessions.push({
+    id: "s1",
+    actor_scope: "borrower",
+    deal_id: "d",
+    bank_id: "b",
+    user_id: null,
+    borrower_session_token_hash: "h",
+    borrower_concierge_session_id: "c1",
+  });
+  // Attacker-controlled utterance tricks Gemini into emitting an
+  // unexpected top-level key. It's stored verbatim in confirmed_facts
+  // (same as the text concierge's extracted_facts always has been), but
+  // propagateBorrowerFacts only ever reads factPath-known keys off the
+  // registry, so this never reaches a canonical table.
   state.extractResult = {
-    loan_amount_requested: 100000, // allowed
-    admin_override: true, // not allowed
-    bypass_checks: true, // not allowed
+    loan: { amount_requested: 100000 },
+    admin_override: true,
   };
   await call("s1", "test-secret", {
     intent: "utterance",
@@ -362,11 +399,5 @@ test("extraction filters out non-allowlisted keys (prompt-injection defense)", a
     text: "I need a hundred thousand for the store",
   });
   const facts = state.concierge[0].confirmed_facts;
-  assert.equal(facts.loan_amount_requested, 100000);
-  assert.equal(
-    "admin_override" in facts,
-    false,
-    "non-allowlisted keys must be filtered",
-  );
-  assert.equal("bypass_checks" in facts, false);
+  assert.equal(facts.loan.amount_requested, 100000);
 });

@@ -24,6 +24,15 @@ export async function buildForm4506cInput(dealId: string, bankId: string, sb: Fo
 
   const { data: bank } = await sb.from("banks").select("name").eq("id", bankId).maybeSingle();
 
+  const { data: loanRequest } = await sb
+    .from("deal_loan_requests")
+    .select("tax_years")
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const taxYears = (loanRequest as { tax_years?: string } | null)?.tax_years ?? null;
+
   const signers: Form4506cInput["signers"] = (ownershipEntities ?? [])
     .filter((e: any) => isIndividual(e.entity_type))
     .map((e: any) => ({
@@ -43,7 +52,7 @@ export async function buildForm4506cInput(dealId: string, bankId: string, sb: Fo
         transcript_type_wage_income: true,
         transcript_type_verification_nonfiling: false,
         tax_form_numbers: "1040",
-        tax_years: null,
+        tax_years: taxYears,
       },
     }));
 
