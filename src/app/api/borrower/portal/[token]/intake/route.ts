@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
+import { validateIntakeSubmission } from "@/lib/borrower/validateIntakeSubmission";
 import type { IntakeSaveRequest, IntakeSaveResponse } from "@/types/intake";
 
 export const runtime = "nodejs";
@@ -203,8 +204,15 @@ export async function POST(
           ownership_pct: Number.isFinite(pct as number) ? pct : null,
           title: owner.title?.trim() || null,
           tax_id_last4: owner.ssn_last4?.trim() || null,
+          // home_phone is a real ownership_entities column (Arc 7 form-fill
+          // migration); email has no dedicated column yet, so it lives in
+          // meta_json alongside the other not-yet-promoted fields — gives
+          // the bank a direct channel to each 20%+ owner instead of relying
+          // on the primary applicant to relay everything.
+          home_phone: owner.phone?.trim() || null,
           meta_json: {
             years_in_industry: Number.isFinite(years as number) ? years : null,
+            email: owner.email?.trim() || null,
             source: "borrower_intake",
           },
           confidence: 1.0,
@@ -387,7 +395,12 @@ export async function POST(
 
     // ─── STEP: submit ───
     if (step === "submit") {
-      // Validate minimum required fields
+      // Validate minimum required fields. See validateIntakeSubmission for
+      // why: previously this only checked business_legal_name was
+      // non-empty, so a borrower could click through steps 2-7 blank and
+      // successfully submit — the banker would have to catch a mostly-empty
+      // application manually, after the borrower had already seen the
+      // reassuring "Application Submitted" screen.
       const { data: app } = await sb
         .from("borrower_applications")
         .select("id, business_legal_name, loan_amount, loan_type")
@@ -395,34 +408,35 @@ export async function POST(
         .limit(1)
         .maybeSingle();
 
-      if (!app) {
-        return NextResponse.json<IntakeSaveResponse>(
-          { ok: false, error: "No application found. Please complete all steps first." },
-          { status: 400 }
-        );
-      }
-
-      if (!app.business_legal_name) {
-        return NextResponse.json<IntakeSaveResponse>(
-          { ok: false, error: "Business legal name is required." },
-          { status: 400 }
-        );
-      }
-
-      if (app.loan_type && SBA_TYPES.includes(app.loan_type)) {
-        const { data: complianceSection } = await sb
+      const [{ data: addressSection }, { count: ownerCount }, { data: complianceSection }] = await Promise.all([
+        sb
+          .from("deal_builder_sections")
+          .select("completed")
+          .eq("deal_id", ctx.dealId)
+          .eq("section_key", "address")
+          .maybeSingle(),
+        sb.from("ownership_entities").select("id", { count: "exact", head: true }).eq("deal_id", ctx.dealId),
+        sb
           .from("deal_builder_sections")
           .select("completed")
           .eq("deal_id", ctx.dealId)
           .eq("section_key", "compliance")
-          .maybeSingle();
+          .maybeSingle(),
+      ]);
 
-        if (!complianceSection?.completed) {
-          return NextResponse.json<IntakeSaveResponse>(
-            { ok: false, error: "Please answer the SBA compliance questions before submitting." },
-            { status: 400 }
-          );
-        }
+      const validationError = validateIntakeSubmission({
+        app: app ?? null,
+        addressCompleted: Boolean(addressSection?.completed),
+        ownerCount: ownerCount ?? 0,
+        isSbaLoanType: Boolean(app?.loan_type && SBA_TYPES.includes(app.loan_type)),
+        complianceCompleted: Boolean(complianceSection?.completed),
+      });
+
+      if (validationError || !app) {
+        return NextResponse.json<IntakeSaveResponse>(
+          { ok: false, error: validationError ?? "No application found. Please complete all steps first." },
+          { status: 400 },
+        );
       }
 
       // Update status to submitted

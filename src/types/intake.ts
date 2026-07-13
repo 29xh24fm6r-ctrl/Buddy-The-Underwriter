@@ -41,6 +41,13 @@ export type IntakeOwnerData = {
   ownership_pct: string; // stored as string for form input, parsed on save
   ssn_last4: string;
   years_in_industry: string;
+  /**
+   * Contact fields so the bank has a direct channel to each 20%+ owner
+   * (each needs their own PFS/Form 413 and e-signature) instead of relying
+   * on the primary applicant to relay everything.
+   */
+  email: string;
+  phone: string;
 };
 
 export type IntakeLoanData = {

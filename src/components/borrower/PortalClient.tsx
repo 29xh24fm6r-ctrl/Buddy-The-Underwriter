@@ -186,7 +186,7 @@ const BORROWER_EXPECTATION_COPY = {
   noActionNeeded:
     "You do not need to take action right now unless a new item appears in your checklist.",
   helpCopy:
-    "Need help finding a document or understanding your checklist? Use the secure help path in this portal and Buddy will point you to the next safe step.",
+    "Need help finding a document or understanding your checklist? Your banker will reach out if anything else is needed — this portal always reflects the latest status.",
 } as const;
 
 function sanitizeBorrowerError(input: unknown) {
@@ -573,6 +573,9 @@ function buildConfidenceCopy(params: {
 export function PortalClient({ token }: { token: string }) {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [franchiseBrandName, setFranchiseBrandName] = React.useState<string | null>(null);
+  const [bankerContact, setBankerContact] = React.useState<{ name: string | null; email: string | null } | null>(
+    null,
+  );
   // Only populated when this deal originated from the /start marketplace
   // flow AND the borrower's buddy_borrower_session cookie is still active
   // for it (the brokerage upload flow hands off to /portal/[token] — see
@@ -716,6 +719,7 @@ export function PortalClient({ token }: { token: string }) {
       if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
       setDeal(json.deal ?? null);
       setFranchiseBrandName(json.franchise?.brandName ?? null);
+      setBankerContact(json.bankerContact ?? null);
       if (json.deal?.id) {
         fetch(`/api/brokerage/deals/${json.deal.id}/seal-status`)
           .then((r) => (r.ok ? r.json() : null))
@@ -1328,10 +1332,20 @@ export function PortalClient({ token }: { token: string }) {
         <div className="grid gap-6 xl:grid-cols-2">
           <BorrowerSecurityNotice />
           <BorrowerHelpContactCard
-            title="Questions about your checklist?"
-            body={BORROWER_EXPECTATION_COPY.helpCopy}
-            actionLabel="Open secure help"
-            actionHref={`/start`}
+            title={
+              bankerContact?.email
+                ? `Questions for ${bankerContact.name ?? "your loan officer"}?`
+                : "Questions about your checklist?"
+            }
+            body={
+              bankerContact?.email
+                ? "Email them directly — they're the one handling your loan and can answer fastest."
+                : bankerContact?.name
+                  ? `Reach out to ${bankerContact.name} for help with your application.`
+                  : BORROWER_EXPECTATION_COPY.helpCopy
+            }
+            actionLabel={bankerContact?.email ? "Email your loan officer" : undefined}
+            actionHref={bankerContact?.email ? `mailto:${bankerContact.email}` : undefined}
           />
         </div>
 

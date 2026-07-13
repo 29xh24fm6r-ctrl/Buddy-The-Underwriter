@@ -251,7 +251,7 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.match(source, /Buddy usually reviews new uploads within 1 business day/);
   assert.match(source, /SBA loan preparation can take several days/);
   assert.match(source, /You do not need to take action right now/);
-  assert.match(source, /Open secure help/);
+  assert.match(source, /Email your loan officer/);
   assert.ok(!source.includes("Portal error"));
   assert.ok(!source.includes("Review extracted data"));
   assert.ok(!source.includes("signed URL"));
@@ -261,7 +261,12 @@ test("portal client uses borrower-safe shell and avoids signed URL language", ()
   assert.ok(!source.includes("approval"));
   assert.ok(!source.includes("closing"));
   assert.ok(!source.includes("underwriting scores"));
-  assert.ok(!/mailto:|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.test(source));
+  // A mailto: to the borrower's actual assigned banker (fetched dynamically
+  // from /api/portal/[token]/context, never hardcoded) is now intentional —
+  // see BorrowerHelpContactCard usage below. The old blanket "no mailto/
+  // email pattern at all" check predates that fix, when any email string
+  // here would have been a leaked internal placeholder.
+  assert.ok(!source.includes("@buddy.com"));
   assert.ok(!source.includes("slack"));
   assert.ok(!source.includes("guaranteed by"));
 });

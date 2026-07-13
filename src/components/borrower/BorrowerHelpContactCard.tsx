@@ -10,8 +10,9 @@ export function BorrowerHelpContactCard({
 }: {
   title: string;
   body: string;
-  actionLabel: string;
-  actionHref: string;
+  /** Omit both when there's no safe destination to send the borrower (e.g. no assigned contact resolved yet) — the card still shows the copy, just without a CTA that would go nowhere useful. */
+  actionLabel?: string;
+  actionHref?: string;
 }) {
   return (
     <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -25,12 +26,14 @@ export function BorrowerHelpContactCard({
           </div>
           <h2 className="mt-2 font-heading text-xl font-bold text-slate-900">{title}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-700">{body}</p>
-          <a
-            href={actionHref}
-            className="mt-4 inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-          >
-            {actionLabel}
-          </a>
+          {actionHref && actionLabel && (
+            <a
+              href={actionHref}
+              className="mt-4 inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              {actionLabel}
+            </a>
+          )}
         </div>
       </div>
     </section>
