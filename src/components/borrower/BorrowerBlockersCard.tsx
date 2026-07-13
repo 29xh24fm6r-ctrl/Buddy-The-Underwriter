@@ -32,16 +32,16 @@ export function BorrowerBlockersCard({
 }) {
   if (blockers.length === 0) {
     return (
-      <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm">
+      <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100">
             <Icon name="check_circle" className="h-4 w-4 text-emerald-700" />
           </div>
-          <h3 className="text-sm font-semibold text-stone-900">
+          <h3 className="text-sm font-heading font-semibold text-slate-900">
             Funding Progress
           </h3>
         </div>
-        <p className="mt-3 text-sm text-stone-600">
+        <p className="mt-3 text-sm text-slate-600">
           No major blockers detected right now. Your package is moving forward.
         </p>
       </section>
@@ -54,7 +54,7 @@ export function BorrowerBlockersCard({
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-100">
           <Icon name="error" className="h-4 w-4 text-rose-700" />
         </div>
-        <h3 className="text-sm font-semibold text-rose-900">
+        <h3 className="text-sm font-heading font-semibold text-rose-900">
           Needs Your Attention
         </h3>
       </div>
@@ -81,12 +81,12 @@ export function BorrowerBlockersCard({
                         style.dot,
                       )}
                     />
-                    <span className="text-sm font-semibold text-stone-900">
+                    <span className="text-sm font-semibold text-slate-900">
                       {blocker.label}
                     </span>
                   </div>
                   {blocker.description && (
-                    <p className="mt-1 pl-4 text-xs text-stone-600">
+                    <p className="mt-1 pl-4 text-xs text-slate-600">
                       {blocker.description}
                     </p>
                   )}
@@ -97,7 +97,7 @@ export function BorrowerBlockersCard({
                 {blocker.href && blocker.ctaLabel && (
                   <a
                     href={blocker.href}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-stone-800"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-xl brand-gradient-cta px-4 py-2 text-xs font-semibold text-white transition hover:brightness-110"
                   >
                     {blocker.ctaLabel}
                     <Icon

@@ -13,7 +13,7 @@ const CATEGORY_ICON: Record<
   review: { name: "fact_check", color: "text-sky-600" },
   verification: { name: "check_circle", color: "text-emerald-600" },
   milestone: { name: "rocket_launch", color: "text-teal-600" },
-  request: { name: "description", color: "text-stone-600" },
+  request: { name: "description", color: "text-slate-600" },
 };
 
 function RelativeTime({ iso }: { iso: string }) {
@@ -35,7 +35,7 @@ function RelativeTime({ iso }: { iso: string }) {
 
   // SSR: render empty to avoid hydration mismatch
   if (!label) return null;
-  return <span className="shrink-0 text-xs text-stone-400">{label}</span>;
+  return <span className="shrink-0 text-xs text-slate-400">{label}</span>;
 }
 
 export function BorrowerActivityFeed({
@@ -44,18 +44,18 @@ export function BorrowerActivityFeed({
   events: BorrowerActivityEvent[];
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-stone-100">
-          <Icon name="history" className="h-4 w-4 text-stone-600" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100">
+          <Icon name="history" className="h-4 w-4 text-slate-600" />
         </div>
-        <h3 className="text-sm font-semibold text-stone-900">
+        <h3 className="text-sm font-heading font-semibold text-slate-900">
           Recent Activity
         </h3>
       </div>
 
       {events.length === 0 ? (
-        <p className="mt-3 text-sm text-stone-500">
+        <p className="mt-3 text-sm text-slate-500">
           Buddy will show package activity here as your documents are received
           and reviewed.
         </p>
@@ -66,7 +66,7 @@ export function BorrowerActivityFeed({
             return (
               <li
                 key={event.id}
-                className="flex items-center gap-3 rounded-xl border border-stone-100 bg-stone-50/50 px-4 py-3 transition-colors hover:bg-stone-50"
+                className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-3 transition-colors hover:bg-slate-50"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
                   <Icon
@@ -75,7 +75,7 @@ export function BorrowerActivityFeed({
                   />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-stone-800">
+                  <div className="truncate text-sm font-medium text-slate-800">
                     {event.label}
                   </div>
                 </div>

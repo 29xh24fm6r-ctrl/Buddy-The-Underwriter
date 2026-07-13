@@ -10,7 +10,7 @@ const PRIORITY_STYLES: Record<
 > = {
   required: { pillBg: "bg-amber-100", pillText: "text-amber-900", label: "Required before submission" },
   helpful: { pillBg: "bg-sky-100", pillText: "text-sky-900", label: "Reduces follow-up" },
-  optional: { pillBg: "bg-stone-100", pillText: "text-stone-700", label: "Optional context" },
+  optional: { pillBg: "bg-slate-100", pillText: "text-slate-700", label: "Optional context" },
 };
 
 export function BorrowerSubmissionAttentionItems({
@@ -51,12 +51,12 @@ export function BorrowerSubmissionAttentionItems({
                     >
                       {style.label}
                     </span>
-                    <span className="text-sm font-semibold text-stone-900">
+                    <span className="text-sm font-semibold text-slate-900">
                       {item.label}
                     </span>
                   </div>
                   {item.description && (
-                    <p className="mt-1 text-xs leading-5 text-stone-700">
+                    <p className="mt-1 text-xs leading-5 text-slate-700">
                       {item.description}
                     </p>
                   )}
@@ -65,7 +65,7 @@ export function BorrowerSubmissionAttentionItems({
                   <a
                     href={item.href}
                     aria-label={`Respond to ${item.label}`}
-                    className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl bg-stone-950 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                    className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl brand-gradient-cta px-3.5 py-2 text-xs font-semibold text-white transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue-500 focus-visible:ring-offset-2"
                   >
                     <Icon name="cloud_upload" className="h-3.5 w-3.5 text-current" />
                     Upload

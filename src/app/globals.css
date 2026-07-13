@@ -85,3 +85,28 @@ html {
 .borrower-root * {
   color-scheme: light;
 }
+
+/* ============================================================
+   Buddy brand system — shared motifs with the marketing site
+   (BrokerageLandingPage/FranchiseLandingPage), reused across the
+   borrower app for visual continuity. See tailwind.config.ts for the
+   brand-navy / brand-blue color tokens and font-heading / font-jakarta
+   families these build on.
+   ============================================================ */
+
+/* Navy hero background, same gradient as the marketing hero. */
+.brand-hero-bg {
+  background: linear-gradient(160deg, #0e2340 0%, #12263f 55%, #173250 100%);
+}
+
+/* Soft radial "glow" accent, positioned by the caller (e.g. absolute
+   -right-20 -top-[120px] h-[460px] w-[460px] rounded-full). */
+.brand-glow {
+  background: radial-gradient(circle, rgba(28, 141, 224, 0.28), transparent 70%);
+}
+
+/* Primary CTA gradient + glow shadow, matches marketing buttons. */
+.brand-gradient-cta {
+  background-image: linear-gradient(to bottom right, #1c8de0, #4db8f0);
+  box-shadow: 0 10px 28px rgba(28, 141, 224, 0.4);
+}

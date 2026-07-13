@@ -75,39 +75,39 @@ function DSCRGauge({ dscr, threshold = 1.25 }: { dscr: number; threshold?: numbe
   const passes = dscr >= threshold;
   const color =
     dscr >= threshold * 1.5
-      ? "bg-green-500"
+      ? "bg-emerald-500"
       : dscr >= threshold
         ? "bg-amber-500"
-        : "bg-red-500";
+        : "bg-rose-500";
 
   return (
-    <div className="border border-neutral-800 rounded-xl p-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
       <div className="flex justify-between items-baseline mb-2">
-        <span className="text-sm font-medium text-gray-300">
+        <span className="text-sm font-medium text-slate-600">
           Debt Service Coverage
         </span>
         <span
-          className={`text-2xl font-bold ${passes ? "text-green-400" : "text-red-400"}`}
+          className={`text-2xl font-bold ${passes ? "text-emerald-600" : "text-rose-600"}`}
         >
           {dscr >= 99 ? "—" : `${dscr.toFixed(2)}x`}
         </span>
       </div>
-      <div className="relative h-3 rounded-full bg-neutral-800 overflow-hidden">
+      <div className="relative h-3 rounded-full bg-slate-200 overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 rounded-full ${color} transition-all`}
           style={{ width: `${pct}%` }}
         />
         <div
-          className="absolute inset-y-0 w-0.5 bg-white/60"
+          className="absolute inset-y-0 w-0.5 bg-slate-700/60"
           style={{ left: `${thresholdPct}%` }}
         />
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-600">0x</span>
-        <span className="text-[10px] text-gray-500">SBA min: {threshold}x</span>
-        <span className="text-[10px] text-gray-600">{max.toFixed(1)}x</span>
+        <span className="text-[10px] text-slate-400">0x</span>
+        <span className="text-[10px] text-slate-500">SBA min: {threshold}x</span>
+        <span className="text-[10px] text-slate-400">{max.toFixed(1)}x</span>
       </div>
-      <p className="text-xs mt-2 text-gray-400">
+      <p className="text-xs mt-2 text-slate-500">
         {dscr >= 99
           ? "No debt service — DSCR not applicable"
           : passes

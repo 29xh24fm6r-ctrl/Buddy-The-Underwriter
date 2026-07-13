@@ -26,14 +26,14 @@ export default async function BorrowerApplyPage({ params }: Props) {
         ? err.message
         : "This link is invalid or has expired.";
     return (
-      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-red-500/40 bg-red-500/10">
-          <span className="material-symbols-outlined text-xl text-red-400">
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center text-center rounded-2xl bg-white p-8 shadow-sm">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-rose-200 bg-rose-50">
+          <span className="material-symbols-outlined text-xl text-rose-500">
             error
           </span>
         </div>
-        <h1 className="mt-4 text-xl font-semibold text-white">Invalid link</h1>
-        <p className="mt-2 text-sm text-neutral-400">{message}</p>
+        <h1 className="mt-4 text-xl font-semibold text-slate-900">Invalid link</h1>
+        <p className="mt-2 text-sm text-slate-600">{message}</p>
       </div>
     );
   }

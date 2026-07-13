@@ -17,8 +17,8 @@ const PRIORITY_CONFIG = {
   },
   optional: {
     sectionLabel: "Optional context",
-    dot: "bg-stone-300",
-    badge: "bg-stone-100 text-stone-600",
+    dot: "bg-slate-300",
+    badge: "bg-slate-100 text-slate-600",
   },
 } as const;
 
@@ -44,7 +44,7 @@ export function BorrowerAttentionItems({
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100">
             <Icon name="check_circle" className="h-4 w-4 text-emerald-700" />
           </div>
-          <h3 className="text-sm font-semibold text-emerald-900">
+          <h3 className="text-sm font-heading font-semibold text-emerald-900">
             Attention Items
           </h3>
         </div>
@@ -56,12 +56,12 @@ export function BorrowerAttentionItems({
   }
 
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-stone-100">
-          <Icon name="checklist" className="h-4 w-4 text-stone-600" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100">
+          <Icon name="checklist" className="h-4 w-4 text-slate-600" />
         </div>
-        <h3 className="text-sm font-semibold text-stone-900">
+        <h3 className="text-sm font-heading font-semibold text-slate-900">
           Attention Items
         </h3>
       </div>
@@ -71,14 +71,14 @@ export function BorrowerAttentionItems({
           const config = PRIORITY_CONFIG[key];
           return (
             <div key={key}>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                 {config.sectionLabel}
               </div>
               <ul className="mt-2 space-y-2">
                 {groupItems.map((item) => (
                   <li
                     key={item.id}
-                    className="flex items-start justify-between gap-3 rounded-xl border border-stone-100 bg-stone-50/50 p-3"
+                    className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3"
                   >
                     <div className="flex items-start gap-2 min-w-0">
                       <div
@@ -88,11 +88,11 @@ export function BorrowerAttentionItems({
                         )}
                       />
                       <div className="min-w-0">
-                        <div className="text-sm font-medium text-stone-800">
+                        <div className="text-sm font-medium text-slate-800">
                           {item.label}
                         </div>
                         {item.description && (
-                          <div className="mt-0.5 text-xs text-stone-500">
+                          <div className="mt-0.5 text-xs text-slate-500">
                             {item.description}
                           </div>
                         )}
@@ -101,7 +101,7 @@ export function BorrowerAttentionItems({
                     {item.href && (
                       <a
                         href={item.href}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-stone-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-stone-800"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg brand-gradient-cta px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
                       >
                         Upload
                         <Icon

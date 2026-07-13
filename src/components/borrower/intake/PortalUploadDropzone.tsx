@@ -102,28 +102,28 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
           border-2 border-dashed rounded-xl p-8 text-center transition-all
           ${
             isDragging
-              ? "border-blue-500 bg-blue-500/10"
-              : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-600"
+              ? "border-brand-blue-500 bg-blue-50"
+              : "border-slate-300 bg-slate-50 hover:border-slate-400"
           }
         `}
       >
         {uploadingCount > 0 ? (
           <div className="space-y-2">
-            <div className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-gray-300">
+            <div className="inline-block w-6 h-6 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-slate-600">
               Uploading {uploadingCount} file{uploadingCount > 1 ? "s" : ""}…
             </p>
           </div>
         ) : (
           <>
             <div className="text-3xl mb-2 opacity-50">📄</div>
-            <p className="text-sm font-medium text-gray-300 mb-1">
+            <p className="text-sm font-medium text-slate-600 mb-1">
               Drop your documents here
             </p>
-            <p className="text-xs text-gray-500 mb-4">
+            <p className="text-xs text-slate-500 mb-4">
               Tax returns, financial statements, bank statements, lease agreements
             </p>
-            <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium cursor-pointer hover:bg-blue-700 transition min-h-[44px]">
+            <label className="brand-gradient-cta inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium cursor-pointer hover:brightness-110 transition min-h-[44px] focus-within:ring-2 focus-within:ring-brand-blue-500">
               Choose Files
               <input
                 type="file"
@@ -140,14 +140,14 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
       {uploads.length > 0 && (
         <div className="space-y-2">
           {successCount > 0 && (
-            <div className="bg-green-900/20 border border-green-800 rounded-lg px-4 py-3 text-sm text-green-300">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 text-sm text-emerald-700">
               {successCount} document{successCount > 1 ? "s" : ""} uploaded successfully
             </div>
           )}
           {errorUploads.map((u, i) => (
             <div
               key={`err-${i}-${u.name}`}
-              className="bg-red-900/20 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-300"
+              className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600"
             >
               Failed: {u.name} — {u.error}
             </div>
@@ -155,11 +155,11 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
         </div>
       )}
 
-      <div className="bg-neutral-800/50 border border-neutral-800 rounded-lg px-4 py-3">
-        <p className="text-xs font-medium text-gray-400 mb-2">
+      <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+        <p className="text-xs font-medium text-slate-500 mb-2">
           Common documents to include:
         </p>
-        <div className="grid grid-cols-2 gap-1 text-xs text-gray-500">
+        <div className="grid grid-cols-2 gap-1 text-xs text-slate-500">
           <span>• 3 years business tax returns</span>
           <span>• Year-to-date P&amp;L</span>
           <span>• Balance sheet</span>

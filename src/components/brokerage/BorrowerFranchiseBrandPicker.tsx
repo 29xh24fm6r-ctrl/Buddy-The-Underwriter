@@ -111,18 +111,18 @@ export default function BorrowerFranchiseBrandPicker() {
   // Already linked — quiet confirmation, not a re-ask.
   if (linked) {
     return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+      <div className="rounded-2xl border border-brand-blue-500/25 bg-brand-blue-500/5 px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            <div className="text-xs font-semibold uppercase tracking-wide text-brand-blue-500">
               Franchise brand
             </div>
-            <div className="mt-0.5 text-sm font-medium text-stone-900">{linked.name}</div>
+            <div className="mt-0.5 text-sm font-medium text-slate-900">{linked.name}</div>
           </div>
           <button
             type="button"
             onClick={changeBrand}
-            className="text-xs font-medium text-stone-500 underline hover:text-stone-700"
+            className="text-xs font-medium text-slate-500 underline hover:text-slate-700"
           >
             Change
           </button>
@@ -135,14 +135,14 @@ export default function BorrowerFranchiseBrandPicker() {
   if (saidNo && !showSearch) return null;
 
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       {!showSearch ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-stone-900">
+            <div className="font-heading text-sm font-semibold text-slate-900">
               Are you financing a franchise?
             </div>
-            <p className="mt-0.5 text-xs text-stone-500">
+            <p className="mt-0.5 text-xs text-slate-500">
               Tell Buddy which brand — it'll pull SBA eligibility and
               certification data straight into your package.
             </p>
@@ -151,14 +151,14 @@ export default function BorrowerFranchiseBrandPicker() {
             <button
               type="button"
               onClick={() => setShowSearch(true)}
-              className="rounded-lg bg-stone-950 px-4 py-2 text-xs font-medium text-white hover:bg-stone-800"
+              className="brand-gradient-cta rounded-lg px-4 py-2 text-xs font-medium text-white hover:brightness-110"
             >
               Yes, select my brand
             </button>
             <button
               type="button"
               onClick={() => setSaidNo(true)}
-              className="rounded-lg border border-stone-200 px-4 py-2 text-xs font-medium text-stone-500 hover:bg-stone-50"
+              className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50"
             >
               Not a franchise
             </button>
@@ -166,7 +166,7 @@ export default function BorrowerFranchiseBrandPicker() {
         </div>
       ) : (
         <div className="relative">
-          <div className="mb-2 text-sm font-semibold text-stone-900">
+          <div className="mb-2 font-heading text-sm font-semibold text-slate-900">
             Search for your franchise brand
           </div>
           <input
@@ -175,15 +175,15 @@ export default function BorrowerFranchiseBrandPicker() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. Chick-fil-A, Great Clips, UPS Store…"
-            className="w-full rounded-xl border border-stone-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
           />
           {query.trim().length >= 2 && (
-            <div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-stone-200 bg-white shadow-lg">
+            <div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
               {searching && (
-                <div className="px-4 py-3 text-xs text-stone-400">Searching…</div>
+                <div className="px-4 py-3 text-xs text-slate-400">Searching…</div>
               )}
               {!searching && results.length === 0 && (
-                <div className="px-4 py-3 text-xs text-stone-400">
+                <div className="px-4 py-3 text-xs text-slate-400">
                   No matches — check the spelling, or contact us if your brand is missing.
                 </div>
               )}
@@ -194,7 +194,7 @@ export default function BorrowerFranchiseBrandPicker() {
                     type="button"
                     onClick={() => selectBrand(brand)}
                     disabled={saving}
-                    className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50 disabled:opacity-40"
+                    className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-slate-800 hover:bg-slate-50 disabled:opacity-40"
                   >
                     <span>{brand.brand_name}</span>
                     {brand.sba_certification_status === "certified" && (
@@ -209,13 +209,13 @@ export default function BorrowerFranchiseBrandPicker() {
           <button
             type="button"
             onClick={() => setShowSearch(false)}
-            className="mt-2 text-xs text-stone-400 hover:text-stone-600"
+            className="mt-2 text-xs text-slate-400 hover:text-slate-600"
           >
             Cancel
           </button>
         </div>
       )}
-      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-2 text-xs text-rose-500">{error}</p>}
     </div>
   );
 }

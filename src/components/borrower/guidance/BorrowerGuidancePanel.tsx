@@ -29,29 +29,29 @@ export function BorrowerGuidancePanel({
         </div>
 
         <div className="mt-4 space-y-3">
-          <h2 className="font-serif text-2xl leading-tight text-stone-950 sm:text-3xl">
+          <h2 className="font-heading font-bold text-2xl leading-tight text-slate-900 sm:text-3xl">
             {viewModel.headline}
           </h2>
-          <p className="max-w-2xl text-sm leading-6 text-stone-700 sm:text-base">
+          <p className="max-w-2xl text-sm leading-6 text-slate-700 sm:text-base">
             {viewModel.summary}
           </p>
         </div>
 
         {/* Next step CTA */}
         <div className="mt-5 rounded-2xl border border-white/80 bg-white/70 p-4">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             Next recommended step
           </div>
-          <div className="mt-2 text-sm font-semibold text-stone-900">
+          <div className="mt-2 text-sm font-semibold text-slate-900">
             {nextStep.headline}
           </div>
-          <p className="mt-1 text-sm text-stone-600">
+          <p className="mt-1 text-sm text-slate-600">
             {nextStep.description}
           </p>
           {hasAction && (
             <a
               href={nextStep.href}
-              className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-stone-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
+              className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl brand-gradient-cta px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
             >
               <Icon name="arrow_forward_ios" className="h-3.5 w-3.5 text-current" />
               {nextStep.ctaLabel}

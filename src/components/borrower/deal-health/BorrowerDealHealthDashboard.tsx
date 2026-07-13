@@ -16,8 +16,8 @@ export function BorrowerDealHealthDashboard({
   return (
     <div className="space-y-5">
       {/* Summary banner */}
-      <div className="rounded-[1.25rem] border border-stone-200/70 bg-stone-50/50 px-5 py-3">
-        <p className="text-sm leading-6 text-stone-700">
+      <div className="rounded-[1.25rem] border border-slate-200/70 bg-slate-50/50 px-5 py-3">
+        <p className="text-sm leading-6 text-slate-700">
           {viewModel.summary}
         </p>
       </div>

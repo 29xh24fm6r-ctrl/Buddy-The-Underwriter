@@ -29,11 +29,25 @@ const config: Config = {
           muted: "rgb(var(--ink-muted))",
           faint: "rgb(var(--ink-faint))",
         },
+        // Buddy brand system (navy + accent-blue), shared with the
+        // marketing site (BrokerageLandingPage/FranchiseLandingPage) so
+        // the borrower app feels like the same product.
+        "brand-navy": {
+          900: "#0e2340",
+          800: "#12263f",
+          700: "#173250",
+        },
+        "brand-blue": {
+          500: "#1c8de0",
+          400: "#4db8f0",
+        },
       },
       fontFamily: {
         inter: ["var(--font-inter)", "Inter", "sans-serif"],
         display: ["var(--font-inter)", "Inter", "sans-serif"],
         body: ["var(--font-inter)", "Inter", "sans-serif"],
+        heading: ["var(--font-poppins)", "Poppins", "sans-serif"],
+        jakarta: ["var(--font-jakarta)", "Plus Jakarta Sans", "sans-serif"],
       },
       backdropBlur: {
         xs: "2px",

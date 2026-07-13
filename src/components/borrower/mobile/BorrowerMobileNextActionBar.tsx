@@ -38,13 +38,13 @@ export function BorrowerMobileNextActionBar({
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <div className="min-w-0">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           Next action
         </div>
         <div
           className={cn(
             "mt-0.5 truncate text-sm font-semibold",
-            viewModel.state === "blocked" ? "text-rose-900" : "text-stone-900",
+            viewModel.state === "blocked" ? "text-rose-900" : "text-slate-900",
           )}
         >
           {shortLabel}
@@ -55,7 +55,7 @@ export function BorrowerMobileNextActionBar({
         <a
           href={viewModel.primaryCtaHref}
           aria-label={viewModel.primaryCtaLabel}
-          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-2xl bg-stone-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+          className="brand-gradient-cta inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue-500 focus-visible:ring-offset-2"
         >
           <Icon name="cloud_upload" className="h-4 w-4 text-current" />
           {viewModel.primaryCtaLabel}
@@ -63,7 +63,7 @@ export function BorrowerMobileNextActionBar({
       ) : (
         <span
           aria-label="No action required"
-          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-2xl bg-stone-100 px-4 py-2.5 text-sm font-semibold text-stone-500"
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-500"
         >
           <Icon name="check_circle" className="h-4 w-4 text-emerald-600" />
           All caught up

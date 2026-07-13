@@ -17,7 +17,7 @@ export function BorrowerDocumentGuidanceBlock({
   );
 
   return (
-    <div className="rounded-xl border border-stone-100 bg-stone-50/60">
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -30,12 +30,12 @@ export function BorrowerDocumentGuidanceBlock({
         </span>
         <Icon
           name={expanded ? "chevron_left" : "chevron_right"}
-          className="h-4 w-4 text-stone-500"
+          className="h-4 w-4 text-slate-500"
         />
       </button>
 
       {expanded && (
-        <div className="space-y-3 border-t border-stone-100 px-4 py-3">
+        <div className="space-y-3 border-t border-slate-100 px-4 py-3">
           <Detail
             label="Why it matters"
             text={guidance.whyItMatters}
@@ -67,10 +67,10 @@ export function BorrowerDocumentGuidanceBlock({
 function Detail({ label, text }: { label: string; text: string }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         {label}
       </div>
-      <p className="mt-0.5 text-xs leading-5 text-stone-700">{text}</p>
+      <p className="mt-0.5 text-xs leading-5 text-slate-700">{text}</p>
     </div>
   );
 }

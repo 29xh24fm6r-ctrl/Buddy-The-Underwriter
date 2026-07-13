@@ -18,10 +18,10 @@ export function BorrowerChecklistStatusPill({
 }) {
   const styles = {
     required: "bg-amber-100 text-amber-900",
-    reviewing: "bg-sky-100 text-sky-900",
+    reviewing: "bg-brand-blue-500/15 text-brand-blue-500",
     complete: "bg-emerald-100 text-emerald-900",
-    inflight: "bg-stone-100 text-stone-800",
-    optional: "bg-stone-100 text-stone-700",
+    inflight: "bg-slate-100 text-slate-700",
+    optional: "bg-slate-100 text-slate-600",
   } satisfies Record<BorrowerChecklistTone, string>;
 
   return (

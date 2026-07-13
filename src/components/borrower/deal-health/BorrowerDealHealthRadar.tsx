@@ -10,8 +10,8 @@ const STATUS_BAR_COLOR: Record<BorrowerDealHealthStatus, string> = {
   strong: "bg-emerald-500",
   progressing: "bg-amber-400",
   needs_attention: "bg-rose-400",
-  not_started: "bg-stone-200",
-  unavailable: "bg-stone-100",
+  not_started: "bg-slate-200",
+  unavailable: "bg-slate-100",
 };
 
 const STATUS_BAR_WIDTH: Record<BorrowerDealHealthStatus, string> = {
@@ -28,14 +28,14 @@ export function BorrowerDealHealthRadar({
   categories: BorrowerDealHealthCategory[];
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
         Package Health
       </div>
-      <h3 className="mt-1 text-sm font-semibold text-stone-900">
+      <h3 className="mt-1 text-sm font-heading font-semibold text-slate-900">
         Submission Readiness by Category
       </h3>
-      <p className="mt-1 text-xs text-stone-500">
+      <p className="mt-1 text-xs text-slate-500">
         Buddy uses uploaded information to help prepare your lender package.
       </p>
 
@@ -51,20 +51,20 @@ export function BorrowerDealHealthRadar({
           return (
             <div key={cat.id}>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-stone-700">
+                <span className="text-xs font-medium text-slate-700">
                   {cat.label}
                 </span>
                 {cat.score != null ? (
-                  <span className="text-xs font-semibold text-stone-600">
+                  <span className="text-xs font-semibold text-slate-600">
                     {cat.score}%
                   </span>
                 ) : (
-                  <span className="text-[10px] uppercase tracking-wider text-stone-400">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400">
                     {cat.status === "unavailable" ? "Pending" : cat.status === "not_started" ? "Not started" : ""}
                   </span>
                 )}
               </div>
-              <div className="mt-1 h-2 overflow-hidden rounded-full bg-stone-100">
+              <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className={cn(
                     "h-full rounded-full transition-all duration-700",

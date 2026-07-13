@@ -19,24 +19,24 @@ export function BorrowerDocumentCompletionChart({
   const reviewPct = total > 0 ? (underReview / total) * 100 : 0;
 
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-stone-100">
-            <Icon name="description" className="h-4 w-4 text-stone-600" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100">
+            <Icon name="description" className="h-4 w-4 text-slate-600" />
           </div>
-          <h3 className="text-sm font-semibold text-stone-900">
+          <h3 className="text-sm font-heading font-semibold text-slate-900">
             Document Package
           </h3>
         </div>
-        <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700">
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
           {completionPercent}% complete
         </span>
       </div>
 
       {/* Stacked bar */}
       <div
-        className="mt-4 flex h-3 overflow-hidden rounded-full bg-stone-100"
+        className="mt-4 flex h-3 overflow-hidden rounded-full bg-slate-100"
         aria-hidden="true"
       >
         {receivedPct > 0 && (
@@ -57,7 +57,7 @@ export function BorrowerDocumentCompletionChart({
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
         <LegendItem color="bg-emerald-500" label="Received" count={received} />
         <LegendItem color="bg-amber-400" label="Under review" count={underReview} />
-        <LegendItem color="bg-stone-200" label="Remaining" count={remaining} />
+        <LegendItem color="bg-slate-200" label="Remaining" count={remaining} />
       </div>
     </section>
   );
@@ -75,9 +75,9 @@ function LegendItem({
   return (
     <div className="flex items-center gap-2">
       <div className={cn("h-2.5 w-2.5 rounded-full", color)} />
-      <span className="text-xs text-stone-600">
+      <span className="text-xs text-slate-600">
         {label}{" "}
-        <span className="font-semibold text-stone-800">{count}</span>
+        <span className="font-semibold text-slate-800">{count}</span>
       </span>
     </div>
   );

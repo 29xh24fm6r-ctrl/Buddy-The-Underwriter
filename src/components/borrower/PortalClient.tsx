@@ -32,6 +32,7 @@ import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState
 import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { Icon } from "@/components/ui/Icon";
+import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
 import { buildBorrowerJourneyViewModel } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import type { JourneyInput } from "@/lib/borrower/buildBorrowerJourneyViewModel";
 import { buildBorrowerReadinessViewModel } from "@/lib/borrower/buildBorrowerReadinessViewModel";
@@ -578,6 +579,8 @@ export function PortalClient({ token }: { token: string }) {
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [celebrate, setCelebrate] = React.useState(false);
+  const prevMissingRequiredCountRef = React.useRef<number | null>(null);
 
   const activeDoc = React.useMemo(
     () => docs.find((doc) => doc.upload_id === activeUploadId) ?? null,
@@ -596,6 +599,23 @@ export function PortalClient({ token }: { token: string }) {
     () => checklist.filter((item) => item.required && (item.status ?? "missing") === "missing"),
     [checklist],
   );
+
+  React.useEffect(() => {
+    const requiredCount = checklist.filter((item) => item.required).length;
+    const prev = prevMissingRequiredCountRef.current;
+    if (
+      requiredCount > 0 &&
+      prev !== null &&
+      prev > 0 &&
+      missingChecklist.length === 0
+    ) {
+      setCelebrate(true);
+      const t = window.setTimeout(() => setCelebrate(false), 300);
+      return () => window.clearTimeout(t);
+    }
+    prevMissingRequiredCountRef.current = missingChecklist.length;
+  }, [checklist, missingChecklist.length]);
+
   const groupedChecklist = React.useMemo(() => {
     const groups = new Map<string, PortalChecklistItem[]>();
     for (const item of checklist) {
@@ -1173,6 +1193,7 @@ export function PortalClient({ token }: { token: string }) {
       }
     >
       <div className="space-y-6 pb-24 sm:pb-0">
+        <ConfettiBurst fire={celebrate} />
         {actionMessage ? (
           actionMessage.includes("temporary issue") ||
           actionMessage.includes("no longer active") ? (

@@ -12,12 +12,12 @@ export function BorrowerProgressTimeline({
   steps: Array<{ key: string; title: string; detail: string; state: "done" | "current" | "upcoming" }>;
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         Package progress
       </div>
-      <h2 className="mt-2 text-xl font-semibold text-stone-950">{title}</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">{summary}</p>
+      <h2 className="mt-2 font-heading text-xl font-bold text-slate-900">{title}</h2>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{summary}</p>
       <ol className="mt-5 space-y-4">
         {steps.map((step, index) => (
           <BorrowerProgressStep

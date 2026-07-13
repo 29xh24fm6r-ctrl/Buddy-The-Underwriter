@@ -16,8 +16,8 @@ const PRIORITY_STYLES = {
     badgeLabel: "Helpful",
   },
   low: {
-    dot: "bg-stone-300",
-    badge: "bg-stone-100 text-stone-600",
+    dot: "bg-slate-300",
+    badge: "bg-slate-100 text-slate-600",
     badgeLabel: "Optional",
   },
 } as const;
@@ -36,7 +36,7 @@ export function BorrowerRecommendationsCard({
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-100">
           <Icon name="auto_awesome" className="h-4 w-4 text-sky-700" />
         </div>
-        <h3 className="text-sm font-semibold text-sky-900">
+        <h3 className="text-sm font-heading font-semibold text-sky-900">
           Buddy Recommends
         </h3>
       </div>
@@ -63,12 +63,12 @@ export function BorrowerRecommendationsCard({
                           style.dot,
                         )}
                       />
-                      <span className="text-sm font-medium text-stone-900">
+                      <span className="text-sm font-medium text-slate-900">
                         {rec.label}
                       </span>
                     </div>
                     {rec.explanation && (
-                      <p className="mt-1 pl-4 text-xs text-stone-600">
+                      <p className="mt-1 pl-4 text-xs text-slate-600">
                         {rec.explanation}
                       </p>
                     )}
@@ -84,7 +84,7 @@ export function BorrowerRecommendationsCard({
                   {rec.href && (
                     <a
                       href={rec.href}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-stone-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-stone-800"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-xl brand-gradient-cta px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
                     >
                       Upload
                       <Icon
