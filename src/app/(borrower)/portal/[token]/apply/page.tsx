@@ -40,25 +40,31 @@ export default async function BorrowerApplyPage({ params }: Props) {
 
   const sb = supabaseAdmin();
 
+  // Fetch the deal first — the borrower prefill below MUST be scoped to
+  // this specific deal's borrower_id, not just "any borrower row under
+  // this bank" (a bank with more than one borrower/deal would otherwise
+  // leak another customer's EIN/address/entity type into this borrower's
+  // form as a silently-saved prefill default).
+  const { data: deal } = await sb
+    .from("deals")
+    .select("id, name, deal_type, loan_amount, borrower_id")
+    .eq("id", ctx.dealId)
+    .maybeSingle();
+
   const [
-    { data: deal },
     { data: borrower },
     { data: sections },
     { data: application },
   ] = await Promise.all([
-    sb
-      .from("deals")
-      .select("id, name, deal_type, loan_amount")
-      .eq("id", ctx.dealId)
-      .maybeSingle(),
-    sb
-      .from("borrowers")
-      .select(
-        "id, legal_name, entity_type, ein, naics_code, naics_description, address_line1, city, state, zip, state_of_formation, primary_contact_name, primary_contact_email",
-      )
-      .eq("bank_id", ctx.bankId)
-      .limit(1)
-      .maybeSingle(),
+    deal?.borrower_id
+      ? sb
+          .from("borrowers")
+          .select(
+            "id, legal_name, entity_type, ein, naics_code, naics_description, address_line1, city, state, zip, state_of_formation, primary_contact_name, primary_contact_email",
+          )
+          .eq("id", deal.borrower_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
     sb
       .from("deal_builder_sections")
       .select("section_key, data, completed")

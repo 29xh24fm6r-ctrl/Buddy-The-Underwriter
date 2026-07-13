@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildChecklistForLoanType } from "@/lib/deals/checklistPresets";
+import { seedPortalChecklist } from "@/lib/portal/seedPortalChecklist";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { normalizeGoogleError, isRetryableGoogleErrorCode } from "@/lib/google/errors";
@@ -232,6 +233,22 @@ export async function initializeIntake(
           },
         });
       }
+    }
+
+    // Borrower-portal checklist (deal_portal_checklist_items) — a completely
+    // separate table/system from deal_checklist_items above. Historically
+    // only franchise deals had this seeded (via seedFranchiseChecklist on
+    // brand-link), so every other deal's /portal/[token] checklist UI stayed
+    // permanently stuck on "we're still preparing your request list."
+    // Backfill here too, for both newly-initialized and already-past-intake
+    // deals (initializeIntake is re-invoked on many trigger points).
+    const { count: existingPortalChecklist } = await sb
+      .from("deal_portal_checklist_items")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId);
+
+    if (!existingPortalChecklist || existingPortalChecklist === 0) {
+      await seedPortalChecklist(sb, { dealId, loanType });
     }
 
     if (checklistSeeded && (deal.stage === "intake" || shouldInitLifecycle)) {
