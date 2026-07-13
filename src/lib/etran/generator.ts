@@ -323,7 +323,13 @@ function buildETranXML(data: ETranData): string {
 }
 
 /**
- * Submit E-Tran XML (REQUIRES HUMAN APPROVAL)
+ * Submit E-Tran XML (REQUIRES HUMAN APPROVAL — permanent gate, see
+ * submitter.ts's docstring, principle #25).
+ *
+ * ARC-00 Phase 6 (SPEC S5 B-5) — replaces the `SBA-${Date.now()}` mock
+ * number with a real delegation to submitToSba() (submitter.ts), which
+ * does the actual mutual-TLS POST to SBA E-Tran. Signature preserved so
+ * any existing caller keeps working unchanged.
  */
 export async function submitETranXML(params: {
   dealId: string;
@@ -335,59 +341,24 @@ export async function submitETranXML(params: {
   sba_application_number?: string;
   error?: string;
 }> {
-  const { writeEvent } = await import("@/lib/ledger/writeEvent");
+  const { submitToSba } = await import("./submitter");
+  const { getEtranCredentials } = await import("./credentials");
+  const { postToSbaEtran } = await import("./etranHttpClient");
 
-  // Log submission attempt
-  await writeEvent({
-    dealId: params.dealId,
-    kind: "etran_submission_attempt",
-    meta: {
-      bank_id: params.bankId,
-      xml_length: params.xml.length,
-      approved_by: params.approvedBy,
-      timestamp: new Date().toISOString(),
+  const result = await submitToSba(
+    { dealId: params.dealId, bankId: params.bankId, approvedByUserId: params.approvedBy },
+    {
+      sb: supabaseAdmin(),
+      generateXml: (args) => generateETranXML(args),
+      getCredentials: getEtranCredentials,
+      postToSba: postToSbaEtran,
+      sandboxEndpoint: process.env.SBA_ETRAN_SANDBOX_ENDPOINT ?? process.env.SBA_ETRAN_MOCK_ENDPOINT ?? "",
+      productionEndpoint: process.env.SBA_ETRAN_PROD_ENDPOINT ?? "",
     },
-  });
+  );
 
-  try {
-    // In production, this would call SBA E-Tran API
-    // For now, return success simulation
-
-    const sbaApplicationNumber = `SBA-${Date.now()}`; // Mock number
-
-    // Log successful submission
-    await writeEvent({
-      dealId: params.dealId,
-      kind: "etran_submitted",
-      meta: {
-        bank_id: params.bankId,
-        sba_application_number: sbaApplicationNumber,
-        approved_by: params.approvedBy,
-        submitted_at: new Date().toISOString(),
-      },
-    });
-
-    return {
-      submitted: true,
-      sba_application_number: sbaApplicationNumber,
-    };
-  } catch (err: any) {
-    console.error("[E-Tran] Submission failed:", err);
-
-    // Log failed submission
-    await writeEvent({
-      dealId: params.dealId,
-      kind: "etran_submission_failed",
-      meta: {
-        bank_id: params.bankId,
-        error: err.message,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    return {
-      submitted: false,
-      error: err.message,
-    };
+  if (result.ok) {
+    return { submitted: true, sba_application_number: result.sba_application_number };
   }
+  return { submitted: false, error: `${result.reason}${result.details ? ": " + result.details : ""}` };
 }
