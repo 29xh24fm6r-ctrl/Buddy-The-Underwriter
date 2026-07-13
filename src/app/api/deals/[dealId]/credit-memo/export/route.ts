@@ -115,7 +115,13 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     return new Response(buf, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="CreditMemo_${safeName}_${now}.pdf"`,
+        // Renamed from "CreditMemo_" — this route renders a spread/ratio/flag
+        // report (buildCreditMemoPdf here assembles from SpreadOutputReport,
+        // not the canonical Florida Armory memo), and the old filename
+        // implied it was the official credit memo, which it isn't. See
+        // src/app/api/deals/[dealId]/credit-memo/canonical/pdf/route.ts for
+        // that.
+        "Content-Disposition": `attachment; filename="SpreadReport_${safeName}_${now}.pdf"`,
         "Content-Length": String(buf.byteLength),
       },
     });

@@ -2,6 +2,8 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +38,8 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     const dealId = p?.dealId;
 
     if (!dealId) return json(400, { ok: false, error: "Missing dealId" });
+
+    await assertDealAccess(dealId);
 
     const supabase = supabaseAdmin();
 
@@ -110,6 +114,8 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       total_eligible: eligible.length,
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return json(500, { ok: false, error: err?.message ?? String(err) });
   }
 }

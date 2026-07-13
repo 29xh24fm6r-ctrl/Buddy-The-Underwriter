@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -56,6 +58,8 @@ export async function GET(
   const sb = supabaseAdmin();
 
   try {
+    await assertDealAccess(dealId);
+
     // Add/remove tables as your UI grows.
     const candidates = await Promise.all([
       latestMs(sb, "borrower_document_requests", dealId, "updated_at"),
@@ -72,6 +76,8 @@ export async function GET(
 
     return NextResponse.json({ ok: true, version });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     rethrowNextErrors(e);
 
     console.warn("[live-version] Error (returning version:0):", e);

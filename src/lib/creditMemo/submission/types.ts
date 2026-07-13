@@ -7,6 +7,7 @@ export type ReadinessRequiredKey =
   | "collateral_value"
   | "business_description"
   | "management_bio"
+  | "ai_narrative_present"
   // SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee readiness gate.
   | "committee_ready";
 

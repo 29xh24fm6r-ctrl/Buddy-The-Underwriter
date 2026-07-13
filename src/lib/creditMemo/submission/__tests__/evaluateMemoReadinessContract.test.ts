@@ -177,26 +177,36 @@ test("[guard-2g] short management bio (<20 chars) does not satisfy", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Guard 3: Recommended items produce warnings, never blockers
+// Guard 3: AI narrative is a hard blocker; the rest are warnings only
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("[guard-3a] missing AI narrative produces warning, not blocker", () => {
+test("[guard-3a] missing AI narrative blocks submission", () => {
+  // The AI narrative becomes part of the frozen banker-certified snapshot,
+  // so a memo with no narrative at all must not be submittable — this used
+  // to only be a non-blocking warning, which let a narrative-less memo reach
+  // committee. "narrative" is Required in buildRequiredItems, and this
+  // server contract must agree with that (see the file-level invariant
+  // comment: client UI and server gate must never diverge).
   const c = evaluateMemoReadinessContract({
     memo: memoStub({ narrative: null }),
     overrides: PASSING_OVERRIDES(),
   });
-  assert.equal(c.passed, true, "warnings should not block submission");
+  assert.equal(c.required.ai_narrative_present, false);
+  assert.equal(c.passed, false, "missing narrative should block submission");
+  assert.ok(c.blockers.find((b) => b.code === "ai_narrative_present"));
+  // Still recorded as a warning too, for backward-compatible warning consumers.
   assert.equal(c.warnings.ai_narrative_missing, true);
   assert.ok(c.warningList.find((w) => w.code === "ai_narrative_missing"));
 });
 
-test("[guard-3b] placeholder narrative ('not yet generated') produces warning", () => {
+test("[guard-3b] placeholder narrative ('not yet generated') blocks submission", () => {
   const c = evaluateMemoReadinessContract({
     memo: memoStub({ narrative: "Narrative not yet generated" }),
     overrides: PASSING_OVERRIDES(),
   });
+  assert.equal(c.required.ai_narrative_present, false);
   assert.equal(c.warnings.ai_narrative_missing, true);
-  assert.equal(c.passed, true);
+  assert.equal(c.passed, false);
 });
 
 test("[guard-3c] missing research produces warning", () => {

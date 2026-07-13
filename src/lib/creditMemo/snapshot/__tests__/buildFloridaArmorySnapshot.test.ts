@@ -98,7 +98,14 @@ function buildMemoFixture(opts: {
     stress_testing: null,
     covenant_package: null,
     qualitative_assessment: null,
-    meta: { spreads: [], readiness: { status: "ready" } },
+    meta: {
+      spreads: [],
+      readiness: { status: "ready" },
+      // Fixture models a CRE_TERM deal (see proposed_terms.product above),
+      // which exempts it from the income_statement completeness check added
+      // in sectionBuilders.ts.
+      deal_classification: { is_cre_deal: true, is_loc_deal: false },
+    },
   };
   return m as unknown as CanonicalCreditMemoV1;
 }
@@ -150,7 +157,7 @@ test("[fa-1] failed readiness contract throws FloridaArmoryBuildError", () => {
   const memo = buildMemoFixture();
   const failed: MemoReadinessContract = {
     passed: false,
-    required: { dscr_computed: false, loan_amount: true, collateral_value: true, business_description: true, management_bio: true, committee_ready: true },
+    required: { dscr_computed: false, loan_amount: true, collateral_value: true, business_description: true, management_bio: true, ai_narrative_present: true, committee_ready: true },
     warnings: { ai_narrative_missing: false, research_missing: false, covenant_review_missing: false, qualitative_review_missing: false, committee_not_ready_overridden: false },
     blockers: [{ code: "dscr_computed", label: "DSCR not computed", owner: "buddy" }],
     warningList: [],

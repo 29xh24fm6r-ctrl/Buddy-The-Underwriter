@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureGeometryForAttachment } from "@/lib/evidence/ensureGeometry";
 import { verifyDealIdMatch } from "@/lib/integrity/dealIdGuard";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -19,6 +20,13 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string; memoId: string }> },
 ) {
   const { dealId, memoId } = await ctx.params;
+
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    const status = access.error === "unauthorized" ? 401 : 403;
+    return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
   const sb = supabaseAdmin();
 
   // Choose attachment(s) from citations.

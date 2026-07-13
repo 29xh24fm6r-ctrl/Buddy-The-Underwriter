@@ -206,18 +206,44 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
   // Debounced auto-save for text fields on the Business Profile tab
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textPatchBuffer = useRef<Record<string, string>>({});
+  // Tracks the in-flight save promise once the debounce timer fires, so a
+  // submit that lands in the narrow window between "timer fired" and "fetch
+  // resolved" can still be awaited (see flushPendingTextSave below).
+  const inFlightTextSaveRef = useRef<Promise<void> | null>(null);
   const scheduleTextSave = useCallback(
     (key: string, value: string) => {
       textPatchBuffer.current[key] = value;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
         const patch = { ...textPatchBuffer.current } as Partial<OverridesBag>;
         textPatchBuffer.current = {};
-        void saveOverrides(patch, "profile");
+        inFlightTextSaveRef.current = saveOverrides(patch, "profile").finally(() => {
+          inFlightTextSaveRef.current = null;
+        });
       }, 800);
     },
     [saveOverrides],
   );
+
+  // Submitting to underwriting rebuilds the canonical memo fresh from the DB
+  // — a text edit still sitting in the 800ms debounce window (or an in-flight
+  // save from it) would be silently missing from the frozen snapshot. Flush
+  // any pending/in-flight autosave and wait for it to land before submitting.
+  const flushPendingTextSave = useCallback(async () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    if (Object.keys(textPatchBuffer.current).length > 0) {
+      const patch = { ...textPatchBuffer.current } as Partial<OverridesBag>;
+      textPatchBuffer.current = {};
+      await saveOverrides(patch, "profile");
+    }
+    if (inFlightTextSaveRef.current) {
+      await inFlightTextSaveRef.current;
+    }
+  }, [saveOverrides]);
 
   // Mark a tab as viewed (used by checklist "Recommended" items)
   useEffect(() => {
@@ -296,15 +322,14 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
   const allRequiredDone = requiredDoneCount === requiredTotal;
 
   const viewed = new Set(overrides.tabs_viewed ?? []);
-  // We can't observe the narrative / research buttons from here, so we only
-  // track what's locally observable: memo fields populated and tab views.
-  const narrativeExists = typeof memo.executive_summary?.narrative === "string"
-    && memo.executive_summary.narrative.length > 0
-    && !memo.executive_summary.narrative.toLowerCase().includes("not yet generated");
+  // We can't observe the research button from here, so we only track what's
+  // locally observable: memo fields populated and tab views. "AI narrative
+  // generated" moved to buildRequiredItems (bankerReviewReadiness.ts) — it is
+  // a Required gate now, not merely Recommended, since narrative text becomes
+  // part of the frozen banker-certified snapshot on submit.
   const researchExists = memo.business_industry_analysis !== null;
 
   const recommendedItems = [
-    { id: "narrative", ok: narrativeExists,          label: "AI narrative generated" },
     { id: "research",  ok: researchExists,           label: "Research run" },
     { id: "cov-tab",   ok: viewed.has("covenants"),  label: "Covenant package reviewed" },
     { id: "qual-tab",  ok: viewed.has("qualitative"), label: "Qualitative assessment reviewed" },
@@ -318,6 +343,12 @@ export default function BankerReviewPanel({ dealId, memo }: Props) {
     setSubmissionError(null);
     setSubmissionBlockers([]);
     try {
+      // Make sure the last text edit has actually landed in the DB before the
+      // server rebuilds the canonical memo and freezes it — otherwise a save
+      // still sitting in the debounce window is silently dropped from the
+      // submitted snapshot with no error surfaced.
+      await flushPendingTextSave();
+
       const res = await fetch(`/api/deals/${dealId}/credit-memo/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

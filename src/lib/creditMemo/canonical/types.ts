@@ -598,6 +598,14 @@ export type CanonicalCreditMemoV1 = {
       missing_spreads: string[];
       missing_metrics: string[];
     };
+    // Narrow deal-type flags used ONLY to scope conditional completeness
+    // warnings in sectionBuilders.ts (e.g. income_statement is CRE-exempt,
+    // collateral analysis is required for CRE). Not a general product-type
+    // classification — see buildCanonicalCreditMemo.ts's condIsCre/isLOC.
+    deal_classification: {
+      is_cre_deal: boolean;
+      is_loc_deal: boolean;
+    };
     data_completeness: {
       deal: { total: number; populated: number; status: string };
       personal: { total: number; populated: number; status: string };

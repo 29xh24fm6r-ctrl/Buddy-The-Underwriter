@@ -12,6 +12,8 @@ import {
   getActiveTemplate,
   getTemplateMaps,
 } from "@/lib/bankForms/map";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +24,7 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const body = await req.json().catch(() => ({}));
 
     const bank_id = String(body?.bank_id ?? "");
@@ -108,6 +111,8 @@ export async function POST(
       download_url: signedUrl,
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
       { status: 500 },

@@ -2,6 +2,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -44,6 +46,8 @@ export async function GET(
       );
     }
 
+    await assertDealAccess(dealId);
+
     const sb = supabaseAdmin();
 
     // Cast query to any to avoid typed `never[]` results
@@ -80,6 +84,8 @@ export async function GET(
       grouped,
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err ?? "unknown_error") },
       { status: 500 },

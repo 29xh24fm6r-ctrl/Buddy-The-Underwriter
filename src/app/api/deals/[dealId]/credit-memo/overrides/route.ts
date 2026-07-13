@@ -73,7 +73,7 @@ export async function POST(
     rethrowNextErrors(e);
     console.error("[credit-memo/overrides POST — deprecation shim]", e);
     return NextResponse.json(
-      { ok: false, error: String(e) },
+      { ok: false, error: "internal_error" },
       { status: 500 },
     );
   }
@@ -103,6 +103,6 @@ export async function GET(
   } catch (e: unknown) {
     rethrowNextErrors(e);
     console.error("[credit-memo/overrides GET]", e);
-    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "internal_error" }, { status: 500 });
   }
 }

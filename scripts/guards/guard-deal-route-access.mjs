@@ -35,7 +35,21 @@ const TOKEN_VALIDATORS = [
   "resolvePortalContext",
 ];
 // Worker-secret env names (WORKER routes must reference one).
-const WORKER_SECRETS = ["WORKER_SECRET", "CRON_SECRET"];
+const WORKER_SECRETS = ["WORKER_SECRET", "CRON_SECRET", "BUDDY_GATEWAY_SECRET"];
+
+// Other named functions that legitimately enforce deal/tenant access, found
+// via a full manual audit of the SPEC-SEC-2 allowlist (2026-07-13): each of
+// these resolves the caller's bank/role AND compares it against the target
+// deal before any supabaseAdmin() call is reached, same contract as
+// assertDealAccess/withDealAccess — the guard just didn't know their names.
+const OTHER_ACCESS_FUNCTIONS = [
+  "ensureDealBankAccess(",
+  "requireDealAccess(", // @/lib/auth/requireDealAccess and @/lib/server/authz — both throw/redirect on mismatch
+  "requireDealCockpitAccess(",
+  "requireUnderwriterOnDeal(",
+  "requireAnyParticipant(",
+  "getUserRoleOnDeal(",
+];
 
 function walkRouteFiles(dir) {
   const out = [];
@@ -55,6 +69,9 @@ function relId(absFile) {
 // Does this route file satisfy the access contract on its own merits?
 function isProtected(content) {
   if (content.includes("assertDealAccess(") || content.includes("withDealAccess(")) {
+    return true;
+  }
+  if (OTHER_ACCESS_FUNCTIONS.some((fn) => content.includes(fn))) {
     return true;
   }
   if (content.includes("// route-class: BORROWER_TOKEN")) {

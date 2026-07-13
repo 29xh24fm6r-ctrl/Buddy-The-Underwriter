@@ -39,6 +39,15 @@ import {
  * Phrases that indicate the artifact is incomplete and must NOT render to
  * committee. The check is case-insensitive substring match against any string
  * value reached by deep traversal of the snapshot.
+ *
+ * Deliberately NOT included: generic words like "unavailable" / "not
+ * available" on their own — those collide with legitimate memo content (e.g.
+ * the credit-elsewhere-test boilerplate "Credit is not available from
+ * conventional sources at equivalent terms"). Only exact system-generated
+ * fallback strings are listed here; broader "is this field missing" coverage
+ * is the warning marker check below plus per-section completeness checks in
+ * sectionBuilders.ts, not a blanket keyword ban that could make a memo with
+ * legitimate content permanently uncertifiable.
  */
 const FORBIDDEN_PLACEHOLDER_PHRASES = [
   "pending",
@@ -46,7 +55,22 @@ const FORBIDDEN_PLACEHOLDER_PHRASES = [
   "generating",
   "unable to compute",
   "conclusion pending",
+  // Exact fallback used by assembleNarratives() when AI narrative generation
+  // fails (see FALLBACK_NARRATIVES in narrativeAssembly.ts) — narrower than
+  // "unavailable" alone so it can't collide with legitimate content.
+  "narrative generation unavailable",
 ] as const;
+
+/**
+ * The system marks every one of its own "missing data" fallback strings with
+ * a leading warning-triangle character (renderValue()'s committee-mode
+ * fallback, the "Executive summary not yet generated" default, etc.) — no
+ * legitimate analyst-written narrative would ever contain this character.
+ * Checking for it directly is far more robust than trying to enumerate every
+ * possible fallback sentence, and it catches fallback text regardless of
+ * which field it appears in.
+ */
+const WARNING_MARKER = "⚠";
 
 /**
  * Standalone em-dash / dash placeholder values. Used by formatters when data
@@ -61,6 +85,7 @@ function isStandalonePlaceholder(value: string): boolean {
 }
 
 function isForbiddenPhrase(value: string): boolean {
+  if (value.includes(WARNING_MARKER)) return true;
   const lower = value.toLowerCase();
   for (const phrase of FORBIDDEN_PLACEHOLDER_PHRASES) {
     if (lower.includes(phrase)) return true;
@@ -119,9 +144,13 @@ function isArLineOfCreditMemo(snapshot: FloridaArmoryMemoSnapshot): boolean {
   const lower = haystacks.join(" ").toLowerCase();
   if (lower.length === 0) return false;
   // Match any of: "ar loc", "accounts receivable line", "a/r line",
-  // "asset-based loc", "asset based loc", "line of credit secured by ar".
-  if (/\b(a\/?r|accounts\s+receivable)[^\n]{0,80}(loc|line\s+of\s+credit)/.test(lower))
+  // "asset-based loc", "asset based loc", "line of credit secured by ar",
+  // "receivables-backed/secured line of credit" (a plausible real-world
+  // product/purpose phrasing the original regexes missed entirely, letting
+  // an AR-secured deal skip the AR-specific completeness requirement below).
+  if (/\b(a\/?r|accounts\s+receivable|receivables?)[^\n]{0,80}(loc|line\s+of\s+credit)/.test(lower))
     return true;
+  if (/receivables?[-\s](backed|secured)/.test(lower)) return true;
   if (/\b(loc|line\s+of\s+credit)[^\n]{0,80}(a\/?r|accounts\s+receivable)/.test(lower))
     return true;
   if (/asset[-\s]based[^\n]{0,40}(loc|line\s+of\s+credit)/.test(lower)) return true;

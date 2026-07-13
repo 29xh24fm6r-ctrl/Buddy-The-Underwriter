@@ -1,3 +1,5 @@
+// route-class: WORKER (called by the Fly.io gateway, not a browser — gated
+// by the x-gateway-secret header check below, not a deal/tenant access call)
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveDealGap } from "@/lib/gapEngine/resolveDealGap";

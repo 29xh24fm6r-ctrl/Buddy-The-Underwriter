@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 type TimelineEvent = {
   event_key: string;
@@ -40,6 +42,8 @@ export async function GET(
       return NextResponse.json({ ok: false, error: "dealId required" }, { status: 400 });
     }
 
+    await assertDealAccess(dealId);
+
     const sb = supabaseAdmin();
 
     // Fetch recent pipeline events
@@ -75,6 +79,8 @@ export async function GET(
       events: chronological,
     });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes as NextResponse<TimelineResponse>;
     console.error("[timeline] Unexpected error:", e);
     return NextResponse.json(
       {

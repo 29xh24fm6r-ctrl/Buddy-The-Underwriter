@@ -11,6 +11,8 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +29,7 @@ export async function POST(req: NextRequest, ctx: Context) {
     }
 
     const { dealId, artifactId } = await ctx.params;
+    await assertDealAccess(dealId);
     const bankId = await getCurrentBankId();
     const sb = supabaseAdmin();
 
@@ -75,6 +78,8 @@ export async function POST(req: NextRequest, ctx: Context) {
 
     return NextResponse.json({ ok: true, artifact_id: artifactId });
   } catch (error: any) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("[artifacts/requeue] error", error);
     return NextResponse.json(
       { ok: false, error: error?.message || "Internal server error" },

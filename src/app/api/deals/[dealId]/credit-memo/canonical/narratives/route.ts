@@ -47,6 +47,6 @@ export async function POST(
     rethrowNextErrors(e);
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[credit-memo/canonical/narratives POST]", msg);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "internal_error" }, { status: 500 });
   }
 }

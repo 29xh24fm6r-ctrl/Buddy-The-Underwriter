@@ -19,6 +19,7 @@
 
 import "server-only";
 
+import * as Sentry from "@sentry/nextjs";
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
@@ -177,6 +178,24 @@ export async function submitCreditMemoToUnderwriting(
       e instanceof FloridaArmoryBuildError
         ? `florida_armory:${e.code}:${e.missingFields.join(",")}`
         : String(e);
+
+    // This is the assertCommitteeMemoSafe() gate refusing to certify the
+    // memo at submission time — should be rare (the readiness contract
+    // above already passed), so treat every occurrence as worth surfacing,
+    // not routine submission-blocked feedback like readiness_failed above.
+    Sentry.captureMessage("credit memo submission rejected by committee-safety guard", {
+      level: "error",
+      tags: { route: "submitCreditMemoToUnderwriting", rejection_source: "assertCommitteeMemoSafe" },
+      extra: { dealId: args.dealId, bankerId: args.bankerId, error: message },
+    });
+    void writeEvent({
+      dealId: args.dealId,
+      kind: LedgerEventType.committee_artifact_rejected,
+      actorUserId: args.bankerId,
+      input: { trigger: "banker_memo_submitted", rejection_source: "assertCommitteeMemoSafe" },
+      output: { error: message },
+    }).catch(() => {});
+
     return {
       ok: false,
       reason: "persist_failed",
@@ -224,12 +243,68 @@ export async function submitCreditMemoToUnderwriting(
     .single();
 
   if (insertRes.error || !insertRes.data) {
+    const dbError = insertRes.error?.message ?? "unknown";
+    // credit_memo_snapshots_enforce_certification_safety() (the DB-level
+    // backstop trigger — see supabase/migrations/20260713*) raises exceptions
+    // prefixed "credit_memo_snapshots:". Since the application layer already
+    // ran assertCommitteeMemoSafe() successfully above (buildMemoOutput did
+    // not throw), a rejection here means the JS and DB checks have DRIFTED
+    // OUT OF SYNC — the DB caught something the JS guard missed. That's a
+    // real bug in this defense-in-depth pair, not routine submission noise.
+    const isTriggerRejection = dbError.startsWith("credit_memo_snapshots:");
+    if (isTriggerRejection) {
+      Sentry.captureMessage("credit memo submission rejected by DB certification-safety trigger", {
+        level: "fatal",
+        tags: { route: "submitCreditMemoToUnderwriting", rejection_source: "db_trigger" },
+        extra: { dealId: args.dealId, bankerId: args.bankerId, snapshotId, error: dbError },
+      });
+      void writeEvent({
+        dealId: args.dealId,
+        kind: LedgerEventType.committee_artifact_rejected,
+        actorUserId: args.bankerId,
+        input: { trigger: "banker_memo_submitted", rejection_source: "db_trigger", snapshotId },
+        output: { error: dbError },
+      }).catch(() => {});
+    }
     return {
       ok: false,
       reason: "persist_failed",
       readiness,
-      error: insertRes.error?.message ?? "unknown",
+      error: dbError,
     };
+  }
+
+  // Supersede any prior not-yet-decided snapshot for this deal. Without this,
+  // resubmitting before an underwriter decides leaves two rows both "live"
+  // (e.g. two banker_submitted rows) — an underwriter acting on a stale
+  // snapshotId reference could approve/decline the superseded version while
+  // the new one sits untouched. 'finalized' (already decided) and
+  // 'superseded' rows are left alone; only the still-in-flight statuses are
+  // superseded by the version that was just inserted. Best-effort: a failure
+  // here must not orphan/fail the submission that already succeeded above.
+  try {
+    const { error: supersedeErr } = await sb
+      .from("credit_memo_snapshots")
+      .update({
+        status: "superseded",
+        superseded_by: snapshotId,
+        superseded_at: submittedAt,
+      })
+      .eq("deal_id", args.dealId)
+      .neq("id", snapshotId)
+      .in("status", ["banker_submitted", "underwriter_review", "returned"]);
+
+    if (supersedeErr) {
+      console.warn(
+        "[submitCreditMemoToUnderwriting] failed to supersede prior snapshot(s)",
+        { dealId: args.dealId, snapshotId, error: supersedeErr.message },
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[submitCreditMemoToUnderwriting] supersede prior snapshot(s) threw",
+      { dealId: args.dealId, snapshotId, error: String(e) },
+    );
   }
 
   // SPEC-FLOW-V1 PR3 — emit canonical lifecycle event for the submission.

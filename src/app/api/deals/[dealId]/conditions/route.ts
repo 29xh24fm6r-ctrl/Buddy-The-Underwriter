@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -23,6 +25,7 @@ export async function GET(
 ) {
   const { dealId } = await ctx.params;
   try {
+    await assertDealAccess(dealId);
     // Fetch conditions
     const supabase = supabaseAdmin();
     const { data, error } = await (supabase as any)
@@ -41,6 +44,8 @@ export async function GET(
 
     return NextResponse.json({ ok: true, conditions: data ?? [] });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     rethrowNextErrors(err);
 
     const msg = String(err?.message ?? err);

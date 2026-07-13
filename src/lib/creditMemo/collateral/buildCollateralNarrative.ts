@@ -21,10 +21,47 @@ export type ArBorrowingBaseInput = {
   borrowing_base_availability: number | null;
 };
 
+export type CollateralItemInput = {
+  description: string | null;
+  address: string | null;
+  collateral_type: string | null;
+  estimated_value: number | null;
+  market_value: number | null;
+};
+
 function fmt$(val: number): string {
   if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}MM`;
   if (val >= 1_000) return `$${Math.round(val / 1_000)}K`;
   return `$${val.toFixed(0)}`;
+}
+
+/**
+ * Builds a collateral narrative from itemized deal_collateral_items rows.
+ * Returns null when there are no items with an actual description or value
+ * (i.e. nothing worth naming — falls through to the next source).
+ */
+export function buildItemCollateralNarrative(
+  items: CollateralItemInput[] | null | undefined,
+): string | null {
+  if (!items || items.length === 0) return null;
+
+  const parts: string[] = [];
+  for (const item of items) {
+    const label = item.description?.trim() || item.collateral_type?.trim() || null;
+    const value = item.market_value ?? item.estimated_value;
+    if (!label && value === null) continue;
+    const addr = item.address?.trim() ? ` (${item.address.trim()})` : "";
+    if (label && value !== null) {
+      parts.push(`${label}${addr} valued at ${fmt$(value)}`);
+    } else if (label) {
+      parts.push(`${label}${addr}`);
+    } else if (value !== null) {
+      parts.push(`collateral item${addr} valued at ${fmt$(value)}`);
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return `The facility is secured by ${parts.join("; ")}.`;
 }
 
 /**
@@ -67,15 +104,19 @@ export function buildArCollateralNarrative(
 }
 
 /**
- * Returns the collateral property description, respecting source priority.
- * For AR LOC deals, builds from AR data and ignores legacy overrides.
+ * Returns the collateral property description, respecting source priority:
+ *   1. AR borrowing base (AR LOC deals)
+ *   2. Itemized deal_collateral_items
+ *   3. Legacy deal_memo_overrides.collateral_description
+ *   4. Pending
  */
 export function resolveCollateralDescription(args: {
   arBorrowingBase: ArBorrowingBaseInput | null;
   loanAmount: number | null;
   legacyOverrideDescription: string | null;
   isArLocDeal: boolean;
-}): { description: string; source: "ar_borrowing_base" | "legacy_override" | "pending" } {
+  collateralItems?: CollateralItemInput[] | null;
+}): { description: string; source: "ar_borrowing_base" | "collateral_items" | "legacy_override" | "pending" } {
   // For AR LOC deals, always prefer AR narrative
   if (args.isArLocDeal && args.arBorrowingBase) {
     const arNarrative = buildArCollateralNarrative(args.arBorrowingBase, args.loanAmount);
@@ -84,7 +125,15 @@ export function resolveCollateralDescription(args: {
     }
   }
 
-  // Non-AR or insufficient AR data: allow legacy fallback
+  // Itemized collateral (banker-entered canonical store) takes priority over
+  // the legacy narrative override — it must never disagree with the itemized
+  // table/total values rendered elsewhere in the same memo.
+  const itemNarrative = buildItemCollateralNarrative(args.collateralItems);
+  if (itemNarrative) {
+    return { description: itemNarrative, source: "collateral_items" };
+  }
+
+  // Non-AR or insufficient AR/item data: allow legacy fallback
   if (args.legacyOverrideDescription && args.legacyOverrideDescription.trim().length > 0) {
     return { description: args.legacyOverrideDescription, source: "legacy_override" };
   }

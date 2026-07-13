@@ -271,11 +271,16 @@ export async function assembleNarratives(args: {
   // Check cache — wrapped defensively in case table schema differs.
   // Phase 92: the input hash now incorporates stress/qualitative/trend
   // fields, so pre-92 cache rows miss automatically and regenerate.
-  // SPEC-CREDIT-MEMO-AUDIT-1 Bug 4: cache lookup by deal+bank (most recent),
-  // NOT by input_hash. The hash changes on every memo recompute because it
-  // includes timestamps — so hash-based lookup almost never hits. Manual-seeded
-  // rows also have a fixed hash that never matches the computed one.
-  // Use input_hash only for deduplication on insert, not as lookup key.
+  // SPEC-CREDIT-MEMO-AUDIT-1 Bug 4 originally relaxed this to "most recent
+  // by deal+bank, regardless of hash" because hash-exact lookups almost
+  // never hit. That traded correctness for a cache-hit rate: after a fact
+  // correction (e.g. a corrected DSCR/revenue figure), the most-recent row
+  // is the STALE narrative computed from the pre-correction inputs, and it
+  // would be served next to a memo body that already reflects the new
+  // numbers. A stale AI narrative in a bank committee memo is worse than a
+  // cache miss, so the lookup must be exact-hash: any input change (which a
+  // fact correction always causes, since the hash is a checksum of every
+  // narrative-relevant field) forces regeneration instead of reusing stale text.
   if (!args.forceRegenerate) {
     try {
       const { data: cached, error: cacheErr } = await (sb as any)
@@ -283,6 +288,7 @@ export async function assembleNarratives(args: {
         .select("narratives")
         .eq("deal_id", memo.deal_id)
         .eq("bank_id", memo.bank_id)
+        .eq("input_hash", inputHash)
         .order("generated_at", { ascending: false })
         .limit(1)
         .maybeSingle();

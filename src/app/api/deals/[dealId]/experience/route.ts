@@ -7,6 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -18,6 +20,16 @@ type Ctx = { params: Promise<{ dealId: string }> };
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const { dealId } = await ctx.params;
+  try {
+    await assertDealAccess(dealId);
+  } catch (err) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
+    return NextResponse.json(
+      { ok: false, error: "access_check_failed" },
+      { status: 500 },
+    );
+  }
   const sb = supabaseAdmin();
 
   const [changesRes, actionsRes, trustRes, handoffsRes, signalsRes] = await Promise.all([

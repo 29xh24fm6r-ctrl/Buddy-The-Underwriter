@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createSignedDownloadUrl } from "@/lib/storage/adminStorage";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -14,6 +16,7 @@ export async function GET(
 ) {
   try {
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const { data, error } = (await supabaseAdmin()
       .from("filled_bank_documents")
       .select("*")
@@ -36,6 +39,8 @@ export async function GET(
 
     return NextResponse.json({ ok: true, documents: withUrls });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? String(err) },
       { status: 500 },

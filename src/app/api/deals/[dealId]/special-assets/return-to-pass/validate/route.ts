@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { validateResolution } from "@/core/special-assets-fusion/validateResolution";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 
@@ -19,6 +21,8 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
+
+    await assertDealAccess(dealId);
 
     const { userId } = await clerkAuth();
     if (!userId) {
@@ -69,6 +73,8 @@ export async function POST(
 
     return NextResponse.json({ ok: true, valid: result.valid, blockers: result.blockers });
   } catch (e: unknown) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }

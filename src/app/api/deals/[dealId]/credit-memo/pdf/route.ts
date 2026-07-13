@@ -1,8 +1,10 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { buildDealIntelligence } from "@/lib/dealIntelligence/buildDealIntelligence";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { loadLatestCertifiedFloridaArmorySnapshot } from "@/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -18,7 +20,13 @@ function renderCreditMemoPdf(intel: Awaited<ReturnType<typeof buildDealIntellige
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.fontSize(20).text("Credit Memo Draft — AI v1", { align: "center" });
+    doc.fontSize(20).text("Informal AI Deal Summary — Working Draft", { align: "center" });
+    doc.moveDown(0.25);
+    doc.fontSize(9).fillColor("#b45309").text(
+      "This is NOT the official credit memo. It is an early-stage AI summary for internal working reference only, generated before a canonical credit memo exists for this deal.",
+      { align: "center" },
+    );
+    doc.fillColor("black");
     doc.moveDown();
     doc.fontSize(10);
     doc.text(`Deal: ${intel.deal.id}`);
@@ -85,8 +93,33 @@ function renderCreditMemoPdf(intel: Awaited<ReturnType<typeof buildDealIntellige
   });
 }
 
-export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   const { dealId } = await ctx.params;
+
+  // This route had no tenant-ownership check at all — any authenticated (or
+  // even unauthenticated, depending on middleware) caller who knew/guessed a
+  // dealId could pull another bank's deal intelligence. Same class of gap
+  // fixed on the citations/geometry/generate routes earlier.
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    const status = access.error === "unauthorized" ? 401 : 403;
+    return NextResponse.json({ ok: false, error: access.error }, { status });
+  }
+
+  // Prefer the real thing: once a certified Florida Armory memo exists for
+  // this deal, this route's informal AI summary is superseded by it — redirect
+  // there instead of serving a document a reader could mistake for the
+  // official, committee-safety-checked credit memo.
+  const certified = await loadLatestCertifiedFloridaArmorySnapshot({
+    dealId,
+    bankId: access.bankId,
+  });
+  if (certified.ok) {
+    return NextResponse.redirect(
+      new URL(`/api/deals/${dealId}/credit-memo/canonical/pdf`, req.nextUrl.origin),
+      307,
+    );
+  }
 
   // Phase 81: Trust enforcement — block committee-looking PDFs for non-committee research
   const { loadAndEnforceResearchTrust } = await import("@/lib/research/trustEnforcement");
@@ -105,7 +138,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ dealId: string }>
     status: 200,
     headers: {
       "content-type": "application/pdf",
-      "content-disposition": `inline; filename="credit-memo-${dealId}.pdf"`,
+      "content-disposition": `inline; filename="ai-deal-summary-draft-${dealId}.pdf"`,
     },
   });
 }

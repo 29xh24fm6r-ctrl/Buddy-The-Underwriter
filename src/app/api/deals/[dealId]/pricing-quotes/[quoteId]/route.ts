@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 /**
  * PATCH /api/deals/[dealId]/pricing-quotes/[quoteId]
@@ -12,6 +14,7 @@ export async function PATCH(
 ) {
   try {
     const { dealId, quoteId } = await ctx.params;
+    await assertDealAccess(dealId);
     const body = await req.json();
     const { quote, assumptions, status } = body;
 
@@ -44,6 +47,8 @@ export async function PATCH(
 
     return NextResponse.json({ pricing_quote: updated });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("Error updating pricing quote:", error);
     return NextResponse.json(
       { error: "Internal server error" },
@@ -63,6 +68,7 @@ export async function GET(
 ) {
   try {
     const { dealId, quoteId } = await ctx.params;
+    await assertDealAccess(dealId);
     const supabase = supabaseAdmin();
     const { data: quote, error } = await supabase
       .from("pricing_quotes")
@@ -80,6 +86,8 @@ export async function GET(
 
     return NextResponse.json({ pricing_quote: quote });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("Error fetching pricing quote:", error);
     return NextResponse.json(
       { error: "Internal server error" },

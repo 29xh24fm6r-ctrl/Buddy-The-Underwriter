@@ -75,7 +75,12 @@ function buildMemoFixture(opts: {
       debt_yield: { value: 0.12, source: "Snapshot", updated_at: null },
       working_capital: { value: 90_000, source: "Snapshot", updated_at: null },
       debt_coverage_table: [],
-      income_statement_table: [],
+      // Populated regardless of product type — this fixture is not testing
+      // the CRE income-statement exemption, so give it real data rather than
+      // couple every test case here to deal_classification.is_cre_deal.
+      income_statement_table: [
+        { label: "FY2025", period_end: "2025-12-31", months: 12, revenue: 2_500_000, net_income: 180_000 },
+      ],
       ratio_analysis: [],
       breakeven: { narrative: "Sufficient revenue cushion." },
       repayment_notes: [],
@@ -283,13 +288,28 @@ test("[caf-9] rejects when recommendation says DSCR missing while DSCR exists", 
 // ─── 10. Rejects AR LOC memo lacking borrowing base analysis ───────────────
 
 test("[caf-10] rejects AR LOC memo lacking borrowing-base / AR aging / eligible AR", () => {
-  const snap = buildCleanSnapshot({
-    product: "AR_LOC",
-    proposedProduct: "AR_LOC",
-    purpose: "Provide AR line of credit for working capital",
-    includeBorrowingBaseAnalysis: false,
-  });
-  expectUnsafe(snap, "ar_loc_missing_borrowing_base_analysis");
+  // buildFloridaArmorySnapshot now runs the same assertCommitteeMemoSafe
+  // guard at build/certification time (not just later at PDF export), so
+  // constructing this deliberately-unsafe fixture throws directly instead of
+  // needing a separate assertCommitteeMemoSafe(snap) call afterward.
+  let thrown: unknown;
+  try {
+    buildCleanSnapshot({
+      product: "AR_LOC",
+      proposedProduct: "AR_LOC",
+      purpose: "Provide AR line of credit for working capital",
+      includeBorrowingBaseAnalysis: false,
+    });
+  } catch (err) {
+    thrown = err;
+  }
+  assert.ok(thrown instanceof FloridaArmoryBuildError, "expected FloridaArmoryBuildError");
+  const err = thrown as FloridaArmoryBuildError;
+  assert.equal(err.code, "committee_artifact_unsafe");
+  assert.ok(
+    err.missingFields.some((f) => f.includes("ar_loc_missing_borrowing_base_analysis")),
+    `expected ar_loc_missing_borrowing_base_analysis in ${JSON.stringify(err.missingFields)}`,
+  );
 });
 
 test("[caf-10b] accepts AR LOC memo that includes borrowing base + AR aging + eligible AR", () => {

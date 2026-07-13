@@ -136,7 +136,7 @@ export async function buildMemoInputPackage(
   // existence inside the transaction), so re-entering this block on a
   // racing build is safe.
   let borrowerStory = await loadBorrowerStory(sb, args.dealId, bankId);
-  if (borrowerStory === null) {
+  if (borrowerStoryMissingMigratableFields(borrowerStory)) {
     const legacy = await loadBankerOverrides(sb, args.dealId, bankId);
     if (Object.keys(legacy).length > 0) {
       // SPEC-13.5 A-3: capture migration result + emit telemetry on every
@@ -227,7 +227,7 @@ export async function buildMemoInputPackage(
     loadAllFactConflicts({ dealId: args.dealId, bankId }),
     loadBankerOverrides(sb, args.dealId, bankId),
     loadUnfinalizedRequiredDocCount(sb, args.dealId, bankId),
-    loadPolicyExceptionsReviewed(sb, args.dealId, bankId),
+    loadPolicyExceptionsReviewed(sb, args.dealId),
     // SPEC-FINANCIALS-BEFORE-GCF-SEQUENCING-1: canonical GCF prerequisite state
     // so memo readiness routes missing GCF/DSCR to the earliest unresolved
     // upstream step rather than a premature GCF compute.
@@ -280,6 +280,29 @@ export async function buildMemoInputPackage(
 }
 
 // ─── Loaders ─────────────────────────────────────────────────────────────────
+
+// Fields migrateLegacyOverridesToCanonical can populate from legacy
+// deal_memo_overrides JSON. A deal_borrower_story row can exist with only
+// unrelated fields set (e.g. naics_code from a classification tool) while
+// all of these remain empty — gating migration on "row exists at all" would
+// leave that legacy content permanently unmigrated.
+const LEGACY_MIGRATABLE_BORROWER_STORY_FIELDS = [
+  "business_description",
+  "revenue_model",
+  "seasonality",
+  "key_risks",
+  "banker_notes",
+] as const;
+
+function borrowerStoryMissingMigratableFields(
+  story: DealBorrowerStory | null,
+): boolean {
+  if (!story) return true;
+  return LEGACY_MIGRATABLE_BORROWER_STORY_FIELDS.some((field) => {
+    const value = (story as unknown as Record<string, unknown>)[field];
+    return typeof value !== "string" || value.trim().length === 0;
+  });
+}
 
 async function loadBorrowerStory(
   sb: ReturnType<typeof supabaseAdmin>,
@@ -513,18 +536,21 @@ async function loadUnfinalizedRequiredDocCount(
 async function loadPolicyExceptionsReviewed(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
-  bankId: string,
 ): Promise<boolean> {
   // Open exceptions block submission. If table absent or query fails, we
   // treat the gate as satisfied (warning-only behavior — banker can still
   // review exceptions in the dedicated UI).
+  // NOTE: this previously queried a nonexistent "policy_exceptions" table
+  // (the real table is deal_policy_exceptions, which has no bank_id column),
+  // so the query always failed and this always returned true — the hard
+  // "open policy exceptions" blocker could never fire.
   try {
-    const { count } = await (sb as any)
-      .from("policy_exceptions")
+    const { count, error } = await (sb as any)
+      .from("deal_policy_exceptions")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
-      .eq("bank_id", bankId)
       .eq("status", "open");
+    if (error) throw error;
     return (count ?? 0) === 0;
   } catch {
     return true;

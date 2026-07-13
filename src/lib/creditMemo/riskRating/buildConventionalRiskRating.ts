@@ -177,15 +177,21 @@ export function buildConventionalRiskRating(
   else { qualScore += 0; }
 
   // Industry/margin (0-8)
-  if (input.grossMarginPct !== null && input.grossMarginPct >= 0.30) {
+  if (input.grossMarginPct === null) {
+    // Missing data must never be scored/labeled the same as a verified thin
+    // margin — that would mislabel a data gap as a real credit weakness (or
+    // mask one, if a reviewer assumes "thin margin" was actually confirmed).
+    drivers.push({ factor: "Margins", impact: "negative", detail: "Gross margin not computed — material data gap" });
+    bridge.push({ category: "Margins", assessment: "Margin data unavailable", impact: "negative" });
+  } else if (input.grossMarginPct >= 0.30) {
     qualScore += 8;
-  } else if (input.grossMarginPct !== null && input.grossMarginPct >= 0.15) {
+  } else if (input.grossMarginPct >= 0.15) {
     qualScore += 4;
     drivers.push({ factor: "Margins", impact: "negative", detail: `Gross margin ${(input.grossMarginPct * 100).toFixed(1)}% — below peer benchmark` });
     bridge.push({ category: "Margins", assessment: "Below peer benchmark", impact: "negative" });
   } else {
     qualScore += 1;
-    drivers.push({ factor: "Margins", impact: "negative", detail: "Thin gross margin — sensitivity to input costs" });
+    drivers.push({ factor: "Margins", impact: "negative", detail: `Gross margin ${(input.grossMarginPct * 100).toFixed(1)}% — thin, elevated sensitivity to input costs` });
     bridge.push({ category: "Margins", assessment: "Thin — elevated sensitivity", impact: "negative" });
   }
 

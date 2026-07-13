@@ -44,11 +44,17 @@ export async function loadLatestCertifiedFloridaArmorySnapshot(args: {
   const sb = supabaseAdmin();
   let row: { memo_output_json: unknown } | null = null;
   try {
+    // Any status from "certified/frozen" onward is still the source of truth
+    // for committee-facing artifacts — not just banker_submitted. Once an
+    // underwriter picks up (underwriter_review), returns it (returned), or
+    // decides it (finalized), the certified snapshot must still be loadable
+    // for PDF/export; only draft/banker_review (not yet certified) and
+    // superseded (replaced by a newer memo_version) are excluded.
     const res = await (sb as unknown as {
       from: (t: string) => {
         select: (cols: string) => {
           eq: (col: string, val: string) => {
-            eq: (col: string, val: string) => {
+            in: (col: string, vals: string[]) => {
               order: (
                 col: string,
                 opts: { ascending: boolean },
@@ -73,7 +79,7 @@ export async function loadLatestCertifiedFloridaArmorySnapshot(args: {
       .from("credit_memo_snapshots")
       .select("memo_output_json")
       .eq("deal_id", dealId)
-      .eq("status", "banker_submitted")
+      .in("status", ["banker_submitted", "underwriter_review", "returned", "finalized"])
       .order("memo_version", { ascending: false })
       .order("submitted_at", { ascending: false })
       .limit(1)

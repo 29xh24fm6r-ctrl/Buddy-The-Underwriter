@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import type { PdfEvidenceSpan } from "@/lib/evidence/pdfSpans";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -22,6 +24,16 @@ export async function GET(
 ) {
 
   const { dealId, documentId } = await ctx.params;
+  try {
+    await assertDealAccess(dealId);
+  } catch (err) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
+    return NextResponse.json(
+      { ok: false, error: "access_check_failed" },
+      { status: 500 },
+    );
+  }
   const attachmentId = documentId;
   const sb = supabaseAdmin();
 

@@ -5,6 +5,8 @@ import { getBorrowerPlaybookForStage } from "@/lib/deals/playbook";
 import { computeChecklistHighlight } from "@/lib/borrower/highlightChecklist";
 import { isDemoMode, demoState } from "@/lib/demo/demoMode";
 import { mockTimelineData } from "@/lib/demo/mocks";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -85,6 +87,7 @@ export async function GET(
     }
 
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const sb = supabaseAdmin();
 
     // Check if this is a simple timeline request (for CinematicTimeline)
@@ -148,6 +151,8 @@ export async function GET(
       events: mappedEvents,
     });
   } catch (e: any) {
+    const accessRes = accessErrorToResponse(e);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: e?.message ?? "Unknown error" },
       { status: 400 },

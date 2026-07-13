@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { normalizeRiskFacts } from "@/lib/risk/normalizeRiskFacts";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 /**
  * POST /api/deals/[dealId]/risk-facts/generate
@@ -14,6 +16,7 @@ export async function POST(
   try {
     const params = await ctx.params;
     const { dealId } = await ctx.params;
+    await assertDealAccess(dealId);
     const body = await req.json();
     const { snapshotId } = body;
 
@@ -93,6 +96,8 @@ export async function POST(
       cached: false,
     });
   } catch (error) {
+    const accessRes = accessErrorToResponse(error);
+    if (accessRes) return accessRes;
     console.error("Error generating risk facts:", error);
     return NextResponse.json(
       { error: "Internal server error" },

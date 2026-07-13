@@ -16,7 +16,7 @@ export default async function CreditMemoDraftPage({ params }: Props) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h1 className="text-2xl font-bold text-neutral-900">Credit Memo Draft</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">Informal AI Deal Summary</h1>
           <p className="mt-2 text-sm text-neutral-600">
             Underwriting is not available until intake is complete.
           </p>
@@ -64,7 +64,7 @@ export default async function CreditMemoDraftPage({ params }: Props) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <div className="rounded-xl border border-neutral-200 bg-white p-6">
-          <h1 className="text-2xl font-bold text-neutral-900">Credit Memo Draft</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">Informal AI Deal Summary</h1>
           <p className="mt-2 text-sm text-neutral-600">
             {unauthorized
               ? "You don’t have access to this deal."
@@ -98,8 +98,10 @@ export default async function CreditMemoDraftPage({ params }: Props) {
     <div className="mx-auto w-full max-w-5xl px-6 py-8 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-2">
-          <div className="text-xs text-neutral-500">AI Draft — v1</div>
-          <h1 className="text-2xl font-bold text-neutral-900">Credit Memo Draft</h1>
+          <div className="text-xs text-amber-600 font-semibold">
+            Not the official credit memo — working reference only
+          </div>
+          <h1 className="text-2xl font-bold text-neutral-900">Informal AI Deal Summary</h1>
           <DealNameInlineEditor
             dealId={intelligence.deal.id}
             displayName={intelligence.deal.display_name ?? null}
@@ -110,12 +112,18 @@ export default async function CreditMemoDraftPage({ params }: Props) {
           <div className="text-sm text-neutral-500">Deal {intelligence.deal.id}</div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/credit-memo/${params.dealId}/canonical`}
+            className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:bg-neutral-800"
+          >
+            Go to Credit Memo
+          </Link>
           <CopyToClipboardButton label="Copy as Markdown" text={markdown} />
           <a
             href={`/api/deals/${params.dealId}/credit-memo/pdf`}
             className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-900 hover:bg-neutral-50"
           >
-            Export PDF
+            Export Draft PDF
           </a>
         </div>
       </div>

@@ -30,11 +30,21 @@ export type LegacyTransformInput = {
   overrides: LegacyOverrideMap;
   ownershipEntities: OwnershipEntityLite[];
   /**
-   * When true, the transform reports "skipped" for borrower-story writes.
-   * The async wrapper sets this when an existing row is detected, so the
-   * idempotency rule lives in one place.
+   * Borrower-story fields (business_description, revenue_model, seasonality,
+   * key_risks, banker_notes) that already have a non-empty value in the
+   * existing deal_borrower_story row. Empty set means no row exists yet, or
+   * the row exists but none of these fields are populated.
+   *
+   * This is per-field rather than a single "row exists" boolean: a row can
+   * already exist with only unrelated fields populated (e.g. naics_code set
+   * by a separate classification tool) while business_description/etc. are
+   * still empty. Gating the whole migration on row existence would leave
+   * that legacy content stuck forever — never migrated because a row
+   * technically exists, but also never manually re-entered because the
+   * banker doesn't know it's missing. Only fields already populated are
+   * skipped; anything still empty is still eligible to migrate.
    */
-  borrowerStoryAlreadyExists: boolean;
+  existingBorrowerStoryFields: ReadonlySet<string>;
 };
 
 export type BorrowerStoryWrite = {
@@ -93,21 +103,24 @@ function asTrimmedString(value: unknown): string | null {
 export function transformLegacyOverrides(
   input: LegacyTransformInput,
 ): LegacyTransformResult {
-  const { overrides, ownershipEntities, borrowerStoryAlreadyExists } = input;
+  const { overrides, ownershipEntities, existingBorrowerStoryFields } = input;
 
-  if (borrowerStoryAlreadyExists) {
-    return {
-      borrowerStory: { kind: "skipped", reason: "borrower_story_exists" },
-      managementProfiles: [],
-    };
-  }
-
-  // Borrower-story patch.
-  const businessDescription = asTrimmedString(overrides.business_description);
-  const revenueModel = asTrimmedString(overrides.revenue_mix);
-  const seasonality = asTrimmedString(overrides.seasonality);
-  const competitiveAdvantages = asTrimmedString(overrides.competitive_advantages);
-  const bankerSummary = asTrimmedString(overrides.banker_summary);
+  // Borrower-story patch — only fields not already populated are eligible.
+  const businessDescription = existingBorrowerStoryFields.has("business_description")
+    ? null
+    : asTrimmedString(overrides.business_description);
+  const revenueModel = existingBorrowerStoryFields.has("revenue_model")
+    ? null
+    : asTrimmedString(overrides.revenue_mix);
+  const seasonality = existingBorrowerStoryFields.has("seasonality")
+    ? null
+    : asTrimmedString(overrides.seasonality);
+  const competitiveAdvantages = existingBorrowerStoryFields.has("key_risks")
+    ? null
+    : asTrimmedString(overrides.competitive_advantages);
+  const bankerSummary = existingBorrowerStoryFields.has("banker_notes")
+    ? null
+    : asTrimmedString(overrides.banker_summary);
 
   const patch: BorrowerStoryWrite["patch"] = {};
   if (businessDescription !== null) patch.business_description = businessDescription;
@@ -118,7 +131,10 @@ export function transformLegacyOverrides(
 
   const borrowerStory: LegacyTransformResult["borrowerStory"] =
     Object.keys(patch).length === 0
-      ? { kind: "skipped", reason: "no_useful_keys" }
+      ? {
+          kind: "skipped",
+          reason: existingBorrowerStoryFields.size > 0 ? "borrower_story_exists" : "no_useful_keys",
+        }
       : { kind: "write", write: { patch, source: "banker", confidence: 0.85 } };
 
   // Management-profile writes.

@@ -11,6 +11,27 @@ export const leverageRules: CommitteeRule = (inputs) => {
   const dealId = inputs.dealId;
   const m = inputs.metrics;
 
+  // Zero/negative EBITDA is the worst case for leverage — debt cannot be
+  // serviced from operating earnings at all. Skipping the debt/EBITDA check
+  // entirely here (as the ratio comparison below does) would silently drop
+  // the single worst leverage signal instead of flagging it.
+  if (m.total_liabilities !== null && m.ebitda_ttm !== null && m.ebitda_ttm <= 0) {
+    out.push({
+      code: "leverage_negative_ebitda",
+      domain: "leverage",
+      severity: "hard",
+      label: m.ebitda_ttm < 0 ? "Negative EBITDA — no operating earnings to service debt" : "Zero EBITDA — no operating earnings to service debt",
+      rationale: `EBITDA of $${Math.round(m.ebitda_ttm).toLocaleString()} against total liabilities of $${Math.round(m.total_liabilities).toLocaleString()} means debt/EBITDA leverage cannot be measured in the conventional sense — there is no operating cash flow to carry the debt load.`,
+      mitigant: "Document a credible path to positive EBITDA, or rely on collateral/guarantor support as primary repayment.",
+      fixPath: `/deals/${dealId}/spreads`,
+      source: {
+        metric: "ebitda_ttm",
+        value: m.ebitda_ttm,
+        threshold: 0,
+      },
+    });
+  }
+
   // Debt / EBITDA — preferred leverage measure when EBITDA available.
   if (m.total_liabilities !== null && m.ebitda_ttm !== null && m.ebitda_ttm > 0) {
     const ratio = m.total_liabilities / m.ebitda_ttm;

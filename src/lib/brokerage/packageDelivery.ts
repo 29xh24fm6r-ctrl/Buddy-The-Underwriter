@@ -42,8 +42,27 @@ export async function getLenderPackageAccess(accessId: string, lenderBankId: str
   return { ok: true, access: { accessId: String(a.id), dealId, listingId: String(a.listing_id), claimId: String(a.claim_id), lenderBankId: String(a.lender_bank_id), accessLevel: str(a.access_level) ?? "full", grantedAt: str(a.granted_at), dealSummary: { loanAmount: num(l?.loan_amount), program: str(l?.sba_program), termMonths: num(l?.term_months), score: num(l?.score), band: str(l?.band), state: str(l?.kfs?.state) }, manifest } };
 }
 
+// NOTE: nothing in the app currently calls this function — buildPackageManifest,
+// getBorrowerPackageStatus, and getLenderPackageAccess (above) are also unwired
+// to any route or UI surface today. Previously this returned a `deal`+`exp`
+// query-string URL with no signature at all, pointing at
+// /api/brokerage/package/signed/[resourceType], a route that has never
+// existed and was never called by anything. Fixed for "credit_memo" — the
+// real, working, session/lender-authenticated route now exists (see the
+// `kind === "credit_memo"` branch of
+// src/app/api/brokerage/deals/[dealId]/trident/download/[kind]/route.ts,
+// which renders on demand from the certified Florida Armory snapshot rather
+// than signing a pre-generated Storage file, since none exists — folded into
+// the existing trident download dispatcher rather than a new route.ts file
+// to stay under this repo's Vercel serverless-function slot budget). The
+// other resource types (business_plan, projections, feasibility, sba_forms)
+// already have real signed-URL wiring via that same dispatcher's other
+// kinds, EXCEPT sba_forms, which remains unwired — a separate, smaller gap.
 export async function createSignedPackageDownload(dealId: string, resourceType: string, _actor: { id: string; scope: string }, _sb: SB): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  return { ok: true, url: `/api/brokerage/package/signed/${encodeURIComponent(resourceType)}?deal=${dealId}&exp=${Date.now() + 900000}` };
+  if (resourceType === "credit_memo" || resourceType === "business_plan" || resourceType === "projections_pdf" || resourceType === "projections_xlsx" || resourceType === "feasibility") {
+    return { ok: true, url: `/api/brokerage/deals/${encodeURIComponent(dealId)}/trident/download/${encodeURIComponent(resourceType)}` };
+  }
+  return { ok: true, url: `/api/brokerage/package/signed/${encodeURIComponent(resourceType)}?deal=${dealId}` };
 }
 
 export async function auditPackageView(entry: PackageAuditEntry, sb: SB): Promise<void> { await sb.from("marketplace_audit_log").insert({ deal_id: entry.dealId, actor_bank_id: entry.actor, actor_scope: entry.actorScope, action: "package_view", metadata: entry.metadata ?? {}, created_at: new Date().toISOString() }); }

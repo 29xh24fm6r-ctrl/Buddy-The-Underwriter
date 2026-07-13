@@ -151,7 +151,16 @@ export function buildManagementPrincipals(args: BuildPrincipalsArgs): {
       const lastToken = tokens[tokens.length - 1];
       if (tokens.length > 0 && coveredLastTokens.has(lastToken)) {
         const match = coveredLastTokens.get(lastToken)!;
-        if (match.ownershipPct === (o.ownership_pct ?? null) || match.ownershipPct === 100) {
+        // A shared surname alone is not proof of the same person — two real
+        // co-owners (e.g. spouses, parent/child) can share a surname while
+        // both have no ownership_pct on file yet. Only treat this as the
+        // SAME person when there's a genuine matching ownership percentage
+        // (both non-null and equal), or the covered profile is already the
+        // 100% owner (nothing left for a distinct co-owner to hold).
+        if (
+          (match.ownershipPct !== null && match.ownershipPct === (o.ownership_pct ?? null)) ||
+          match.ownershipPct === 100
+        ) {
           aliasesDeduped.push(name);
           return false;
         }

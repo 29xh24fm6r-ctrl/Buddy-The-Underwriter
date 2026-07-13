@@ -189,8 +189,10 @@ export async function buildCreditMemoBindings(args: {
   // Sum personal debt service + living expenses across sponsors for the global section
   let totalPersonalDS = 0;
   let anyPersonalDS = false;
+  let missingPersonalDS = 0;
   let totalLiving = 0;
   let anyLiving = false;
+  let missingLiving = 0;
 
   for (const oid of sponsorIds) {
     const ds = facts.find(
@@ -200,6 +202,8 @@ export async function buildCreditMemoBindings(args: {
     if (ds?.fact_value_num != null) {
       totalPersonalDS += ds.fact_value_num;
       anyPersonalDS = true;
+    } else {
+      missingPersonalDS += 1;
     }
 
     const lv = facts.find(
@@ -209,9 +213,15 @@ export async function buildCreditMemoBindings(args: {
     if (lv?.fact_value_num != null) {
       totalLiving += lv.fact_value_num;
       anyLiving = true;
+    } else {
+      missingLiving += 1;
     }
   }
 
+  // A sponsor with no PFS fact row contributes nothing to the sum — that must
+  // never be presented as "this sponsor has zero obligations." When any
+  // sponsor is missing data, flag the total as partial in its provenance so
+  // it's visibly incomplete rather than silently understated.
   if (anyPersonalDS) {
     global.personalDebtService = totalPersonalDS;
     provenance.push({
@@ -219,7 +229,9 @@ export async function buildCreditMemoBindings(args: {
       factType: "PERSONAL_FINANCIAL_STATEMENT",
       factKey: "PFS_ANNUAL_DEBT_SERVICE",
       ownerType: "PERSONAL",
-      source: "Computed:SUM(PFS_ANNUAL_DEBT_SERVICE)",
+      source: missingPersonalDS > 0
+        ? `Computed:SUM(PFS_ANNUAL_DEBT_SERVICE) (PARTIAL — missing for ${missingPersonalDS} of ${sponsorIds.size} sponsor${sponsorIds.size === 1 ? "" : "s"})`
+        : "Computed:SUM(PFS_ANNUAL_DEBT_SERVICE)",
     });
   }
 
@@ -230,16 +242,21 @@ export async function buildCreditMemoBindings(args: {
       factType: "PERSONAL_FINANCIAL_STATEMENT",
       factKey: "PFS_LIVING_EXPENSES",
       ownerType: "PERSONAL",
-      source: "Computed:SUM(PFS_LIVING_EXPENSES)",
+      source: missingLiving > 0
+        ? `Computed:SUM(PFS_LIVING_EXPENSES) (PARTIAL — missing for ${missingLiving} of ${sponsorIds.size} sponsor${sponsorIds.size === 1 ? "" : "s"})`
+        : "Computed:SUM(PFS_LIVING_EXPENSES)",
     });
   }
 
   if (anyPersonalDS || anyLiving) {
     global.totalObligations = (global.personalDebtService ?? 0) + (global.livingExpenses ?? 0);
+    const anyMissing = missingPersonalDS > 0 || missingLiving > 0;
     provenance.push({
       memoField: "global.totalObligations",
       ownerType: "GLOBAL",
-      source: "Computed:PERSONAL_DS + LIVING_EXPENSES",
+      source: anyMissing
+        ? "Computed:PERSONAL_DS + LIVING_EXPENSES (PARTIAL — one or more sponsors missing PFS data)"
+        : "Computed:PERSONAL_DS + LIVING_EXPENSES",
     });
   }
 

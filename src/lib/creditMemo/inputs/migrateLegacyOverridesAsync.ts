@@ -40,16 +40,24 @@ export async function migrateLegacyOverridesToCanonical(
 ): Promise<MigrateLegacyOverridesResult> {
   const sb = supabaseAdmin();
 
-  // Idempotency check: if a borrower-story row already exists, the
-  // transform short-circuits to "skipped". The pure helper is told via
-  // borrowerStoryAlreadyExists.
+  // Per-field idempotency check: only fields that already have a non-empty
+  // value are excluded from migration. A row can exist with just naics_code
+  // set (by a separate classification tool) while business_description/etc.
+  // are still empty — gating on row existence alone would leave that legacy
+  // content permanently stuck.
   const { data: existing } = await (sb as any)
     .from("deal_borrower_story")
-    .select("id")
+    .select("business_description, revenue_model, seasonality, key_risks, banker_notes")
     .eq("deal_id", args.dealId)
     .eq("bank_id", args.bankId)
     .maybeSingle();
-  const borrowerStoryAlreadyExists = !!existing;
+  const existingBorrowerStoryFields = new Set<string>(
+    existing
+      ? (Object.entries(existing as Record<string, unknown>)
+          .filter(([, v]) => typeof v === "string" && v.trim().length > 0)
+          .map(([k]) => k))
+      : [],
+  );
 
   const { data: ownersRaw } = await (sb as any)
     .from("ownership_entities")
@@ -64,7 +72,7 @@ export async function migrateLegacyOverridesToCanonical(
     bankId: args.bankId,
     overrides: args.overrides,
     ownershipEntities,
-    borrowerStoryAlreadyExists,
+    existingBorrowerStoryFields,
   });
 
   let borrowerStoryWritten = false;

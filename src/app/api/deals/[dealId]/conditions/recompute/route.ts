@@ -5,6 +5,8 @@ import {
   calculateClosingReadiness,
 } from "@/lib/conditions/evaluate";
 import { aiExplainCondition } from "@/lib/conditions/aiExplain";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -18,6 +20,7 @@ export async function POST(
 ) {
   try {
     const { dealId } = await context.params;
+    await assertDealAccess(dealId);
     const sb = supabaseAdmin();
 
     // Load all required context in parallel
@@ -113,6 +116,8 @@ export async function POST(
       },
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     console.error("Conditions recompute failed:", err);
     return NextResponse.json(
       { ok: false, error: err?.message ?? "recompute_failed" },
@@ -128,6 +133,7 @@ export async function GET(
 ) {
   try {
     const { dealId } = await context.params;
+    await assertDealAccess(dealId);
     const sb = supabaseAdmin();
 
     const { data: conditions } = await (sb as any)
@@ -161,6 +167,8 @@ export async function GET(
       },
     });
   } catch (err: any) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
     return NextResponse.json(
       { ok: false, error: err?.message ?? "fetch_failed" },
       { status: 500 },

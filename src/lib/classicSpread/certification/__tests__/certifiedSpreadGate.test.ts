@@ -206,7 +206,14 @@ describe("Phase 6 integration source guards", () => {
 
   it("no Supabase migration was added for this phase", () => {
     // rendered_json is jsonb — the audit needs no schema change.
-    const migrations = fs.readdirSync("supabase/migrations").filter((f) => /certif/i.test(f));
+    // Scoped to the classic-spread domain specifically (not a bare /certif/i
+    // substring match) — "certif*" alone collides with any later, unrelated
+    // migration that happens to mention certification (e.g. credit memo
+    // snapshot certification-safety triggers), which isn't what this guard
+    // is protecting against.
+    const migrations = fs
+      .readdirSync("supabase/migrations")
+      .filter((f) => /certif/i.test(f) && /spread/i.test(f));
     assert.equal(migrations.length, 0);
   });
 });

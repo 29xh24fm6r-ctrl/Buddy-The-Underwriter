@@ -86,6 +86,13 @@ export const LedgerEventType = {
   pricing_scenarios_generated: "pricing.scenarios.generated",
   pricing_decision_made: "pricing.decision.made",
   pricing_pipeline_cleared: "pricing.pipeline.cleared",
+
+  // Committee-safety rejections — assertCommitteeMemoSafe() or the
+  // credit_memo_snapshots DB trigger refused to certify/render a memo.
+  // Should be rare in steady state; a spike indicates a real pipeline bug,
+  // not routine banker behavior (unlike readiness_failed, which is expected
+  // whenever a banker submits before the deal is ready).
+  committee_artifact_rejected: "deal.credit_memo.committee_artifact_rejected",
 } as const;
 
 export type LedgerEventTypeValue = (typeof LedgerEventType)[keyof typeof LedgerEventType];

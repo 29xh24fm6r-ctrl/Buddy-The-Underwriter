@@ -44,8 +44,8 @@ export async function buildCommitteeAnticipation(args: {
       loadLatestSnapshot(sb, args.dealId, bankId),
       loadResearchForMemo({ dealId: args.dealId, bankId }).catch(() => null),
       loadPricingDecision(sb, args.dealId),
-      loadOpenPolicyExceptionsCount(sb, args.dealId, bankId),
-      loadCovenantPackagePresent(sb, args.dealId, bankId),
+      loadOpenPolicyExceptionsCount(sb, args.dealId),
+      loadCovenantPackagePresent(sb, args.dealId),
     ]);
 
   const inputs: CommitteeEngineInputs = {
@@ -128,15 +128,18 @@ async function loadPricingDecision(
 async function loadOpenPolicyExceptionsCount(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
-  bankId: string,
 ): Promise<number> {
   try {
-    const { count } = await (sb as any)
-      .from("policy_exceptions")
+    // deal_policy_exceptions has no bank_id column — deal_id alone is the
+    // correct scope (deals.id is globally unique and already bank-verified
+    // by the caller). NOTE: this previously queried a nonexistent
+    // "policy_exceptions" table, which silently always returned 0.
+    const { count, error } = await (sb as any)
+      .from("deal_policy_exceptions")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
-      .eq("bank_id", bankId)
       .eq("status", "open");
+    if (error) throw error;
     return count ?? 0;
   } catch {
     return 0;
@@ -146,14 +149,16 @@ async function loadOpenPolicyExceptionsCount(
 async function loadCovenantPackagePresent(
   sb: ReturnType<typeof supabaseAdmin>,
   dealId: string,
-  bankId: string,
 ): Promise<boolean> {
   try {
-    const { count } = await (sb as any)
-      .from("covenant_packages")
+    // buddy_covenant_packages has no bank_id column either. NOTE: this
+    // previously queried a nonexistent "covenant_packages" table, which
+    // silently always returned false.
+    const { count, error } = await (sb as any)
+      .from("buddy_covenant_packages")
       .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId);
+      .eq("deal_id", dealId);
+    if (error) throw error;
     return (count ?? 0) > 0;
   } catch {
     return false;

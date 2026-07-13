@@ -7,6 +7,8 @@ import {
   tokens,
   uniqStrings,
 } from "@/lib/portal/evidence";
+import { assertDealAccess } from "@/lib/server/deal-access";
+import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,6 +105,15 @@ export async function POST(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { dealId } = await ctx.params;
+
+  try {
+    await assertDealAccess(dealId);
+  } catch (err) {
+    const accessRes = accessErrorToResponse(err);
+    if (accessRes) return accessRes;
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+
   const sb = supabaseAdmin();
 
   const body = await req.json().catch(() => ({}));

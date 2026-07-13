@@ -105,7 +105,13 @@ export function CreditMemoPanel({
               label: "Complete Memo Inputs",
               href: `/deals/${dealId}/memo-inputs`,
             },
-        { label: "Memo Template", href: `/deals/${dealId}/memo-template` },
+        // "Memo Template" link removed — it pointed at a legacy preview
+        // surface backed by the now-deprecated generated_documents/
+        // MemoTemplate.tsx bypass system (see the deprecation notices on
+        // /api/deals/[dealId]/memos/generate and .../render-pdf), which was
+        // already dead in the native fallback path per
+        // src/lib/__tests__/stitchNativeFallbackGuard.test.ts. "Open Memo"
+        // above is the single canonical entry point.
       ]}
     />
   );
