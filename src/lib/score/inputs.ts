@@ -84,6 +84,17 @@ export type ScoreInputs = {
   // Management
   managementTeamSize: number | null;
 
+  // Federal-compliance / character / affiliates disclosures (borrower
+  // intake "compliance" step — see src/lib/score/eligibility/evaluate.ts).
+  // null = not yet disclosed.
+  federalDebtDelinquent: boolean | null;
+  taxDelinquent: boolean | null;
+  samDebarred: boolean | null;
+  felonyConviction: boolean | null;
+  incarceratedOrParole: boolean | null;
+  priorGovLoanDefault: boolean | null;
+  hasAffiliates: boolean | null;
+
   // Serializable snapshot for audit trail
   snapshot: Record<string, unknown>;
 
@@ -95,6 +106,32 @@ function tryNumber(value: unknown): number | null {
   if (value == null) return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Any owner true -> true (one bad actor is enough to fail the deal).
+ * Otherwise, only resolve to a definite false once every owner has
+ * explicitly answered false; a mix of false/unknown stays null (pending),
+ * same "not yet disclosed" semantics as the wizard-driven compliance step.
+ */
+export function deriveCharacterFlagsFromOwners(
+  owners: Array<{
+    convicted_or_pleaded: boolean | null;
+    on_parole_or_probation: boolean | null;
+  }>,
+): { felonyConviction: boolean | null; incarceratedOrParole: boolean | null } {
+  if (owners.length === 0) {
+    return { felonyConviction: null, incarceratedOrParole: null };
+  }
+  const resolve = (key: "convicted_or_pleaded" | "on_parole_or_probation"): boolean | null => {
+    if (owners.some((o) => o[key] === true)) return true;
+    if (owners.every((o) => o[key] === false)) return false;
+    return null;
+  };
+  return {
+    felonyConviction: resolve("convicted_or_pleaded"),
+    incarceratedOrParole: resolve("on_parole_or_probation"),
+  };
 }
 
 export async function loadScoreInputs(params: {
@@ -194,6 +231,54 @@ export async function loadScoreInputs(params: {
 
   if (yearsInBusiness == null) missing.push("years_in_business");
   if (annualRevenueUsd == null) missing.push("annual_revenue");
+
+  // ─── Federal compliance / character / affiliates disclosures ──────────
+  // Borrower-answered on the intake "compliance" step (see
+  // src/components/borrower/intake/IntakeFormClient.tsx). Section is
+  // absent until the borrower reaches that step — all fields resolve to
+  // null ("not yet disclosed"), which evaluateBuddySbaEligibility treats
+  // as a pending pass, not a failure.
+  const { data: complianceSection } = await sb
+    .from("deal_builder_sections")
+    .select("data")
+    .eq("deal_id", dealId)
+    .eq("section_key", "compliance")
+    .maybeSingle();
+
+  function complianceBool(key: string): boolean | null {
+    const v = (complianceSection?.data as Record<string, unknown> | null)?.[key];
+    return typeof v === "boolean" ? v : null;
+  }
+
+  const federalDebtDelinquent = complianceBool("federal_debt_delinquent");
+  const taxDelinquent = complianceBool("tax_delinquent");
+  const samDebarred = complianceBool("sam_debarred");
+  const priorGovLoanDefault = complianceBool("prior_gov_loan_default");
+  const hasAffiliates = complianceBool("has_affiliates");
+
+  // Marketplace/brokerage-originated deals never see the intake wizard, so
+  // `complianceSection` is absent for them — but the chat/voice concierge
+  // (Arc 7) may have already captured the two character facts that have a
+  // direct SBA-Form-912 equivalent on ownership_entities. Fall back to those
+  // so a marketplace deal isn't silently exempted from the character gate.
+  // federal_debt_delinquent/tax_delinquent/sam_debarred/prior_gov_loan_default
+  // and has_affiliates have no concierge-side equivalent yet and stay null.
+  let felonyConviction = complianceBool("felony_conviction");
+  let incarceratedOrParole = complianceBool("incarcerated_or_parole");
+  if (!complianceSection) {
+    const { data: ownerRows } = await sb
+      .from("ownership_entities")
+      .select("convicted_or_pleaded, on_parole_or_probation")
+      .eq("deal_id", dealId);
+    const derived = deriveCharacterFlagsFromOwners(
+      (ownerRows ?? []) as Array<{
+        convicted_or_pleaded: boolean | null;
+        on_parole_or_probation: boolean | null;
+      }>,
+    );
+    felonyConviction = derived.felonyConviction;
+    incarceratedOrParole = derived.incarceratedOrParole;
+  }
 
   // ─── Collateral ───────────────────────────────────────────────────────
   const { data: collateral } = await sb
@@ -360,6 +445,13 @@ export async function loadScoreInputs(params: {
     employeeCount,
     franchise,
     managementTeamSize,
+    federalDebtDelinquent,
+    taxDelinquent,
+    samDebarred,
+    felonyConviction,
+    incarceratedOrParole,
+    priorGovLoanDefault,
+    hasAffiliates,
     snapshot,
     missingInputs: missing,
   };

@@ -84,7 +84,7 @@ export function FranchiseLandingPage() {
             Home
           </Link>
           <Link
-            href="/apply"
+            href="/apply?path=franchise"
             className="rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-[22px] py-[11px] text-[15px] font-bold text-white shadow-[0_6px_18px_rgba(28,141,224,0.28)] transition hover:brightness-[1.06]"
           >
             Start your package
@@ -120,13 +120,13 @@ export function FranchiseLandingPage() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3.5">
             <Link
-              href="/apply"
+              href="/apply?path=franchise"
               className="rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-[30px] py-[15px] text-[16px] font-bold text-white shadow-[0_10px_28px_rgba(28,141,224,0.4)] transition hover:brightness-[1.06]"
             >
               Start your franchise package
             </Link>
             <Link
-              href="/start"
+              href="/start?path=franchise"
               className="rounded-xl border border-white/[0.18] bg-white/[0.08] px-[30px] py-[15px] text-[16px] font-bold text-white transition hover:bg-white/[0.14]"
             >
               Talk to Buddy
@@ -259,7 +259,7 @@ export function FranchiseLandingPage() {
           automatically — no separate franchise research required.
         </p>
         <Link
-          href="/apply"
+          href="/apply?path=franchise"
           className="inline-flex rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-10 py-[17px] text-[17px] font-bold text-white shadow-[0_12px_32px_rgba(28,141,224,0.35)] transition hover:brightness-[1.06]"
         >
           Start your franchise package

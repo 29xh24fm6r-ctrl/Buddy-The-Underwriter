@@ -341,6 +341,50 @@ export async function POST(
       return NextResponse.json<IntakeSaveResponse>({ ok: true });
     }
 
+    // ─── STEP: compliance ───
+    // SBA-required federal-compliance / character / affiliates disclosures
+    // (mirrors SBA Forms 1919 and 912). Stored as booleans so the eligibility
+    // engine (src/lib/score/eligibility/evaluate.ts) can read them —
+    // previously nothing captured this as structured, queryable data.
+    if (step === "compliance") {
+      const d = data as Record<string, string>;
+      const yn = (v: unknown): boolean | null =>
+        v === "yes" ? true : v === "no" ? false : null;
+
+      const complianceFields = {
+        federal_debt_delinquent: yn(d.federal_debt_delinquent),
+        tax_delinquent: yn(d.tax_delinquent),
+        sam_debarred: yn(d.sam_debarred),
+        felony_conviction: yn(d.felony_conviction),
+        incarcerated_or_parole: yn(d.incarcerated_or_parole),
+        prior_gov_loan_default: yn(d.prior_gov_loan_default),
+        has_affiliates: yn(d.has_affiliates),
+      };
+      const allAnswered = Object.values(complianceFields).every((v) => v !== null);
+
+      const { error: secErr } = await sb
+        .from("deal_builder_sections")
+        .upsert(
+          {
+            deal_id: ctx.dealId,
+            section_key: "compliance",
+            data: complianceFields,
+            completed: allAnswered,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "deal_id,section_key" }
+        );
+      if (secErr) {
+        console.error("[intake/compliance] upsert deal_builder_sections:", secErr.code, secErr.details, secErr.hint);
+        return NextResponse.json<IntakeSaveResponse>(
+          { ok: false, error: "Failed to save compliance answers" },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json<IntakeSaveResponse>({ ok: true });
+    }
+
     // ─── STEP: submit ───
     if (step === "submit") {
       // Validate minimum required fields
@@ -363,6 +407,22 @@ export async function POST(
           { ok: false, error: "Business legal name is required." },
           { status: 400 }
         );
+      }
+
+      if (app.loan_type && SBA_TYPES.includes(app.loan_type)) {
+        const { data: complianceSection } = await sb
+          .from("deal_builder_sections")
+          .select("completed")
+          .eq("deal_id", ctx.dealId)
+          .eq("section_key", "compliance")
+          .maybeSingle();
+
+        if (!complianceSection?.completed) {
+          return NextResponse.json<IntakeSaveResponse>(
+            { ok: false, error: "Please answer the SBA compliance questions before submitting." },
+            { status: 400 }
+          );
+        }
       }
 
       // Update status to submitted

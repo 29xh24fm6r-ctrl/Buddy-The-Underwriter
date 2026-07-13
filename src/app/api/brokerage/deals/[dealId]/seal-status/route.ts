@@ -5,6 +5,11 @@ import "server-only";
  *
  * Borrower-facing status endpoint. Returns seal gate reasons (so the UI
  * can show what's still blocking), plus current listing state if sealed.
+ * Also the single source of truth for the borrower journey checklist
+ * (BrokerageStageStrip / BorrowerJourneyChecklist) — progressPct and
+ * documentsUploadedCount let /start and /portal/[token] render the same
+ * real, live status instead of the hardcoded progressPct: 0 that used
+ * to freeze the strip on stage 1 regardless of actual progress.
  *
  * Session must match the URL's dealId per the same 404-not-403 rule as
  * other brokerage routes.
@@ -35,6 +40,22 @@ export async function GET(
   }
 
   const sb = supabaseAdmin();
+
+  // Concierge progress (stage 1 — "tell us about your loan").
+  const { data: conciergeSession } = await sb
+    .from("borrower_concierge_sessions")
+    .select("progress_pct")
+    .eq("deal_id", dealId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const progressPct = (conciergeSession as { progress_pct?: number } | null)?.progress_pct ?? 0;
+
+  // Document count (stage 2 — "upload documents").
+  const { count: documentsUploadedCount } = await sb
+    .from("deal_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId);
 
   // Current active listing if one exists.
   const { data: listing } = await sb
@@ -87,6 +108,8 @@ export async function GET(
 
     return NextResponse.json({
       ok: true,
+      progressPct,
+      documentsUploadedCount: documentsUploadedCount ?? 0,
       sealed: true,
       listing: {
         id: row.id,
@@ -109,6 +132,8 @@ export async function GET(
 
   return NextResponse.json({
     ok: true,
+    progressPct,
+    documentsUploadedCount: documentsUploadedCount ?? 0,
     sealed: false,
     canSeal: gate.ok,
     gateReasons: gate.ok ? [] : gate.reasons,
