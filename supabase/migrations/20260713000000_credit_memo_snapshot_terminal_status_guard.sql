@@ -69,3 +69,7 @@ $$;
 
 comment on function credit_memo_snapshots_enforce_immutability is
   'Enforces Rule 4: once a snapshot leaves status=draft, the certified payload is frozen at the DB layer. Application code may still update underwriter_feedback_json, status (forward-only, never back to draft, never out of a terminal state), superseded_by, and superseded_at.';
+
+-- Pin search_path to satisfy the Postgres linter's
+-- "function_search_path_mutable" advisory. Behavior-neutral.
+alter function credit_memo_snapshots_enforce_immutability() set search_path = public;

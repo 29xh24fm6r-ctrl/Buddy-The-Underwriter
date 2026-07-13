@@ -2,10 +2,12 @@
 
 Generated: 2026-07-13
 Remediated: 2026-07-13 — all CRITICAL/HIGH findings and all MEDIUM/LOW findings below
-were fixed on this branch (see commit history). One DB migration
-(`supabase/migrations/20260713000000_credit_memo_snapshot_terminal_status_guard.sql`)
-was added but **not yet applied** to the live database — it needs to run through the
-normal deploy/migration process. Notes on scope narrowing during remediation:
+were fixed on this branch (see commit history). The one DB migration this required
+(`supabase/migrations/20260713000000_credit_memo_snapshot_terminal_status_guard.sql`,
+remote version `20260713154054`) has been applied to the live database, along with a
+follow-up `search_path` hardening pass on the same function (remote migration
+`credit_memo_snapshot_terminal_status_guard_search_path`) to clear a linter warning
+noticed while verifying the apply. Notes on scope narrowing during remediation:
 - `ownership_entities` and `buddy_covenant_packages` (cited under C4) have no `bank_id`
   column in the live schema, so no filter was added there — `deal_id` alone is already
   correctly scoped since `deals.id` is globally unique. The `bank_id` filter was added
