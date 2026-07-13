@@ -7,10 +7,17 @@ import type { CommitteeObjection, CommitteeRule } from "../types";
 
 // Negation-aware patterns: do not match phrasings prefixed by "no" / "not"
 // (e.g. "No single customer above 10%" should NOT trigger a concentration
-// objection). Lookbehind keeps the rule pure-regex without splitting text.
+// objection). The negation window tolerates a determiner between the
+// negation word and the phrase (e.g. "does not have A single customer",
+// "without ANY single customer") — a bare `(?:no|not)\s` lookbehind only
+// catches negation words sitting immediately before the phrase and misses
+// this common construction, which reads it as a disclosed concentration
+// when the sentence actually disclaims one. Lookbehind keeps the rule
+// pure-regex without splitting text.
+const NEGATION = "(?:no|not|never|without)\\s(?:a|an|any)?\\s?";
 const HIGH_CONCENTRATION_HINTS = [
-  /(?<!\b(?:no|not)\s)single\s+customer/i,
-  /(?<!\b(?:no|not)\s)sole\s+customer/i,
+  new RegExp(`(?<!\\b${NEGATION})single\\s+customer`, "i"),
+  new RegExp(`(?<!\\b${NEGATION})sole\\s+customer`, "i"),
   /one\s+(?:major|primary|key)\s+customer/i,
   /\b(?:7[0-9]|8[0-9]|9[0-9]|100)\s*%\s+(?:of|from|with)/i,
   /concentrated\s+in\s+\w+/i,
@@ -18,7 +25,7 @@ const HIGH_CONCENTRATION_HINTS = [
 
 const MODERATE_CONCENTRATION_HINTS = [
   /top\s+(?:two|three|2|3)\s+customers/i,
-  /(?<!\b(?:no|not)\s)concentration\s+risk/i,
+  new RegExp(`(?<!\\b${NEGATION})concentration\\s+risk`, "i"),
   /\b(?:4[0-9]|5[0-9]|6[0-9])\s*%\s+(?:of|from|with)/i,
 ];
 

@@ -15,6 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getAIProvider } from "@/lib/ai/provider";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -39,7 +40,12 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
-    const bankId = await getCurrentBankId();
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
+    }
+    const bankId = access.bankId;
     const sb = supabaseAdmin();
 
     // ── SPEC-FINENGINE-COMPLETE-BUILD-1 Workstream A — finengine render path ──

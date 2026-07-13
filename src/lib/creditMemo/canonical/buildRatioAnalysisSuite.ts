@@ -1002,10 +1002,16 @@ export async function buildRatioAnalysisSuite(
         : spec.unit === "currency" ? `$${Math.round(industryAvg).toLocaleString()}`
         : `${industryAvg.toFixed(2)}x`;
       finalBenchmarkNote = `Peer median: ${fmtAvg} — ${industrySource}.`;
-    } else if (interp.assessment === "Weak" && benchmarkable) {
-      // No benchmark exists — relabel to avoid unsupported negative labels
-      finalAssessment = "N/A";
-      finalBenchmarkNote = "Unbenchmarked — peer comparison unavailable for this NAICS/revenue tier. Assessment deferred.";
+    } else if (benchmarkable) {
+      // No peer benchmark exists for this NAICS/revenue tier. `interp.assessment`
+      // is derived from fixed institutional policy floors, independent of any
+      // peer comparison — a missing benchmark must never relabel a genuine
+      // "Weak" (policy-floor failure) as "N/A", since that would hide a real
+      // repayment/leverage/liquidity weakness from the committee-facing table.
+      // Peer-benchmark absence only affects the supporting note, never the verdict.
+      finalBenchmarkNote = interp.benchmarkNote
+        ? `${interp.benchmarkNote} No peer benchmark available for this NAICS/revenue tier.`
+        : "No peer benchmark available for this NAICS/revenue tier.";
     }
 
     rows.push({

@@ -77,18 +77,40 @@ export function reconcileGuarantorIncome(args: {
     : personalIncomeSpreadTotal !== null ? "PERSONAL_INCOME_SPREAD"
     : "PFS_STATED";
 
-  // Check PFS vs tax
+  const conflictNotes: string[] = [];
+
+  // Check PFS vs the "verified" figure (tax return, falling back to spread total)
   if (pfsAnnualIncome !== null && (taxReturnAgi !== null || personalIncomeSpreadTotal !== null)) {
     const verifiedIncome = taxReturnAgi ?? personalIncomeSpreadTotal!;
     if (isMaterialDifference(pfsAnnualIncome, verifiedIncome)) {
-      return {
-        selected_income_for_gcf: primary,
-        selected_income_source: primarySource,
-        alternate_income_values: alternates,
-        reconciliation_note: `PFS-stated annual income (${fmt$(pfsAnnualIncome)}) differs materially from tax-return/AGI income (${fmt$(verifiedIncome)}). Formal GCF should reconcile recurring income source before final approval.`,
-        warning_level: "warning",
-      };
+      conflictNotes.push(
+        `PFS-stated annual income (${fmt$(pfsAnnualIncome)}) differs materially from tax-return/AGI income (${fmt$(verifiedIncome)})`,
+      );
     }
+  }
+
+  // Check the two "verified" sources against each other — a large discrepancy
+  // between tax-return AGI and the personal income spread total must not be
+  // silently resolved to whichever one happens to be picked as primary.
+  if (
+    taxReturnAgi !== null &&
+    personalIncomeSpreadTotal !== null &&
+    taxReturnAgi !== personalIncomeSpreadTotal &&
+    isMaterialDifference(taxReturnAgi, personalIncomeSpreadTotal)
+  ) {
+    conflictNotes.push(
+      `Tax-return AGI (${fmt$(taxReturnAgi)}) differs materially from the personal income spread total (${fmt$(personalIncomeSpreadTotal)})`,
+    );
+  }
+
+  if (conflictNotes.length > 0) {
+    return {
+      selected_income_for_gcf: primary,
+      selected_income_source: primarySource,
+      alternate_income_values: alternates,
+      reconciliation_note: `${conflictNotes.join("; ")}. Formal GCF should reconcile recurring income source before final approval.`,
+      warning_level: "warning",
+    };
   }
 
   // Sources are close enough — no warning needed

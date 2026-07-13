@@ -11,6 +11,14 @@ export const liquidityRules: CommitteeRule = (inputs) => {
   const m = inputs.metrics;
 
   // Personal liquidity vs annual debt service.
+  //
+  // NOTE: pfs_total_assets is a total-assets figure, not a true liquid-assets
+  // figure (cash/marketable securities) — this pipeline does not currently
+  // carry a separate liquid-assets metric. It can include illiquid holdings
+  // (real estate, closely-held business interests), so an illiquid sponsor
+  // can score as having ample "coverage" here. The rationale text below is
+  // phrased as a backstop-capacity proxy rather than confirmed liquidity so
+  // a reader doesn't take it as verified cash-on-hand.
   if (m.pfs_total_assets !== null && m.annual_debt_service !== null && m.annual_debt_service > 0) {
     const monthlyDS = m.annual_debt_service / 12;
     if (monthlyDS > 0) {
@@ -20,8 +28,8 @@ export const liquidityRules: CommitteeRule = (inputs) => {
           code: "liquidity_pfs_thin",
           domain: "liquidity",
           severity: "hard",
-          label: `Sponsor liquidity covers <${LIQUIDITY_MONTHS_HARD} months of debt service`,
-          rationale: `PFS assets of $${Math.round(m.pfs_total_assets).toLocaleString()} cover only ~${monthsCovered.toFixed(1)} months of monthly debt service — committee will press on backstop capacity.`,
+          label: `Sponsor total-asset backstop covers <${LIQUIDITY_MONTHS_HARD} months of debt service`,
+          rationale: `PFS total assets of $${Math.round(m.pfs_total_assets).toLocaleString()} — not all of which may be liquid — cover only ~${monthsCovered.toFixed(1)} months of monthly debt service at face value. Confirm how much of this is actually liquid (cash/marketable securities) rather than real estate or business equity before relying on it as a backstop.`,
           mitigant:
             "Document additional liquidity reserves, line-of-credit availability, or co-guarantor support.",
           fixPath: `/deals/${dealId}/memo-inputs#management`,
@@ -36,8 +44,8 @@ export const liquidityRules: CommitteeRule = (inputs) => {
           code: "liquidity_pfs_modest",
           domain: "liquidity",
           severity: "soft",
-          label: `Sponsor liquidity covers ${monthsCovered.toFixed(1)} months of debt service`,
-          rationale: `PFS liquidity provides a modest cushion — committee will ask about contingency capital.`,
+          label: `Sponsor total-asset backstop covers ${monthsCovered.toFixed(1)} months of debt service`,
+          rationale: `PFS total assets provide a modest cushion at face value — confirm how much is actually liquid rather than real estate or business equity before treating it as contingency capital.`,
           fixPath: `/deals/${dealId}/memo-inputs#management`,
           source: {
             metric: "pfs_total_assets",

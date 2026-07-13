@@ -86,6 +86,21 @@ export function hasMemoCollateral(memo: CanonicalCreditMemoV1): boolean {
 }
 
 /**
+ * Check whether the AI narrative has actually been generated for this memo.
+ * A banker must not be able to submit to underwriting on a memo whose
+ * narrative sections were never generated/reviewed — that content becomes
+ * part of the frozen banker-certified snapshot.
+ */
+export function hasMemoNarrative(memo: CanonicalCreditMemoV1): boolean {
+  const narrative = memo.executive_summary?.narrative;
+  return (
+    typeof narrative === "string" &&
+    narrative.length > 0 &&
+    !narrative.toLowerCase().includes("not yet generated")
+  );
+}
+
+/**
  * SPEC-CREDIT-MEMO-PERFECTION-PROGRAM-1 Phase 1: committee readiness gate. Satisfied
  * when there is no committee model (research not run → gate n/a), when committee is
  * ready, or when a banker recorded an override reason
@@ -141,6 +156,11 @@ export function buildRequiredItems(
       id: "mgmtbio",
       ok: hasMemoManagementBio(memo, overrides),
       label: "Management profile available",
+    },
+    {
+      id: "narrative",
+      ok: hasMemoNarrative(memo),
+      label: "AI narrative generated",
     },
     {
       id: "committee",

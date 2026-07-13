@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { getCurrentRole } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { diffSnapshots } from "@/lib/creditMemo/intelligence/diffSnapshots";
@@ -21,7 +22,20 @@ export async function GET(
 ) {
   try {
     const { dealId } = await props.params;
-    await requireDealAccess(dealId);
+
+    // requireDealAccess() calls redirect() on failure, which is correct for
+    // pages but produces an HTML/redirect response instead of a structured
+    // JSON error for an API route consumer. Use the JSON-safe primitives it
+    // wraps instead, matching the error contract of the sibling API routes.
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status });
+    }
+    const { role } = await getCurrentRole();
+    if (role === "borrower") {
+      return NextResponse.json({ ok: false, error: "borrower_forbidden" }, { status: 403 });
+    }
 
     const sb = supabaseAdmin();
 

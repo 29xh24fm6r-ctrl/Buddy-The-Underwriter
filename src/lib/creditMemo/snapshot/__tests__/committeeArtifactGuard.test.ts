@@ -283,13 +283,28 @@ test("[caf-9] rejects when recommendation says DSCR missing while DSCR exists", 
 // ─── 10. Rejects AR LOC memo lacking borrowing base analysis ───────────────
 
 test("[caf-10] rejects AR LOC memo lacking borrowing-base / AR aging / eligible AR", () => {
-  const snap = buildCleanSnapshot({
-    product: "AR_LOC",
-    proposedProduct: "AR_LOC",
-    purpose: "Provide AR line of credit for working capital",
-    includeBorrowingBaseAnalysis: false,
-  });
-  expectUnsafe(snap, "ar_loc_missing_borrowing_base_analysis");
+  // buildFloridaArmorySnapshot now runs the same assertCommitteeMemoSafe
+  // guard at build/certification time (not just later at PDF export), so
+  // constructing this deliberately-unsafe fixture throws directly instead of
+  // needing a separate assertCommitteeMemoSafe(snap) call afterward.
+  let thrown: unknown;
+  try {
+    buildCleanSnapshot({
+      product: "AR_LOC",
+      proposedProduct: "AR_LOC",
+      purpose: "Provide AR line of credit for working capital",
+      includeBorrowingBaseAnalysis: false,
+    });
+  } catch (err) {
+    thrown = err;
+  }
+  assert.ok(thrown instanceof FloridaArmoryBuildError, "expected FloridaArmoryBuildError");
+  const err = thrown as FloridaArmoryBuildError;
+  assert.equal(err.code, "committee_artifact_unsafe");
+  assert.ok(
+    err.missingFields.some((f) => f.includes("ar_loc_missing_borrowing_base_analysis")),
+    `expected ar_loc_missing_borrowing_base_analysis in ${JSON.stringify(err.missingFields)}`,
+  );
 });
 
 test("[caf-10b] accepts AR LOC memo that includes borrowing base + AR aging + eligible AR", () => {

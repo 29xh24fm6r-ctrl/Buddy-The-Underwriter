@@ -16,6 +16,7 @@ import {
   FloridaArmoryBuildError,
 } from "./types";
 import { buildAllFloridaArmorySections } from "./sectionBuilders";
+import { assertCommitteeMemoSafe } from "./assertCommitteeMemoSafe";
 
 type BuildFloridaArmorySnapshotArgs = {
   dealId: string;
@@ -150,7 +151,7 @@ export function buildFloridaArmorySnapshot({
   const sections = buildAllFloridaArmorySections({ memo: canonicalMemo, sources });
   const warnings = collectWarnings(sections);
 
-  return {
+  const snapshot: FloridaArmoryMemoSnapshot = {
     schema_version: "florida_armory_v1",
     meta: {
       deal_id: dealId,
@@ -190,4 +191,13 @@ export function buildFloridaArmorySnapshot({
     },
     canonical_memo: canonicalMemo,
   };
+
+  // Certification-time must enforce the SAME committee-safety guard that PDF
+  // export enforces later — otherwise a memo can be banker-certified and
+  // frozen (immutable once submitted, per the DB trigger) while still
+  // containing forbidden placeholders/contradictions, discovered only when
+  // the PDF route 409s, with no remediation path except a full resubmission.
+  assertCommitteeMemoSafe(snapshot);
+
+  return snapshot;
 }

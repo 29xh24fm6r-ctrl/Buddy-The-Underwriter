@@ -82,8 +82,9 @@ export async function buildBalanceSheetTable(args: {
     // Primary: SL_ prefixed facts (Schedule L / balance sheet documents)
     const { data, error } = await (sb as any)
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_period_end")
+      .select("fact_key, fact_value_num, fact_period_end, confidence, created_at")
       .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .like("fact_key", "SL_%")
@@ -95,8 +96,9 @@ export async function buildBalanceSheetTable(args: {
     // years that have TOTAL_ASSETS / TOTAL_LIABILITIES but no Schedule L extraction.
     const { data: fallbackData } = await (sb as any)
       .from("deal_financial_facts")
-      .select("fact_key, fact_value_num, fact_period_end")
+      .select("fact_key, fact_value_num, fact_period_end, confidence, created_at")
       .eq("deal_id", args.dealId)
+      .eq("bank_id", args.bankId)
       .eq("is_superseded", false)
       .neq("resolution_status", "rejected")
       .in("fact_key", [
@@ -126,20 +128,37 @@ export async function buildBalanceSheetTable(args: {
       NET_FIXED_ASSETS:          "ppe_net",
     };
 
-    // SPEC-CREDIT-MEMO-DATA-PIPELINE-1 Fix 1: max-value-wins dedup.
-    // When duplicate SL_ rows exist for the same (period, field), pick the
-    // larger value. Balance sheet values should be positive; the larger value
-    // eliminates garbage extraction artifacts (e.g. SL_CASH=2 vs SL_CASH=401558).
-    // SL_ facts come first in mergedData so they take priority over non-SL fallbacks.
-    const byPeriod: Record<string, Record<string, number>> = {};
-    for (const f of (mergedData as Array<{ fact_key: string; fact_value_num: string | number; fact_period_end: string }>)) {
+    // SPEC-CREDIT-MEMO-DATA-PIPELINE-1 Fix 1 (revised): when duplicate SL_ rows
+    // exist for the same (period, field), "larger value wins" was an unverified
+    // heuristic — a mis-parsed decimal extraction artifact is just as likely to
+    // be too LARGE as too small, so it could silently inflate cash/assets with
+    // no flag. Resolve duplicates the same way the rest of the fact pipeline
+    // does: prefer higher extraction confidence, then the most recently
+    // extracted row. SL_ facts come first in mergedData so they take priority
+    // over non-SL fallbacks.
+    const byPeriod: Record<string, Record<string, { value: number; confidence: number; createdAt: string }>> = {};
+    for (const f of (mergedData as Array<{
+      fact_key: string;
+      fact_value_num: string | number;
+      fact_period_end: string;
+      confidence: number | string | null;
+      created_at: string | null;
+    }>)) {
       const period = f.fact_period_end;
       if (!byPeriod[period]) byPeriod[period] = {};
       const field = SL_ALIAS[f.fact_key] ?? NON_SL_ALIAS[f.fact_key];
       if (!field) continue;
       const val = Number(f.fact_value_num);
-      if (!(field in byPeriod[period]) || val > byPeriod[period][field]) {
-        byPeriod[period][field] = val;
+      if (!Number.isFinite(val)) continue;
+      const confidence = Number(f.confidence ?? 0) || 0;
+      const createdAt = f.created_at ?? "";
+      const existing = byPeriod[period][field];
+      const isBetter =
+        !existing ||
+        confidence > existing.confidence ||
+        (confidence === existing.confidence && createdAt > existing.createdAt);
+      if (isBetter) {
+        byPeriod[period][field] = { value: val, confidence, createdAt };
       }
     }
 
@@ -149,8 +168,8 @@ export async function buildBalanceSheetTable(args: {
         const row = emptyRow(period);
 
         // Map all available facts onto the row
-        for (const [field, value] of Object.entries(facts)) {
-          (row as any)[field] = value;
+        for (const [field, entry] of Object.entries(facts)) {
+          (row as any)[field] = entry.value;
         }
 
         // Derive PPE net if possible
@@ -169,12 +188,13 @@ export async function buildBalanceSheetTable(args: {
             (row.other_assets ?? 0);
         }
 
-        // Derive liabilities_plus_equity
+        // Derive liabilities_plus_equity — this is a genuine balancing CHECK
+        // rendered in the memo/PDF against total_assets, so it must only be
+        // populated from its real components. Fabricating it as equal to
+        // total_assets whenever a component is missing would make the check
+        // tautologically pass and hide real extraction/data-quality problems.
         if (row.total_liabilities !== null && row.total_equity !== null) {
           row.liabilities_plus_equity = row.total_liabilities + row.total_equity;
-        } else if (row.total_assets !== null) {
-          // Fallback: L+E = Assets (balance sheet identity)
-          row.liabilities_plus_equity = row.total_assets;
         }
 
         return row;

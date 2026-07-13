@@ -1,6 +1,19 @@
 # Credit Memo Engine — Full Audit
 
 Generated: 2026-07-13
+Remediated: 2026-07-13 — all CRITICAL/HIGH findings and all MEDIUM/LOW findings below
+were fixed on this branch (see commit history). One DB migration
+(`supabase/migrations/20260713000000_credit_memo_snapshot_terminal_status_guard.sql`)
+was added but **not yet applied** to the live database — it needs to run through the
+normal deploy/migration process. Notes on scope narrowing during remediation:
+- `ownership_entities` and `buddy_covenant_packages` (cited under C4) have no `bank_id`
+  column in the live schema, so no filter was added there — `deal_id` alone is already
+  correctly scoped since `deals.id` is globally unique. The `bank_id` filter was added
+  everywhere else in C4 that does have the column.
+- The liquidity-proxy LOW finding (total-assets vs true liquid assets) could not be
+  fully fixed without threading a new metric through the whole committee-engine
+  pipeline; the rationale text was corrected to stop implying verified liquidity
+  instead.
 
 ## Purpose
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDealAccess } from "@/lib/auth/requireDealAccess";
+import { requireRoleApi, AuthorizationError } from "@/lib/auth/requireRole";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { recordUnderwriterDecision } from "@/lib/creditMemo/underwriter/recordUnderwriterDecision";
 import type {
@@ -43,6 +44,10 @@ export async function POST(
     const { dealId } = await props.params;
     const access = await requireDealAccess(dealId);
 
+    // Separation of duties: the banker who assembled/submitted the memo must
+    // not be able to record their own underwriter decision on it.
+    await requireRoleApi(["super_admin", "bank_admin", "underwriter"]);
+
     const body = (await req.json().catch(() => ({}))) as {
       snapshotId?: unknown;
       decision?: unknown;
@@ -78,6 +83,12 @@ export async function POST(
     return NextResponse.json({ ok: true, ...result });
   } catch (e: unknown) {
     rethrowNextErrors(e);
+    if (e instanceof AuthorizationError) {
+      return NextResponse.json(
+        { ok: false, error: e.code },
+        { status: e.code === "not_authenticated" ? 401 : 403 },
+      );
+    }
     const message = e instanceof Error ? e.message : String(e);
     const status = message.includes("snapshot_not_in_banker_submitted_state") ? 409 : 500;
     console.error("[credit-memo/underwriter-decision POST]", e);

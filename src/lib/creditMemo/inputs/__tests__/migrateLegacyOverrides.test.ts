@@ -20,7 +20,7 @@ test("[migrate-1] empty overrides → 0 borrower-story writes, 0 mgmt writes", (
     bankId: BANK,
     overrides: {},
     ownershipEntities: [],
-    borrowerStoryAlreadyExists: false,
+    existingBorrowerStoryFields: new Set(),
   });
   assert.equal(r.borrowerStory.kind, "skipped");
   if (r.borrowerStory.kind === "skipped") {
@@ -38,7 +38,7 @@ test("[migrate-2] business_description + revenue_mix → 1 borrower-story row wi
       revenue_mix: "70% recurring",
     },
     ownershipEntities: [],
-    borrowerStoryAlreadyExists: false,
+    existingBorrowerStoryFields: new Set(),
   });
   assert.equal(r.borrowerStory.kind, "write");
   if (r.borrowerStory.kind === "write") {
@@ -62,7 +62,7 @@ test("[migrate-3] two principal_bio_<uuid> with matching ownership_entities → 
       { id: "owner-a", display_name: "Alice Smith" },
       { id: "owner-b", display_name: "Bob Jones" },
     ],
-    borrowerStoryAlreadyExists: false,
+    existingBorrowerStoryFields: new Set(),
   });
   assert.equal(r.managementProfiles.length, 2);
   const a = r.managementProfiles.find((p) => p.ownershipEntityId === "owner-a");
@@ -86,7 +86,7 @@ test("[migrate-4] principal_bio_<uuid> without matching entity → mgmt row with
       "principal_bio_unknown-id": "Anonymous founder note",
     },
     ownershipEntities: [],
-    borrowerStoryAlreadyExists: false,
+    existingBorrowerStoryFields: new Set(),
   });
   assert.equal(r.managementProfiles.length, 1);
   assert.equal(r.managementProfiles[0].patch.person_name, "Unknown");
@@ -96,7 +96,7 @@ test("[migrate-4] principal_bio_<uuid> without matching entity → mgmt row with
   );
 });
 
-test("[migrate-5] borrowerStoryAlreadyExists → returns skipped, no writes", () => {
+test("[migrate-5] all target fields already populated → returns skipped, no writes", () => {
   const r = transformLegacyOverrides({
     dealId: DEAL,
     bankId: BANK,
@@ -105,11 +105,31 @@ test("[migrate-5] borrowerStoryAlreadyExists → returns skipped, no writes", ()
       principal_bio_x: "Should not be written either",
     },
     ownershipEntities: [{ id: "x", display_name: "Existing" }],
-    borrowerStoryAlreadyExists: true,
+    existingBorrowerStoryFields: new Set(["business_description"]),
   });
   assert.equal(r.borrowerStory.kind, "skipped");
   if (r.borrowerStory.kind === "skipped") {
     assert.equal(r.borrowerStory.reason, "borrower_story_exists");
   }
-  assert.equal(r.managementProfiles.length, 0);
+  // Management profile migration is independent of borrower-story field
+  // completeness — principal_bio_x still migrates.
+  assert.equal(r.managementProfiles.length, 1);
+});
+
+test("[migrate-6] partially populated row → only the empty fields are migrated", () => {
+  const r = transformLegacyOverrides({
+    dealId: DEAL,
+    bankId: BANK,
+    overrides: {
+      business_description: "Should not be written — already populated",
+      revenue_mix: "70% recurring — should be written",
+    },
+    ownershipEntities: [],
+    existingBorrowerStoryFields: new Set(["business_description"]),
+  });
+  assert.equal(r.borrowerStory.kind, "write");
+  if (r.borrowerStory.kind === "write") {
+    assert.equal(r.borrowerStory.write.patch.business_description, undefined);
+    assert.equal(r.borrowerStory.write.patch.revenue_model, "70% recurring — should be written");
+  }
 });

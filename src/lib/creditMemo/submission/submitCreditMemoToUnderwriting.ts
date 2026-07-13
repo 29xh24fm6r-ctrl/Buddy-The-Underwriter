@@ -232,6 +232,39 @@ export async function submitCreditMemoToUnderwriting(
     };
   }
 
+  // Supersede any prior not-yet-decided snapshot for this deal. Without this,
+  // resubmitting before an underwriter decides leaves two rows both "live"
+  // (e.g. two banker_submitted rows) — an underwriter acting on a stale
+  // snapshotId reference could approve/decline the superseded version while
+  // the new one sits untouched. 'finalized' (already decided) and
+  // 'superseded' rows are left alone; only the still-in-flight statuses are
+  // superseded by the version that was just inserted. Best-effort: a failure
+  // here must not orphan/fail the submission that already succeeded above.
+  try {
+    const { error: supersedeErr } = await sb
+      .from("credit_memo_snapshots")
+      .update({
+        status: "superseded",
+        superseded_by: snapshotId,
+        superseded_at: submittedAt,
+      })
+      .eq("deal_id", args.dealId)
+      .neq("id", snapshotId)
+      .in("status", ["banker_submitted", "underwriter_review", "returned"]);
+
+    if (supersedeErr) {
+      console.warn(
+        "[submitCreditMemoToUnderwriting] failed to supersede prior snapshot(s)",
+        { dealId: args.dealId, snapshotId, error: supersedeErr.message },
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[submitCreditMemoToUnderwriting] supersede prior snapshot(s) threw",
+      { dealId: args.dealId, snapshotId, error: String(e) },
+    );
+  }
+
   // SPEC-FLOW-V1 PR3 — emit canonical lifecycle event for the submission.
   // Runs BEFORE scheduleReadinessRefresh: lifecycle event is canonical and
   // must fire deterministically; readiness refresh is observability-side.

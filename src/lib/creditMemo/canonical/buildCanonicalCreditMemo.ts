@@ -75,6 +75,15 @@ function renderValue(
   return value ?? fallback;
 }
 
+/**
+ * Treats an empty/whitespace-only string as absent so `??` fallback chains
+ * (e.g. borrowerStory ?? overrides ?? qualitativeFact) don't get stuck on a
+ * blank value from the highest-priority source and skip real data below it.
+ */
+function nonEmpty(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
 function metricValueFromSnapshot(args: {
   snapshot: DealFinancialSnapshotV1;
   metric: SnapshotMetricName;
@@ -279,13 +288,16 @@ export async function buildCanonicalCreditMemo(args: {
       deal.borrower_id
         ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
         : Promise.resolve({ data: null }),
+      // ownership_entities has no bank_id column — deal_id alone is the correct
+      // scope since deals.id is globally unique and already resolved to `bankId` above.
       (sb as any).from("ownership_entities").select("*").eq("deal_id", args.dealId).limit(10),
-      (sb as any).from("ai_risk_runs").select("grade, base_rate_bps, risk_premium_bps, result_json, created_at").eq("deal_id", args.dealId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      (sb as any).from("deal_structural_pricing").select("*").eq("deal_id", args.dealId).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
+      (sb as any).from("ai_risk_runs").select("grade, base_rate_bps, risk_premium_bps, result_json, created_at").eq("deal_id", args.dealId).eq("bank_id", bankId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      (sb as any).from("deal_structural_pricing").select("*").eq("deal_id", args.dealId).eq("bank_id", bankId).order("computed_at", { ascending: false }).limit(1).maybeSingle(),
       (sb as any)
         .from("deal_financial_facts")
         .select("fact_key, fact_value_num, fact_period_end")
         .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
         .eq("is_superseded", false)
         .neq("resolution_status", "rejected")
         .in("fact_key", [
@@ -308,6 +320,7 @@ export async function buildCanonicalCreditMemo(args: {
         .from("deal_financial_facts")
         .select("fact_key, fact_value_text, fact_value_num, owner_entity_id")
         .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
         .eq("is_superseded", false)
         .in("fact_type", ["MANAGEMENT", "BUSINESS_CONTEXT", "COMPETITIVE", "RISK_FACTOR"])
         .limit(50),
@@ -323,12 +336,14 @@ export async function buildCanonicalCreditMemo(args: {
         .from("deal_borrower_story")
         .select("business_description, revenue_model, products_services, customers, customer_concentration, competitive_position, growth_strategy, seasonality, key_risks, banker_notes, updated_at")
         .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
         .maybeSingle(),
       // Elite: personal income / AGI fact for income reconciliation
       (sb as any)
         .from("deal_financial_facts")
         .select("fact_key, fact_value_num")
         .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
         .eq("is_superseded", false)
         .in("fact_key", ["TOTAL_PERSONAL_INCOME", "ADJUSTED_GROSS_INCOME"])
         .not("fact_value_num", "is", null)
@@ -1399,6 +1414,23 @@ export async function buildCanonicalCreditMemo(args: {
           },
         ];
 
+    // Itemized collateral for the narrative description (Bug: collateral
+    // narrative previously never read deal_collateral_items despite claiming
+    // to, so it showed "Pending" even when itemized collateral was populated).
+    // No bank_id filter: deal_collateral_items' bank_id column is nullable/
+    // unreliable (see factsAdapter.ts note) — deal_id alone is the correct
+    // scope since deals.id is globally unique and already bank-verified above.
+    let collateralItemRows: import("@/lib/creditMemo/collateral/buildCollateralNarrative").CollateralItemInput[] | null = null;
+    try {
+      const { data: collateralItemsData } = await (sb as any)
+        .from("deal_collateral_items")
+        .select("description, address, collateral_type, estimated_value, market_value")
+        .eq("deal_id", args.dealId);
+      collateralItemRows = (collateralItemsData ?? []) as any;
+    } catch {
+      collateralItemRows = null;
+    }
+
     const lifeInsuranceRequired = loanAmount.value !== null && loanAmount.value > 150_000;
     const lifeInsuranceAmount = lifeInsuranceRequired && loanAmount.value !== null
       ? Math.min(loanAmount.value, 500_000)
@@ -1411,6 +1443,7 @@ export async function buildCanonicalCreditMemo(args: {
         .from("deal_financial_facts")
         .select("fact_key, fact_value_num, fact_period_end, resolution_status")
         .eq("deal_id", deal.id)
+        .eq("bank_id", bankId)
         .eq("is_superseded", false)
         .like("fact_key", "OD_DETAIL_%");
 
@@ -1434,6 +1467,7 @@ export async function buildCanonicalCreditMemo(args: {
           .from("deal_financial_facts")
           .select("fact_value_num")
           .eq("deal_id", deal.id)
+          .eq("bank_id", bankId)
           .eq("fact_key", "OTHER_DEDUCTIONS")
           .eq("is_superseded", false)
           .gte("fact_period_end", `${latestYear}-01-01`)
@@ -1444,6 +1478,7 @@ export async function buildCanonicalCreditMemo(args: {
           .from("deal_financial_facts")
           .select("fact_value_num")
           .eq("deal_id", deal.id)
+          .eq("bank_id", bankId)
           .eq("fact_key", "GROSS_RECEIPTS")
           .eq("is_superseded", false)
           .gte("fact_period_end", `${latestYear}-01-01`)
@@ -1468,8 +1503,14 @@ export async function buildCanonicalCreditMemo(args: {
     // SPEC-CREDIT-MEMO-CONSUME-COMMITTEE-INTELLIGENCE-1 (PR-B): consume the SAME
     // committee-readiness model the Committee Readiness panel renders. Read-only;
     // non-fatal (the memo still renders if research has not been run).
+    // `null` is ambiguous between "no committee model exists for this deal"
+    // (safe — nothing to gate) and "the load threw" (unknown — must NOT be
+    // treated as clean). Track the failure explicitly so it can never be
+    // silently conflated with the legitimate no-gate case below.
+    let committeeReadinessLoadFailed = false;
     const committeeReadiness = await loadMemoCommitteeIntelligence({ sb, dealId: args.dealId }).catch((err) => {
       console.warn("[buildCanonicalCreditMemo] committee readiness load failed (non-fatal)", err?.message);
+      committeeReadinessLoadFailed = true;
       return null;
     });
 
@@ -1479,9 +1520,23 @@ export async function buildCanonicalCreditMemo(args: {
     // precedent — the memo never reads as a clean approval while committee is gated.
     if (recommendation) {
       recommendation = applyCommitteeGateToRecommendation(recommendation, committeeReadiness);
+      if (committeeReadinessLoadFailed) {
+        recommendation = {
+          ...recommendation,
+          rationale: [
+            "Committee readiness could not be verified (data load failed) — treat as NOT committee-ready until re-checked.",
+            ...recommendation.rationale,
+          ],
+        };
+      }
     }
     for (const cond of committeeGateConditions(committeeReadiness)) {
       if (!conditionsPrecedent.includes(cond)) conditionsPrecedent.push(cond);
+    }
+    if (committeeReadinessLoadFailed) {
+      const failedLoadCondition =
+        "Retry committee readiness verification before committee submission (previous check failed to load).";
+      if (!conditionsPrecedent.includes(failedLoadCondition)) conditionsPrecedent.push(failedLoadCondition);
     }
 
     const memo: CanonicalCreditMemoV1 = {
@@ -1598,6 +1653,7 @@ export async function buildCanonicalCreditMemo(args: {
           loanAmount: loanAmount.value,
           legacyOverrideDescription: typeof overrides.collateral_description === "string" ? overrides.collateral_description : null,
           isArLocDeal: isLOC || isArLoc,
+          collateralItems: collateralItemRows,
         }).description,
         property_address: formatLoanRequestPropertyAddress(loanReq?.property_address_json),
         line_items: collateralLineItems,
@@ -1628,20 +1684,20 @@ export async function buildCanonicalCreditMemo(args: {
       business_summary: {
         // ACTIVATION: deal_borrower_story > overrides > qualitative facts > pending
         business_description: renderValue(
-          borrowerStory?.business_description ?? overrides.business_description ?? qualByKey.get("BUSINESS_DESCRIPTION") ?? null,
+          nonEmpty(borrowerStory?.business_description) ?? nonEmpty(overrides.business_description) ?? nonEmpty(qualByKey.get("BUSINESS_DESCRIPTION")) ?? null,
           "Pending — complete borrower intake to populate business description.", mode),
         date_established: null,
         years_in_operation: qualByKey.has("YEARS_IN_BUSINESS") ? Number(qualByKey.get("YEARS_IN_BUSINESS")) : null,
-        revenue_mix: renderValue(borrowerStory?.revenue_model ?? overrides.revenue_mix, "Pending", mode),
-        seasonality: renderValue(borrowerStory?.seasonality ?? overrides.seasonality, "Pending", mode),
+        revenue_mix: renderValue(nonEmpty(borrowerStory?.revenue_model) ?? nonEmpty(overrides.revenue_mix), "Pending", mode),
+        seasonality: renderValue(nonEmpty(borrowerStory?.seasonality) ?? nonEmpty(overrides.seasonality), "Pending", mode),
         geography: borrower?.city && borrower?.state
           ? `${borrower.city}, ${borrower.state}`
           : qualByKey.get("GEOGRAPHIC_FOOTPRINT") ?? renderValue(null, "Pending — geography required", mode),
         marketing_channels: [],
         competitive_advantages: renderValue(
-          borrowerStory?.competitive_position ?? overrides.competitive_advantages ?? qualByKey.get("COMPETITIVE_ADVANTAGE") ?? null,
+          nonEmpty(borrowerStory?.competitive_position) ?? nonEmpty(overrides.competitive_advantages) ?? nonEmpty(qualByKey.get("COMPETITIVE_ADVANTAGE")) ?? null,
           "Pending", mode),
-        vision: renderValue(borrowerStory?.growth_strategy ?? overrides.vision, "Pending", mode),
+        vision: renderValue(nonEmpty(borrowerStory?.growth_strategy) ?? nonEmpty(overrides.vision), "Pending", mode),
         // ACTIVATION: new fields from borrower story
         products_services: borrowerStory?.products_services ?? null,
         customers: borrowerStory?.customers ?? null,
@@ -1881,6 +1937,9 @@ export async function buildCanonicalCreditMemo(args: {
           if (committeeReadiness && committeeReadiness.committee_ready === false) {
             for (const b of committeeReadiness.remaining_blockers) blockers.push(b);
           }
+          if (committeeReadinessLoadFailed) {
+            blockers.push("Committee readiness could not be verified (data load failed)");
+          }
 
           // Phase 82: evidence coverage from latest research_trace_json
           const evidenceCoverage = await computeEvidenceCoverage(args.dealId, bankId).catch(() => null);
@@ -1898,7 +1957,7 @@ export async function buildCanonicalCreditMemo(args: {
             // committee_readiness is authoritative when present (the research-gate
             // model the panel renders); fall back to the trust-grade definition only
             // when no committee model exists (research not run).
-            isCommitteeEligible: isCommitteeEligible({
+            isCommitteeEligible: !committeeReadinessLoadFailed && isCommitteeEligible({
               financialReady: readiness.status === "ready",
               trustGrade,
               evidenceBlockersClear: blockers.length === 0,

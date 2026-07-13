@@ -79,7 +79,15 @@ export async function POST(
     const latestRate = latest[inputs.index_code];
 
     const baseRatePct = inputs.base_rate_override_pct ?? latestRate.ratePct;
-    const spreadBps = inputs.spread_override_bps ?? Number(quote.spread_bps ?? 0);
+    // A spread that can't be determined from either the pricing inputs or
+    // the quote must never be fabricated as 0 bps — that silently turns the
+    // all-in rate into "just the index rate," which materially understates
+    // the loan's pricing with no indication the data was actually missing.
+    const rawSpreadBps = inputs.spread_override_bps ?? (quote.spread_bps != null ? Number(quote.spread_bps) : null);
+    if (rawSpreadBps === null || !Number.isFinite(rawSpreadBps)) {
+      return NextResponse.json({ ok: true, inserted: false, md: null, hint: "spread_not_available" });
+    }
+    const spreadBps = rawSpreadBps;
     const allInPct = baseRatePct + spreadBps / 100;
 
     const paymentPI =
