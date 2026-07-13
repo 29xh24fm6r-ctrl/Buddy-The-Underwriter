@@ -381,4 +381,6 @@ export type MissionExecutionResult = {
   narrative_sections: number;
   error?: string;
   duration_ms: number;
+  /** True when this result reuses an existing queued/running/complete mission with the same run_key instead of executing a new one. */
+  duplicate?: boolean;
 };

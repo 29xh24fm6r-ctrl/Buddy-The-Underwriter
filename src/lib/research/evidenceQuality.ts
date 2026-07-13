@@ -78,6 +78,17 @@ export type EvidenceQualityInput = {
   primaryInstitutionalCount: number;
   publicQualityScore: number; // 0–1 from computeSourceQualityScore
 
+  /**
+   * An authoritative adverse-record source (court record, regulatory filing,
+   * public adverse-record search, or primary news) was cited SPECIFICALLY by
+   * the borrower/litigation thread. FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md
+   * P1): previously there was no adverse-screen requirement anywhere in
+   * committee eligibility — a borrower with one publicly-verifiable owner and
+   * otherwise-clean-looking sources could reach committee_grade with zero
+   * litigation/adverse-record search ever having actually run.
+   */
+  hasAdverseScreen: boolean;
+
   privateCompanyMode: boolean;
 };
 
@@ -117,6 +128,7 @@ function buildItems(i: EvidenceQualityInput): Item[] {
     { key: "entity_public", label: "Entity publicly confirmed", lane: "public_web", weight: 1.0, present: i.entityLockConfirmedPublicly },
     { key: "public_sources", label: "Public sources present", lane: "public_web", weight: 0.5, present: i.publicSourceCount > 0 },
     { key: "primary_sources", label: "Primary/institutional sources", lane: "public_web", weight: 1.0, present: i.primaryInstitutionalCount > 0 },
+    { key: "adverse_screen", label: "Adverse/litigation screen completed", lane: "public_web", weight: 1.0, present: i.hasAdverseScreen },
   ];
 }
 
@@ -156,7 +168,8 @@ export function scoreEvidenceQuality(i: EvidenceQualityInput): EvidenceQualityRe
     certified_evidence_coverage_score >= COMMITTEE_COVERAGE_THRESHOLD &&
     public_web_quality_score >= COMMITTEE_MIN_PUBLIC_QUALITY &&
     i.primaryInstitutionalCount >= COMMITTEE_MIN_PRIMARY_SOURCES &&
-    i.entityLockConfirmedPublicly;
+    i.entityLockConfirmedPublicly &&
+    i.hasAdverseScreen;
 
   const present_items = items.filter((it) => it.present).map((it) => it.label);
   const missing_items = items.filter((it) => !it.present).map((it) => it.label);
@@ -173,6 +186,7 @@ export function scoreEvidenceQuality(i: EvidenceQualityInput): EvidenceQualityRe
   if (i.primaryInstitutionalCount === 0) limitations.push("No primary/institutional public sources found");
   if (!i.hasRevenue || !i.hasFinancialStatements) limitations.push("Financial statements/figures incomplete");
   if (!i.managementPubliclyConfirmed) limitations.push("Management not publicly verified");
+  if (!i.hasAdverseScreen) limitations.push("No authoritative adverse/litigation screen completed");
 
   return {
     public_web_quality_score,

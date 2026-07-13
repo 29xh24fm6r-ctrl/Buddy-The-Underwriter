@@ -4,6 +4,17 @@
  * Provides resumable state snapshots for research missions.
  * Checkpoints are saved per-stage so a failed mission can resume
  * from the last successful stage instead of starting over.
+ *
+ * Wired into production (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round
+ * 4, resumable missions + failure learning): `runMission.ts` calls
+ * `saveCheckpoint()` after every real pipeline stage and `getResumeDecision()`
+ * on mission start to decide which stages to skip when resuming a
+ * previously-failed mission for the same run_key. `findStaleMissions()` is
+ * separately used by `staleMissionSweep.ts` (wired into the worker-tick
+ * cron). `sendHeartbeat()`/`loadLatestCheckpoint()` remain available but are
+ * not yet called from the live path — heartbeat writes are cheap to add
+ * later if stale-mid-stage detection needs finer granularity than
+ * `staleMissionSweep.ts`'s existing started_at fallback provides.
  */
 
 import "server-only";
@@ -236,6 +247,18 @@ export async function sendHeartbeat(
 
 /**
  * Find missions that appear stale (no heartbeat for > threshold).
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): the original
+ * `.lt("last_heartbeat_at", threshold)` filter only ever matches rows with a
+ * NON-NULL last_heartbeat_at — in Postgres/PostgREST, `NULL < x` evaluates to
+ * NULL (not true), so it's excluded. Since nothing in the live mission
+ * execution path (runMission.ts) calls sendHeartbeat() — that only exists on
+ * the disconnected brieRuntime.ts execution path — every mission's
+ * last_heartbeat_at is NULL, meaning this function returned an empty array
+ * for every real mission regardless of how long it had been stuck at
+ * status="running". Falls back to started_at (always set) when
+ * last_heartbeat_at is null so staleness detection actually works today,
+ * without requiring the heartbeat-sending machinery to be wired up first.
  */
 export async function findStaleMissions(
   sb: SupabaseClient,
@@ -247,7 +270,7 @@ export async function findStaleMissions(
     .from("buddy_research_missions")
     .select("id")
     .eq("status", "running")
-    .lt("last_heartbeat_at", threshold);
+    .or(`last_heartbeat_at.lt.${threshold},and(last_heartbeat_at.is.null,started_at.lt.${threshold})`);
 
   return (data ?? []).map((row) => row.id);
 }

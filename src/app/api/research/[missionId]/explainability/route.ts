@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import {
   buildExplainabilityGraph,
   validateExplainabilityGraph,
@@ -83,6 +84,15 @@ export async function GET(
         { ok: false, error: "Mission not found" },
         { status: 404, headers }
       );
+    }
+
+    // SECURITY: verify the caller's bank owns the deal this mission belongs
+    // to before returning explainability/integrity data.
+    // See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1.
+    const access = await ensureDealBankAccess(mission.deal_id);
+    if (!access.ok) {
+      const status = access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status, headers });
     }
 
     // Fetch all related data in parallel

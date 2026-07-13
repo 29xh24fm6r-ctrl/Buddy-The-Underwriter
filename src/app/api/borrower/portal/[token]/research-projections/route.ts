@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateProjectionsFromResearch } from "@/lib/sba/sbaResearchProjectionGenerator";
+import { rateLimit } from "@/lib/api/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,6 +44,18 @@ export async function POST(
       action: "already_confirmed",
       message: "Projections already confirmed by borrower",
     });
+  }
+
+  // RATE LIMIT: this route calls a real Gemini generation step on every
+  // unconfirmed POST — a valid portal token can otherwise be scripted to
+  // repeat it indefinitely before the borrower confirms.
+  // See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-2 / A8.
+  const cooldown = rateLimit({ key: `research-projections:deal:${ctx.dealId}`, limit: 1, windowMs: 30_000 });
+  if (!cooldown.ok) {
+    return NextResponse.json(
+      { ok: false, error: "rate_limited", resetAt: cooldown.resetAt },
+      { status: 429 },
+    );
   }
 
   try {

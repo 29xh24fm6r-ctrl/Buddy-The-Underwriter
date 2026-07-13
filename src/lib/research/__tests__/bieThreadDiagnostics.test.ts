@@ -28,6 +28,16 @@ afterEach(() => { globalThis.fetch = realFetch; });
 function mockFetch(impl: () => any) {
   globalThis.fetch = (async () => impl()) as any;
 }
+
+/** Returns a different mocked response on each successive fetch() call. */
+function mockFetchSequence(impls: Array<() => any>) {
+  let i = 0;
+  globalThis.fetch = (async (url: string) => {
+    const impl = impls[Math.min(i, impls.length - 1)];
+    i++;
+    return { ...impl(), _requestedUrl: url };
+  }) as any;
+}
 const call = (over: Partial<Parameters<typeof callGeminiGrounded>[0]> = {}) =>
   callGeminiGrounded({ prompt: "p", apiKey: "k", sources: [], logTag: "t", thread: "management", useGrounding: false, ...over });
 
@@ -90,6 +100,42 @@ describe("callGeminiGrounded diagnostics", () => {
     assert.equal(r.diagnostic.ok, true);
     assert.equal(r.diagnostic.error_type, "none");
     assert.equal(r.diagnostic.thread, "management");
+  });
+
+  // Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md: a 404 from the
+  // primary model most often means it was retired/renamed by Google — retry
+  // once against MODEL_RESEARCH_FALLBACK instead of just failing the thread.
+  it("404 on primary model → retries against fallback model, succeeds", async () => {
+    mockFetchSequence([
+      () => ({ ok: false, status: 404, text: async () => "model not found", json: async () => ({}) }),
+      () => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"hello":"fallback"}' }] }, finishReason: "STOP" }] }) }),
+    ]);
+    const r = await call();
+    assert.deepEqual(r.result, { hello: "fallback" });
+    assert.equal(r.diagnostic.ok, true);
+    assert.match(r.diagnostic.raw_text_preview ?? "", /fallback retry after primary model 404/);
+  });
+
+  it("404 on both primary and fallback model → reports the fallback's failure, no infinite retry", async () => {
+    mockFetchSequence([
+      () => ({ ok: false, status: 404, text: async () => "model not found", json: async () => ({}) }),
+      () => ({ ok: false, status: 404, text: async () => "fallback also not found", json: async () => ({}) }),
+    ]);
+    const r = await call();
+    assert.equal(r.diagnostic.ok, false);
+    assert.equal(r.diagnostic.error_type, "http_error");
+    assert.equal(r.diagnostic.http_status, 404);
+  });
+
+  it("non-404 error → no fallback retry attempted (single fetch call)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return { ok: false, status: 503, text: async () => "unavailable", json: async () => ({}) };
+    }) as any;
+    const r = await call();
+    assert.equal(calls, 1, "should not retry on a non-404 error");
+    assert.equal(r.diagnostic.http_status, 503);
   });
 });
 

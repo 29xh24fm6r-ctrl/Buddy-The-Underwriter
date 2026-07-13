@@ -14,7 +14,6 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ResearchFact, ResearchSource, ResearchInference } from "./types";
-import { recordFailure } from "./failureLibrary";
 
 // ============================================================================
 // Types

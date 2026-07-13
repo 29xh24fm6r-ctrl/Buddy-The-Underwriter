@@ -25,20 +25,26 @@
 import "server-only";
 
 import type { NarrativeSection } from "./types";
-import { MODEL_RESEARCH, isGemini3Model } from "@/lib/ai/models";
+import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK, isGemini3Model } from "@/lib/ai/models";
 import {
   repairManagementJson,
   buildManagementFallback,
   MANAGEMENT_REPAIR_STRATEGY,
 } from "./managementRepair";
+import { repairGenericJson, GENERIC_JSON_REPAIR_STRATEGY } from "./geminiJsonRepair";
+import { attributeSegmentsToText } from "./citationAttribution";
+import { planBIEThreadReuse } from "./bieThreadReuse";
 
 // ============================================================================
 // Gemini API caller — returns grounding metadata alongside parsed result
 // ============================================================================
 
-const GEMINI_MODEL = MODEL_RESEARCH;
+// Typed as `string` (not narrowed to the literal) so it can be compared
+// against MODEL_RESEARCH_FALLBACK at runtime in callGeminiGrounded()'s
+// retry-loop guard without a spurious "no overlap" type error.
+const GEMINI_MODEL: string = MODEL_RESEARCH;
 
-type GroundingSegment = {
+export type GroundingSegment = {
   text: string;        // exact text segment that was grounded
   urls: string[];      // source URLs supporting this segment
   confidences: number[]; // per-source confidence scores
@@ -86,6 +92,11 @@ export type BIEThreadDiagnostic = {
   // and these two flags record that a repair (or deterministic fallback) ran.
   repaired?: boolean;
   repair_strategy?: string | null;
+  // SPEC-BIE-...-MEGA-1 round 4 (resumable missions + failure learning): set
+  // when this thread's diagnostic reflects a same-invocation retry (the
+  // first attempt failed with a transient error and a second attempt was
+  // made immediately, before returning to the caller).
+  retried?: boolean;
   prompt_chars: number;
   response_chars?: number | null;
   source_count: number;
@@ -153,6 +164,32 @@ export function describeThreadDiagnostic(d: BIEThreadDiagnostic): string {
   }
 }
 
+/**
+ * Whether a failed thread is worth one immediate same-invocation retry.
+ *
+ * Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md (round 4): a
+ * single flaky Gemini call (a transient 5xx, a dropped connection, an
+ * occasional empty response) previously permanently degraded that thread
+ * for the whole mission — the only recovery path was a full mission retry.
+ * Only genuinely transient categories are retried; `safety_block` and
+ * `json_parse_error` are excluded because a same-prompt retry is unlikely
+ * to change a content-policy refusal or a systematically malformed
+ * response (which already went through a repair pass at generation time).
+ */
+export function isRetryableBIEDiagnostic(d: BIEThreadDiagnostic): boolean {
+  switch (d.error_type) {
+    case "network_error":
+    case "empty_candidate":
+    case "empty_text":
+      return true;
+    case "http_error":
+      return d.http_status == null || d.http_status === 408 || d.http_status === 429 ||
+        (d.http_status >= 500 && d.http_status < 600);
+    default:
+      return false;
+  }
+}
+
 type GeminiGroundedResult<T> = {
   result: T | null;
   sourceUrls: string[];           // all URLs from groundingChunks
@@ -160,8 +197,7 @@ type GeminiGroundedResult<T> = {
   diagnostic: BIEThreadDiagnostic; // Phase 1: never-silent failure record
 };
 
-// Exported for Phase 1 diagnostic tests (mock global.fetch). Internal otherwise.
-export async function callGeminiGrounded<T>(args: {
+type CallGeminiGroundedArgs<T> = {
   prompt: string;
   apiKey: string;
   sources: string[];   // accumulated source list across all threads
@@ -173,7 +209,17 @@ export async function callGeminiGrounded<T>(args: {
   // text; returns a salvaged value or null. The original parse diagnostic is
   // preserved either way.
   repair?: { strategy: string; fn: (clean: string) => T | null };
-}): Promise<GeminiGroundedResult<T>> {
+};
+
+/**
+ * Call Gemini for a single BIE thread against a specific model. Internal —
+ * callers use callGeminiGrounded() below, which adds the model-retirement
+ * fallback retry.
+ */
+async function callGeminiGroundedWithModel<T>(
+  model: string,
+  args: CallGeminiGroundedArgs<T>,
+): Promise<GeminiGroundedResult<T>> {
   const promptChars = args.prompt.length;
   // SPEC-BIE-...-MEGA-1 Phase 1: build a diagnostic for EVERY return path.
   const baseDiag = (
@@ -189,7 +235,7 @@ export async function callGeminiGrounded<T>(args: {
     response_chars: null,
     source_count: 0,
     prompt_chars: promptChars,
-    model: GEMINI_MODEL,
+    model,
     created_at: new Date().toISOString(),
     ...over,
   });
@@ -199,16 +245,22 @@ export async function callGeminiGrounded<T>(args: {
     segments: [],
     diagnostic,
   });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${args.apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${args.apiKey}`;
 
   // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
   const generationConfig: Record<string, unknown> = {};
-  if (!isGemini3Model(GEMINI_MODEL)) {
+  if (!isGemini3Model(model)) {
     generationConfig.temperature = 0.1;
   }
   if (!args.useGrounding) {
     generationConfig.responseMimeType = "application/json";
   }
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): no maxOutputTokens
+  // was ever set. A verbose entity (exactly the newsworthy/high-litigation-
+  // content case) that hit the model's default output ceiling produced
+  // truncated-but-nonempty JSON that was previously indistinguishable from
+  // any other malformed-JSON failure — see the MAX_TOKENS handling below.
+  generationConfig.maxOutputTokens = 8192;
 
   const body: Record<string, unknown> = {
     contents: [{ role: "user", parts: [{ text: args.prompt }] }],
@@ -218,21 +270,46 @@ export async function callGeminiGrounded<T>(args: {
     body.tools = [{ google_search: {} }];
   }
 
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): no timeout on the
+  // raw fetch() to Gemini — a single slow/hung call could block the whole
+  // BIE pass with no bound of its own (the only backstop was the calling
+  // route's maxDuration, which just kills the whole mission with no
+  // per-thread diagnostic). 60s per call — generous for a single grounded
+  // generation, well under the 300s mission-level route budget.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a 404 from this
+      // endpoint most often means the pinned model id has been retired/
+      // renamed by Google — this codebase has already been burned by exactly
+      // this once (see models.ts's history comment: a preview model 404'd on
+      // Vertex and was silently masked by an unrelated fallback for weeks).
+      // Tag it distinctly and loudly so it doesn't read as a generic/
+      // transient HTTP failure indistinguishable from a rate limit or outage.
+      const likelyModelRetirement = res.status === 404;
+      if (likelyModelRetirement) {
+        console.error(
+          `[BIE:${args.logTag}] Gemini 404 for model "${model}" — likely RETIRED/RENAMED, ` +
+          `not a transient failure. Check @/lib/ai/models.ts. Response: ${errText.slice(0, 300)}`,
+        );
+      } else {
+        console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
+      }
       return emptyWith(baseDiag({
         ok: false,
         error_type: "http_error",
         http_status: res.status,
-        raw_text_preview: errText.slice(0, 300) || null,
+        raw_text_preview: (likelyModelRetirement ? `[likely model retirement — model="${model}"] ` : "") + (errText.slice(0, 300) || ""),
       }));
     }
 
@@ -298,7 +375,14 @@ export async function callGeminiGrounded<T>(args: {
     try {
       result = JSON.parse(clean) as T;
     } catch (pe: any) {
-      console.warn(`[BIE:${args.logTag}] JSON parse error:`, pe?.message);
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a verbose entity
+      // hitting maxOutputTokens produces truncated-but-nonempty JSON that
+      // fails to parse — previously reported identically to any other
+      // malformed-JSON failure, losing the actionable "raise the token
+      // limit" signal. Tag it explicitly when finishReason confirms it.
+      const truncated = finishReason === "MAX_TOKENS";
+      const parseErrorMsg = (truncated ? "[likely truncated by maxOutputTokens] " : "") + String(pe?.message ?? pe);
+      console.warn(`[BIE:${args.logTag}] JSON parse error${truncated ? " (MAX_TOKENS truncation)" : ""}:`, pe?.message);
       // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: one safe
       // repair attempt. On success the ORIGINAL parse diagnostic is preserved
       // (error_type=json_parse_error, raw_text_preview, json_parse_error) and
@@ -321,7 +405,7 @@ export async function callGeminiGrounded<T>(args: {
               error_type: "json_parse_error",
               http_status: res.status,
               finish_reason: finishReason,
-              json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+              json_parse_error: parseErrorMsg.slice(0, 200),
               raw_text_preview: clean.slice(0, 300),
               response_chars: text.length,
               source_count: chunkUrls.length,
@@ -336,7 +420,7 @@ export async function callGeminiGrounded<T>(args: {
         error_type: "json_parse_error",
         http_status: res.status,
         finish_reason: finishReason,
-        json_parse_error: String(pe?.message ?? pe).slice(0, 200),
+        json_parse_error: parseErrorMsg.slice(0, 200),
         raw_text_preview: clean.slice(0, 300),
         response_chars: text.length,
         source_count: chunkUrls.length,
@@ -357,13 +441,64 @@ export async function callGeminiGrounded<T>(args: {
       }),
     };
   } catch (e: any) {
-    console.warn(`[BIE:${args.logTag}] failed:`, e?.message);
+    const timedOut = e?.name === "AbortError";
+    console.warn(`[BIE:${args.logTag}] failed${timedOut ? " (timeout)" : ""}:`, e?.message);
     return emptyWith(baseDiag({
       ok: false,
       error_type: "network_error",
-      json_parse_error: String(e?.message ?? e).slice(0, 200),
+      json_parse_error: timedOut ? "gemini_call_timeout_60s" : String(e?.message ?? e).slice(0, 200),
     }));
+  } finally {
+    clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Call Gemini for a single BIE thread, with a one-shot fallback retry
+ * against MODEL_RESEARCH_FALLBACK when the primary model returns HTTP 404.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now
+ * wired): a 404 here most often means the pinned model id has been
+ * retired/renamed by Google — this codebase has already been burned by
+ * exactly this once (see GEMINI_FLASH's history comment in models.ts: a
+ * preview model 404'd on Vertex and was silently masked by an unrelated
+ * fallback for weeks). Previously a 404 just failed the thread outright,
+ * indistinguishable from any other HTTP error, with no retry. Only retries
+ * on 404 specifically (not on rate limits/5xx/timeouts, which are already
+ * transient and shouldn't be masked by silently switching models) and only
+ * once (never against the fallback's own 404, to avoid a retry loop).
+ *
+ * Exported for Phase 1 diagnostic tests (mock global.fetch).
+ */
+export async function callGeminiGrounded<T>(
+  args: CallGeminiGroundedArgs<T>,
+): Promise<GeminiGroundedResult<T>> {
+  const primary = await callGeminiGroundedWithModel<T>(GEMINI_MODEL, args);
+
+  const isLikelyModelRetirement =
+    !primary.diagnostic.ok &&
+    primary.diagnostic.error_type === "http_error" &&
+    primary.diagnostic.http_status === 404;
+
+  if (!isLikelyModelRetirement || GEMINI_MODEL === MODEL_RESEARCH_FALLBACK) {
+    return primary;
+  }
+
+  console.warn(
+    `[BIE:${args.logTag}] retrying against fallback model "${MODEL_RESEARCH_FALLBACK}" ` +
+    `after primary model "${GEMINI_MODEL}" 404'd (likely retired/renamed)`,
+  );
+  const fallback = await callGeminiGroundedWithModel<T>(MODEL_RESEARCH_FALLBACK, args);
+  return {
+    ...fallback,
+    diagnostic: {
+      ...fallback.diagnostic,
+      // Preserve the fact that a fallback retry happened, distinct from a
+      // JSON-repair "repaired" flag — both can be true simultaneously.
+      raw_text_preview:
+        `[fallback retry after primary model 404] ${fallback.diagnostic.raw_text_preview ?? ""}`.trim(),
+    },
+  };
 }
 
 // ============================================================================
@@ -542,6 +677,23 @@ type ThreadSources = {
   entity_lock: string[];
 };
 
+/**
+ * Per-thread grounding segments — the model's own text-span → source-URL
+ * attribution, at finer granularity than ThreadSources' pooled URL list.
+ * Used to attribute a SPECIFIC sentence/claim to the source(s) that actually
+ * grounded it, instead of citing every sentence in a section with the whole
+ * thread's source pool (see citationAttribution.ts's attributeSegmentsToText).
+ */
+export type ThreadSegments = {
+  borrower: GroundingSegment[];
+  management: GroundingSegment[];
+  competitive: GroundingSegment[];
+  market: GroundingSegment[];
+  industry: GroundingSegment[];
+  transaction: GroundingSegment[];
+  entity_lock: GroundingSegment[];
+};
+
 export type BIEResult = {
   entity_lock: EntityLock | null;        // Thread 0 entity confirmation
   entity_confirmed: boolean;             // did entity lock succeed?
@@ -566,6 +718,7 @@ export type BIEResult = {
   research_quality: "deep" | "partial" | "minimal";
   sources_used: string[];
   thread_sources: ThreadSources;          // per-thread source URLs for citation threading
+  thread_segments: ThreadSegments;        // per-thread text-span → source-URL attribution
   thread_diagnostics: Record<BIEThreadName, BIEThreadDiagnostic>; // Phase 1: never-silent failures
   compiled_at: string;
 };
@@ -601,16 +754,23 @@ export function classifyEntity(args: {
     return { classification: "unconfirmed_needs_banker_identity", confidence: 0 };
   }
 
-  if (modelConfidence >= 0.7) {
-    return { classification: "confirmed_public_entity", confidence: modelConfidence };
-  }
-
   // The model locked onto a real but DIFFERENT entity than our search target.
+  // FIX (P0-4, specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md): this check MUST
+  // run before the modelConfidence >= 0.7 branch below. It previously ran
+  // only in the [0.5, 0.7) band, which meant a model that self-reported HIGH
+  // confidence while having actually grounded onto a similarly-named but
+  // wrong company — the exact failure mode entity lock exists to catch —
+  // bypassed the mismatch check entirely and was auto-classified as a
+  // confirmed match.
   const confirmed = (confirmedName ?? "").trim();
   const lockedOntoSomething = confirmed.length > 0 && confirmed.toUpperCase() !== "UNCONFIRMED";
   const nameMismatch = lockedOntoSomething && !tokensOverlap(confirmed, companySearchName);
   if (modelConfidence >= 0.5 && nameMismatch) {
     return { classification: "wrong_entity_risk", confidence: modelConfidence };
+  }
+
+  if (modelConfidence >= 0.7) {
+    return { classification: "confirmed_public_entity", confidence: modelConfidence };
   }
 
   if (hasBankerCertifiedAnchor) {
@@ -642,10 +802,18 @@ function tokensOverlap(a: string, b: string): boolean {
   const stop = new Set(["llc", "inc", "corp", "co", "ltd", "lp", "the", "company", "group", "holdings", "review", "deal"]);
   const toks = (s: string) =>
     new Set(
-      s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 2 && !stop.has(t)),
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-4 follow-up):
+      // length > 1, not > 2 — the old threshold dropped short-but-real brand
+      // tokens ("3M", "GE") entirely, which could make BOTH token sets empty
+      // for the same short-named entity and cause a false "mismatch".
+      s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 1 && !stop.has(t)),
     );
   const ta = toks(a);
   const tb = toks(b);
+  // If either name has no significant tokens left after filtering, we can't
+  // meaningfully compare them — don't report a "mismatch" we can't actually
+  // detect (that would incorrectly flag a same-entity match as wrong_entity_risk).
+  if (ta.size === 0 || tb.size === 0) return true;
   for (const t of ta) if (tb.has(t)) return true;
   return false;
 }
@@ -654,7 +822,7 @@ async function runEntityLock(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ lock: EntityLock | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ lock: EntityLock | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const revenueStr = input.annual_revenue
     ? `approximately $${(input.annual_revenue / 1_000_000).toFixed(1)}M annual revenue`
@@ -670,6 +838,7 @@ async function runEntityLock(
     return {
       lock: null,
       sourceUrls: [],
+      segments: [],
       diagnostic: synthDiagnostic("entity_lock", "skipped", {
         raw_text_preview: "no legal/DBA/website search name (placeholder deal label)",
       }),
@@ -721,9 +890,10 @@ Return ONLY valid JSON:
     logTag: "entity-lock",
     thread: "entity_lock",
     useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
 
-  return { lock: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { lock: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -735,7 +905,7 @@ async function runBorrowerIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: BorrowerIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: BorrowerIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const scopeClause = entityLock?.research_scope
     ? `\nRESEARCH SCOPE (confirmed by entity lock): ${entityLock.research_scope}\nDo NOT include findings about: ${entityLock.alternative_entities_found.join("; ") || "N/A"}`
@@ -786,8 +956,9 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<BorrowerIntelligence>({
     prompt, apiKey, sources, logTag: "borrower", thread: "borrower", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -799,7 +970,7 @@ async function runManagementIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: ManagementIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: ManagementIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
   const principalsList = input.principals
     .map((p, i) => `${i + 1}. ${p.name}${p.title ? ` (${p.title})` : ""}`)
@@ -881,7 +1052,7 @@ Return ONLY valid JSON:
     // deterministic file-based fallback (Phase 1B) takes over in the orchestrator.
     repair: { strategy: MANAGEMENT_REPAIR_STRATEGY, fn: repairManagementJson },
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -893,7 +1064,7 @@ async function runCompetitiveIntelligence(
   entityLock: EntityLock | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: CompetitiveIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: CompetitiveIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
 
   const prompt = `You are a senior commercial credit analyst assessing competitive positioning for a lending decision.
@@ -939,8 +1110,9 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<CompetitiveIntelligence>({
     prompt, apiKey, sources, logTag: "competitive", thread: "competitive", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -951,7 +1123,7 @@ async function runMarketIntelligence(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ result: MarketIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: MarketIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ") || "Unknown";
 
   const prompt = `You are a senior commercial credit analyst conducting local market research for a loan.
@@ -989,8 +1161,9 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<MarketIntelligence>({
     prompt, apiKey, sources, logTag: "market", thread: "market", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -1001,7 +1174,7 @@ async function runIndustryIntelligence(
   input: BIEInput,
   apiKey: string,
   sources: string[],
-): Promise<{ result: IndustryIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: IndustryIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const prompt = `You are a senior institutional credit analyst writing an industry analysis for a credit committee.
 
 Industry: ${input.naics_description || input.naics_code || "Unknown"} (NAICS ${input.naics_code || "Unknown"})
@@ -1038,8 +1211,9 @@ Return ONLY valid JSON:
 
   const gr = await callGeminiGrounded<IndustryIntelligence>({
     prompt, apiKey, sources, logTag: "industry", thread: "industry", useGrounding: true,
+    repair: { strategy: GENERIC_JSON_REPAIR_STRATEGY, fn: repairGenericJson },
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -1055,7 +1229,7 @@ async function runTransactionRepaymentIntelligence(
   industry: IndustryIntelligence | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ");
 
   const prompt = `You are a senior credit officer analyzing the repayment viability of a proposed commercial loan.
@@ -1108,7 +1282,7 @@ Return ONLY valid JSON:
   const gr = await callGeminiGrounded<TransactionRepaymentIntelligence>({
     prompt, apiKey, sources, logTag: "transaction", thread: "transaction", useGrounding: false,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -1126,7 +1300,7 @@ async function runCreditSynthesis(
   transaction: TransactionRepaymentIntelligence | null,
   apiKey: string,
   sources: string[],
-): Promise<{ result: CreditSynthesis | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }> {
+): Promise<{ result: CreditSynthesis | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
   const location = [input.city, input.state].filter(Boolean).join(", ");
   const principalNames = input.principals.map((p) => p.name).join(", ") || "None on file";
   const confirmedPrincipals = management?.principal_profiles
@@ -1221,7 +1395,7 @@ Return ONLY valid JSON:
   const gr = await callGeminiGrounded<CreditSynthesis>({
     prompt, apiKey, sources, logTag: "synthesis", thread: "synthesis", useGrounding: false,
   });
-  return { result: gr.result, sourceUrls: gr.sourceUrls, diagnostic: gr.diagnostic };
+  return { result: gr.result, sourceUrls: gr.sourceUrls, segments: gr.segments, diagnostic: gr.diagnostic };
 }
 
 // ============================================================================
@@ -1248,6 +1422,10 @@ function emptyBIEResult(): BIEResult {
       borrower: [], management: [], competitive: [],
       market: [], industry: [], transaction: [], entity_lock: [],
     },
+    thread_segments: {
+      borrower: [], management: [], competitive: [],
+      market: [], industry: [], transaction: [], entity_lock: [],
+    },
     thread_diagnostics: {
       entity_lock: synthDiagnostic("entity_lock", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
       borrower: synthDiagnostic("borrower", "unknown_error", { raw_text_preview: "GEMINI_API_KEY missing — BIE skipped" }),
@@ -1262,7 +1440,42 @@ function emptyBIEResult(): BIEResult {
   };
 }
 
-export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIEResult> {
+export type BIECachedThreadResult<T = unknown> = {
+  result: T | null;
+  sourceUrls: string[];
+  segments: GroundingSegment[];
+  diagnostic: BIEThreadDiagnostic;
+};
+
+/** A previous attempt's per-thread raw output, keyed by thread name — see bieThreadReuse.ts. */
+export type BIEPreviousThreadResults = Partial<Record<BIEThreadName, BIECachedThreadResult>>;
+
+/**
+ * Run a thread once; if it fails with a transient error (per
+ * isRetryableBIEDiagnostic), run it exactly once more before giving up.
+ * See isRetryableBIEDiagnostic's docstring for why only some categories
+ * qualify.
+ */
+async function runWithRetry<T>(
+  runner: () => Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
+): Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> {
+  const first = await runner();
+  if (!first.diagnostic.ok && isRetryableBIEDiagnostic(first.diagnostic)) {
+    console.warn(`[BIE] ${first.diagnostic.thread} failed retryably (${first.diagnostic.error_type}) — retrying once`);
+    const retry = await runner();
+    if (retry.diagnostic.ok) {
+      console.log(`[BIE] ${retry.diagnostic.thread}: recovered on retry`);
+      return { ...retry, diagnostic: { ...retry.diagnostic, retried: true } };
+    }
+    return retry;
+  }
+  return first;
+}
+
+export async function runBuddyIntelligenceEngine(
+  input: BIEInput,
+  opts?: { previousThreadResults?: BIEPreviousThreadResults },
+): Promise<BIEResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("[BIE] GEMINI_API_KEY missing — skipping BIE");
@@ -1270,51 +1483,89 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   }
 
   const allSources: string[] = [];
+  const previous = opts?.previousThreadResults ?? {};
+  const reusePlan = planBIEThreadReuse(
+    (Object.keys(previous) as BIEThreadName[]).reduce((acc, k) => {
+      acc[k] = { ok: previous[k]!.diagnostic.ok };
+      return acc;
+    }, {} as Partial<Record<BIEThreadName, { ok: boolean }>>),
+  );
+  const reuseNote = (thread: BIEThreadName) =>
+    console.log(`[BIE] ${thread}: reused from previous attempt (cached, not re-run)`);
 
   // ── Thread 0: Entity Lock (sequential first — all other threads depend on it) ──
   let entityLock: EntityLock | null = null;
   let entityLockSources: string[] = [];
+  let entityLockSegments: GroundingSegment[] = [];
   let entityLockDiag: BIEThreadDiagnostic = synthDiagnostic("entity_lock", "thread_threw");
-  try {
-    const r = await runEntityLock(input, apiKey, allSources);
-    entityLock = r.lock;
-    entityLockSources = r.sourceUrls;
-    entityLockDiag = r.diagnostic;
-    if (entityLock) {
-      console.log(
-        `[BIE] Entity lock: "${entityLock.confirmed_name}" confidence=${entityLock.entity_confidence}`,
-        entityLock.alternative_entities_found.length > 0
-          ? `alternatives excluded: ${entityLock.alternative_entities_found.join(", ")}`
-          : "no alternatives found",
-      );
+  if (reusePlan.entity_lock && previous.entity_lock) {
+    reuseNote("entity_lock");
+    entityLock = previous.entity_lock.result as EntityLock | null;
+    entityLockSources = previous.entity_lock.sourceUrls;
+    entityLockSegments = previous.entity_lock.segments;
+    entityLockDiag = previous.entity_lock.diagnostic;
+    allSources.push(...entityLockSources);
+  } else {
+    try {
+      const r = await runWithRetry(async () => {
+        const lockR = await runEntityLock(input, apiKey, allSources);
+        return { result: lockR.lock, sourceUrls: lockR.sourceUrls, segments: lockR.segments, diagnostic: lockR.diagnostic };
+      });
+      entityLock = r.result;
+      entityLockSources = r.sourceUrls;
+      entityLockSegments = r.segments;
+      entityLockDiag = r.diagnostic;
+      if (entityLock) {
+        console.log(
+          `[BIE] Entity lock: "${entityLock.confirmed_name}" confidence=${entityLock.entity_confidence}`,
+          entityLock.alternative_entities_found.length > 0
+            ? `alternatives excluded: ${entityLock.alternative_entities_found.join(", ")}`
+            : "no alternatives found",
+        );
+      }
+    } catch (e: any) {
+      console.warn("[BIE] Entity lock failed (non-fatal):", e?.message);
+      entityLockDiag = synthDiagnostic("entity_lock", "thread_threw", {
+        json_parse_error: String(e?.message ?? e).slice(0, 200),
+      });
     }
-  } catch (e: any) {
-    console.warn("[BIE] Entity lock failed (non-fatal):", e?.message);
-    entityLockDiag = synthDiagnostic("entity_lock", "thread_threw", {
-      json_parse_error: String(e?.message ?? e).slice(0, 200),
-    });
   }
 
-  // ── Threads 1–5: Run in parallel ──
+  // ── Threads 1–5: Run in parallel (skip ones being reused from a previous attempt) ──
+  const runThread1to5 = async <T>(
+    thread: BIEThreadName,
+    shouldReuse: boolean,
+    runner: () => Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
+  ): Promise<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }> => {
+    const cached = previous[thread] as BIECachedThreadResult<T> | undefined;
+    if (shouldReuse && cached) {
+      reuseNote(thread);
+      allSources.push(...cached.sourceUrls);
+      return cached;
+    }
+    return runWithRetry(runner);
+  };
+
   const [t1, t2, t3, t4, t5] = await Promise.allSettled([
-    runBorrowerIntelligence(input, entityLock, apiKey, allSources),
-    runManagementIntelligence(input, entityLock, apiKey, allSources),
-    runCompetitiveIntelligence(input, entityLock, apiKey, allSources),
-    runMarketIntelligence(input, apiKey, allSources),
-    runIndustryIntelligence(input, apiKey, allSources),
+    runThread1to5("borrower", reusePlan.borrower, () => runBorrowerIntelligence(input, entityLock, apiKey, allSources)),
+    runThread1to5("management", reusePlan.management, () => runManagementIntelligence(input, entityLock, apiKey, allSources)),
+    runThread1to5("competitive", reusePlan.competitive, () => runCompetitiveIntelligence(input, entityLock, apiKey, allSources)),
+    runThread1to5("market", reusePlan.market, () => runMarketIntelligence(input, apiKey, allSources)),
+    runThread1to5("industry", reusePlan.industry, () => runIndustryIntelligence(input, apiKey, allSources)),
   ]);
 
   // SPEC-BIE-...-MEGA-1 Phase 1: a rejected thread gets a thread_threw diagnostic
   // (never a silent null).
   const settled = <T>(
-    s: PromiseSettledResult<{ result: T | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic }>,
+    s: PromiseSettledResult<{ result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic }>,
     thread: BIEThreadName,
-  ): { result: T | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =>
+  ): { result: T | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic } =>
     s.status === "fulfilled"
       ? s.value
       : {
           result: null,
           sourceUrls: [],
+          segments: [],
           diagnostic: synthDiagnostic(thread, "thread_threw", {
             json_parse_error: String((s as PromiseRejectedResult).reason?.message ?? (s as PromiseRejectedResult).reason).slice(0, 200),
           }),
@@ -1357,41 +1608,59 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
   const industry = industryR.result;
 
   // ── Thread 6: Transaction (sequential — needs 1–5) ──
-  let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =
-    { result: null, sourceUrls: [], diagnostic: synthDiagnostic("transaction", "thread_threw") };
-  try {
-    transactionR = await runTransactionRepaymentIntelligence(
-      input, borrower, management, competitive, market, industry, apiKey, allSources,
-    );
-  } catch (e: any) {
-    console.warn("[BIE] Transaction thread failed:", e?.message);
-    transactionR = {
-      result: null,
-      sourceUrls: [],
-      diagnostic: synthDiagnostic("transaction", "thread_threw", {
-        json_parse_error: String(e?.message ?? e).slice(0, 200),
-      }),
-    };
+  let transactionR: { result: TransactionRepaymentIntelligence | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic } =
+    { result: null, sourceUrls: [], segments: [], diagnostic: synthDiagnostic("transaction", "thread_threw") };
+  if (reusePlan.transaction && previous.transaction) {
+    reuseNote("transaction");
+    transactionR = previous.transaction as typeof transactionR;
+    allSources.push(...transactionR.sourceUrls);
+  } else {
+    try {
+      transactionR = await runWithRetry(() =>
+        runTransactionRepaymentIntelligence(
+          input, borrower, management, competitive, market, industry, apiKey, allSources,
+        ),
+      );
+    } catch (e: any) {
+      console.warn("[BIE] Transaction thread failed:", e?.message);
+      transactionR = {
+        result: null,
+        sourceUrls: [],
+        segments: [],
+        diagnostic: synthDiagnostic("transaction", "thread_threw", {
+          json_parse_error: String(e?.message ?? e).slice(0, 200),
+        }),
+      };
+    }
   }
   const transaction = transactionR.result;
 
   // ── Thread 7: Synthesis + Validation Pass (sequential) ──
-  let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[]; diagnostic: BIEThreadDiagnostic } =
-    { result: null, sourceUrls: [], diagnostic: synthDiagnostic("synthesis", "thread_threw") };
-  try {
-    synthesisR = await runCreditSynthesis(
-      input, entityLock, borrower, management, competitive, market, industry, transaction,
-      apiKey, allSources,
-    );
-  } catch (e: any) {
-    console.warn("[BIE] Synthesis thread failed:", e?.message);
-    synthesisR = {
-      result: null,
-      sourceUrls: [],
-      diagnostic: synthDiagnostic("synthesis", "thread_threw", {
-        json_parse_error: String(e?.message ?? e).slice(0, 200),
-      }),
-    };
+  let synthesisR: { result: CreditSynthesis | null; sourceUrls: string[]; segments: GroundingSegment[]; diagnostic: BIEThreadDiagnostic } =
+    { result: null, sourceUrls: [], segments: [], diagnostic: synthDiagnostic("synthesis", "thread_threw") };
+  if (reusePlan.synthesis && previous.synthesis) {
+    reuseNote("synthesis");
+    synthesisR = previous.synthesis as typeof synthesisR;
+    allSources.push(...synthesisR.sourceUrls);
+  } else {
+    try {
+      synthesisR = await runWithRetry(() =>
+        runCreditSynthesis(
+          input, entityLock, borrower, management, competitive, market, industry, transaction,
+          apiKey, allSources,
+        ),
+      );
+    } catch (e: any) {
+      console.warn("[BIE] Synthesis thread failed:", e?.message);
+      synthesisR = {
+        result: null,
+        sourceUrls: [],
+        segments: [],
+        diagnostic: synthDiagnostic("synthesis", "thread_threw", {
+          json_parse_error: String(e?.message ?? e).slice(0, 200),
+        }),
+      };
+    }
   }
   const synthesis = synthesisR.result;
 
@@ -1463,6 +1732,15 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
       industry: industryR.sourceUrls,
       transaction: transactionR.sourceUrls,
     },
+    thread_segments: {
+      entity_lock: entityLockSegments,
+      borrower: borrowerR.segments,
+      management: managementR.segments,
+      competitive: competitiveR.segments,
+      market: marketR.segments,
+      industry: industryR.segments,
+      transaction: transactionR.segments,
+    },
     thread_diagnostics,
     compiled_at: new Date().toISOString(),
   };
@@ -1483,23 +1761,31 @@ export async function runBuddyIntelligenceEngine(input: BIEInput): Promise<BIERe
 export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[] {
   const sections: NarrativeSection[] = [];
   const ts = result.thread_sources;
+  const tseg = result.thread_segments;
 
   // Build citation objects from URL arrays
   function urlsToCitations(urls: string[]): Array<{ type: string; id: string; url: string }> {
     return [...new Set(urls)].slice(0, 5).map((url) => ({ type: "url", id: url, url }));
   }
 
+  // v3: each sentence is attributed to only the source URLs whose grounded
+  // text segment actually overlaps that sentence (falling back to the
+  // thread-wide source list when no segment match is found), instead of
+  // every sentence in a section carrying the same pooled thread sources.
   function addSection(
     title: string,
     sourceUrls: string[],
+    segments: GroundingSegment[],
     ...texts: (string | null | undefined)[]
   ): void {
     const validTexts = texts.filter((t): t is string => !!t && t.trim().length > 0);
     if (validTexts.length === 0) return;
-    const citations = urlsToCitations(sourceUrls) as any[];
     sections.push({
       title,
-      sentences: validTexts.map((text) => ({ text, citations })),
+      sentences: validTexts.map((text) => ({
+        text,
+        citations: urlsToCitations(attributeSegmentsToText(text, segments, sourceUrls)) as any[],
+      })),
     });
   }
 
@@ -1511,6 +1797,7 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
     addSection(
       "Entity Identification",
       ts.entity_lock,
+      tseg.entity_lock,
       `Research Entity: ${el.confirmed_name} at ${el.confirmed_location}. Confidence: ${Math.round(el.entity_confidence * 100)}%.`,
       el.disambiguation_notes !== "No similarly-named entities found" ? el.disambiguation_notes : undefined,
       el.research_scope,
@@ -1519,11 +1806,11 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
 
   // Industry sections
   if (industry) {
-    addSection("Industry Overview", ts.industry,
+    addSection("Industry Overview", ts.industry, tseg.industry,
       industry.industry_size_and_growth, industry.key_trends);
-    addSection("Industry Outlook", ts.industry,
+    addSection("Industry Outlook", ts.industry, tseg.industry,
       industry.five_year_outlook, industry.disruption_risks, industry.credit_risk_profile);
-    addSection("Regulatory Environment", ts.industry,
+    addSection("Regulatory Environment", ts.industry, tseg.industry,
       industry.regulatory_landscape, industry.margin_environment);
   }
 
@@ -1533,13 +1820,13 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
       competitive.direct_competitors
         .map((c) => `${c.name}: ${c.description} Strengths: ${c.strengths} Weaknesses: ${c.weaknesses} Position: ${c.market_position}`)
         .join("\n") || undefined;
-    addSection("Competitive Landscape", ts.competitive,
+    addSection("Competitive Landscape", ts.competitive, tseg.competitive,
       competitive.competitive_dynamics, competitive.borrower_positioning, competitorProse);
   }
 
   // Market
   if (market) {
-    addSection("Market Intelligence", ts.market,
+    addSection("Market Intelligence", ts.market, tseg.market,
       market.local_economic_conditions, market.demographic_trends,
       market.demand_drivers, market.area_specific_risks);
   }
@@ -1549,16 +1836,17 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
     const entityNote = borrower.entity_confidence < 0.7
       ? `NOTE: Entity confidence is ${Math.round(borrower.entity_confidence * 100)}% — research may be incomplete or partially attributed to a similarly-named entity. ${borrower.entity_confirmation}`
       : borrower.entity_confirmation;
-    addSection("Borrower Profile", ts.borrower,
+    addSection("Borrower Profile", ts.borrower, tseg.borrower,
       entityNote,
       borrower.company_overview, borrower.reputation_and_reviews,
       borrower.recent_news, borrower.customer_base_and_reach);
-    addSection("Litigation and Risk", ts.borrower, borrower.litigation_and_risk);
+    addSection("Litigation and Risk", ts.borrower, tseg.borrower, borrower.litigation_and_risk);
   }
 
   // Management — per-sentence construction with per-profile confidence
   if (management) {
-    const mgmtCitations = urlsToCitations(ts.management) as any[];
+    const mgmtCitations = (text: string) =>
+      urlsToCitations(attributeSegmentsToText(text, tseg.management, ts.management)) as any[];
     const mgmtSentences: { text: string; citations: any[] }[] = [];
 
     for (const p of management.principal_profiles.slice(0, 5)) {
@@ -1566,18 +1854,18 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
       const confirmNote = p.identity_confirmed
         ? `${p.name} (identity confirmed, confidence: ${Math.round(p.identity_confidence * 100)}%): ${p.identity_notes}`
         : `${p.name} (identity UNCONFIRMED — ${p.identity_notes})`;
-      mgmtSentences.push({ text: confirmNote, citations: mgmtCitations });
+      mgmtSentences.push({ text: confirmNote, citations: mgmtCitations(confirmNote) });
 
       if (p.identity_confirmed) {
-        if (p.background) mgmtSentences.push({ text: p.background, citations: mgmtCitations });
-        if (p.other_ventures && p.other_ventures !== "Unknown") mgmtSentences.push({ text: p.other_ventures, citations: mgmtCitations });
-        if (p.track_record && p.track_record !== "Unknown") mgmtSentences.push({ text: p.track_record, citations: mgmtCitations });
-        if (p.red_flags) mgmtSentences.push({ text: p.red_flags, citations: mgmtCitations });
+        if (p.background) mgmtSentences.push({ text: p.background, citations: mgmtCitations(p.background) });
+        if (p.other_ventures && p.other_ventures !== "Unknown") mgmtSentences.push({ text: p.other_ventures, citations: mgmtCitations(p.other_ventures) });
+        if (p.track_record && p.track_record !== "Unknown") mgmtSentences.push({ text: p.track_record, citations: mgmtCitations(p.track_record) });
+        if (p.red_flags) mgmtSentences.push({ text: p.red_flags, citations: mgmtCitations(p.red_flags) });
       }
     }
-    if (management.management_depth) mgmtSentences.push({ text: management.management_depth, citations: mgmtCitations });
-    if (management.key_person_risk) mgmtSentences.push({ text: management.key_person_risk, citations: mgmtCitations });
-    if (management.ownership_and_governance) mgmtSentences.push({ text: management.ownership_and_governance, citations: mgmtCitations });
+    if (management.management_depth) mgmtSentences.push({ text: management.management_depth, citations: mgmtCitations(management.management_depth) });
+    if (management.key_person_risk) mgmtSentences.push({ text: management.key_person_risk, citations: mgmtCitations(management.key_person_risk) });
+    if (management.ownership_and_governance) mgmtSentences.push({ text: management.ownership_and_governance, citations: mgmtCitations(management.ownership_and_governance) });
 
     if (mgmtSentences.length > 0) {
       sections.push({ title: "Management Intelligence", sentences: mgmtSentences });
@@ -1586,7 +1874,7 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
 
   // Transaction
   if (transaction) {
-    addSection("Transaction Analysis", ts.transaction,
+    addSection("Transaction Analysis", ts.transaction, tseg.transaction,
       transaction.primary_repayment_source,
       transaction.secondary_repayment_source,
       transaction.repayment_vulnerabilities,
@@ -1602,22 +1890,22 @@ export function buildBIENarrativeSections(result: BIEResult): NarrativeSection[]
       ? `VALIDATION NOTE: ${synthesis.validation_notes}`
       : undefined;
 
-    addSection("Credit Thesis", [],
+    addSection("Credit Thesis", [], [],
       synthesis.executive_credit_thesis,
       validationNote);
     if (synthesis.structure_implications.length > 0) {
-      addSection("Structure Implications", [], synthesis.structure_implications.join("\n"));
+      addSection("Structure Implications", [], [], synthesis.structure_implications.join("\n"));
     }
     if (synthesis.underwriting_questions.length > 0) {
-      addSection("Underwriting Questions", [], synthesis.underwriting_questions.join("\n"));
+      addSection("Underwriting Questions", [], [], synthesis.underwriting_questions.join("\n"));
     }
     if (synthesis.monitoring_triggers.length > 0) {
-      addSection("Monitoring Triggers", [], synthesis.monitoring_triggers.join("\n"));
+      addSection("Monitoring Triggers", [], [], synthesis.monitoring_triggers.join("\n"));
     }
     if (synthesis.contradictions_and_uncertainties.length > 0) {
-      addSection("Contradictions", [], synthesis.contradictions_and_uncertainties.join("\n"));
+      addSection("Contradictions", [], [], synthesis.contradictions_and_uncertainties.join("\n"));
     }
-    addSection("3-Year and 5-Year Outlook", [],
+    addSection("3-Year and 5-Year Outlook", [], [],
       synthesis.three_year_outlook, synthesis.five_year_outlook);
   }
 

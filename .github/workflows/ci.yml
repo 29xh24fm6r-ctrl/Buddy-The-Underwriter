@@ -39,6 +39,13 @@ jobs:
         run: pnpm -s test:invariants
       - name: Unit tests (CI-blocking)
         run: pnpm -s test:unit
+      # specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1: this harness existed
+      # but was invisible to CI entirely — including the one case explicitly
+      # marked "Mandatory regression — yacht-charter memo failure must never
+      # recur", which was ALSO being silently self-excluded by a placeholder-
+      # detection bug (fixed alongside this). Exits 1 on any regression.
+      - name: Research golden-set eval (CI-blocking)
+        run: pnpm -s golden:research
       - name: Check cockpit polling guardrail
         run: bash scripts/check-cockpit-polling.sh
       - name: Check Never-500 API invariant

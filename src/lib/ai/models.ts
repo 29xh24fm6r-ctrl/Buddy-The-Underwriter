@@ -127,6 +127,18 @@ export const MODEL_RISK           = GEMINI_FLASH;  // risk grading (Gemini path)
 export const MODEL_EXTRACTION     = GEMINI_FLASH_PRECISION;  // document extraction (VertexAI) — SPEC-EXTRACTION-MODEL-UPGRADE-1: was GEMINI_FLASH
 export const MODEL_CLASSIFICATION = GEMINI_FLASH;  // doc classification (VertexAI)
 export const MODEL_RESEARCH       = GEMINI_FLASH;  // BIE 8-thread research
+
+/**
+ * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now wired:
+ * fallback model for BIE's Gemini calls (src/lib/research/buddyIntelligenceEngine.ts)
+ * when the primary MODEL_RESEARCH returns HTTP 404 — most often a sign the
+ * model id has been retired/renamed by Google (this exact failure mode has
+ * already happened once in this codebase; see GEMINI_FLASH's history
+ * comment). Deliberately a different, already-GA-validated model in the
+ * same family rather than a floating alias, for the same reproducibility
+ * reason MODEL_EXTRACTION is pinned.
+ */
+export const MODEL_RESEARCH_FALLBACK = GEMINI_FLASH_PRECISION;
 export const MODEL_OCR            = GEMINI_FLASH;  // Gemini OCR job
 export const MODEL_SBA_NARRATIVE  = GEMINI_PRO;    // SBA package narrative (Phase 2 upgrade — Pro for deal-specific prose)
 export const MODEL_CLASSIC_SPREAD = GEMINI_FLASH;  // classic spread narrative engine

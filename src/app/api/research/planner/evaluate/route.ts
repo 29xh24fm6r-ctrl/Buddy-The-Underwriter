@@ -27,6 +27,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { evaluateResearchPlan } from "@/lib/research/planner/runPlanner";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { rateLimit } from "@/lib/api/rateLimit";
 import type { PlanTriggerEvent } from "@/lib/research/planner/types";
 
 function getCorrelationId(): string {
@@ -75,14 +77,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Run evaluation
+    // SECURITY: this route can auto-approve and auto-execute real, billable
+    // Gemini research missions and previously had no auth check at all —
+    // any unauthenticated caller could trigger missions on any deal_id.
+    // See specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1/P0-2.
+    const access = await ensureDealBankAccess(body.deal_id);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json(
+        { ok: false, proposed_count: 0, approved: false, executing: false, error: access.error },
+        { status, headers }
+      );
+    }
+
+    // RATE LIMIT: see specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-2.
+    const dealCooldown = rateLimit({ key: `research-plan-eval:deal:${body.deal_id}`, limit: 3, windowMs: 60_000 });
+    if (!dealCooldown.ok) {
+      return NextResponse.json(
+        { ok: false, proposed_count: 0, approved: false, executing: false, error: "rate_limited", resetAt: dealCooldown.resetAt },
+        { status: 429, headers }
+      );
+    }
+
+    // Run evaluation. auto_execute now defaults to false (was true) — an
+    // authenticated, deal-owning caller must explicitly opt in to immediate
+    // execution rather than every evaluate call silently running missions.
     const result = await evaluateResearchPlan({
       deal_id: body.deal_id,
       trigger_event: triggerEvent,
       trigger_document_id: body.trigger_document_id,
       trigger_mission_id: body.trigger_mission_id,
       auto_approve: body.auto_approve ?? true,
-      auto_execute: body.auto_execute ?? true,
+      auto_execute: body.auto_execute ?? false,
     });
 
     return NextResponse.json(result, { status: 200, headers });

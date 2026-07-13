@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildContradictionChecklist,
   summarizeContradictionChecklist,
+  extractMentionedRevenueFigures,
   REQUIRED_CONTRADICTION_CHECKS,
   type ContradictionContext,
 } from "@/lib/research/contradictionChecklist";
@@ -96,6 +97,107 @@ test("[contradiction] no hallucinated pass when evidence missing", () => {
   for (const k of ["regulatory_vs_margin", "competitive_position_conflict", "repayment_story_conflict"]) {
     assert.notEqual(get(cs, k).status, "clear", `${k} should not falsely clear`);
   }
+});
+
+// ── Regression for specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md: real
+// cross-thread numeric diffing for scale_plausibility, instead of trusting
+// only the LLM's self-reported "contradictions" text. ──────────────────────
+
+test("[extractMentionedRevenueFigures] parses common dollar-figure phrasings", () => {
+  assert.deepEqual(extractMentionedRevenueFigures("generates approximately $12 million in annual revenue"), [12_000_000]);
+  assert.deepEqual(extractMentionedRevenueFigures("revenue of $1.2 billion last year"), [1_200_000_000]);
+  assert.deepEqual(extractMentionedRevenueFigures("reported $500,000 in sales"), [500_000]);
+  assert.deepEqual(extractMentionedRevenueFigures("no dollar figures here"), []);
+  assert.deepEqual(extractMentionedRevenueFigures(null), []);
+});
+
+test("[contradiction] scale_plausibility flags a real numeric mismatch (loan file vs. narrative)", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasBorrowerThread: true,
+    hasRevenue: true,
+    annualRevenue: 2_000_000, // loan file: $2M
+    borrowerScaleText: "The company reports approximately $50 million in annual revenue.", // narrative: $50M — 25x apart
+  }));
+  const check = get(cs, "scale_plausibility");
+  assert.equal(check.status, "flagged");
+  assert.equal(check.committee_blocker, true);
+  assert.match(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] scale_plausibility clears when narrative figure matches loan file (real comparison, not presence-only)", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasBorrowerThread: true,
+    hasRevenue: true,
+    annualRevenue: 2_000_000,
+    borrowerScaleText: "The company reports approximately $2.1 million in annual revenue.",
+  }));
+  const check = get(cs, "scale_plausibility");
+  assert.equal(check.status, "clear");
+  assert.equal(check.committee_blocker, false);
+  assert.match(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] scale_plausibility falls back to insufficient_evidence when no comparable figure is mentioned", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasBorrowerThread: true,
+    hasRevenue: true,
+    annualRevenue: 2_000_000,
+    borrowerScaleText: "The company has a strong reputation and positive reviews.",
+  }));
+  const check = get(cs, "scale_plausibility");
+  assert.equal(check.status, "insufficient_evidence");
+  assert.equal(check.committee_blocker, false);
+});
+
+// ── repayment_story_conflict: real cross-thread numeric diffing ─────────────
+// (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 5) — same machinery as
+// scale_plausibility, but comparing the TRANSACTION thread's own repayment
+// narrative against the loan-file revenue, not the borrower thread's.
+
+test("[contradiction] repayment_story_conflict flags a real numeric mismatch (loan file vs. transaction narrative)", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    annualRevenue: 2_000_000, // loan file: $2M
+    transactionRepaymentText: "Primary repayment source is operating cash flow, which generates approximately $40 million annually.", // 20x apart
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "flagged");
+  assert.equal(check.committee_blocker, true);
+  assert.match(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] repayment_story_conflict clears when transaction narrative figure matches loan file", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    annualRevenue: 2_000_000,
+    transactionRepaymentText: "Primary repayment source is operating cash flow of approximately $2.1 million annually.",
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "clear");
+  assert.equal(check.committee_blocker, false);
+  assert.match(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] repayment_story_conflict falls back to presence-only clear when no comparable figure is mentioned", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    annualRevenue: 2_000_000,
+    transactionRepaymentText: "Repayment relies on stable, diversified customer contracts.",
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "clear");
+  assert.equal(check.committee_blocker, false);
+  assert.doesNotMatch(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] repayment_story_conflict still honors the LLM self-report when no numeric comparison is possible", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    contradictionsText: "There is a repayment story conflict between stated revenue and actual cash flow.",
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "flagged");
+  assert.equal(check.committee_blocker, true);
 });
 
 test("[contradiction] full evidence → clears non-blocking checks", () => {

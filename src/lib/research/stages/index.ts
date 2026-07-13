@@ -7,8 +7,18 @@
  * - Checkpointed for resume
  * - Independently retried
  *
- * This module provides the stage registry and execution helpers
- * used by brieRuntime.ts and runMission.ts.
+ * ⚠️ NOT WIRED — this metadata-only registry has zero callers.
+ * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 4 wired real
+ * checkpoint/resume/failure-learning directly into runMission.ts using
+ * checkpoint.ts's CheckpointStage enum and getResumeDecision()'s own
+ * completedStages list, without needing this registry's dependsOn/
+ * resumable/timeoutMs metadata. brieRuntime.ts (the only other module that
+ * referenced this file) was deleted in the same round as fully redundant.
+ * Left in place rather than deleted: getStageDefinition()/
+ * getExecutableStages() model a per-stage dependency graph that could be
+ * useful if the pipeline is ever restructured into genuinely independent,
+ * out-of-order-completable stages — today's stages are strictly linear, so
+ * nothing consumes it.
  */
 
 import type { CheckpointStage } from "../checkpoint";

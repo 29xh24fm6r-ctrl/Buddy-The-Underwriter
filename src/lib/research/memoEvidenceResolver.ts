@@ -107,17 +107,29 @@ export async function loadAllEvidenceForDeal(
  */
 export async function buildResearchTrace(
   dealId: string,
-): Promise<{ sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number }> } | null> {
+): Promise<{ sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number; total_claim_count: number }> } | null> {
   const evidenceBySection = await loadAllEvidenceForDeal(dealId);
   if (evidenceBySection.size === 0) return null;
 
-  const sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number }> = [];
+  const sections: Array<{ section_key: string; claim_ids: string[]; evidence_count: number; total_claim_count: number }> = [];
 
   for (const [sectionKey, rows] of evidenceBySection.entries()) {
     sections.push({
       section_key: sectionKey,
       claim_ids: rows.map((r) => r.id),
-      evidence_count: rows.length,
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): this previously
+      // counted every claim row regardless of whether it carried a real
+      // source — claimLedger.ts persists the Credit Thesis, Contradictions,
+      // and Underwriting Questions claims with source_uris ALWAYS empty by
+      // construction, so a mission where every research thread failed but
+      // synthesis still ran could still count those zero-source rows as
+      // "evidence", inflating computeEvidenceCoverage's supportRatio (which
+      // gates committee_grade at an 85% threshold) toward a high score with
+      // no real evidence behind it. Only rows with at least one source_uri
+      // now count as "evidence" here; total_claim_count preserves the raw
+      // row count for anyone who wants it.
+      evidence_count: rows.filter((r) => r.source_uris.length > 0).length,
+      total_claim_count: rows.length,
     });
   }
 

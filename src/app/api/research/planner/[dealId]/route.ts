@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentPlan } from "@/lib/research/planner/runPlanner";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 function getCorrelationId(): string {
   return `arp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -38,6 +39,15 @@ export async function GET(
         { ok: false, error: "Invalid deal ID format" },
         { status: 200, headers }
       );
+    }
+
+    // SECURITY: research plan data is deal-confidential — verify the
+    // caller's bank owns this deal. See
+    // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1.
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json({ ok: false, error: access.error }, { status, headers });
     }
 
     const result = await getCurrentPlan(dealId);

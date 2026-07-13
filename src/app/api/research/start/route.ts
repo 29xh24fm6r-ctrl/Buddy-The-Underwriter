@@ -20,10 +20,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { rateLimit } from "@/lib/api/rateLimit";
 import { runMission } from "@/lib/research/runMission";
 import { isValidNaicsCode } from "@/lib/research/sourceDiscovery";
 import type { MissionType, MissionSubject, MissionDepth } from "@/lib/research/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300; // BIE runs up to 7 Gemini calls — needs headroom
 
 // Correlation ID for tracing
 function getCorrelationId(): string {
@@ -101,32 +106,33 @@ export async function POST(request: NextRequest) {
     const validDepths: MissionDepth[] = ["overview", "committee", "deep_dive"];
     const depth: MissionDepth = validDepths.includes(body.depth) ? body.depth : "overview";
 
-    // Get authenticated user (optional for now)
-    const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    // Get user's bank_id if available
-    let bankId: string | null = null;
-    if (user) {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("bank_id")
-        .eq("id", user.id)
-        .single();
-      bankId = profile?.bank_id ?? null;
+    // SECURITY: this route triggers a real, billable multi-Gemini-call BIE
+    // mission and previously had no real authorization — auth was optional
+    // and the deal's own bank_id was used unconditionally rather than being
+    // compared to the caller's bank. See
+    // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-1.
+    const access = await ensureDealBankAccess(body.deal_id);
+    if (!access.ok) {
+      const status = access.error === "deal_not_found" ? 404 : access.error === "unauthorized" ? 401 : 403;
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status, headers }
+      );
     }
 
-    // Verify deal exists and user has access
-    const { data: deal, error: dealError } = await supabase
-      .from("deals")
-      .select("id, bank_id")
-      .eq("id", body.deal_id)
-      .single();
-
-    if (dealError || !deal) {
+    // RATE LIMIT: see specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-2.
+    const dealCooldown = rateLimit({ key: `research-run:deal:${body.deal_id}`, limit: 1, windowMs: 30_000 });
+    if (!dealCooldown.ok) {
       return NextResponse.json(
-        { ok: false, error: "Deal not found or access denied" },
-        { status: 200, headers }
+        { ok: false, error: "rate_limited", resetAt: dealCooldown.resetAt },
+        { status: 429, headers }
+      );
+    }
+    const bankCooldown = rateLimit({ key: `research-run:bank:${access.bankId}`, limit: 20, windowMs: 10 * 60_000 });
+    if (!bankCooldown.ok) {
+      return NextResponse.json(
+        { ok: false, error: "rate_limited", resetAt: bankCooldown.resetAt },
+        { status: 429, headers }
       );
     }
 
@@ -134,8 +140,8 @@ export async function POST(request: NextRequest) {
     // In production, this would queue the mission and return immediately
     const result = await runMission(body.deal_id, missionType, subject, {
       depth,
-      bankId: deal.bank_id,
-      userId: user?.id,
+      bankId: access.bankId,
+      userId: access.userId,
     });
 
     return NextResponse.json(

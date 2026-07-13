@@ -30,14 +30,23 @@ type EvalResult = {
 };
 
 /**
- * Phase 82: placeholders carry company_name starting with "POPULATE_FROM_PROD"
- * (or subject.company_name === null from earlier style). They are skipped
- * until ops populates real deal data.
+ * Placeholders carry company_name starting with the explicit
+ * "POPULATE_FROM_PROD" sentinel — every unpopulated case in goldenSet.ts
+ * uses this sentinel, never a bare `null`.
+ *
+ * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): this previously also
+ * treated ANY falsy company_name as a placeholder ("or subject.company_name
+ * === null from earlier style"). That silently self-excluded the ONE case
+ * explicitly marked "Mandatory regression — yacht-charter memo failure must
+ * never recur" (goldenSet.ts's `yacht-charter-regression`), which
+ * deliberately sets company_name: null to simulate "no borrower info at
+ * all" — the exact scenario that regression exists to guard against. The
+ * single named "must never recur" case was providing zero actual
+ * protection, silently, with no error — it just showed as "SKIPPED
+ * (placeholder)" in the eval output.
  */
 function isPlaceholderCase(c: GoldenSetCase): boolean {
-  const name = c.subject?.company_name;
-  if (!name) return true;
-  return name.startsWith("POPULATE_FROM_PROD");
+  return c.subject?.company_name === "POPULATE_FROM_PROD";
 }
 
 export async function runGoldenSetEval(bankId?: string): Promise<{
@@ -151,6 +160,24 @@ if (typeof process !== "undefined" && process.argv[1]?.includes("runGoldenSetEva
     }
 
     console.log(`\n${passed} passed, ${failed} failed, ${skipped} skipped (placeholders)`);
+
+    // specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1: 14 of 20 cases (70%) sit
+    // permanently unpopulated behind the POPULATE_FROM_PROD sentinel,
+    // pending an ops task ("Matt must populate dealId from production" —
+    // goldenSet.ts) this eval harness cannot resolve on its own. Surfaced
+    // here as a loud, visible warning (non-blocking — this is missing test
+    // DATA, not a code regression, and shouldn't fail unrelated PRs) so the
+    // gap stays visible in every CI run instead of silently sitting at 0%
+    // real coverage for those cases indefinitely.
+    if (skipped > 0) {
+      const total = results.length;
+      console.warn(
+        `\n⚠ ${skipped}/${total} golden-set cases (${Math.round((skipped / total) * 100)}%) are still ` +
+        `POPULATE_FROM_PROD placeholders providing ZERO regression coverage. ` +
+        `See goldenSet.ts — populate with real production dealIds via ` +
+        `\`npm run audit:memo POPULATE_FROM_PROD_<id> <bankId>\`.`,
+      );
+    }
 
     if (regressions.length > 0) {
       console.error("\n❌ REGRESSIONS DETECTED:");

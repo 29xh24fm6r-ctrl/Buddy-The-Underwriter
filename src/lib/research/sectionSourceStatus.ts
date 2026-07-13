@@ -40,6 +40,18 @@ export type SectionSourceStatus = {
 export type SectionSourceContext = {
   /** All source types found across the mission (deduped). */
   sourceTypes: Set<SourceType>;
+  /**
+   * Source types cited SPECIFICALLY by the borrower/litigation thread (not
+   * the whole-mission pool). FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md):
+   * litigationAndRisk() previously used the flattened `sourceTypes` above,
+   * so ANY thread anywhere citing an authoritative adverse-record-shaped URL
+   * (e.g. the Industry thread citing a regulatory news article) made the
+   * Litigation and Risk section report committee-grade adverse-record
+   * backing even when the Litigation section itself had zero sources.
+   * Defaults to `sourceTypes` when not supplied so existing callers/tests
+   * that don't care about this distinction keep working unchanged.
+   */
+  litigationSourceTypes?: Set<SourceType>;
   /** Hard wrong/conflicting-entity disposition — fails ALL section statuses. */
   entityConflict: boolean;
   /** Entity confirmed against a public source at committee confidence. */
@@ -214,8 +226,19 @@ function managementIntelligence(ctx: SectionSourceContext): SectionSourceStatus 
   };
 }
 
+/**
+ * Whether a set of source types includes an authoritative adverse-record
+ * source (court record, regulatory filing, adverse-record search, or
+ * primary news). Exported so callers building an adverse-screen evidence
+ * signal (see evidenceQuality.ts's hasAdverseScreen) use the exact same
+ * definition of "authoritative" as the Litigation and Risk section status.
+ */
+export function hasAuthoritativeAdverseSource(sourceTypes: Set<SourceType>): boolean {
+  return has(sourceTypes, ...COMMITTEE_TYPES["Litigation and Risk"]);
+}
+
 function litigationAndRisk(ctx: SectionSourceContext): SectionSourceStatus {
-  const hasAuthoritative = has(ctx.sourceTypes, ...COMMITTEE_TYPES["Litigation and Risk"]);
+  const hasAuthoritative = hasAuthoritativeAdverseSource(ctx.litigationSourceTypes ?? ctx.sourceTypes);
   const evidence_basis: EvidenceBasis = hasAuthoritative
     ? "public_web"
     : ctx.adverseSearchAttempted

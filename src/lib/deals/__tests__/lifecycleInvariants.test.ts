@@ -15,13 +15,26 @@ type FakeTables = {
   deals: Row[];
   deal_intake: Row[];
   deal_checklist_items: Row[];
+  /**
+   * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — pre-existing,
+   * unrelated failure fixed while touching adjacent research-adjacent
+   * code): igniteDealCore.ts's IGNITE-BORROWER-LINKAGE step
+   * (sb.from("borrowers").insert(...).select(...).single()) was added after
+   * this fixture was written and this table was never seeded — `insert()`
+   * on an unseeded table threw "Cannot read properties of undefined
+   * (reading 'push')" instead of the ensure-borrower step failing
+   * gracefully like a real Postgrest error would. Optional/defaults to
+   * empty so existing seeds don't need updating.
+   */
+  borrowers?: Row[];
 };
 
 function createFakeSupabase(seed: FakeTables) {
-  const tables: FakeTables = {
+  const tables: Record<string, Row[]> = {
     deals: [...seed.deals],
     deal_intake: [...seed.deal_intake],
     deal_checklist_items: [...seed.deal_checklist_items],
+    borrowers: [...(seed.borrowers ?? [])],
   };
 
   function applyFilters(rows: Row[], filters: Array<{ key: string; value: any }>) {
@@ -30,7 +43,8 @@ function createFakeSupabase(seed: FakeTables) {
 
   return {
     tables,
-    from(tableName: keyof FakeTables) {
+    from(tableName: string) {
+      if (!tables[tableName]) tables[tableName] = [];
       const filters: Array<{ key: string; value: any }> = [];
       const builder: any = {
         select() {
@@ -69,10 +83,28 @@ function createFakeSupabase(seed: FakeTables) {
           });
           return { error: null };
         },
-        insert: async (rows: Row | Row[]) => {
+        // Chainable AND directly-awaitable, matching the real Supabase JS
+        // client (a "thenable" PostgrestFilterBuilder): callers that do
+        // `await sb.from(x).insert(row)` and callers that chain
+        // `.insert(row).select("id").single()` both work off this one path.
+        insert(rows: Row | Row[]) {
           const list = Array.isArray(rows) ? rows : [rows];
-          list.forEach((row) => tables[tableName].push({ ...row }));
-          return { data: list[0] ?? null, error: null };
+          const inserted = list.map((row, i) => ({
+            id: row.id ?? `${tableName}-${tables[tableName].length + i + 1}`,
+            ...row,
+          }));
+          inserted.forEach((row) => tables[tableName].push(row));
+          const chain: any = {
+            select() {
+              return chain;
+            },
+            single: async () => ({ data: inserted[0] ?? null, error: null }),
+            maybeSingle: async () => ({ data: inserted[0] ?? null, error: null }),
+            then(onFulfilled: any, onRejected?: any) {
+              return Promise.resolve({ data: inserted[0] ?? null, error: null }).then(onFulfilled, onRejected);
+            },
+          };
+          return chain;
         },
       };
       return builder;

@@ -22,6 +22,7 @@ import {
 import {
   evaluateSectionSourceStatuses,
   summarizeSectionStatuses,
+  hasAuthoritativeAdverseSource,
   type SectionSourceStatus,
   type SectionSourceContext,
 } from "./sectionSourceStatus";
@@ -160,6 +161,13 @@ export function evaluateCompletionGate(
     borrowerDomain?: string | null;
     /** Phase 5/6: granular loan-file / banker-certified evidence signals. */
     evidenceSignals?: EvidenceSignals;
+    /**
+     * specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now wired:
+     * loan-file/banker-stated annual revenue, used for real cross-thread
+     * numeric diffing in the scale_plausibility contradiction check (see
+     * contradictionChecklist.ts's extractMentionedRevenueFigures).
+     */
+    annualRevenue?: number | null;
   },
 ): CompletionGateResult {
   const checks: GateCheckResult[] = [];
@@ -241,12 +249,20 @@ export function evaluateCompletionGate(
   ];
   const threadsSucceeded = coreThreads.filter(Boolean).length;
   const threadsFailed = coreThreads.filter((t) => t === null).length;
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a management thread
+  // built entirely from the deterministic file-based fallback (never
+  // web-verified — see managementRepair.ts) previously counted identically
+  // toward the STRUCTURAL committee-grade thread-coverage requirement as a
+  // fully-grounded thread. groundedThreadsSucceeded discounts it there,
+  // while the informational check below still honestly reports "N/6
+  // completed" (the thread DID complete — just not via live research).
+  const groundedThreadsSucceeded = managementIsFallback ? threadsSucceeded - 1 : threadsSucceeded;
 
   checks.push({
     gate_id: "thread_coverage",
     label: "Research Thread Coverage",
     status: threadsSucceeded >= 5 ? "pass" : threadsSucceeded >= 3 ? "warn" : "fail",
-    reason: `${threadsSucceeded}/6 research threads completed${threadsFailed > 0 ? ` (${threadsFailed} failed: ${getMissingThreads(bieResult).join(", ")})` : ""}`,
+    reason: `${threadsSucceeded}/6 research threads completed${managementIsFallback ? ` (${groundedThreadsSucceeded}/6 web-grounded — management via file-based fallback)` : ""}${threadsFailed > 0 ? ` (${threadsFailed} failed: ${getMissingThreads(bieResult).join(", ")})` : ""}`,
     severity: threadsSucceeded < 3 ? "error" : threadsSucceeded < 5 ? "warn" : "info",
   });
 
@@ -259,6 +275,17 @@ export function evaluateCompletionGate(
   const primarySources = allSourceUrls.filter((url) =>
     primaryInstitutional.has(classifySourceUrl(url, classifyOpts)),
   ).length;
+
+  // Adverse/litigation screen (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1):
+  // an authoritative adverse-record source cited SPECIFICALLY by the
+  // borrower/litigation thread — not just anywhere in the mission's source
+  // pool. Feeds both the Litigation and Risk section status and the
+  // committee_eligible hard requirement below.
+  const litigationSourceUrls = bieResult.thread_sources?.borrower ?? [];
+  const litigationSourceTypesForScreen = new Set<SourceType>(
+    litigationSourceUrls.map((u) => classifySourceUrl(u, classifyOpts)),
+  );
+  const hasAdverseScreen = hasAuthoritativeAdverseSource(litigationSourceTypesForScreen);
 
   // SPEC-RESEARCH-GATE-PRIVATE-BORROWER-AND-EVIDENCE-PACK-1: for a private/
   // banker-certified borrower, weak PUBLIC source coverage is expected and must
@@ -366,6 +393,31 @@ export function evaluateCompletionGate(
     hasTransactionThread: !!bieResult.transaction,
     hasRevenue: !!bankerCertified?.hasFinancials,
     namedCompetitors: bieResult.competitive?.direct_competitors?.length ?? 0,
+    // Real cross-thread numeric diffing for scale_plausibility (specs/audits/
+    // RESEARCH_SYSTEM_FULL_AUDIT.md — deferred item, now wired): compare the
+    // loan-file/banker-stated revenue against dollar figures the borrower
+    // thread's own narrative actually mentions.
+    annualRevenue: opts?.annualRevenue ?? null,
+    borrowerScaleText: bieResult.borrower
+      ? [
+          bieResult.borrower.company_overview,
+          bieResult.borrower.customer_base_and_reach,
+          bieResult.borrower.recent_news,
+        ].filter(Boolean).join(" ")
+      : null,
+    // Real cross-thread numeric diffing for repayment_story_conflict
+    // (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 5): compare the
+    // loan-file/banker-stated revenue against dollar figures the
+    // TRANSACTION thread's own repayment narrative mentions.
+    transactionRepaymentText: bieResult.transaction
+      ? [
+          bieResult.transaction.primary_repayment_source,
+          bieResult.transaction.secondary_repayment_source,
+          bieResult.transaction.downside_case,
+          bieResult.transaction.stress_scenario,
+          bieResult.transaction.collateral_adequacy,
+        ].filter(Boolean).join(" ")
+      : null,
   });
   const contradictionSummary = summarizeContradictionChecklist(contradictionChecklist);
   const contradictionCommitteeBlockers = contradictionSummary.committeeBlockers.length;
@@ -463,6 +515,7 @@ export function evaluateCompletionGate(
     publicSourceCount: allSourceUrls.length,
     primaryInstitutionalCount: primarySources,
     publicQualityScore: sourceQuality,
+    hasAdverseScreen,
     privateCompanyMode: sig.privateCompanyMode ?? (isPrivateEntity || managementIsFallback),
   });
 
@@ -473,7 +526,7 @@ export function evaluateCompletionGate(
 
   // committee structural conditions — institutional, public, validated.
   const committeeStructural =
-    threadsSucceeded >= THRESHOLDS.committee_grade.min_threads_succeeded &&
+    groundedThreadsSucceeded >= THRESHOLDS.committee_grade.min_threads_succeeded &&
     entityConfidence >= THRESHOLDS.committee_grade.min_entity_confidence &&
     allSourceUrls.length >= THRESHOLDS.committee_grade.min_source_count &&
     sourceQuality >= THRESHOLDS.committee_grade.min_source_quality_score &&
@@ -501,9 +554,29 @@ export function evaluateCompletionGate(
   } else if (errorChecks.length >= 1) {
     // manual_review_required: a single hard (non-entity) error — e.g. missing synthesis.
     trustGrade = "manual_review_required";
-  } else if (evidence.preliminary_eligible && !!synthesis && threadsSucceeded >= THRESHOLDS.preliminary.min_threads_succeeded) {
+  } else if (
+    evidence.preliminary_eligible &&
+    !!synthesis &&
+    threadsSucceeded >= THRESHOLDS.preliminary.min_threads_succeeded &&
+    entityConfidence >= THRESHOLDS.preliminary.min_entity_confidence
+  ) {
     // preliminary: entity lock pass, no hard conflict, enough certified/file
     // evidence, synthesis exists. Public-web weakness alone does NOT block this.
+    //
+    // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P0-5 / SPEC-13.5-V12
+    // deferred-findings Layer 3): THRESHOLDS.preliminary.min_entity_confidence
+    // was declared in the table above but never actually read anywhere —
+    // combined with entity_lock's "warn" (never "error") severity for
+    // unconfirmed_needs_banker_identity regardless of confidence, an entity
+    // that came back fully UNCONFIRMED at 0% confidence could still reach the
+    // memo-eligible "preliminary" grade purely from self-reported/loan-file
+    // evidence-coverage signals that don't require identity confirmation at
+    // all. This is the most likely root cause of the "quality_score=0 /
+    // gate_passed=false" mission the team flagged as needing investigation
+    // (never filed as SPEC-13.6) — a mission with zero confirmed identity
+    // that nonetheless doesn't clear this bar now correctly falls through to
+    // manual_review_required instead of silently either scoring 0 or, worse,
+    // reaching preliminary on unrelated evidence.
     trustGrade = "preliminary";
   } else {
     // manual_review_required: diagnostics/fallback used or evidence coverage low.
@@ -593,8 +666,18 @@ function buildSectionContext(
   const sourceTypes = new Set<SourceType>(
     allUrls.map((u) => classifySourceUrl(u, args.classifyOpts)),
   );
+  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md): litigationAndRisk()
+  // must check sources the BORROWER thread itself cited, not the whole
+  // mission's flattened source pool — otherwise an Industry thread citing an
+  // unrelated regulatory news article makes Litigation and Risk look
+  // committee-grade-backed with zero sources of its own.
+  const litigationUrls = bieResult.thread_sources?.borrower ?? [];
+  const litigationSourceTypes = new Set<SourceType>(
+    litigationUrls.map((u) => classifySourceUrl(u, args.classifyOpts)),
+  );
   return {
     sourceTypes,
+    litigationSourceTypes,
     entityConflict: args.entityConflict,
     entityConfirmedPublicly: args.entityConfirmedPublicly,
     hasBorrowerOfficialSource: sourceTypes.has("borrower_official_website"),

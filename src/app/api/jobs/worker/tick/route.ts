@@ -9,6 +9,7 @@ import { runSpreadsWorkerTick } from "@/lib/jobs/workers/spreadsWorker";
 import { cleanupOrphanSpreads } from "@/lib/spreads/janitor/cleanupOrphanSpreads";
 import { cleanupStuckJobs } from "@/lib/spreads/janitor/cleanupStuckJobs";
 import { cleanupStuckDocumentJobs } from "@/lib/jobs/janitor/cleanupStuckDocumentJobs";
+import { sweepStaleResearchMissions } from "@/lib/research/staleMissionSweep";
 import { withBuddyGuard, sendHeartbeat } from "@/lib/aegis";
 import {
   WORKER_LOCK_KEYS,
@@ -189,6 +190,15 @@ export async function POST(req: NextRequest) {
       const janitorResult = await cleanupOrphanSpreads();
       if (janitorResult.cleaned > 0) {
         results.push({ type: "SPREAD_JANITOR", ...janitorResult });
+      }
+
+      // Stale research mission sweep (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md
+      // P1) — flips missions stuck at status="running" (platform timeout /
+      // process crash mid-run) to "failed" instead of leaving them wedged
+      // forever with no dead-letter signal.
+      const staleResearchResult = await sweepStaleResearchMissions();
+      if (staleResearchResult.recovered > 0 || staleResearchResult.errors.length > 0) {
+        results.push({ type: "STALE_RESEARCH_MISSIONS", ...staleResearchResult });
       }
     }
 
