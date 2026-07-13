@@ -152,6 +152,22 @@ export function BrokerageLandingPage() {
                 Talk to Buddy
               </Link>
             </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[14px] text-[#b9cbdd]">
+              <span>Not sure which applies to you?</span>
+              <Link
+                href="/start?path=standard"
+                className="font-semibold text-white underline decoration-[#4db8f0]/50 underline-offset-4 hover:decoration-[#4db8f0]"
+              >
+                Independent business
+              </Link>
+              <span className="text-[#5b7189]">·</span>
+              <Link
+                href="/start?path=franchise"
+                className="font-semibold text-white underline decoration-[#4db8f0]/50 underline-offset-4 hover:decoration-[#4db8f0]"
+              >
+                Buying a franchise
+              </Link>
+            </div>
             <div className="mt-[42px] flex flex-wrap gap-x-[30px] gap-y-4">
               <div>
                 <div
@@ -208,39 +224,96 @@ export function BrokerageLandingPage() {
         </div>
       </section>
 
-      {/* FRANCHISE ENTRANCE */}
+      {/* PATH CHOOSER — the two ways into Buddy, made explicit instead of
+          discovered mid-conversation. Answers "which route is right for
+          me" before the borrower invests any time in the wrong flow. */}
       <section className="mx-auto max-w-[1240px] px-6 pt-14 sm:px-10 sm:pt-[70px]">
-        <Link
-          href="/franchise"
-          className="group relative flex flex-wrap items-center justify-between gap-8 overflow-hidden rounded-[22px] border border-[#1c8de0]/[0.15] bg-gradient-to-br from-white to-[#eef6fd] px-7 py-8 shadow-[0_2px_14px_rgba(18,38,63,0.05)] transition hover:shadow-[0_16px_36px_rgba(28,141,224,0.14)] sm:px-12 sm:py-10"
-        >
-          <div
-            className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full opacity-70"
-            style={{
-              background:
-                "radial-gradient(circle, rgba(28,141,224,0.14), transparent 70%)",
-            }}
-          />
-          <div className="relative max-w-[620px]">
-            <div className="inline-flex items-center gap-2 rounded-full bg-[#1c8de0]/[0.1] px-[13px] py-[6px] text-[12.5px] font-bold uppercase tracking-[0.5px] text-[#1c8de0]">
-              Buying a franchise?
+        <div className="mx-auto mb-10 max-w-[640px] text-center">
+          <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
+            Which one are you?
+          </div>
+          <h2
+            className="mb-3 mt-3.5 text-[26px] font-bold tracking-tight text-[#12263f] sm:text-[34px]"
+            style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+          >
+            Two paths, same guided process
+          </h2>
+          <p className="text-[16px] leading-relaxed text-[#5b7189]">
+            Pick the one that matches your deal — Buddy tailors the questions
+            and the underwriting data from the first message.
+          </p>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <Link
+            href="/start?path=standard"
+            className="group relative flex flex-col overflow-hidden rounded-[22px] border border-[#12263f]/[0.08] bg-white p-8 shadow-[0_2px_14px_rgba(18,38,63,0.05)] transition hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(18,38,63,0.1)]"
+          >
+            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#0e2340] to-[#1c8de0] text-white">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 21h18M5 21V7l8-4v18M13 21V11l6 3v7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
-            <h2
-              className="mb-2 mt-3 text-[24px] font-bold tracking-tight text-[#12263f] sm:text-[28px]"
+            <div className="inline-flex w-fit items-center gap-2 rounded-full bg-[#12263f]/[0.06] px-[13px] py-[6px] text-[12.5px] font-bold uppercase tracking-[0.5px] text-[#12263f]">
+              Independent business
+            </div>
+            <h3
+              className="mb-2 mt-3 text-[21px] font-bold tracking-tight text-[#12263f]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
-              Buddy tracks SBA data on 8,400+ franchise brands
-            </h2>
-            <p className="text-[15.5px] leading-relaxed text-[#5b7189]">
-              SBA certification status, FDD Item 19 performance data, and
-              franchisor support signals — built directly into your SBA
-              Score. Tell Buddy your brand and it already knows the deal.
+              Buying, refinancing, or growing a business you run
+            </h3>
+            <p className="mb-6 flex-1 text-[15px] leading-relaxed text-[#5b7189]">
+              Standard SBA 7(a) or 504 financing for an independent business —
+              acquisition, equipment, real estate, working capital, or
+              expansion.
             </p>
-          </div>
-          <span className="relative inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-[#12263f] px-6 py-[13px] text-[15px] font-bold text-white transition group-hover:brightness-110">
-            Explore franchise financing →
-          </span>
-        </Link>
+            <span className="inline-flex items-center gap-2 text-[15px] font-bold text-[#1c8de0] transition group-hover:gap-3">
+              Start your SBA package →
+            </span>
+          </Link>
+
+          <Link
+            href="/start?path=franchise"
+            className="group relative flex flex-col overflow-hidden rounded-[22px] border border-[#1c8de0]/[0.15] bg-gradient-to-br from-white to-[#eef6fd] p-8 shadow-[0_2px_14px_rgba(18,38,63,0.05)] transition hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(28,141,224,0.14)]"
+          >
+            <div
+              className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-70"
+              style={{
+                background:
+                  "radial-gradient(circle, rgba(28,141,224,0.14), transparent 70%)",
+              }}
+            />
+            <div className="relative mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-white">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 9l9-6 9 6M4 9v11h16V9M9 20v-6h6v6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="relative inline-flex w-fit items-center gap-2 rounded-full bg-[#1c8de0]/[0.1] px-[13px] py-[6px] text-[12.5px] font-bold uppercase tracking-[0.5px] text-[#1c8de0]">
+              Franchise
+            </div>
+            <h3
+              className="relative mb-2 mt-3 text-[21px] font-bold tracking-tight text-[#12263f]"
+              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+            >
+              Buying into a franchise brand
+            </h3>
+            <p className="relative mb-6 flex-1 text-[15px] leading-relaxed text-[#5b7189]">
+              Buddy tracks SBA data on 8,400+ brands — certification status,
+              FDD Item 19 performance, and franchisor support signals, built
+              directly into your SBA Score.
+            </p>
+            <span className="relative inline-flex items-center gap-2 text-[15px] font-bold text-[#12263f] transition group-hover:gap-3">
+              Find your brand →
+            </span>
+          </Link>
+        </div>
+        <p className="mt-6 text-center text-[14px] text-[#5b7189]">
+          Not sure, or financing something else entirely?{" "}
+          <Link href="/start" className="font-semibold text-[#1c8de0] hover:underline">
+            Just start the conversation
+          </Link>{" "}
+          — Buddy will ask.
+        </p>
       </section>
 
       {/* HOW IT WORKS */}

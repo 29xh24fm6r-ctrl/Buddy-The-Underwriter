@@ -16,14 +16,21 @@ interface BrandResult {
   sba_certification_status: string | null;
 }
 
-// No props — ownership is derived server-side from the
-// buddy_borrower_session cookie, same as every other /api/brokerage/*
-// mutation.
-export default function BorrowerFranchiseBrandPicker() {
+// Ownership is derived server-side from the buddy_borrower_session
+// cookie, same as every other /api/brokerage/* mutation — startInSearchMode
+// is the only prop, set when the borrower already told us upstream (the
+// homepage's franchise-vs-standard chooser, via /start?path=franchise)
+// that they're financing a franchise, so we skip re-asking "are you
+// financing a franchise?" and go straight to brand search.
+export default function BorrowerFranchiseBrandPicker({
+  startInSearchMode = false,
+}: {
+  startInSearchMode?: boolean;
+}) {
   const [loading, setLoading] = useState(true);
   const [linked, setLinked] = useState<{ id: string; name: string } | null>(null);
   // Three states: unopened prompt, actively searching, done.
-  const [showSearch, setShowSearch] = useState(false);
+  const [showSearch, setShowSearch] = useState(startInSearchMode);
   const [saidNo, setSaidNo] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<BrandResult[]>([]);

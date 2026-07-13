@@ -66,7 +66,11 @@ function useJourneyStatus(dealId: string | null): JourneyStatusInput {
   return status;
 }
 
-export function StartConciergeClient() {
+export function StartConciergeClient({
+  initialPath,
+}: {
+  initialPath?: "franchise" | "standard";
+}) {
   const [mode, setMode] = useState<Mode>(() => {
     if (typeof window === "undefined") return "chat";
     const saved = window.localStorage.getItem(MODE_KEY);
@@ -127,7 +131,7 @@ export function StartConciergeClient() {
       </div>
 
       {mode === "chat" ? (
-        <ChatPane dealId={dealId} onDealIdResolved={setDealId} />
+        <ChatPane dealId={dealId} onDealIdResolved={setDealId} initialPath={initialPath} />
       ) : dealId ? (
         <BorrowerVoicePanel dealId={dealId} />
       ) : (
@@ -148,7 +152,7 @@ export function StartConciergeClient() {
 
       {dealId && (
         <div className="mt-4">
-          <BorrowerFranchiseBrandPicker />
+          <BorrowerFranchiseBrandPicker startInSearchMode={initialPath === "franchise"} />
         </div>
       )}
 
@@ -160,15 +164,19 @@ export function StartConciergeClient() {
 function ChatPane({
   dealId,
   onDealIdResolved,
+  initialPath,
 }: {
   dealId: string | null;
   onDealIdResolved: (id: string) => void;
+  initialPath?: "franchise" | "standard";
 }) {
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
       content:
-        "I'm Buddy. I help you build an SBA-ready borrower package from the start. Tell me what you want to finance and I'll guide the next step.",
+        initialPath === "franchise"
+          ? "I'm Buddy. Since you're financing a franchise, tell me the brand and what you're buying — I'll pull in SBA certification and FDD data automatically and guide the next step."
+          : "I'm Buddy. I help you build an SBA-ready borrower package from the start. Tell me what you want to finance and I'll guide the next step.",
     },
   ]);
   const [input, setInput] = useState("");
