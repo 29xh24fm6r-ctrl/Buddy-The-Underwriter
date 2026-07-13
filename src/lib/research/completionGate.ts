@@ -405,6 +405,19 @@ export function evaluateCompletionGate(
           bieResult.borrower.recent_news,
         ].filter(Boolean).join(" ")
       : null,
+    // Real cross-thread numeric diffing for repayment_story_conflict
+    // (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 5): compare the
+    // loan-file/banker-stated revenue against dollar figures the
+    // TRANSACTION thread's own repayment narrative mentions.
+    transactionRepaymentText: bieResult.transaction
+      ? [
+          bieResult.transaction.primary_repayment_source,
+          bieResult.transaction.secondary_repayment_source,
+          bieResult.transaction.downside_case,
+          bieResult.transaction.stress_scenario,
+          bieResult.transaction.collateral_adequacy,
+        ].filter(Boolean).join(" ")
+      : null,
   });
   const contradictionSummary = summarizeContradictionChecklist(contradictionChecklist);
   const contradictionCommitteeBlockers = contradictionSummary.committeeBlockers.length;

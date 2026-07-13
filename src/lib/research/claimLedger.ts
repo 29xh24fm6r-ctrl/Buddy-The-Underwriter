@@ -429,6 +429,28 @@ export async function persistClaimLedger(
     return { ok: true, claims_written: 0 };
   }
 
+  // Idempotency (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 5):
+  // buddy_research_evidence rows are plain inserts, not upserts. A resumed
+  // mission (round 4) that retries the bie_enrichment stage after a partial
+  // success — claim ledger ran, but a later step in the same block genuinely
+  // threw before the stage's completion checkpoint was saved — would
+  // otherwise re-insert every claim on top of the prior attempt's rows.
+  // Deleting this mission's existing claim-ledger rows first makes every
+  // call reflect exactly the current claim set. Scoped to thread_origin IS
+  // NOT NULL so it never touches the verification.ts/provenance.ts summary
+  // rows also written to this table (those never set thread_origin).
+  const { error: cleanupErr } = await sb
+    .from("buddy_research_evidence")
+    .delete()
+    .eq("mission_id", missionId)
+    .not("thread_origin", "is", null);
+  if (cleanupErr) {
+    console.warn(
+      "[claimLedger] pre-insert cleanup of this mission's existing claim rows failed (non-fatal, proceeding — a resumed retry could duplicate rows):",
+      cleanupErr.message,
+    );
+  }
+
   let sourceSnapshots = new Map<string, ClaimSourceSnapshot>();
   try {
     sourceSnapshots = await snapshotClaimSources(claims);

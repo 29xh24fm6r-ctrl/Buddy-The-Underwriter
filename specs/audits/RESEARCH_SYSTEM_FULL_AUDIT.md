@@ -327,6 +327,79 @@ single pre-existing unrelated failure as every prior round (confirmed via
 the same file/test name, `lifecycleInvariants.test.ts`'s "banker upload
 ignites deal"). Research-specific suite: 606/606 pass.
 
+## Round 5 — closing the open items (2026-07-13)
+
+User request, in response to "is this system ready for deployment": "please
+make all of the corrections and improvements you have stated above." That
+answer had listed five concrete gaps — no external alerting, a claim-ledger
+idempotency edge case, `repayment_story_conflict` still self-report-based,
+`threadRuns` observability limited to one stage, and the one pre-existing
+unrelated test failure carried forward unfixed since round 1. All five are
+closed this round.
+
+**Implemented:**
+- **Real external alerting.** Round 2 stated "this environment has no
+  PagerDuty/Slack/etc. webhook configured to wire into" — re-investigated
+  this round and found that's no longer accurate repo-wide: two working
+  Slack webhook integrations already exist in production
+  (`src/lib/observability/sendBankerAnalysisAlert.ts`,
+  `src/lib/brokerage/commsAdapters.ts`), both reading `SLACK_WEBHOOK_URL`
+  and no-oping safely if it's unset. New `researchAlerts.ts`
+  (`sendResearchCriticalAlert`) reuses that exact pattern — same
+  cooldown-dedup design via `buddy_system_events`, same fail-safe posture —
+  and is called from `writeDegradedQualityGate()`, the single point every
+  degraded-mission code path in `runMission.ts` already routes through (BIE
+  exceptions, trust-layer exceptions, subject-lock failures, stale-mission
+  sweeps). No new credentials are required to deploy this — only to
+  activate it, by setting `SLACK_WEBHOOK_URL`.
+- **Claim-ledger idempotency.** `persistClaimLedger` now deletes this
+  mission's existing claim-ledger rows (`buddy_research_evidence` where
+  `thread_origin IS NOT NULL` — scoped to not touch the separate
+  verification/provenance summary rows in the same table) before inserting
+  the current claim set. Closes the round-4-documented partial-insert-then-
+  crash duplication risk directly, rather than leaving it as an accepted
+  limitation.
+- **Real numeric diffing for `repayment_story_conflict`.** Round 2
+  deliberately left this self-report-based, reasoning that DSCR-*ratio*
+  extraction from prose was too unreliable. That reasoning holds — this
+  round doesn't extract ratios. Instead it reuses the same dollar-*figure*
+  extraction already proven for `scale_plausibility`
+  (`extractMentionedRevenueFigures`), applied to the TRANSACTION thread's
+  own repayment narrative instead of the borrower thread's — a materially
+  different check that catches a transaction thread whose repayment
+  assumptions imply a different scale of business than the loan file
+  states, independent of whether the borrower thread's own scale claim
+  passes.
+- **`threadRuns` observability extended** to `fact_extraction`,
+  `inference_derivation`, and `narrative_compilation` (previously
+  `source_ingestion` only), via manual `createThreadRun`/`completeThreadRun`/
+  `failThreadRun` calls at each stage's existing entry/exit points rather
+  than restructuring their inline early-return error paths into thrown
+  exceptions. `bie_enrichment`/`gap_analysis`/`flag_bridging`/
+  `source_discovery` remain untracked by design (see round 4's reasoning,
+  still valid) — `threadRuns.ts`'s docstring corrected to state this
+  precisely (it had drifted to claim "all 8 stages" during round 4, which
+  was never actually true).
+- **The pre-existing test failure is fixed**, not just repeatedly confirmed
+  unrelated. Root cause: `lifecycleInvariants.test.ts`'s hand-rolled fake
+  Supabase client never seeded a `borrowers` table and its `insert()` mock
+  didn't support `.select().single()` chaining — both gaps opened after
+  `igniteDealCore.ts`'s IGNITE-BORROWER-LINKAGE step (a real,
+  already-non-fatal production code path) was added later without the test
+  fixture being updated. Fixed the fixture: `borrowers` is now seeded (empty
+  by default), and `insert()` returns a chainable *and* directly-awaitable
+  ("thenable") builder matching the real Supabase JS client's behavior.
+
+Regression coverage added: `researchAlerts.test.ts` (5 cases — happy path,
+missing webhook, cooldown dedup, cross-mission non-interference, Slack
+failure), 4 new `repayment_story_conflict` cases in
+`contradictionChecklist.test.ts` mirroring the existing `scale_plausibility`
+coverage.
+
+Full repo test suite after round 5: **11236/11236 pass, 0 failures** (9
+skipped) — the first fully green run across every round of this audit.
+Research-specific suite: 615/615 pass.
+
 ---
 **Scope**: The entire research system — mission orchestration (`runMission.ts`), the
 Buddy Intelligence Engine (`buddyIntelligenceEngine.ts`, 8-thread Gemini-grounded

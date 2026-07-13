@@ -176,6 +176,19 @@ export async function writeDegradedQualityGate(
   } catch (e: any) {
     console.warn(`[runMission] writeDegradedQualityGate failed for ${gateId} (non-fatal):`, e?.message);
   }
+
+  // External alerting (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round 5):
+  // every degraded-quality-gate write is a genuine mission-level failure
+  // signal, so this is the single natural point to push an external alert
+  // from, without scattering alert calls across every catch block that
+  // already calls writeDegradedQualityGate. No-ops safely if
+  // SLACK_WEBHOOK_URL isn't configured — see researchAlerts.ts.
+  try {
+    const { sendResearchCriticalAlert } = await import("./researchAlerts");
+    await sendResearchCriticalAlert({ missionId, dealId, gateId, reason });
+  } catch (e: any) {
+    console.warn(`[runMission] sendResearchCriticalAlert failed for ${gateId} (non-fatal):`, e?.message);
+  }
 }
 
 /**
@@ -497,6 +510,25 @@ async function trackStage<T>(
 }
 
 /**
+ * Manual thread-run start/end helpers for stages with early-return exit
+ * points inline in runMission()'s own control flow, where wrapping the
+ * whole stage in trackStage()'s closure isn't possible without turning an
+ * early `return` from runMission() into a thrown exception purely for
+ * tracking purposes. Best-effort, like every other threadRuns.ts call.
+ */
+async function beginStageTracking(missionId: string, stage: CheckpointStage): Promise<string | null> {
+  return createThreadRun(supabaseAdmin(), missionId, stage).catch(() => null);
+}
+async function endStageTracking(threadRunId: string | null, itemsProcessed: number): Promise<void> {
+  if (!threadRunId) return;
+  await completeThreadRun(supabaseAdmin(), threadRunId, { items_processed: itemsProcessed }).catch(() => {});
+}
+async function failStageTracking(threadRunId: string | null, message: string): Promise<void> {
+  if (!threadRunId) return;
+  await failThreadRun(supabaseAdmin(), threadRunId, { message }).catch(() => {});
+}
+
+/**
  * Execute a complete research mission.
  *
  * This is the main entry point for running Mission 001: Industry + Competitive Landscape.
@@ -770,6 +802,7 @@ export async function runMission(
       persistedFacts = await loadPersistedFacts(missionId);
       console.log(`[runMission] Resume: reused ${persistedFacts.length} previously-extracted fact(s)`);
     } else {
+      const threadRunId = await beginStageTracking(missionId, "fact_extraction");
       const successfulSources = persistedSources.filter(
         (s) => s.fetch_error === null && s.raw_content !== null
       );
@@ -778,6 +811,7 @@ export async function runMission(
 
       const persistedFactsResult = await persistFacts(missionId, extractedFacts);
       if (!persistedFactsResult.ok) {
+        await failStageTracking(threadRunId, persistedFactsResult.error ?? "persist_facts_failed");
         await updateMissionStatus(missionId, "failed", `Failed to persist facts: ${persistedFactsResult.error}`);
         return {
           ok: false,
@@ -792,6 +826,7 @@ export async function runMission(
       }
 
       persistedFacts = persistedFactsResult.facts;
+      await endStageTracking(threadRunId, persistedFacts.length);
       await checkpointStage(missionId, "fact_extraction", { persisted_count: persistedFacts.length });
     }
 
@@ -801,6 +836,7 @@ export async function runMission(
       persistedInferences = await loadPersistedInferences(missionId);
       console.log(`[runMission] Resume: reused ${persistedInferences.length} previously-derived inference(s)`);
     } else {
+      const threadRunId = await beginStageTracking(missionId, "inference_derivation");
       persistedInferences = [];
       if (hasEnoughFactsForInferences(persistedFacts)) {
         const derivedInferences = deriveInferences(persistedFacts);
@@ -809,9 +845,13 @@ export async function runMission(
         if (!persistedInferencesResult.ok) {
           // Non-fatal: we can still complete the mission without inferences
           console.warn(`Failed to persist inferences: ${persistedInferencesResult.error}`);
+          await failStageTracking(threadRunId, persistedInferencesResult.error ?? "persist_inferences_failed");
         } else {
           persistedInferences = persistedInferencesResult.inferences;
+          await endStageTracking(threadRunId, persistedInferences.length);
         }
+      } else {
+        await endStageTracking(threadRunId, 0);
       }
       await checkpointStage(missionId, "inference_derivation", { persisted_count: persistedInferences.length });
     }
@@ -871,6 +911,7 @@ export async function runMission(
       narrativeSectionsCount = Array.isArray(existingNarrative?.sections) ? existingNarrative.sections.length : 0;
       console.log(`[runMission] Resume: legacy narrative already compiled (${narrativeSectionsCount} section(s)), skipping recompile`);
     } else {
+      const threadRunId = await beginStageTracking(missionId, "narrative_compilation");
       const narrativeResult = compileNarrative(persistedFacts, persistedInferences, persistedSources);
       narrativeSectionsCount = narrativeResult.sections.length;
 
@@ -900,6 +941,7 @@ export async function runMission(
           console.warn(`Failed to persist narrative: ${narrativePersistResult.error}`);
         }
       }
+      await endStageTracking(threadRunId, narrativeSectionsCount);
       await checkpointStage(missionId, "narrative_compilation", { sections_count: narrativeSectionsCount });
     }
 

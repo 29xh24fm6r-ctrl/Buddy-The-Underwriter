@@ -5,13 +5,19 @@
  * Each stage (source_discovery, fact_extraction, etc.) gets its own
  * thread_run record with timing, item counts, and error details.
  *
- * Wired into production (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round
- * 4, resumable missions + failure learning): `runMission.ts` calls
- * createThreadRun()/completeThreadRun()/failThreadRun() around each of its
- * 8 real pipeline stages, and `buddyIntelligenceEngine.ts` calls them
- * around each of the 8 BIE threads — giving per-stage/per-thread timing and
- * error data in buddy_research_thread_runs, complementing (not replacing)
- * the existing thread_diagnostics JSON already persisted on the mission row.
+ * Wired into production (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md —
+ * rounds 4–5, resumable missions + failure learning): `runMission.ts` calls
+ * createThreadRun()/completeThreadRun()/failThreadRun() around 4 of its 8
+ * real pipeline stages — source_ingestion, fact_extraction,
+ * inference_derivation, narrative_compilation — giving per-stage timing
+ * and error data in buddy_research_thread_runs, complementing (not
+ * replacing) the existing thread_diagnostics JSON already persisted on the
+ * mission row. Deliberately NOT wired for source_discovery (a single
+ * synchronous, effectively-never-fails call), gap_analysis/flag_bridging
+ * (cheap, already non-fatal, low value), or bie_enrichment/per-BIE-thread
+ * (buddyIntelligenceEngine.ts has no Supabase dependency by design — its
+ * existing thread_diagnostics already gives equivalent-or-richer per-thread
+ * detail without adding one).
  */
 
 import "server-only";

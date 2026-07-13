@@ -149,6 +149,57 @@ test("[contradiction] scale_plausibility falls back to insufficient_evidence whe
   assert.equal(check.committee_blocker, false);
 });
 
+// ── repayment_story_conflict: real cross-thread numeric diffing ─────────────
+// (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 5) — same machinery as
+// scale_plausibility, but comparing the TRANSACTION thread's own repayment
+// narrative against the loan-file revenue, not the borrower thread's.
+
+test("[contradiction] repayment_story_conflict flags a real numeric mismatch (loan file vs. transaction narrative)", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    annualRevenue: 2_000_000, // loan file: $2M
+    transactionRepaymentText: "Primary repayment source is operating cash flow, which generates approximately $40 million annually.", // 20x apart
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "flagged");
+  assert.equal(check.committee_blocker, true);
+  assert.match(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] repayment_story_conflict clears when transaction narrative figure matches loan file", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    annualRevenue: 2_000_000,
+    transactionRepaymentText: "Primary repayment source is operating cash flow of approximately $2.1 million annually.",
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "clear");
+  assert.equal(check.committee_blocker, false);
+  assert.match(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] repayment_story_conflict falls back to presence-only clear when no comparable figure is mentioned", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    annualRevenue: 2_000_000,
+    transactionRepaymentText: "Repayment relies on stable, diversified customer contracts.",
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "clear");
+  assert.equal(check.committee_blocker, false);
+  assert.doesNotMatch(check.basis, /cross-thread numeric check/i);
+});
+
+test("[contradiction] repayment_story_conflict still honors the LLM self-report when no numeric comparison is possible", () => {
+  const cs = buildContradictionChecklist(ctx({
+    hasTransactionThread: true,
+    contradictionsText: "There is a repayment story conflict between stated revenue and actual cash flow.",
+  }));
+  const check = get(cs, "repayment_story_conflict");
+  assert.equal(check.status, "flagged");
+  assert.equal(check.committee_blocker, true);
+});
+
 test("[contradiction] full evidence → clears non-blocking checks", () => {
   const cs = buildContradictionChecklist(ctx({
     entityConfirmedPublicly: true,

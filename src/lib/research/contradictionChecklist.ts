@@ -87,6 +87,22 @@ export type ContradictionContext = {
    * "contradictions_and_uncertainties" self-report (contradictionsText).
    */
   borrowerScaleText?: string | null;
+  /**
+   * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md round 5): concatenated
+   * transaction-thread prose (primary/secondary repayment source, downside
+   * case, stress scenario, collateral adequacy) scanned for mentioned
+   * dollar figures, cross-checked against annualRevenue the same way
+   * borrowerScaleText is for scale_plausibility — but from a DIFFERENT
+   * thread's narrative, so it catches a distinct failure mode: the borrower
+   * thread's own scale claim can be internally consistent while the
+   * transaction thread's repayment analysis assumes a wildly different
+   * scale of business. Deliberately dollar-figure extraction only (the same
+   * well-tested extractMentionedRevenueFigures already used for
+   * scale_plausibility), not DSCR-ratio extraction — an earlier round
+   * judged DSCR-style ratios too unreliable to extract from prose without
+   * false positives; a plain dollar figure is not.
+   */
+  transactionRepaymentText?: string | null;
 };
 
 function flagged(key: ContradictionCheckKey, text: string): boolean {
@@ -218,12 +234,10 @@ export function buildContradictionChecklist(ctx: ContradictionContext): Contradi
       ? mk("competitive_position_conflict", "clear", "info", "public_web", false, `${ctx.namedCompetitors} competitor(s) identified; positioning is consistent.`)
       : mk("competitive_position_conflict", "insufficient_evidence", "warn", "insufficient", true, "No named competitors to validate competitive positioning."));
 
-  // 8. repayment_story_conflict
-  checks.push(flagged("repayment_story_conflict", t)
-    ? mk("repayment_story_conflict", "flagged", "warn", "loan_file", true, "Repayment-story / cash-flow conflict raised in synthesis.")
-    : ctx.hasTransactionThread
-      ? mk("repayment_story_conflict", "clear", "info", "loan_file", false, "Repayment thesis assessed; no internal contradiction found.")
-      : mk("repayment_story_conflict", "insufficient_evidence", "warn", "insufficient", true, "Transaction/repayment analysis unavailable to cross-check."));
+  // 8. repayment_story_conflict — real cross-thread numeric diffing when
+  // possible (see repaymentScaleCheck), instead of trusting only the LLM's
+  // own self-reported "contradictions" text or a presence-only fallback.
+  checks.push(repaymentScaleCheck(ctx, t));
 
   return checks;
 }
@@ -284,6 +298,59 @@ function scalePlausibilityCheck(ctx: ContradictionContext, contradictionsText: s
     );
   }
   return mk("scale_plausibility", "insufficient_evidence", "info", "insufficient", false, "Insufficient financial/scale detail to assess plausibility.");
+}
+
+/**
+ * Real cross-thread numeric diff for repayment_story_conflict: compares the
+ * loan-file/banker-stated annual revenue against dollar figures actually
+ * mentioned in the TRANSACTION thread's repayment narrative — a distinct
+ * check from scale_plausibility, which only looks at the borrower thread.
+ * A transaction thread that internally assumes a wildly different scale of
+ * business than the borrower thread (and the loan file) reported is a real,
+ * checkable inconsistency between two independently-generated threads, not
+ * a self-report the LLM has to notice and flag itself. Falls back to the
+ * prior self-report-or-presence-only behavior when no numeric comparison is
+ * possible — never invents a contradiction from missing data.
+ */
+function repaymentScaleCheck(ctx: ContradictionContext, contradictionsText: string): ContradictionCheck {
+  const stated = ctx.annualRevenue ?? null;
+  const mentioned = extractMentionedRevenueFigures(ctx.transactionRepaymentText);
+  const hasNumericComparison = stated != null && stated > 0 && mentioned.length > 0;
+
+  if (hasNumericComparison) {
+    let closest = mentioned[0];
+    let closestRatio = magnitudeRatio(closest, stated!);
+    for (const figure of mentioned) {
+      const ratio = magnitudeRatio(figure, stated!);
+      if (ratio < closestRatio) {
+        closest = figure;
+        closestRatio = ratio;
+      }
+    }
+
+    if (closestRatio > SCALE_IMPLAUSIBLE_RATIO) {
+      return mk(
+        "repayment_story_conflict", "flagged", "warn", "loan_file", true,
+        `Repayment analysis scale mismatch (cross-thread numeric check): loan file states ~${formatDollars(stated!)} ` +
+        `revenue, but the transaction/repayment narrative mentions ~${formatDollars(closest)} — ${closestRatio.toFixed(1)}x apart.`,
+      );
+    }
+    return mk(
+      "repayment_story_conflict", "clear", "info", "loan_file", false,
+      `Repayment analysis scale consistent (cross-thread numeric check): loan file ~${formatDollars(stated!)} vs. ` +
+      `transaction narrative ~${formatDollars(closest)} (${closestRatio.toFixed(1)}x).`,
+    );
+  }
+
+  // No numeric comparison possible — fall back to the LLM self-report signal,
+  // then presence-only.
+  if (flagged("repayment_story_conflict", contradictionsText)) {
+    return mk("repayment_story_conflict", "flagged", "warn", "loan_file", true, "Repayment-story / cash-flow conflict raised in synthesis.");
+  }
+  if (ctx.hasTransactionThread) {
+    return mk("repayment_story_conflict", "clear", "info", "loan_file", false, "Repayment thesis assessed; no internal contradiction found.");
+  }
+  return mk("repayment_story_conflict", "insufficient_evidence", "warn", "insufficient", true, "Transaction/repayment analysis unavailable to cross-check.");
 }
 
 function basis(ctx: ContradictionContext): ContradictionEvidenceBasis {
