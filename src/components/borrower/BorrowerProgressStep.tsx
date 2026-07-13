@@ -20,8 +20,8 @@ export function BorrowerProgressStep({
     state === "done"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : state === "current"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : "border-stone-200 bg-stone-50 text-stone-500";
+        ? "brand-gradient-cta border-transparent text-white"
+        : "border-slate-200 bg-slate-50 text-slate-400";
 
   return (
     <li className="flex gap-3">
@@ -38,12 +38,12 @@ export function BorrowerProgressStep({
             index + 1
           )}
         </div>
-        {showConnector ? <div className="mt-2 h-full min-h-6 w-px bg-stone-200" /> : null}
+        {showConnector ? <div className="mt-2 h-full min-h-6 w-px bg-slate-200" /> : null}
       </div>
       <div className="pb-2">
-        <div className="text-sm font-semibold text-stone-900">{title}</div>
-        <div className="mt-1 text-sm leading-6 text-stone-600">{detail}</div>
-        <div className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-stone-500">
+        <div className="text-sm font-semibold text-slate-900">{title}</div>
+        <div className="mt-1 text-sm leading-6 text-slate-600">{detail}</div>
+        <div className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
           {state === "done" ? "Completed" : state === "current" ? "Current stage" : "Coming up"}
         </div>
       </div>

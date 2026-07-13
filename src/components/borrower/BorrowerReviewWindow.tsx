@@ -10,7 +10,7 @@ export function BorrowerReviewWindow({
   windowLabel: string;
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(135deg,_#fffdf8_0%,_#fff7ed_100%)] p-5 shadow-sm sm:p-6">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(135deg,_#f0f7ff_0%,_#f6f8fb_100%)] p-5 shadow-sm sm:p-6">
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         Review window
       </div>

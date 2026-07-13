@@ -17,11 +17,11 @@ export function BorrowerReviewStatusCard({
   nextStep: string;
 }) {
   return (
-    <section className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(135deg,_#fffdf8_0%,_#fff7ed_100%)] p-5 shadow-sm sm:p-6">
+    <section className="rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(135deg,_#f0f7ff_0%,_#f6f8fb_100%)] p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
           <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-            <Icon name="pending" className="h-4 w-4 text-amber-700" />
+            <Icon name="pending" className="h-4 w-4 text-brand-blue-500" />
             Review transparency
           </div>
           <div>

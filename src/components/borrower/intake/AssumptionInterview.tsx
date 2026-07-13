@@ -1012,7 +1012,7 @@ export function AssumptionInterview({
       {/* ── Working Capital ───────────────────────────────────────── */}
       {subStep === "working_capital" && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             These defaults work for most businesses. Adjust if your industry has
             unusual payment cycles.
           </p>
@@ -1026,7 +1026,7 @@ export function AssumptionInterview({
                 onChange={(e) => setDso(e.target.value)}
                 placeholder="45"
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] text-slate-400 mt-1">
                 How fast customers pay you
               </p>
             </div>
@@ -1039,7 +1039,7 @@ export function AssumptionInterview({
                 onChange={(e) => setDpo(e.target.value)}
                 placeholder="30"
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] text-slate-400 mt-1">
                 How fast you pay vendors
               </p>
             </div>
@@ -1052,7 +1052,7 @@ export function AssumptionInterview({
                 onChange={(e) => setInvTurns(e.target.value)}
                 placeholder="N/A"
               />
-              <p className="text-[10px] text-gray-600 mt-1">
+              <p className="text-[10px] text-slate-400 mt-1">
                 Leave blank if no inventory
               </p>
             </div>
@@ -1063,7 +1063,7 @@ export function AssumptionInterview({
       {/* ── Loan Impact ───────────────────────────────────────────── */}
       {subStep === "loan_impact" && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             Pre-filled from your loan request. Confirm or adjust these details.
           </p>
           <div>
@@ -1098,7 +1098,7 @@ export function AssumptionInterview({
               />
             </div>
           </div>
-          <div className="bg-blue-900/20 border border-blue-800 rounded-lg px-4 py-3 text-xs text-blue-300">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-700">
             The interest rate is an estimate based on current SBA rates. Your
             banker will confirm the final rate during underwriting.
           </div>
@@ -1108,7 +1108,7 @@ export function AssumptionInterview({
       {/* ── Management Team ───────────────────────────────────────── */}
       {subStep === "management" && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             Tell us about your management team. This goes into your business
             plan.
             {mgmtTeam.length > 0 &&
@@ -1117,10 +1117,10 @@ export function AssumptionInterview({
           {mgmtTeam.map((m, idx) => (
             <div
               key={idx}
-              className="border border-neutral-800 rounded-lg p-4 space-y-3"
+              className="border border-slate-200 rounded-lg p-4 space-y-3"
             >
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-300">
+                <span className="text-sm font-medium text-slate-600">
                   Member {idx + 1}
                 </span>
                 {mgmtTeam.length > 1 && (
@@ -1129,7 +1129,7 @@ export function AssumptionInterview({
                     onClick={() =>
                       setMgmtTeam((prev) => prev.filter((_, i) => i !== idx))
                     }
-                    className="text-xs text-red-400 hover:text-red-300"
+                    className="text-xs text-rose-500 hover:text-rose-600"
                   >
                     Remove
                   </button>
@@ -1250,7 +1250,7 @@ export function AssumptionInterview({
                 },
               ])
             }
-            className="w-full py-3 rounded-lg border border-dashed border-neutral-700 text-gray-400 text-sm hover:border-neutral-500 transition min-h-[44px]"
+            className="w-full py-3 rounded-lg border border-dashed border-slate-300 text-slate-500 text-sm hover:border-slate-400 transition min-h-[44px]"
           >
             + Add Team Member
           </button>
@@ -1266,7 +1266,7 @@ export function AssumptionInterview({
           <button
             type="button"
             onClick={() => setSubStep(SUB_STEPS[subStepIdx - 1].key)}
-            className="px-4 py-2.5 rounded-lg border border-neutral-700 text-gray-300 text-sm hover:bg-neutral-800 transition min-h-[44px]"
+            className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-600 text-sm hover:bg-slate-50 transition min-h-[44px]"
           >
             Back
           </button>
@@ -1275,7 +1275,7 @@ export function AssumptionInterview({
           <button
             type="button"
             onClick={() => setSubStep(SUB_STEPS[subStepIdx + 1].key)}
-            className="flex-1 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition min-h-[44px]"
+            className="brand-gradient-cta flex-1 px-4 py-2.5 rounded-lg text-white text-sm font-medium hover:brightness-110 transition min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
           >
             Next: {SUB_STEPS[subStepIdx + 1].label}
           </button>
@@ -1283,7 +1283,7 @@ export function AssumptionInterview({
       </div>
 
       {saving && (
-        <p className="text-center text-xs text-neutral-600">
+        <p className="text-center text-xs text-slate-400">
           Saving projections…
         </p>
       )}
@@ -1394,16 +1394,16 @@ function ResearchDataGrid({ context }: { context: Record<string, unknown> }) {
       {cards.map((card) => (
         <div
           key={card.label}
-          className="bg-neutral-800/60 border border-neutral-700/50 rounded-lg p-3 space-y-1"
+          className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1"
         >
           <div className="flex items-center gap-1.5">
             <span className="text-sm">{card.icon}</span>
-            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
               {card.label}
             </span>
           </div>
-          <p className="text-lg font-bold text-gray-100">{card.value}</p>
-          {card.sub && <p className="text-[10px] text-gray-500">{card.sub}</p>}
+          <p className="text-lg font-bold text-slate-800">{card.value}</p>
+          {card.sub && <p className="text-[10px] text-slate-500">{card.sub}</p>}
         </div>
       ))}
     </div>
@@ -1426,26 +1426,26 @@ function RoadmapCard({ projections }: { projections: Projections }) {
     : null;
 
   return (
-    <div className="border border-neutral-800 rounded-xl p-5 space-y-4 bg-gradient-to-b from-green-950/20 to-neutral-900">
+    <div className="border border-slate-200 rounded-xl p-5 space-y-4 bg-gradient-to-b from-emerald-50 to-white">
       <div className="flex items-center gap-2">
         <span className="text-sm">🗺️</span>
-        <h3 className="text-sm font-medium text-green-400">
+        <h3 className="text-sm font-medium text-emerald-600">
           Your Business Roadmap
         </h3>
       </div>
 
-      <div className="space-y-3 text-sm text-gray-300 leading-relaxed">
+      <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
         <p>
           Your business needs to generate{" "}
-          <span className="text-white font-semibold">
+          <span className="text-slate-900 font-semibold">
             ${monthlyBE.toLocaleString()}/month
           </span>{" "}
           to break even. You&apos;re projected at{" "}
-          <span className="text-white font-semibold">
+          <span className="text-slate-900 font-semibold">
             ${monthlyRev.toLocaleString()}/month
           </span>
           , giving you{" "}
-          <span className="text-green-400 font-semibold">
+          <span className="text-emerald-600 font-semibold">
             ${cushion.toLocaleString()}
           </span>{" "}
           of monthly cushion — a{" "}
@@ -1453,34 +1453,34 @@ function RoadmapCard({ projections }: { projections: Projections }) {
           margin.
         </p>
 
-        <div className="bg-neutral-800/60 rounded-lg p-3 space-y-2">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+        <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
             Year 1 Targets
           </p>
           <div className="grid grid-cols-1 gap-1.5 text-xs">
             <div className="flex justify-between">
-              <span className="text-gray-400">Monthly revenue target</span>
-              <span className="text-white font-mono">
+              <span className="text-slate-500">Monthly revenue target</span>
+              <span className="text-slate-900 font-mono">
                 ${monthlyRev.toLocaleString()}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">Monthly loan payment</span>
-              <span className="text-white font-mono">
+              <span className="text-slate-500">Monthly loan payment</span>
+              <span className="text-slate-900 font-mono">
                 ${monthlyDS.toLocaleString()}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">Keep cost of goods below</span>
-              <span className="text-white font-mono">
+              <span className="text-slate-500">Keep cost of goods below</span>
+              <span className="text-slate-900 font-mono">
                 {cogsPctNum ? `${cogsPctNum}%` : "—"}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">
+              <span className="text-slate-500">
                 Cash reserve goal (2 months)
               </span>
-              <span className="text-white font-mono">
+              <span className="text-slate-900 font-mono">
                 ${(monthlyDS * 2).toLocaleString()}
               </span>
             </div>
@@ -1488,7 +1488,7 @@ function RoadmapCard({ projections }: { projections: Projections }) {
         </div>
 
         {downside && (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             {downside.passesSBAThreshold
               ? `Even if revenue drops 15%, your business can still cover all obligations with a ${downside.dscrYear1.toFixed(1)}x coverage ratio.`
               : `If revenue drops 15%, cash flow would be tight. Build reserves early and monitor monthly revenue closely.`}

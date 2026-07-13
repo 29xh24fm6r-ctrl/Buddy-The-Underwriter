@@ -38,13 +38,13 @@ export function StartConciergeClient() {
           })}
         />
       </div>
-      <div className="mb-4 flex gap-1 rounded-2xl border border-stone-200 bg-stone-50 p-1">
+      <div className="mb-4 flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1">
         <button
           onClick={() => setMode("chat")}
           className={`flex-1 rounded-[0.9rem] px-4 py-3 text-sm font-medium transition-colors ${
             mode === "chat"
-              ? "bg-white text-stone-900 shadow-sm"
-              : "text-stone-600 hover:text-stone-900"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
           }`}
           type="button"
         >
@@ -54,8 +54,8 @@ export function StartConciergeClient() {
           onClick={() => setMode("voice")}
           className={`flex-1 rounded-[0.9rem] px-4 py-3 text-sm font-medium transition-colors ${
             mode === "voice"
-              ? "bg-white text-stone-900 shadow-sm"
-              : "text-stone-600 hover:text-stone-900"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
           }`}
           type="button"
         >
@@ -177,15 +177,15 @@ function ChatPane({
   };
 
   return (
-    <div className="overflow-hidden rounded-[1.75rem] border border-stone-200 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-stone-200 bg-stone-50 px-6 py-4">
+    <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.08)]">
+      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
         <div className="flex items-center justify-between text-sm">
-          <span className="font-medium text-stone-700">Your SBA package</span>
-          <span className="text-stone-500">{progressPct}% ready</span>
+          <span className="font-medium text-slate-700">Your SBA package</span>
+          <span className="text-slate-500">{progressPct}% ready</span>
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-200">
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
           <div
-            className="h-full bg-amber-600 transition-all duration-500"
+            className="h-full bg-gradient-to-r from-[#1c8de0] to-[#4db8f0] transition-all duration-500"
             style={{ width: `${progressPct}%` }}
           />
         </div>
@@ -205,8 +205,8 @@ function ChatPane({
             <div
               className={
                 m.role === "user"
-                  ? "max-w-[80%] rounded-2xl rounded-br-md bg-stone-950 px-4 py-3 text-white"
-                  : "max-w-[80%] rounded-2xl rounded-bl-md bg-stone-100 px-4 py-3 text-stone-900"
+                  ? "brand-gradient-cta max-w-[80%] rounded-2xl rounded-br-md px-4 py-3 text-white"
+                  : "max-w-[80%] rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-slate-900"
               }
             >
               {m.content}
@@ -215,14 +215,14 @@ function ChatPane({
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-md bg-stone-100 px-4 py-3 text-stone-500">
+            <div className="rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-slate-500">
               Buddy is preparing your next step…
             </div>
           </div>
         )}
       </div>
 
-      <div className="border-t border-stone-200 bg-stone-50 px-6 py-4">
+      <div className="border-t border-slate-200 bg-slate-50 px-6 py-4">
         <div className="flex gap-2">
           <input
             type="text"
@@ -235,19 +235,19 @@ function ChatPane({
               }
             }}
             placeholder="Tell Buddy about your business and what you want to finance…"
-            className="flex-1 rounded-2xl border border-stone-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="flex-1 rounded-2xl border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
             disabled={sending || rateLimited}
           />
           <button
             onClick={send}
             disabled={sending || rateLimited || !input.trim()}
-            className="rounded-2xl bg-stone-950 px-5 py-3 font-medium text-white hover:bg-stone-800 disabled:opacity-50"
+            className="brand-gradient-cta rounded-2xl px-5 py-3 font-medium text-white hover:brightness-110 disabled:opacity-50"
           >
             Send
           </button>
         </div>
         {dealId && (
-          <p className="mt-2 text-xs text-stone-500">
+          <p className="mt-2 text-xs text-slate-500">
             Session saved in this browser. Return anytime and keep building your package.
           </p>
         )}
