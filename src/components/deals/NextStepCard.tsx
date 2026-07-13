@@ -100,7 +100,7 @@ export default function NextStepCard({ dealId }: { dealId: string }) {
                   View pricing
                 </Link>
                 <Link
-                  href={`/credit-memo/${dealId}/draft`}
+                  href={`/credit-memo/${dealId}/canonical`}
                   className="rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50"
                 >
                   View memo

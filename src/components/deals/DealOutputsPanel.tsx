@@ -29,7 +29,7 @@ export function DealOutputsPanel({
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900/40 px-4 py-3 text-sm font-semibold text-white/60 cursor-not-allowed"
           >
             <Icon name="file" className="h-4 w-4" />
-            Credit Memo Draft
+            AI Deal Summary (informal)
           </button>
         ) : (
           <Link
@@ -37,7 +37,7 @@ export function DealOutputsPanel({
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white hover:bg-neutral-800"
           >
             <Icon name="file" className="h-4 w-4" />
-            Credit Memo Draft
+            AI Deal Summary (informal)
           </Link>
         )}
         <Link

@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { generateCreditMemoJson } from "@/lib/memo/generateCreditMemoJson";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
@@ -9,7 +7,15 @@ import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 /**
  * POST /api/deals/[dealId]/memos/generate
  *
- * Generate credit memo JSON from snapshot + risk facts + optional pricing quote
+ * Deprecated: this generated a `generated_documents` row (doc_type
+ * "credit_memo") that render-pdf/route.ts could mark "final" with ZERO
+ * completeness/safety checks — a real gap next to the certified Florida
+ * Armory pipeline (buildCanonicalCreditMemo -> buildFloridaArmorySnapshot ->
+ * assertCommitteeMemoSafe -> credit_memo_snapshots). This system is already
+ * effectively dead in the live UI (the native component that called it,
+ * DealMemoTemplateClient.tsx, is explicitly forbidden by
+ * src/lib/__tests__/stitchNativeFallbackGuard.test.ts), so this route is
+ * neutered rather than silently left reachable.
  */
 export async function POST(
   req: NextRequest,
@@ -17,92 +23,20 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
-    // SPEC-SEC-1: enforce Clerk auth + bank-tenant access before generating a memo.
     await assertDealAccess(dealId);
-    const body = await req.json();
-    const { snapshotId, riskFactsId, pricingQuoteId } = body;
 
-    if (!snapshotId || !riskFactsId) {
-      return NextResponse.json(
-        { error: "snapshotId and riskFactsId are required" },
-        { status: 400 },
-      );
-    }
-
-    // Load risk facts
-    const supabase = supabaseAdmin();
-    const { data: riskFacts, error: factsError } = await supabase
-      .from("risk_facts")
-      .select("*")
-      .eq("id", riskFactsId)
-      .eq("deal_id", dealId)
-      .single();
-
-    if (factsError || !riskFacts) {
-      return NextResponse.json(
-        { error: "Risk facts not found" },
-        { status: 404 },
-      );
-    }
-
-    // Load pricing quote (optional)
-    let pricingQuote = null;
-    if (pricingQuoteId) {
-      const { data } = await supabase
-        .from("pricing_quotes")
-        .select("*")
-        .eq("id", pricingQuoteId)
-        .eq("deal_id", dealId)
-        .maybeSingle();
-
-      if (data) {
-        pricingQuote = data.quote;
-      }
-    }
-
-    // Generate memo JSON
-    const memoContent = generateCreditMemoJson(
-      snapshotId,
-      riskFactsId,
-      riskFacts.facts_hash,
-      riskFacts.facts,
-      pricingQuote,
-      pricingQuoteId ?? null,
+    return NextResponse.json(
+      {
+        error: "deprecated_use_canonical_credit_memo",
+        message:
+          "This memo-generation path is deprecated. Use the canonical credit memo flow: POST /api/deals/{dealId}/credit-memo/generate and /submit.",
+      },
+      { status: 410 },
     );
-
-    // Insert into generated_documents
-    const { data: generatedDoc, error: insertError } = await supabase
-      .from("generated_documents")
-      .insert({
-        deal_id: dealId,
-        snapshot_id: snapshotId,
-        doc_type: "credit_memo",
-        title: `Credit Memo - ${memoContent.header.borrower}`,
-        source: {
-          risk_facts_id: riskFactsId,
-          pricing_quote_id: pricingQuoteId,
-          snapshot_id: snapshotId,
-          facts_hash: riskFacts.facts_hash,
-        },
-        content_json: memoContent,
-        status: "draft",
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error("Failed to insert generated document:", insertError);
-      return NextResponse.json(
-        { error: "Failed to create memo" },
-        { status: 500 },
-      );
-    }
-
-    return NextResponse.json({ generated_document: generatedDoc });
   } catch (error) {
     const accessRes = accessErrorToResponse(error);
     if (accessRes) return accessRes;
-    console.error("Error generating memo:", error);
+    console.error("Error in deprecated memo generate route:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },

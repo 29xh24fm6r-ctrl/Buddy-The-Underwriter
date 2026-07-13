@@ -1073,10 +1073,18 @@ async function handlePdfRequest(dealId: string) {
     const memoFromSnapshot: CanonicalCreditMemoV1 = snapshot.canonical_memo;
 
     // SPEC-PDF-NARRATIVE-OVERLAY-1: overlay cached narratives (same logic as canonical/page.tsx).
-    // Narrative overlay does not change underlying data — only enriches
-    // narrative-only fields the canonical builder may have left thin. The
-    // committee-safe guard above ran on the immutable snapshot body, so the
-    // overlay cannot reintroduce placeholders that were already rejected.
+    // The prior version of this overlay was gated on NOTHING but "most recent
+    // row for this deal+bank" — the exact staleness bug already fixed in
+    // narrativeAssembly.ts (H2): a narrative generated against older inputs
+    // could silently overlay onto a certified snapshot describing NEWER
+    // (corrected) numbers. Worse here specifically: this snapshot already
+    // passed assertCommitteeMemoSafe above, but the overlay ran AFTER that
+    // check, so the actual PDF content was never re-verified. Fixed by (1)
+    // only overlaying a narrative whose input_hash matches this exact
+    // certified snapshot's input_hash — i.e. it was computed from the same
+    // frozen inputs, not a different (older/newer) recompute — and (2)
+    // re-running assertCommitteeMemoSafe on the fully composed object so
+    // whatever text actually reaches the renderer is what was checked.
     const memoForRender: CanonicalCreditMemoV1 = {
       ...memoFromSnapshot,
       executive_summary: { ...memoFromSnapshot.executive_summary },
@@ -1086,16 +1094,18 @@ async function handlePdfRequest(dealId: string) {
     };
     {
       const sb = supabaseAdmin();
+      const snapshotInputHash = (snapshot.meta as any)?.input_hash ?? null;
       const { data: cachedNarrative } = await (sb as any)
         .from("canonical_memo_narratives")
         .select("narratives")
         .eq("deal_id", dealId)
         .eq("bank_id", bankPick.bankId)
+        .eq("input_hash", snapshotInputHash)
         .order("generated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (cachedNarrative?.narratives) {
+      if (snapshotInputHash && cachedNarrative?.narratives) {
         const n = cachedNarrative.narratives as any;
         if (n.executive_summary) memoForRender.executive_summary.narrative = n.executive_summary;
         if (n.income_analysis) memoForRender.financial_analysis.income_analysis = n.income_analysis;
@@ -1105,6 +1115,26 @@ async function handlePdfRequest(dealId: string) {
         if (n.guarantor_strength) memoForRender.borrower_sponsor.guarantor_strength = n.guarantor_strength;
         if (n.repayment_analysis) memoForRender.financial_analysis.projection_feasibility = n.repayment_analysis;
       }
+    }
+
+    // Re-verify the ACTUAL composed content that will render, not just the
+    // pre-overlay snapshot — closes the gap where an overlay could otherwise
+    // reintroduce a placeholder/warning-marker string with no safety check
+    // ever seeing it.
+    try {
+      assertCommitteeMemoSafe({ ...snapshot, canonical_memo: memoForRender });
+    } catch (guardErr: unknown) {
+      if (guardErr instanceof FloridaArmoryBuildError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "committee_artifact_unsafe",
+            details: guardErr.missingFields,
+          },
+          { status: 409 },
+        );
+      }
+      throw guardErr;
     }
 
     const pdfBuffer = await buildCreditMemoPdf(memoForRender);

@@ -50,15 +50,18 @@ export function evaluateMemoReadinessContract(args: {
     collateral_value: itemById.get("collat")?.ok ?? false,
     business_description: itemById.get("bizdesc")?.ok ?? false,
     management_bio: itemById.get("mgmtbio")?.ok ?? false,
+    // "narrative" was added to buildRequiredItems (bankerReviewReadiness.ts)
+    // so the UI checklist treats it as Required — but this server contract
+    // is the ACTUAL submission gate, and it was never wired to read that
+    // item, so a direct/bypassing submit call could still go through with
+    // no AI narrative. Wire it here so client UI and server gate agree, per
+    // this file's own stated invariant above.
+    ai_narrative_present: itemById.get("narrative")?.ok ?? false,
     committee_ready: itemById.get("committee")?.ok ?? true,
   };
 
   // ── Warnings (do not block submission, but recorded with the snapshot) ─
-  const narrative = memo.executive_summary?.narrative;
-  const narrativeOk =
-    typeof narrative === "string" &&
-    narrative.length > 0 &&
-    !narrative.toLowerCase().includes("not yet generated");
+  const narrativeOk = required.ai_narrative_present;
 
   const researchOk = memo.business_industry_analysis !== null;
 
@@ -117,6 +120,14 @@ export function evaluateMemoReadinessContract(args: {
     blockers.push({
       code: "management_bio",
       label: "Management profile is not available",
+      owner: "banker",
+      fixHref: `/credit-memo/${memo.deal_id}/canonical`,
+    });
+  }
+  if (!required.ai_narrative_present) {
+    blockers.push({
+      code: "ai_narrative_present",
+      label: "AI narrative has not been generated",
       owner: "banker",
       fixHref: `/credit-memo/${memo.deal_id}/canonical`,
     });

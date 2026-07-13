@@ -1,8 +1,22 @@
 // Florida Armory section builders.
 //
 // Each builder returns a FloridaArmorySection populated from the canonical
-// credit memo. Missing values produce warnings rather than throws — the
-// readiness contract is the gate, not these builders.
+// credit memo. Missing values produce warnings rather than throws directly —
+// but these warnings DO gate certification: assertCommitteeMemoSafe requires
+// diagnostics.warnings.length === 0 with NO override mechanism, so every
+// warning pushed here makes the memo un-certifiable until fixed. Only add a
+// requireValue()/warning check to a field when its absence is a genuine
+// problem for EVERY deal/product type this system supports — a field that's
+// legitimately optional for some product types (e.g. new_debt, PFS for a
+// corporate-only guarantee, income_statement-style financials for a
+// CRE/NOI-based deal) must NOT get an unconditional warning here, or that
+// entire class of legitimate deals becomes permanently unsubmittable with no
+// escape hatch. That's why several sections below (collateral, new_debt,
+// global_cash_flow, income_statement, repayment_breakeven,
+// personal_financial_statements, policy_exceptions, conditions, debt_coverage)
+// intentionally have no unconditional completeness check — their correct
+// "required-ness" varies by deal type and needs deal-type-aware logic to add
+// safely, which is a product decision beyond this pass.
 
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import type {
@@ -94,6 +108,10 @@ export function buildFinancingRequestSection(input: SectionInput): FloridaArmory
 }
 
 export function buildDealSummarySection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const transactionOverview = (input.memo as any).transaction_overview ?? null;
+  requireValue(transactionOverview, "Transaction overview", warnings);
+
   return section(
     "deal_summary",
     "Deal Summary / Purpose",
@@ -101,16 +119,19 @@ export function buildDealSummarySection(input: SectionInput): FloridaArmorySecti
     {
       deal_summary: (input.memo as any).deal_summary ?? null,
       purpose: (input.memo as any).purpose ?? null,
-      transaction_overview: (input.memo as any).transaction_overview ?? null,
+      transaction_overview: transactionOverview,
     },
     [],
     input.sources,
+    warnings,
   );
 }
 
 export function buildSourcesAndUsesSection(input: SectionInput): FloridaArmorySection {
   // Canonical memo uses "sources_uses" (no "and"); spec uses "sources_and_uses".
+  const warnings: string[] = [];
   const su = (input.memo as any).sources_and_uses ?? (input.memo as any).sources_uses ?? null;
+  requireValue(su, "Sources & uses", warnings);
   const rows = ((su as any)?.rows ?? []) as Array<Record<string, unknown>>;
 
   return section(
@@ -125,6 +146,7 @@ export function buildSourcesAndUsesSection(input: SectionInput): FloridaArmorySe
       rows,
     }],
     input.sources,
+    warnings,
   );
 }
 
@@ -165,32 +187,48 @@ export function buildCollateralSection(input: SectionInput): FloridaArmorySectio
 }
 
 export function buildEligibilitySection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const eligibility = input.memo.eligibility ?? null;
+  requireValue(eligibility, "Eligibility", warnings);
+
   return section(
     "eligibility",
     "Eligibility",
     "SBA eligibility, NAICS, size standard, and related eligibility observations.",
-    { eligibility: input.memo.eligibility ?? null },
+    { eligibility },
     [],
     input.sources,
+    warnings,
   );
 }
 
 export function buildBusinessIndustrySection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const businessSummary = input.memo.business_summary ?? null;
+  requireValue(businessSummary, "Business summary", warnings);
+
   return section(
     "business_industry_analysis",
     "Business & Industry Analysis",
     "Business model, market context, industry risks, and research-grounded support.",
     {
-      business_summary: input.memo.business_summary ?? null,
+      business_summary: businessSummary,
       industry: (input.memo as any).industry_analysis ?? input.memo.business_industry_analysis ?? null,
     },
     [],
     input.sources,
+    warnings,
   );
 }
 
 export function buildManagementSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
   const rows = ((input.memo.management_qualifications as any)?.principals ?? []) as Array<Record<string, unknown>>;
+  // Every borrowing entity has at least one owner/principal on file — unlike
+  // several other sections, this is true regardless of deal/product type, so
+  // it's safe to require unconditionally (zero principals means the
+  // ownership/management data pipeline never ran, not a legitimate business case).
+  if (rows.length === 0) warnings.push("No management principals on file");
 
   return section(
     "management_qualifications",
@@ -204,6 +242,7 @@ export function buildManagementSection(input: SectionInput): FloridaArmorySectio
       rows,
     }],
     input.sources,
+    warnings,
   );
 }
 
@@ -319,13 +358,18 @@ export function buildPfsSection(input: SectionInput): FloridaArmorySection {
 }
 
 export function buildStrengthsWeaknessesSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const strengthsWeaknesses = input.memo.strengths_weaknesses ?? null;
+  requireValue(strengthsWeaknesses, "Strengths & weaknesses", warnings);
+
   return section(
     "strengths_weaknesses",
     "Strengths & Weaknesses",
     "Primary credit strengths, weaknesses, mitigants, and underwriting concerns.",
-    { strengths_weaknesses: input.memo.strengths_weaknesses ?? null },
+    { strengths_weaknesses: strengthsWeaknesses },
     [],
     input.sources,
+    warnings,
   );
 }
 
@@ -348,13 +392,18 @@ export function buildPolicyExceptionsSection(input: SectionInput): FloridaArmory
 }
 
 export function buildProposedTermsSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const proposedTerms = (input.memo as any).proposed_terms ?? input.memo.recommendation ?? null;
+  requireValue(proposedTerms, "Proposed terms", warnings);
+
   return section(
     "proposed_terms",
     "Proposed Terms",
     "Recommended structure, repayment terms, pricing, guarantees, and credit support.",
-    { proposed_terms: (input.memo as any).proposed_terms ?? input.memo.recommendation ?? null },
+    { proposed_terms: proposedTerms },
     [],
     input.sources,
+    warnings,
   );
 }
 
@@ -372,13 +421,22 @@ export function buildConditionsSection(input: SectionInput): FloridaArmorySectio
 }
 
 export function buildRecommendationApprovalSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const recommendation = input.memo.recommendation ?? null;
+  // Every memo must carry SOME recommendation/verdict before it can reach
+  // committee — unlike most of the other sections left unvalidated below,
+  // there is no legitimate deal type or product where "no recommendation at
+  // all" is an acceptable end state.
+  requireValue(recommendation, "Recommendation", warnings);
+
   return section(
     "recommendation_approval",
     "Recommendation & Approval",
     "Banker recommendation and approval signature block for underwriting decision workflow.",
-    { recommendation: input.memo.recommendation ?? null },
+    { recommendation },
     [],
     input.sources,
+    warnings,
   );
 }
 

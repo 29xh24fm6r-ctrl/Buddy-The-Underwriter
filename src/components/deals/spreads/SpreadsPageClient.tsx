@@ -71,7 +71,7 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
       const url = URL.createObjectURL(blob);
       if (downloadRef.current) {
         downloadRef.current.href = url;
-        downloadRef.current.download = `CreditMemo_${dealId.slice(0, 8)}.pdf`;
+        downloadRef.current.download = `SpreadReport_${dealId.slice(0, 8)}.pdf`;
         downloadRef.current.click();
       }
       URL.revokeObjectURL(url);
@@ -191,7 +191,7 @@ export function SpreadsPageClient({ dealId, dealName, dealType }: Props) {
               ) : (
                 <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
               )}
-              Export Credit Memo
+              Export Spread Report
             </button>
           </div>
         </div>
