@@ -2,8 +2,10 @@
  * Tests for sendResearchCriticalAlert.
  *
  * Same inline fake Supabase pattern as
- * src/lib/observability/__tests__/sendBankerAnalysisAlert.test.ts — this
- * module deliberately reuses that sender's SLACK_WEBHOOK_URL + dedup design.
+ * src/lib/observability/__tests__/sendBankerAnalysisAlert.test.ts for the
+ * cooldown/dedup logic, but this module targets Chatto (Buddy's internal
+ * comms tool), not Slack — see researchAlerts.ts's top-of-file note on why
+ * the payload is a plain generic JSON body rather than Slack Block Kit.
  */
 
 import test from "node:test";
@@ -67,8 +69,9 @@ function fakeFetch(opts: { ok?: boolean; status?: number } = {}) {
 }
 
 const INPUT = { missionId: "m-1", dealId: "deal-1", gateId: "bie_exception", reason: "Buddy Intelligence Engine threw before completion: boom" };
+const CHATTO_URL = "https://chatto.internal.test/webhook/abc";
 
-test("missing SLACK_WEBHOOK_URL → alert_not_configured (no throw)", async () => {
+test("missing CHATTO_WEBHOOK_URL → alert_not_configured (no throw)", async () => {
   const { sb } = fakeSb();
   const { fn } = fakeFetch();
   const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: null } });
@@ -76,16 +79,18 @@ test("missing SLACK_WEBHOOK_URL → alert_not_configured (no throw)", async () =
   assert.equal(r.reason, "alert_not_configured");
 });
 
-test("happy path → posts to Slack and writes a dedupe row", async () => {
+test("happy path → posts to Chatto and writes a dedupe row", async () => {
   const { sb, inserts } = fakeSb();
   const { fn, calls } = fakeFetch();
-  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: "https://hooks.slack.test/abc" } });
+  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: CHATTO_URL } });
   assert.equal(r.sent, true);
   assert.equal(r.reason, "ok");
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "https://hooks.slack.test/abc");
+  assert.equal(calls[0].url, CHATTO_URL);
   assert.match(calls[0].body.text, /bie_exception/);
+  // Plain generic body — no Slack-specific Block Kit structure.
+  assert.equal("blocks" in calls[0].body, false);
 
   assert.equal(inserts.length, 1);
   assert.equal(inserts[0].payload.kind, RESEARCH_ALERT_SENT_KIND);
@@ -103,10 +108,10 @@ test("second alert for the same mission+gate within the cooldown window is suppr
     },
   ]);
   const { fn, calls } = fakeFetch();
-  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: "https://hooks.slack.test/abc", now } });
+  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: CHATTO_URL, now } });
   assert.equal(r.sent, false);
   assert.equal(r.reason, "cooldown");
-  assert.equal(calls.length, 0, "should not have posted to Slack again");
+  assert.equal(calls.length, 0, "should not have posted to Chatto again");
 });
 
 test("a different mission+gate is not suppressed by another mission's recent alert", async () => {
@@ -118,16 +123,16 @@ test("a different mission+gate is not suppressed by another mission's recent ale
     },
   ]);
   const { fn, calls } = fakeFetch();
-  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: "https://hooks.slack.test/abc", now } });
+  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: CHATTO_URL, now } });
   assert.equal(r.sent, true);
   assert.equal(calls.length, 1);
 });
 
-test("Slack non-2xx response → slack_failed, not sent", async () => {
+test("Chatto non-2xx response → chatto_failed, not sent", async () => {
   const { sb } = fakeSb();
   const { fn } = fakeFetch({ ok: false, status: 500 });
-  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: "https://hooks.slack.test/abc" } });
+  const r = await sendResearchCriticalAlert({ ...INPUT, _deps: { sb, fetchImpl: fn, webhookUrl: CHATTO_URL } });
   assert.equal(r.sent, false);
-  assert.equal(r.reason, "slack_failed");
+  assert.equal(r.reason, "chatto_failed");
   assert.match(r.detail ?? "", /500/);
 });
