@@ -400,6 +400,26 @@ Full repo test suite after round 5: **11236/11236 pass, 0 failures** (9
 skipped) — the first fully green run across every round of this audit.
 Research-specific suite: 615/615 pass.
 
+PR #692 (rounds 1–5, merged into `main` after resolving 3 days of drift
+against the real trunk) shipped `researchAlerts.ts` targeting Slack
+(`SLACK_WEBHOOK_URL`), reusing the codebase's existing Slack Block Kit
+pattern. **Post-merge correction**: Buddy's actual internal communication
+tool is Chatto, not Slack — confirmed by the user, and independently
+verified that Chatto has zero footprint anywhere in this repo (no env var,
+adapter, or docs to reuse, unlike the genuinely-Slack integrations this
+alerting was modeled on). `researchAlerts.ts` now posts a plain, tool-
+agnostic JSON body (no Slack-specific Block Kit) to `CHATTO_WEBHOOK_URL`
+instead. Neither the user nor this session currently knows Chatto's real
+webhook/auth contract, so the payload shape is an explicitly-flagged best
+guess (`⚠️ UNVERIFIED INTEGRATION SHAPE` in the file's docstring) —
+`buildChattoPayload()` is the one place to fix once the real contract is
+known; the cooldown/dedup logic around it is tool-agnostic and unaffected.
+The other pre-existing Slack integrations elsewhere in the codebase
+(`sendBankerAnalysisAlert.ts`, `commsAdapters.ts`) were deliberately left
+untouched — out of scope for the research-system audit, and changing
+production alerting/comms code nobody asked to fix isn't this session's
+call to make unilaterally.
+
 ---
 **Scope**: The entire research system — mission orchestration (`runMission.ts`), the
 Buddy Intelligence Engine (`buddyIntelligenceEngine.ts`, 8-thread Gemini-grounded

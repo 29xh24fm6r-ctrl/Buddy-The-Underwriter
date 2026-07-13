@@ -4,12 +4,27 @@
  * FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — "external alerting" open
  * item): degraded research/BIE/trust-layer outcomes were previously only
  * loud in logs and queryable via writeDegradedQualityGate()'s DB row —
- * nothing pushed to an external on-call channel. This reuses the exact
- * SLACK_WEBHOOK_URL + buddy_system_events dedup pattern already proven in
- * production by src/lib/observability/sendBankerAnalysisAlert.ts, rather
- * than inventing new alerting infrastructure. If SLACK_WEBHOOK_URL isn't
- * set, this safely no-ops (same posture as the SLA alert sender) — no new
- * credentials are required to deploy this, only to activate it.
+ * nothing pushed to an external on-call channel.
+ *
+ * Targets Chatto (Buddy's internal communication tool), NOT Slack — an
+ * earlier version of this file reused src/lib/observability/
+ * sendBankerAnalysisAlert.ts's Slack Block Kit integration, which was
+ * wrong: Chatto is a different tool with no code, env var, or docs
+ * footprint anywhere in this repo (verified by a full-repo search), and
+ * neither the requester nor this implementation currently knows Chatto's
+ * real webhook/auth contract.
+ *
+ * ⚠️ UNVERIFIED INTEGRATION SHAPE — this posts a plain JSON body
+ * (`{ text, ... }`, no Slack-specific Block Kit) to `CHATTO_WEBHOOK_URL`,
+ * the most conservative, widely-compatible guess for a webhook-based chat
+ * tool. If Chatto actually requires a different payload shape, auth header,
+ * or delivery mechanism (a hosted API + bearer token, an SDK, etc.),
+ * update buildChattoPayload() and the fetch call below accordingly — the
+ * cooldown/dedup logic around it (buddy_system_events) is tool-agnostic
+ * and doesn't need to change.
+ *
+ * If CHATTO_WEBHOOK_URL isn't set, this safely no-ops — no new credentials
+ * are required to deploy this, only to activate it.
  */
 
 import { assertServerOnly } from "@/lib/serverOnly";
@@ -20,7 +35,7 @@ assertServerOnly();
 export const RESEARCH_ALERT_COOLDOWN_MINUTES = 30;
 export const RESEARCH_ALERT_SENT_KIND = "research.critical_failure_alert_sent";
 
-export type ResearchAlertReason = "alert_not_configured" | "cooldown" | "slack_failed" | "ok";
+export type ResearchAlertReason = "alert_not_configured" | "cooldown" | "chatto_failed" | "ok";
 
 export type ResearchAlertResult = {
   sent: boolean;
@@ -52,12 +67,14 @@ export async function sendResearchCriticalAlert(
   const webhookUrl =
     deps.webhookUrl !== undefined
       ? deps.webhookUrl
-      : process.env.SLACK_WEBHOOK_URL ?? null;
+      : process.env.CHATTO_WEBHOOK_URL ?? null;
 
   if (!webhookUrl) {
-    // Not an error — most environments won't have this configured. The
-    // failure is still fully captured via writeDegradedQualityGate's DB row
-    // and the failure library; this is best-effort on top of that.
+    // Not an error — most environments won't have this configured yet
+    // (Chatto's real integration details are still unknown as of this
+    // writing). The failure is still fully captured via
+    // writeDegradedQualityGate's DB row and the failure library; this is
+    // best-effort on top of that.
     return { sent: false, reason: "alert_not_configured" };
   }
 
@@ -85,9 +102,9 @@ export async function sendResearchCriticalAlert(
     console.warn("[researchAlerts] cooldown check failed (proceeding to send):", e instanceof Error ? e.message : "unknown");
   }
 
-  // 2. Post to Slack
+  // 2. Post to Chatto
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const body = buildSlackPayload(input, alertId);
+  const body = buildChattoPayload(input, alertId);
   let postOk = false;
   let postDetail: string | undefined;
   try {
@@ -97,7 +114,7 @@ export async function sendResearchCriticalAlert(
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      postDetail = `slack_status_${res.status}`;
+      postDetail = `chatto_status_${res.status}`;
     } else {
       postOk = true;
     }
@@ -106,7 +123,7 @@ export async function sendResearchCriticalAlert(
   }
 
   if (!postOk) {
-    return { sent: false, reason: "slack_failed", detail: postDetail };
+    return { sent: false, reason: "chatto_failed", detail: postDetail };
   }
 
   // 3. Record send for dedupe (best-effort — we've already posted).
@@ -133,28 +150,23 @@ export async function sendResearchCriticalAlert(
   return { sent: true, reason: "ok" };
 }
 
-function buildSlackPayload(input: ResearchAlertInput, alertId: string): Record<string, unknown> {
+/**
+ * Plain, tool-agnostic JSON body — deliberately NOT Slack's Block Kit
+ * format. Best guess at a generically-compatible shape (a `text` summary
+ * plus structured fields) until Chatto's actual expected payload is known.
+ */
+function buildChattoPayload(input: ResearchAlertInput, alertId: string): Record<string, unknown> {
   return {
-    text: `[RESEARCH] Degraded mission: ${input.gateId}`,
-    blocks: [
-      {
-        type: "header",
-        text: { type: "plain_text", text: `:rotating_light: Research mission degraded — ${input.gateId}` },
-      },
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: `*${input.reason}*` },
-      },
-      {
-        type: "section",
-        fields: [
-          { type: "mrkdwn", text: `*Deal*\n${input.dealId}` },
-          { type: "mrkdwn", text: `*Mission*\n${input.missionId}` },
-          { type: "mrkdwn", text: `*Gate*\n${input.gateId}` },
-          { type: "mrkdwn", text: `*Alert ID*\n${alertId}` },
-        ],
-      },
-    ],
+    text: `[RESEARCH] Degraded mission: ${input.gateId} — ${input.reason}`,
+    source: "buddy-research",
+    severity: "critical",
+    fields: {
+      deal_id: input.dealId,
+      mission_id: input.missionId,
+      gate_id: input.gateId,
+      reason: input.reason,
+      alert_id: alertId,
+    },
   };
 }
 

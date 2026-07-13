@@ -177,12 +177,13 @@ export async function writeDegradedQualityGate(
     console.warn(`[runMission] writeDegradedQualityGate failed for ${gateId} (non-fatal):`, e?.message);
   }
 
-  // External alerting (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round 5):
-  // every degraded-quality-gate write is a genuine mission-level failure
-  // signal, so this is the single natural point to push an external alert
-  // from, without scattering alert calls across every catch block that
-  // already calls writeDegradedQualityGate. No-ops safely if
-  // SLACK_WEBHOOK_URL isn't configured — see researchAlerts.ts.
+  // External alerting (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md — round 5,
+  // corrected post-merge: targets Chatto, not Slack — Buddy's internal
+  // comms tool is Chatto): every degraded-quality-gate write is a genuine
+  // mission-level failure signal, so this is the single natural point to
+  // push an external alert from, without scattering alert calls across
+  // every catch block that already calls writeDegradedQualityGate. No-ops
+  // safely if CHATTO_WEBHOOK_URL isn't configured — see researchAlerts.ts.
   try {
     const { sendResearchCriticalAlert } = await import("./researchAlerts");
     await sendResearchCriticalAlert({ missionId, dealId, gateId, reason });
