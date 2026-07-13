@@ -169,6 +169,24 @@ function sectionData(sections: ExistingSection[], key: string): Record<string, u
   return s ? (s.data as Record<string, unknown>) : null;
 }
 
+/**
+ * A returning borrower should land on the first step they haven't finished,
+ * not always step 1 — closing the tab after 15 minutes of work shouldn't
+ * mean re-clicking through every already-completed screen. Only considers
+ * the data-entry steps (documents/review aren't deal_builder_sections rows),
+ * so a borrower who finished all of those resumes at Documents.
+ */
+export function deriveInitialStep(sections: ExistingSection[], isSba: boolean): IntakeStep {
+  const dataSteps: IntakeStepContent[] = isSba
+    ? ["business", "address", "owners", "loan", "compliance", "projections"]
+    : ["business", "address", "owners", "loan"];
+  for (let i = 0; i < dataSteps.length; i++) {
+    const section = sections.find((s) => s.section_key === dataSteps[i]);
+    if (!section?.completed) return (i + 1) as IntakeStep;
+  }
+  return (dataSteps.length + 1) as IntakeStep;
+}
+
 const inputCls =
   "w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 bg-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
 
@@ -188,7 +206,10 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
   const loanSection = sectionData(existingSections, "loan");
   const complianceSection = sectionData(existingSections, "compliance");
 
-  const [step, setStep] = useState<IntakeStep>(1);
+  const resumeLoanType = (app?.loan_type ?? loanSection?.type ?? (deal?.deal_type === "SBA" ? "SBA" : "")) as string;
+  const isSbaForResume = SBA_LOAN_TYPES.includes(resumeLoanType);
+
+  const [step, setStep] = useState<IntakeStep>(() => deriveInitialStep(existingSections, isSbaForResume));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(app?.status === "submitted");
@@ -398,6 +419,12 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           Your loan application has been submitted successfully. Your banker will review
           it and reach out with next steps.
         </p>
+        <a
+          href={`/portal/${token}`}
+          className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Track your application status
+        </a>
       </div>
     );
   }
