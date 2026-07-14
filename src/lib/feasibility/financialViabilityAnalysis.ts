@@ -44,11 +44,13 @@ export function analyzeFinancialViability(
       }
     }
 
-    if (dscr < 1.25) {
+    if (dscr < input.projectedDscrThreshold) {
       flags.push({
         severity: "critical",
         dimension: "debtServiceCoverage",
-        message: `Year 1 DSCR of ${dscr.toFixed(2)}x is below the SBA minimum threshold of 1.25x.`,
+        message: `Year 1 DSCR of ${dscr.toFixed(2)}x is below the SBA minimum threshold of ${input.projectedDscrThreshold.toFixed(2)}x${
+          input.isNewBusiness ? " (projected-DSCR standard for a new business)" : ""
+        }.`,
       });
     }
 
@@ -65,7 +67,7 @@ export function analyzeFinancialViability(
         input.dscrYear3Base != null
           ? ` Year 3: ${input.dscrYear3Base.toFixed(2)}x.`
           : ""
-      } SBA minimum: 1.25x.`,
+      } SBA minimum: ${input.projectedDscrThreshold.toFixed(2)}x.`,
     };
   } else {
     dscrScore = {
@@ -133,7 +135,7 @@ export function analyzeFinancialViability(
   let capScore: DimensionScore;
   if (input.equityInjectionPct != null) {
     const equity = input.equityInjectionPct;
-    const minimum = input.isNewBusiness ? 0.2 : 0.1;
+    const minimum = input.equityInjectionFloor;
     let score = 0;
     if (equity >= minimum * 2) score = 95;
     else if (equity >= minimum * 1.5) score = 80;

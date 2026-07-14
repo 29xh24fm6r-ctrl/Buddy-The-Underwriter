@@ -442,6 +442,23 @@ See `specs/sba-30min-package/ARC-00-forms-complete-build-arc.md`'s Drift Log for
 
 ---
 
+## SPEC-BROKERAGE-SBA-READY-V1 — Closing the Gap to a Complete Borrower Experience (2026-07)
+
+Ticket 0 (mandatory audit-first gate) + Ticket 1 (new-business protocol wiring) closed. See `docs/archive/brokerage-sba-ready-v1/` for T0-findings.md and T1-AAR.md.
+
+**T0 findings, in brief:**
+- Equity injection floor in `newBusinessProtocol.ts` was **20%, should be 10%** per current SOP 50 10 8 (eff. 2025-06-01) — fixed. Found and fixed the *same* wrong 20% figure duplicated a second time in `sbaAssumptionCoach.ts`.
+- Bigger, unasked-for finding: `dealDataBuilder.ts`'s `ELIGIBLE_CITIZENSHIP_STATUSES` still treats lawful permanent residents as eligible owners — **wrong since 2026-03-01** per SBA Procedural Notice 5000-876626, which categorically excludes LPRs. Fixed (removed LPR from the eligible set); a live compliance gap that had nothing to do with the "Principal Residence" question T0 was actually asked to check. A distinct `principal_residence_in_us`-style certification field is still missing and is recommended as the single highest-priority follow-up ticket.
+- Confirmed the Brokerage concierge does write `YEARS_IN_BUSINESS` into `deal_financial_facts` today, so Ticket 1's wiring is not a no-op.
+- Confirmed the Buddy SBA Score itself was never affected by the `isNewBusiness: false` bug — `sbaRiskProfile.ts` already wired new-business detection correctly. The bug was isolated to the Feasibility Study engine (`feasibilityEngine.ts`).
+- Confirmed `debtScheduleAutoBuilder.ts` (existing-business-debt capture) exists, is tested, and has **zero production callers anywhere** — Plaid-driven, not document-extraction-driven as speculated. Brokerage borrowers currently have no path (conversational, Plaid, or manual) to submit existing business debt. Flagged as a T3-adjacent follow-up.
+
+**T1:** wired `detectNewBusinessFromFacts`/`assessNewBusinessRisk` into `feasibilityEngine.ts` in place of the hardcoded `isNewBusiness: false`; threaded the real `equityInjectionFloor`/`projectedDscrThreshold` into `financialViabilityAnalysis.ts` (removing a second hardcoded 20%/1.25x copy that existed there); new-business blockers/warnings/narrative now surface into the feasibility study's flags (read by the Gemini narrative prompt) so a start-up's study reads differently, not just scores differently. New unit tests: `newBusinessProtocol.test.ts`, `financialViabilityAnalysis.test.ts` (quarantined from default `test:unit` — same `server-only`-under-`node --test` issue as `computeNextStep.test.ts`; passes under `node --conditions=react-server --test`). Full `pnpm test:unit` (11,545 tests) and `tsc --noEmit` clean after all changes.
+
+Tickets 2 (identity/e-sign), 4 (score framing), 5 (XLSX tables), 6 (lender blind-review doc, needs Matt's decision first), 7 (marketplace liquidity, not a code ticket), 8 (end-to-end synthetic run) remain open — not attempted this pass; each needs its own scoped session per the spec.
+
+---
+
 ## Progress Tracker
 
 | Phase | Description | Status | PR / Commit |

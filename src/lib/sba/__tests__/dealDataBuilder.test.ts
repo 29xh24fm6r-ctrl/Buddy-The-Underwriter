@@ -88,7 +88,21 @@ test("loan 400K + sba_7a -> is_7a_small_loan = false", async () => {
   assert.equal(r.is_7a_small_loan, false);
 });
 
-test("all owners us_citizen + LPR -> all_owners_citizenship_eligible = true", async () => {
+test("all owners us_citizen + us_national -> all_owners_citizenship_eligible = true", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    ownership_entities: [
+      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_citizen", ownership_pct: 60 },
+      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_national", ownership_pct: 40 },
+    ],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.all_owners_citizenship_eligible, true);
+});
+
+// SBA Procedural Notice 5000-876626 (eff. 2026-03-01): LPRs are no longer
+// eligible owners, full stop — see T0-findings.md item 2.
+test("one owner LPR -> all_owners_citizenship_eligible = false", async () => {
   const db = new FakeDb({
     deals: [{ id: "d1", deal_type: "sba_7a" }],
     ownership_entities: [
@@ -97,7 +111,7 @@ test("all owners us_citizen + LPR -> all_owners_citizenship_eligible = true", as
     ],
   });
   const r = await buildSbaEligibilityInput("d1", db as any);
-  assert.equal(r.all_owners_citizenship_eligible, true);
+  assert.equal(r.all_owners_citizenship_eligible, false);
 });
 
 test("one owner visa_holder -> all_owners_citizenship_eligible = false", async () => {

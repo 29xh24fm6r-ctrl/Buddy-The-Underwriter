@@ -67,19 +67,21 @@ export function getAssumptionCoachingTips(
   if (loanAmt > 0 && equity >= 0) {
     const totalProject = loanAmt + equity; // minimal — other sources not yet visible here
     const equityPct = totalProject > 0 ? equity / totalProject : 0;
+    // SOP 50 10 8 (eff. 2025-06-01) sets the equity injection floor at 10%
+    // for both existing businesses and start-ups/changes of ownership —
+    // confirmed during SPEC-BROKERAGE-SBA-READY-V1 Ticket 0 (see
+    // docs/archive/brokerage-sba-ready-v1/T0-findings.md, item 1). This used
+    // to assert a 20% floor for new businesses, which doesn't match current
+    // SOP; kept the isNewBusiness-aware message so a start-up borrower still
+    // sees why the floor applies to them specifically.
     if (equityPct < 0.1) {
       tips.push({
         field: "loanImpact.equityInjectionAmount",
         severity: "concern",
         title: "Equity injection below 10%",
-        message: `Equity injection of ${(equityPct * 100).toFixed(1)}% is below SBA's 10% existing-business minimum. Startups require 20%.`,
-      });
-    } else if (isNewBusiness && equityPct < 0.2) {
-      tips.push({
-        field: "loanImpact.equityInjectionAmount",
-        severity: "warning",
-        title: "New business equity below 20%",
-        message: `SBA requires at least 20% equity injection for new businesses. Current: ${(equityPct * 100).toFixed(1)}%.`,
+        message: isNewBusiness
+          ? `Equity injection of ${(equityPct * 100).toFixed(1)}% is below SBA's 10% minimum for start-ups and changes of ownership.`
+          : `Equity injection of ${(equityPct * 100).toFixed(1)}% is below SBA's 10% minimum.`,
       });
     }
   }
