@@ -17,7 +17,7 @@ import { orderItemsByTab, type PackageRunItemForAssembly } from "@/lib/sba/packa
  */
 
 const CANDIDATE_BUCKETS = ["bank-forms", "deal-documents"];
-const OUTPUT_BUCKET = "bank-forms";
+export const OUTPUT_BUCKET = "bank-forms";
 
 export type AssembleTenTabPackageResult =
   | { ok: true; storagePath: string; itemCount: number; missingItems: string[] }
