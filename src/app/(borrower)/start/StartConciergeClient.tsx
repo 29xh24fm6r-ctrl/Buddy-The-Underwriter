@@ -12,6 +12,7 @@ import {
   type MarketplaceListingStatus,
 } from "@/components/brokerage/BrokerageStageStrip";
 import { CapturedFactsPanel } from "@/components/brokerage/CapturedFactsPanel";
+import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "voice";
@@ -146,8 +147,9 @@ export function StartConciergeClient({
       </div>
 
       {dealId && (
-        <div className="mb-4">
+        <div className="mb-4 space-y-3">
           <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
+          <ExistingDebtCard dealId={dealId} />
         </div>
       )}
 
