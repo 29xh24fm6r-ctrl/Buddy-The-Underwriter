@@ -104,6 +104,14 @@ export interface FinancialViabilityInput {
   historicalRevenueGrowth: number | null;
   historicalEBITDAMargin: number | null;
   isNewBusiness: boolean;
+  /** SBA SOP 50 10 8 minimum equity injection for this deal — 0.1 for a
+   *  start-up/change-of-ownership, computed by assessNewBusinessRisk. Passed
+   *  in rather than re-derived from isNewBusiness so this file has exactly
+   *  one source of truth for the floor value. */
+  equityInjectionFloor: number;
+  /** 1.25 for a new business (projected DSCR), 1.10 for an established one
+   *  (historical DSCR) — computed by assessNewBusinessRisk. */
+  projectedDscrThreshold: number;
   loanAmount: number;
   loanTermMonths: number;
 }

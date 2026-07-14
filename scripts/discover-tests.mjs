@@ -38,6 +38,12 @@ const QUARANTINE = new Set([
   // Imports a module chain that pulls in "server-only" (not resolvable under
   // node --test → "Cannot find module 'server-only'"). Class C harness issue.
   "src/core/nextStep/__tests__/computeNextStep.test.ts",
+  // financialViabilityAnalysis.ts has `import "server-only"` — the package
+  // throws unconditionally unless resolved with the `react-server` export
+  // condition, which plain `node --test` doesn't set. Passes under
+  // `node --conditions=react-server --test ...` (see
+  // docs/archive/brokerage-sba-ready-v1/T1-AAR.md).
+  "src/lib/feasibility/__tests__/financialViabilityAnalysis.test.ts",
 ]);
 
 function isExcludedPath(rel) {

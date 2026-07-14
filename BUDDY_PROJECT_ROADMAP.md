@@ -442,6 +442,27 @@ See `specs/sba-30min-package/ARC-00-forms-complete-build-arc.md`'s Drift Log for
 
 ---
 
+## SPEC-BROKERAGE-SBA-READY-V1 — Closing the Gap to a Complete Borrower Experience (2026-07)
+
+Ticket 0 (mandatory audit-first gate) + Ticket 1 (new-business protocol wiring) closed. See `docs/archive/brokerage-sba-ready-v1/` for T0-findings.md and T1-AAR.md.
+
+**T0 findings, in brief:**
+- Equity injection floor in `newBusinessProtocol.ts` was **20%, should be 10%** per current SOP 50 10 8 (eff. 2025-06-01) — fixed. Found and fixed the *same* wrong 20% figure duplicated a second time in `sbaAssumptionCoach.ts`.
+- Bigger, unasked-for finding: `dealDataBuilder.ts`'s `ELIGIBLE_CITIZENSHIP_STATUSES` still treats lawful permanent residents as eligible owners — **wrong since 2026-03-01** per SBA Procedural Notice 5000-876626, which categorically excludes LPRs. Fixed (removed LPR from the eligible set); a live compliance gap that had nothing to do with the "Principal Residence" question T0 was actually asked to check. A distinct `principal_residence_in_us`-style certification field is still missing and is recommended as the single highest-priority follow-up ticket.
+- Confirmed the Brokerage concierge does write `YEARS_IN_BUSINESS` into `deal_financial_facts` today, so Ticket 1's wiring is not a no-op.
+- Confirmed the Buddy SBA Score itself was never affected by the `isNewBusiness: false` bug — `sbaRiskProfile.ts` already wired new-business detection correctly. The bug was isolated to the Feasibility Study engine (`feasibilityEngine.ts`).
+- Confirmed `debtScheduleAutoBuilder.ts` (existing-business-debt capture) exists, is tested, and has **zero production callers anywhere** — Plaid-driven, not document-extraction-driven as speculated. Brokerage borrowers currently have no path (conversational, Plaid, or manual) to submit existing business debt. Flagged as a T3-adjacent follow-up.
+
+**T1:** wired `detectNewBusinessFromFacts`/`assessNewBusinessRisk` into `feasibilityEngine.ts` in place of the hardcoded `isNewBusiness: false`; threaded the real `equityInjectionFloor`/`projectedDscrThreshold` into `financialViabilityAnalysis.ts` (removing a second hardcoded 20%/1.25x copy that existed there); new-business blockers/warnings/narrative now surface into the feasibility study's flags (read by the Gemini narrative prompt) so a start-up's study reads differently, not just scores differently. New unit tests: `newBusinessProtocol.test.ts`, `financialViabilityAnalysis.test.ts` (quarantined from default `test:unit` — same `server-only`-under-`node --test` issue as `computeNextStep.test.ts`; passes under `node --conditions=react-server --test`). Full `pnpm test:unit` (11,545 tests) and `tsc --noEmit` clean after all changes.
+
+**Two follow-up tickets filed out of T0's findings (2026-07-14), confirmed by product as real work items, not just observations:**
+- **Principal Residence certification** (`specs/follow-ups/SPEC-BROKERAGE-SBA-READY-V1-principal-residence-certification.md`) — P0. T0's highest-priority follow-up: SBA Procedural Notice 5000-876626 (eff. 2026-03-01) requires every owner's principal residence be in the US/its territories, separate from citizenship status. Only the LPR-ineligibility half of this notice was fixed in T1; this closes the other half, which currently has no field or eligibility check at all.
+- **Existing business debt capture** (`specs/follow-ups/SPEC-BROKERAGE-SBA-READY-V1-debt-schedule-wiring.md`) — P0, **sequenced ahead of Ticket 2 (identity/e-sign)**. `debtScheduleAutoBuilder.ts` exists, is tested, and has zero production callers anywhere in the codebase — no path in this entire product (Brokerage or Underwriter, conversational, Plaid-driven, or manual) gets a borrower's existing business debt into the system today. A deal can't be underwritten correctly without this regardless of how polished the signing ceremony is, hence sequencing ahead of e-sign work.
+
+Remaining open tickets from the original spec, in updated priority order: **debt schedule wiring** and **principal residence certification** (both above, P0) → Ticket 2 (identity/e-sign) → Ticket 4 (score framing, needs Matt's decision) → Ticket 5 (XLSX tables) → Ticket 6 (lender blind-review doc, needs Matt's decision) → Ticket 8 (end-to-end synthetic run, closing ticket). Ticket 7 (marketplace liquidity) is explicitly not a code ticket. None attempted this pass beyond filing; each needs its own scoped session.
+
+---
+
 ## Progress Tracker
 
 | Phase | Description | Status | PR / Commit |

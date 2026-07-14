@@ -101,10 +101,17 @@ export type SbaEligibilityInputFields = {
   owner_occupancy_percentage: number | null;
 };
 
+// SBA Procedural Notice 5000-876626 (eff. 2026-03-01) rescinded the prior
+// notice that allowed lawful permanent residents and made LPRs categorically
+// ineligible to own any part of an SBA 7(a)/504 applicant — confirmed during
+// SPEC-BROKERAGE-SBA-READY-V1 Ticket 0 (see
+// docs/archive/brokerage-sba-ready-v1/T0-findings.md, item 2).
+// "lawful_permanent_resident" remains a valid citizenship_status *value* to
+// record (forms still need to state it truthfully) — it is just no longer a
+// valid *eligibility* answer.
 const ELIGIBLE_CITIZENSHIP_STATUSES = new Set([
   "us_citizen",
   "us_national",
-  "lawful_permanent_resident",
 ]);
 
 const FRANCHISE_CERTIFICATION_GRACE_DEADLINE = new Date("2026-06-30T23:59:59Z");

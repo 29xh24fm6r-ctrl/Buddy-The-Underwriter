@@ -12,6 +12,10 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { extractResearchForBusinessPlan } from "@/lib/sba/sbaResearchExtractor";
 import { findBenchmarkByNaics } from "@/lib/sba/sbaAssumptionBenchmarks";
+import {
+  assessNewBusinessRisk,
+  detectNewBusinessFromFacts,
+} from "@/lib/sba/newBusinessProtocol";
 import { analyzeMarketDemand } from "./marketDemandAnalysis";
 import { analyzeFinancialViability } from "./financialViabilityAnalysis";
 import { analyzeOperationalReadiness } from "./operationalReadinessAnalysis";
@@ -300,6 +304,53 @@ export async function generateFeasibilityStudy(params: {
 
   const loanImpactObj = pickObject(assumptions?.loan_impact);
 
+  // ── 11b. New business detection ─────────────────────────────────
+  // Previously this engine hardcoded isNewBusiness: false here — every
+  // startup silently received established-business DSCR/equity treatment.
+  // Reuses the same detectNewBusinessFromFacts/assessNewBusinessRisk pair
+  // sbaRiskProfile.ts already uses for the Buddy SBA Score, so both engines
+  // agree on whether a given deal is a new business. See
+  // docs/archive/brokerage-sba-ready-v1/T0-findings.md (item 5) for
+  // confirmation that the Brokerage concierge actually populates
+  // YEARS_IN_BUSINESS today.
+  const { data: businessAgeFactsRaw } = await sb
+    .from("deal_financial_facts")
+    .select("fact_key, fact_value_num, fact_value_text")
+    .eq("deal_id", dealId)
+    .in("fact_key", [
+      "MONTHS_IN_BUSINESS",
+      "YEARS_IN_BUSINESS",
+      "BUSINESS_DATE_FORMED",
+      "DATE_FORMED",
+    ]);
+  const businessAgeFacts = (businessAgeFactsRaw ?? []).map(
+    (r: { fact_key: string; fact_value_num: unknown; fact_value_text: unknown }) => ({
+      fact_key: r.fact_key,
+      value_numeric: pickNumber(r.fact_value_num),
+      value_text: (r.fact_value_text as string | null) ?? null,
+    }),
+  );
+  const { yearsInBusiness, monthsInBusiness } =
+    detectNewBusinessFromFacts(businessAgeFacts);
+  const managementYearsInIndustry =
+    managementTeam.length > 0
+      ? Math.max(...managementTeam.map((m) => m.yearsInIndustry))
+      : null;
+  const newBusinessAssessment = assessNewBusinessRisk({
+    yearsInBusiness,
+    monthsInBusiness,
+    hasBusinessPlan: Boolean(assumptions),
+    managementYearsInIndustry,
+    loanType: deal.deal_type ?? "7a",
+  });
+  const {
+    isNewBusiness,
+    equityInjectionFloor,
+    projectedDscrThreshold,
+    blockers: newBusinessBlockers,
+    warnings: newBusinessWarnings,
+  } = newBusinessAssessment.flags;
+
   progress("Evaluating financial viability…", 35);
   const financialViability = analyzeFinancialViability({
     dscrYear1Base: pickNumber(sbaPackage?.dscr_year1_base),
@@ -331,12 +382,40 @@ export async function generateFeasibilityStudy(params: {
     debtToEquityYear1: pickNumber(balanceSheet[1]?.debtToEquity),
     historicalRevenueGrowth: null,
     historicalEBITDAMargin: null,
-    isNewBusiness: false, // conservative default; upgrade when years_in_business is tracked
+    isNewBusiness,
+    equityInjectionFloor,
+    projectedDscrThreshold,
     loanAmount: pickNumber(loanImpactObj.loanAmount) ?? 0,
     loanTermMonths:
       (pickNumber(loanImpactObj.termMonths) ??
         (pickNumber(loanImpactObj.loanTermYears) ?? 10) * 12) || 120,
   });
+
+  // Surface the new-business assessment into the same flags array the
+  // narrative prompt reads (see feasibilityNarrative.ts's financial-viability
+  // prompt) so a startup's feasibility study explains itself instead of
+  // silently applying different numbers.
+  for (const blocker of newBusinessBlockers) {
+    financialViability.flags.push({
+      severity: "critical",
+      dimension: "businessAge",
+      message: blocker,
+    });
+  }
+  for (const warning of newBusinessWarnings) {
+    financialViability.flags.push({
+      severity: "warning",
+      dimension: "businessAge",
+      message: warning,
+    });
+  }
+  if (isNewBusiness) {
+    financialViability.flags.push({
+      severity: "info",
+      dimension: "businessAge",
+      message: newBusinessAssessment.narrativeContext,
+    });
+  }
 
   progress("Assessing operational readiness…", 45);
   const operationalReadiness = analyzeOperationalReadiness({

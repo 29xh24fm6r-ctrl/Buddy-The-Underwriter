@@ -3,7 +3,7 @@
  *
  * Detects businesses under 2 years old and applies SBA SOP 50 10 8 rules:
  * projected DSCR threshold 1.25x (not historical 1.10x),
- * equity injection floor 20%, business plan required.
+ * equity injection floor 10%, business plan required.
  *
  * Pure functions. No DB. No LLM.
  */
@@ -14,7 +14,7 @@ export interface NewBusinessRiskFlags {
   requiresProjectedDscr: boolean;
   projectedDscrThreshold: number; // 1.25 new, 1.10 existing
   requiresManagementExperience: boolean;
-  equityInjectionFloor: number; // 0.20 new, 0.10 existing
+  equityInjectionFloor: number; // 0.10 new, 0.10 existing
   requiresStartupBusinessPlan: boolean;
   blockers: string[];
   warnings: string[];
@@ -31,7 +31,12 @@ export interface NewBusinessUnderwritingResult {
 const SBA_7A_DSCR_EXISTING = 1.1;
 const SBA_7A_DSCR_NEW_BUSINESS = 1.25; // SOP 50 10 8
 const EQUITY_FLOOR_EXISTING = 0.1;
-const EQUITY_FLOOR_NEW_BUSINESS = 0.2;
+// SOP 50 10 8 (eff. 2025-06-01) sets equity injection at 10% for start-ups
+// and complete changes of ownership — confirmed against current SOP
+// commentary during SPEC-BROKERAGE-SBA-READY-V1 Ticket 0 (see
+// docs/archive/brokerage-sba-ready-v1/T0-findings.md, item 1). This was
+// previously 0.2, which doesn't match any current equity-injection rule.
+const EQUITY_FLOOR_NEW_BUSINESS = 0.1;
 
 export function assessNewBusinessRisk(params: {
   yearsInBusiness: number | null;
