@@ -20,9 +20,25 @@ export type SbaApplication = {
   program: SbaProgram;
   forProfit: boolean;
   meetsSizeStandard: boolean;
-  /** Owners with citizenship/LPR status documented (fraction 0..1). */
+  /** Owners with citizenship/residency status documented (fraction 0..1). */
   ownershipDocumentedPct: number;
-  ownersUsCitizenOrLpr: boolean;
+  /**
+   * True only if every direct/indirect owner is a US citizen or US national.
+   * Lawful permanent residents (LPRs / green card holders) are NOT eligible —
+   * SBA Procedural Notice 5000-876626 (eff. 2026-03-01) rescinded the prior
+   * rule that allowed them and made LPR ownership categorically ineligible,
+   * full stop. This field was previously named ownersUsCitizenOrLpr and
+   * treated LPR as a passing status, which stopped being correct on that
+   * effective date — see
+   * docs/archive/brokerage-sba-ready-v1/T0-findings.md item 2 for the same
+   * fix applied to src/lib/sba/dealDataBuilder.ts's ELIGIBLE_CITIZENSHIP_STATUSES.
+   * Principal-residence-in-the-US (a separate requirement from the same
+   * notice, applying to citizens/nationals too) is tracked as its own
+   * follow-up — see
+   * specs/follow-ups/SPEC-BROKERAGE-SBA-READY-V1-principal-residence-certification.md —
+   * and is intentionally not folded into this field.
+   */
+  ownersUsCitizenOrNational: boolean;
   creditElsewhereAvailable: boolean; // if true, ineligible (must NOT be available elsewhere)
   equityInjectionPct: number | null;
   occupancyPct?: number | null; // 504 / owner-occ
@@ -73,7 +89,7 @@ export function checkEligibility(app: SbaApplication, ctx?: PolicyContext): { el
   findings.push({ rule: "for_profit", status: app.forProfit ? "PASS" : "FAIL", detail: app.forProfit ? "For-profit operating business." : "Not a for-profit business.", citation: cite("§A Ch.2 — Eligibility") });
   findings.push({ rule: "size_standard", status: app.meetsSizeStandard ? "PASS" : "FAIL", detail: app.meetsSizeStandard ? "Within size standard." : "Exceeds size standard.", citation: cite("§A Ch.2 — Size") });
   findings.push({ rule: "affiliation", status: app.affiliationResolved ? "PASS" : "EXCEPTION", detail: app.affiliationResolved ? "Affiliation analyzed." : "Affiliation not resolved.", citation: cite("13 CFR 121.301") });
-  findings.push({ rule: "citizenship", status: app.ownersUsCitizenOrLpr ? "PASS" : "FAIL", detail: app.ownersUsCitizenOrLpr ? "Owners are US citizens / LPR." : "Ownership citizenship/residency not satisfied.", citation: `${SOP_VERSION} (as amended ${SOP_AS_AMENDED}) — Citizenship/Residency` });
+  findings.push({ rule: "citizenship", status: app.ownersUsCitizenOrNational ? "PASS" : "FAIL", detail: app.ownersUsCitizenOrNational ? "All owners are US citizens or US nationals." : "Ownership citizenship/residency not satisfied — lawful permanent residents (LPRs) are not eligible owners as of 2026-03-01.", citation: `${SOP_VERSION} (as amended ${SOP_AS_AMENDED}) — Citizenship/Residency` });
   findings.push({ rule: "credit_elsewhere", status: app.creditElsewhereAvailable ? "FAIL" : "PASS", detail: app.creditElsewhereAvailable ? "Credit available elsewhere — ineligible." : "Credit not reasonably available elsewhere.", citation: cite("§A Ch.2 — Credit Elsewhere") });
   findings.push({ rule: "irs_4506c", status: app.fourTwentyFiveSixCOrdered ? "PASS" : "EXCEPTION", detail: app.fourTwentyFiveSixCOrdered ? "4506-C tax transcript verification ordered." : "4506-C not ordered.", citation: cite("§B — Verification") });
 

@@ -71,7 +71,7 @@ describe("SBA eligibility + SOP exception detector (V5.2)", () => {
     forProfit: true,
     meetsSizeStandard: true,
     ownershipDocumentedPct: 1,
-    ownersUsCitizenOrLpr: true,
+    ownersUsCitizenOrNational: true,
     creditElsewhereAvailable: false,
     equityInjectionPct: 0.12,
     usesOfProceeds: [{ code: "WORKING_CAPITAL", amount: 500_000 }],
@@ -95,6 +95,16 @@ describe("SBA eligibility + SOP exception detector (V5.2)", () => {
   it("flags below-minimum equity injection", () => {
     const r = checkEligibility({ ...baseApp, equityInjectionPct: 0.05 });
     assert.ok(r.findings.some((f) => f.rule === "equity_injection" && f.status === "FAIL"));
+  });
+
+  // SBA Procedural Notice 5000-876626 (eff. 2026-03-01): lawful permanent
+  // residents are categorically ineligible owners, full stop — this field
+  // used to treat LPR as passing (was named ownersUsCitizenOrLpr).
+  it("flags LPR ownership as ineligible (post-2026-03-01 SOP)", () => {
+    const r = checkEligibility({ ...baseApp, ownersUsCitizenOrNational: false });
+    assert.equal(r.eligible, false);
+    const ex = detectSopExceptions({ ...baseApp, ownersUsCitizenOrNational: false });
+    assert.ok(ex.some((e) => e.rule === "citizenship" && e.status === "FAIL"));
   });
 });
 
