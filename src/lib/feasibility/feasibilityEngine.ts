@@ -342,6 +342,7 @@ export async function generateFeasibilityStudy(params: {
     hasBusinessPlan: Boolean(assumptions),
     managementYearsInIndustry,
     loanType: deal.deal_type ?? "7a",
+    loanAmount: deal.loan_amount ?? null,
   });
   const {
     isNewBusiness,

@@ -13,6 +13,7 @@
 //   50% of the equity injection.
 
 import type { UseOfProceedsLine } from "./sbaReadinessTypes";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 
 export type EquityInjectionSource =
   | "cash_savings"
@@ -160,9 +161,13 @@ export function buildSourcesAndUses(
     category: u.category,
   }));
 
-  // SOP 50 10 8 sets equity injection minimum at 10% for both startups and
-  // complete changes of ownership. Pre-2021 distinction (20% vs 10%) eliminated.
-  const minimumPct = 0.10;
+  // Single source of truth: finengine's policy registry (SOP 50 10 8 sets
+  // equity injection minimum at 10% for both startups and complete changes
+  // of ownership — the pre-2021 20%/10% distinction was eliminated). This
+  // used to be a local hardcoded 0.10 duplicating the same registry-owned
+  // number; directive 2026-07-14: finengine is the only source for credit-
+  // policy values, not just DSCR.
+  const minimumPct = resolvePolicy("equity_injection_min").effective ?? 0.10;
   const totalSourcesExcludingEquity = totalSources - equityInjectionAmount;
   const actualPct = pct(equityInjectionAmount, totalSources);
   const passesMinimum = actualPct >= minimumPct;
