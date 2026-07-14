@@ -8,14 +8,31 @@ import "server-only";
  * routes). Records the pick, grants the winning lender full package access,
  * withdraws the other active claims, flips the listing to `picked`, and queues the
  * borrower_selected_lender + package_access_granted lender messages.
+ *
+ * Also generates the FINAL (unwatermarked, full-detail) trident bundle and
+ * freezes its paths onto buddy_sealed_packages.final_* — this is the missing
+ * half of the sealing/pick design (see specs/brokerage/sprint-05-sealing-and-kfs.md's
+ * "Storage paths for final-mode PDFs (generated at pick, not seal)" comment on
+ * those columns, and sprint-06's runAtomicUnlock). Without this, the package
+ * manifest could only ever fall back to whatever the LIVE (possibly stale,
+ * possibly still-preview) trident bundle happens to be, never a frozen
+ * snapshot of what the winning lender was actually shown at pick time.
+ *
+ * generateTridentBundle MUST be awaited, never fire-and-forget — see
+ * src/lib/brokerage/trident/__tests__/awaitGenerationGuard.test.ts. A bundle
+ * row left in `running` because the serverless function was reclaimed before
+ * completion is a stuck-forever row, not a retryable one. maxDuration is set
+ * to 300s to match every other synchronous trident-generation call site.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,
@@ -110,6 +127,53 @@ export async function POST(
     })
     .select("id")
     .single();
+
+  // Generate the FINAL trident bundle and freeze its paths onto the sealed
+  // package. Best-effort: a generation failure must not fail the pick itself
+  // (the pick + access grant above already succeeded and must stand) — the
+  // package manifest's existing fallback to the live trident bundle covers
+  // the gap until generation is retried (e.g. via the admin-only
+  // /trident/generate route with mode=final).
+  try {
+    const finalBundle = await generateTridentBundle({ dealId, mode: "final" });
+    if (finalBundle.ok && (listing as any).sealed_package_id) {
+      await sb
+        .from("buddy_sealed_packages")
+        .update({
+          final_business_plan_path: finalBundle.paths.businessPlanPdf,
+          // Final mode produces only the XLSX workbook, not a redacted
+          // summary PDF (that's preview-only) — this column holds whichever
+          // artifact final mode actually produces.
+          final_projections_path: finalBundle.paths.projectionsXlsx,
+          final_feasibility_path: finalBundle.paths.feasibilityPdf,
+        })
+        .eq("id", (listing as any).sealed_package_id);
+    } else if (!finalBundle.ok) {
+      console.warn("[marketplace/pick] final trident bundle generation failed (non-fatal)", {
+        dealId,
+        listingId,
+        error: finalBundle.error,
+      });
+      await sb.from("marketplace_audit_log").insert({
+        deal_id: dealId,
+        listing_id: listingId,
+        actor_bank_id: null,
+        actor_scope: "system",
+        action: "final_bundle_generation_failed",
+        metadata: {
+          pickId: (pick as any).id,
+          error: finalBundle.error,
+        },
+        created_at: nowIso,
+      });
+    }
+  } catch (err) {
+    console.warn("[marketplace/pick] final trident bundle generation threw (non-fatal)", {
+      dealId,
+      listingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Notify the picked lender (best-effort, non-fatal).
   try {

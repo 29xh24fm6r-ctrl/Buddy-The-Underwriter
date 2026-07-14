@@ -29,6 +29,15 @@ import "server-only";
  * new route.ts. This also replaces reliance on createSignedPackageDownload()
  * in packageDelivery.ts, which built an entirely unsigned URL pointing at a
  * route that never existed.
+ *
+ * For sba_forms: the merged 10-tab package (assembleTenTabPackage.ts) lives
+ * in the `bank-forms` bucket, not `trident-bundles` — a separate signed-URL
+ * branch (not KIND_TO_PATH_COLUMN) resolves the most recently assembled
+ * sba_package_runs row for this deal via getLatestAssembledPackageRun. Note
+ * the 10-tab assembly pipeline (prepare → generate → assemble) is NOT
+ * triggered automatically anywhere yet (unlike the trident bundle, which is
+ * generated at pick time) — it must have been run manually via the
+ * sba/route.ts action dispatch for this to have anything to serve.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -40,6 +49,8 @@ import { assertCommitteeMemoSafe } from "@/lib/creditMemo/snapshot/assertCommitt
 import { FloridaArmoryBuildError } from "@/lib/creditMemo/snapshot/types";
 import { buildCreditMemoPdf } from "@/lib/creditMemo/pdf/buildCreditMemoPdf";
 import { auditPackageDownload } from "@/lib/brokerage/packageDelivery";
+import { getLatestAssembledPackageRun } from "@/lib/sba/package/getLatestAssembledPackageRun";
+import { OUTPUT_BUCKET as SBA_PACKAGE_BUCKET } from "@/lib/sba/package/assembleTenTabPackage";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -166,13 +177,42 @@ async function handleCreditMemoDownload(
   });
 }
 
+async function handleSbaFormsDownload(
+  dealId: string,
+  actorInfo: ResolvedActor,
+): Promise<NextResponse> {
+  const sb = supabaseAdmin();
+  const run = await getLatestAssembledPackageRun(dealId, sb as any);
+  if (!run) {
+    return NextResponse.json({ ok: false }, { status: 404 });
+  }
+
+  const { data: signed, error } = await sb.storage
+    .from(SBA_PACKAGE_BUCKET)
+    .createSignedUrl(run.storagePath, 300); // 5-minute TTL
+  if (error || !signed?.signedUrl) {
+    return NextResponse.json({ ok: false }, { status: 500 });
+  }
+
+  await auditPackageDownload(
+    { actor: actorInfo.actor, actorScope: actorInfo.actorScope, dealId, action: "package_download", resourceType: "sba_forms" },
+    sb as any,
+  ).catch(() => {});
+
+  return NextResponse.json({ ok: true, url: signed.signedUrl });
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ dealId: string; kind: string }> },
 ): Promise<NextResponse> {
   const { dealId, kind } = await params;
 
-  if (kind !== "credit_memo" && !VALID_TRIDENT_KINDS.includes(kind as TridentKind)) {
+  if (
+    kind !== "credit_memo" &&
+    kind !== "sba_forms" &&
+    !VALID_TRIDENT_KINDS.includes(kind as TridentKind)
+  ) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
@@ -183,6 +223,10 @@ export async function GET(
 
   if (kind === "credit_memo") {
     return handleCreditMemoDownload(dealId, actorInfo);
+  }
+
+  if (kind === "sba_forms") {
+    return handleSbaFormsDownload(dealId, actorInfo);
   }
 
   const sb = supabaseAdmin();

@@ -19,6 +19,7 @@ const REPO_ROOT = resolve(process.cwd());
 const CALL_SITES = [
   "src/app/api/brokerage/concierge/route.ts",
   "src/app/api/brokerage/voice/[sessionId]/dispatch/route.ts",
+  "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts",
 ];
 
 for (const rel of CALL_SITES) {
@@ -77,5 +78,22 @@ test("voice dispatch maxDuration accommodates synchronous trident generation", (
   assert.ok(
     seconds >= 300,
     `voice dispatch maxDuration is ${seconds}s — must be ≥300 to allow awaited trident generation`,
+  );
+});
+
+test("marketplace pick maxDuration accommodates synchronous final-mode trident generation", () => {
+  const src = readFileSync(
+    resolve(
+      REPO_ROOT,
+      "src/app/api/brokerage/deals/[dealId]/marketplace/pick/route.ts",
+    ),
+    "utf8",
+  );
+  const m = src.match(/export\s+const\s+maxDuration\s*=\s*(\d+)/);
+  assert.ok(m, "marketplace pick route is missing maxDuration export");
+  const seconds = Number(m![1]);
+  assert.ok(
+    seconds >= 300,
+    `marketplace pick maxDuration is ${seconds}s — must be ≥300 to allow awaited final-mode trident generation`,
   );
 });
