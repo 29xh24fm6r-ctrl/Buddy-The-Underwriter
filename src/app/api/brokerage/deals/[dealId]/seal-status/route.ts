@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { canSeal } from "@/lib/brokerage/sealingGate";
+import { deepMerge } from "@/lib/brokerage/borrowerConversation";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -44,12 +45,30 @@ export async function GET(
   // Concierge progress (stage 1 — "tell us about your loan").
   const { data: conciergeSession } = await sb
     .from("borrower_concierge_sessions")
-    .select("progress_pct")
+    .select("progress_pct, extracted_facts, confirmed_facts")
     .eq("deal_id", dealId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   const progressPct = (conciergeSession as { progress_pct?: number } | null)?.progress_pct ?? 0;
+
+  // Merged facts bag for the borrower-facing "Captured so far" panel. Text
+  // chat writes extracted_facts turn-by-turn (and the client already has
+  // that in sync from each response — see CapturedFactsPanel usage). Voice
+  // writes to a separate confirmed_facts column (voice fact extraction runs
+  // server-side inside the Fly gateway's dispatch call, so the browser has
+  // no synchronous event to react to) — this poll is how voice-captured
+  // facts reach the UI at all. confirmed_facts wins on overlap, matching
+  // the "voice precedence" reconciliation noted where that column was added
+  // (supabase/migrations/20260424_borrower_voice.sql).
+  const facts = deepMerge(
+    ((conciergeSession as { extracted_facts?: Record<string, unknown> } | null)?.extracted_facts as
+      | Record<string, unknown>
+      | undefined) ?? {},
+    ((conciergeSession as { confirmed_facts?: Record<string, unknown> } | null)?.confirmed_facts as
+      | Record<string, unknown>
+      | undefined) ?? {},
+  );
 
   // Document count (stage 2 — "upload documents").
   const { count: documentsUploadedCount } = await sb
@@ -110,6 +129,7 @@ export async function GET(
       ok: true,
       progressPct,
       documentsUploadedCount: documentsUploadedCount ?? 0,
+      facts,
       sealed: true,
       listing: {
         id: row.id,
@@ -134,6 +154,7 @@ export async function GET(
     ok: true,
     progressPct,
     documentsUploadedCount: documentsUploadedCount ?? 0,
+    facts,
     sealed: false,
     canSeal: gate.ok,
     gateReasons: gate.ok ? [] : gate.reasons,
