@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generatePdfBytesFromFillRun } from "@/lib/forms/generatePdfBytesFromFillRun";
 import { isDispatchedSbaTemplateCode, renderSbaPackageItem } from "@/lib/sba/package/sbaFormDispatch";
+import { resolveEffectiveLenderBankId } from "@/lib/sba/package/resolveEffectiveLenderBankId";
 
 /**
  * SBA Package Builder adapter: Generate PDF and upload to Supabase Storage
@@ -28,8 +29,13 @@ export async function generatePdfForFillRun(opts: {
 
   if (templateCode && isDispatchedSbaTemplateCode(templateCode)) {
     const { data: deal } = await supabase.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
-    const bankId = (deal as { bank_id?: string } | null)?.bank_id ?? null;
-    if (!bankId) throw new Error(`deal_bank_id_not_found: ${dealId}`);
+    const dealBankId = (deal as { bank_id?: string } | null)?.bank_id ?? null;
+    if (!dealBankId) throw new Error(`deal_bank_id_not_found: ${dealId}`);
+    // Prints as "Lender Name" on several dispatched forms (4506-C, 155,
+    // 148/148L, 601) — resolves to the picked lender for a Brokerage deal
+    // once one exists, not the Brokerage tenant itself. See
+    // resolveEffectiveLenderBankId.ts for why.
+    const bankId = await resolveEffectiveLenderBankId(dealId, dealBankId, supabase);
 
     const dispatched = await renderSbaPackageItem(templateCode, { dealId, bankId, supabase });
     if (!dispatched.ok) {
