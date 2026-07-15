@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * useBuddyVoice — Gemini Live native audio hook for banker credit interviews.
+ * useBuddyVoice — OpenAI Realtime API voice hook for banker credit interviews.
  *
  * Architecture:
- *   - POST /api/deals/[dealId]/banker-session/gemini-token → proxyToken + sessionId
- *   - WebSocket to buddy-voice-gateway /gemini-live?token=TOKEN&sessionId=ID
- *   - Gateway relays to Vertex AI Gemini Live (API key stays server-side)
- *   - Mic: 16kHz PCM via AudioWorklet (buddy-mic-processor.js)
- *   - Audio out: 24kHz PCM via AudioContext
+ *   - POST /api/deals/[dealId]/banker-session/realtime-token → proxyToken + sessionId
+ *   - WebSocket to buddy-voice-gateway /realtime?token=TOKEN&sessionId=ID
+ *   - Gateway relays to OpenAI's Realtime API (gpt-realtime, API key stays server-side)
+ *   - Mic: 24kHz PCM16 via AudioWorklet (buddy-mic-processor.js)
+ *   - Audio out: 24kHz PCM16 via AudioContext
  *   - Tool calls intercepted by gateway → writes to deal_financial_facts
  *
- * Same return shape as useGeminiLive. Drop-in for DealHealthPanel.
+ * Same return shape as before. Drop-in for DealHealthPanel.
  */
 
 import { useRef, useState, useCallback, useEffect } from "react";
@@ -19,7 +19,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 const GATEWAY_WS_BASE =
   process.env.NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL ?? "ws://localhost:8080";
 
-const INPUT_SAMPLE_RATE = 16000;
+const INPUT_SAMPLE_RATE = 24000;
 const MAX_EARLY_CLOSE_RETRIES = 2;
 const EARLY_CLOSE_BACKOFF = [150, 350, 700];
 
@@ -39,7 +39,7 @@ interface UseBuddyVoiceOptions {
   /**
    * Sprint 2: token endpoint to POST. Default is the banker voice route
    * for backward-compat with BankerVoicePanel. The brokerage borrower
-   * panel passes `/api/brokerage/voice/gemini-token`.
+   * panel passes `/api/brokerage/voice/realtime-token`.
    */
   tokenEndpoint?: string;
   onStatusChange?: (status: VoiceStatus) => void;
@@ -91,9 +91,9 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     onMessage?.(msg);
   }, [onMessage]);
 
-  // ---- Audio playback (24kHz) ----
+  // ---- Audio playback (24kHz PCM16) ----
 
-  const playAudioChunk = useCallback(async (base64Data: string, mimeType: string) => {
+  const playAudioChunk = useCallback(async (base64Data: string) => {
     try {
       if (!playbackCtxRef.current) {
         playbackCtxRef.current = new AudioContext({
@@ -103,19 +103,14 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
       const ctx = playbackCtxRef.current;
       if (ctx.state === "suspended") await ctx.resume();
 
+      const sampleRate = sessionConfigRef.current?.outputSampleRate ?? 24000;
       const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      let audioBuffer: AudioBuffer;
+      const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
 
-      if (mimeType.startsWith("audio/pcm")) {
-        const sampleRate = sessionConfigRef.current?.outputSampleRate ?? 24000;
-        const int16 = new Int16Array(bytes.buffer);
-        const float32 = new Float32Array(int16.length);
-        for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-        audioBuffer = ctx.createBuffer(1, float32.length, sampleRate);
-        audioBuffer.getChannelData(0).set(float32);
-      } else {
-        audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-      }
+      const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate);
+      audioBuffer.getChannelData(0).set(float32);
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
@@ -150,7 +145,7 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     setIsAssistantSpeaking(false);
   }, []);
 
-  // ---- WS message handler ----
+  // ---- WS message handler (OpenAI Realtime events) ----
 
   const handleWsMessage = useCallback((event: MessageEvent) => {
     try {
@@ -158,52 +153,69 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
         typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data)
       );
 
-      if (data.setupComplete) {
-        connectedRef.current = true;
-        setStatus("listening");
-        if (streamRef.current) void startMicCaptureRef.current(streamRef.current);
-        return;
-      }
+      switch (data.type) {
+        case "session.created":
+          return;
 
-      if (data.serverContent) {
-        const sc = data.serverContent;
-        if (sc.modelTurn?.parts) {
-          for (const part of sc.modelTurn.parts) {
-            if (part.inlineData?.data) {
-              void playAudioChunk(part.inlineData.data, part.inlineData.mimeType ?? "audio/pcm;rate=24000");
-            }
-            if (part.text) setCurrentTranscript(prev => prev + part.text);
-          }
+        case "session.updated":
+          connectedRef.current = true;
+          setStatus("listening");
+          if (streamRef.current) void startMicCaptureRef.current(streamRef.current);
+          return;
+
+        case "response.audio.delta":
+          if (typeof data.delta === "string") void playAudioChunk(data.delta);
+          return;
+
+        case "response.audio_transcript.delta":
+          if (typeof data.delta === "string") setCurrentTranscript(prev => prev + data.delta);
+          return;
+
+        case "response.audio_transcript.done": {
+          const text = String(data.transcript ?? "").trim();
+          setCurrentTranscript("");
+          if (text) pushMessage(mkMsg("assistant", text));
+          return;
         }
-        if (sc.turnComplete) {
-          setCurrentTranscript(prev => {
-            const text = prev.trim();
-            if (text) pushMessage(mkMsg("assistant", text));
-            return "";
-          });
-        }
-        if (sc.inputTranscript) {
+
+        case "conversation.item.input_audio_transcription.completed": {
           setIsUserSpeaking(false);
-          const t = sc.inputTranscript.trim();
-          if (t) pushMessage(mkMsg("user", t));
+          const text = String(data.transcript ?? "").trim();
+          if (text) pushMessage(mkMsg("user", text));
+          return;
         }
-        if (sc.interrupted) cancelAudioPlayback();
-      }
 
-      // Tool call UI feedback (gateway handles actual routing, this is cosmetic)
-      if (data.toolCall?.functionCalls) {
-        setStatus("processing");
-        const call = data.toolCall.functionCalls[0];
-        if (call?.args?.fact_key && onGapResolved) {
-          onGapResolved(String(call.args.fact_key));
+        case "input_audio_buffer.speech_started":
+          setIsUserSpeaking(true);
+          cancelAudioPlayback();
+          return;
+
+        case "input_audio_buffer.speech_stopped":
+          return;
+
+        case "response.function_call_arguments.done": {
+          setStatus("processing");
+          try {
+            const args = JSON.parse(String(data.arguments ?? "{}"));
+            if (args?.fact_key && onGapResolved) onGapResolved(String(args.fact_key));
+          } catch { /* non-JSON args — nothing to extract */ }
+          return;
         }
+
+        case "error":
+          console.warn("[BUDDY_VOICE] Realtime error event", data.error);
+          if (data.error?.message) setError(String(data.error.message));
+          return;
+
+        default:
+          return;
       }
     } catch (e) {
       console.warn("[BUDDY_VOICE] Message parse error", e);
     }
   }, [setStatus, playAudioChunk, cancelAudioPlayback, pushMessage, onGapResolved]);
 
-  // ---- Mic capture (16kHz AudioWorklet) ----
+  // ---- Mic capture (24kHz AudioWorklet) ----
 
   const startMicCapture = useCallback(async (stream: MediaStream) => {
     try {
@@ -226,9 +238,9 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
         const base64 = btoa(binary);
         wsRef.current.send(JSON.stringify({
-          realtimeInput: { audio: { data: base64, mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}` } },
+          type: "input_audio_buffer.append",
+          audio: base64,
         }));
-        setIsUserSpeaking(true);
       };
 
       source.connect(worklet);
@@ -285,7 +297,7 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
       if (attemptId !== connectAttemptIdRef.current) return;
 
       const endpoint =
-        tokenEndpoint ?? `/api/deals/${dealId}/banker-session/gemini-token`;
+        tokenEndpoint ?? `/api/deals/${dealId}/banker-session/realtime-token`;
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -305,7 +317,7 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
 
       sessionConfigRef.current = data.config ?? null;
 
-      const wsUrl = `${GATEWAY_WS_BASE}/gemini-live?token=${encodeURIComponent(data.proxyToken)}&sessionId=${encodeURIComponent(data.sessionId)}`;
+      const wsUrl = `${GATEWAY_WS_BASE}/realtime?token=${encodeURIComponent(data.proxyToken)}&sessionId=${encodeURIComponent(data.sessionId)}`;
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
@@ -398,8 +410,10 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !text.trim()) return;
     pushMessage(mkMsg("user", text));
     wsRef.current.send(JSON.stringify({
-      clientContent: { turns: [{ role: "user", parts: [{ text }] }], turnComplete: true },
+      type: "conversation.item.create",
+      item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
     }));
+    wsRef.current.send(JSON.stringify({ type: "response.create" }));
     setStatus("processing");
   }, [setStatus, pushMessage]);
 

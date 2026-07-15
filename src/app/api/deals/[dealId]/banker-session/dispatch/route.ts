@@ -141,7 +141,7 @@ export async function POST(
       });
     }
 
-    // Unstructured intent — acknowledge, let Gemini continue conversation
+    // Unstructured intent — acknowledge, let the realtime voice model continue the conversation
     return NextResponse.json({
       ok: true,
       message: `Noted: ${intent}. Continue the interview to confirm specific values.`,
