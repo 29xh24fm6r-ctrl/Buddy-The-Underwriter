@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initiateKyc, handlePersonaWebhook, hasValidIal2, type PersonaClient } from "@/lib/identity/kyc/service";
+import { initiateKyc, handleDiditWebhook, hasValidIal2, mapDiditStatus, type DiditClient } from "@/lib/identity/kyc/service";
 
 type Row = Record<string, any>;
 
@@ -98,100 +98,102 @@ class FakeDb {
   }
 }
 
-function fakePersona(overrides?: Partial<PersonaClient>): PersonaClient {
+function fakeDidit(overrides?: Partial<DiditClient>): DiditClient {
   let createCallCount = 0;
   return {
-    createPersonaInquiry: async () => {
+    createDiditSession: async () => {
       createCallCount++;
-      return { data: { id: `inq_${createCallCount}` } };
+      return { session_id: `sess_${createCallCount}`, status: "Not Started", workflow_id: "wf_1", url: `https://verify.didit.me/session/sess_${createCallCount}` };
     },
-    fetchPersonaInquiry: async (id: string) => ({
-      data: { id, attributes: { status: "completed", "name-first": "Jane", "name-last": "Doe" } },
-    }),
-    generatePersonaOneTimeLink: async () => "https://withpersona.com/verify/otl_abc",
+    fetchDiditSession: async (id: string) => ({ session_id: id, status: "Approved", workflow_id: "wf_1", url: `https://verify.didit.me/session/${id}` }),
+    getDiditSessionDecision: async (id: string) => ({ session_id: id, status: "Approved" }),
     ...overrides,
   };
 }
 
 test("initiateKyc: no existing -> creates new + writes deal_event", async () => {
   const db = new FakeDb({ ownership_entities: [{ id: "o1", display_name: "Jane Doe" }] });
-  const persona = fakePersona();
+  const didit = fakeDidit();
   const r = await initiateKyc(
     { dealId: "d1", bankId: "b1", ownershipEntityId: "o1", initiatorUserId: "u1" },
-    { sb: db as any, persona, templateId: "itmpl_1" },
+    { sb: db as any, didit, workflowId: "wf_1" },
   );
   assert.equal(r.ok, true);
   if (r.ok) {
     assert.equal(r.reused, false);
     assert.equal(db.tables.borrower_identity_verifications.length, 1);
+    assert.equal(db.tables.borrower_identity_verifications[0].vendor, "didit");
     assert.ok(db.tables.deal_events.some((e) => e.kind === "kyc.verification_initiated"));
   }
 });
 
-test("initiateKyc: existing pending -> reuses, no new inquiry created", async () => {
+test("initiateKyc: existing pending -> reuses stored session_url, no new session created", async () => {
   const db = new FakeDb({
     borrower_identity_verifications: [
-      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", status: "pending", vendor_inquiry_id: "inq_existing", created_at: "2026-01-01" },
+      { id: "v1", deal_id: "d1", ownership_entity_id: "o1", status: "pending", vendor_inquiry_id: "sess_existing", vendor_artifacts_url: "https://verify.didit.me/session/sess_existing", created_at: "2026-01-01" },
     ],
     ownership_entities: [{ id: "o1", display_name: "Jane Doe" }],
   });
   let createCalled = false;
-  const persona = fakePersona({ createPersonaInquiry: async () => { createCalled = true; return { data: { id: "inq_new" } }; } });
+  const didit = fakeDidit({ createDiditSession: async () => { createCalled = true; return { session_id: "sess_new", status: "Not Started", workflow_id: "wf_1", url: "https://verify.didit.me/session/sess_new" }; } });
   const r = await initiateKyc(
     { dealId: "d1", bankId: "b1", ownershipEntityId: "o1", initiatorUserId: "u1" },
-    { sb: db as any, persona, templateId: "itmpl_1" },
+    { sb: db as any, didit, workflowId: "wf_1" },
   );
   assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.reused, true);
+  if (r.ok) {
+    assert.equal(r.reused, true);
+    assert.equal(r.sessionUrl, "https://verify.didit.me/session/sess_existing");
+  }
   assert.equal(createCalled, false);
   assert.equal(db.tables.borrower_identity_verifications.length, 1);
 });
 
 test("initiateKyc: missing owner -> OWNER_NOT_FOUND", async () => {
   const db = new FakeDb();
-  const persona = fakePersona();
+  const didit = fakeDidit();
   const r = await initiateKyc(
     { dealId: "d1", bankId: "b1", ownershipEntityId: "o-missing", initiatorUserId: "u1" },
-    { sb: db as any, persona, templateId: "itmpl_1" },
+    { sb: db as any, didit, workflowId: "wf_1" },
   );
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.reason, "OWNER_NOT_FOUND");
 });
 
-test("handlePersonaWebhook: status=completed -> updates record, sets completed_at", async () => {
+test("handleDiditWebhook: status=Approved -> updates record, sets completed_at", async () => {
   const db = new FakeDb({
-    borrower_identity_verifications: [{ id: "v1", deal_id: "d1", vendor_inquiry_id: "inq_1", status: "pending" }],
+    borrower_identity_verifications: [{ id: "v1", deal_id: "d1", vendor_inquiry_id: "sess_1", status: "pending" }],
   });
-  const persona = fakePersona({
-    fetchPersonaInquiry: async (id) => ({ data: { id, attributes: { status: "completed", "name-first": "Jane", "name-last": "Doe" } } }),
+  const didit = fakeDidit({
+    fetchDiditSession: async (id) => ({ session_id: id, status: "Approved", workflow_id: "wf_1", url: "https://verify.didit.me/session/sess_1" }),
   });
-  const r = await handlePersonaWebhook({ data: { id: "inq_1" } }, { sb: db as any, persona });
+  const r = await handleDiditWebhook({ session_id: "sess_1", status: "Approved", webhook_type: "status.updated" }, { sb: db as any, didit });
   assert.equal(r.ok, true);
   const rec = db.tables.borrower_identity_verifications[0];
-  assert.equal(rec.status, "completed");
+  assert.equal(rec.status, "approved");
   assert.ok(rec.completed_at);
 });
 
-test("handlePersonaWebhook: status=declined -> updates record, no completed_at", async () => {
+test("handleDiditWebhook: status=Declined -> updates record, no completed_at", async () => {
   const db = new FakeDb({
-    borrower_identity_verifications: [{ id: "v1", deal_id: "d1", vendor_inquiry_id: "inq_1", status: "pending" }],
+    borrower_identity_verifications: [{ id: "v1", deal_id: "d1", vendor_inquiry_id: "sess_1", status: "pending" }],
   });
-  const persona = fakePersona({
-    fetchPersonaInquiry: async (id) => ({ data: { id, attributes: { status: "declined" } } }),
+  const didit = fakeDidit({
+    fetchDiditSession: async (id) => ({ session_id: id, status: "Declined", workflow_id: "wf_1", url: "https://verify.didit.me/session/sess_1" }),
   });
-  const r = await handlePersonaWebhook({ data: { id: "inq_1" } }, { sb: db as any, persona });
+  const r = await handleDiditWebhook({ session_id: "sess_1", status: "Declined", webhook_type: "status.updated" }, { sb: db as any, didit });
   assert.equal(r.ok, true);
   const rec = db.tables.borrower_identity_verifications[0];
   assert.equal(rec.status, "declined");
   assert.equal(rec.completed_at, undefined);
 });
 
-test("handlePersonaWebhook: missing inquiry_id -> MISSING_INQUIRY_ID", async () => {
+test("handleDiditWebhook: missing session_id -> MISSING_SESSION_ID", async () => {
   const db = new FakeDb();
-  const persona = fakePersona();
-  const r = await handlePersonaWebhook({}, { sb: db as any, persona });
+  const didit = fakeDidit();
+  const r = await handleDiditWebhook({}, { sb: db as any, didit });
   assert.equal(r.ok, false);
-  if (!r.ok) assert.equal(r.reason, "MISSING_INQUIRY_ID");
+  if (!r.ok) assert.equal(r.reason, "MISSING_SESSION_ID");
 });
 
 test("hasValidIal2: completed + completed_at set -> true", async () => {
@@ -222,4 +224,15 @@ test("hasValidIal2: declined -> false", async () => {
   });
   const r = await hasValidIal2("d1", "o1", db as any);
   assert.equal(r, false);
+});
+
+test("mapDiditStatus: maps every documented Didit session status", () => {
+  assert.equal(mapDiditStatus("Not Started"), "created");
+  assert.equal(mapDiditStatus("In Progress"), "pending");
+  assert.equal(mapDiditStatus("Approved"), "approved");
+  assert.equal(mapDiditStatus("Declined"), "declined");
+  assert.equal(mapDiditStatus("In Review"), "needs_review");
+  assert.equal(mapDiditStatus("Expired"), "expired");
+  assert.equal(mapDiditStatus("KYC Expired"), "expired");
+  assert.equal(mapDiditStatus("Abandoned"), "failed");
 });

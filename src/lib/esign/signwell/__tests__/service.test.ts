@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requestSignature, handleDocusealWebhook, type DocusealClient } from "@/lib/esign/docuseal/service";
+import { requestSignature, handleSignwellWebhook, type SignwellClient } from "@/lib/esign/signwell/service";
 
 type Row = Record<string, any>;
 
@@ -93,16 +93,19 @@ class FakeDb {
   }
 }
 
-function fakeDocuseal(overrides?: Partial<DocusealClient>): DocusealClient {
+function fakeSignwell(overrides?: Partial<SignwellClient>): SignwellClient {
   return {
-    createDocusealSubmission: async () => ({
+    createSignwellDocumentFromTemplate: async () => ({
       id: 12345,
       status: "pending",
-      submitters: [{ id: 1, slug: "sub_abc" }],
+      recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
     }),
-    fetchDocusealSubmission: async () => ({ id: 12345, status: "completed", submitters: [{ id: 1, slug: "sub_abc" }] }),
-    downloadDocusealSignedPdf: async () => Buffer.from("pdf-bytes"),
-    downloadDocusealAuditTrail: async () => Buffer.from("audit-bytes"),
+    fetchSignwellDocument: async () => ({
+      id: 12345,
+      status: "completed",
+      recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
+    }),
+    downloadSignwellCompletedPdf: async () => Buffer.from("pdf-bytes"),
     ...overrides,
   };
 }
@@ -118,37 +121,39 @@ test("requestSignature: no IAL2 -> IAL2_NOT_COMPLETED", async () => {
   const db = new FakeDb();
   const r = await requestSignature(
     { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
-    { sb: db as any, docuseal: fakeDocuseal() },
+    { sb: db as any, signwell: fakeSignwell() },
   );
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.reason, "IAL2_NOT_COMPLETED");
 });
 
-test("requestSignature: with IAL2 -> creates submission + writes esign.requested event", async () => {
-  process.env.DOCUSEAL_TEMPLATE_1919 = "tmpl_1919";
-  process.env.DOCUSEAL_BASE_URL_PUBLIC = "https://docuseal.example.com";
+test("requestSignature: with IAL2 -> creates document + writes esign.requested event", async () => {
+  process.env.SIGNWELL_TEMPLATE_1919 = "tmpl_1919";
   const db = new FakeDb({ borrower_identity_verifications: withIal2() });
   const r = await requestSignature(
     { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
-    { sb: db as any, docuseal: fakeDocuseal() },
+    { sb: db as any, signwell: fakeSignwell() },
   );
   assert.equal(r.ok, true);
   if (r.ok) assert.ok(r.embedUrl.includes("sub_abc"));
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
 });
 
-test("handleDocusealWebhook: event_type=form.viewed -> ignored", async () => {
+test("handleSignwellWebhook: event.type=document_viewed -> ignored", async () => {
   const db = new FakeDb();
-  const r = await handleDocusealWebhook({ event_type: "form.viewed", data: {} }, { sb: db as any, docuseal: fakeDocuseal() });
+  const r = await handleSignwellWebhook(
+    { event: { type: "document_viewed" }, data: { object: {} } },
+    { sb: db as any, signwell: fakeSignwell() },
+  );
   assert.equal(r.ok, true);
   if (r.ok) assert.equal((r as any).ignored, true);
 });
 
-test("handleDocusealWebhook: form.completed without IAL2 -> anomaly event + no signed_documents row", async () => {
+test("handleSignwellWebhook: document_completed without IAL2 -> anomaly event + no signed_documents row", async () => {
   const db = new FakeDb();
-  const r = await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}`, submission_id: 1 } },
-    { sb: db as any, docuseal: fakeDocuseal() },
+  const r = await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } } },
+    { sb: db as any, signwell: fakeSignwell() },
   );
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.reason, "IAL2_GATE_FAILED_AT_COMPLETION");
@@ -156,25 +161,27 @@ test("handleDocusealWebhook: form.completed without IAL2 -> anomaly event + no s
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.completed_without_ial2_anomaly"));
 });
 
-test("handleDocusealWebhook: form.completed with IAL2 -> uploads PDF, writes signed_documents, fires esign.completed", async () => {
+test("handleSignwellWebhook: document_completed with IAL2 -> uploads PDF, writes signed_documents, fires esign.completed", async () => {
   const db = new FakeDb({
     borrower_identity_verifications: withIal2(),
     deals: [{ id: DEAL_ID, bank_id: "b1" }],
   });
-  const r = await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}`, submission_id: 1 } },
-    { sb: db as any, docuseal: fakeDocuseal() },
+  const r = await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } } },
+    { sb: db as any, signwell: fakeSignwell() },
   );
   assert.equal(r.ok, true);
   assert.equal(db.tables.signed_documents.length, 1);
+  assert.equal(db.tables.signed_documents[0].esign_provider, "signwell");
+  assert.equal(db.tables.signed_documents[0].audit_trail_storage_path, null);
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.completed"));
 });
 
-test("handleDocusealWebhook: malformed external_id -> MALFORMED_EXTERNAL_ID", async () => {
+test("handleSignwellWebhook: malformed external_id -> MALFORMED_EXTERNAL_ID", async () => {
   const db = new FakeDb();
-  const r = await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: "not-a-valid-format", submission_id: 1 } },
-    { sb: db as any, docuseal: fakeDocuseal() },
+  const r = await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: "not-a-valid-format" } } } },
+    { sb: db as any, signwell: fakeSignwell() },
   );
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.reason, "MALFORMED_EXTERNAL_ID");
@@ -182,32 +189,32 @@ test("handleDocusealWebhook: malformed external_id -> MALFORMED_EXTERNAL_ID", as
 
 test("signed_documents.expires_at: 90d for FORM_1919, 120d for FORM_4506C", async () => {
   const db1 = new FakeDb({ borrower_identity_verifications: withIal2(), deals: [{ id: DEAL_ID, bank_id: "b1" }] });
-  await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}`, submission_id: 1 } },
-    { sb: db1 as any, docuseal: fakeDocuseal() },
+  await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } } },
+    { sb: db1 as any, signwell: fakeSignwell() },
   );
   const doc1 = db1.tables.signed_documents[0];
   const days1 = (new Date(doc1.expires_at).getTime() - new Date(doc1.signature_completed_at).getTime()) / 86_400_000;
   assert.ok(Math.abs(days1 - 90) < 0.01);
 
   const db2 = new FakeDb({ borrower_identity_verifications: withIal2(), deals: [{ id: DEAL_ID, bank_id: "b1" }] });
-  await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: `deal:${DEAL_ID}:form:FORM_4506C:signer:${OWNER_ID}`, submission_id: 1 } },
-    { sb: db2 as any, docuseal: fakeDocuseal() },
+  await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_4506C:signer:${OWNER_ID}` } } } },
+    { sb: db2 as any, signwell: fakeSignwell() },
   );
   const doc2 = db2.tables.signed_documents[0];
   const days2 = (new Date(doc2.expires_at).getTime() - new Date(doc2.signature_completed_at).getTime()) / 86_400_000;
   assert.ok(Math.abs(days2 - 120) < 0.01);
 });
 
-test("handleDocusealWebhook: storage upload failure -> PDF_UPLOAD_FAILED + no signed_documents row", async () => {
+test("handleSignwellWebhook: storage upload failure -> PDF_UPLOAD_FAILED + no signed_documents row", async () => {
   const db = new FakeDb(
     { borrower_identity_verifications: withIal2(), deals: [{ id: DEAL_ID, bank_id: "b1" }] },
     { uploadFails: true },
   );
-  const r = await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}`, submission_id: 1 } },
-    { sb: db as any, docuseal: fakeDocuseal() },
+  const r = await handleSignwellWebhook(
+    { event: { type: "document_completed" }, data: { object: { id: 1, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } } },
+    { sb: db as any, signwell: fakeSignwell() },
   );
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.reason, "PDF_UPLOAD_FAILED");

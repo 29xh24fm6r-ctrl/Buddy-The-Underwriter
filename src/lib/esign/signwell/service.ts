@@ -1,8 +1,12 @@
 /**
- * SPEC S3 B-6 — e-sign orchestration. **This is where the IAL2 gate
- * lives** (principle #17 — non-negotiable, enforced at both request time
- * and webhook completion time). Kept free of "server-only" so it stays
- * testable — same pattern as kyc/service.ts and compliancePackage.ts.
+ * e-sign orchestration. **This is where the IAL2 gate lives** (principle
+ * #17 — non-negotiable, enforced at both request time and webhook
+ * completion time). Kept free of "server-only" so it stays testable — same
+ * pattern as kyc/service.ts and compliancePackage.ts.
+ *
+ * Replaces src/lib/esign/docuseal/service.ts. The gate, the deal_events
+ * audit trail, and the staleness math are unchanged from the DocuSeal
+ * version — only the vendor client calls and a few field names differ.
  */
 
 import { hasValidIal2, type KycSupabaseClient } from "@/lib/identity/kyc/service";
@@ -11,21 +15,25 @@ export type EsignSupabaseClient = KycSupabaseClient & {
   storage?: { from: (bucket: string) => { upload: (path: string, data: Buffer, opts?: any) => Promise<{ error: any }> } };
 };
 
-export type DocusealClient = {
-  createDocusealSubmission: (args: {
+export type SignwellClient = {
+  createSignwellDocumentFromTemplate: (args: {
     templateId: string;
-    submitters: Array<{ email: string; name: string; role?: string; fields?: Record<string, unknown> }>;
+    documentName: string;
+    recipients: Array<{ id: string; email: string; name: string; placeholderName?: string }>;
     externalId: string;
-    sendEmail?: boolean;
-    signOrdered?: boolean;
-  }) => Promise<{ id: number; status: string; submitters: Array<{ id: number; slug: string }> }>;
-  fetchDocusealSubmission: (submissionId: string) => Promise<{
-    id: number;
+    embeddedSigning?: boolean;
+    redirectUrl?: string;
+  }) => Promise<{
+    id: string | number;
     status: string;
-    submitters: Array<{ id: number; slug: string }>;
+    recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }>;
   }>;
-  downloadDocusealSignedPdf: (submissionId: string) => Promise<Buffer>;
-  downloadDocusealAuditTrail: (submissionId: string) => Promise<Buffer | null>;
+  fetchSignwellDocument: (documentId: string) => Promise<{
+    id: string | number;
+    status: string;
+    recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }>;
+  }>;
+  downloadSignwellCompletedPdf: (documentId: string) => Promise<Buffer>;
 };
 
 const FORM_STALENESS_DAYS: Record<string, number> = {
@@ -39,18 +47,12 @@ export function formStalenessDays(formCode: string): number {
 }
 
 export function resolveTemplateId(formCode: string, _templateVersion: string): string {
-  const envKey = `DOCUSEAL_TEMPLATE_${formCode.replace(/^FORM_/, "")}`;
+  const envKey = `SIGNWELL_TEMPLATE_${formCode.replace(/^FORM_/, "")}`;
   const value = process.env[envKey];
   if (!value) {
-    throw new Error(`docuseal_template_not_configured: ${envKey}`);
+    throw new Error(`signwell_template_not_configured: ${envKey}`);
   }
   return value;
-}
-
-export function buildEmbedUrl(submissionSlug: string): string {
-  const base = process.env.DOCUSEAL_BASE_URL_PUBLIC;
-  if (!base) throw new Error("Missing DOCUSEAL_BASE_URL_PUBLIC");
-  return `${base}/s/${submissionSlug}`;
 }
 
 const EXTERNAL_ID_PATTERN = /^deal:([^:]+):form:([^:]+):signer:([^:]+)$/;
@@ -64,18 +66,17 @@ export type RequestSignatureArgs = {
   signerRole: "applicant" | "guarantor" | "spouse" | "agent" | "witness";
   signerEmail: string;
   signerName: string;
-  prefillFields?: Record<string, unknown>;
 };
 
 export type RequestSignatureResult =
-  | { ok: true; submissionId: string; embedUrl: string }
+  | { ok: true; documentId: string; embedUrl: string }
   | { ok: false; reason: "IAL2_NOT_COMPLETED" | "SUBMISSION_FAILED"; detail?: string };
 
 export async function requestSignature(
   args: RequestSignatureArgs,
-  deps: { sb: EsignSupabaseClient; docuseal: DocusealClient },
+  deps: { sb: EsignSupabaseClient; signwell: SignwellClient },
 ): Promise<RequestSignatureResult> {
-  const { sb, docuseal } = deps;
+  const { sb, signwell } = deps;
 
   // IAL2 GATE — no exceptions (principle #17).
   const ial2Valid = await hasValidIal2(args.dealId, args.signerOwnershipEntityId, sb);
@@ -86,13 +87,15 @@ export async function requestSignature(
   const templateId = resolveTemplateId(args.formCode, args.templateVersion);
   const externalId = `deal:${args.dealId}:form:${args.formCode}:signer:${args.signerOwnershipEntityId}`;
 
-  let submission;
+  let document;
   try {
-    submission = await docuseal.createDocusealSubmission({
+    document = await signwell.createSignwellDocumentFromTemplate({
       templateId,
-      submitters: [{ email: args.signerEmail, name: args.signerName, fields: args.prefillFields }],
+      documentName: `${args.formCode} — ${args.signerName}`,
+      recipients: [{ id: "1", email: args.signerEmail, name: args.signerName }],
       externalId,
-      sendEmail: false,
+      embeddedSigning: true,
+      redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/signing/complete`,
     });
   } catch (err: any) {
     return { ok: false, reason: "SUBMISSION_FAILED", detail: err?.message ?? String(err) };
@@ -115,30 +118,38 @@ export async function requestSignature(
       form_code: args.formCode,
       signer_ownership_entity_id: args.signerOwnershipEntityId,
       identity_verification_id: verification?.id ?? null,
-      submission_id: String(submission.id),
+      document_id: String(document.id),
     },
   });
 
-  const slug = submission.submitters[0]?.slug ?? String(submission.id);
-  return { ok: true, submissionId: String(submission.id), embedUrl: buildEmbedUrl(slug) };
+  const recipient = document.recipients.find((r) => String(r.id) === "1");
+  const embedUrl = recipient?.embedded_signing_url ?? recipient?.signing_url;
+  if (!embedUrl) {
+    return { ok: false, reason: "SUBMISSION_FAILED", detail: "signwell_response_missing_signing_url" };
+  }
+
+  return { ok: true, documentId: String(document.id), embedUrl };
 }
 
-export type HandleDocusealWebhookResult =
+export type HandleSignwellWebhookResult =
   | { ok: true; ignored: true }
   | { ok: true; signedDocumentId: string }
   | { ok: false; reason: "MALFORMED_EXTERNAL_ID" | "IAL2_GATE_FAILED_AT_COMPLETION" | "PDF_UPLOAD_FAILED" | "DEAL_NOT_FOUND"; detail?: string };
 
-export async function handleDocusealWebhook(
-  payload: { event_type: string; data: { external_id?: string; id?: number | string; submission_id?: number | string } },
-  deps: { sb: EsignSupabaseClient; docuseal: DocusealClient },
-): Promise<HandleDocusealWebhookResult> {
-  const { sb, docuseal } = deps;
+export async function handleSignwellWebhook(
+  payload: {
+    event: { type: string };
+    data: { object: { id?: string | number; metadata?: { external_id?: string }; recipients?: Array<{ id: string | number }> } };
+  },
+  deps: { sb: EsignSupabaseClient; signwell: SignwellClient },
+): Promise<HandleSignwellWebhookResult> {
+  const { sb, signwell } = deps;
 
-  if (payload.event_type !== "form.completed") {
+  if (payload.event.type !== "document_completed") {
     return { ok: true, ignored: true };
   }
 
-  const externalId = payload.data.external_id ?? "";
+  const externalId = payload.data.object.metadata?.external_id ?? "";
   const match = EXTERNAL_ID_PATTERN.exec(externalId);
   if (!match) {
     return { ok: false, reason: "MALFORMED_EXTERNAL_ID" };
@@ -156,8 +167,8 @@ export async function handleDocusealWebhook(
     return { ok: false, reason: "IAL2_GATE_FAILED_AT_COMPLETION" };
   }
 
-  const submissionId = String(payload.data.submission_id ?? payload.data.id ?? "");
-  const submission = await docuseal.fetchDocusealSubmission(submissionId);
+  const documentId = String(payload.data.object.id ?? "");
+  const document = await signwell.fetchSignwellDocument(documentId);
 
   const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
   if (!deal) {
@@ -175,16 +186,15 @@ export async function handleDocusealWebhook(
     .maybeSingle();
 
   let pdfBytes: Buffer;
-  let auditBytes: Buffer | null;
   try {
-    pdfBytes = await docuseal.downloadDocusealSignedPdf(submissionId);
-    auditBytes = await docuseal.downloadDocusealAuditTrail(submissionId);
+    pdfBytes = await signwell.downloadSignwellCompletedPdf(documentId);
   } catch (err: any) {
     return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: err?.message ?? String(err) };
   }
 
-  const pdfPath = `signed-documents/${dealId}/${formCode}/${signerOwnershipEntityId}/${submissionId}.pdf`;
-  const auditPath = `signed-documents/${dealId}/${formCode}/${signerOwnershipEntityId}/${submissionId}-audit.json`;
+  // SignWell's Audit & Lock trail is appended inside this same PDF — no
+  // separate audit-trail file to fetch (see client.ts).
+  const pdfPath = `signed-documents/${dealId}/${formCode}/${signerOwnershipEntityId}/${documentId}.pdf`;
 
   if (!sb.storage) {
     return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: "no_storage_capable_client" };
@@ -193,9 +203,6 @@ export async function handleDocusealWebhook(
   const pdfUpload = await sb.storage.from("signed-documents").upload(pdfPath, pdfBytes, { contentType: "application/pdf" });
   if (pdfUpload.error) {
     return { ok: false, reason: "PDF_UPLOAD_FAILED", detail: pdfUpload.error.message };
-  }
-  if (auditBytes) {
-    await sb.storage.from("signed-documents").upload(auditPath, auditBytes, { contentType: "application/json" });
   }
 
   const completedAt = new Date();
@@ -207,15 +214,16 @@ export async function handleDocusealWebhook(
     .insert({
       deal_id: dealId,
       bank_id: deal.bank_id,
+      esign_provider: "signwell",
       form_code: formCode,
       template_version: "v1",
       signer_ownership_entity_id: signerOwnershipEntityId,
       signer_role: "applicant",
       identity_verification_id: verification?.id ?? null,
-      docuseal_submission_id: submissionId,
-      docuseal_submitter_id: String(submission.submitters[0]?.id ?? ""),
+      esign_document_id: documentId,
+      esign_signer_id: String(document.recipients[0]?.id ?? ""),
       signed_pdf_storage_path: pdfPath,
-      audit_trail_storage_path: auditPath,
+      audit_trail_storage_path: null,
       signature_request_sent_at: completedAt.toISOString(),
       signature_completed_at: completedAt.toISOString(),
       staleness_window_days: stalenessDays,
