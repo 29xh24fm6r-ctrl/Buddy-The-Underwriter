@@ -166,7 +166,7 @@ export async function buildSbaEligibilityInput(
 
   const { data: ownershipEntities } = await sb
     .from("ownership_entities")
-    .select("entity_type, citizenship_status, ownership_pct")
+    .select("entity_type, citizenship_status, ownership_pct, principal_residence_in_us")
     .eq("deal_id", dealId);
 
   const { data: bankAccounts } = await sb
@@ -312,11 +312,12 @@ export async function buildSbaEligibilityInput(
     : null;
   const useOfProceedsCategory = (loanRequest as { purpose_category?: string } | null)?.purpose_category ?? null;
 
-  // ---- Citizenship / lookback -----------------------------------------
+  // ---- Citizenship / residency / lookback ------------------------------
   const owners = (ownershipEntities ?? []) as Array<{
     entity_type: string | null;
     citizenship_status: string | null;
     ownership_pct: number | null;
+    principal_residence_in_us: boolean | null;
   }>;
   const individualOwners = owners.filter((o) => isIndividual(o.entity_type));
   let allOwnersCitizenshipEligible: boolean | null = null;
@@ -324,9 +325,25 @@ export async function buildSbaEligibilityInput(
     if (individualOwners.some((o) => !o.citizenship_status)) {
       allOwnersCitizenshipEligible = null;
     } else {
-      allOwnersCitizenshipEligible = individualOwners.every(
+      const citizenshipOk = individualOwners.every(
         (o) => o.citizenship_status && ELIGIBLE_CITIZENSHIP_STATUSES.has(o.citizenship_status),
       );
+      if (!citizenshipOk) {
+        allOwnersCitizenshipEligible = false;
+      } else if (individualOwners.some((o) => o.principal_residence_in_us === false)) {
+        // SBA Procedural Notice 5000-876626 (eff. 2026-03-01): principal
+        // residence outside the US/its territories is disqualifying even
+        // for an otherwise citizenship-eligible owner. See
+        // docs/archive/brokerage-sba-ready-v1/T0-findings.md item 2 and
+        // specs/follow-ups/SPEC-BROKERAGE-SBA-READY-V1-principal-residence-certification.md.
+        allOwnersCitizenshipEligible = false;
+      } else if (individualOwners.some((o) => o.principal_residence_in_us == null)) {
+        // Citizenship-eligible, but residence not yet confirmed for at
+        // least one owner — fails closed, never fabricated true.
+        allOwnersCitizenshipEligible = null;
+      } else {
+        allOwnersCitizenshipEligible = true;
+      }
     }
   }
 

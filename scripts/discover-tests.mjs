@@ -44,6 +44,9 @@ const QUARANTINE = new Set([
   // `node --conditions=react-server --test ...` (see
   // docs/archive/brokerage-sba-ready-v1/T1-AAR.md).
   "src/lib/feasibility/__tests__/financialViabilityAnalysis.test.ts",
+  // projectionsXlsx.ts has `import "server-only"` — same class as above.
+  // Passes under `node --conditions=react-server --test ...`.
+  "src/lib/brokerage/trident/__tests__/projectionsXlsx.test.ts",
 ]);
 
 function isExcludedPath(rel) {

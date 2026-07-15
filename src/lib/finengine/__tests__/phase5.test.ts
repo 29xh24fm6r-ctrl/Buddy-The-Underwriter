@@ -72,6 +72,7 @@ describe("SBA eligibility + SOP exception detector (V5.2)", () => {
     meetsSizeStandard: true,
     ownershipDocumentedPct: 1,
     ownersUsCitizenOrNational: true,
+    ownersPrincipalResidenceInUs: true,
     creditElsewhereAvailable: false,
     equityInjectionPct: 0.12,
     usesOfProceeds: [{ code: "WORKING_CAPITAL", amount: 500_000 }],
@@ -105,6 +106,16 @@ describe("SBA eligibility + SOP exception detector (V5.2)", () => {
     assert.equal(r.eligible, false);
     const ex = detectSopExceptions({ ...baseApp, ownersUsCitizenOrNational: false });
     assert.ok(ex.some((e) => e.rule === "citizenship" && e.status === "FAIL"));
+  });
+
+  // Same notice, separate gating condition: a citizen/national whose
+  // principal residence is outside the US/its territories is also
+  // ineligible — independent of the citizenship check passing.
+  it("flags principal residence outside the US as ineligible even when citizenship passes", () => {
+    const r = checkEligibility({ ...baseApp, ownersPrincipalResidenceInUs: false });
+    assert.equal(r.eligible, false);
+    const ex = detectSopExceptions({ ...baseApp, ownersPrincipalResidenceInUs: false });
+    assert.ok(ex.some((e) => e.rule === "principal_residence" && e.status === "FAIL"));
   });
 });
 
