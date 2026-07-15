@@ -44,6 +44,10 @@ const QUARANTINE = new Set([
   // `node --conditions=react-server --test ...` (see
   // docs/archive/brokerage-sba-ready-v1/T1-AAR.md).
   "src/lib/feasibility/__tests__/financialViabilityAnalysis.test.ts",
+  // Same class: imports geminiClient.ts, which has `import "server-only"`
+  // (it reads GEMINI_API_KEY). Passes under
+  // `node --conditions=react-server --test ...`.
+  "src/lib/ai/__tests__/streamGeminiText.test.ts",
 ]);
 
 function isExcludedPath(rel) {

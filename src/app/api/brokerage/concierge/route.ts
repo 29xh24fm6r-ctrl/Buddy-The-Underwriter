@@ -24,11 +24,8 @@ import {
 import { getOrCreateBorrowerSession } from "@/lib/brokerage/session";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
-import { callGeminiJSON } from "@/lib/ai/geminiClient";
-import {
-  MODEL_CONCIERGE_REASONING,
-  MODEL_CONCIERGE_EXTRACTION,
-} from "@/lib/ai/models";
+import { streamGeminiText } from "@/lib/ai/geminiClient";
+import { MODEL_CONCIERGE_REASONING } from "@/lib/ai/models";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import {
   detectTridentIntent,
@@ -43,11 +40,12 @@ import {
   type BorrowerFacts,
 } from "@/lib/brokerage/propagateBorrowerFacts";
 import {
-  buildBorrowerExtractionPrompt,
-  computeNextCriticalField,
+  buildCombinedConciergeTurnPrompt,
+  CONCIERGE_FACTS_SENTINEL,
   mergeExtractedFacts,
   deepMerge,
 } from "@/lib/brokerage/borrowerConversation";
+import { createSentinelSplitter } from "@/lib/brokerage/sentinelStreamSplitter";
 import { correctableFieldFor } from "@/lib/brokerage/correctableFacts";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
 import {
@@ -67,7 +65,7 @@ type ConciergeRequest = {
 
 type CorrectFactRequest = { factPath: string; value?: unknown };
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<Response> {
   try {
     const body = (await req.json()) as ConciergeRequest | CorrectFactRequest;
 
@@ -433,192 +431,241 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Extract facts (Gemini Flash — cheap, fast, structured).
-    const extractPrompt = buildExtractionPrompt(
+    // ── Combined turn: extraction + warm reply in ONE Gemini call, streamed ──
+    // Previously two sequential calls (extract, then respond) — that's the
+    // dominant latency cost per turn. Now one call, streamed to the client:
+    // the reply (STEP 1 of the prompt) flushes to the browser as it's
+    // generated; the structured facts (STEP 2, after CONCIERGE_FACTS_SENTINEL)
+    // are buffered here and never shown to the borrower.
+    const existingFacts =
+      (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
+    const prompt = buildCombinedConciergeTurnPrompt(
       conciergeRow.conversation_history ?? [],
       body.userMessage,
+      existingFacts,
     );
-    const extractResult = await callGeminiJSON<Record<string, unknown>>({
-      model: MODEL_CONCIERGE_EXTRACTION,
-      prompt: extractPrompt,
-      logTag: "brokerage-concierge-extract",
-      // Fail fast rather than let a slow model call stall the borrower's
-      // reply for the client's default 25s timeout (x2 with the default
-      // retry) — a quick graceful fallback beats a long silent wait.
-      timeoutMs: 8_000,
-      maxRetries: 0,
-    });
-    const newFacts = extractResult.result ?? {};
-    const mergedFacts = mergeExtractedFacts(
-      (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
-      newFacts,
-    );
-
-    // Proactive draft assumptions persistence — keeps buddy_sba_assumptions
-    // tracking the borrower's current best-known inputs from turn 1, so a
-    // valid row always exists before trident generation. Never downgrades
-    // a confirmed row; non-fatal on failure (the trident path's
-    // ensureAssumptionsForPreview is the safety net).
-    persistAssumptionsDraft({
-      dealId: session.deal_id,
-      conciergeFacts: mergedFacts as Parameters<
-        typeof persistAssumptionsDraft
-      >[0]["conciergeFacts"],
-      sb,
-    }).catch((e) => {
-      console.warn(
-        "[brokerage-concierge] draft assumptions persist failed (non-fatal):",
-        e?.message ?? String(e),
-      );
-    });
-
-    // Claim the session the first time an email appears.
-    const extractedEmail = (newFacts as any)?.borrower?.email;
-    let sessionClaimed = false;
-    if (
-      typeof extractedEmail === "string" &&
-      extractedEmail.includes("@") &&
-      !session.claimed_email
-    ) {
-      await claimBorrowerSession({
-        tokenHash: session.tokenHash,
-        email: extractedEmail,
-      });
-      sessionClaimed = true;
-    }
-
-    // Display-name convenience update — never needs to gate the borrower's
-    // reply. Fire-and-forget, same as the propagation call below.
-    updateDealNames(sb, session.deal_id, mergedFacts).catch((e) => {
-      console.warn(
-        "[brokerage-concierge] updateDealNames failed (non-fatal):",
-        e?.message ?? String(e),
-      );
-    });
-
-    // Write-through: push extracted facts to the canonical tables the
-    // score engine and packaging pipeline actually read. Non-fatal —
-    // the conversation never breaks because a propagation write failed.
-    propagateBorrowerFacts({
-      dealId: session.deal_id,
-      bankId: brokerageBankId,
-      facts: mergedFacts as BorrowerFacts,
-      sb,
-    })
-      .then((r) => {
-        if (!r.ok) {
-          console.warn(
-            "[brokerage-concierge] fact propagation partial failure:",
-            r.errors.join("; "),
-          );
-        }
-      })
-      .catch((e) => {
-        console.warn(
-          "[brokerage-concierge] fact propagation failed (non-fatal):",
-          e?.message ?? String(e),
-        );
-      });
-
-    // Generate the warm response (Gemini Pro — tone + next-question judgment).
-    const responsePrompt = buildResponsePrompt(
-      conciergeRow.conversation_history ?? [],
-      body.userMessage,
-      mergedFacts,
-    );
-    const responseResult = await callGeminiJSON<{
-      message: string;
-      next_question: string | null;
-    }>({
-      model: MODEL_CONCIERGE_REASONING,
-      prompt: responsePrompt,
-      logTag: "brokerage-concierge-respond",
-      // Same fail-fast rationale as the extraction call above.
-      timeoutMs: 10_000,
-      maxRetries: 0,
-    });
-    const buddyOutput = responseResult.result ?? {
-      message:
-        "I'm glad to help. Tell me more about what you're looking to finance.",
-      next_question: null,
-    };
-
-    const updatedHistory = [
-      ...(conciergeRow.conversation_history ?? []),
-      { role: "user", content: body.userMessage },
-      { role: "assistant", content: buddyOutput.message },
-    ];
-    const progressPct = computeProgress(mergedFacts);
-
-    await sb
-      .from("borrower_concierge_sessions")
-      .update({
-        conversation_history: updatedHistory,
-        extracted_facts: mergedFacts,
-        progress_pct: progressPct,
-        last_question: buddyOutput.next_question ?? null,
-        last_response: body.userMessage,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", conciergeRow.id);
-
-    // Audit log — pure telemetry, never needs to gate the borrower's reply.
-    sb.from("ai_events")
-      .insert({
-        deal_id: session.deal_id,
-        scope: "brokerage_concierge",
-        action: "turn",
-        input_json: {
-          userMessage: body.userMessage,
-          source: body.source ?? "text",
-        },
-        output_json: {
-          buddyResponse: buddyOutput.message,
-          progressPct,
-          sessionClaimed,
-        },
-        confidence: 0.9,
-        requires_human_review: false,
-      })
-      .then(({ error }) => {
-        if (error) {
-          console.warn("[brokerage-concierge] ai_events insert failed (non-fatal):", error.message);
-        }
-      });
-
-    // S1-5: score trigger is fire-and-forget for v1. Non-fatal on failure.
     const priorTurnCount =
       ((conciergeRow.conversation_history as unknown[]) ?? []).length / 2;
-    const turnCount = priorTurnCount + 1;
-    if (turnCount >= 5 || sessionClaimed) {
-      computeBuddySBAScore({
-        dealId: session.deal_id,
-        sb,
-        context: "concierge_fact_change",
-      }).catch((e) => {
-        console.warn(
-          "[brokerage-concierge] score compute failed (non-fatal):",
-          e?.message ?? String(e),
-        );
-      });
-    }
 
-    return NextResponse.json({
-      ok: true,
-      dealId: session.deal_id,
-      buddyResponse: buddyOutput.message,
-      extractedFacts: mergedFacts,
-      progressPct,
-      nextQuestion: buddyOutput.next_question,
-      sessionClaimed,
-      tridentPreview: null,
-      // SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 4 — canonical response
-      // surface. Aliased alongside the existing fields so legacy clients
-      // keep working while new code can target the documented contract.
-      sessionId: session.deal_id,
-      assistantMessage: buddyOutput.message,
-      nextRequiredFields: computeNextRequiredFields(mergedFacts),
-      readinessHint: readinessHintFromProgress(progressPct),
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const sendEvent = (event: string, data: unknown) => {
+          controller.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+          );
+        };
+
+        const splitter = createSentinelSplitter(CONCIERGE_FACTS_SENTINEL);
+
+        try {
+          for await (const delta of streamGeminiText({
+            model: MODEL_CONCIERGE_REASONING,
+            prompt,
+            logTag: "brokerage-concierge-turn",
+            // Fail fast rather than let a slow model call stall the
+            // borrower's reply — whatever text already streamed through is
+            // kept and used as the reply (see the fallback logic below).
+            timeoutMs: 15_000,
+          })) {
+            const toShow = splitter.feed(delta);
+            if (toShow) sendEvent("token", { text: toShow });
+          }
+        } catch (e) {
+          console.warn(
+            "[brokerage-concierge] stream failed (using partial text, if any):",
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+
+        const { messageText: streamedMessage, trailingToShow, factsRaw } = splitter.finish();
+        if (trailingToShow) sendEvent("token", { text: trailingToShow });
+
+        let messageText = streamedMessage;
+        let newFacts: Record<string, unknown> = {};
+        let nextQuestion: string | null = null;
+
+        if (factsRaw !== null) {
+          const cleaned = factsRaw
+            .replace(/```json\s*/gi, "")
+            .replace(/```/g, "")
+            .trim();
+          try {
+            const parsed = JSON.parse(cleaned) as {
+              extracted_facts?: Record<string, unknown>;
+              next_question?: string | null;
+            };
+            newFacts = parsed.extracted_facts ?? {};
+            nextQuestion = parsed.next_question ?? null;
+          } catch (e) {
+            console.warn(
+              "[brokerage-concierge] facts JSON parse failed (non-fatal, no facts extracted this turn):",
+              e instanceof Error ? e.message : String(e),
+            );
+          }
+        }
+        // factsRaw === null means the sentinel never arrived (stream died
+        // early, or the model deviated from the format) — no facts
+        // extracted this turn, but the borrower still got whatever text
+        // did stream through as their reply.
+
+        if (!messageText) {
+          messageText =
+            "I'm glad to help. Tell me more about what you're looking to finance.";
+          sendEvent("token", { text: messageText });
+        }
+
+        const mergedFacts = mergeExtractedFacts(existingFacts, newFacts);
+
+        // Proactive draft assumptions persistence — keeps buddy_sba_assumptions
+        // tracking the borrower's current best-known inputs from turn 1, so a
+        // valid row always exists before trident generation. Never downgrades
+        // a confirmed row; non-fatal on failure (the trident path's
+        // ensureAssumptionsForPreview is the safety net).
+        persistAssumptionsDraft({
+          dealId: session.deal_id,
+          conciergeFacts: mergedFacts as Parameters<
+            typeof persistAssumptionsDraft
+          >[0]["conciergeFacts"],
+          sb,
+        }).catch((e) => {
+          console.warn(
+            "[brokerage-concierge] draft assumptions persist failed (non-fatal):",
+            e?.message ?? String(e),
+          );
+        });
+
+        // Claim the session the first time an email appears.
+        const extractedEmail = (newFacts as any)?.borrower?.email;
+        let sessionClaimed = false;
+        if (
+          typeof extractedEmail === "string" &&
+          extractedEmail.includes("@") &&
+          !session.claimed_email
+        ) {
+          await claimBorrowerSession({
+            tokenHash: session.tokenHash,
+            email: extractedEmail,
+          });
+          sessionClaimed = true;
+        }
+
+        // Display-name convenience update — never needs to gate the
+        // borrower's reply. Fire-and-forget, same as the propagation call
+        // below.
+        updateDealNames(sb, session.deal_id, mergedFacts).catch((e) => {
+          console.warn(
+            "[brokerage-concierge] updateDealNames failed (non-fatal):",
+            e?.message ?? String(e),
+          );
+        });
+
+        // Write-through: push extracted facts to the canonical tables the
+        // score engine and packaging pipeline actually read. Non-fatal —
+        // the conversation never breaks because a propagation write failed.
+        propagateBorrowerFacts({
+          dealId: session.deal_id,
+          bankId: brokerageBankId,
+          facts: mergedFacts as BorrowerFacts,
+          sb,
+        })
+          .then((r) => {
+            if (!r.ok) {
+              console.warn(
+                "[brokerage-concierge] fact propagation partial failure:",
+                r.errors.join("; "),
+              );
+            }
+          })
+          .catch((e) => {
+            console.warn(
+              "[brokerage-concierge] fact propagation failed (non-fatal):",
+              e?.message ?? String(e),
+            );
+          });
+
+        const updatedHistory = [
+          ...(conciergeRow.conversation_history ?? []),
+          { role: "user", content: body.userMessage },
+          { role: "assistant", content: messageText },
+        ];
+        const progressPct = computeProgress(mergedFacts);
+
+        await sb
+          .from("borrower_concierge_sessions")
+          .update({
+            conversation_history: updatedHistory,
+            extracted_facts: mergedFacts,
+            progress_pct: progressPct,
+            last_question: nextQuestion,
+            last_response: body.userMessage,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conciergeRow.id);
+
+        // Audit log — pure telemetry, never needs to gate the borrower's reply.
+        sb.from("ai_events")
+          .insert({
+            deal_id: session.deal_id,
+            scope: "brokerage_concierge",
+            action: "turn",
+            input_json: {
+              userMessage: body.userMessage,
+              source: body.source ?? "text",
+            },
+            output_json: { buddyResponse: messageText, progressPct, sessionClaimed },
+            confidence: 0.9,
+            requires_human_review: false,
+          })
+          .then(({ error }) => {
+            if (error) {
+              console.warn("[brokerage-concierge] ai_events insert failed (non-fatal):", error.message);
+            }
+          });
+
+        // S1-5: score trigger is fire-and-forget for v1. Non-fatal on failure.
+        const turnCount = priorTurnCount + 1;
+        if (turnCount >= 5 || sessionClaimed) {
+          computeBuddySBAScore({
+            dealId: session.deal_id,
+            sb,
+            context: "concierge_fact_change",
+          }).catch((e) => {
+            console.warn(
+              "[brokerage-concierge] score compute failed (non-fatal):",
+              e?.message ?? String(e),
+            );
+          });
+        }
+
+        sendEvent("done", {
+          ok: true,
+          dealId: session.deal_id,
+          buddyResponse: messageText,
+          extractedFacts: mergedFacts,
+          progressPct,
+          nextQuestion,
+          sessionClaimed,
+          tridentPreview: null,
+          // SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 4 — canonical response
+          // surface. Aliased alongside the existing fields so legacy clients
+          // keep working while new code can target the documented contract.
+          sessionId: session.deal_id,
+          assistantMessage: messageText,
+          nextRequiredFields: computeNextRequiredFields(mergedFacts),
+          readinessHint: readinessHintFromProgress(progressPct),
+        });
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -659,62 +706,12 @@ function readinessHintFromProgress(progressPct: number): string {
   return "Tell Buddy a bit more about your business and loan need.";
 }
 
-// ── Prompt builders ──────────────────────────────────────────────────────
-//
-// Arc 7 — extraction prompt, merge, and the next-critical-field ranker
-// live in @/lib/brokerage/borrowerConversation so text (this route) and
-// voice (/api/brokerage/voice/[sessionId]/dispatch) share exactly the same
-// logic instead of drifting apart. SSN is intentionally last-4 only —
-// Buddy should never ask for or record a full 9-digit SSN.
-
-const buildExtractionPrompt = buildBorrowerExtractionPrompt;
-
-function buildResponsePrompt(
-  history: unknown[],
-  userMessage: string,
-  facts: Record<string, any>,
-): string {
-  const nextCritical = computeNextCriticalField(facts);
-
-  return `You are Buddy, a warm and professional SBA loan concierge speaking directly to a prospective borrower on your public website.
-
-Tone:
-- Conversational, plain English, no banker jargon.
-- Encouraging. SBA loans feel intimidating — make them feel capable.
-- Ask ONE question at a time. The minimum next question that moves the process forward.
-- Never ask for a full SSN — last 4 digits only. If a borrower needs to confirm a sensitive detail (date of birth, address) you already have, read it back rather than asking them to repeat it from scratch.
-
-Conversation so far:
-${JSON.stringify(history, null, 2)}
-
-Borrower just said:
-${userMessage}
-
-Facts we know so far:
-${JSON.stringify(facts, null, 2)}
-
-Produce a response JSON:
-{
-  "message": "your warm conversational reply, including a question if needed",
-  "next_question": "the question you asked, or null if you did not ask one"
-}
-
-Priorities for what to ask next, in order:
-1. If we don't know their name, ask their name.
-2. If we don't know their email, ask for it so we can save their progress.
-3. If we don't know their business, ask what business they want to finance.
-4. If we don't know loan amount, ask how much they're looking to borrow.
-5. If we don't know use of proceeds, ask what the money is for.
-6. If we don't know if they're buying a franchise, ask.
-7. If we don't know their most recent annual revenue, ask for a rough figure.
-${
-  nextCritical
-    ? `8. Once the essentials above are known, the single most valuable next question is about: "${nextCritical.label}" — it's required on ${nextCritical.formsUnlocked} SBA form field(s) still missing it. Ask about it naturally, in plain English (don't say "form field").`
-    : ""
-}
-
-Return ONLY the JSON.`;
-}
+// Arc 7 — the combined turn prompt (extraction + reply in one call),
+// merge, and the next-critical-field ranker live in
+// @/lib/brokerage/borrowerConversation so text (this route) and voice
+// (/api/brokerage/voice/[sessionId]/dispatch) share exactly the same fact
+// schema and merge behavior instead of drifting apart. SSN is intentionally
+// last-4 only — Buddy should never ask for or record a full 9-digit SSN.
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
