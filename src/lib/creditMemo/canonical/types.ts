@@ -61,6 +61,21 @@ export type IncomeStatementRow = {
   is_projection: boolean;
 };
 
+// ── New Debt Row (one existing-debt-schedule instrument surviving this
+// transaction — not being refinanced, retained alongside the new loan) ────
+// Source: deal_existing_debt_schedule, filtered exactly like
+// loadDealInstruments.ts / computeTotalDebtService.ts filter it for the
+// SAME purpose (total debt service alongside the proposed loan):
+// is_being_refinanced=false AND included_in_global=true.
+export type NewDebtRow = {
+  lender: string | null;
+  amount: CanonicalMemoNumber;
+  rate: CanonicalMemoNumber;
+  term_months: CanonicalMemoNumber;
+  monthly_payment: CanonicalMemoNumber;
+  annual_debt_service: CanonicalMemoNumber;
+};
+
 // ── Balance Sheet Row (one period) ────────────────────────────────────────
 // Built from SL_ prefixed facts in deal_financial_facts.
 // Source: Schedule L (tax returns) or direct balance sheet extraction.
@@ -489,6 +504,10 @@ export type CanonicalCreditMemoV1 = {
   // ── PERSONAL FINANCIAL STATEMENTS ───────────────────────────────────────
   personal_financial_statements: GuarantorBudget[];
 
+  // ── NEW DEBT (existing-debt-schedule instruments surviving this
+  // transaction) ───────────────────────────────────────────────────────────
+  new_debt: { rows: NewDebtRow[] };
+
   // ── EXECUTIVE SUMMARY ───────────────────────────────────────────────────
   executive_summary: {
     narrative: string;
@@ -605,6 +624,16 @@ export type CanonicalCreditMemoV1 = {
     deal_classification: {
       is_cre_deal: boolean;
       is_loc_deal: boolean;
+      // True only on positive evidence of an owner at/above the SBA
+      // personal-guaranty threshold who is identifiable as an individual
+      // (see isLikelyIndividualOwner). Fails closed to false on
+      // empty/ambiguous ownership data — never a hard blocker source.
+      has_individual_guarantor_at_threshold: boolean;
+      // SBA SOP 50 10 8 new-business status (< 24 months), from the same
+      // detectNewBusinessFromFacts/assessNewBusinessRisk pair
+      // feasibilityEngine.ts and sbaRiskProfile.ts use. Fails closed to
+      // false when no business-age facts are on file.
+      is_new_business: boolean;
     };
     data_completeness: {
       deal: { total: number; populated: number; status: string };

@@ -45,6 +45,9 @@ import { buildExhibitRegistry } from "@/lib/creditMemo/canonical/buildExhibitReg
 import { buildDscrReconciliation } from "@/lib/creditMemo/financials/buildDscrReconciliation";
 import { sanitizeMemoBorrowerStory } from "@/lib/creditMemo/trust/sanitizeMemoBorrowerStory";
 import { loadMemoCommitteeIntelligence } from "@/lib/creditMemo/committee/loadMemoCommitteeIntelligence";
+import { isLikelyIndividualOwner } from "@/lib/ownership/entityClassification";
+import { OWNER_THRESHOLD_PERCENT } from "@/lib/ownership/rules";
+import { assessNewBusinessRisk, detectNewBusinessFromFacts } from "@/lib/sba/newBusinessProtocol";
 import {
   applyCommitteeGateToRecommendation,
   committeeGateConditions,
@@ -131,6 +134,16 @@ function formatLoanRequestPropertyAddress(
   const parts = [a.street, a.city, a.state, a.zip]
     .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
   return parts.length > 0 ? parts.join(", ") : "";
+}
+
+// Approximate months remaining until maturity — display only, never used in
+// financial computation.
+function monthsUntil(maturityDate: unknown): number | null {
+  if (typeof maturityDate !== "string" || !maturityDate) return null;
+  const target = new Date(maturityDate);
+  if (isNaN(target.getTime())) return null;
+  const now = new Date();
+  return (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
 }
 
 function formatCurrencySimple(val: number): string {
@@ -284,7 +297,7 @@ export async function buildCanonicalCreditMemo(args: {
       .filter(Boolean) as string[];
 
     // Phase 33: New parallel queries — borrower, owners, AI risk, structural pricing, period facts, overrides, qualitative facts, management profiles, borrower story, personal income facts
-    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult, qualFactsResult, mgmtProfilesResult, borrowerStoryResult, personalIncomeFactResult] = await Promise.all([
+    const [borrowerResult, ownersResult, aiRiskResult, structuralPricingResult, periodFactsResult, overridesResult, qualFactsResult, mgmtProfilesResult, borrowerStoryResult, personalIncomeFactResult, existingDebtResult, businessAgeFactsResult] = await Promise.all([
       deal.borrower_id
         ? (sb as any).from("borrowers").select("naics_code, naics_description, legal_name, ein, city, state, entity_type").eq("id", deal.borrower_id).maybeSingle()
         : Promise.resolve({ data: null }),
@@ -349,6 +362,27 @@ export async function buildCanonicalCreditMemo(args: {
         .not("fact_value_num", "is", null)
         .order("fact_period_end", { ascending: false })
         .limit(5),
+      // new_debt section (task 42): existing-debt-schedule instruments
+      // surviving this transaction — same filter loadDealInstruments.ts /
+      // computeTotalDebtService.ts use for the same purpose.
+      (sb as any)
+        .from("deal_existing_debt_schedule")
+        .select("lender_name, current_balance, original_amount, interest_rate_pct, monthly_payment, annual_debt_service, maturity_date")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
+        .eq("is_being_refinanced", false)
+        .eq("included_in_global", true),
+      // repayment_breakeven gating: same business-age fact query
+      // feasibilityEngine.ts / sbaRiskProfile.ts already use for the
+      // new-business SBA SOP 50 10 8 determination, so this memo agrees
+      // with those engines on whether a deal is a new business.
+      (sb as any)
+        .from("deal_financial_facts")
+        .select("fact_key, fact_value_num, fact_value_text")
+        .eq("deal_id", args.dealId)
+        .eq("bank_id", bankId)
+        .eq("is_superseded", false)
+        .in("fact_key", ["MONTHS_IN_BUSINESS", "YEARS_IN_BUSINESS", "BUSINESS_DATE_FORMED", "DATE_FORMED"]),
     ]);
 
     const overrides = (overridesResult?.data?.overrides ?? {}) as Record<string, any>;
@@ -362,6 +396,7 @@ export async function buildCanonicalCreditMemo(args: {
     }
     const borrower = borrowerResult.data as any | null;
     const ownerEntities = (ownersResult.data ?? []) as any[];
+    const existingDebtRows = (existingDebtResult.data ?? []) as any[];
     const aiRisk = aiRiskResult.data as any | null;
     const pricingRow = structuralPricingResult.data as any | null;
     // Elite: extract personal income / AGI facts for income reconciliation
@@ -1340,6 +1375,41 @@ export async function buildCanonicalCreditMemo(args: {
       principals: mgmtResult.principals,
     };
 
+    // Guarantor signal for global_cash_flow / personal_financial_statements
+    // gating: true only when ownership_entities has an owner at/above the
+    // SBA personal-guaranty threshold who is positively identifiable as an
+    // individual (not an entity). Empty/ambiguous ownership data yields
+    // false — fails closed, never blocks a legitimate deal.
+    const hasIndividualGuarantorAtThreshold = ownerEntities.some((o: any) => {
+      const pct = o.ownership_pct == null ? null : Number(o.ownership_pct);
+      if (pct == null || !Number.isFinite(pct) || pct < OWNER_THRESHOLD_PERCENT) return false;
+      return isLikelyIndividualOwner(
+        { display_name: o.display_name ?? null, entity_type: o.entity_type ?? null },
+        deal.borrower_name ?? null,
+        deal.display_name ?? deal.name ?? null,
+      );
+    });
+
+    // New-business signal for repayment_breakeven gating: reuses the same
+    // detectNewBusinessFromFacts/assessNewBusinessRisk pair feasibilityEngine.ts
+    // and sbaRiskProfile.ts already use, so this memo agrees with those engines
+    // on new-business status. Fails closed to false when no business-age facts
+    // exist (detectNewBusinessFromFacts returns monthsInBusiness: null, which
+    // assessNewBusinessRisk treats as not-new) — never blocks on absent data.
+    const businessAgeFacts = ((businessAgeFactsResult?.data ?? []) as any[]).map((f: any) => ({
+      fact_key: f.fact_key,
+      value_numeric: f.fact_value_num == null ? null : Number(f.fact_value_num),
+      value_text: f.fact_value_text ?? null,
+    }));
+    const { yearsInBusiness, monthsInBusiness } = detectNewBusinessFromFacts(businessAgeFacts);
+    const isNewBusiness = assessNewBusinessRisk({
+      yearsInBusiness,
+      monthsInBusiness,
+      hasBusinessPlan: true,
+      managementYearsInIndustry: null,
+      loanType: "7a",
+    }).flags.isNewBusiness;
+
     // ===== Elite: Build party identity for header =====
     const parties = buildMemoParties({
       borrowerName: String(deal.borrower_name ?? borrower?.legal_name ?? "—"),
@@ -1862,6 +1932,17 @@ export async function buildCanonicalCreditMemo(args: {
 
       personal_financial_statements: personalFinancialStatements,
 
+      new_debt: {
+        rows: existingDebtRows.map((r: any) => ({
+          lender: r.lender_name ?? null,
+          amount: r.current_balance ?? r.original_amount ?? null,
+          rate: r.interest_rate_pct ?? null,
+          term_months: monthsUntil(r.maturity_date),
+          monthly_payment: r.monthly_payment ?? null,
+          annual_debt_service: r.annual_debt_service ?? null,
+        })),
+      },
+
       executive_summary: {
         narrative: mode === "committee"
           ? "⚠ Executive summary not yet generated — run AI narrative generation."
@@ -1999,6 +2080,8 @@ export async function buildCanonicalCreditMemo(args: {
         deal_classification: {
           is_cre_deal: condIsCre,
           is_loc_deal: isLOC,
+          has_individual_guarantor_at_threshold: hasIndividualGuarantorAtThreshold,
+          is_new_business: isNewBusiness,
         },
         data_completeness: bindings.completeness,
         // Phase 6+9: Filter artifact/placeholder spreads from committee-facing list

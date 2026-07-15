@@ -54,19 +54,7 @@ export type BuildPrincipalsArgs = {
 
 // ─── Entity detection ──────────────────────────────────────────────────────
 
-const ENTITY_SUFFIX_RE = /\b(llc|inc|corp|ltd|lp|llp|pllc|co|company)\b/i;
-
-function isLikelyEntity(name: string, borrowerName: string | null, dealName: string | null): boolean {
-  if (!name) return true;
-  const lower = name.toLowerCase().trim();
-  if (lower === "borrower" || lower === "unknown") return true;
-  const borrowerLower = (borrowerName ?? "").toLowerCase().trim();
-  const dealLower = (dealName ?? "").toLowerCase().trim();
-  if (borrowerLower && lower === borrowerLower) return true;
-  if (dealLower && lower === dealLower) return true;
-  if (ENTITY_SUFFIX_RE.test(name)) return true;
-  return false;
-}
+import { isLikelyEntityName as isLikelyEntity } from "@/lib/ownership/entityClassification";
 
 // ─── Bio builder ───────────────────────────────────────────────────────────
 
