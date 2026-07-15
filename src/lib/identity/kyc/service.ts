@@ -27,6 +27,13 @@ export type InitiateKycArgs = {
   initiatorUserId: string;
   initiatorIp?: string | null;
   initiatorUserAgent?: string | null;
+  /**
+   * Test-mode only — lets a mock-vendor caller record `vendor: "mock_persona"`
+   * instead of "persona" so a fake verification is never indistinguishable
+   * from a real one when someone queries this table. Real callers must
+   * never pass this; it defaults to "persona".
+   */
+  vendorOverride?: string;
 };
 
 export type InitiateKycResult =
@@ -94,7 +101,7 @@ export async function initiateKyc(
       deal_id: args.dealId,
       bank_id: args.bankId,
       ownership_entity_id: args.ownershipEntityId,
-      vendor: "persona",
+      vendor: args.vendorOverride ?? "persona",
       vendor_inquiry_id: inquiry.data.id,
       vendor_template_id: templateId,
       status: "created",

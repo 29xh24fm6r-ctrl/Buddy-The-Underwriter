@@ -42,12 +42,22 @@ import "server-only";
  *   POST prepare-forms             -> create (or reuse) the package run.
  *   POST generate-forms { onlyItemId? } -> render one or all ungenerated items.
  *   POST assemble-forms            -> merge all generated items into one PDF.
+ *
+ * mock-complete-kyc / mock-complete-esign — test-mode-only completion
+ * endpoints for the mock-vendor harness (isMockVendorsEnabled(), gated
+ * behind BUDDY_MOCK_VENDORS + NODE_ENV!=="production"). kyc/esign above
+ * already transparently swap in mock Persona/DocuSeal clients when that
+ * flag is on; these two GET actions are what the resulting mock
+ * one-time-link/embed_url actually open, so a browser-driving E2E test can
+ * click through a real confirmation page instead of the flow silently
+ * completing itself. 404s unconditionally when the flag is off — these
+ * must never be reachable outside test mode.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
-import { initiateKyc } from "@/lib/identity/kyc/service";
+import { initiateKyc, handlePersonaWebhook } from "@/lib/identity/kyc/service";
 import {
   createPersonaInquiry,
   fetchPersonaInquiry,
@@ -55,6 +65,7 @@ import {
 } from "@/lib/identity/kyc/persona";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
 import { requestSignature } from "@/lib/esign/docuseal/service";
+import { handleDocusealWebhook } from "@/lib/esign/docuseal/service";
 import {
   createDocusealSubmission,
   fetchDocusealSubmission,
@@ -67,6 +78,19 @@ import {
   generateBrokerageForms,
   assembleBrokerageFormsPackage,
 } from "@/lib/brokerage/borrowerFormsOrchestration";
+import { isMockVendorsEnabled } from "@/lib/testMode/mockVendors";
+import {
+  mockCreatePersonaInquiry,
+  mockFetchPersonaInquiry,
+  buildMockPersonaOneTimeLink,
+} from "@/lib/identity/kyc/mockPersona";
+import { mockRequestSignature } from "@/lib/esign/docuseal/mockService";
+import {
+  mockCreateDocusealSubmission,
+  mockFetchDocusealSubmission,
+  mockDownloadDocusealSignedPdf,
+  mockDownloadDocusealAuditTrail,
+} from "@/lib/esign/docuseal/mockClient";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -83,9 +107,11 @@ export async function GET(req: NextRequest, { params }: Ctx): Promise<NextRespon
     return NextResponse.json({ ok: false }, { status: 404 });
   }
 
-  if (action === "kyc") return getKycStatus(req, dealId);
+  if (action === "kyc") return getKycStatus(req, dealId, session.claimed_email);
   if (action === "esign") return getEsignStatus(req, dealId);
   if (action === "forms-status") return getFormsStatus(dealId);
+  if (action === "mock-complete-kyc") return getMockCompleteKyc(req, dealId);
+  if (action === "mock-complete-esign") return getMockCompleteEsign(req, dealId);
   return NextResponse.json({ ok: false, error: "unknown_action" }, { status: 404 });
 }
 
@@ -104,7 +130,7 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
   return NextResponse.json({ ok: false, error: "unknown_action" }, { status: 404 });
 }
 
-async function getKycStatus(req: NextRequest, dealId: string): Promise<NextResponse> {
+async function getKycStatus(req: NextRequest, dealId: string, sessionEmail: string | null): Promise<NextResponse> {
   const sb = supabaseAdmin();
   const ownershipEntityId = req.nextUrl.searchParams.get("ownershipEntityId");
 
@@ -167,7 +193,7 @@ async function getKycStatus(req: NextRequest, dealId: string): Promise<NextRespo
     };
   });
 
-  return NextResponse.json({ ok: true, owners: rows });
+  return NextResponse.json({ ok: true, owners: rows, sessionEmail });
 }
 
 async function postKyc(req: NextRequest, dealId: string, bankId: string): Promise<NextResponse> {
@@ -189,7 +215,8 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
     return NextResponse.json({ ok: false, error: "owner_not_found" }, { status: 404 });
   }
 
-  const templateId = process.env.PERSONA_TEMPLATE_ID_IAL2;
+  const mockMode = isMockVendorsEnabled();
+  const templateId = mockMode ? "mock-template-ial2" : process.env.PERSONA_TEMPLATE_ID_IAL2;
   if (!templateId) {
     return NextResponse.json({ ok: false, error: "persona_not_configured" }, { status: 503 });
   }
@@ -202,10 +229,18 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
       initiatorUserId: `brokerage_borrower_session:${dealId}`,
       initiatorIp: req.headers.get("x-forwarded-for"),
       initiatorUserAgent: req.headers.get("user-agent"),
+      ...(mockMode ? { vendorOverride: "mock_persona" } : {}),
     },
     {
       sb: supabaseAdmin(),
-      persona: { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink },
+      persona: mockMode
+        ? {
+            createPersonaInquiry: mockCreatePersonaInquiry,
+            fetchPersonaInquiry: mockFetchPersonaInquiry,
+            generatePersonaOneTimeLink: (inquiryId: string) =>
+              Promise.resolve(buildMockPersonaOneTimeLink(dealId, inquiryId)),
+          }
+        : { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink },
       templateId,
     },
   );
@@ -223,6 +258,49 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
     oneTimeLink: result.oneTimeLink,
     reused: result.reused,
   });
+}
+
+async function getMockCompleteKyc(req: NextRequest, dealId: string): Promise<NextResponse> {
+  if (!isMockVendorsEnabled()) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const inquiryId = req.nextUrl.searchParams.get("inquiryId");
+  if (!inquiryId) {
+    return htmlResponse("Missing inquiryId.", 400);
+  }
+
+  const sb = supabaseAdmin();
+  const { data: verification } = await sb
+    .from("borrower_identity_verifications")
+    .select("id, deal_id")
+    .eq("vendor_inquiry_id", inquiryId)
+    .eq("deal_id", dealId)
+    .maybeSingle();
+  if (!verification) {
+    return htmlResponse("No matching mock verification found for this deal.", 404);
+  }
+
+  const result = await handlePersonaWebhook(
+    { inquiry_id: inquiryId },
+    {
+      sb,
+      persona: {
+        createPersonaInquiry: mockCreatePersonaInquiry,
+        fetchPersonaInquiry: mockFetchPersonaInquiry,
+        generatePersonaOneTimeLink: (id: string) => Promise.resolve(buildMockPersonaOneTimeLink(dealId, id)),
+      },
+    },
+  );
+
+  if (!result.ok) {
+    return htmlResponse(`Mock KYC completion failed: ${result.reason}`, 500);
+  }
+
+  return htmlResponse(
+    "✅ [TEST MODE] Identity verified. This is a mock verification, not a real one — you can close this tab.",
+    200,
+  );
 }
 
 async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextResponse> {
@@ -288,22 +366,23 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     return NextResponse.json({ ok: false, error: "owner_not_found" }, { status: 404 });
   }
 
-  const result = await requestSignature(
-    {
-      dealId,
-      bankId,
-      formCode,
-      templateVersion,
-      signerOwnershipEntityId,
-      signerRole: signerRole as any,
-      signerEmail,
-      signerName,
-    },
-    {
-      sb: supabaseAdmin(),
-      docuseal: { createDocusealSubmission, fetchDocusealSubmission, downloadDocusealSignedPdf, downloadDocusealAuditTrail },
-    },
-  );
+  const signatureArgs = {
+    dealId,
+    bankId,
+    formCode,
+    templateVersion,
+    signerOwnershipEntityId,
+    signerRole: signerRole as any,
+    signerEmail,
+    signerName,
+  };
+
+  const result = isMockVendorsEnabled()
+    ? await mockRequestSignature(signatureArgs, { sb: supabaseAdmin() })
+    : await requestSignature(signatureArgs, {
+        sb: supabaseAdmin(),
+        docuseal: { createDocusealSubmission, fetchDocusealSubmission, downloadDocusealSignedPdf, downloadDocusealAuditTrail },
+      });
 
   if (!result.ok) {
     const status = result.reason === "IAL2_NOT_COMPLETED" ? 403 : 502;
@@ -311,6 +390,48 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
   }
 
   return NextResponse.json({ ok: true, submission_id: result.submissionId, embed_url: result.embedUrl });
+}
+
+async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<NextResponse> {
+  if (!isMockVendorsEnabled()) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const submissionId = req.nextUrl.searchParams.get("submissionId");
+  const externalId = req.nextUrl.searchParams.get("externalId");
+  if (!submissionId || !externalId || !externalId.startsWith(`deal:${dealId}:`)) {
+    return htmlResponse("Missing or mismatched submission for this deal.", 400);
+  }
+
+  const sb = supabaseAdmin();
+  const result = await handleDocusealWebhook(
+    { event_type: "form.completed", data: { external_id: externalId, id: submissionId, submission_id: submissionId } },
+    {
+      sb,
+      docuseal: {
+        createDocusealSubmission: mockCreateDocusealSubmission,
+        fetchDocusealSubmission: mockFetchDocusealSubmission,
+        downloadDocusealSignedPdf: mockDownloadDocusealSignedPdf,
+        downloadDocusealAuditTrail: mockDownloadDocusealAuditTrail,
+      },
+    },
+  );
+
+  if (!result.ok) {
+    return htmlResponse(`Mock e-sign completion failed: ${result.reason}`, 500);
+  }
+
+  return htmlResponse(
+    "✅ [TEST MODE] Document signed. This is a mock signature, not a real one — you can close this tab.",
+    200,
+  );
+}
+
+function htmlResponse(message: string, status: number): NextResponse {
+  return new NextResponse(
+    `<!doctype html><html><body style="font-family: sans-serif; padding: 2rem;"><p>${message}</p></body></html>`,
+    { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
 }
 
 async function getFormsStatus(dealId: string): Promise<NextResponse> {
