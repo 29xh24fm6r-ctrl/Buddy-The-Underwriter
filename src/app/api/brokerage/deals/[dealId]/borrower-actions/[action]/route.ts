@@ -25,11 +25,23 @@ import "server-only";
  *   GET  ?ownershipEntityId=...    -> latest verification record for one owner.
  *   POST { ownership_entity_id }   -> initiate a Persona IAL2 verification.
  *
- * esign (deliberately generic on form_code — Brokerage does not yet
- * generate per-owner SBA forms; see the T2 AAR):
+ * esign (form_code is generic, not tied to the forms-* actions below —
+ * DocuSeal signing uses its own pre-configured template per form code, not
+ * the PDF forms-* generates; see the T5 AAR):
  *   GET  ?submissionId=...         -> submission status.
  *   POST { form_code, template_version, signer_ownership_entity_id,
  *          signer_role, signer_email, signer_name } -> request a signature.
+ *
+ * forms (per-owner SBA form generation — surfaced as a Ticket 2 follow-up;
+ * produces the filled reference PDFs for the eventual lender-facing 10-tab
+ * package. Reuses the exact Underwriter-tenant pipeline — prepareSbaPackage/
+ * generatePdfForFillRun/assembleTenTabPackage, src/lib/brokerage/
+ * borrowerFormsOrchestration.ts — resolving "the deal's package run"
+ * server-side instead of trusting a client-supplied packageRunId):
+ *   GET  forms-status              -> the deal's package run + item statuses.
+ *   POST prepare-forms             -> create (or reuse) the package run.
+ *   POST generate-forms { onlyItemId? } -> render one or all ungenerated items.
+ *   POST assemble-forms            -> merge all generated items into one PDF.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -49,6 +61,12 @@ import {
   downloadDocusealSignedPdf,
   downloadDocusealAuditTrail,
 } from "@/lib/esign/docuseal/client";
+import {
+  prepareBrokerageSbaForms,
+  getBrokerageFormsStatus,
+  generateBrokerageForms,
+  assembleBrokerageFormsPackage,
+} from "@/lib/brokerage/borrowerFormsOrchestration";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -67,6 +85,7 @@ export async function GET(req: NextRequest, { params }: Ctx): Promise<NextRespon
 
   if (action === "kyc") return getKycStatus(req, dealId);
   if (action === "esign") return getEsignStatus(req, dealId);
+  if (action === "forms-status") return getFormsStatus(dealId);
   return NextResponse.json({ ok: false, error: "unknown_action" }, { status: 404 });
 }
 
@@ -79,6 +98,9 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
 
   if (action === "kyc") return postKyc(req, dealId, session.bank_id);
   if (action === "esign") return postEsign(req, dealId, session.bank_id);
+  if (action === "prepare-forms") return postPrepareForms(dealId);
+  if (action === "generate-forms") return postGenerateForms(req, dealId);
+  if (action === "assemble-forms") return postAssembleForms(dealId);
   return NextResponse.json({ ok: false, error: "unknown_action" }, { status: 404 });
 }
 
@@ -289,4 +311,55 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
   }
 
   return NextResponse.json({ ok: true, submission_id: result.submissionId, embed_url: result.embedUrl });
+}
+
+async function getFormsStatus(dealId: string): Promise<NextResponse> {
+  const result = await getBrokerageFormsStatus(dealId, supabaseAdmin());
+  if (!result.ok) {
+    return NextResponse.json({ ok: true, packageRun: null, items: [] });
+  }
+  return NextResponse.json({ ok: true, packageRun: result.packageRun, items: result.items });
+}
+
+async function postPrepareForms(dealId: string): Promise<NextResponse> {
+  const result = await prepareBrokerageSbaForms(dealId, supabaseAdmin());
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.reason }, { status: 404 });
+  }
+  return NextResponse.json({
+    ok: true,
+    packageRunId: result.packageRunId,
+    itemCount: result.itemCount,
+    reused: result.reused,
+  });
+}
+
+async function postGenerateForms(req: NextRequest, dealId: string): Promise<NextResponse> {
+  const body = await req.json().catch(() => ({}));
+  const onlyItemId = typeof body?.onlyItemId === "string" ? body.onlyItemId : undefined;
+
+  const result = await generateBrokerageForms(dealId, supabaseAdmin(), { onlyItemId });
+  if (!result.ok) {
+    return NextResponse.json(
+      { ok: false, error: result.reason },
+      { status: result.reason === "NO_PACKAGE_RUN" ? 400 : 404 },
+    );
+  }
+  return NextResponse.json({ ok: true, results: result.results });
+}
+
+async function postAssembleForms(dealId: string): Promise<NextResponse> {
+  const result = await assembleBrokerageFormsPackage(dealId, supabaseAdmin());
+  if (!result.ok) {
+    return NextResponse.json(
+      { ok: false, error: result.reason, detail: "detail" in result ? result.detail : undefined },
+      { status: result.reason === "NO_PACKAGE_RUN" || result.reason === "PACKAGE_RUN_NOT_FOUND" ? 404 : 422 },
+    );
+  }
+  return NextResponse.json({
+    ok: true,
+    storagePath: result.storagePath,
+    itemCount: result.itemCount,
+    missingItems: result.missingItems,
+  });
 }

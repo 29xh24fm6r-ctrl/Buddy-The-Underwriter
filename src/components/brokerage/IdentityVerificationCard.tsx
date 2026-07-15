@@ -41,7 +41,7 @@ export function IdentityVerificationCard({ dealId }: { dealId: string }) {
 
   const load = async () => {
     try {
-      const res = await fetch(`/api/brokerage/deals/${dealId}/identity/kyc`, {
+      const res = await fetch(`/api/brokerage/deals/${dealId}/borrower-actions/kyc`, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -69,7 +69,7 @@ export function IdentityVerificationCard({ dealId }: { dealId: string }) {
     setBusyId(ownershipEntityId);
     setError(null);
     try {
-      const res = await fetch(`/api/brokerage/deals/${dealId}/identity/kyc`, {
+      const res = await fetch(`/api/brokerage/deals/${dealId}/borrower-actions/kyc`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

@@ -134,6 +134,22 @@ export async function POST(
     });
   }
 
+  // Prepare (not generate — that needs official SBA templates ingested,
+  // a separate environmental blocker) the borrower's per-owner SBA form
+  // package now that a lender is chosen (best-effort, non-fatal). Ticket
+  // 2's default sequencing decision: e-signature happens after pick, so
+  // the forms it will need should already exist by then rather than being
+  // built lazily the first time someone opens a signing screen.
+  try {
+    const { prepareBrokerageSbaForms } = await import("@/lib/brokerage/borrowerFormsOrchestration");
+    await prepareBrokerageSbaForms(dealId, sb);
+  } catch (err) {
+    console.warn("[marketplace/pick] sba form-package prepare failed (non-fatal)", {
+      dealId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     pickId: (pick as any).id,
