@@ -442,6 +442,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       model: MODEL_CONCIERGE_EXTRACTION,
       prompt: extractPrompt,
       logTag: "brokerage-concierge-extract",
+      // Fail fast rather than let a slow model call stall the borrower's
+      // reply for the client's default 25s timeout (x2 with the default
+      // retry) — a quick graceful fallback beats a long silent wait.
+      timeoutMs: 8_000,
+      maxRetries: 0,
     });
     const newFacts = extractResult.result ?? {};
     const mergedFacts = mergeExtractedFacts(
@@ -482,7 +487,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       sessionClaimed = true;
     }
 
-    await updateDealNames(sb, session.deal_id, mergedFacts);
+    // Display-name convenience update — never needs to gate the borrower's
+    // reply. Fire-and-forget, same as the propagation call below.
+    updateDealNames(sb, session.deal_id, mergedFacts).catch((e) => {
+      console.warn(
+        "[brokerage-concierge] updateDealNames failed (non-fatal):",
+        e?.message ?? String(e),
+      );
+    });
 
     // Write-through: push extracted facts to the canonical tables the
     // score engine and packaging pipeline actually read. Non-fatal —
@@ -521,6 +533,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       model: MODEL_CONCIERGE_REASONING,
       prompt: responsePrompt,
       logTag: "brokerage-concierge-respond",
+      // Same fail-fast rationale as the extraction call above.
+      timeoutMs: 10_000,
+      maxRetries: 0,
     });
     const buddyOutput = responseResult.result ?? {
       message:
@@ -547,22 +562,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       })
       .eq("id", conciergeRow.id);
 
-    await sb.from("ai_events").insert({
-      deal_id: session.deal_id,
-      scope: "brokerage_concierge",
-      action: "turn",
-      input_json: {
-        userMessage: body.userMessage,
-        source: body.source ?? "text",
-      },
-      output_json: {
-        buddyResponse: buddyOutput.message,
-        progressPct,
-        sessionClaimed,
-      },
-      confidence: 0.9,
-      requires_human_review: false,
-    });
+    // Audit log — pure telemetry, never needs to gate the borrower's reply.
+    sb.from("ai_events")
+      .insert({
+        deal_id: session.deal_id,
+        scope: "brokerage_concierge",
+        action: "turn",
+        input_json: {
+          userMessage: body.userMessage,
+          source: body.source ?? "text",
+        },
+        output_json: {
+          buddyResponse: buddyOutput.message,
+          progressPct,
+          sessionClaimed,
+        },
+        confidence: 0.9,
+        requires_human_review: false,
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.warn("[brokerage-concierge] ai_events insert failed (non-fatal):", error.message);
+        }
+      });
 
     // S1-5: score trigger is fire-and-forget for v1. Non-fatal on failure.
     const priorTurnCount =
