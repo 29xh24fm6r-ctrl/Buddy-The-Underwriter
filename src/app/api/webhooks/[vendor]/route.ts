@@ -2,30 +2,26 @@ import "server-only";
 
 /**
  * POST /api/webhooks/[vendor]
- * vendor ∈ {"docuseal", "persona", "plaid"}
+ * vendor ∈ {"signwell", "didit", "plaid"}
  *
  * Consolidates the former separate esign/docuseal/webhook,
  * kyc/persona/webhook, and borrower/plaid/webhook route files into one
  * dynamic-segment dispatcher — route/page slot budget discipline (see the
- * Drift Log). Docuseal/Persona are not deployed/provisioned in any
- * environment yet (see docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md,
- * updated alongside this change); Plaid webhooks would need reconfiguring
- * in the Plaid dashboard to this new URL before relying on them.
+ * Drift Log). SignWell/Didit replaced DocuSeal/Persona (neither of which
+ * was ever deployed/provisioned — see
+ * docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md, updated
+ * alongside this change); Plaid webhooks would need reconfiguring in the
+ * Plaid dashboard to this new URL before relying on them.
  */
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { verifyDocusealWebhookSignature } from "@/lib/esign/docuseal/verifyDocusealWebhook";
-import { handleDocusealWebhook } from "@/lib/esign/docuseal/service";
-import {
-  createDocusealSubmission,
-  fetchDocusealSubmission,
-  downloadDocusealSignedPdf,
-  downloadDocusealAuditTrail,
-} from "@/lib/esign/docuseal/client";
-import { verifyPersonaWebhookSignature } from "@/lib/identity/kyc/verifyPersonaWebhook";
-import { handlePersonaWebhook } from "@/lib/identity/kyc/service";
-import { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink } from "@/lib/identity/kyc/persona";
+import { verifySignwellWebhookEvent } from "@/lib/esign/signwell/verifySignwellWebhook";
+import { handleSignwellWebhook } from "@/lib/esign/signwell/service";
+import { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { verifyDiditWebhookSignature } from "@/lib/identity/kyc/verifyDiditWebhook";
+import { handleDiditWebhook } from "@/lib/identity/kyc/service";
+import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { verifyPlaidWebhook } from "@/lib/integrations/plaid/verifyWebhook";
 import { syncTransactions } from "@/lib/integrations/plaid/sync";
 
@@ -35,20 +31,20 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ vendor: string }> };
 
-async function handleDocuseal(req: Request): Promise<Response> {
+async function handleSignwell(req: Request): Promise<Response> {
   const rawBody = await req.text();
-  const secret = process.env.DOCUSEAL_WEBHOOK_SECRET;
-  if (!secret) {
-    console.error("[/api/webhooks/docuseal] DOCUSEAL_WEBHOOK_SECRET not configured");
+  const webhookId = process.env.SIGNWELL_WEBHOOK_ID;
+  if (!webhookId) {
+    console.error("[/api/webhooks/signwell] SIGNWELL_WEBHOOK_ID not configured");
     return NextResponse.json({ ok: false, error: "not_configured" }, { status: 503 });
   }
 
-  const valid = verifyDocusealWebhookSignature(rawBody, req.headers.get("X-Docuseal-Signature"), secret);
+  const valid = verifySignwellWebhookEvent(rawBody, webhookId);
   if (!valid) {
     return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
   }
 
-  let payload: { event_type: string; data: Record<string, any> };
+  let payload: { event: { type: string }; data: { object: Record<string, any> } };
   try {
     payload = JSON.parse(rawBody);
   } catch {
@@ -56,31 +52,26 @@ async function handleDocuseal(req: Request): Promise<Response> {
   }
 
   try {
-    const result = await handleDocusealWebhook(payload, {
+    const result = await handleSignwellWebhook(payload, {
       sb: supabaseAdmin(),
-      docuseal: { createDocusealSubmission, fetchDocusealSubmission, downloadDocusealSignedPdf, downloadDocusealAuditTrail },
+      signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
     });
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.reason, detail: (result as any).detail }, { status: 422 });
     }
     return NextResponse.json(result);
   } catch (e) {
-    console.error("[/api/webhooks/docuseal]", e);
+    console.error("[/api/webhooks/signwell]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
 }
 
-async function handlePersona(req: Request): Promise<Response> {
+async function handleDidit(req: Request): Promise<Response> {
   const rawBody = await req.text();
-  const secret = process.env.PERSONA_WEBHOOK_SECRET;
+  const secret = process.env.DIDIT_WEBHOOK_SECRET_KEY;
   if (!secret) {
-    console.error("[/api/webhooks/persona] PERSONA_WEBHOOK_SECRET not configured");
+    console.error("[/api/webhooks/didit] DIDIT_WEBHOOK_SECRET_KEY not configured");
     return NextResponse.json({ ok: false, error: "not_configured" }, { status: 503 });
-  }
-
-  const valid = verifyPersonaWebhookSignature(rawBody, req.headers.get("Persona-Signature"), secret);
-  if (!valid) {
-    return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
   }
 
   let payload: Record<string, any>;
@@ -90,17 +81,29 @@ async function handlePersona(req: Request): Promise<Response> {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
+  const valid = verifyDiditWebhookSignature({
+    sessionId: payload.session_id,
+    status: payload.status,
+    webhookType: payload.webhook_type,
+    timestampHeader: req.headers.get("X-Timestamp"),
+    signatureHeader: req.headers.get("X-Signature-Simple"),
+    secret,
+  });
+  if (!valid) {
+    return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
+  }
+
   try {
-    const result = await handlePersonaWebhook(payload, {
+    const result = await handleDiditWebhook(payload, {
       sb: supabaseAdmin(),
-      persona: { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink },
+      didit: { createDiditSession, fetchDiditSession, getDiditSessionDecision },
     });
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.reason }, { status: 422 });
     }
     return NextResponse.json({ ok: true, verification_id: result.verification_id, status: result.status });
   } catch (e) {
-    console.error("[/api/webhooks/persona]", e);
+    console.error("[/api/webhooks/didit]", e);
     return NextResponse.json({ ok: false, error: "unexpected_error" }, { status: 500 });
   }
 }
@@ -168,8 +171,8 @@ async function handlePlaid(req: Request): Promise<Response> {
 
 export async function POST(req: Request, ctx: Ctx) {
   const { vendor } = await ctx.params;
-  if (vendor === "docuseal") return handleDocuseal(req);
-  if (vendor === "persona") return handlePersona(req);
+  if (vendor === "signwell") return handleSignwell(req);
+  if (vendor === "didit") return handleDidit(req);
   if (vendor === "plaid") return handlePlaid(req);
   return NextResponse.json({ ok: false, error: `unsupported_vendor: ${vendor}` }, { status: 400 });
 }
