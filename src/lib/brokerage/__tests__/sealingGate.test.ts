@@ -14,6 +14,10 @@ const state = {
   preview: null as Record<string, any> | null,
   validation: null as Record<string, any> | null,
   sealed: null as Record<string, any> | null,
+  // Ticket 2: owners (ownership_entities rows) + a set of ownership_entity_ids
+  // with a completed IAL2 verification (borrower_identity_verifications).
+  owners: [] as Array<{ id: string; display_name: string | null; ownership_pct: number }>,
+  verifiedOwnerIds: new Set<string>(),
 };
 
 function makeQB(table: string) {
@@ -26,6 +30,13 @@ function makeQB(table: string) {
       this._filters[k] = v;
       return this;
     },
+    in(k: string, v: any) {
+      this._filters[k] = { in: v };
+      return this;
+    },
+    not() {
+      return this;
+    },
     is() {
       return this;
     },
@@ -36,6 +47,14 @@ function makeQB(table: string) {
       return this;
     },
     maybeSingle() {
+      if (table === "borrower_identity_verifications") {
+        const ownerId = this._filters["ownership_entity_id"];
+        const verified = state.verifiedOwnerIds.has(ownerId);
+        return Promise.resolve({
+          data: verified ? { id: `verification-${ownerId}`, completed_at: new Date().toISOString() } : null,
+          error: null,
+        });
+      }
       const pick = (
         {
           buddy_sba_scores: state.score,
@@ -46,6 +65,12 @@ function makeQB(table: string) {
         } as Rows
       )[table];
       return Promise.resolve({ data: pick ?? null, error: null });
+    },
+    // Array-returning queries with no terminal .maybeSingle() call —
+    // ownersNeedingIal2's ownership_entities lookup.
+    then(resolve: (r: { data: any; error: null }) => void) {
+      const data = table === "ownership_entities" ? state.owners : [];
+      resolve({ data, error: null });
     },
   };
   return q;
@@ -64,6 +89,8 @@ function resetHappy() {
   state.preview = { id: "trident-1" };
   state.validation = { overall_status: "PASS" };
   state.sealed = null;
+  state.owners = [];
+  state.verifiedOwnerIds = new Set();
 }
 
 test("happy path passes all gates", async () => {
@@ -174,4 +201,43 @@ test("multiple blockers accumulated", async () => {
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, false);
   if (!r.ok) assert.ok(r.reasons.length >= 3);
+});
+
+// Ticket 2 (SPEC-BROKERAGE-SBA-READY-V1) — identity verification gate.
+test("owner below 20% ownership does not require IAL2", async () => {
+  resetHappy();
+  state.owners = [{ id: "owner-minor", display_name: "Minor Owner", ownership_pct: 10 }];
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, true);
+});
+
+test("owner at/above 20% ownership without IAL2 blocks", async () => {
+  resetHappy();
+  state.owners = [{ id: "owner-major", display_name: "Major Owner", ownership_pct: 25 }];
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok)
+    assert.ok(r.reasons.some((s) => s.includes("Major Owner") && s.includes("identity verification")));
+});
+
+test("owner at/above 20% ownership with completed IAL2 does not block", async () => {
+  resetHappy();
+  state.owners = [{ id: "owner-major", display_name: "Major Owner", ownership_pct: 25 }];
+  state.verifiedOwnerIds = new Set(["owner-major"]);
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, true);
+});
+
+test("multiple unverified majority owners each produce a blocker reason", async () => {
+  resetHappy();
+  state.owners = [
+    { id: "owner-a", display_name: "Owner A", ownership_pct: 60 },
+    { id: "owner-b", display_name: "Owner B", ownership_pct: 40 },
+  ];
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.ok(r.reasons.some((s) => s.includes("Owner A")));
+    assert.ok(r.reasons.some((s) => s.includes("Owner B")));
+  }
 });

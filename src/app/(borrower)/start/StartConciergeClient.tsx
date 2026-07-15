@@ -13,6 +13,7 @@ import {
 } from "@/components/brokerage/BrokerageStageStrip";
 import { CapturedFactsPanel } from "@/components/brokerage/CapturedFactsPanel";
 import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
+import { IdentityVerificationCard } from "@/components/brokerage/IdentityVerificationCard";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type Mode = "chat" | "voice";
@@ -184,6 +185,7 @@ export function StartConciergeClient({
         </div>
       )}
 
+      {dealId && <IdentityVerificationCard dealId={dealId} />}
       {dealId && <SealPackageCard dealId={dealId} />}
     </div>
   );
