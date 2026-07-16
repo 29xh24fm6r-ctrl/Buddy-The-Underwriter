@@ -47,10 +47,18 @@ export default function ClerkGate({ children }: { children: React.ReactNode }) {
     pathname === "/sign-up" ||
     pathname?.startsWith("/sign-up/");
 
+  // isPublicBorrowerRoute is pathname-only (no window access), so it's safe
+  // to evaluate on the very first render — SSR and initial client hydration
+  // alike — unlike the hostname check below. That closes the one-tick gap
+  // where ClerkProvider used to mount-then-unmount on every public borrower
+  // route: clerk-js kicks off its script load + auth API call as soon as it
+  // mounts, and neither is cancelled by the unmount on the next tick, so the
+  // brief mount alone was enough to trip Clerk's domain-mismatch rejection
+  // in the browser console on every visit.
   const shouldSkipClerk =
     !isAuthPage &&
-    mounted &&
-    (!isClerkHost(window.location.hostname) || isPublicBorrowerRoute(pathname));
+    (isPublicBorrowerRoute(pathname) ||
+      (mounted && !isClerkHost(window.location.hostname)));
 
   if (shouldSkipClerk) return <>{children}</>;
 
