@@ -3,7 +3,7 @@ export type StitchPage = { slug: string; title: string; route?: string; group?: 
 export const STITCH_PAGES: StitchPage[] = [
   { slug: "audit-compliance-ledger", title: "Audit Compliance Ledger", group: "Compliance", route: "/compliance/audit-ledger" },
   { slug: "borrower-control-record", title: "Borrower Control Record", group: "Borrower", route: "/borrowers/control-record" },
-  { slug: "borrower-document-upload-review", title: "Borrower Document Upload Review", group: "Borrower", route: "/portal/[token]" },
+  { slug: "borrower-document-upload-review", title: "Borrower Document Upload Review", group: "Borrower", route: "/portal/documents" },
   { slug: "borrower-profile", title: "Borrower Profile", group: "Borrower" },
   { slug: "borrower-task-inbox", title: "Borrower Task Inbox", group: "Borrower", route: "/borrower" },
   { slug: "chargeoff-recovery-command-center", title: "Chargeoff Recovery Command Center", group: "Recovery", route: "/recovery" },
