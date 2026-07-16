@@ -93,11 +93,23 @@ export async function GET(
     return NextResponse.json({ ok: false, error: dealsErr.message }, { status: 500 });
   }
 
+  const { data: leads, error: leadsErr } = await sb
+    .from("brokerage_leads")
+    .select("id, first_name, last_name, business_name, email, phone, loan_amount_requested, status, created_at, converted_deal_id")
+    .eq("bank_id", brokerageBankId)
+    .eq("referral_source_org_id", orgId)
+    .order("created_at", { ascending: false });
+
+  if (leadsErr) {
+    return NextResponse.json({ ok: false, error: leadsErr.message }, { status: 500 });
+  }
+
   return NextResponse.json({
     ok: true,
     organization: org,
     people: people ?? [],
     activities: activities ?? [],
     referredDeals: referredDeals ?? [],
+    leads: leads ?? [],
   });
 }
