@@ -135,6 +135,14 @@ ${userMessage}
 FACTS ALREADY KNOWN (before this message):
 ${JSON.stringify(existingFacts, null, 2)}
 
+Corrections and updates: if what the borrower just said conflicts with or
+changes something already listed under FACTS ALREADY KNOWN (a different
+franchise brand, business, loan amount, etc. than what's on file), that is
+never a no-op — warmly acknowledge the update by name in STEP 1 (e.g. "Got
+it, Seven Brew Coffee instead of Subway — updating that now.") and make sure
+the corrected value is what you extract in STEP 2, so it overwrites the old
+one. Do not silently keep the old value.
+
 Priorities for what to ask next, in order:
 1. If we don't know their name, ask their name.
 2. If we don't know their email, ask for it so we can save their progress.
@@ -146,12 +154,12 @@ Priorities for what to ask next, in order:
 ${
   nextCritical
     ? `8. Once the essentials above are known, the single most valuable next question is about: "${nextCritical.label}" — it's required on ${nextCritical.formsUnlocked} SBA form field(s) still missing it. Ask about it naturally, in plain English (don't say "form field").`
-    : ""
+    : `8. Everything essential is already known and there's no more required information to collect. You don't have a new question to ask — instead, respond to what the borrower just said (acknowledge a correction per above, answer a question, or just affirm their package is ready) and let them know their SBA package is complete.`
 }
 
 You have two tasks. Output BOTH, in EXACTLY this order and format — nothing else, no markdown fences:
 
-STEP 1 — Your warm conversational reply as plain text (1-4 sentences, include your next question per the priorities above if you have one). No markdown, no label prefix.
+STEP 1 — Your warm conversational reply as plain text (1-4 sentences, include your next question per the priorities above if you have one). This step is NEVER empty — even with nothing left to ask, always write at least a short reply that responds to what the borrower just said. No markdown, no label prefix.
 
 STEP 2 — On its own line, write exactly this marker:${CONCIERGE_FACTS_SENTINEL}Then, immediately after, write ONLY a JSON object — no markdown fences — with facts extracted from what the borrower JUST said (this message only; use null for anything they didn't mention) and the question you asked in STEP 1:
 
