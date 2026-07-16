@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { applyBestPackToDeal } from "@/lib/packs/applyPack";
 import { recordLearningEvent } from "@/lib/packs/recordLearningEvent";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,8 +16,10 @@ export async function POST(
   const sb = supabaseAdmin();
 
   try {
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 

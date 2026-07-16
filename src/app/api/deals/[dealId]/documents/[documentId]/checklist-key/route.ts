@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { reconcileChecklistForDeal } from "@/lib/checklist/engine";
@@ -40,8 +40,10 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string; documentId: string }> },
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401, headers: { "cache-control": "no-store" } },

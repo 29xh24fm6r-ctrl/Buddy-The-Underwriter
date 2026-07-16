@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 
@@ -22,8 +22,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
   try {
     const { dealId } = await ctx.params;
 
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 

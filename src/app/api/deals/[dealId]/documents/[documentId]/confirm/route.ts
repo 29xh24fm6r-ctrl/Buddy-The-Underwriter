@@ -3,7 +3,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { recomputeDealDocumentState } from "@/lib/documentTruth/recomputeDealDocumentState";
 
 export const runtime = "nodejs";
@@ -20,8 +20,12 @@ export async function POST(
 ) {
   try {
     const { dealId, documentId } = await ctx.params;
-    const { userId } = await clerkAuth();
-    if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
 
     const access = await ensureDealBankAccess(dealId);
     if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: 403 });

@@ -1,7 +1,7 @@
 // src/app/api/banker/messages/inbox/route.ts
 import { NextResponse } from "next/server";
 import { bankerListMessageThreads } from "@/lib/deals/chat";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 
 export const runtime = "nodejs";
@@ -15,8 +15,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
     const bankId = await getCurrentBankId();
