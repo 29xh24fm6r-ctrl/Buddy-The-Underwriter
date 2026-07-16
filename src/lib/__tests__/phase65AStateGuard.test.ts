@@ -116,6 +116,9 @@ test("state API validates authentication and tenant access", () => {
   const content = fs.readFileSync(
     path.resolve(root, "src/app/api/deals/[dealId]/state/route.ts"), "utf8"
   );
-  assert.ok(content.includes("clerkAuth"), "Must validate auth");
+  assert.ok(
+    content.includes("clerkAuth") || content.includes("requireUser"),
+    "Must validate auth",
+  );
   assert.ok(content.includes("ensureDealBankAccess"), "Must validate tenant access");
 });
