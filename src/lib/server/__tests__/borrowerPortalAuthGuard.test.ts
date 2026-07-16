@@ -23,14 +23,30 @@ function readFile(relPath: string): string {
 // A. Portal upload auth boundary
 // ---------------------------------------------------------------------------
 
+// The old (app)/borrower/portal/[token] page this suite originally pinned
+// these two checks against was retired (confirmed dead: zero rows ever in
+// borrower_invites/borrower_portal_links/borrower_portal_sessions/
+// borrower_portal_events, and no code path assigns a Clerk role="borrower").
+// The invariant itself — the borrower upload path must use token auth, never
+// Clerk — still matters, so both checks now target uploadBorrowerFile() in
+// lib/uploads/uploadFile.ts, the shared helper the live borrower uploaders
+// (PortalUploadDropzone.tsx et al.) actually call today.
+function readUploadBorrowerFileSource(): string {
+  const content = readFile("lib/uploads/uploadFile.ts");
+  const marker = "export async function uploadBorrowerFile";
+  const start = content.indexOf(marker);
+  assert.ok(start !== -1, "uploadBorrowerFile export not found in lib/uploads/uploadFile.ts");
+  return content.slice(start);
+}
+
 describe("Portal upload auth boundary", () => {
-  it("borrower portal page uses /api/portal/[token]/ route for file record, not /api/deals/", () => {
-    const content = readFile("app/(app)/borrower/portal/[token]/page.tsx");
+  it("uploadBorrowerFile uses /api/portal/[token]/ route for file record, not /api/deals/", () => {
+    const content = readUploadBorrowerFileSource();
 
     // Must call the token-authed portal route
     assert.ok(
       content.includes("/api/portal/") && content.includes("/files/record"),
-      "portal page must call /api/portal/[token]/files/record",
+      "uploadBorrowerFile must call /api/portal/[token]/files/record",
     );
 
     // Must NOT call the Clerk-authed deals route for file record
@@ -41,7 +57,7 @@ describe("Portal upload auth boundary", () => {
     assert.equal(
       clerkFileRecordCalls.length,
       0,
-      `Portal page must not call Clerk-authed /api/deals/.../files/record:\n${clerkFileRecordCalls.join("\n")}`,
+      `uploadBorrowerFile must not call Clerk-authed /api/deals/.../files/record:\n${clerkFileRecordCalls.join("\n")}`,
     );
   });
 
@@ -142,11 +158,11 @@ describe("Seed route gating", () => {
 // ---------------------------------------------------------------------------
 
 describe("Staff/borrower auth boundary separation", () => {
-  it("borrower portal pages do not import clerkAuth directly", () => {
-    const portalPage = readFile("app/(app)/borrower/portal/[token]/page.tsx");
+  it("uploadBorrowerFile does not import or call clerkAuth directly", () => {
+    const content = readUploadBorrowerFileSource();
     assert.ok(
-      !portalPage.includes("clerkAuth"),
-      "borrower portal page must not import or use clerkAuth",
+      !content.includes("clerkAuth"),
+      "uploadBorrowerFile must not use clerkAuth",
     );
   });
 
