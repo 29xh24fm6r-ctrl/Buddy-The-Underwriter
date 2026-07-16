@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 
 const PROXY_TOKEN_TTL_MS = 180_000; // 3 minutes
 
-const GEMINI_MODEL = process.env.GEMINI_LIVE_MODEL ?? "gemini-live-2.5-flash-native-audio";
-const GEMINI_VOICE = process.env.GEMINI_LIVE_VOICE ?? "Puck";
+const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
+const REALTIME_VOICE = process.env.OPENAI_REALTIME_VOICE ?? "marin";
 
 export async function POST(
   req: NextRequest,
@@ -177,16 +177,14 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
         proxyTraceId: traceId,
         proxyDealId: dealId,
         proxyBankId: bankId,
-        proxyModel: GEMINI_MODEL,
-        proxyVoice: GEMINI_VOICE,
+        proxyModel: REALTIME_MODEL,
+        proxyVoice: REALTIME_VOICE,
         proxySystemInstruction: systemInstruction,
-        proxyThinkingBudget: 0,
-        proxyProactiveAudio: true,
       },
     });
 
     if (insertError) {
-      console.error("[gemini-token] Session insert failed", insertError);
+      console.error("[realtime-token] Session insert failed", insertError);
       return NextResponse.json({ ok: false, error: "session_create_failed" }, { status: 500 });
     }
 
@@ -196,12 +194,12 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
         proxyToken,
         sessionId,
         traceId,
-        model: GEMINI_MODEL,
+        model: REALTIME_MODEL,
         openGaps: voiceGaps.length,
         isGenuinelyComplete,
         config: {
-          model: GEMINI_MODEL,
-          voice: GEMINI_VOICE,
+          model: REALTIME_MODEL,
+          voice: REALTIME_VOICE,
           ttlMs: PROXY_TOKEN_TTL_MS,
           outputSampleRate: 24000,
         },
@@ -210,7 +208,7 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
     );
   } catch (e: unknown) {
     rethrowNextErrors(e);
-    console.error("[gemini-token POST]", e);
+    console.error("[realtime-token POST]", e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * POST /api/brokerage/voice/gemini-token
+ * POST /api/brokerage/voice/realtime-token
  *
  * Mints a 3-minute single-use proxy token for the Buddy voice gateway.
  * Auth is the borrower session cookie — hashed, looked up, and required.
@@ -26,10 +26,10 @@ export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
 const PROXY_TOKEN_TTL_MS = 180_000; // 3 minutes
-const GEMINI_MODEL =
-  process.env.GEMINI_LIVE_MODEL ?? "gemini-live-2.5-flash-native-audio";
-const GEMINI_VOICE =
-  process.env.GEMINI_LIVE_VOICE_BORROWER ?? "Charon";
+const REALTIME_MODEL =
+  process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
+const REALTIME_VOICE =
+  process.env.OPENAI_REALTIME_VOICE_BORROWER ?? "cedar";
 
 export async function POST(_req: NextRequest): Promise<NextResponse> {
   const session = await getBorrowerSession();
@@ -115,17 +115,15 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
       proxyDealId: dealId,
       proxyBankId: bankId,
       proxyActorScope: "borrower",
-      proxyModel: GEMINI_MODEL,
-      proxyVoice: GEMINI_VOICE,
+      proxyModel: REALTIME_MODEL,
+      proxyVoice: REALTIME_VOICE,
       proxySystemInstruction: systemInstruction,
-      proxyThinkingBudget: 0,
-      proxyProactiveAudio: true,
     },
   });
 
   if (insertError) {
     console.error(
-      "[brokerage/voice/gemini-token] session insert failed",
+      "[brokerage/voice/realtime-token] session insert failed",
       insertError,
     );
     return NextResponse.json(
@@ -142,7 +140,7 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
     borrower_session_token_hash: tokenHash,
     user_id: null,
     event_type: "session_started",
-    payload: { trace_id: traceId, model: GEMINI_MODEL, voice: GEMINI_VOICE },
+    payload: { trace_id: traceId, model: REALTIME_MODEL, voice: REALTIME_VOICE },
   });
 
   return NextResponse.json(
@@ -151,10 +149,10 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
       proxyToken,
       sessionId,
       traceId,
-      model: GEMINI_MODEL,
+      model: REALTIME_MODEL,
       config: {
-        model: GEMINI_MODEL,
-        voice: GEMINI_VOICE,
+        model: REALTIME_MODEL,
+        voice: REALTIME_VOICE,
         ttlMs: PROXY_TOKEN_TTL_MS,
         outputSampleRate: 24000,
       },

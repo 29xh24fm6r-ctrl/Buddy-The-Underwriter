@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * BorrowerVoicePanel — Gemini Live voice UI for anonymous brokerage borrowers.
+ * BorrowerVoicePanel — OpenAI Realtime voice UI for anonymous brokerage borrowers.
  *
  * Uses useBuddyVoice with the brokerage token endpoint. No Clerk, no deal
  * context beyond dealId — identity flows via the HTTP-only session cookie.
@@ -52,7 +52,7 @@ export default function BorrowerVoicePanel({
     disconnect,
   } = useBuddyVoice({
     dealId,
-    tokenEndpoint: "/api/brokerage/voice/gemini-token",
+    tokenEndpoint: "/api/brokerage/voice/realtime-token",
     onMessage: (msg) => {
       if (msg.role === "assistant") onAssistantTurn?.();
     },

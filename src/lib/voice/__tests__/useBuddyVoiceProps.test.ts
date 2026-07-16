@@ -25,7 +25,7 @@ test("tokenEndpoint is optional — default is the banker route", () => {
   // The hook should fall back to the banker route when tokenEndpoint isn't provided.
   assert.match(
     HOOK_SOURCE,
-    /tokenEndpoint\s*\?\?\s*`\/api\/deals\/\$\{dealId\}\/banker-session\/gemini-token`/,
+    /tokenEndpoint\s*\?\?\s*`\/api\/deals\/\$\{dealId\}\/banker-session\/realtime-token`/,
   );
 });
 
@@ -58,7 +58,7 @@ test("BorrowerVoicePanel uses the brokerage token endpoint", () => {
   );
   assert.match(
     borrowerPanelSource,
-    /tokenEndpoint:\s*["']\/api\/brokerage\/voice\/gemini-token["']/,
+    /tokenEndpoint:\s*["']\/api\/brokerage\/voice\/realtime-token["']/,
   );
 });
 

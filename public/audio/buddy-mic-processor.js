@@ -1,5 +1,5 @@
 /**
- * buddy-mic-processor.js — AudioWorklet for Gemini Live mic capture.
+ * buddy-mic-processor.js — AudioWorklet for OpenAI Realtime API mic capture.
  * Runs in the audio thread. Accumulates PCM samples and posts
  * Int16Array chunks to the main thread every ~100ms.
  *
@@ -9,7 +9,7 @@ class BuddyMicProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this._buffer = [];
-    this._samplesPerChunk = 1600; // 100ms at 16kHz
+    this._samplesPerChunk = 2400; // 100ms at 24kHz
   }
 
   process(inputs) {
