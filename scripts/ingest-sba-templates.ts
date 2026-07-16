@@ -24,36 +24,17 @@ dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 import { createClient } from "@supabase/supabase-js";
-import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
+import { OFFICIAL_TEMPLATE_SOURCES, type TemplateSource } from "@/lib/sba/templates/officialTemplateSources";
+import { resolveCurrentTemplateRevision } from "@/lib/sba/templates/resolveCurrentTemplateRevision";
 
-type TemplateSource = {
-  templateKey: string;
-  name: string;
-  /**
-   * SBA/IRS forms page for this form — NOT hardcoded to a specific PDF
-   * revision. The script must resolve the current direct-download PDF URL
-   * from this page at execution time (AP-6: never hardcode a revision from
-   * a spec doc — the source page is the ground truth, this file is not).
-   */
-  sourcePageUrl: string;
-};
-
-// Bank-agnostic template set required by ARC-00 Phase 0.C.
-const SOURCES: TemplateSource[] = [
-  { templateKey: "SBA_1919", name: "SBA Form 1919 — Borrower Information Form", sourcePageUrl: "https://www.sba.gov/document/sba-form-1919-borrower-information-form" },
-  { templateKey: "SBA_413", name: "SBA Form 413 — Personal Financial Statement", sourcePageUrl: "https://www.sba.gov/document/sba-form-413-personal-financial-statement" },
-  { templateKey: "SBA_912", name: "SBA Form 912 — Statement of Personal History", sourcePageUrl: "https://www.sba.gov/document/sba-form-912-statement-personal-history" },
-  { templateKey: "SBA_1244", name: "SBA Form 1244 — Application for Section 504 Loan", sourcePageUrl: "https://www.sba.gov/document/sba-form-1244-504-loan-application" },
-  { templateKey: "SBA_159", name: "SBA Form 159 — Fee Disclosure and Compensation Agreement", sourcePageUrl: "https://www.sba.gov/document/sba-form-159-fee-disclosure-compensation-agreement" },
-  { templateKey: "SBA_148", name: "SBA Form 148 — Unconditional Guarantee", sourcePageUrl: "https://www.sba.gov/document/sba-form-148-unconditional-guarantee" },
-  { templateKey: "SBA_148L", name: "SBA Form 148L — Limited Guarantee", sourcePageUrl: "https://www.sba.gov/document/sba-form-148l-limited-guarantee" },
-  { templateKey: "SBA_601", name: "SBA Form 601 — Agreement of Compliance", sourcePageUrl: "https://www.sba.gov/document/sba-form-601-agreement-compliance-hud-regulations" },
-  { templateKey: "SBA_155", name: "SBA Form 155 — Standby Creditor's Agreement", sourcePageUrl: "https://www.sba.gov/document/sba-form-155-standby-creditors-agreement" },
-  { templateKey: "IRS_4506C", name: "IRS Form 4506-C — IVES Request for Transcript of Tax Return", sourcePageUrl: "https://www.irs.gov/forms-pubs/about-form-4506-c" },
-];
+// Bank-agnostic template set required by ARC-00 Phase 0.C — shared with
+// templateStalenessChecker.ts so the one-off ingester and the recurring
+// cron check can never disagree about which forms exist or where they
+// come from.
+const SOURCES: TemplateSource[] = OFFICIAL_TEMPLATE_SOURCES;
 
 const TEMPLATE_DIR = path.join(process.cwd(), "public", "sba-templates");
 
@@ -67,40 +48,16 @@ type IngestResult = {
   fillStrategy?: "acroform" | "overlay";
 };
 
-async function resolvePdfUrl(sourcePageUrl: string): Promise<{ pdfUrl: string; revision: string | null }> {
-  const pageRes = await fetch(sourcePageUrl, { redirect: "follow" });
-  if (!pageRes.ok) {
-    throw new Error(`source page fetch failed: ${pageRes.status} ${pageRes.statusText}`);
-  }
-  const html = await pageRes.text();
-
-  // sba.gov document pages link the current PDF from a fixed CDN path
-  // pattern. Do not hardcode a specific file name/revision — parse it off
-  // the page every run so a superseded revision is never silently reused.
-  const match = html.match(/href="(https:\/\/www\.sba\.gov\/sites\/[^"]+\.pdf)"/i);
-  if (!match) {
-    throw new Error("could not locate a .pdf link on the source page — page structure may have changed");
-  }
-
-  const revisionMatch = html.match(/Revision date:\s*([A-Za-z]+\s+\d{4})/i);
-  return { pdfUrl: match[1], revision: revisionMatch?.[1]?.trim() ?? null };
-}
-
 async function ingestOne(source: TemplateSource, dryRun: boolean): Promise<IngestResult> {
   let pdfUrl: string;
   let revision: string | null;
+  let sha256: string;
+  let bytes: Buffer;
   try {
-    ({ pdfUrl, revision } = await resolvePdfUrl(source.sourcePageUrl));
+    ({ pdfUrl, revision, sha256, pdfBytes: bytes } = await resolveCurrentTemplateRevision(source.sourcePageUrl));
   } catch (err: any) {
     return { templateKey: source.templateKey, ok: false, reason: `resolve failed: ${err?.message ?? err}` };
   }
-
-  const pdfRes = await fetch(pdfUrl, { redirect: "follow" });
-  if (!pdfRes.ok) {
-    return { templateKey: source.templateKey, ok: false, reason: `pdf fetch failed: ${pdfRes.status} ${pdfRes.statusText}` };
-  }
-  const bytes = Buffer.from(await pdfRes.arrayBuffer());
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
 
   let fieldCount = 0;
   let fillStrategy: "acroform" | "overlay" = "overlay";

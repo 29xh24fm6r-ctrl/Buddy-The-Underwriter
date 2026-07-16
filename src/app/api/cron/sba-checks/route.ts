@@ -15,6 +15,8 @@
  * check=stale-signatures       — flag SBA form signatures expiring within 14 days (SPEC S3 D-1)
  * check=third-party-overdue    — flag third-party vendor orders past their expected completion (SPEC S5 C)
  * check=etran-cert-expiry      — flag bank E-Tran mutual-TLS certs expiring within 30 days (SPEC S5 B-7)
+ * check=template-staleness     — compare stored SBA/IRS PDFs against the live sba.gov/irs.gov
+ *                                 revision so official forms never silently go stale
  */
 
 import "server-only";
@@ -27,12 +29,19 @@ import { pollVendorTranscriptRequest } from "@/lib/integrations/irsTranscripts/c
 import { findStaleSignatures, writeStaleSignatureGaps } from "@/lib/jobs/staleSignatureChecker";
 import { findOverdueThirdPartyOrders, writeOverdueThirdPartyGaps } from "@/lib/jobs/thirdPartyOverdueChecker";
 import { findExpiringEtranCredentials } from "@/lib/jobs/etranCertExpiryChecker";
+import { findTemplateStaleness, writeTemplateStalenessFindings } from "@/lib/jobs/templateStalenessChecker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const CHECKS = new Set(["irs-transcripts", "stale-signatures", "third-party-overdue", "etran-cert-expiry"]);
+const CHECKS = new Set([
+  "irs-transcripts",
+  "stale-signatures",
+  "third-party-overdue",
+  "etran-cert-expiry",
+  "template-staleness",
+]);
 
 export async function GET(req: NextRequest) {
   const start = Date.now();
@@ -79,6 +88,32 @@ export async function GET(req: NextRequest) {
           console.warn("[cron/sba-checks] etran certs expiring soon", { findings });
         }
         return NextResponse.json({ ok: true, check, found: findings.length, findings, durationMs: Date.now() - start });
+      }
+      case "template-staleness": {
+        const findings = await findTemplateStaleness(sb as any);
+        const written = await writeTemplateStalenessFindings(sb as any, findings);
+        const stale = findings.filter((f) => f.isStale);
+        const failed = findings.filter((f) => !f.ok);
+        if (stale.length > 0) {
+          // Same non-deal-scoped situation as etran-cert-expiry — no admin
+          // alert sink exists yet, so this is the delivery channel until
+          // one is built. Findings are also durably recorded on
+          // bank_document_templates.is_stale, so this isn't the only trace.
+          console.warn("[cron/sba-checks] SBA/IRS templates are stale", { stale });
+        }
+        if (failed.length > 0) {
+          console.warn("[cron/sba-checks] template staleness check could not resolve some forms", { failed });
+        }
+        return NextResponse.json({
+          ok: true,
+          check,
+          checked: findings.length,
+          stale: stale.length,
+          failed: failed.length,
+          rowsUpdated: written,
+          findings,
+          durationMs: Date.now() - start,
+        });
       }
       default:
         return NextResponse.json({ ok: false, error: `unhandled check: ${check}` }, { status: 400 });
