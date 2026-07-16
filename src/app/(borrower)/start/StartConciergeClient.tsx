@@ -12,8 +12,9 @@ import {
   type MarketplaceListingStatus,
 } from "@/components/brokerage/BrokerageStageStrip";
 import { CapturedFactsPanel } from "@/components/brokerage/CapturedFactsPanel";
+import { consumeConciergeStream } from "@/lib/brokerage/consumeConciergeStream";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; streaming?: boolean };
 type Mode = "chat" | "voice";
 
 const MODE_KEY = "buddy.start.mode";
@@ -209,6 +210,7 @@ function ChatPane({
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [streamingReply, setStreamingReply] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
   const [rateLimited, setRateLimited] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -216,6 +218,34 @@ function ChatPane({
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
+
+  const FALLBACK_MESSAGE = "I hit a snag. Give me a moment and try once more.";
+
+  // Appends a streamed token to the in-progress assistant bubble, starting
+  // a new one on the first token of a turn.
+  const appendStreamingToken = (delta: string) => {
+    setStreamingReply(true);
+    setMessages((m) => {
+      const last = m[m.length - 1];
+      if (last?.role === "assistant" && last.streaming) {
+        return [...m.slice(0, -1), { ...last, content: last.content + delta }];
+      }
+      return [...m, { role: "assistant", content: delta, streaming: true }];
+    });
+  };
+
+  // Replaces the in-progress bubble's content with the server's final text
+  // (source of truth) — or appends a fresh bubble if no tokens ever arrived.
+  const finalizeStreamingMessage = (finalText: string) => {
+    setMessages((m) => {
+      const last = m[m.length - 1];
+      const text = finalText || last?.content || FALLBACK_MESSAGE;
+      if (last?.role === "assistant" && last.streaming) {
+        return [...m.slice(0, -1), { role: "assistant", content: text }];
+      }
+      return [...m, { role: "assistant", content: text }];
+    });
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -245,34 +275,40 @@ function ChatPane({
         return;
       }
 
-      const data = await res.json();
-      if (data.ok) {
-        setMessages((m) => [
-          ...m,
-          { role: "assistant", content: data.buddyResponse },
-        ]);
-        setProgressPct(data.progressPct ?? 0);
-        if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
-        if (data.dealId) onDealIdResolved(data.dealId);
-      } else {
-        setMessages((m) => [
-          ...m,
-          {
-            role: "assistant",
-            content: "I hit a snag. Give me a moment and try once more.",
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("text/event-stream") && res.body) {
+        await consumeConciergeStream(res.body, {
+          onToken: appendStreamingToken,
+          onDone: (data) => {
+            finalizeStreamingMessage(data.assistantMessage ?? data.buddyResponse ?? "");
+            setProgressPct(data.progressPct ?? 0);
+            if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
+            if (data.dealId) onDealIdResolved(data.dealId);
           },
-        ]);
+          onError: () => finalizeStreamingMessage(FALLBACK_MESSAGE),
+        });
+      } else {
+        // Short-circuit paths (trident intent, assumptions confirm, errors)
+        // still return a plain JSON response — no streaming needed since
+        // they don't call the model for the reply text.
+        const data = await res.json();
+        if (data.ok) {
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", content: data.buddyResponse },
+          ]);
+          setProgressPct(data.progressPct ?? 0);
+          if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
+          if (data.dealId) onDealIdResolved(data.dealId);
+        } else {
+          setMessages((m) => [...m, { role: "assistant", content: FALLBACK_MESSAGE }]);
+        }
       }
     } catch {
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          content: "I hit a snag. Give me a moment and try once more.",
-        },
-      ]);
+      finalizeStreamingMessage(FALLBACK_MESSAGE);
     } finally {
       setSending(false);
+      setStreamingReply(false);
     }
   };
 
@@ -310,10 +346,13 @@ function ChatPane({
               }
             >
               {m.content}
+              {m.streaming && (
+                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-slate-400 align-text-bottom" />
+              )}
             </div>
           </div>
         ))}
-        {sending && (
+        {sending && !streamingReply && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-slate-500">
               Buddy is preparing your next step…

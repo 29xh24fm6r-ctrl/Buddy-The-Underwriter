@@ -86,6 +86,113 @@ ${renderRegistryFields("entity", "      ")}
 }
 
 /**
+ * Marks the boundary between Buddy's plain-text reply and the trailing
+ * structured-facts JSON in the combined turn prompt below. Chosen to be
+ * distinctive enough that it won't collide with anything a borrower or the
+ * model would naturally write in conversation.
+ */
+export const CONCIERGE_FACTS_SENTINEL = "\n===BUDDY_FACTS_JSON===\n";
+
+/**
+ * Combines fact extraction and warm-reply generation into ONE Gemini call
+ * instead of two sequential ones (extraction, then response) — the previous
+ * design's dominant latency cost was two full model round trips stacked on
+ * every borrower chat turn. The model is asked to write its reply FIRST
+ * (streamable to the client as it's generated) and the structured facts
+ * SECOND, after CONCIERGE_FACTS_SENTINEL (buffered server-side, never shown
+ * to the borrower). Text-only — voice never calls this; its dispatch route
+ * still uses buildBorrowerExtractionPrompt directly since the spoken reply
+ * comes from the realtime voice model, not this route.
+ *
+ * `existingFacts` is what we knew BEFORE this message (unlike the old
+ * two-call design's response prompt, which saw facts already merged with
+ * this turn's extraction) — the model reasons about deltas from that
+ * baseline instead of a chicken-and-egg dependency on its own not-yet-written
+ * facts output.
+ */
+export function buildCombinedConciergeTurnPrompt(
+  history: unknown[],
+  userMessage: string,
+  existingFacts: Record<string, unknown>,
+): string {
+  const nextCritical = computeNextCriticalField(existingFacts);
+
+  return `You are Buddy, a warm and professional SBA loan concierge speaking directly to a prospective borrower on your public website.
+
+Tone:
+- Conversational, plain English, no banker jargon.
+- Encouraging. SBA loans feel intimidating — make them feel capable.
+- Ask ONE question at a time. The minimum next question that moves the process forward.
+- Never ask for a full SSN — last 4 digits only. If a borrower needs to confirm a sensitive detail (date of birth, address) you already have, read it back rather than asking them to repeat it from scratch.
+
+CONVERSATION SO FAR:
+${JSON.stringify(history, null, 2)}
+
+BORROWER JUST SAID:
+${userMessage}
+
+FACTS ALREADY KNOWN (before this message):
+${JSON.stringify(existingFacts, null, 2)}
+
+Priorities for what to ask next, in order:
+1. If we don't know their name, ask their name.
+2. If we don't know their email, ask for it so we can save their progress.
+3. If we don't know their business, ask what business they want to finance.
+4. If we don't know loan amount, ask how much they're looking to borrow.
+5. If we don't know use of proceeds, ask what the money is for.
+6. If we don't know if they're buying a franchise, ask.
+7. If we don't know their most recent annual revenue, ask for a rough figure.
+${
+  nextCritical
+    ? `8. Once the essentials above are known, the single most valuable next question is about: "${nextCritical.label}" — it's required on ${nextCritical.formsUnlocked} SBA form field(s) still missing it. Ask about it naturally, in plain English (don't say "form field").`
+    : ""
+}
+
+You have two tasks. Output BOTH, in EXACTLY this order and format — nothing else, no markdown fences:
+
+STEP 1 — Your warm conversational reply as plain text (1-4 sentences, include your next question per the priorities above if you have one). No markdown, no label prefix.
+
+STEP 2 — On its own line, write exactly this marker:${CONCIERGE_FACTS_SENTINEL}Then, immediately after, write ONLY a JSON object — no markdown fences — with facts extracted from what the borrower JUST said (this message only; use null for anything they didn't mention) and the question you asked in STEP 1:
+
+{
+  "extracted_facts": {
+    "borrower": {
+      "first_name": string | null,
+      "last_name": string | null,
+      "email": string | null,
+      "phone": string | null
+    },
+    "business": {
+      "industry_description": string | null,
+      "is_startup": boolean | null,
+      "years_in_business": number | null,
+      "annual_revenue": number | null,
+      "is_franchise": boolean | null,
+      "franchise_brand": string | null,
+${renderRegistryFields("business", "      ")}
+    },
+    "loan": {
+${renderRegistryFields("loan", "      ")}
+    },
+    "owners": [
+      {
+${renderRegistryFields("owner", "        ")},
+        "pfs": {
+${renderRegistryFields("pfs", "          ")}
+        }
+      }
+    ],
+    "entities": [
+      {
+${renderRegistryFields("entity", "        ")}
+      }
+    ]
+  },
+  "next_question": string | null
+}`;
+}
+
+/**
  * Highest-impact still-missing registry field across whatever SBA forms
  * this deal's known facts make applicable — generalizes the ruleEngine's
  * getNextCriticalFact idea (see the deprecated /api/borrower/concierge

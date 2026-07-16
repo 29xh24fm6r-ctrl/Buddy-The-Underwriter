@@ -14,6 +14,7 @@ import "server-only";
  */
 
 import { isGemini3Model } from "./models";
+import { splitSSEEvents } from "@/lib/sse/parseSSEBuffer";
 
 const DEFAULT_TIMEOUT_MS = 25_000;
 const DEFAULT_MAX_RETRIES = 1;
@@ -102,6 +103,88 @@ export async function callGeminiJSON<T>(
     attempts: maxRetries + 1,
     error: lastError,
   };
+}
+
+export type GeminiStreamOptions = {
+  model: string;
+  prompt: string;
+  logTag: string;
+  timeoutMs?: number;
+};
+
+/**
+ * Streams raw text deltas from Gemini's SSE endpoint (no JSON-mode — callers
+ * that need structured output embed their own delimiter convention in the
+ * prompt and parse it out of the accumulated text). No retry: a stream that
+ * dies partway through can't be safely retried without re-sending whatever
+ * was already flushed to the caller, so callers should treat a mid-stream
+ * failure as "use what arrived, then fall back."
+ *
+ * One hard timeout for the whole stream (not per-chunk) — a model that's
+ * merely slow to start is indistinguishable from one that's stalled from the
+ * caller's perspective, and both should give up at the same wall-clock cap.
+ */
+export async function* streamGeminiText(
+  opts: GeminiStreamOptions,
+): AsyncGenerator<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
+
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+  const generationConfig: Record<string, unknown> = {};
+  if (!isGemini3Model(opts.model)) {
+    generationConfig.temperature = 0.1;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: opts.prompt }] }],
+        generationConfig,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      const { events, rest } = splitSSEEvents(buf);
+      buf = rest;
+      for (const evt of events) {
+        try {
+          const parsed = JSON.parse(evt.data);
+          const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (typeof text === "string" && text) yield text;
+        } catch {
+          // Malformed/partial SSE chunk — skip it, the model keeps streaming.
+        }
+      }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[gemini-stream:${opts.logTag}] failed: ${msg}`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function callOnce<T>(args: {
