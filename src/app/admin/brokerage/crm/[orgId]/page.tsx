@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use as usePromise } from "react";
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
 
@@ -29,6 +30,27 @@ type SearchDeal = {
   loan_amount: number | null;
 };
 
+type Lead = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  business_name: string | null;
+  email: string | null;
+  phone: string | null;
+  loan_amount_requested: number | null;
+  status: string;
+  created_at: string;
+  converted_deal_id: string | null;
+};
+
+const LEAD_STATUS_COLOR: Record<string, string> = {
+  new: "brassBright",
+  contacted: "brassBright",
+  converted: "sage",
+  disqualified: "textMuted",
+  unresponsive: "textMuted",
+};
+
 const KIND_ICON: Record<string, string> = {
   note: "✎",
   task: "☐",
@@ -53,6 +75,19 @@ function dealLabel(d: { display_name: string | null; borrower_name: string | nul
   return d.display_name || d.borrower_name || d.name || "Untitled deal";
 }
 
+function inputStyle(): CSSProperties {
+  return {
+    background: c.ink,
+    border: `1px solid ${c.border}`,
+    borderRadius: 5,
+    padding: "8px 10px",
+    color: c.paper,
+    fontSize: 12,
+    fontFamily: "var(--font-brokerage-sans)",
+    width: "100%",
+  };
+}
+
 export default function CrmOrganizationDetailPage({
   params,
 }: {
@@ -64,6 +99,7 @@ export default function CrmOrganizationDetailPage({
   const [people, setPeople] = useState<any[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [referredDeals, setReferredDeals] = useState<ReferredDeal[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +114,18 @@ export default function CrmOrganizationDetailPage({
   const [searching, setSearching] = useState(false);
   const [attributing, setAttributing] = useState<string | null>(null);
 
+  const [showLeadForm, setShowLeadForm] = useState(false);
+  const [leadForm, setLeadForm] = useState({
+    firstName: "",
+    lastName: "",
+    businessName: "",
+    email: "",
+    phone: "",
+    loanAmountRequested: "",
+    notes: "",
+  });
+  const [submittingLead, setSubmittingLead] = useState(false);
+
   async function load() {
     setLoading(true);
     try {
@@ -88,6 +136,7 @@ export default function CrmOrganizationDetailPage({
       setPeople(json.people ?? []);
       setActivities(json.activities ?? []);
       setReferredDeals(json.referredDeals ?? []);
+      setLeads(json.leads ?? []);
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "load failed");
@@ -161,6 +210,41 @@ export default function CrmOrganizationDetailPage({
     }
   }
 
+  async function submitLead() {
+    if (!leadForm.email.trim() && !leadForm.phone.trim()) {
+      setError("A lead needs an email or phone to be reachable.");
+      return;
+    }
+    setSubmittingLead(true);
+    try {
+      const res = await fetch("/api/admin/brokerage/crm/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationId: orgId,
+          firstName: leadForm.firstName || undefined,
+          lastName: leadForm.lastName || undefined,
+          businessName: leadForm.businessName || undefined,
+          email: leadForm.email || undefined,
+          phone: leadForm.phone || undefined,
+          loanAmountRequested: leadForm.loanAmountRequested
+            ? Number(leadForm.loanAmountRequested)
+            : undefined,
+          notes: leadForm.notes || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "submit failed");
+      setShowLeadForm(false);
+      setLeadForm({ firstName: "", lastName: "", businessName: "", email: "", phone: "", loanAmountRequested: "", notes: "" });
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "submit failed");
+    } finally {
+      setSubmittingLead(false);
+    }
+  }
+
   if (loading) {
     return <div style={{ padding: "18px 24px", color: c.textMuted, fontSize: 12 }}>Loading…</div>;
   }
@@ -202,13 +286,51 @@ export default function CrmOrganizationDetailPage({
             )}
           </div>
         </div>
-        <button
-          onClick={() => setShowAttribute((s) => !s)}
-          style={{ background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-        >
-          {showAttribute ? "Cancel" : "+ Attribute deal"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setShowLeadForm((s) => !s)}
+            style={{ background: "rgba(184,144,91,.12)", border: "1px solid rgba(184,144,91,.5)", color: c.brassBright, borderRadius: 6, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            {showLeadForm ? "Cancel" : "+ Submit lead"}
+          </button>
+          <button
+            onClick={() => setShowAttribute((s) => !s)}
+            style={{ background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            {showAttribute ? "Cancel" : "+ Attribute deal"}
+          </button>
+        </div>
       </div>
+
+      {showLeadForm && (
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 20 }}>
+          <div style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: c.textFaint, marginBottom: 10 }}>
+            Log a lead this org referred (not yet a deal)
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <input style={inputStyle()} placeholder="First name" value={leadForm.firstName} onChange={(e) => setLeadForm((f) => ({ ...f, firstName: e.target.value }))} />
+            <input style={inputStyle()} placeholder="Last name" value={leadForm.lastName} onChange={(e) => setLeadForm((f) => ({ ...f, lastName: e.target.value }))} />
+            <input style={inputStyle()} placeholder="Email" value={leadForm.email} onChange={(e) => setLeadForm((f) => ({ ...f, email: e.target.value }))} />
+            <input style={inputStyle()} placeholder="Phone" value={leadForm.phone} onChange={(e) => setLeadForm((f) => ({ ...f, phone: e.target.value }))} />
+            <input style={inputStyle()} placeholder="Business name" value={leadForm.businessName} onChange={(e) => setLeadForm((f) => ({ ...f, businessName: e.target.value }))} />
+            <input style={inputStyle()} placeholder="Loan amount requested" type="number" value={leadForm.loanAmountRequested} onChange={(e) => setLeadForm((f) => ({ ...f, loanAmountRequested: e.target.value }))} />
+          </div>
+          <textarea
+            style={{ ...inputStyle(), marginTop: 10, resize: "vertical" }}
+            rows={2}
+            placeholder="Notes…"
+            value={leadForm.notes}
+            onChange={(e) => setLeadForm((f) => ({ ...f, notes: e.target.value }))}
+          />
+          <button
+            onClick={submitLead}
+            disabled={submittingLead}
+            style={{ marginTop: 10, background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: submittingLead ? 0.4 : 1 }}
+          >
+            {submittingLead ? "Submitting…" : "Submit lead"}
+          </button>
+        </div>
+      )}
 
       {showAttribute && (
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, marginBottom: 20 }}>
@@ -408,6 +530,35 @@ export default function CrmOrganizationDetailPage({
                         {p.job_title ?? "—"} · {p.email ?? "—"}
                       </div>
                     </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>
+              Leads
+            </div>
+            {leads.length === 0 ? (
+              <div style={{ padding: "20px 16px", fontSize: 12, color: c.textMuted, textAlign: "center" }}>
+                No leads logged yet.
+              </div>
+            ) : (
+              leads.map((l) => {
+                const label = [l.first_name, l.last_name].filter(Boolean).join(" ") || l.business_name || l.email || l.phone || "(unnamed)";
+                const colorKey = LEAD_STATUS_COLOR[l.status] ?? "textMuted";
+                return (
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 16px", borderBottom: `1px solid ${c.divider}` }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: c.paper }}>{label}</div>
+                      {l.loan_amount_requested != null && (
+                        <div style={{ fontSize: 10.5, color: c.textMuted }}>{fmtMoney(Number(l.loan_amount_requested))} requested</div>
+                      )}
+                    </div>
+                    <span style={{ fontFamily: "var(--font-brokerage-mono)", fontSize: 10.5, textTransform: "uppercase", color: (c as any)[colorKey] ?? c.textMuted }}>
+                      {l.status}
+                    </span>
                   </div>
                 );
               })

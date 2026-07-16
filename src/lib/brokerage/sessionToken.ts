@@ -14,6 +14,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { upsertBrokerageLead } from "@/lib/brokerage/leads";
 
 const COOKIE_NAME = "buddy_borrower_session";
 const COOKIE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
@@ -98,7 +99,7 @@ export async function claimBorrowerSession(args: {
   const sb = supabaseAdmin();
   const { data: tokenRow } = await sb
     .from("borrower_session_tokens")
-    .select("deal_id")
+    .select("deal_id, bank_id")
     .eq("token_hash", args.tokenHash)
     .single();
   if (!tokenRow?.deal_id) return;
@@ -111,10 +112,32 @@ export async function claimBorrowerSession(args: {
     })
     .eq("token_hash", args.tokenHash);
 
-  await sb
+  const { data: deal } = await sb
     .from("deals")
     .update({ borrower_email: args.email, origin: "brokerage_claimed" })
-    .eq("id", tokenRow.deal_id);
+    .eq("id", tokenRow.deal_id)
+    .select("id, bank_id, borrower_name, referral_source_org_id")
+    .maybeSingle();
+
+  // This is the moment an anonymous concierge session becomes an
+  // identifiable lead — first point we have a real email. Non-fatal:
+  // never let lead bookkeeping break the borrower's claim flow.
+  const bankId = deal?.bank_id ?? tokenRow.bank_id;
+  if (bankId) {
+    try {
+      await upsertBrokerageLead({
+        bankId,
+        source: "concierge_chat",
+        email: args.email,
+        firstName: deal?.borrower_name?.split(" ")?.[0] ?? null,
+        lastName: deal?.borrower_name?.split(" ")?.slice(1).join(" ") || null,
+        referralSourceOrgId: deal?.referral_source_org_id ?? null,
+        dealId: tokenRow.deal_id,
+      });
+    } catch (e) {
+      console.error("[claimBorrowerSession] lead upsert failed (non-fatal):", e);
+    }
+  }
 }
 
 // Exported for unit testing only. Consumers of this module must never
