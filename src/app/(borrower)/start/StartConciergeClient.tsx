@@ -25,10 +25,36 @@ const MODE_KEY = "buddy.start.mode";
 // don't happen from a borrower action on this page.
 const JOURNEY_POLL_MS = 20_000;
 
+// Plain-language labels for the field keys computeNextRequiredFields()
+// returns (src/app/api/brokerage/concierge/route.ts) — that list was already
+// computed and sent on every turn, just never rendered anywhere.
+const NEXT_STEP_LABELS: Record<string, string> = {
+  "borrower.first_name": "your name",
+  "borrower.email": "your email",
+  "business.legal_name_or_industry": "your business",
+  "loan.amount_requested": "how much you're financing",
+  "loan.use_of_proceeds": "what the money is for",
+  "business.is_franchise": "whether you're financing a franchise",
+};
+
+export function describeNextSteps(fields: string[]): string | null {
+  if (fields.length === 0) return null;
+  const labels = fields.map((f) => NEXT_STEP_LABELS[f] ?? f);
+  if (labels.length === 1) return `One thing left: ${labels[0]}.`;
+  const last = labels[labels.length - 1];
+  const rest = labels.slice(0, -1).join(", ");
+  return `${labels.length} things left: ${rest} and ${last}.`;
+}
+
+// How long after a voice turn completes to force a facts refresh — long
+// enough to give the gateway's server-side extraction call a real chance to
+// land, short enough that it reads as "Buddy heard me" rather than a stall.
+const VOICE_TURN_REFRESH_DELAY_MS = 2_500;
+
 function useJourneyStatus(
   dealId: string | null,
   onFacts?: (facts: Record<string, unknown>) => void,
-): JourneyStatusInput {
+): JourneyStatusInput & { refreshSoon: () => void } {
   const [status, setStatus] = useState<JourneyStatusInput>({
     hasDealId: false,
     progressPct: 0,
@@ -54,12 +80,14 @@ function useJourneyStatus(
           matchedLenderCount: json.listing?.matchedLenderCount ?? 0,
           claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
         });
-        // Voice-captured facts only ever reach the browser via this poll —
-        // voice extraction runs server-side inside the Fly gateway's
-        // dispatch call, with no client-visible event. Text chat updates
-        // facts synchronously on each turn (see ChatPane's send()); this
-        // callback is what lets voice-mode corrections/captures show up in
-        // the same CapturedFactsPanel.
+        // Voice-captured facts reach the browser via this poll — voice
+        // extraction runs server-side inside the Fly gateway's dispatch
+        // call, with no client-visible "extraction done" event. Text chat
+        // updates facts synchronously on each turn (see ChatPane's send());
+        // this callback is what lets voice-mode corrections/captures show
+        // up in the same CapturedFactsPanel. refreshSoon (below) shortens
+        // the usual wait for this from the full poll interval to a few
+        // seconds after each voice turn.
         if (json.facts && typeof json.facts === "object") onFacts?.(json.facts);
       } catch {
         // non-fatal — keep showing last known status
@@ -78,7 +106,12 @@ function useJourneyStatus(
     return () => window.clearInterval(timer);
   }, [dealId, refresh]);
 
-  return status;
+  const refreshSoon = useCallback(() => {
+    if (!dealId) return;
+    window.setTimeout(() => void refresh(dealId), VOICE_TURN_REFRESH_DELAY_MS);
+  }, [dealId, refresh]);
+
+  return { ...status, refreshSoon };
 }
 
 export function StartConciergeClient({
@@ -146,6 +179,17 @@ export function StartConciergeClient({
         </button>
       </div>
 
+      <p className="mb-4 text-center text-xs text-slate-500">
+        Would rather talk to a person?{" "}
+        <a
+          href="mailto:hello@buddytheunderwriter.com"
+          className="font-medium text-slate-700 underline hover:text-slate-900"
+        >
+          Email hello@buddytheunderwriter.com
+        </a>{" "}
+        any time.
+      </p>
+
       {dealId && (
         <div className="mb-4">
           <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
@@ -160,7 +204,7 @@ export function StartConciergeClient({
           onFactsUpdated={setFacts}
         />
       ) : dealId ? (
-        <BorrowerVoicePanel dealId={dealId} />
+        <BorrowerVoicePanel dealId={dealId} onAssistantTurn={journeyStatus.refreshSoon} />
       ) : (
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
           <p className="mb-4 text-sm text-slate-600">
@@ -212,6 +256,7 @@ function ChatPane({
   const [sending, setSending] = useState(false);
   const [streamingReply, setStreamingReply] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
+  const [nextRequiredFields, setNextRequiredFields] = useState<string[]>([]);
   const [rateLimited, setRateLimited] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -282,6 +327,7 @@ function ChatPane({
           onDone: (data) => {
             finalizeStreamingMessage(data.assistantMessage ?? data.buddyResponse ?? "");
             setProgressPct(data.progressPct ?? 0);
+            setNextRequiredFields(Array.isArray(data.nextRequiredFields) ? data.nextRequiredFields : []);
             if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
             if (data.dealId) onDealIdResolved(data.dealId);
           },
@@ -298,6 +344,7 @@ function ChatPane({
             { role: "assistant", content: data.buddyResponse },
           ]);
           setProgressPct(data.progressPct ?? 0);
+          setNextRequiredFields(Array.isArray(data.nextRequiredFields) ? data.nextRequiredFields : []);
           if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
           if (data.dealId) onDealIdResolved(data.dealId);
         } else {
@@ -319,17 +366,31 @@ function ChatPane({
           <span className="font-medium text-slate-700">Your SBA package</span>
           <span className="text-slate-500">{progressPct}% ready</span>
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+        <div
+          className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"
+          role="progressbar"
+          aria-label="SBA package readiness"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progressPct}
+        >
           <div
             className="h-full bg-gradient-to-r from-[#1c8de0] to-[#4db8f0] transition-all duration-500"
             style={{ width: `${progressPct}%` }}
           />
         </div>
+        {describeNextSteps(nextRequiredFields) && (
+          <p className="mt-2 text-xs text-slate-500">{describeNextSteps(nextRequiredFields)}</p>
+        )}
       </div>
 
       <div
         ref={listRef}
         className="h-[460px] space-y-4 overflow-y-auto px-6 py-5"
+        role="log"
+        aria-live="polite"
+        aria-busy={streamingReply}
+        aria-label="Conversation with Buddy"
       >
         {messages.map((m, i) => (
           <div

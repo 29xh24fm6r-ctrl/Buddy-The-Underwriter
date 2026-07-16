@@ -16,53 +16,71 @@ type Props = {
 };
 
 type UploadedFile = {
+  id: string;
+  file: File;
   name: string;
   status: "uploading" | "success" | "error";
   error?: string;
 };
 
+let uploadIdCounter = 0;
+
 export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
   const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
 
+  const runUpload = useCallback(
+    async (id: string, file: File) => {
+      setUploads((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, status: "uploading", error: undefined } : u)),
+      );
+      try {
+        const result = await uploadBorrowerFile(token, file, null);
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === id
+              ? {
+                  ...u,
+                  status: result.ok ? "success" : "error",
+                  error: result.ok ? undefined : result.error,
+                }
+              : u,
+          ),
+        );
+        if (result.ok) onUploadComplete?.();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed";
+        setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, status: "error", error: message } : u)));
+      }
+    },
+    [token, onUploadComplete],
+  );
+
   const handleFiles = useCallback(
-    async (files: File[]) => {
+    (files: File[]) => {
       if (files.length === 0) return;
 
       const newUploads: UploadedFile[] = files.map((f) => ({
+        id: `up-${++uploadIdCounter}`,
+        file: f,
         name: f.name,
         status: "uploading",
       }));
       setUploads((prev) => [...prev, ...newUploads]);
 
-      for (const file of files) {
-        try {
-          const result = await uploadBorrowerFile(token, file, null);
-          setUploads((prev) =>
-            prev.map((u) =>
-              u.name === file.name && u.status === "uploading"
-                ? {
-                    ...u,
-                    status: result.ok ? "success" : "error",
-                    error: result.ok ? undefined : result.error,
-                  }
-                : u,
-            ),
-          );
-          if (result.ok) onUploadComplete?.();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Upload failed";
-          setUploads((prev) =>
-            prev.map((u) =>
-              u.name === file.name && u.status === "uploading"
-                ? { ...u, status: "error", error: message }
-                : u,
-            ),
-          );
-        }
+      for (const u of newUploads) {
+        void runUpload(u.id, u.file);
       }
     },
-    [token, onUploadComplete],
+    [runUpload],
+  );
+
+  const retryUpload = useCallback(
+    (id: string) => {
+      const target = uploads.find((u) => u.id === id);
+      if (target) void runUpload(id, target.file);
+    },
+    [uploads, runUpload],
   );
 
   const handleDrop = useCallback(
@@ -123,33 +141,59 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
             <p className="text-xs text-slate-500 mb-4">
               Tax returns, financial statements, bank statements, lease agreements
             </p>
-            <label className="brand-gradient-cta inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium cursor-pointer hover:brightness-110 transition min-h-[44px] focus-within:ring-2 focus-within:ring-brand-blue-500">
-              Choose Files
-              <input
-                type="file"
-                multiple
-                accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-            </label>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <label className="brand-gradient-cta inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium cursor-pointer hover:brightness-110 transition min-h-[44px] focus-within:ring-2 focus-within:ring-brand-blue-500">
+                Choose Files
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </label>
+              {/* Separate from Choose Files (which stays flexible for
+                  PDFs/gallery photos) — capture="environment" opens the
+                  camera directly for a borrower photographing a paper
+                  document on the spot. */}
+              <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium cursor-pointer hover:bg-slate-100 transition min-h-[44px] focus-within:ring-2 focus-within:ring-brand-blue-500">
+                Take a Photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </label>
+            </div>
           </>
         )}
       </div>
 
       {uploads.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2" aria-live="polite">
           {successCount > 0 && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 text-sm text-emerald-700">
               {successCount} document{successCount > 1 ? "s" : ""} uploaded successfully
             </div>
           )}
-          {errorUploads.map((u, i) => (
+          {errorUploads.map((u) => (
             <div
-              key={`err-${i}-${u.name}`}
-              className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600"
+              key={u.id}
+              role="alert"
+              className="flex items-center justify-between gap-3 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600"
             >
-              Failed: {u.name} — {u.error}
+              <span>
+                Failed: {u.name} — {u.error}
+              </span>
+              <button
+                type="button"
+                onClick={() => retryUpload(u.id)}
+                className="shrink-0 min-h-8 rounded-md border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-1"
+              >
+                Retry
+              </button>
             </div>
           ))}
         </div>
