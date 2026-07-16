@@ -224,8 +224,11 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
   assert.ok(db.storageUploads.some((u) => u.bucket === "signed-documents"));
 
   // deal_events should carry a full audit trail of everything above.
+  // mockFetchDiditSession reports Didit's "Approved" status, which
+  // mapDiditStatus() maps to Buddy's "approved" (a TERMINAL_SUCCESS_STATUS,
+  // same as "completed" — Didit's vocabulary just doesn't use that word).
   const eventKinds = db.tables.deal_events.map((e) => e.kind);
   assert.ok(eventKinds.includes("kyc.verification_initiated"));
-  assert.ok(eventKinds.includes("kyc.verification_completed"));
+  assert.ok(eventKinds.includes("kyc.verification_approved"));
   assert.ok(eventKinds.includes("esign.completed"));
 });
