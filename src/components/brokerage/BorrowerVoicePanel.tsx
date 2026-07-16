@@ -7,12 +7,14 @@
  * context beyond dealId — identity flows via the HTTP-only session cookie.
  * No gap-resolution callback (borrower scope has no gap engine). This panel
  * itself still doesn't render facts in real time — voice extraction runs
- * server-side inside the Fly gateway's dispatch call, with no client-visible
- * event to react to synchronously. Facts captured via voice DO reach the
- * borrower, just on a ~20s delay: StartConciergeClient's seal-status poll
- * merges confirmed_facts (voice) with extracted_facts (chat) and renders
- * both in the shared CapturedFactsPanel above this component, regardless of
- * which mode is active.
+ * server-side inside the Fly gateway's dispatch call, so there's no way to
+ * know the extraction itself has landed. But `useBuddyVoice` does fire
+ * `onMessage` the moment the model finishes a turn (client-side, from the
+ * WebSocket stream) — that's forwarded up via `onAssistantTurn` so
+ * StartConciergeClient can trigger a near-immediate facts refresh instead of
+ * waiting on its ~20s background poll. Facts still reach the borrower
+ * through that same seal-status poll either way; this just shortens the
+ * typical wait after a voice turn from ~20s to a few seconds.
  */
 
 import { useBuddyVoice } from "@/lib/voice/useBuddyVoice";
@@ -30,7 +32,16 @@ const STATUS_DISPLAY: Record<
   reconnecting: { icon: "🔄", label: "Reconnecting…", color: "text-amber-600" },
 };
 
-export default function BorrowerVoicePanel({ dealId }: { dealId: string }) {
+export default function BorrowerVoicePanel({
+  dealId,
+  onAssistantTurn,
+}: {
+  dealId: string;
+  /** Fires once per completed assistant turn — the borrower said something,
+   * Buddy responded, and the gateway has almost certainly kicked off (or
+   * finished) its server-side fact extraction for that turn by now. */
+  onAssistantTurn?: () => void;
+}) {
   const {
     status,
     error,
@@ -42,6 +53,9 @@ export default function BorrowerVoicePanel({ dealId }: { dealId: string }) {
   } = useBuddyVoice({
     dealId,
     tokenEndpoint: "/api/brokerage/voice/gemini-token",
+    onMessage: (msg) => {
+      if (msg.role === "assistant") onAssistantTurn?.();
+    },
   });
 
   const display = STATUS_DISPLAY[status] ?? STATUS_DISPLAY.idle;

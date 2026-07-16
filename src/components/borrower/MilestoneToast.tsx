@@ -9,12 +9,27 @@ import React, { useEffect, useState } from "react";
  * Auto-dismisses after 5 seconds but feels delightful.
  */
 
+export type MilestoneKey = '25' | '50' | '75' | '100';
+
+export type MilestoneMessage = {
+  emoji: string;
+  title: string;
+  description: string;
+  color: string;
+};
+
+export type MilestoneMessages = Record<MilestoneKey, MilestoneMessage>;
+
 interface MilestoneToastProps {
-  milestone: '25' | '50' | '75' | '100' | null;
+  milestone: MilestoneKey | null;
   onDismiss: () => void;
+  /** Override the default copy — different borrower journeys (bulk-upload
+   * vs. brokerage/portal) reach 100% via different next steps, so the
+   * message shouldn't be hardcoded to one journey's language. */
+  messages?: MilestoneMessages;
 }
 
-export function MilestoneToast({ milestone, onDismiss }: MilestoneToastProps) {
+export function MilestoneToast({ milestone, onDismiss, messages }: MilestoneToastProps) {
   const [dismissed, setDismissed] = useState(false);
   const visible = Boolean(milestone && !dismissed);
 
@@ -33,7 +48,7 @@ export function MilestoneToast({ milestone, onDismiss }: MilestoneToastProps) {
 
   if (!milestone || !visible) return null;
 
-  const messages = {
+  const defaultMessages: MilestoneMessages = {
     '25': {
       emoji: '🎉',
       title: 'Nice — you\'ve started!',
@@ -60,7 +75,7 @@ export function MilestoneToast({ milestone, onDismiss }: MilestoneToastProps) {
     },
   };
 
-  const config = messages[milestone];
+  const config = (messages ?? defaultMessages)[milestone];
 
   return (
     <div

@@ -19,6 +19,7 @@ export function UploadPageClient({ token }: { token: string }) {
   const [err, setErr] = React.useState<string | null>(null);
   const [dragActive, setDragActive] = React.useState(false);
   const [done, setDone] = React.useState(false);
+  const [failedFile, setFailedFile] = React.useState<File | null>(null);
 
   function safeUploadError(input: unknown) {
     const text = typeof input === "string" ? input.toLowerCase() : "";
@@ -32,6 +33,7 @@ export function UploadPageClient({ token }: { token: string }) {
     setUploading(true);
     setProgress(0);
     setErr(null);
+    setFailedFile(null);
     setDone(false);
 
     try {
@@ -92,6 +94,7 @@ export function UploadPageClient({ token }: { token: string }) {
       setTimeout(() => router.push(`/portal/${token}`), 700);
     } catch (e: any) {
       setErr(safeUploadError(e?.message ?? "Upload failed"));
+      setFailedFile(file);
     } finally {
       setUploading(false);
     }
@@ -170,21 +173,43 @@ export function UploadPageClient({ token }: { token: string }) {
                     className={`mx-auto mb-4 h-12 w-12 ${dragActive ? "text-brand-blue-500" : "text-slate-400"}`}
                   />
                 </motion.div>
-                <label
-                  htmlFor="file-upload"
-                  className="brand-gradient-cta inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
-                >
-                  <Icon name="add" className="h-5 w-5 text-white" />
-                  Choose a document
-                </label>
-                <input
-                  id="file-upload"
-                  type="file"
-                  accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
-                  className="hidden"
-                  onChange={handleUpload}
-                  disabled={uploading}
-                />
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <label
+                    htmlFor="file-upload"
+                    className="brand-gradient-cta inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
+                  >
+                    <Icon name="add" className="h-5 w-5 text-white" />
+                    Choose a document
+                  </label>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept=".pdf,.xlsx,.xls,.docx,.doc,.png,.jpg,.jpeg"
+                    className="hidden"
+                    onChange={handleUpload}
+                    disabled={uploading}
+                  />
+                  {/* Separate from the input above (which stays flexible for
+                      PDFs/gallery photos) — capture="environment" here opens
+                      the camera directly for a borrower photographing a
+                      paper document on the spot. */}
+                  <label
+                    htmlFor="file-upload-camera"
+                    className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
+                  >
+                    <Icon name="photo_camera" className="h-5 w-5 text-slate-600" />
+                    Take a photo
+                  </label>
+                  <input
+                    id="file-upload-camera"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleUpload}
+                    disabled={uploading}
+                  />
+                </div>
                 <p className="mt-3 text-xs text-slate-500">
                   or drag a file in here — PDF, Excel, Word, or images (max 50MB)
                 </p>
@@ -209,9 +234,18 @@ export function UploadPageClient({ token }: { token: string }) {
           )}
 
           {err && (
-            <div className="mt-6 rounded-lg bg-red-50 p-3 text-sm text-red-900">
+            <div className="mt-6 rounded-lg bg-red-50 p-3 text-sm text-red-900" role="alert">
               <div className="font-semibold">Needs another file</div>
               <div className="mt-1 text-xs">{err}</div>
+              {failedFile && (
+                <button
+                  type="button"
+                  onClick={() => void uploadFile(failedFile)}
+                  className="mt-2 min-h-8 rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+                >
+                  Try {failedFile.name} again
+                </button>
+              )}
             </div>
           )}
         </div>
