@@ -184,13 +184,22 @@ describe("route consolidation invariants", () => {
 
   // ── 4. Route count below warning threshold ──────────────────────────
 
-  it("total slot count stays below 1900 warning threshold", () => {
+  // Bumped 1900 -> 1904 on 2026-07-14: SPEC-BROKERAGE-SBA-READY-V1
+  // debt-schedule-wiring added one legitimate new route
+  // (/api/brokerage/deals/[dealId]/existing-debt) — a borrower-facing CRUD
+  // endpoint for existing business debt, distinct enough from the
+  // already-existing banker-facing route at the same path under
+  // /api/deals/ that merging them would mean branching banker vs. borrower
+  // auth inside one handler, which this codebase has hit real cross-tenant
+  // bugs from before (see git history: "close cross-tenant data leak").
+  // Still 144 slots under the 2048 hard cap.
+  it("total slot count stays below 1904 warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1900,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1900 warning threshold`,
+      totalSlots < 1904,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1904 warning threshold`,
     );
   });
 

@@ -56,7 +56,7 @@ export async function buildSealedSnapshot(args: {
     pkgRes,
     feasRes,
     tridentRes,
-    borrowerFinRes,
+    primaryOwnerRes,
     assumptionsRes,
     conciergeRes,
   ] = await Promise.all([
@@ -102,10 +102,20 @@ export async function buildSealedSnapshot(args: {
       .eq("status", "succeeded")
       .is("superseded_at", null)
       .maybeSingle(),
+    // borrower_applicant_financials has no deal_id column — it's keyed by
+    // applicant_id (an ownership_entities.id), one row per owner, not one
+    // per deal. Resolve the primary individual owner here so the financials
+    // lookup below can join through it correctly (found via a live-schema
+    // check: the old .eq("deal_id", dealId) filter referenced a column that
+    // does not exist, so it silently produced a PostgREST error and every
+    // sealed snapshot's fico_score/liquid_assets/net_worth came back null).
     sb
-      .from("borrower_applicant_financials")
-      .select("*")
+      .from("ownership_entities")
+      .select("id, ownership_pct")
       .eq("deal_id", dealId)
+      .in("entity_type", ["individual", "person"])
+      .order("ownership_pct", { ascending: false })
+      .limit(1)
       .maybeSingle(),
     sb
       .from("buddy_sba_assumptions")
@@ -125,8 +135,13 @@ export async function buildSealedSnapshot(args: {
   const facts = (financialsRes.data ?? []) as any[];
   const pkg = pkgRes.data as any;
   const feasibility = feasRes.data as any;
-  const borrowerFin = borrowerFinRes.data as any;
   const concierge = conciergeRes.data as any;
+
+  const primaryOwnerId = (primaryOwnerRes.data as { id?: string } | null)?.id ?? null;
+  const { data: borrowerFinData } = primaryOwnerId
+    ? await sb.from("borrower_applicant_financials").select("*").eq("applicant_id", primaryOwnerId).maybeSingle()
+    : { data: null };
+  const borrowerFin = borrowerFinData as any;
 
   // Round-5: term + loan from loan_impact jsonb.
   const loanImpact =

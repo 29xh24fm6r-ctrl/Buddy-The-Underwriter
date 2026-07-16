@@ -12,6 +12,9 @@ import {
   type MarketplaceListingStatus,
 } from "@/components/brokerage/BrokerageStageStrip";
 import { CapturedFactsPanel } from "@/components/brokerage/CapturedFactsPanel";
+import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
+import { IdentityVerificationCard } from "@/components/brokerage/IdentityVerificationCard";
+import { SigningPanel } from "@/components/brokerage/SigningPanel";
 import { consumeConciergeStream } from "@/lib/brokerage/consumeConciergeStream";
 
 type Msg = { role: "user" | "assistant"; content: string; streaming?: boolean };
@@ -191,8 +194,9 @@ export function StartConciergeClient({
       </p>
 
       {dealId && (
-        <div className="mb-4">
+        <div className="mb-4 space-y-3">
           <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
+          <ExistingDebtCard dealId={dealId} />
         </div>
       )}
 
@@ -227,6 +231,8 @@ export function StartConciergeClient({
         </div>
       )}
 
+      {dealId && <IdentityVerificationCard dealId={dealId} />}
+      {dealId && <SigningPanel dealId={dealId} />}
       {dealId && <SealPackageCard dealId={dealId} />}
     </div>
   );

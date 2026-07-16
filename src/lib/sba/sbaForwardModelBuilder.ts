@@ -8,8 +8,9 @@ import type {
   SensitivityScenario,
   UseOfProceedsLine,
 } from "./sbaReadinessTypes";
+import { dscr as finengineDscr } from "@/lib/finengine/metrics/ratios";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 
-const SBA_DSCR_THRESHOLD = 1.25;
 const DEFAULT_TAX_RATE = 0.25;
 const CAPEX_DEPRECIATION_RATE = 0.2; // straight-line 5yr
 
@@ -38,10 +39,13 @@ export function buildBaseYear(params: {
   existingDebtServiceAnnual: number;
 }): AnnualProjectionYear {
   const grossProfit = params.revenue - params.cogs;
-  const dscr =
-    params.existingDebtServiceAnnual > 0
-      ? params.ebitda / params.existingDebtServiceAnnual
-      : 99;
+  // Single source of truth for the DSCR formula: finengine/metrics/ratios::dscr
+  // (SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / directive 2026-07-14). 99 is this
+  // model's existing sentinel for "no debt service to cover" — finengine's
+  // div() returns null for a zero/null denominator, so that sentinel mapping
+  // stays here rather than leaking finengine-specific null-handling into
+  // every caller of buildBaseYear.
+  const dscr = finengineDscr(params.ebitda, params.existingDebtServiceAnnual).value ?? 99;
   return {
     year: 0,
     label: "Actual",
@@ -220,7 +224,7 @@ export function buildAnnualProjections(
     const totalDebtService = existingDS + sbaAnnual;
     const taxEstimate = Math.max(0, ebit * DEFAULT_TAX_RATE);
     const netIncome = ebit - taxEstimate;
-    const dscr = totalDebtService > 0 ? ebitda / totalDebtService : 99;
+    const dscr = finengineDscr(ebitda, totalDebtService).value ?? 99;
 
     years.push({
       year: y as 1 | 2 | 3,
@@ -315,10 +319,20 @@ export function computeBreakEven(
   };
 }
 
-/** Three-scenario sensitivity */
+/**
+ * Three-scenario sensitivity.
+ *
+ * dscrThreshold: the DSCR floor a passing scenario must clear. Optional —
+ * defaults to finengine's flat dscr_floor resolution (no productId/
+ * new-business context) so existing callers that haven't been updated to
+ * pass the real per-deal threshold (business age + SBA product tier — see
+ * newBusinessProtocol.ts's assessNewBusinessRisk, the actual source of
+ * truth) still resolve through the registry rather than a bare literal.
+ */
 export function buildSensitivityScenarios(
   assumptions: SBAAssumptions,
   baseProjections: AnnualProjectionYear[],
+  dscrThreshold: number = resolvePolicy("dscr_floor").effective ?? 1.25,
 ): SensitivityScenario[] {
   const configs = [
     {
@@ -389,9 +403,9 @@ export function buildSensitivityScenarios(
           ? adjYears[0].ebitda / adjYears[0].revenue
           : 0,
       passesSBAThreshold:
-        (adjYears[0]?.dscr ?? 0) >= SBA_DSCR_THRESHOLD &&
-        (adjYears[1]?.dscr ?? 0) >= SBA_DSCR_THRESHOLD &&
-        (adjYears[2]?.dscr ?? 0) >= SBA_DSCR_THRESHOLD,
+        (adjYears[0]?.dscr ?? 0) >= dscrThreshold &&
+        (adjYears[1]?.dscr ?? 0) >= dscrThreshold &&
+        (adjYears[2]?.dscr ?? 0) >= dscrThreshold,
     };
   });
 }

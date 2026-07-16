@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import {
+  insertExistingDebtScheduleEntry,
+  syncExistingDebtScheduleToDownstream,
+} from "@/lib/financialFacts/existingDebtScheduleWriter";
 
 export const dynamic = "force-dynamic";
 
@@ -41,35 +45,33 @@ export async function POST(
   }
 
   const body = await req.json();
-  if (!body.lender_name) {
-    return NextResponse.json({ ok: false, error: "lender_name is required" }, { status: 400 });
-  }
 
-  const sb = supabaseAdmin();
-  const row = {
-    deal_id: dealId,
-    bank_id: access.bankId ?? null,
-    lender_name: body.lender_name,
-    loan_type: body.loan_type ?? null,
-    original_amount: body.original_amount ?? null,
-    current_balance: body.current_balance ?? null,
-    interest_rate_pct: body.interest_rate_pct ?? null,
-    maturity_date: body.maturity_date ?? null,
-    monthly_payment: body.monthly_payment ?? null,
-    annual_debt_service: body.annual_debt_service ?? null,
-    is_being_refinanced: body.is_being_refinanced ?? false,
+  const result = await insertExistingDebtScheduleEntry({
+    dealId,
+    bankId: access.bankId ?? null,
+    lenderName: body.lender_name,
+    loanType: body.loan_type ?? null,
+    originalAmount: body.original_amount ?? null,
+    currentBalance: body.current_balance ?? null,
+    interestRatePct: body.interest_rate_pct ?? null,
+    maturityDate: body.maturity_date ?? null,
+    monthlyPayment: body.monthly_payment ?? null,
+    annualDebtService: body.annual_debt_service ?? null,
+    isBeingRefinanced: body.is_being_refinanced ?? false,
     notes: body.notes ?? null,
-  };
+    source: "manual_banker",
+  });
 
-  const { data, error } = await (sb as any)
-    .from("deal_existing_debt_schedule")
-    .insert(row)
-    .select("*")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true, existingDebt: data });
+  // Non-fatal: keeps the SBA package's DSCR denominator in sync with this
+  // table whenever a banker enters existing debt directly, same as the
+  // Brokerage borrower-facing route does. See existingDebtScheduleWriter.ts.
+  if (access.bankId) {
+    await syncExistingDebtScheduleToDownstream({ dealId, bankId: access.bankId }).catch(() => {});
+  }
+
+  return NextResponse.json({ ok: true, existingDebt: result.row });
 }

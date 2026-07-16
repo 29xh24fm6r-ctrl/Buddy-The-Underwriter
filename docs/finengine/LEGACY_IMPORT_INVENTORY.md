@@ -127,3 +127,32 @@ Non-test importers by module (full `from "@/lib/<module>"` sweep): `financialSpr
 pairs); the rest are SHARED-PRIMITIVE-KEEP or RENDER/extraction and are intentionally **not**
 ring-fenced (they are not credit-number producers finengine replaces, so their ledger could never
 reach empty).
+
+---
+
+## Addendum — 2026-07-14 (SPEC-BROKERAGE-SBA-READY-V1 verification pass)
+
+Asked to verify all financial calculations run through finengine. Two findings not previously
+recorded anywhere in this doc:
+
+1. **The entire Brokerage/SBA-package stack is outside this inventory's scope, not just
+   unmigrated within it.** `src/lib/sba/*`, `src/lib/feasibility/*`, and `src/lib/score/*` — the
+   forward model (`sbaForwardModelBuilder.ts`), feasibility study (`feasibilityEngine.ts`,
+   `financialViabilityAnalysis.ts`), and Buddy SBA Score (`buddySbaScore.ts`, `scoringCurves.ts`)
+   — have **zero imports of `@/lib/finengine` anywhere** (confirmed by grep) and are not listed as
+   a classified module in Part A above. This is a separate, parallel DSCR/equity-injection/
+   debt-service calculation system this audit never inventoried, not an approved exception to it.
+   Whether it should eventually migrate onto finengine (there's real overlap — `finengine/sba/`,
+   `finengine/sizing/size504`, `finengine/metrics/ratios::dscr` already exist) is a product/
+   architecture decision, not made here.
+2. **Fixed:** `finengine/sba/eligibility.ts`'s own future SBA eligibility check had the field
+   `ownersUsCitizenOrLpr: boolean`, whose PASS condition was "Owners are US citizens / LPR" —
+   the same pre-2026-03-01 citizenship rule already found and fixed this same day in
+   `src/lib/sba/dealDataBuilder.ts`'s `ELIGIBLE_CITIZENSHIP_STATUSES` (see
+   `docs/archive/brokerage-sba-ready-v1/T0-findings.md` item 2). SBA Procedural Notice 5000-876626
+   (eff. 2026-03-01) makes lawful permanent residents categorically ineligible owners — this
+   module's own doc comment already cited that effective date, but the logic hadn't been updated
+   to match. Renamed to `ownersUsCitizenOrNational`, corrected the PASS/FAIL semantics, added a
+   regression test. Not live (only `finengine/__tests__/phase5.test.ts` imported it), so no
+   current deal was affected — but it would have shipped the wrong rule the moment finengine's
+   SBA eligibility cuts over. Full writeup: `docs/archive/brokerage-sba-ready-v1/T2-finengine-verification-AAR.md`.

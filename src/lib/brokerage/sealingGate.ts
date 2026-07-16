@@ -7,6 +7,7 @@ import "server-only";
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ownersNeedingIal2 } from "@/lib/brokerage/identityVerificationGate";
 
 export type SealabilityResult =
   | { ok: true }
@@ -94,6 +95,20 @@ export async function canSeal(
     .is("unsealed_at", null)
     .maybeSingle();
   if (existing) reasons.push("Deal is already sealed.");
+
+  // 6. Identity verification (Ticket 2, SPEC-BROKERAGE-SBA-READY-V1) — every
+  // owner at/above the 20% ownership threshold must have completed IAL2
+  // identity verification before the package is trustworthy enough to show
+  // matched lenders. Default sequencing decision (no written spec existed
+  // for Ticket 2): identity verification gates sealing; e-signature of the
+  // actual SBA forms is deferred until after the borrower picks a lender —
+  // see docs/archive/brokerage-sba-ready-v1/T2-AAR.md.
+  const unverifiedOwners = await ownersNeedingIal2(dealId, sb);
+  for (const owner of unverifiedOwners) {
+    reasons.push(
+      `${owner.display_name ?? "An owner"} has not completed identity verification yet.`,
+    );
+  }
 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }

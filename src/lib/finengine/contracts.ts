@@ -142,6 +142,14 @@ export type ResolvedPolicy = {
 export type PolicyContext = {
   bankId?: string | null;
   productId?: string | null;
+  /**
+   * SBA SOP 50 10 8 applies a stricter projected-DSCR standard to businesses
+   * under 24 months old (§B Ch.1) — a deal characteristic, same category as
+   * productId, not a discretionary tenant override. Only axes that define a
+   * `newBusiness` variant (currently dscr_floor) read this; every other axis
+   * ignores it, so passing it is always safe even when irrelevant.
+   */
+  isNewBusiness?: boolean;
   /** Explicit per-deal/tenant overrides keyed by axis. */
   overrides?: Record<string, number>;
 };

@@ -24,6 +24,7 @@ import {
   computeBreakEven,
   buildSensitivityScenarios,
 } from "@/lib/sba/sbaForwardModelBuilder";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import type {
   SBAAssumptions,
   AnnualProjectionYear,
@@ -31,6 +32,14 @@ import type {
   BreakEvenResult,
   SensitivityScenario,
 } from "@/lib/sba/sbaReadinessTypes";
+
+// Single source of truth (finengine's policy registry) for the DSCR
+// threshold this dashboard displays against — same flat resolution
+// buildSensitivityScenarios below defaults to when this dashboard doesn't
+// pass deal-specific new-business/product context. Keeping both call sites
+// on the same registry read means the gauge/cell coloring can never drift
+// from the pass/fail flag the forward model itself computed.
+const DEFAULT_DSCR_THRESHOLD = resolvePolicy("dscr_floor").effective ?? 1.25;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -68,7 +77,7 @@ function fmtCurrency(n: number | null | undefined): string {
 
 // ─── Card: DSCR Gauge ─────────────────────────────────────────────────────
 
-function DSCRGauge({ dscr, threshold = 1.25 }: { dscr: number; threshold?: number }) {
+function DSCRGauge({ dscr, threshold = DEFAULT_DSCR_THRESHOLD }: { dscr: number; threshold?: number }) {
   const max = threshold * 3;
   const pct = Math.min(100, (dscr / max) * 100);
   const thresholdPct = (threshold / max) * 100;
@@ -344,7 +353,7 @@ function ScenarioDscrCell({ label, value }: { label: string; value: number }) {
   const color =
     value >= 99
       ? "text-slate-600"
-      : value >= 1.25
+      : value >= DEFAULT_DSCR_THRESHOLD
         ? "text-emerald-600"
         : "text-rose-600";
   return (
