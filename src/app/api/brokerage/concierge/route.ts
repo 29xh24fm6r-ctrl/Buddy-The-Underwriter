@@ -510,8 +510,21 @@ export async function POST(req: NextRequest): Promise<Response> {
         // did stream through as their reply.
 
         if (!messageText) {
+          // The model call succeeded (no gemini-stream error above) but
+          // produced no text before the sentinel — a prompt-compliance
+          // deviation, not a network failure. This was previously silent,
+          // so a borrower correcting a stored fact (e.g. a different
+          // franchise brand than what's already saved) would see a fully
+          // generic reply and the correction would never get extracted,
+          // reading as "Buddy ignored what I just said." Logged now so a
+          // recurrence is diagnosable; copy is honest that Buddy missed it
+          // rather than pretending nothing was said.
+          console.warn(
+            "[brokerage-concierge] model produced no reply text before sentinel (non-fatal, generic fallback used):",
+            { dealId: session.deal_id, hadFactsSentinel: factsRaw !== null },
+          );
           messageText =
-            "I'm glad to help. Tell me more about what you're looking to finance.";
+            "Sorry, I didn't quite catch that — could you tell me again what you're looking to finance?";
           sendEvent("token", { text: messageText });
         }
 
