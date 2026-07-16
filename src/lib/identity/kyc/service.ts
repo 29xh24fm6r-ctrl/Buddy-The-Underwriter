@@ -1,23 +1,28 @@
 /**
- * SPEC S3 A-3 — KYC orchestration. Kept free of "server-only" (unlike
- * persona.ts) so it stays testable under the plain `node --test` harness —
- * same pattern as src/lib/brokerage/compliancePackage.ts. Callers (API
- * routes) inject a real Supabase client and the real Persona client
- * functions; tests inject lightweight fakes.
+ * KYC orchestration. Kept free of "server-only" (unlike didit.ts) so it
+ * stays testable under the plain `node --test` harness — same pattern as
+ * src/lib/brokerage/compliancePackage.ts. Callers (API routes) inject a
+ * real Supabase client and the real Didit client functions; tests inject
+ * lightweight fakes.
+ *
+ * Vendor: Didit (replaces Persona — see
+ * docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md item 2). Didit's
+ * hosted session already returns a usable verification URL at creation
+ * time, so unlike Persona there's no separate one-time-link call: the
+ * session `url` is persisted on the row and reused as-is on retry.
  */
 
 export type KycSupabaseClient = { from: (table: string) => any };
 
-export type PersonaClient = {
-  createPersonaInquiry: (args: {
-    templateId: string;
-    referenceId: string;
-    fields?: { nameFirst?: string; nameLast?: string };
-  }) => Promise<{ data: { id: string } }>;
-  fetchPersonaInquiry: (inquiryId: string) => Promise<{
-    data: { id: string; attributes: { status: string; "name-first"?: string | null; "name-last"?: string | null } };
+export type DiditClient = {
+  createDiditSession: (args: { workflowId: string; vendorData: string; callbackUrl?: string }) => Promise<{
+    session_id: string;
+    status: string;
+    workflow_id: string;
+    url: string;
   }>;
-  generatePersonaOneTimeLink: (inquiryId: string) => Promise<string>;
+  fetchDiditSession: (sessionId: string) => Promise<{ session_id: string; status: string; workflow_id: string; url: string }>;
+  getDiditSessionDecision: (sessionId: string) => Promise<{ session_id: string; status: string; [key: string]: unknown }>;
 };
 
 export type InitiateKycArgs = {
@@ -28,33 +33,55 @@ export type InitiateKycArgs = {
   initiatorIp?: string | null;
   initiatorUserAgent?: string | null;
   /**
-   * Test-mode only — lets a mock-vendor caller record `vendor: "mock_persona"`
-   * instead of "persona" so a fake verification is never indistinguishable
+   * Test-mode only — lets a mock-vendor caller record `vendor: "mock_didit"`
+   * instead of "didit" so a fake verification is never indistinguishable
    * from a real one when someone queries this table. Real callers must
-   * never pass this; it defaults to "persona".
+   * never pass this; it defaults to "didit".
    */
   vendorOverride?: string;
 };
 
 export type InitiateKycResult =
-  | { ok: true; verification: Record<string, any>; oneTimeLink: string | null; reused: boolean }
+  | { ok: true; verification: Record<string, any>; sessionUrl: string | null; reused: boolean }
   | { ok: false; reason: "OWNER_NOT_FOUND" | "DB_INSERT_FAILED"; detail?: string };
 
 const PENDING_STATUSES = ["created", "pending"];
 const TERMINAL_SUCCESS_STATUSES = ["completed", "approved"];
 
-function splitName(displayName: string | null | undefined): { nameFirst?: string; nameLast?: string } {
-  if (!displayName) return {};
-  const parts = displayName.trim().split(/\s+/);
-  if (parts.length === 1) return { nameFirst: parts[0] };
-  return { nameFirst: parts.slice(0, -1).join(" "), nameLast: parts[parts.length - 1] };
+/**
+ * Didit session statuses (`Not Started`, `In Progress`, `Approved`,
+ * `Declined`, `In Review`, `Expired`, `Abandoned`, `KYC Expired`) don't
+ * share vocabulary with Buddy's internal `borrower_identity_verifications.status`
+ * enum (`created|pending|completed|approved|failed|expired|declined|needs_review`)
+ * — this is the only place the two vocabularies meet.
+ */
+export function mapDiditStatus(diditStatus: string): string {
+  switch (diditStatus) {
+    case "Not Started":
+      return "created";
+    case "In Progress":
+      return "pending";
+    case "Approved":
+      return "approved";
+    case "Declined":
+      return "declined";
+    case "In Review":
+      return "needs_review";
+    case "Expired":
+    case "KYC Expired":
+      return "expired";
+    case "Abandoned":
+      return "failed";
+    default:
+      return "pending";
+  }
 }
 
 export async function initiateKyc(
   args: InitiateKycArgs,
-  deps: { sb: KycSupabaseClient; persona: PersonaClient; templateId: string },
+  deps: { sb: KycSupabaseClient; didit: DiditClient; workflowId: string },
 ): Promise<InitiateKycResult> {
-  const { sb, persona, templateId } = deps;
+  const { sb, didit, workflowId } = deps;
 
   const { data: existing } = await sb
     .from("borrower_identity_verifications")
@@ -67,18 +94,12 @@ export async function initiateKyc(
     .maybeSingle();
 
   if (existing) {
-    let oneTimeLink: string | null = null;
-    try {
-      oneTimeLink = await persona.generatePersonaOneTimeLink(existing.vendor_inquiry_id);
-    } catch {
-      // Non-fatal — the caller can retry the link separately; the record still exists.
-    }
-    return { ok: true, verification: existing, oneTimeLink, reused: true };
+    return { ok: true, verification: existing, sessionUrl: existing.vendor_artifacts_url ?? null, reused: true };
   }
 
   const { data: owner } = await sb
     .from("ownership_entities")
-    .select("id, display_name, evidence_json")
+    .select("id, display_name")
     .eq("id", args.ownershipEntityId)
     .maybeSingle();
 
@@ -86,13 +107,12 @@ export async function initiateKyc(
     return { ok: false, reason: "OWNER_NOT_FOUND" };
   }
 
-  const referenceId = `deal:${args.dealId}:owner:${args.ownershipEntityId}`;
-  const nameFields = splitName(owner.display_name);
+  const vendorData = `deal:${args.dealId}:owner:${args.ownershipEntityId}`;
 
-  const inquiry = await persona.createPersonaInquiry({
-    templateId,
-    referenceId,
-    fields: nameFields,
+  const session = await didit.createDiditSession({
+    workflowId,
+    vendorData,
+    callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/kyc/complete`,
   });
 
   const { data: inserted, error } = await sb
@@ -101,10 +121,11 @@ export async function initiateKyc(
       deal_id: args.dealId,
       bank_id: args.bankId,
       ownership_entity_id: args.ownershipEntityId,
-      vendor: args.vendorOverride ?? "persona",
-      vendor_inquiry_id: inquiry.data.id,
-      vendor_template_id: templateId,
-      status: "created",
+      vendor: args.vendorOverride ?? "didit",
+      vendor_inquiry_id: session.session_id,
+      vendor_template_id: workflowId,
+      vendor_artifacts_url: session.url,
+      status: mapDiditStatus(session.status),
       initiator_user_id: args.initiatorUserId,
       initiator_ip: args.initiatorIp ?? null,
       initiator_user_agent: args.initiatorUserAgent ?? null,
@@ -119,44 +140,36 @@ export async function initiateKyc(
   await sb.from("deal_events").insert({
     deal_id: args.dealId,
     kind: "kyc.verification_initiated",
-    payload: { ownership_entity_id: args.ownershipEntityId, vendor_inquiry_id: inquiry.data.id },
+    payload: { ownership_entity_id: args.ownershipEntityId, vendor_inquiry_id: session.session_id },
   });
 
-  let oneTimeLink: string | null = null;
-  try {
-    oneTimeLink = await persona.generatePersonaOneTimeLink(inquiry.data.id);
-  } catch {
-    // Non-fatal — record is created; the UI can retry fetching the link.
-  }
-
-  return { ok: true, verification: inserted, oneTimeLink, reused: false };
+  return { ok: true, verification: inserted, sessionUrl: session.url, reused: false };
 }
 
-export type HandlePersonaWebhookResult =
+export type HandleDiditWebhookResult =
   | { ok: true; verification_id: string; status: string }
-  | { ok: false; reason: "MISSING_INQUIRY_ID" | "VERIFICATION_NOT_FOUND" };
+  | { ok: false; reason: "MISSING_SESSION_ID" | "VERIFICATION_NOT_FOUND" };
 
-export async function handlePersonaWebhook(
+export async function handleDiditWebhook(
   payload: Record<string, any>,
-  deps: { sb: KycSupabaseClient; persona: PersonaClient },
-): Promise<HandlePersonaWebhookResult> {
-  const { sb, persona } = deps;
+  deps: { sb: KycSupabaseClient; didit: DiditClient },
+): Promise<HandleDiditWebhookResult> {
+  const { sb, didit } = deps;
 
-  const inquiryId: string | undefined =
-    payload?.data?.attributes?.payload?.data?.id ?? payload?.data?.id ?? payload?.inquiry_id;
-  if (!inquiryId) {
-    return { ok: false, reason: "MISSING_INQUIRY_ID" };
+  const sessionId: string | undefined = payload?.session_id;
+  if (!sessionId) {
+    return { ok: false, reason: "MISSING_SESSION_ID" };
   }
 
-  // Never trust the webhook payload alone — refetch canonical state
-  // (replay safety, per spec risk #5).
-  const inquiry = await persona.fetchPersonaInquiry(inquiryId);
-  const status = inquiry.data.attributes.status;
+  // Never trust the webhook payload alone — refetch canonical state from
+  // Didit (replay safety, same discipline as the former Persona handler).
+  const session = await didit.fetchDiditSession(sessionId);
+  const status = mapDiditStatus(session.status);
 
   const { data: record } = await sb
     .from("borrower_identity_verifications")
     .select("id")
-    .eq("vendor_inquiry_id", inquiryId)
+    .eq("vendor_inquiry_id", sessionId)
     .maybeSingle();
 
   if (!record) {
@@ -166,8 +179,16 @@ export async function handlePersonaWebhook(
   const update: Record<string, any> = { status };
   if (TERMINAL_SUCCESS_STATUSES.includes(status)) {
     update.completed_at = new Date().toISOString();
-    update.id_document_first_name = inquiry.data.attributes["name-first"] ?? null;
-    update.id_document_last_name = inquiry.data.attributes["name-last"] ?? null;
+    // Didit's decision payload field paths (document type/name/DOB, selfie
+    // match score, liveness) haven't been confirmed against a live account
+    // yet — fetched here for the audit record but not mapped into the
+    // Persona-shaped id_document_* / selfie_match_score columns until that
+    // shape is verified. See docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md.
+    try {
+      await didit.getDiditSessionDecision(sessionId);
+    } catch {
+      // Non-fatal — status is already updated; decision detail is best-effort.
+    }
   }
 
   await sb.from("borrower_identity_verifications").update(update).eq("id", record.id);
@@ -181,7 +202,7 @@ export async function handlePersonaWebhook(
   await sb.from("deal_events").insert({
     deal_id: fullRecord?.deal_id ?? null,
     kind: `kyc.verification_${status}`,
-    payload: { verification_id: record.id, vendor_inquiry_id: inquiryId },
+    payload: { verification_id: record.id, vendor_inquiry_id: sessionId },
   });
 
   return { ok: true, verification_id: record.id, status };

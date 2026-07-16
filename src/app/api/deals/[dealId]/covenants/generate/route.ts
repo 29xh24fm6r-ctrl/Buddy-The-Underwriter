@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildCovenantPackage } from "@/lib/covenants/covenantPackageBuilder";
@@ -13,8 +13,12 @@ export async function POST(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
 
   const { dealId } = await ctx.params;
 

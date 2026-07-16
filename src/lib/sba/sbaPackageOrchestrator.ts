@@ -24,6 +24,7 @@ import {
   generateMarketingAndOperations,
   generateSWOTAnalysis,
   generatePlanThesis,
+  generateFranchiseSection,
 } from "./sbaPackageNarrative";
 import {
   generateMilestoneTimeline,
@@ -680,13 +681,63 @@ export async function generateSBAPackage(
   const benchmarkWarnings = validateAgainstBenchmarks(assumptions, naicsCode);
 
   // ── Phase BPG — Franchise detection
-  // Currently disabled: deals has no franchise_brand_id / franchise_brand_name
-  // column, and there is no FK or relationship table linking deals to
-  // franchise_brands. The franchise_brands / FDD / Item 19 intelligence
-  // remains intact and is unaffected by this stub.
-  // TODO: Future franchise feature should link deals to franchise_brands
-  // through a real FK or relationship table.
-  const franchiseSection: string | null = null;
+  // deal_franchises links a deal to its franchise_brands row (one brand per
+  // deal) — same lookup feasibilityEngine.ts's "9. Franchise detection"
+  // step uses. Was previously hardcoded null with a comment claiming no
+  // such link existed; deal_franchises has existed and been in active use
+  // by the borrower-facing franchise-picker routes since 2026-07-12.
+  // Gracefully degrades to null on any failure (missing table, no link,
+  // RLS) — a franchise section is a bonus, never a reason to fail the
+  // whole package.
+  let franchiseSection: string | null = null;
+  try {
+    const { data: franchiseLink } = await sb
+      .from("deal_franchises")
+      .select("brand_id")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    const franchiseBrandId = (franchiseLink as { brand_id?: string } | null)?.brand_id ?? null;
+
+    if (franchiseBrandId) {
+      const { data: brandRow } = await sb
+        .from("franchise_brands")
+        .select("brand_name, initial_investment_min, initial_investment_max, unit_count, has_item_19")
+        .eq("id", franchiseBrandId)
+        .maybeSingle();
+
+      if (brandRow?.brand_name) {
+        // Latest AVERAGE_GROSS_REVENUE reading — same metric
+        // franchiseComparator.ts uses for cross-brand comparison, so the
+        // business plan and the feasibility study cite the same figure.
+        let item19Avg: number | undefined;
+        if (brandRow.has_item_19) {
+          const { data: item19Row } = await sb
+            .from("fdd_item19_facts")
+            .select("value")
+            .eq("brand_id", franchiseBrandId)
+            .eq("metric_name", "AVERAGE_GROSS_REVENUE")
+            .order("filing_year", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          item19Avg = (item19Row as { value?: number } | null)?.value ?? undefined;
+        }
+
+        franchiseSection = await generateFranchiseSection({
+          dealName: deal?.name ?? "Borrower",
+          franchiseBrand: brandRow.brand_name,
+          fddItem7Min: brandRow.initial_investment_min ?? undefined,
+          fddItem7Max: brandRow.initial_investment_max ?? undefined,
+          fddItem19Avg: item19Avg,
+          unitCount: brandRow.unit_count ?? undefined,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn(
+      "[sbaPackageOrchestrator] franchise section lookup failed (non-fatal):",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
 
   // Render PDF.
   // Sprint 3: for mode='preview' we redact at the data layer *before* calling

@@ -66,6 +66,12 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // Guarded structurally by committeeArtifactGuard.test.ts.
   "src/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot.ts",
   "src/app/api/deals/[dealId]/credit-memo/canonical/pdf/route.ts",
+  // Brokerage package-delivery manifest — READS banker_submitted (among
+  // other certified statuses) only to decide whether the "Credit Memo"
+  // resource should show as available for download. Read-only; never
+  // writes credit_memo_snapshots.status.
+  "src/lib/brokerage/packageDelivery.ts",
+  "src/lib/brokerage/__tests__/packageDelivery.test.ts",
 ]);
 
 const SKIP_DIRS = new Set([

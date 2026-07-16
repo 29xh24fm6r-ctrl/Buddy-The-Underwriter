@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -122,8 +122,10 @@ type Context = {
 export async function POST(req: NextRequest, ctx: Context) {
   try {
     const requestId = req.headers.get("x-request-id") || null;
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json(
         { ok: false, error: "Unauthorized", request_id: requestId },
         { status: 401 },

@@ -99,6 +99,7 @@ Documents (tax returns, financials, statements)
 ### Phase 53A ✅ — Deal Builder (workflow rail, modal/drawer UX, milestone readiness) — commit 22bac029
 ### Fix A ✅ — Route consolidation after D5 outage (2053 → 2023, −15 routes, +25 cap headroom) — commits 99306b9e + 28d04057 + c53ca967 + <this-commit>. Final headroom 3 over FIX-C error threshold; enforcement flip deferred indefinitely per AUDIT.md Closing State.
 ### OMEGA-REPAIR ✅ — Omega wire-level repair + field mapping 2026-04-23 — commits aa4ded8a + 7d0550a5 + <this-commit>. Three bugs fixed: JSON-RPC method (`omega://` URIs → `tools/call`), auth header (`Authorization: Bearer` → `x-pulse-mcp-key`), and write-path field shape (Buddy envelope `type` → Pulse schema `event_type`, default `status: "success"`, extract `deal_id` from entities). Write + health paths wired to real Pulse tools (`buddy_ledger_write`, `mcp_tick`). Read path kill-switched with `pulse_advisory_tools_not_yet_available` pending PULSE-SIDE-SPEC.md. Pulse-side auth state confirmed inconsistent during rev 3.1 diagnostic — Batch 4 serves as authoritative auth test; persistent `http_401` is an acceptable ship state with Pulse-side auth diagnostic queued separately. `Method not found` signal eliminated regardless of auth outcome. Closes D2. Spec: `specs/omega-repair/SPEC.md` rev 3.3 at commit `9a6da9b5`.
+### Phase 51 (revised) ✅ — 2026-07-15: Voice platform swapped from Gemini Live/Vertex AI back to OpenAI Realtime (`gpt-realtime`, flagship). `buddy-voice-gateway` now proxies `wss://api.openai.com/v1/realtime` instead of Vertex AI's BidiGenerateContent; client mic capture moved from 16kHz to 24kHz PCM16 to match OpenAI's required input format; token routes renamed `gemini-token` → `realtime-token`. Document extraction, classification, narrative, and research workloads are untouched — still Gemini.
 
 ---
 
@@ -254,11 +255,11 @@ Browser
 | Frontend | Next.js, Tailwind, Vercel |
 | Database | Supabase (PostgreSQL) |
 | AI — Extraction | Gemini 2.0 Flash via Vertex AI (GOOGLE_CLOUD_PROJECT + GCP ADC) |
-| AI — Voice | `gemini-live-2.5-flash-native-audio` via Vertex AI — Fly.io gateway |
+| AI — Voice | `gpt-realtime` via OpenAI Realtime API — Fly.io gateway |
 | AI — Reasoning | Gemini Flash via Developer API (GEMINI_API_KEY) |
 | AI — Research | gemini-3.1-pro-preview via Developer API (GEMINI_API_KEY) — BIE |
 | AI — Transcript | Gemini Flash via Developer API (GEMINI_API_KEY) |
-| Voice Gateway | Node.js 20 ESM, `ws` library, `google-auth-library`, Fly.io |
+| Voice Gateway | Node.js 20 ESM, `ws` library, OpenAI Realtime WebSocket, Fly.io |
 | Integration | MCP (Model Context Protocol) |
 | Event Ledger | Supabase `deal_events` (append-only) |
 | Gap Engine | `src/lib/gapEngine/` — computeDealGaps, extractFactsFromTranscript, resolveDealGap |
@@ -275,14 +276,14 @@ Browser
 | Document extraction | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Classic Spread narrative | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
 | Document classification | Gemini 2.0 Flash | Vertex AI / GCP ADC | ✅ Active |
-| **Voice interview** | **gemini-live-2.5-flash-native-audio** | **Vertex AI / GCP service account** | **✅ LIVE** |
+| **Voice interview** | **gpt-realtime** | **OpenAI API key (Fly.io gateway, server-side only)** | **✅ LIVE** |
 | Risk + Memo orchestrator | Gemini Flash | GEMINI_API_KEY (Dev API) | ✅ **LIVE — BB+ on Samaritus** |
 | **Buddy Intelligence Engine** | **gemini-3.1-pro-preview** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — 9 sections rendering** |
 | **Generate Narratives** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE** |
 | **Transcript extraction** | **Gemini Flash** | **GEMINI_API_KEY (Dev API)** | **✅ LIVE — Phase 50** |
 | chatAboutDeal | OpenAI gpt-4o-2024-08-06 | OpenAI API key | 🔴 Gemini migration queued (P3) |
 
-**OpenAI is now used for one workload only: chatAboutDeal.** All voice is Gemini.
+**OpenAI now covers two workloads: chatAboutDeal and the realtime voice interview** (Phase 51's Gemini Live choice was reverted — see "Phase 51 (revised)" below). All other AI workloads (extraction, classification, narrative, research) remain Gemini.
 
 ---
 

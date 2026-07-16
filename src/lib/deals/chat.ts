@@ -132,14 +132,28 @@ async function fetchDealDisplayInfo(dealIds: string[]) {
   }
 }
 
-export async function bankerListMessageThreads(input: { bankerUserId: string; limit?: number }): Promise<BankerThread[]> {
+export async function bankerListMessageThreads(input: { bankerUserId: string; bankId: string; limit?: number }): Promise<BankerThread[]> {
   const sb = supabaseAdmin();
   const limit = Math.max(1, Math.min(200, input.limit ?? 50));
 
-  // Recent messages (reduce to latest per deal)
+  // Scope to deals owned by the caller's bank before touching deal_messages --
+  // previously this queried deal_messages with no tenant filter at all, so
+  // any caller got the latest message from every deal across every bank.
+  const { data: bankDeals, error: bdErr } = await sb
+    .from("deals")
+    .select("id")
+    .eq("bank_id", input.bankId);
+
+  if (bdErr) throw bdErr;
+
+  const bankDealIds = (bankDeals ?? []).map((d: any) => d.id);
+  if (bankDealIds.length === 0) return [];
+
+  // Recent messages (reduce to latest per deal), scoped to this bank's deals.
   const { data: recent, error: rErr } = await sb
     .from("deal_messages")
     .select("deal_id, body, created_at, sender_role, sender_display")
+    .in("deal_id", bankDealIds)
     .order("created_at", { ascending: false })
     .limit(2000);
 

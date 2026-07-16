@@ -47,6 +47,10 @@ const QUARANTINE = new Set([
   // projectionsXlsx.ts has `import "server-only"` — same class as above.
   // Passes under `node --conditions=react-server --test ...`.
   "src/lib/brokerage/trident/__tests__/projectionsXlsx.test.ts",
+  // Same class: imports geminiClient.ts, which has `import "server-only"`
+  // (it reads GEMINI_API_KEY). Passes under
+  // `node --conditions=react-server --test ...`.
+  "src/lib/ai/__tests__/streamGeminiText.test.ts",
 ]);
 
 function isExcludedPath(rel) {

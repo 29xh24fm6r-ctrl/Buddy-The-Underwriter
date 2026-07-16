@@ -33,10 +33,16 @@ export async function requireDealAccess(
     redirect("/deals");
   }
 
-  // Borrowers access deals through /borrower/portal, not the bank application
+  // Borrowers never access deals through the bank application. This branch
+  // has no known live path today — role="borrower" requires a Clerk user
+  // metadata assignment that no code in this repo performs, and the
+  // token-based invite flow (borrower_invites -> /portal/[token]) is the
+  // one actually in use. Kept as a defensive guard in case that changes;
+  // /start is the real borrower entry point, not the retired
+  // (app)/borrower/portal tree this used to redirect to.
   const { role } = await getCurrentRole();
   if (role === "borrower") {
-    redirect("/borrower/portal");
+    redirect("/start");
   }
 
   return { dealId: access.dealId, bankId: access.bankId, userId: access.userId };

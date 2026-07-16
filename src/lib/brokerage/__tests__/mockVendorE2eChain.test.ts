@@ -1,18 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initiateKyc, handlePersonaWebhook, hasValidIal2 } from "@/lib/identity/kyc/service";
-import { handleDocusealWebhook } from "@/lib/esign/docuseal/service";
-import { mockCreatePersonaInquiry, mockFetchPersonaInquiry, buildMockPersonaOneTimeLink } from "@/lib/identity/kyc/mockPersona";
-import { mockRequestSignature } from "@/lib/esign/docuseal/mockService";
+import { initiateKyc, handleDiditWebhook, hasValidIal2 } from "@/lib/identity/kyc/service";
+import { handleSignwellWebhook } from "@/lib/esign/signwell/service";
+import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecision } from "@/lib/identity/kyc/mockDidit";
+import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
-  mockCreateDocusealSubmission,
-  mockFetchDocusealSubmission,
-  mockDownloadDocusealSignedPdf,
-  mockDownloadDocusealAuditTrail,
-} from "@/lib/esign/docuseal/mockClient";
+  mockCreateSignwellDocumentFromTemplate,
+  mockFetchSignwellDocument,
+  mockDownloadSignwellCompletedPdf,
+} from "@/lib/esign/signwell/mockClient";
 
 // Integration test for the mock-vendor harness: exercises the REAL
-// initiateKyc/handlePersonaWebhook/hasValidIal2/handleDocusealWebhook
+// initiateKyc/handleDiditWebhook/hasValidIal2/handleSignwellWebhook
 // functions chained together with mock vendor clients — the same call
 // sequence the borrower-actions/[action] route drives, in the order a
 // real borrower would actually trigger it (verify identity, gate checks
@@ -134,10 +133,10 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
     deals: [{ id: "deal-1", bank_id: "bank-brokerage" }],
   });
 
-  const mockPersona = {
-    createPersonaInquiry: mockCreatePersonaInquiry,
-    fetchPersonaInquiry: mockFetchPersonaInquiry,
-    generatePersonaOneTimeLink: (id: string) => Promise.resolve(buildMockPersonaOneTimeLink("deal-1", id)),
+  const mockDidit = {
+    createDiditSession: mockCreateDiditSession,
+    fetchDiditSession: mockFetchDiditSession,
+    getDiditSessionDecision: mockGetDiditSessionDecision,
   };
 
   // 1. Initiate KYC — mirrors postKyc.
@@ -147,14 +146,14 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
       bankId: "bank-brokerage",
       ownershipEntityId: "owner-1",
       initiatorUserId: "brokerage_borrower_session:deal-1",
-      vendorOverride: "mock_persona",
+      vendorOverride: "mock_didit",
     },
-    { sb: db as any, persona: mockPersona, templateId: "mock-template-ial2" },
+    { sb: db as any, didit: mockDidit, workflowId: "mock-workflow-ial2" },
   );
   assert.equal(initResult.ok, true);
   if (!initResult.ok) return;
-  assert.equal(initResult.verification.vendor, "mock_persona");
-  assert.ok(initResult.oneTimeLink?.includes("mock-complete-kyc"));
+  assert.equal(initResult.verification.vendor, "mock_didit");
+  assert.ok(initResult.sessionUrl?.includes("mock-complete-kyc"));
 
   // Before completion, signing must be blocked — the IAL2 gate is real,
   // not mocked away.
@@ -174,9 +173,9 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
   assert.deepEqual(preSignAttempt, { ok: false, reason: "IAL2_NOT_COMPLETED" });
 
   // 2. Complete KYC — mirrors getMockCompleteKyc, calling the REAL
-  // handlePersonaWebhook (not a mock of the webhook handler itself).
-  const inquiryId = initResult.verification.vendor_inquiry_id;
-  const kycWebhookResult = await handlePersonaWebhook({ inquiry_id: inquiryId }, { sb: db as any, persona: mockPersona });
+  // handleDiditWebhook (not a mock of the webhook handler itself).
+  const sessionId = initResult.verification.vendor_inquiry_id;
+  const kycWebhookResult = await handleDiditWebhook({ session_id: sessionId }, { sb: db as any, didit: mockDidit });
   assert.equal(kycWebhookResult.ok, true);
 
   const ial2Now = await hasValidIal2("deal-1", "owner-1", db as any);
@@ -201,17 +200,19 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
   assert.ok(signResult.embedUrl.includes("mock-complete-esign"));
 
   // 4. Complete signing — mirrors getMockCompleteEsign, calling the REAL
-  // handleDocusealWebhook, which re-checks IAL2 at completion time too.
+  // handleSignwellWebhook, which re-checks IAL2 at completion time too.
   const externalId = `deal:deal-1:form:SBA_1919:signer:owner-1`;
-  const esignWebhookResult = await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: externalId, id: signResult.submissionId, submission_id: signResult.submissionId } },
+  const esignWebhookResult = await handleSignwellWebhook(
+    {
+      event: { type: "document_completed" },
+      data: { object: { id: signResult.documentId, metadata: { external_id: externalId }, recipients: [{ id: "1" }] } },
+    },
     {
       sb: db as any,
-      docuseal: {
-        createDocusealSubmission: mockCreateDocusealSubmission,
-        fetchDocusealSubmission: mockFetchDocusealSubmission,
-        downloadDocusealSignedPdf: mockDownloadDocusealSignedPdf,
-        downloadDocusealAuditTrail: mockDownloadDocusealAuditTrail,
+      signwell: {
+        createSignwellDocumentFromTemplate: mockCreateSignwellDocumentFromTemplate,
+        fetchSignwellDocument: mockFetchSignwellDocument,
+        downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },
     },
   );
@@ -219,6 +220,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
   assert.equal(db.tables.signed_documents.length, 1);
   assert.equal(db.tables.signed_documents[0].form_code, "SBA_1919");
   assert.equal(db.tables.signed_documents[0].signer_ownership_entity_id, "owner-1");
+  assert.equal(db.tables.signed_documents[0].esign_provider, "signwell");
   assert.ok(db.storageUploads.some((u) => u.bucket === "signed-documents"));
 
   // deal_events should carry a full audit trail of everything above.

@@ -15,6 +15,13 @@
 
 import { useEffect, useState } from "react";
 
+type PackageResource = {
+  type: string;
+  label: string;
+  available: boolean;
+  downloadKey: string | null;
+};
+
 type SealStatus = {
   ok: boolean;
   sealed: boolean;
@@ -32,12 +39,27 @@ type SealStatus = {
     matchedLenderCount: number;
   };
   claims?: Array<{ id: string; lenderName: string; claimedAt: string | null }>;
+  manifest?: { resources: PackageResource[] } | null;
 };
+
+// The trident download dispatcher (/trident/download/[kind]) only knows how
+// to serve these six kinds today. form_159 and source_docs exist as
+// manifest resource types but have no working download endpoint yet —
+// filtered out here rather than rendering a button that 404s.
+const DOWNLOADABLE_KINDS = new Set([
+  "business_plan",
+  "projections_pdf",
+  "projections_xlsx",
+  "feasibility",
+  "credit_memo",
+  "sba_forms",
+]);
 
 export function SealPackageCard({ dealId }: { dealId: string }) {
   const [status, setStatus] = useState<SealStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -107,6 +129,46 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
       setError("Network error");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const downloadResource = async (kind: string) => {
+    if (downloadingKey) return;
+    setDownloadingKey(kind);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/brokerage/deals/${dealId}/trident/download/${kind}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body?.error ?? "Download failed");
+        return;
+      }
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        // business_plan / projections_pdf / projections_xlsx / feasibility —
+        // a short-lived signed Storage URL.
+        const data = await res.json();
+        if (data.ok && data.url) {
+          window.open(data.url, "_blank", "noopener,noreferrer");
+        } else {
+          setError(data.error ?? "Download failed");
+        }
+      } else {
+        // credit_memo — the route streams the PDF bytes directly (rendered
+        // on demand, no pre-generated file to sign a URL for).
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, "_blank", "noopener,noreferrer");
+        // Give the new tab time to load the blob before revoking it.
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setDownloadingKey(null);
     }
   };
 
@@ -220,10 +282,47 @@ export function SealPackageCard({ dealId }: { dealId: string }) {
 
         {l.status === "picked" && (
           <div className="mt-5 border-t border-slate-100 pt-4">
-            <p className="text-sm font-medium text-emerald-700">
+            <p className="text-sm font-medium text-emerald-700 mb-3">
               You&rsquo;ve chosen your lender. They now have full access to your
               package and will be in touch.
             </p>
+            <h4 className="text-sm font-semibold text-slate-900 mb-2">
+              Your documents
+            </h4>
+            {status.manifest ? (
+              <ul className="space-y-2">
+                {status.manifest.resources
+                  .filter((r) => DOWNLOADABLE_KINDS.has(r.type))
+                  .map((r) => (
+                    <li
+                      key={r.type}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"
+                    >
+                      <span className="text-sm font-medium text-slate-800">
+                        {r.label}
+                      </span>
+                      {r.available && r.downloadKey ? (
+                        <button
+                          onClick={() => downloadResource(r.downloadKey!)}
+                          disabled={downloadingKey !== null}
+                          className="px-3 py-1.5 bg-slate-800 text-white rounded-md text-sm font-medium hover:bg-slate-900 disabled:opacity-50"
+                          type="button"
+                        >
+                          {downloadingKey === r.downloadKey
+                            ? "Preparing…"
+                            : "Download"}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          Not yet available
+                        </span>
+                      )}
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-500">Loading documents…</p>
+            )}
           </div>
         )}
 

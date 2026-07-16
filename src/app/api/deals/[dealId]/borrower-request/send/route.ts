@@ -1,6 +1,6 @@
 // src/app/api/deals/[dealId]/borrower-request/send/route.ts
 import { NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -137,8 +137,10 @@ async function sendEmailBestEffort(args: { to: string; subject: string; text: st
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ dealId: string }> }) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

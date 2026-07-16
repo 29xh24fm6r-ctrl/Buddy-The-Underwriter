@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import type { AuditLedgerRow } from "@/types/db";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
@@ -43,8 +43,10 @@ export async function GET(req: NextRequest, ctx: Context) {
   try {
     const { dealId } = await ctx.params;
 
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, events: [], error: "Unauthorized" }, { status: 401 });
     }
 

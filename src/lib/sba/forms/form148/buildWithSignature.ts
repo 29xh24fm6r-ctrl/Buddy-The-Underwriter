@@ -1,8 +1,8 @@
 /**
  * SPEC S7 (ARC-00 Phase 5) — DB-aware wrapper. `form_code` in
  * `signed_documents` is `FORM_148` or `FORM_148L` depending on the
- * signer's guaranteeType, matching the two distinct DocuSeal templates
- * render.ts fills — same `DOCUSEAL_TEMPLATE_<CODE>` convention every
+ * signer's guaranteeType, matching the two distinct SignWell templates
+ * render.ts fills — same `SIGNWELL_TEMPLATE_<CODE>` convention every
  * other form in this arc uses, no new e-sign code needed.
  */
 

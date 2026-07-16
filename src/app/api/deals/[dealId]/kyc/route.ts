@@ -2,21 +2,22 @@ import "server-only";
 
 /**
  * SPEC S3 A-4 — /api/deals/[dealId]/kyc
- * POST -> initiate a Persona IAL2 verification
+ * POST -> initiate a Didit IAL2-equivalent verification
  * GET  ?ownershipEntityId=... -> latest verification status
  *
  * Consolidates the former separate kyc/initiate (POST) and
  * kyc/status/[ownershipEntityId] (GET) route files into one file — route/
  * page slot budget discipline (see the Drift Log). The POST path changes
  * from /kyc/initiate to /kyc (caller updated: SbaSigningPanel.tsx); GET
- * had no caller.
+ * had no caller. Vendor is Didit (replaces Persona — see
+ * docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md item 2).
  */
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import { initiateKyc } from "@/lib/identity/kyc/service";
-import { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink } from "@/lib/identity/kyc/persona";
+import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
@@ -36,9 +37,9 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "missing_ownership_entity_id" }, { status: 400 });
     }
 
-    const templateId = process.env.PERSONA_TEMPLATE_ID_IAL2;
-    if (!templateId) {
-      return NextResponse.json({ ok: false, error: "persona_not_configured" }, { status: 503 });
+    const workflowId = process.env.DIDIT_WORKFLOW_ID;
+    if (!workflowId) {
+      return NextResponse.json({ ok: false, error: "didit_not_configured" }, { status: 503 });
     }
 
     const result = await initiateKyc(
@@ -52,8 +53,8 @@ export async function POST(req: Request, ctx: Ctx) {
       },
       {
         sb: supabaseAdmin(),
-        persona: { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink },
-        templateId,
+        didit: { createDiditSession, fetchDiditSession, getDiditSessionDecision },
+        workflowId,
       },
     );
 
@@ -61,7 +62,10 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: result.reason }, { status: result.reason === "OWNER_NOT_FOUND" ? 404 : 500 });
     }
 
-    return NextResponse.json({ ok: true, verification: result.verification, oneTimeLink: result.oneTimeLink, reused: result.reused });
+    // Field name kept as `oneTimeLink` for backward compat with
+    // SbaSigningPanel.tsx — it now carries the Didit hosted-session URL
+    // rather than a Persona single-use link.
+    return NextResponse.json({ ok: true, verification: result.verification, oneTimeLink: result.sessionUrl, reused: result.reused });
   } catch (e: unknown) {
     const accessRes = accessErrorToResponse(e);
     if (accessRes) return accessRes;

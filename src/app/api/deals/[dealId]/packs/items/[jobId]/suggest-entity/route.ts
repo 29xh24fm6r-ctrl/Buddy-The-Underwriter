@@ -5,7 +5,7 @@ import {
   suggestEntity,
   extractEntitySignals,
 } from "@/lib/entities/entityMatching";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
@@ -25,8 +25,10 @@ function json(status: number, body: any) {
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return json(401, { ok: false, error: "Unauthorized" });
     }
 

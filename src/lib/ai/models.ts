@@ -151,9 +151,19 @@ export const MODEL_RETRIEVAL      = OPENAI_MINI;   // retrieval reranker
 export const MODEL_INTERVIEW      = OPENAI_CHAT;   // interview QA
 
 // Concierge — migrated to Gemini (brokerage prereq). Two lanes:
-//  • REASONING (Pro) — warm conversational response, judgment on next question
+//  • REASONING (Flash-Precision) — warm conversational response, judgment on next question
 //  • EXTRACTION (Flash) — structured JSON fact extraction from borrower turns
-export const MODEL_CONCIERGE_REASONING  = GEMINI_PRO;
+//
+// REASONING was GEMINI_PRO (gemini-3.1-pro-preview) — a thinking-mode deep
+// reasoning model that runs 10-30s+ per call (see GEMINI_PRO's own history
+// comment: 33s on a real production narrative run). That's the model used
+// on EVERY borrower chat turn, stacked sequentially after the extraction
+// call, which is exactly the multi-second-to-tens-of-seconds latency gap
+// reported on the live borrower /start experience. A live conversational
+// reply + single-next-question judgment doesn't need deep/thinking-mode
+// reasoning — GEMINI_FLASH_PRECISION keeps Flash-tier latency while still
+// "rivaling Pro" on instruction-following (see its own doc comment above).
+export const MODEL_CONCIERGE_REASONING  = GEMINI_FLASH_PRECISION;
 export const MODEL_CONCIERGE_EXTRACTION = GEMINI_FLASH;
 
 /** @deprecated Use MODEL_CONCIERGE_REASONING / MODEL_CONCIERGE_EXTRACTION. Retained until all callers migrate. */

@@ -350,14 +350,22 @@ export function BuddyProvider({ children }: { children: React.ReactNode }) {
 
   const eventName = useMemo(() => getBuddySignalEventName(), []);
 
+  // Same rationale as the BuddyPanel skip below: this is a banker/builder
+  // observer feature, never meant to run on public borrower surfaces. Unlike
+  // the panel it wasn't route-gated, so it kept polling /api/buddy/signals/
+  // latest every ~2.5s on every anonymous /start visit whenever observer
+  // mode is on in production — pure wasted traffic against a tenant-scoped
+  // endpoint no anonymous borrower session can get real data from anyway.
+  const isPublicRoute = isPublicBorrowerRoute(pathname);
+
   useBuddyServerSignals({
-    enabled: envObserverEnabled(),
+    enabled: envObserverEnabled() && !isPublicRoute,
     dealId: state.dealId ?? null,
     onSignal: emit,
   });
 
   useBuddyFlightRecorder({
-    enabled: envObserverEnabled() && state.role === "builder",
+    enabled: envObserverEnabled() && !isPublicRoute && state.role === "builder",
     runId: state.runId ?? null,
   });
 

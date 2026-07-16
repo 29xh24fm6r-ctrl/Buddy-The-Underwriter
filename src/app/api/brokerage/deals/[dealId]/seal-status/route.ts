@@ -25,6 +25,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { deepMerge } from "@/lib/brokerage/borrowerConversation";
+import { buildPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -125,6 +126,16 @@ export async function GET(
       }));
     }
 
+    // Package manifest — only meaningful once a lender has been picked (full
+    // access is granted at pick time; before that there's nothing to
+    // download). Computed here rather than exposed via a new route.ts to
+    // stay under this repo's Vercel serverless-function slot budget (see
+    // routeConsolidationGuard.test.ts).
+    let manifest: PackageManifest | null = null;
+    if (row.status === "picked") {
+      manifest = await buildPackageManifest(dealId, "full", sb as any);
+    }
+
     return NextResponse.json({
       ok: true,
       progressPct,
@@ -145,6 +156,7 @@ export async function GET(
           : 0,
       },
       claims,
+      manifest,
       canSeal: gate.ok,
       gateReasons: gate.ok ? [] : gate.reasons,
     });

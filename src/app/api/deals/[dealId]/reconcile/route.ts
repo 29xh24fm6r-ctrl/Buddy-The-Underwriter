@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { reconcileDeal } from "@/lib/reconciliation/dealReconciliator";
 
@@ -12,8 +12,10 @@ export async function POST(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
@@ -42,8 +44,10 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 

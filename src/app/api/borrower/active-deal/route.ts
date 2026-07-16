@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -15,8 +15,10 @@ export const dynamic = "force-dynamic";
  * Returns: {ok: true, dealId: string} | {ok: false, error: string}
  */
 export async function GET() {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json(
       { ok: false, error: "unauthorized" },
       { status: 401 },

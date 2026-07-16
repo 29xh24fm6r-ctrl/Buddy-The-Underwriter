@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { queueReviewOutputGeneration } from "@/core/reviews/queueReviewOutputGeneration";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
@@ -13,8 +13,12 @@ export async function POST(
   _req: NextRequest,
   ctx: { params: Promise<{ dealId: string; caseType: string; caseId: string }> },
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
 
   const { dealId, caseType, caseId } = await ctx.params;
 

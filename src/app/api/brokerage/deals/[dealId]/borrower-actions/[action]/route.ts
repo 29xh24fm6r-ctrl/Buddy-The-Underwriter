@@ -2,15 +2,15 @@ import "server-only";
 
 /**
  * Ticket 2 (SPEC-BROKERAGE-SBA-READY-V1) — Brokerage-borrower identity
- * verification (Persona IAL2) + e-signature (DocuSeal), consolidated into
- * one [action] dispatcher (action = "kyc" | "esign") — route/page slot
- * budget discipline (routeConsolidationGuard.test.ts), same pattern as
+ * verification (Didit) + e-signature (SignWell), consolidated into one
+ * [action] dispatcher (action = "kyc" | "esign") — route/page slot budget
+ * discipline (routeConsolidationGuard.test.ts), same pattern as
  * /api/deals/[dealId]/model-v2/[action] and .../research/[action]. Cookie-
  * authed via getBorrowerSession, mirroring seal/route.ts and
  * marketplace/pick/route.ts (session.deal_id must match [dealId] or 404).
  *
  * The underlying initiateKyc()/requestSignature() functions
- * (src/lib/identity/kyc/service.ts, src/lib/esign/docuseal/service.ts) are
+ * (src/lib/identity/kyc/service.ts, src/lib/esign/signwell/service.ts) are
  * tenant-agnostic — this route is a new auth wrapper around them, not a
  * fork. The Underwriter-tenant routes (/api/deals/[dealId]/kyc,
  * .../esign) are unchanged and still gate on Clerk + bank-membership;
@@ -19,14 +19,18 @@ import "server-only";
  * exactly the cross-tenant risk this codebase has been burned by before
  * (see routeConsolidationGuard.test.ts's existing-debt comment).
  *
+ * Originally built against Persona/DocuSeal; ported onto Didit/SignWell
+ * after main swapped vendors for the Underwriter tenant (commit 396104a0)
+ * while this branch was in flight — see the T11 AAR.
+ *
  * kyc:
  *   GET  (no query)                -> owners at/above the 20% ownership
  *                                      threshold + their IAL2 status.
  *   GET  ?ownershipEntityId=...    -> latest verification record for one owner.
- *   POST { ownership_entity_id }   -> initiate a Persona IAL2 verification.
+ *   POST { ownership_entity_id }   -> initiate a Didit IAL2 verification.
  *
  * esign (form_code is generic, not tied to the forms-* actions below —
- * DocuSeal signing uses its own pre-configured template per form code, not
+ * SignWell signing uses its own pre-configured template per form code, not
  * the PDF forms-* generates; see the T5 AAR):
  *   GET  ?submissionId=...         -> submission status.
  *   POST { form_code, template_version, signer_ownership_entity_id,
@@ -46,32 +50,26 @@ import "server-only";
  * mock-complete-kyc / mock-complete-esign — test-mode-only completion
  * endpoints for the mock-vendor harness (isMockVendorsEnabled(), gated
  * behind BUDDY_MOCK_VENDORS + NODE_ENV!=="production"). kyc/esign above
- * already transparently swap in mock Persona/DocuSeal clients when that
- * flag is on; these two GET actions are what the resulting mock
- * one-time-link/embed_url actually open, so a browser-driving E2E test can
- * click through a real confirmation page instead of the flow silently
- * completing itself. 404s unconditionally when the flag is off — these
- * must never be reachable outside test mode.
+ * already transparently swap in mock Didit/SignWell clients when that flag
+ * is on; these two GET actions are what the resulting mock session
+ * url/embed_url actually open, so a browser-driving E2E test can click
+ * through a real confirmation page instead of the flow silently completing
+ * itself. 404s unconditionally when the flag is off — these must never be
+ * reachable outside test mode.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
-import { initiateKyc, handlePersonaWebhook } from "@/lib/identity/kyc/service";
-import {
-  createPersonaInquiry,
-  fetchPersonaInquiry,
-  generatePersonaOneTimeLink,
-} from "@/lib/identity/kyc/persona";
+import { initiateKyc, handleDiditWebhook } from "@/lib/identity/kyc/service";
+import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
-import { requestSignature } from "@/lib/esign/docuseal/service";
-import { handleDocusealWebhook } from "@/lib/esign/docuseal/service";
+import { requestSignature, handleSignwellWebhook } from "@/lib/esign/signwell/service";
 import {
-  createDocusealSubmission,
-  fetchDocusealSubmission,
-  downloadDocusealSignedPdf,
-  downloadDocusealAuditTrail,
-} from "@/lib/esign/docuseal/client";
+  createSignwellDocumentFromTemplate,
+  fetchSignwellDocument,
+  downloadSignwellCompletedPdf,
+} from "@/lib/esign/signwell/client";
 import {
   prepareBrokerageSbaForms,
   getBrokerageFormsStatus,
@@ -79,18 +77,13 @@ import {
   assembleBrokerageFormsPackage,
 } from "@/lib/brokerage/borrowerFormsOrchestration";
 import { isMockVendorsEnabled } from "@/lib/testMode/mockVendors";
+import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecision } from "@/lib/identity/kyc/mockDidit";
+import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
-  mockCreatePersonaInquiry,
-  mockFetchPersonaInquiry,
-  buildMockPersonaOneTimeLink,
-} from "@/lib/identity/kyc/mockPersona";
-import { mockRequestSignature } from "@/lib/esign/docuseal/mockService";
-import {
-  mockCreateDocusealSubmission,
-  mockFetchDocusealSubmission,
-  mockDownloadDocusealSignedPdf,
-  mockDownloadDocusealAuditTrail,
-} from "@/lib/esign/docuseal/mockClient";
+  mockCreateSignwellDocumentFromTemplate,
+  mockFetchSignwellDocument,
+  mockDownloadSignwellCompletedPdf,
+} from "@/lib/esign/signwell/mockClient";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -216,9 +209,9 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
   }
 
   const mockMode = isMockVendorsEnabled();
-  const templateId = mockMode ? "mock-template-ial2" : process.env.PERSONA_TEMPLATE_ID_IAL2;
-  if (!templateId) {
-    return NextResponse.json({ ok: false, error: "persona_not_configured" }, { status: 503 });
+  const workflowId = mockMode ? "mock-workflow-ial2" : process.env.DIDIT_WORKFLOW_ID;
+  if (!workflowId) {
+    return NextResponse.json({ ok: false, error: "didit_not_configured" }, { status: 503 });
   }
 
   const result = await initiateKyc(
@@ -229,19 +222,18 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
       initiatorUserId: `brokerage_borrower_session:${dealId}`,
       initiatorIp: req.headers.get("x-forwarded-for"),
       initiatorUserAgent: req.headers.get("user-agent"),
-      ...(mockMode ? { vendorOverride: "mock_persona" } : {}),
+      ...(mockMode ? { vendorOverride: "mock_didit" } : {}),
     },
     {
       sb: supabaseAdmin(),
-      persona: mockMode
+      didit: mockMode
         ? {
-            createPersonaInquiry: mockCreatePersonaInquiry,
-            fetchPersonaInquiry: mockFetchPersonaInquiry,
-            generatePersonaOneTimeLink: (inquiryId: string) =>
-              Promise.resolve(buildMockPersonaOneTimeLink(dealId, inquiryId)),
+            createDiditSession: mockCreateDiditSession,
+            fetchDiditSession: mockFetchDiditSession,
+            getDiditSessionDecision: mockGetDiditSessionDecision,
           }
-        : { createPersonaInquiry, fetchPersonaInquiry, generatePersonaOneTimeLink },
-      templateId,
+        : { createDiditSession, fetchDiditSession, getDiditSessionDecision },
+      workflowId,
     },
   );
 
@@ -255,7 +247,7 @@ async function postKyc(req: NextRequest, dealId: string, bankId: string): Promis
   return NextResponse.json({
     ok: true,
     verification: result.verification,
-    oneTimeLink: result.oneTimeLink,
+    oneTimeLink: result.sessionUrl,
     reused: result.reused,
   });
 }
@@ -265,30 +257,30 @@ async function getMockCompleteKyc(req: NextRequest, dealId: string): Promise<Nex
     return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }
 
-  const inquiryId = req.nextUrl.searchParams.get("inquiryId");
-  if (!inquiryId) {
-    return htmlResponse("Missing inquiryId.", 400);
+  const sessionId = req.nextUrl.searchParams.get("inquiryId");
+  if (!sessionId) {
+    return htmlResponse("Missing session id.", 400);
   }
 
   const sb = supabaseAdmin();
   const { data: verification } = await sb
     .from("borrower_identity_verifications")
     .select("id, deal_id")
-    .eq("vendor_inquiry_id", inquiryId)
+    .eq("vendor_inquiry_id", sessionId)
     .eq("deal_id", dealId)
     .maybeSingle();
   if (!verification) {
     return htmlResponse("No matching mock verification found for this deal.", 404);
   }
 
-  const result = await handlePersonaWebhook(
-    { inquiry_id: inquiryId },
+  const result = await handleDiditWebhook(
+    { session_id: sessionId },
     {
       sb,
-      persona: {
-        createPersonaInquiry: mockCreatePersonaInquiry,
-        fetchPersonaInquiry: mockFetchPersonaInquiry,
-        generatePersonaOneTimeLink: (id: string) => Promise.resolve(buildMockPersonaOneTimeLink(dealId, id)),
+      didit: {
+        createDiditSession: mockCreateDiditSession,
+        fetchDiditSession: mockFetchDiditSession,
+        getDiditSessionDecision: mockGetDiditSessionDecision,
       },
     },
   );
@@ -314,15 +306,15 @@ async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextRes
     .from("signed_documents")
     .select("*")
     .eq("deal_id", dealId)
-    .eq("docuseal_submission_id", submissionId)
+    .eq("esign_document_id", submissionId)
     .maybeSingle();
 
   if (signedDoc) {
     return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
   }
 
-  const submission = await fetchDocusealSubmission(submissionId);
-  return NextResponse.json({ ok: true, status: submission.status, submission });
+  const document = await fetchSignwellDocument(submissionId);
+  return NextResponse.json({ ok: true, status: document.status, submission: document });
 }
 
 async function postEsign(req: NextRequest, dealId: string, bankId: string): Promise<NextResponse> {
@@ -381,7 +373,7 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     ? await mockRequestSignature(signatureArgs, { sb: supabaseAdmin() })
     : await requestSignature(signatureArgs, {
         sb: supabaseAdmin(),
-        docuseal: { createDocusealSubmission, fetchDocusealSubmission, downloadDocusealSignedPdf, downloadDocusealAuditTrail },
+        signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
       });
 
   if (!result.ok) {
@@ -389,7 +381,7 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     return NextResponse.json({ ok: false, error: result.reason, detail: result.detail }, { status });
   }
 
-  return NextResponse.json({ ok: true, submission_id: result.submissionId, embed_url: result.embedUrl });
+  return NextResponse.json({ ok: true, submission_id: result.documentId, embed_url: result.embedUrl });
 }
 
 async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<NextResponse> {
@@ -404,15 +396,17 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
   }
 
   const sb = supabaseAdmin();
-  const result = await handleDocusealWebhook(
-    { event_type: "form.completed", data: { external_id: externalId, id: submissionId, submission_id: submissionId } },
+  const result = await handleSignwellWebhook(
+    {
+      event: { type: "document_completed" },
+      data: { object: { id: submissionId, metadata: { external_id: externalId }, recipients: [{ id: "1" }] } },
+    },
     {
       sb,
-      docuseal: {
-        createDocusealSubmission: mockCreateDocusealSubmission,
-        fetchDocusealSubmission: mockFetchDocusealSubmission,
-        downloadDocusealSignedPdf: mockDownloadDocusealSignedPdf,
-        downloadDocusealAuditTrail: mockDownloadDocusealAuditTrail,
+      signwell: {
+        createSignwellDocumentFromTemplate: mockCreateSignwellDocumentFromTemplate,
+        fetchSignwellDocument: mockFetchSignwellDocument,
+        downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },
     },
   );
