@@ -46,6 +46,7 @@ import {
   deepMerge,
 } from "@/lib/brokerage/borrowerConversation";
 import { createSentinelSplitter } from "@/lib/brokerage/sentinelStreamSplitter";
+import { redactSsnPatterns } from "@/lib/brokerage/redactSensitive";
 import { correctableFieldFor } from "@/lib/brokerage/correctableFacts";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
 import {
@@ -90,6 +91,15 @@ export async function POST(req: NextRequest): Promise<Response> {
         { status: 400 },
       );
     }
+
+    // Arc 7 / voice-parity: forms in this product only ever need SSN
+    // last-4 — a borrower typing a full SSN should never persist in
+    // plaintext (conversation_history, ai_events, or the LLM round trip).
+    // The voice dispatch route already does this for spoken utterances
+    // (src/app/api/brokerage/voice/[sessionId]/dispatch/route.ts); redact
+    // once here, at the boundary, so every downstream use of
+    // body.userMessage is covered.
+    body.userMessage = redactSsnPatterns(body.userMessage);
 
     let session = await getBorrowerSession();
     const rl = await checkConciergeRateLimit({
