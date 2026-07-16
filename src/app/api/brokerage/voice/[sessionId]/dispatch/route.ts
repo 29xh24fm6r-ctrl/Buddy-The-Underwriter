@@ -156,7 +156,9 @@ export async function POST(
       if (body.speaker === "borrower") {
         const intent = detectTridentIntent(text);
         if (intent.matched) {
-          console.log("TRIDENT_INTENT_TRIGGERED", text);
+          // Audit L5: do NOT log the raw utterance (contains name/email/
+          // phone/financials → PII in log sinks). Mirrors concierge/route.ts.
+          console.log("TRIDENT_INTENT_TRIGGERED", { chars: text.length });
           // Pull concierge facts to feed the assumptions bootstrap.
           let conciergeFacts: Record<string, unknown> | null = null;
           if (conciergeSessionId) {

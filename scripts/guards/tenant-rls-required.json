@@ -2,7 +2,13 @@
   "required_tables": [
     "deal_conditions",
     "deal_condition_events",
-    "deal_mitigants"
+    "deal_mitigants",
+    "deal_documents",
+    "borrower_concierge_sessions",
+    "deal_financial_facts",
+    "deal_voice_sessions",
+    "voice_session_audits",
+    "deal_pii_records"
   ],
   "membership_table": "bank_memberships",
   "membership_bank_id": "bank_id",
