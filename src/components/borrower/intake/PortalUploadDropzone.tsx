@@ -21,6 +21,8 @@ type UploadedFile = {
   name: string;
   status: "uploading" | "success" | "error";
   error?: string;
+  /** Real byte-level percentage from uploadBorrowerFile's onProgress callback — not a fake animation. */
+  pct: number;
 };
 
 let uploadIdCounter = 0;
@@ -32,10 +34,12 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
   const runUpload = useCallback(
     async (id: string, file: File) => {
       setUploads((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, status: "uploading", error: undefined } : u)),
+        prev.map((u) => (u.id === id ? { ...u, status: "uploading", error: undefined, pct: 0 } : u)),
       );
       try {
-        const result = await uploadBorrowerFile(token, file, null);
+        const result = await uploadBorrowerFile(token, file, null, (pct) => {
+          setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, pct } : u)));
+        });
         setUploads((prev) =>
           prev.map((u) =>
             u.id === id
@@ -43,6 +47,7 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
                   ...u,
                   status: result.ok ? "success" : "error",
                   error: result.ok ? undefined : result.error,
+                  pct: result.ok ? 100 : u.pct,
                 }
               : u,
           ),
@@ -65,6 +70,7 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
         file: f,
         name: f.name,
         status: "uploading",
+        pct: 0,
       }));
       setUploads((prev) => [...prev, ...newUploads]);
 
@@ -126,11 +132,26 @@ export function PortalUploadDropzone({ token, onUploadComplete }: Props) {
         `}
       >
         {uploadingCount > 0 ? (
-          <div className="space-y-2">
-            <div className="inline-block w-6 h-6 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="space-y-3" aria-live="polite">
             <p className="text-sm text-slate-600">
               Uploading {uploadingCount} file{uploadingCount > 1 ? "s" : ""}…
             </p>
+            {uploads
+              .filter((u) => u.status === "uploading")
+              .map((u) => (
+                <div key={u.id} className="text-left">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span className="truncate">{u.name}</span>
+                    <span className="shrink-0 tabular-nums">{u.pct}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-brand-blue-500 transition-all duration-300"
+                      style={{ width: `${u.pct}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
           </div>
         ) : (
           <>

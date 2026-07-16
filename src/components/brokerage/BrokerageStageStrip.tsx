@@ -308,7 +308,7 @@ export function BorrowerJourneyChecklist({
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-        Your progress
+        Lender matching progress
       </div>
       <ol className="mt-4 space-y-4">
         {stages.map((stage, i) => {

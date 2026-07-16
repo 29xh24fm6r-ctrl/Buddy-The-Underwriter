@@ -12,6 +12,27 @@ async function j<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** Real byte-level upload progress via XHR — fetch() has no upload-progress event. */
+function putWithProgress(url: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+    xhr.upload.onprogress = (evt) => {
+      if (!evt.lengthComputable) return;
+      onProgress(Math.round((evt.loaded / evt.total) * 100));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed"));
+    xhr.onabort = () => reject(new Error("Upload failed"));
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error("Upload failed"));
+    };
+    xhr.send(file);
+  });
+}
+
 export function UploadPageClient({ token }: { token: string }) {
   const router = useRouter();
   const [uploading, setUploading] = React.useState(false);
@@ -59,16 +80,10 @@ export function UploadPageClient({ token }: { token: string }) {
         }),
       });
 
-      // 2. Upload bytes directly to the secure storage destination from prepare
-      const uploadRes = await fetch(prep.signedUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "content-type": file.type || "application/octet-stream" },
-      });
-
-      if (!uploadRes.ok) throw new Error("Upload failed");
-
-      setProgress(80);
+      // 2. Upload bytes directly to the secure storage destination from
+      // prepare. Reserves the top 10% of the bar for the commit step below
+      // rather than jumping straight from real byte-progress to 100.
+      await putWithProgress(prep.signedUrl, file, (pct) => setProgress(Math.round(pct * 0.9)));
 
       // 3. Commit — record the upload and materialize the document
       await j(`/api/portal/upload/commit`, {
@@ -218,8 +233,15 @@ export function UploadPageClient({ token }: { token: string }) {
           </AnimatePresence>
 
           {uploading && (
-            <div className="mt-6">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="mt-6" aria-live="polite">
+              <div
+                className="h-2 w-full overflow-hidden rounded-full bg-slate-100"
+                role="progressbar"
+                aria-label="Upload progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+              >
                 <motion.div
                   className="h-2 rounded-full bg-gradient-to-r from-[#1c8de0] to-[#4db8f0]"
                   initial={{ width: 0 }}
