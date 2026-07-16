@@ -27,7 +27,6 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCommsMode, assertCommsEnvReady } from "@/lib/brokerage/commsAdapters";
 
 const json = process.argv.includes("--json");
-type Row = Record<string, any>;
 const STATUSES = ["pending", "sending", "retry_scheduled", "sent", "failed"] as const;
 
 async function countByStatus(sb: ReturnType<typeof supabaseAdmin>, table: string) {
