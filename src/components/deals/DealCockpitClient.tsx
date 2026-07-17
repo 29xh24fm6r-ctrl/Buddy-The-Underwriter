@@ -25,6 +25,7 @@ import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
 import { InsightPanel } from "@/components/deals/cockpit/panels/InsightPanel";
 import { BrokerageStagePanel } from "@/components/deals/cockpit/panels/BrokerageStagePanel";
+import { CommsPanel } from "@/components/brokerage/CommsPanel";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -353,6 +354,13 @@ function DealCockpitClientInner({
               tasks, and next actions — self-contained, renders nothing for
               deals that haven't entered the brokerage pipeline yet. */}
           <BrokerageStagePanel dealId={dealId} />
+
+          {/* PR4 SPEC-BROKERAGE-OPERATING-SYSTEM-V1: send/log email, SMS, call,
+              and meeting activity directly from the deal — real sends where a
+              provider is configured, honest stub otherwise. */}
+          <div style={{ marginTop: 16 }}>
+            <CommsPanel targetType="deal" targetId={dealId} />
+          </div>
         </div>
       </div>
 

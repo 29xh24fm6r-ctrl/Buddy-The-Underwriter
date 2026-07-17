@@ -10,6 +10,7 @@ const TABS = [
   { label: "People", href: "/admin/brokerage/crm/people" },
   { label: "Relationships", href: "/admin/brokerage/crm/relationships" },
   { label: "Duplicates", href: "/admin/brokerage/crm/dedup" },
+  { label: "Templates", href: "/admin/brokerage/crm/templates" },
 ];
 
 /**
