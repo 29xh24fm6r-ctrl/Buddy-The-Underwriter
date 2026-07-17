@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifySignwellWebhookEvent } from "@/lib/esign/signwell/verifySignwellWebhook";
 import { handleSignwellWebhook } from "@/lib/esign/signwell/service";
-import { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
 import { verifyDiditWebhookSignature } from "@/lib/identity/kyc/verifyDiditWebhook";
 import { handleDiditWebhook } from "@/lib/identity/kyc/service";
 import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
@@ -54,7 +54,7 @@ async function handleSignwell(req: Request): Promise<Response> {
   try {
     const result = await handleSignwellWebhook(payload, {
       sb: supabaseAdmin(),
-      signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
+      signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
     });
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.reason, detail: (result as any).detail }, { status: 422 });

@@ -5,7 +5,7 @@ import { handleSignwellWebhook } from "@/lib/esign/signwell/service";
 import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecision } from "@/lib/identity/kyc/mockDidit";
 import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
-  mockCreateSignwellDocumentFromTemplate,
+  mockCreateSignwellDocumentFromFile,
   mockFetchSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
@@ -210,7 +210,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
     {
       sb: db as any,
       signwell: {
-        createSignwellDocumentFromTemplate: mockCreateSignwellDocumentFromTemplate,
+        createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
         fetchSignwellDocument: mockFetchSignwellDocument,
         downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },

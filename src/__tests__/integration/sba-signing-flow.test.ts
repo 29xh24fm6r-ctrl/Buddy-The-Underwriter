@@ -115,8 +115,6 @@ class FakeDb {
 }
 
 test("full IAL2 -> e-sign happy path", async () => {
-  process.env.SIGNWELL_TEMPLATE_1919 = "tmpl_1919";
-
   const DEAL_ID = "d1";
   const BANK_ID = "b1";
   const OWNER_ID = "o1";
@@ -146,10 +144,11 @@ test("full IAL2 -> e-sign happy path", async () => {
 
   // 3. Request signature — IAL2 gate must now pass
   const signwell: SignwellClient = {
-    createSignwellDocumentFromTemplate: async () => ({ id: 99, status: "pending", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
+    createSignwellDocumentFromFile: async () => ({ id: 99, status: "pending", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
     fetchSignwellDocument: async () => ({ id: 99, status: "completed", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
     downloadSignwellCompletedPdf: async () => Buffer.from("pdf-bytes"),
   };
+  const renderFilledPdf = async () => ({ ok: true as const, pdfBytes: Buffer.from("filled-pdf-bytes") });
 
   const sigResult = await requestSignature(
     {
@@ -162,10 +161,11 @@ test("full IAL2 -> e-sign happy path", async () => {
       signerEmail: "jane@example.com",
       signerName: "Jane Doe",
     },
-    { sb: db as any, signwell },
+    { sb: db as any, signwell, renderFilledPdf },
   );
   assert.equal(sigResult.ok, true);
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
+  assert.equal(db.tables.signing_requests?.length, 1);
 
   // 4. SignWell webhook completes the signature
   const esignWebhookResult = await handleSignwellWebhook(
@@ -186,4 +186,7 @@ test("full IAL2 -> e-sign happy path", async () => {
   assert.equal(signedDoc.esign_provider, "signwell");
   assert.ok(signedDoc.identity_verification_id);
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.completed"));
+
+  // 6. signing_requests mirrors the completion
+  assert.equal(db.tables.signing_requests?.[0].status, "Completed");
 });

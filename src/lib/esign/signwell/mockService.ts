@@ -3,11 +3,10 @@
  * isMockVendorsEnabled() at every call site.
  *
  * NOT a thin wrapper around the real requestSignature() (src/lib/esign/
- * signwell/service.ts): that function calls resolveTemplateId() internally,
- * which reads SIGNWELL_TEMPLATE_<FORM_CODE> directly from process.env —
- * not an injected dependency, so it can't be swapped for a mock and would
- * throw "signwell_template_not_configured" even with a fake signwell
- * client. This reimplements just the initiation step (IAL2 gate +
+ * signwell/service.ts): that function renders the real filled SBA PDF via
+ * an injected renderFilledPdf dependency, which mock callers have no
+ * reason to satisfy (there's no filled PDF to render in a test-mode
+ * walkthrough). This reimplements just the initiation step (IAL2 gate +
  * bookkeeping); completion is still handled by the REAL
  * handleSignwellWebhook() with a mock signwell client injected — see
  * mockClient.ts — so the IAL2-gates-signing invariant (principle #17) is

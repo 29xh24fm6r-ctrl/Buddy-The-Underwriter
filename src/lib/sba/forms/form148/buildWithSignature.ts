@@ -1,9 +1,11 @@
 /**
  * SPEC S7 (ARC-00 Phase 5) — DB-aware wrapper. `form_code` in
  * `signed_documents` is `FORM_148` or `FORM_148L` depending on the
- * signer's guaranteeType, matching the two distinct SignWell templates
- * render.ts fills — same `SIGNWELL_TEMPLATE_<CODE>` convention every
- * other form in this arc uses, no new e-sign code needed.
+ * signer's guaranteeType — the two variants render.ts fills from the same
+ * underlying form. Not yet wired into the e-sign panel's
+ * resolveFilledPdfForSigning.ts dispatch (SbaSigningPanel.tsx's
+ * TRACKED_FORMS only covers 1919/413/912/4506-C today); a future signing
+ * flow for 148/148L can add a case there the same way those four were.
  */
 
 import { buildForm148, type Form148BuildResult } from "@/lib/sba/forms/form148/build";

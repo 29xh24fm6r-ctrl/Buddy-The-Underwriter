@@ -17,7 +17,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import { requestSignature } from "@/lib/esign/signwell/service";
-import { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { resolveFilledPdfForSigning } from "@/lib/esign/signwell/resolveFilledPdfForSigning";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
@@ -58,6 +59,7 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
     }
 
+    const sb = supabaseAdmin();
     const result = await requestSignature(
       {
         dealId,
@@ -70,8 +72,9 @@ export async function POST(req: Request, ctx: Ctx) {
         signerName,
       },
       {
-        sb: supabaseAdmin(),
-        signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        sb,
+        signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: sb }),
       },
     );
 

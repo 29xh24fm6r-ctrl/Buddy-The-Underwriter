@@ -60,21 +60,41 @@ const DocumentSchema = z.object({
 });
 export type SignwellDocument = z.infer<typeof DocumentSchema>;
 
-export async function createSignwellDocumentFromTemplate(args: {
-  templateId: string;
+/**
+ * Creates a SignWell document from an already-filled PDF (base64) rather
+ * than a SignWell-hosted template. This is the whole point of the
+ * fill-then-sign pipeline: SignWell never holds SBA form content — the
+ * content is filled by src/lib/sba/forms/*​/render.ts before this is ever
+ * called, and SignWell only adds signature/date fields on top of a
+ * complete document. Replaces createSignwellDocumentFromTemplate, which
+ * drove a SignWell-hosted template per SBA form (content lived in
+ * SignWell's dashboard — see the AAR for why that was backwards).
+ *
+ * `fields` positions signature/date fields on the uploaded PDF
+ * (`https://developers.signwell.com/reference/document-fields`). No SBA
+ * form's real page coordinates have been confirmed against SignWell's API
+ * yet (same "unverified against a live account" caveat as
+ * verifySignwellWebhook.ts) — callers may omit it and let SignWell fall
+ * back to its default per-recipient placement rather than ship guessed
+ * coordinates onto a legal document.
+ */
+export async function createSignwellDocumentFromFile(args: {
+  fileBase64: string;
+  fileName: string;
   documentName: string;
-  recipients: Array<{ id: string; email: string; name: string; placeholderName?: string }>;
+  recipients: Array<{ id: string; email: string; name: string }>;
   externalId: string;
   embeddedSigning?: boolean;
   redirectUrl?: string;
+  fields?: unknown[][];
 }): Promise<SignwellDocument> {
-  const raw = await signwellFetch("/document_templates/documents", {
+  const raw = await signwellFetch("/documents", {
     method: "POST",
     body: JSON.stringify({
       test_mode: isTestMode(),
-      template_id: args.templateId,
-      name: args.documentName,
       draft: false,
+      name: args.documentName,
+      files: [{ name: args.fileName, file_base64: args.fileBase64 }],
       embedded_signing: args.embeddedSigning ?? true,
       redirect_url: args.redirectUrl,
       metadata: { external_id: args.externalId },
@@ -82,8 +102,8 @@ export async function createSignwellDocumentFromTemplate(args: {
         id: r.id,
         name: r.name,
         email: r.email,
-        placeholder_name: r.placeholderName ?? "Borrower",
       })),
+      fields: args.fields ?? [[]],
     }),
   });
   return DocumentSchema.parse(raw);
