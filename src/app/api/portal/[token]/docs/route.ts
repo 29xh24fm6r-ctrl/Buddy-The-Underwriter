@@ -22,6 +22,10 @@ export async function GET(_: Request, ctx: { params: Promise<{ token: string }> 
     } catch {
       return NextResponse.json({ error: "Invalid token" }, { status: 404 });
     }
+  } else if (link.expires_at && new Date(link.expires_at) < new Date()) {
+    // Previously never checked — an expired SMS/upload link kept listing
+    // documents forever, unlike the sibling checklist route.
+    return NextResponse.json({ error: "Link expired" }, { status: 403 });
   }
 
   const { data, error } = await sb

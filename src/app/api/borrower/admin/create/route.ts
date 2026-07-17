@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateToken } from "@/lib/borrower/token";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,25 @@ export async function POST(req: Request) {
       );
     }
 
+    // Previously unauthenticated: any caller could POST an arbitrary
+    // user_id/deal_id and receive back a working borrower-application
+    // access token. This mints a credential granting full read/write
+    // access to that application, so it needs the same bank-membership
+    // check every other deal-scoped mutation route uses.
+    if (!deal_id) {
+      return NextResponse.json(
+        { ok: false, error: "Missing deal_id" },
+        { status: 400 },
+      );
+    }
+    const access = await ensureDealBankAccess(deal_id);
+    if (!access.ok) {
+      return NextResponse.json(
+        { ok: false, error: access.error },
+        { status: 403 },
+      );
+    }
+
     const sb = supabaseAdmin();
     const token = generateToken();
 
@@ -25,7 +45,7 @@ export async function POST(req: Request) {
       .insert({
         token,
         user_id,
-        deal_id: deal_id || null,
+        deal_id,
         status: "draft",
         created_at: new Date().toISOString(),
       })

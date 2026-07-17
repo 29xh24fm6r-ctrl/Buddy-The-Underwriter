@@ -45,7 +45,12 @@ export async function scheduleBorrowerReminders(opts: {
 
   const nextRunAt = new Date(Date.now() + CADENCE_MS[cadence]).toISOString();
 
-  const { data: schedule } = await sb
+  // Error was previously unchecked — `schedule` would be undefined on a
+  // failed insert but the function still reported `{ ok: true, scheduleId:
+  // null }`, so createBorrowerCampaign.ts's caller believed a reminder
+  // schedule existed when none was ever created, and the borrower silently
+  // never got automated follow-ups for that campaign.
+  const { data: schedule, error } = await sb
     .from("borrower_reminder_schedule")
     .insert({
       campaign_id: opts.campaignId,
@@ -56,7 +61,11 @@ export async function scheduleBorrowerReminders(opts: {
     .select("id")
     .single();
 
-  return { ok: true, scheduleId: schedule?.id ?? null };
+  if (error || !schedule) {
+    return { ok: false, scheduleId: null };
+  }
+
+  return { ok: true, scheduleId: schedule.id };
 }
 
 /**
@@ -65,13 +74,21 @@ export async function scheduleBorrowerReminders(opts: {
 export async function advanceReminderSchedule(scheduleId: string): Promise<void> {
   const sb = supabaseAdmin();
 
-  const { data: schedule } = await sb
+  // Error was previously unchecked — on a failed select, `schedule` is
+  // falsy and this silently returned without advancing next_run_at. Since
+  // processor.ts calls this right after a successful send, a swallowed
+  // error here left next_run_at in the past, so the next cron run treated
+  // the same schedule as still due and re-sent it (double-reminder bug).
+  const { data: schedule, error } = await sb
     .from("borrower_reminder_schedule")
     .select("cadence")
     .eq("id", scheduleId)
     .single();
 
-  if (!schedule) return;
+  if (error || !schedule) {
+    console.error("[advanceReminderSchedule] failed to load schedule", { scheduleId, error: error?.message });
+    return;
+  }
 
   // Escalate cadence: 48h -> 72h -> weekly
   const nextCadence = escalateCadence(schedule.cadence as BorrowerReminderCadence);

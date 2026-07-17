@@ -182,13 +182,18 @@ export async function shouldSendNudge(dealId: string): Promise<boolean> {
 export async function recordNudgeSent(dealId: string, nudge: BorrowerNudge): Promise<void> {
   const sb = supabaseAdmin();
 
-  await sb.from("borrower_nudges").insert({
+  const { error } = await sb.from("borrower_nudges").insert({
     deal_id: dealId,
     nudge_type: nudge.nudge_type,
     message: nudge.message,
     sent_at: new Date().toISOString(),
     metadata: nudge.metadata,
   });
+
+  if (error) {
+    console.error("[nudge] Failed to record nudge sent", { dealId, error: error.message });
+    return;
+  }
 
   console.log("[nudge] Recorded nudge sent", { dealId, nudge_type: nudge.nudge_type });
 }

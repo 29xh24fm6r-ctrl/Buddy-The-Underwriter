@@ -127,10 +127,6 @@ const ALLOWLIST = new Set([
 // remove the entry. NEW stale fetches will still fail the guard.
 const KNOWN_STALE_PENDING_FIX = new Map([
   [
-    "/api/portal/share/upload",
-    "portal share upload route was removed; portal/share page still POSTs to it (TODO)",
-  ],
-  [
     "/api/deals/${props.dealId}/status",
     "DealStageEtaControls expects a generic per-deal /status that no longer exists (TODO: route to /pricing/status or /intake/status)",
   ],

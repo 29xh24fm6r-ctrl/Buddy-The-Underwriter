@@ -16,6 +16,6 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
   }
 
-  const result = await cancelBorrowerCampaign(campaignId);
+  const result = await cancelBorrowerCampaign(campaignId, dealId);
   return NextResponse.json({ ok: result.ok, newStatus: result.newStatus });
 }

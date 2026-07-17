@@ -12,6 +12,7 @@ import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 import { gcsObjectExists } from "@/lib/storage/gcs";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +81,12 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Verify token and get deal_id
+    // Verify token and get deal_id. This only ever checked
+    // `borrower_portal_links` — a borrower who arrived via the `/apply`
+    // wizard carries a `borrower_invites` token instead, which always
+    // 403'd here even after a successful /files/sign call. Fall back to
+    // the invite table, same as /files/sign and the sibling checklist/docs
+    // routes.
     const sb = supabaseAdmin();
 
     const { data: link, error: linkErr } = await sb
@@ -89,23 +95,35 @@ export async function POST(req: NextRequest, ctx: Context) {
       .eq("token", token)
       .maybeSingle();
 
-    if (linkErr || !link) {
-      console.error("[portal/files/record] invalid token", { token, linkErr });
+    if (linkErr) {
+      console.error("[portal/files/record] link lookup failed", { token, linkErr });
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
       );
     }
 
-    // Check expiration
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json(
-        { ok: false, error: "Link expired" },
-        { status: 403 },
-      );
-    }
+    let dealId: string;
 
-    const dealId = link.deal_id;
+    if (link) {
+      if (link.expires_at && new Date(link.expires_at) < new Date()) {
+        return NextResponse.json(
+          { ok: false, error: "Link expired" },
+          { status: 403 },
+        );
+      }
+      dealId = link.deal_id;
+    } else {
+      try {
+        dealId = (await resolveBorrowerToken(token)).deal_id;
+      } catch (e: any) {
+        console.error("[portal/files/record] invalid token", { token, error: e?.message });
+        return NextResponse.json(
+          { ok: false, error: "Invalid or expired link" },
+          { status: 403 },
+        );
+      }
+    }
 
     // Fetch deal to get bank_id (required for insert)
     const { data: deal, error: dealErr } = await sb

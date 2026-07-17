@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import crypto from "node:crypto";
 
 export async function requireBorrowerToken(token: string) {
   const sb = supabaseAdmin();
@@ -17,5 +18,9 @@ export async function requireBorrowerToken(token: string) {
 }
 
 export function generateToken(): string {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  // This token is the sole credential guarding a borrower's full loan
+  // application (PII, financials) at /borrower/[token]/*. Math.random() is
+  // not cryptographically secure and its output is predictable/brute-forceable
+  // — use a CSPRNG, matching src/lib/borrower/portalToken.ts.
+  return crypto.randomBytes(32).toString("base64url");
 }

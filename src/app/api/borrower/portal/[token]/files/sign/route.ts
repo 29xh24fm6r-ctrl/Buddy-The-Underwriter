@@ -10,6 +10,7 @@ import {
   upsertUploadSessionFile,
   validateUploadSession,
 } from "@/lib/uploads/uploadSession";
+import { rateLimit } from "@/lib/portal/ratelimit";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -56,6 +57,12 @@ type Context = {
 export async function POST(req: NextRequest, ctx: Context) {
   try {
     const { token } = await ctx.params;
+
+    const rl = rateLimit(`portal:${token.slice(0, 12)}:files_sign`, 30, 60_000);
+    if (!rl.ok) {
+      return NextResponse.json({ ok: false, error: "Rate limited" }, { status: 429 });
+    }
+
     const body = await req.json();
 
     const {

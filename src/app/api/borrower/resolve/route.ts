@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { rateLimit } from "@/lib/portal/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,19 @@ export async function POST(req: Request) {
       { ok: false, error: "missing_token" },
       { status: 400 },
     );
+
+  // This endpoint reports whether a token is valid/expired/revoked with no
+  // rate limit — usable to brute-force/probe token validity. Rate-limit
+  // per caller IP as well as per token prefix, since an attacker probing
+  // random tokens won't share a token prefix across requests.
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
+  const rl = rateLimit(`borrower_resolve:${ip}`, 20, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
+  }
 
   const sb = createClient(
     process.env.SUPABASE_URL!,

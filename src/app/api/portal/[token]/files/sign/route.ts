@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
+import { resolveBorrowerToken } from "@/lib/portal/resolveBorrowerToken";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import {
   createDealUploadSession,
@@ -91,44 +92,72 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Verify token and get deal_id
+    // Verify token and get deal_id. This only ever checked
+    // `borrower_portal_links` (the SMS/create-link token scheme) — a
+    // borrower who arrived via the `/apply` wizard carries a
+    // `borrower_invites` token instead, which always 403'd here with no
+    // indication of why. Fall back to the invite table, same as the
+    // sibling checklist/docs routes.
     const sb = supabaseAdmin();
 
     const { data: link, error: linkErr } = await sb
       .from("borrower_portal_links")
-      .select("id, deal_id, expires_at")
+      .select("id, deal_id, bank_id, expires_at")
       .eq("token", token)
       .maybeSingle();
 
-    if (linkErr || !link) {
-      console.error("[portal/files/sign] invalid token", { token, linkErr });
+    if (linkErr) {
+      console.error("[portal/files/sign] link lookup failed", { token, linkErr });
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
       );
     }
 
-    // Check expiration
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json(
-        { ok: false, error: "Link expired" },
-        { status: 403 },
-      );
+    let dealId: string;
+    let bankId: string;
+    let portalLinkId: string | null = null;
+
+    if (link) {
+      if (link.expires_at && new Date(link.expires_at) < new Date()) {
+        return NextResponse.json(
+          { ok: false, error: "Link expired" },
+          { status: 403 },
+        );
+      }
+      dealId = link.deal_id;
+      portalLinkId = link.id;
+      bankId = link.bank_id as string;
+    } else {
+      try {
+        const invite = await resolveBorrowerToken(token);
+        dealId = invite.deal_id;
+        bankId = invite.bank_id;
+      } catch (e: any) {
+        console.error("[portal/files/sign] invalid token", { token, error: e?.message });
+        return NextResponse.json(
+          { ok: false, error: "Invalid or expired link" },
+          { status: 403 },
+        );
+      }
     }
 
-    const dealId = link.deal_id;
-    const { data: deal } = await sb
-      .from("deals")
-      .select("bank_id")
-      .eq("id", dealId)
-      .maybeSingle();
-
-    if (!deal?.bank_id) {
-      return NextResponse.json(
-        { ok: false, error: "Deal not found" },
-        { status: 404 },
-      );
+    if (!bankId) {
+      const { data: deal } = await sb
+        .from("deals")
+        .select("bank_id")
+        .eq("id", dealId)
+        .maybeSingle();
+      if (!deal?.bank_id) {
+        return NextResponse.json(
+          { ok: false, error: "Deal not found" },
+          { status: 404 },
+        );
+      }
+      bankId = deal.bank_id;
     }
+
+    const deal = { bank_id: bankId };
 
     const headerSessionId = req.headers.get("x-buddy-upload-session-id");
     let uploadSessionId = headerSessionId || upload_session_id || session_id || null;
@@ -153,7 +182,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         dealId,
         bankId: deal.bank_id,
         source: "borrower",
-        portalLinkId: link.id,
+        portalLinkId,
       });
       uploadSessionId = created.sessionId;
       uploadSessionExpiresAt = created.expiresAt;

@@ -27,7 +27,17 @@ export const dynamic = "force-dynamic";
  * Returns: { ok: true, deal_id: string, drafted: number }
  */
 export async function POST(req: NextRequest) {
-  requireSuperAdmin(); // Phase 1: admin-only. Later: auto-trigger on schedule
+  // Phase 1: admin-only. Later: auto-trigger on schedule.
+  // Previously called without `await` — since requireSuperAdmin() is async
+  // and rejects (not throws synchronously) for non-admins, the missing
+  // await turned this into an unhandled promise rejection that never
+  // stopped execution, making the admin gate a no-op.
+  try {
+    await requireSuperAdmin();
+  } catch {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+
   const supabase = supabaseAdmin();
   const body = await req.json().catch(() => ({}));
   const dealId = body?.deal_id as string | undefined;
@@ -42,13 +52,17 @@ export async function POST(req: NextRequest) {
   const now = new Date();
 
   // 1) Load outstanding conditions
+  // `conditions_to_close` has no `status` column — completion is tracked by
+  // the boolean `satisfied` column. The old `.neq("status", "satisfied")`
+  // filter always errored (status doesn't exist), so this route 500'd on
+  // every call regardless of the auth bug above.
   const { data: conditions, error: e1 } = await supabase
     .from("conditions_to_close")
     .select(
-      "id, application_id, title, status, severity, ai_explanation, last_evaluated_at",
+      "id, application_id, deal_id, title, satisfied, severity, ai_explanation, last_evaluated_at",
     )
     .eq("application_id", dealId)
-    .neq("status", "satisfied");
+    .eq("satisfied", false);
 
   if (e1) {
     return NextResponse.json({ ok: false, error: e1.message }, { status: 500 });
@@ -104,23 +118,29 @@ export async function POST(req: NextRequest) {
     }
 
     // 5) Draft message
+    // `condition_messages` has no application_id/priority/trigger_type/
+    // requires_approval columns — those were folded into `metadata` below,
+    // which the insert previously would have rejected outright (unknown
+    // columns), never drafting a single message.
     const bodyText = (c as any).ai_explanation
       ? `Reminder: ${(c as any).ai_explanation}\n\nNext step: Please upload the requested document(s).`
       : `Reminder: A condition is still outstanding. Please upload the requested document(s).`;
 
     const msg = {
-      application_id: dealId,
+      deal_id: (c as any).deal_id ?? dealId,
       condition_id: (c as any).id,
       channel: "PORTAL",
       direction: "OUTBOUND",
       status: "DRAFT",
       subject: `Action needed: ${(c as any).title}`,
       body: bodyText,
-      priority: (c as any).severity === "REQUIRED" ? "HIGH" : "MEDIUM",
-      trigger_type: "AUTO_STALL",
       ai_generated: true,
-      requires_approval: true,
-      metadata: { stall_reason: stall.reason },
+      metadata: {
+        stall_reason: stall.reason,
+        priority: (c as any).severity === "REQUIRED" ? "HIGH" : "MEDIUM",
+        trigger_type: "AUTO_STALL",
+        requires_approval: true,
+      },
     };
 
     messages.push(msg);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { selectReminderCandidates } from "@/lib/reminders/selectCandidates";
 import { getReminderStats, isAttemptsSatisfied, isCooldownSatisfied } from "@/lib/reminders/ledger";
 import { sendSmsWithConsent } from "@/lib/sms/send";
+import { secretEquals } from "@/lib/brokerage/secretEquals";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
   // Auth check
   const auth = req.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-  if (!process.env.CRON_SECRET || token !== process.env.CRON_SECRET) {
+  if (!secretEquals(token, process.env.CRON_SECRET)) {
     return unauthorized();
   }
 

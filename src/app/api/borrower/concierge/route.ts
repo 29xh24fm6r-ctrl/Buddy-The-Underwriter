@@ -58,6 +58,21 @@ export async function POST(req: NextRequest): Promise<NextResponse<ConciergeResp
 
     const sb = supabaseAdmin();
 
+    // dealId came straight from the request body with no check it belongs
+    // to the caller's own bank/tenant — an authenticated user from any
+    // bank could read/write another bank's deal via this route.
+    const { data: dealRow, error: dealErr } = await sb
+      .from("deals")
+      .select("id, bank_id")
+      .eq("id", dealId)
+      .maybeSingle();
+    if (dealErr || !dealRow || dealRow.bank_id !== bankId) {
+      return NextResponse.json(
+        { ok: false, error: "unauthorized" } as any,
+        { status: 403 },
+      );
+    }
+
     // 1) Load or create session
     let session: any;
     if (sessionId) {

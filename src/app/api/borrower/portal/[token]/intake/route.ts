@@ -110,6 +110,10 @@ export async function POST(
       }
 
       // deal_builder_sections: upsert (unique on deal_id, section_key)
+      // Previously `completed: true` unconditionally — autosave fires the
+      // instant this step renders (see IntakeFormClient.tsx's per-step
+      // useEffect), so a borrower who merely viewed this step and moved on
+      // had it marked done with zero data, silently skipping it on resume.
       const { error: secErr } = await sb
         .from("deal_builder_sections")
         .upsert(
@@ -117,7 +121,7 @@ export async function POST(
             deal_id: ctx.dealId,
             section_key: "business",
             data: d,
-            completed: true,
+            completed: Boolean(d.legal_name?.trim()),
             updated_at: new Date().toISOString(),
           },
           { onConflict: "deal_id,section_key" }
@@ -157,7 +161,12 @@ export async function POST(
         }
       }
 
-      // Always store in deal_builder_sections as interim/canonical
+      // Always store in deal_builder_sections as interim/canonical.
+      // Previously `completed: true` unconditionally — autosave fires the
+      // instant this step renders, so a borrower who merely viewed it had
+      // it marked done with zero data, silently skipping address entry on
+      // resume and defeating the "Please complete your business address"
+      // submit gate (validateIntakeSubmission.ts) that trusts this flag.
       const { error: secErr } = await sb
         .from("deal_builder_sections")
         .upsert(
@@ -165,7 +174,9 @@ export async function POST(
             deal_id: ctx.dealId,
             section_key: "address",
             data: d,
-            completed: true,
+            completed: Boolean(
+              d.address_line1?.trim() && d.city?.trim() && d.state?.trim() && d.zip?.trim(),
+            ),
             updated_at: new Date().toISOString(),
           },
           { onConflict: "deal_id,section_key" }
@@ -330,6 +341,8 @@ export async function POST(
       }
 
       // deal_builder_sections
+      // Previously `completed: true` unconditionally — same false-completion
+      // bug as the business/address steps above.
       const { error: secErr } = await sb
         .from("deal_builder_sections")
         .upsert(
@@ -337,7 +350,7 @@ export async function POST(
             deal_id: ctx.dealId,
             section_key: "loan",
             data: { ...d, amount: amount ?? d.amount },
-            completed: true,
+            completed: Boolean(amount) && Boolean(d.purpose?.trim()),
             updated_at: new Date().toISOString(),
           },
           { onConflict: "deal_id,section_key" }

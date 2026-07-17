@@ -57,6 +57,7 @@ export async function completeBorrowerCampaign(
 
 export async function cancelBorrowerCampaign(
   campaignId: string,
+  dealId: string,
 ): Promise<CompleteCampaignResult> {
   const sb = supabaseAdmin();
 
@@ -68,6 +69,13 @@ export async function cancelBorrowerCampaign(
 
   if (!campaign) {
     return { ok: false, newStatus: "unknown", error: "Campaign not found." };
+  }
+
+  // A caller only ever proves access to `dealId` (via ensureDealBankAccess),
+  // never to `campaignId` directly — without this check any bank employee
+  // could cancel any other bank's campaign by guessing/enumerating an id.
+  if (campaign.deal_id !== dealId) {
+    return { ok: false, newStatus: "unknown", error: "Campaign does not belong to this deal." };
   }
 
   if (campaign.status === "completed" || campaign.status === "cancelled") {
@@ -96,8 +104,21 @@ export async function cancelBorrowerCampaign(
 
 export async function pauseBorrowerCampaignReminders(
   campaignId: string,
-): Promise<{ ok: boolean }> {
+  dealId: string,
+): Promise<{ ok: boolean; error?: string }> {
   const sb = supabaseAdmin();
+
+  const { data: c } = await sb
+    .from("borrower_request_campaigns")
+    .select("deal_id")
+    .eq("id", campaignId)
+    .maybeSingle();
+
+  // Same cross-tenant guard as cancelBorrowerCampaign: never act on a
+  // campaign the caller hasn't proven ownership of via `dealId`.
+  if (!c || c.deal_id !== dealId) {
+    return { ok: false, error: "Campaign does not belong to this deal." };
+  }
 
   await sb
     .from("borrower_reminder_schedule")
@@ -105,21 +126,12 @@ export async function pauseBorrowerCampaignReminders(
     .eq("campaign_id", campaignId);
 
   try {
-    // Best-effort: look up deal_id from campaign for event
-    const { data: c } = await sb
-      .from("borrower_request_campaigns")
-      .select("deal_id")
-      .eq("id", campaignId)
-      .maybeSingle();
-
-    if (c?.deal_id) {
-      await sb.from("borrower_request_events").insert({
-        campaign_id: campaignId,
-        deal_id: c.deal_id,
-        event_key: "borrower_campaign.reminders_paused",
-        payload: {},
-      });
-    }
+    await sb.from("borrower_request_events").insert({
+      campaign_id: campaignId,
+      deal_id: c.deal_id,
+      event_key: "borrower_campaign.reminders_paused",
+      payload: {},
+    });
   } catch { /* non-fatal */ }
 
   return { ok: true };

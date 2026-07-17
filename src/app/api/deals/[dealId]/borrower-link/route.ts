@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import * as crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { upsertBorrowerPhoneLink } from "@/lib/sms/phoneLinks";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,15 @@ export async function POST(req: Request) {
   const url = new URL(req.url);
   const parts = url.pathname.split("/");
   const dealId = parts[parts.indexOf("deals") + 1];
+
+  // Previously unauthenticated: any caller could mint a real, working
+  // borrower-portal access token for an arbitrary dealId. This mints a
+  // credential, so it needs the same bank-membership check every other
+  // deal-scoped mutation route uses.
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const label = body?.label ?? "Borrower Portal Link";

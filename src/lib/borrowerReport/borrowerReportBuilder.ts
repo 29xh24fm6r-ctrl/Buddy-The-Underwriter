@@ -17,15 +17,22 @@ import crypto from "node:crypto";
 export async function buildBorrowerReport(dealId: string): Promise<BorrowerHealthReport> {
   const sb = supabaseAdmin();
 
-  // Load facts
-  const { data: factsRows } = await sb
+  // Load facts. Column is `fact_value_num`, not `value_num` — the old
+  // column name errored on every call (silently, since the error was
+  // never checked), so every generated report was built from an empty
+  // fact map: near-zero ratios and a bogus Altman Z-score.
+  const { data: factsRows, error: factsError } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, value_num")
+    .select("fact_key, fact_value_num")
     .eq("deal_id", dealId)
     .eq("is_superseded", false);
 
+  if (factsError) {
+    throw new Error(`Failed to load financial facts: ${factsError.message}`);
+  }
+
   const fm: Record<string, number | null> = {};
-  for (const r of factsRows ?? []) fm[r.fact_key] = r.value_num ?? null;
+  for (const r of factsRows ?? []) fm[r.fact_key] = r.fact_value_num ?? null;
 
   const snapshotHash = crypto.createHash("sha256")
     .update(JSON.stringify(fm, Object.keys(fm).sort()))
@@ -162,8 +169,11 @@ export async function buildBorrowerReport(dealId: string): Promise<BorrowerHealt
     snapshotHash,
   };
 
-  // Persist
-  await sb.from("buddy_borrower_reports").insert({
+  // Persist. Error was previously unchecked — a failed insert still
+  // returned `report` as if it succeeded, and the borrower-report/latest
+  // route (which reads it back from this table) would then 404 with no
+  // indication the generate call had actually failed.
+  const { error: insertError } = await sb.from("buddy_borrower_reports").insert({
     deal_id: dealId,
     generated_at: report.generatedAt,
     naics_code: naicsCode,
@@ -181,6 +191,10 @@ export async function buildBorrowerReport(dealId: string): Promise<BorrowerHealt
     snapshot_hash: snapshotHash,
     status: "draft",
   });
+
+  if (insertError) {
+    throw new Error(`Failed to persist borrower report: ${insertError.message}`);
+  }
 
   return report;
 }

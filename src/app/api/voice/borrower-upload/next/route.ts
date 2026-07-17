@@ -31,6 +31,16 @@ export async function POST(req: Request) {
       { status: 404 },
     );
 
+  // Previously never checked — an expired or revoked upload link kept
+  // leaking checklist/document-request status indefinitely, unlike every
+  // other token-gated route in this codebase.
+  if (link.data.revoked_at) {
+    return NextResponse.json({ ok: false, error: "Link revoked" }, { status: 403 });
+  }
+  if (link.data.expires_at && new Date(link.data.expires_at as string) < new Date()) {
+    return NextResponse.json({ ok: false, error: "Link expired" }, { status: 403 });
+  }
+
   const dealId = String(link.data.deal_id);
 
   const checklist = await sb

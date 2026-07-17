@@ -44,6 +44,14 @@ export async function sendBorrowerCampaign(
       return { ok: false, smsSent: false, emailSent: false, portalUrl: null, error: "Campaign not found." };
     }
 
+    // A caller only ever proves access to `input.dealId` (via
+    // ensureDealBankAccess), never to `campaignId` directly — without this
+    // check any bank employee could trigger a real SMS/email send for
+    // another bank's campaign by guessing/enumerating an id.
+    if (campaign.deal_id !== input.dealId) {
+      return { ok: false, smsSent: false, emailSent: false, portalUrl: null, error: "Campaign does not belong to this deal." };
+    }
+
     // Build portal URL
     let portalUrl: string | null = null;
     if (campaign.portal_link_id) {

@@ -20,14 +20,41 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     const body = (await req.json().catch(() => ({}))) as any;
-    const dealId = body?.dealId as string | undefined;
-    if (!dealId) {
+    const bodyDealId = body?.dealId as string | undefined;
+    if (!bodyDealId) {
       return NextResponse.json(
         { ok: false, error: "Missing dealId" },
         { status: 400 },
       );
     }
 
+    // Previously the `token` param was extracted but never validated
+    // against anything — any caller could submit SBA eligibility answers
+    // (and mutate real deal condition state) for an arbitrary dealId.
+    // Resolve the deal from the token itself, the same way every sibling
+    // route in this tree does, rather than trusting the body.
+    const supabase = getSupabaseServerClient();
+    const { data: application, error: appError } = await supabase
+      .from("applications")
+      .select("id, deal_id")
+      .eq("access_token", token)
+      .maybeSingle();
+
+    if (appError || !application?.deal_id) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid or expired token" },
+        { status: 401 },
+      );
+    }
+
+    if (application.deal_id !== bodyDealId) {
+      return NextResponse.json(
+        { ok: false, error: "Token does not match dealId" },
+        { status: 403 },
+      );
+    }
+
+    const dealId = bodyDealId;
     const answers = (body?.answers ?? {}) as Record<string, any>;
 
     // Map product selection from portal
@@ -46,8 +73,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         : product === "SBA_EXPRESS"
           ? "express"
           : "7a");
-
-    const supabase = getSupabaseServerClient();
 
     // Log event
     await supabase.from("borrower_portal_events").insert([

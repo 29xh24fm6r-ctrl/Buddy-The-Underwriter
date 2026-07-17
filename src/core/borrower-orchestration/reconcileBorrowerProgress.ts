@@ -161,17 +161,27 @@ async function resolveItemStatus(
   const currentStatus = item.status as BorrowerItemStatus;
 
   if (item.evidence_type === "document_upload" || item.evidence_type === "document_submit") {
-    // Check for any recent uploads on this deal
-    const { data: uploads } = await sb
-      .from("deal_uploads" as any)
-      .select("id, status")
+    // Check for any recent uploads on this deal. `deal_uploads` doesn't
+    // exist — real borrower uploads land in `deal_documents` (see
+    // ingestDocument.ts / recordBorrowerUploadAndMaterialize.ts). The old
+    // table name errored on every call (silently, error never checked),
+    // so upload/confirmation-gated campaign items could never auto-advance
+    // and their reminders kept firing indefinitely even after the borrower
+    // had actually uploaded/confirmed.
+    const { data: uploads, error: uploadsError } = await sb
+      .from("deal_documents")
+      .select("id, intake_confirmed_at")
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(5);
 
+    if (uploadsError) {
+      console.error("[reconcileBorrowerProgress] deal_documents lookup failed", { dealId, error: uploadsError.message });
+      return null;
+    }
     if (!uploads || uploads.length === 0) return null;
 
-    const hasConfirmed = uploads.some((u: any) => u.status === "confirmed");
+    const hasConfirmed = uploads.some((u: any) => u.intake_confirmed_at != null);
     const hasUploaded = uploads.length > 0;
 
     if (hasConfirmed && item.evidence_type === "document_submit") {
@@ -186,14 +196,17 @@ async function resolveItemStatus(
   }
 
   if (item.evidence_type === "field_confirmation") {
-    // Check if fields have been confirmed for this deal
-    const { count } = await sb
-      .from("doc_field_extractions" as any)
+    // `doc_field_extractions` doesn't exist — real extracted-field
+    // confirmation lives in `doc_fields.borrower_confirmed`.
+    const { count, error: fieldsError } = await sb
+      .from("doc_fields")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
-      .eq("confirmed", true);
+      .eq("borrower_confirmed", true);
 
-    if ((count ?? 0) > 0 && statusRank(currentStatus) < statusRank("confirmed")) {
+    if (fieldsError) {
+      console.error("[reconcileBorrowerProgress] doc_fields lookup failed", { dealId, error: fieldsError.message });
+    } else if ((count ?? 0) > 0 && statusRank(currentStatus) < statusRank("confirmed")) {
       return "confirmed";
     }
   }

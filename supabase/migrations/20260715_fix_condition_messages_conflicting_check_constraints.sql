@@ -1,0 +1,22 @@
+-- The condition_messages table had two CHECK constraints on `channel` and
+-- two on `status`, added by different (undocumented, off-repo) schema
+-- changes, with disjoint uppercase vs lowercase value sets:
+--   condition_messages_channel_check  CHECK (channel IN ('PORTAL','EMAIL','SMS'))
+--   condition_messages_channel_chk    CHECK (channel IN ('email','sms','internal'))
+--   condition_messages_status_check   CHECK (status  IN ('DRAFT','QUEUED','SENT','FAILED','CANCELLED'))
+--   condition_messages_status_chk     CHECK (status  IN ('draft','pending_approval','approved','sent','failed','canceled'))
+--
+-- Since Postgres ANDs all CHECK constraints on a column, no value can ever
+-- satisfy both sets simultaneously (e.g. 'PORTAL' fails the _chk set,
+-- 'email' fails the _check set) — every insert into this table has been
+-- rejected at the database level regardless of what the application sends.
+-- Table was empty (0 rows) when this was discovered, confirming nothing has
+-- ever successfully inserted since the drift was introduced.
+--
+-- All application code (src/lib/conditions/messaging/queue.ts's
+-- queueMessage(), etc.) writes the uppercase convention, matching the
+-- original table definition in 20251218000008_messaging_system.sql, so we
+-- drop the newer, conflicting lowercase constraints and keep the uppercase
+-- ones.
+ALTER TABLE public.condition_messages DROP CONSTRAINT IF EXISTS condition_messages_channel_chk;
+ALTER TABLE public.condition_messages DROP CONSTRAINT IF EXISTS condition_messages_status_chk;

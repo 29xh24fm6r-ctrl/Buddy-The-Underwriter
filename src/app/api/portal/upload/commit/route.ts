@@ -220,29 +220,16 @@ export async function POST(req: Request) {
       );
     }
 
-    if (Number(existingFile.data?.size_bytes || 0) !== Number(sizeBytes || 0)) {
-      await logLedgerEvent({
-        dealId: invite.deal_id,
-        bankId: invite.bank_id,
-        eventKey: "upload.rejected",
-        uiState: "done",
-        uiMessage: "Upload rejected: size mismatch",
-        meta: {
-          file_id: resolvedFileId,
-          upload_session_id: uploadSessionId,
-          reason: "upload_session_size_mismatch",
-          expected_size: Number(existingFile.data?.size_bytes || 0),
-          received_size: Number(sizeBytes || 0),
-          storage_path: path,
-          storage_bucket: "borrower_uploads",
-          source: "borrower_portal",
-        },
-      });
-      return NextResponse.json(
-        { error: "upload_session_size_mismatch" },
-        { status: 409 },
-      );
-    }
+    // NOTE: the session-file row is created at `prepare` time with a
+    // placeholder `size_bytes: 0` (the real size isn't known until the
+    // client finishes the direct-to-storage PUT). It is never updated
+    // between prepare and commit, so comparing it against the
+    // client-reported `sizeBytes` here always mismatches for any
+    // non-empty file — that used to reject every real upload with a 409.
+    // Session-file existence (checked above) plus a valid signed-upload
+    // session already authorizes this write, so we just persist the
+    // real size the client reports rather than "verifying" it against
+    // a placeholder that was never meant to hold a real value.
 
     await sb
       .from("deal_upload_session_files")

@@ -114,9 +114,9 @@ function ShareUploadBox(props: { token: string }) {
     try {
       if (!files.length) return;
 
-      // NOTE:
-      // Wire this into your existing upload pipeline.
-      // For now we call a share-aware attach endpoint that you will connect to your storage logic.
+      // Wired to /api/portal/share/upload, which stores the file and
+      // ingests it into deal_documents via the same canonical pipeline
+      // the token-authenticated borrower portal uses.
       for (const f of files) {
         setStatus(`Uploading ${f.name}…`);
         const res = await fetch(`/api/portal/share/upload`, {

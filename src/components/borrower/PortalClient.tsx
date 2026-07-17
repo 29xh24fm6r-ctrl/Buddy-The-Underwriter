@@ -1302,6 +1302,25 @@ export function PortalClient({ token }: { token: string }) {
           )
         ) : null}
 
+        {/* Previously /apply and /request were unreachable from this page —
+            every CTA pointed only to /upload/[token], leaving borrowers who
+            got the standard invite link with no in-product way to reach
+            the intake wizard or loan-request form. */}
+        <div className="flex flex-wrap gap-3 text-sm">
+          <a
+            href={`/portal/${token}/apply`}
+            className="rounded-full border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            Complete your application
+          </a>
+          <a
+            href={`/portal/${token}/request`}
+            className="rounded-full border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            Update loan request
+          </a>
+        </div>
+
         {journeyStatus && <BorrowerJourneyChecklist status={journeyStatus} />}
 
         <BorrowerMobileCommandCenter viewModel={mobileCommandViewModel} />

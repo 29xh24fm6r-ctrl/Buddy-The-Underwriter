@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { rateLimit } from "@/lib/portal/ratelimit";
 import {
   buildBaseYear,
   buildAnnualProjections,
@@ -43,6 +44,14 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
+
+  // Unrate-limited Gemini + PDF-render + storage-upload endpoint — cheap
+  // to abuse for cost/DoS. Sibling routes (concierge, upload/prepare) all
+  // rate-limit; this one didn't.
+  const rl = rateLimit(`portal:${token.slice(0, 12)}:generate_pdf`, 10, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ ok: false, error: "Rate limited" }, { status: 429 });
+  }
 
   let ctx: { dealId: string; bankId: string };
   try {

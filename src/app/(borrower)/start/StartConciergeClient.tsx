@@ -125,21 +125,71 @@ export function StartConciergeClient({
   initialPath?: "franchise" | "standard";
   initialSession?: VerifiedSession | null;
 }) {
-  const [mode, setMode] = useState<Mode>(() => {
-    if (typeof window === "undefined") return "chat";
-    const saved = window.localStorage.getItem(MODE_KEY);
-    return saved === "voice" ? "voice" : "chat";
-  });
+  // Always initialize to "chat" on both server and client so the first
+  // client render matches the server-rendered HTML — reading
+  // localStorage directly in the useState initializer made the client's
+  // first render diverge from the server's whenever "voice" was saved,
+  // triggering a hydration mismatch. The actual saved preference is
+  // applied in the effect below, which only runs after hydration.
+  const [mode, setMode] = useState<Mode>("chat");
   const [session, setSession] = useState<VerifiedSession | null>(initialSession);
   const dealId = session?.dealId ?? null;
   const [facts, setFacts] = useState<Record<string, unknown>>({});
+  const [resumeData, setResumeData] = useState<{ messages: Msg[]; progressPct: number } | null>(null);
   const journeyStatus = useJourneyStatus(dealId, setFacts);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(MODE_KEY);
+    if (saved === "voice") setMode("voice");
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(MODE_KEY, mode);
     }
   }, [mode]);
+
+  // Rehydrate the conversation transcript from the `buddy_borrower_session`
+  // HTTP-only cookie. BorrowerWorkspaceGate/page.tsx already server-resolve
+  // an existing *verified* session into `initialSession` (so `session` and
+  // `dealId` above are populated immediately for a returning borrower on
+  // the same device) — but that only restores identity/deal linkage, not
+  // the chat transcript itself, so ChatPane would otherwise still open on
+  // a blank greeting with no memory of what was already discussed. This
+  // fetch fills in the transcript + progress; it's a no-op (dealId: null)
+  // for a first-time visitor who hasn't verified yet.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/brokerage/concierge/resume", {
+          credentials: "include",
+        });
+        const json = await res.json();
+        if (cancelled || !json?.ok || !json.dealId) return;
+
+        if (json.extractedFacts && typeof json.extractedFacts === "object") {
+          setFacts(json.extractedFacts);
+        }
+
+        const history: Msg[] = Array.isArray(json.conversationHistory)
+          ? json.conversationHistory
+              .filter((m: any) => m?.role === "user" || m?.role === "assistant")
+              .map((m: any) => ({ role: m.role, content: String(m.content ?? "") }))
+          : [];
+
+        setResumeData({
+          messages: history,
+          progressPct: typeof json.progressPct === "number" ? json.progressPct : 0,
+        });
+      } catch {
+        // non-fatal — borrower can still start a fresh conversation
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!session) {
     return <BorrowerWorkspaceGate onVerified={setSession} />;
@@ -215,6 +265,7 @@ export function StartConciergeClient({
           borrowerName={session.name}
           initialPath={initialPath}
           onFactsUpdated={setFacts}
+          resume={resumeData}
         />
       ) : (
         <BorrowerVoicePanel dealId={session.dealId} onAssistantTurn={journeyStatus.refreshSoon} />
@@ -236,11 +287,13 @@ function ChatPane({
   borrowerName,
   initialPath,
   onFactsUpdated,
+  resume,
 }: {
   dealId: string;
   borrowerName: string | null;
   initialPath?: "franchise" | "standard";
   onFactsUpdated: (facts: Record<string, unknown>) => void;
+  resume?: { messages: Msg[]; progressPct: number } | null;
 }) {
   const greeting = borrowerName ? `Hi ${borrowerName}, I'm` : "I'm";
   const [messages, setMessages] = useState<Msg[]>([
@@ -259,6 +312,17 @@ function ChatPane({
   const [nextRequiredFields, setNextRequiredFields] = useState<string[]>([]);
   const [rateLimited, setRateLimited] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const appliedResumeRef = useRef(false);
+
+  // Resume arrives asynchronously (after this pane has already mounted
+  // with the default greeting) — apply it exactly once, so a slow network
+  // response can't clobber messages the borrower has already sent.
+  useEffect(() => {
+    if (!resume || appliedResumeRef.current) return;
+    appliedResumeRef.current = true;
+    if (resume.messages.length > 0) setMessages(resume.messages);
+    setProgressPct(resume.progressPct);
+  }, [resume]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });

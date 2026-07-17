@@ -25,7 +25,15 @@ async function maybeSendTwilioSMS(to: string, body: string) {
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: string }> }) {
   const { dealId } = await ctx.params;
-  const bankId = await getCurrentBankId().catch(() => null);
+  let bankId: string;
+  try {
+    bankId = await getCurrentBankId();
+  } catch {
+    // Fail CLOSED: an auth/tenant-resolution failure must never be treated
+    // as "skip the tenant check" — that previously let unauthenticated
+    // callers trigger real Twilio SMS sends against any deal.
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
   const sb = supabaseAdmin();
 
   const body = await req.json().catch(() => ({}));
@@ -41,7 +49,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ dealId: st
       .select("id, bank_id")
       .eq("id", dealId)
       .maybeSingle();
-    if (!deal || (bankId && deal.bank_id !== bankId)) {
+    if (!deal || deal.bank_id !== bankId) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 403 });
     }
   } catch {
