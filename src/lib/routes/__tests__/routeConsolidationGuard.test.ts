@@ -192,14 +192,21 @@ describe("route consolidation invariants", () => {
   // /api/deals/ that merging them would mean branching banker vs. borrower
   // auth inside one handler, which this codebase has hit real cross-tenant
   // bugs from before (see git history: "close cross-tenant data leak").
-  // Still 144 slots under the 2048 hard cap.
-  it("total slot count stays below 1904 warning threshold", () => {
+  //
+  // Bumped 1904 -> 1928 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR1 (unified relationship graph) added people/party-role/dedup/search
+  // CRUD endpoints and their CRM UI pages. Two genuinely-redundant route
+  // pairs were folded together first (dedup + dedup/merge into one file;
+  // people/[personId]/link-organization folded into people/[personId])
+  // rather than inflating the threshold to cover them. Still 120 slots
+  // under the 2048 hard cap.
+  it("total slot count stays below 1928 warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1904,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1904 warning threshold`,
+      totalSlots < 1928,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1928 warning threshold`,
     );
   });
 

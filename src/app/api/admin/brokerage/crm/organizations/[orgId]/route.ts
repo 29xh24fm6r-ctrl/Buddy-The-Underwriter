@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { updateOrganization, ORGANIZATION_TYPES } from "@/lib/crm/organizations";
+import { listPeopleForOrganization } from "@/lib/crm/people";
+import { resolveDealRolesForOrganization } from "@/lib/crm/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,12 +107,53 @@ export async function GET(
     return NextResponse.json({ ok: false, error: leadsErr.message }, { status: 500 });
   }
 
+  const [peopleWithRoles, dealPartyRoles] = await Promise.all([
+    listPeopleForOrganization(brokerageBankId, orgId),
+    resolveDealRolesForOrganization(brokerageBankId, orgId),
+  ]);
+
   return NextResponse.json({
     ok: true,
     organization: org,
     people: people ?? [],
+    peopleWithRoles,
+    dealPartyRoles,
     activities: activities ?? [],
     referredDeals: referredDeals ?? [],
     leads: leads ?? [],
   });
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> },
+) {
+  const gated = await gate();
+  if (gated instanceof NextResponse) return gated;
+
+  const { orgId } = await params;
+  const brokerageBankId = await getBrokerageBankId();
+  const body = await req.json().catch(() => ({}) as any);
+
+  if (body?.organizationType && !ORGANIZATION_TYPES.includes(body.organizationType)) {
+    return NextResponse.json({ ok: false, error: "invalid organizationType" }, { status: 400 });
+  }
+
+  try {
+    const organization = await updateOrganization(brokerageBankId, orgId, {
+      name: typeof body?.name === "string" ? body.name : undefined,
+      organizationType: body?.organizationType,
+      websiteUrl: body?.websiteUrl,
+      phone: body?.phone,
+      addressLine1: body?.addressLine1,
+      city: body?.city,
+      state: body?.state,
+      postalCode: body?.postalCode,
+      notes: body?.notes,
+    });
+    return NextResponse.json({ ok: true, organization });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
 }

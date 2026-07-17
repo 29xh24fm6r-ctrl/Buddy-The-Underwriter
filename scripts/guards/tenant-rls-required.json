@@ -8,7 +8,11 @@
     "deal_financial_facts",
     "deal_voice_sessions",
     "voice_session_audits",
-    "deal_pii_records"
+    "deal_pii_records",
+    "crm_person_organization_roles",
+    "deal_party_roles",
+    "deal_source_attribution",
+    "crm_merge_log"
   ],
   "membership_table": "bank_memberships",
   "membership_bank_id": "bank_id",
