@@ -4,6 +4,7 @@ import { useEffect, useState, use as usePromise } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
 type Activity = {
   id: string;
@@ -262,6 +263,8 @@ export default function CrmOrganizationDetailPage({
 
   return (
     <div style={{ padding: "18px 24px 40px", maxWidth: 1120 }}>
+      <CrmTabs />
+
       <Link href="/admin/brokerage/crm" style={{ fontSize: 11.5, color: c.textMuted, marginBottom: 14, display: "inline-block" }}>
         ← All organizations
       </Link>
