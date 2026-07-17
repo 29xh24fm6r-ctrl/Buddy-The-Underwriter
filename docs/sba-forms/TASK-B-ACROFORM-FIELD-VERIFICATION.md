@@ -4,14 +4,17 @@
 the real government AcroForm field names on Forms 1919, 413, 912, and
 4506-C, and check in a ground-truth field-name reference per form.
 
-**Status: ground truth obtained and checked in for 1919, 912, 4506-C, plus
-155 and 159 as a bonus (413 still pending — not yet supplied). The field
-names are confirmed mismatched, as expected. But the more important
-finding is bigger than a naming problem: for 1919 and 912, the actual
+**Status: ground truth obtained and checked in for all four wired forms
+(1919, 413, 912, 4506-C), plus 155 and 159 as a bonus. Field names are
+confirmed mismatched everywhere, as expected. The more important finding
+is bigger than a naming problem for 1919 and 912 specifically: the actual
 current-revision government forms ask for materially different — and in
 912's case, narrower and stricter (full SSN, not last 4) — information
-than what `fields.ts` currently models. This needs a scoping decision
-before any fix is written, not just a rename.**
+than what `fields.ts` currently models. Form 413 is the exception: its
+Section 1 summary is well-modeled conceptually and mostly a naming fix,
+though it's missing the itemized supporting schedules (notes payable,
+securities, multi-property real estate) the real form has. This needs a
+scoping decision before any fix is written, not just a rename.**
 
 ## 1. How the source PDFs were obtained
 
@@ -20,16 +23,16 @@ before any fix is written, not just a rename.**
 and neither `bank_document_templates` nor Google Drive had usable copies
 of 1919 or 912 (see the prior version of this doc, preserved in git
 history, for that investigation). The user uploaded the actual current
-PDFs directly: `Form_1919.pdf`, `SBA_Form_912.pdf`, `SBA_Form_4506c.pdf`,
-plus `SBA_Form_155.pdf` and `SBA_Form_159.pdf` as a bonus. `Form 413` is
-still outstanding.
+PDFs directly, across two batches: `Form_1919.pdf`, `SBA_Form_912.pdf`,
+`SBA_Form_4506c.pdf`, `SBA_Form_155.pdf`, `SBA_Form_159.pdf`, then
+`SBAForm413.pdf`.
 
 Fields were dumped with `pdf-lib` (`form.getFields()`), reading each
 field's internal name, type, and — critically — its `/TU` tooltip, which
-on all five of these PDFs turned out to hold the actual instructional text
+on all six of these PDFs turned out to hold the actual instructional text
 a filer sees ("Please enter the first owner's legal name..."). That made
 this a high-confidence extraction, not a guess: the ground-truth dumps are
-checked in at `docs/sba-forms/{1919,912,4506c,155,159}-fields.json`.
+checked in at `docs/sba-forms/{1919,413,912,4506c,155,159}-fields.json`.
 
 ## 2. Field-name mismatch: confirmed, as expected
 
@@ -115,6 +118,47 @@ checkbox block per owner (veteran status, sex, race, ethnicity) that isn't
 modeled at all, and an export-sales section (Q11-adjacent: estimated
 export sales, up to 3 countries) that isn't either.
 
+**Form 413 — Personal Financial Statement. The good-news case.** Unlike
+1919/912, `fields.ts`'s ~40 Section-1 fields (identity, asset/liability/
+contingent-liability/income summary line items) line up conceptually,
+one-to-one, with real fields on the form (`Cash on Hand & in banks`,
+`Notes Payable to Banks and Others`, `Net Investment Income`, etc.) —
+this is a straightforward rename once the mapping decisions below are
+made, not a redesign. Real gaps found:
+- **Full SSN, again** — the real field is literally labeled `"Enter
+  Social Security No for Name 1. (xxx-xx-xxxx"`, same
+  full-vs-last-4 gap and same two options as Form 912 (persist it, or
+  have the signer type it in at signing time). The form also has a
+  *second* full-SSN field for a joint/spouse signer
+  (`"...for Name 2..."`), doubling the same decision.
+- **The itemized supporting schedules aren't modeled at all** —
+  `fields.ts` only has the Section 1 summary *totals*
+  (`asset_stocks_bonds`, `liability_notes_payable_banks_others`, etc.).
+  The real form has full schedules behind each: Section 2 (notes payable,
+  5 rows × noteholder/original balance/current balance/payment/frequency/
+  collateral), Section 3 (securities, 4 rows × shares/name/cost/market
+  value/quotation date/total), Section 5 (other personal property,
+  narrative), Section 6 (unpaid taxes, narrative), Section 7 (other
+  liabilities, narrative), Section 8 (life insurance, narrative). None of
+  these are unanswerable-without-new-data the way 912's Congress/military
+  questions are — the underlying numbers likely already exist somewhere
+  in `borrower_applicant_financials` per the "full itemized PFS breakdown"
+  the `inputBuilder.ts` header comment describes — but they still need to
+  be wired field-by-field, and it's a real scoping question whether an
+  MVP ships with just the Section 1 summary (leaving those schedules
+  blank) or the full itemization.
+- **Real estate is single-property in `fields.ts`, three-property (A/B/C)
+  on the real form**, each with ~10 sub-fields (type, address, date
+  purchased, original cost, present market value, mortgage
+  holder/account/balance/payment, status) — `fields.ts`'s flat
+  `real_estate_*` fields would need to become a per-property array, same
+  pattern as 1919's Section II owners.
+- Minor: the form's business-entity-type checkboxes (Corporation/S-Corp/
+  LLC/Partnership/Sole Proprietor) and program-context checkboxes at the
+  top (WOSB/8(a)/Disaster/7(a)-504-Surety, "Applicant Married") aren't
+  modeled — likely fine to backfill from data already captured elsewhere
+  on the deal rather than needing new intake questions.
+
 **Form 4506-C.** Smaller gap, but real: the current form separates a
 single-tax-form-number transcript request (line 6: Return / Account /
 **Record of Account** — a third type `fields.ts` doesn't have) from a
@@ -126,36 +170,36 @@ transcript type, doesn't appear anywhere on this revision's fields at all.
 ## 4. Why I stopped here instead of writing the fix
 
 Task B's own instruction is "mismatches get fixed as their own small PRs,"
-which assumes the fix is a rename. It isn't, for 1919 and 912: filling in
-the *correct* field names for compliance questions Buddy doesn't currently
-collect from anyone would mean either (a) silently leaving those fields
-blank on a legal document while claiming the render succeeded, or (b)
-inventing default answers to questions like "are you a member of
-Congress" or "are you delinquent on child support" — both are worse than
+which assumes the fix is a rename. For 413's Section 1 fields, it
+basically is — that part is safe to fix directly. For 1919, 912, and
+413's supporting schedules, it isn't: filling in the *correct* field
+names for compliance questions or itemized schedule rows Buddy doesn't
+currently collect (or doesn't collect in the requested shape) would mean
+either (a) silently leaving those fields blank on a legal document while
+claiming the render succeeded, or (b) inventing default answers to
+questions like "are you a member of Congress" — both are worse than
 stopping to ask. Expanding the data model (new `ownership_entities`
-columns, new conversational-intake questions, a full SSN column and the
-handling that implies) is a real scoping decision, not something to fold
-into a "verification" pass.
+columns, new conversational-intake questions, a full-SSN decision, a
+per-property real-estate array) is a real scoping decision, not something
+to fold into a "verification" pass.
 
 ## 5. Per-form status (updated)
 
 | Form | Real AcroForm names + tooltips confirmed | Field-name mismatch confirmed | Content/coverage gap found | Fixed |
 |---|---|---|---|---|
 | FORM_1919 | Yes (`1919-fields.json`) | Yes — 0% overlap | **Yes — Section I models 4 of 13 real questions; demographics + export section unmodeled** | No — needs scoping |
+| FORM_413 | Yes (`413-fields.json`) | Yes — 0% overlap | **Partial — Section 1 summary conceptually complete (rename-only); itemized schedules (notes/securities/multi-property REO) unmodeled; full SSN vs last-4** | No — Section 1 rename is safe to do now, schedules need scoping |
 | FORM_912 | Yes (`912-fields.json`) | Yes — 0% overlap | **Yes — full SSN vs last-4, ownership %, and the 3 real questions vs. 5 modeled categories don't line up** | No — needs scoping |
 | FORM_4506C | Yes (`4506c-fields.json`) | Yes — 0% overlap | Yes — record-of-account transcript type missing, wage/income section structure differs, non-filing verification doesn't exist on this revision | No — needs scoping |
-| FORM_413 | Not yet — PDF not supplied | — | — | — |
 | FORM_155 *(backlog per Task A)* | Yes (`155-fields.json`), bonus | Not diffed (not currently wired) | Not diffed | N/A |
 | FORM_159 *(separate pipeline, not e-sign)* | Yes (`159-fields.json`), bonus | Not diffed (out of Task B's scope) | Not diffed | N/A |
 
 No visual fill-test PDFs were generated yet — there's no correct field
-mapping to test until the scoping question in section 4 is answered.
+mapping to test until the scoping questions in section 4 are answered
+(413's Section 1 fields are the exception — those could go straight to a
+fill-test once mapped).
 
 ## 6. What's needed to close this out
-
-Once Form 413 is supplied, it should get the same tooltip-based diff, and
-plausibly has a similar naming-only gap. For 1919/912/4506-C, the
-recommended path is:
 
 1. Decide, per newly-found question/field, whether to (a) add the
    real column(s)/questions to collect it, (b) knowingly leave it blank
@@ -163,9 +207,11 @@ recommended path is:
    list surfaced in the build result, not silently), or (c) confirm one of
    the existing modeled fields is actually an acceptable proxy after all
    (only checked where a tooltip genuinely supports it — none found so
-   far).
+   far). The full-SSN question (912, and 413 ×2) is the one decision that
+   recurs across forms and is worth making once, not per-form.
 2. Once (1) is decided per field, write the real
    `SEMANTIC_KEY -> AcroForm field name (+ type)` map per form and update
    `render.ts` to dispatch by field type (text/checkbox/radio), not just
-   `getTextField`.
+   `getTextField`. 413's Section 1 mapping doesn't depend on (1) at all
+   and could be done immediately.
 3. Generate a filled test PDF with fake data and visually confirm.
