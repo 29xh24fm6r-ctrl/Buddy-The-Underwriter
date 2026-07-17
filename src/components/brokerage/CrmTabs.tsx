@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 const TABS = [
+  { label: "Leads", href: "/admin/brokerage/crm/leads" },
   { label: "Organizations", href: "/admin/brokerage/crm" },
   { label: "People", href: "/admin/brokerage/crm/people" },
   { label: "Relationships", href: "/admin/brokerage/crm/relationships" },
@@ -12,10 +13,10 @@ const TABS = [
 ];
 
 /**
- * Shared sub-nav for the three CRM object types (PR1 §3.3) plus the
- * dedup review queue. One "CRM" entry in the main nav rail
- * (BrokerageShell) fans out into these rather than adding four more
- * top-level nav items for the same underlying work.
+ * Shared sub-nav for the CRM object types (PR1 §3.3) plus the lead
+ * pipeline (PR2 §4.4) and the dedup review queue. One "CRM" entry in the
+ * main nav rail (BrokerageShell) fans out into these rather than adding
+ * more top-level nav items for the same underlying work.
  */
 export function CrmTabs() {
   const pathname = usePathname();

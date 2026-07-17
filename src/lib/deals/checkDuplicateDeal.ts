@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { SB } from "@/lib/crm/types";
 
 /**
  * Phase 84 T-06 — Duplicate deal detection helper.
@@ -27,12 +28,15 @@ export type DuplicateCheckResult =
   | { ok: true; isDuplicate: false }
   | { ok: true; isDuplicate: true; existingDealId: string };
 
-export async function checkDuplicateDeal(args: {
-  bankId: string;
-  name: string;
-  createdByUserId: string | null;
-  windowHours?: number; // default 4
-}): Promise<DuplicateCheckResult> {
+export async function checkDuplicateDeal(
+  args: {
+    bankId: string;
+    name: string;
+    createdByUserId: string | null;
+    windowHours?: number; // default 4
+  },
+  sb: SB = supabaseAdmin(),
+): Promise<DuplicateCheckResult> {
   if (!args.createdByUserId) {
     // Can't scope without a user — let it through. Logged for observability so
     // we can spot any call site that's forgetting to pass the user id.
@@ -42,7 +46,6 @@ export async function checkDuplicateDeal(args: {
     return { ok: true, isDuplicate: false };
   }
 
-  const sb = supabaseAdmin();
   const windowStart = new Date(
     Date.now() - (args.windowHours ?? 4) * 60 * 60 * 1000,
   ).toISOString();
@@ -70,7 +73,7 @@ export async function checkDuplicateDeal(args: {
   // on both sides to match the RPC-level dedup predicate exactly.
   const normalized = args.name.trim().toLowerCase();
   const match = (data ?? []).find(
-    (row) => String(row.name ?? "").trim().toLowerCase() === normalized,
+    (row: { name?: string | null }) => String(row.name ?? "").trim().toLowerCase() === normalized,
   );
 
   if (match) {
