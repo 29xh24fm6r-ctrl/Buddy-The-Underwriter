@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BorrowerWorkspaceGate, type VerifiedSession } from "@/components/brokerage/BorrowerWorkspaceGate";
 import BorrowerVoicePanel from "@/components/brokerage/BorrowerVoicePanel";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 import BorrowerFranchiseBrandPicker from "@/components/brokerage/BorrowerFranchiseBrandPicker";
@@ -119,15 +120,18 @@ function useJourneyStatus(
 
 export function StartConciergeClient({
   initialPath,
+  initialSession = null,
 }: {
   initialPath?: "franchise" | "standard";
+  initialSession?: VerifiedSession | null;
 }) {
   const [mode, setMode] = useState<Mode>(() => {
     if (typeof window === "undefined") return "chat";
     const saved = window.localStorage.getItem(MODE_KEY);
     return saved === "voice" ? "voice" : "chat";
   });
-  const [dealId, setDealId] = useState<string | null>(null);
+  const [session, setSession] = useState<VerifiedSession | null>(initialSession);
+  const dealId = session?.dealId ?? null;
   const [facts, setFacts] = useState<Record<string, unknown>>({});
   const journeyStatus = useJourneyStatus(dealId, setFacts);
 
@@ -137,8 +141,17 @@ export function StartConciergeClient({
     }
   }, [mode]);
 
+  if (!session) {
+    return <BorrowerWorkspaceGate onVerified={setSession} />;
+  }
+
   return (
     <div>
+      <div className="mb-3 text-center">
+        <p className="text-sm text-slate-500">
+          {session.name ? `Welcome, ${session.name} — this` : "This"} is your private workspace.
+        </p>
+      </div>
       <div className="mb-5">
         <BrokerageStageStrip
           activeStage={deriveBrokerageStage({
@@ -152,11 +165,9 @@ export function StartConciergeClient({
           })}
         />
       </div>
-      {dealId && (
-        <div className="mb-5">
-          <BorrowerJourneyChecklist status={journeyStatus} />
-        </div>
-      )}
+      <div className="mb-5">
+        <BorrowerJourneyChecklist status={journeyStatus} />
+      </div>
       <div className="mb-4 flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1">
         <button
           onClick={() => setMode("chat")}
@@ -193,69 +204,52 @@ export function StartConciergeClient({
         any time.
       </p>
 
-      {dealId && (
-        <div className="mb-4 space-y-3">
-          <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
-          <ExistingDebtCard dealId={dealId} />
-        </div>
-      )}
+      <div className="mb-4 space-y-3">
+        <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
+        <ExistingDebtCard dealId={session.dealId} />
+      </div>
 
       {mode === "chat" ? (
         <ChatPane
-          dealId={dealId}
-          onDealIdResolved={setDealId}
+          dealId={session.dealId}
+          borrowerName={session.name}
           initialPath={initialPath}
           onFactsUpdated={setFacts}
         />
-      ) : dealId ? (
-        <BorrowerVoicePanel dealId={dealId} onAssistantTurn={journeyStatus.refreshSoon} />
       ) : (
-        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
-          <p className="mb-4 text-sm text-slate-600">
-            Start with one short message so Buddy can set up your package.
-            Voice becomes available as soon as your session is ready.
-          </p>
-          <button
-            onClick={() => setMode("chat")}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
-            type="button"
-          >
-            Switch to chat
-          </button>
-        </div>
+        <BorrowerVoicePanel dealId={session.dealId} onAssistantTurn={journeyStatus.refreshSoon} />
       )}
 
-      {dealId && (
-        <div className="mt-4">
-          <BorrowerFranchiseBrandPicker startInSearchMode={initialPath === "franchise"} />
-        </div>
-      )}
+      <div className="mt-4">
+        <BorrowerFranchiseBrandPicker startInSearchMode={initialPath === "franchise"} />
+      </div>
 
-      {dealId && <IdentityVerificationCard dealId={dealId} />}
-      {dealId && <SigningPanel dealId={dealId} />}
-      {dealId && <SealPackageCard dealId={dealId} />}
+      <IdentityVerificationCard dealId={session.dealId} />
+      <SigningPanel dealId={session.dealId} />
+      <SealPackageCard dealId={session.dealId} />
     </div>
   );
 }
 
 function ChatPane({
   dealId,
-  onDealIdResolved,
+  borrowerName,
   initialPath,
   onFactsUpdated,
 }: {
-  dealId: string | null;
-  onDealIdResolved: (id: string) => void;
+  dealId: string;
+  borrowerName: string | null;
   initialPath?: "franchise" | "standard";
   onFactsUpdated: (facts: Record<string, unknown>) => void;
 }) {
+  const greeting = borrowerName ? `Hi ${borrowerName}, I'm` : "I'm";
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
       content:
         initialPath === "franchise"
-          ? "I'm Buddy. Since you're financing a franchise, tell me the brand and what you're buying — I'll pull in SBA certification and FDD data automatically and guide the next step."
-          : "I'm Buddy. I help you build an SBA-ready borrower package from the start. Tell me what you want to finance and I'll guide the next step.",
+          ? `${greeting} Buddy. Since you're financing a franchise, tell me the brand and what you're buying — I'll pull in SBA certification and FDD data automatically and guide the next step.`
+          : `${greeting} Buddy. I help you build an SBA-ready borrower package from the start. Tell me what you want to finance and I'll guide the next step.`,
     },
   ]);
   const [input, setInput] = useState("");
@@ -335,7 +329,6 @@ function ChatPane({
             setProgressPct(data.progressPct ?? 0);
             setNextRequiredFields(Array.isArray(data.nextRequiredFields) ? data.nextRequiredFields : []);
             if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
-            if (data.dealId) onDealIdResolved(data.dealId);
           },
           onError: () => finalizeStreamingMessage(FALLBACK_MESSAGE),
         });
@@ -352,7 +345,6 @@ function ChatPane({
           setProgressPct(data.progressPct ?? 0);
           setNextRequiredFields(Array.isArray(data.nextRequiredFields) ? data.nextRequiredFields : []);
           if (data.extractedFacts) onFactsUpdated(data.extractedFacts);
-          if (data.dealId) onDealIdResolved(data.dealId);
         } else {
           setMessages((m) => [...m, { role: "assistant", content: FALLBACK_MESSAGE }]);
         }
@@ -452,11 +444,9 @@ function ChatPane({
             Send
           </button>
         </div>
-        {dealId && (
-          <p className="mt-2 text-xs text-slate-500">
-            Session saved in this browser. Return anytime and keep building your package.
-          </p>
-        )}
+        <p className="mt-2 text-xs text-slate-500">
+          Saved to your workspace — verify with this email on any device to pick up right where you left off.
+        </p>
       </div>
     </div>
   );

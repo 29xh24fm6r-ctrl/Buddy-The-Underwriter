@@ -44,6 +44,65 @@ function fileToUrl(file: string, apiRoot: string): string {
   return "/api" + rel;
 }
 
+const SRC_ROOT = path.join(process.cwd(), "src");
+const IMPORT_RE = /(?:import[^'"]*from\s*|require\()\s*["']([^"']+)["']/g;
+const MAX_IMPORT_DEPTH = 2;
+
+function resolveLocalImport(specifier: string, fromFile: string): string | null {
+  let base: string;
+  if (specifier.startsWith("@/")) {
+    base = path.join(SRC_ROOT, specifier.slice(2));
+  } else if (specifier.startsWith(".")) {
+    base = path.resolve(path.dirname(fromFile), specifier);
+  } else {
+    return null; // not a local project import — skip node_modules/next/etc.
+  }
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")]) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * A thin route.ts that delegates identity resolution / rate limiting to a
+ * shared lib module (the established pattern — see
+ * lib/brokerage/emailVerification.ts, called from
+ * app/api/brokerage/session/route.ts) has none of the recognized markers in
+ * its own source, so a same-file-only scan reads it as unsafe even though
+ * the real security property holds one import away. Follows local (@/ or
+ * relative) imports up to MAX_IMPORT_DEPTH, concatenating their source into
+ * the same text the marker checks run against — this can only ever *add*
+ * recognized safety, never hide a route that genuinely trusts client input
+ * with no delegation at all.
+ */
+function combinedSourceWithLocalImports(entryFile: string): string {
+  const visited = new Set<string>();
+  const queue: Array<{ file: string; depth: number }> = [{ file: entryFile, depth: 0 }];
+  let combined = "";
+
+  while (queue.length > 0) {
+    const { file, depth } = queue.shift()!;
+    if (visited.has(file)) continue;
+    visited.add(file);
+    let src: string;
+    try {
+      src = fs.readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    combined += `\n${src}`;
+    if (depth >= MAX_IMPORT_DEPTH) continue;
+
+    for (const match of src.matchAll(IMPORT_RE)) {
+      const resolved = resolveLocalImport(match[1], file);
+      if (resolved && !visited.has(resolved)) {
+        queue.push({ file: resolved, depth: depth + 1 });
+      }
+    }
+  }
+  return combined;
+}
+
 export function scanBrokerageRoutes(
   apiRoot = path.join(process.cwd(), "src/app/api"),
 ): { routes: RouteContract[]; rateLimits: RateLimitSpec[] } {
@@ -56,6 +115,7 @@ export function scanBrokerageRoutes(
 
   for (const file of files) {
     const src = fs.readFileSync(file, "utf8");
+    const combined = combinedSourceWithLocalImports(file);
     const url = fileToUrl(file, apiRoot);
     const methods = HTTP_METHODS.filter((m) =>
       new RegExp(`export\\s+(async\\s+)?function\\s+${m}\\b`).test(src),
@@ -63,14 +123,14 @@ export function scanBrokerageRoutes(
     routes.push({
       path: url,
       methods,
-      resolvesIdentityServerSide: AUTH_PRIMITIVES.some((a) => src.includes(a)),
+      resolvesIdentityServerSide: AUTH_PRIMITIVES.some((a) => combined.includes(a)),
       // Client-supplied tenant ids read from the request body are the leak vector.
-      acceptsClientBankId: /body[?.\s]*\.?\s*(bankId|bank_id)/.test(src),
-      acceptsClientDealId: /body[?.\s]*\.?\s*(dealId|deal_id)/.test(src),
+      acceptsClientBankId: /body[?.\s]*\.?\s*(bankId|bank_id)/.test(combined),
+      acceptsClientDealId: /body[?.\s]*\.?\s*(dealId|deal_id)/.test(combined),
     });
     rateLimits.push({
       route: url,
-      hasRateLimit: RATE_LIMIT_MARKERS.some((m) => src.includes(m)),
+      hasRateLimit: RATE_LIMIT_MARKERS.some((m) => combined.includes(m)),
       limitType: "detected",
     });
   }

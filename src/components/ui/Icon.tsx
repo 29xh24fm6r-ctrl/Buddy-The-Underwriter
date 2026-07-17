@@ -29,6 +29,7 @@ import {
   Globe,
   Circle,
   Camera,
+  Mail,
 } from "lucide-react";
 
 export type IconName =
@@ -60,7 +61,8 @@ export type IconName =
   | "account_balance"
   | "public"
   | "radio_button_unchecked"
-  | "photo_camera";
+  | "photo_camera"
+  | "mail";
 
 const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   cloud_upload: CloudUpload,
@@ -92,6 +94,7 @@ const MAP: Record<IconName, React.ComponentType<{ className?: string }>> = {
   public: Globe,
   radio_button_unchecked: Circle,
   photo_camera: Camera,
+  mail: Mail,
 };
 
 export function Icon({
