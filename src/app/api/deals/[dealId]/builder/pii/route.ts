@@ -30,6 +30,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     actorUserId: auth.userId,
   });
 
-  if (!result.ok) return NextResponse.json(result, { status: 400 });
+  if (!result.ok) {
+    // Server misconfiguration (missing encryption key), not a client input
+    // error — surface as 5xx so it isn't confused with a validation failure.
+    const status = result.errorCode === "encryption_not_configured" ? 500 : 400;
+    return NextResponse.json(result, { status });
+  }
   return NextResponse.json({ ok: true, last4: result.last4 });
 }

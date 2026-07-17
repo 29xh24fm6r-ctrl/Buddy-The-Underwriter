@@ -13,6 +13,7 @@ import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import * as crypto from "node:crypto";
 
 const ENCRYPTION_KEY = process.env.PII_ENCRYPTION_KEY ?? process.env.BUDDY_PII_KEY ?? "";
+const MIN_ENCRYPTION_KEY_LENGTH = 16;
 
 type StorePiiInput = {
   dealId: string;
@@ -30,6 +31,7 @@ type StorePiiResult = {
 } | {
   ok: false;
   error: string;
+  errorCode?: "encryption_not_configured";
 };
 
 /**
@@ -37,6 +39,21 @@ type StorePiiResult = {
  */
 export async function storeSecurePii(input: StorePiiInput): Promise<StorePiiResult> {
   const { dealId, bankId, ownershipEntityId, piiType, plaintext, actorUserId } = input;
+
+  // Fail closed: refuse to store SSN/TIN at all if the encryption key isn't
+  // configured, rather than silently degrading to reversible base64. This
+  // is a server-misconfiguration error, not a borrower/banker input error —
+  // callers should surface it as 5xx, not 4xx (see errorCode below).
+  if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < MIN_ENCRYPTION_KEY_LENGTH) {
+    console.error(
+      "[securePiiIntake] PII_ENCRYPTION_KEY not configured or too short — refusing to store PII",
+    );
+    return {
+      ok: false,
+      error: "PII encryption is not configured on this environment.",
+      errorCode: "encryption_not_configured",
+    };
+  }
 
   // Validate format
   const digits = plaintext.replace(/\D/g, "");
@@ -129,11 +146,9 @@ export async function getPiiStatus(dealId: string, ownershipEntityId: string): P
 // ---------------------------------------------------------------------------
 
 function encryptValue(plaintext: string): string {
-  if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 16) {
-    // Fallback: base64 encode (not secure — for dev only)
-    return `dev_b64:${Buffer.from(plaintext).toString("base64")}`;
-  }
-
+  // storeSecurePii checks ENCRYPTION_KEY presence/length before calling this
+  // — no insecure fallback path here. If that invariant is ever violated,
+  // scryptSync below throws rather than silently degrading.
   const iv = crypto.randomBytes(16);
   const key = crypto.scryptSync(ENCRYPTION_KEY, "buddy_pii_salt", 32);
   const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
