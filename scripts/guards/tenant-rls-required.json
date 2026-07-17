@@ -19,7 +19,10 @@
     "crm_activity_participants",
     "crm_message_templates",
     "crm_automation_executions",
-    "crm_sequence_enrollments"
+    "crm_sequence_enrollments",
+    "lender_invoices",
+    "brokerage_commission_splits",
+    "crm_alert_feedback"
   ],
   "membership_table": "bank_memberships",
   "membership_bank_id": "bank_id",

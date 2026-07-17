@@ -217,13 +217,27 @@ describe("route consolidation invariants", () => {
   // than four) plus the management-queues endpoint and its page. The new
   // BrokerageStagePanel mounts inside the existing cockpit rather than
   // adding a second cockpit page. Still 96 slots under the 2048 hard cap.
-  it("total slot count stays below 1952 warning threshold", () => {
+  //
+  // Bumped 1952 -> 1975 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR5 (intelligence, analytics, revenue, command center) added 5 route
+  // files, each already a query-param/action dispatcher rather than one
+  // route per read/write (crm/intelligence covers relationship-score,
+  // referral-analytics, lender-performance, revenue, and forecast behind
+  // one GET; crm/intelligence/alerts covers list+dismiss+snooze+
+  // acknowledge; crm/intelligence/ai-assist covers all 5 AI actions;
+  // command-center aggregates every panel into one response;
+  // deals/[dealId]/commission-splits covers list/initialize/recalculate/
+  // update-status). One new page (command-center) — relationship-score,
+  // referral-analytics, lender-performance, and commission-split UI were
+  // mounted into the existing org/lenders/deal-cockpit pages instead of
+  // new pages. Still 73 slots under the 2048 hard cap.
+  it("total slot count stays below 1975 warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1952,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1952 warning threshold`,
+      totalSlots < 1975,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1975 warning threshold`,
     );
   });
 

@@ -26,6 +26,7 @@ import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
 import { InsightPanel } from "@/components/deals/cockpit/panels/InsightPanel";
 import { BrokerageStagePanel } from "@/components/deals/cockpit/panels/BrokerageStagePanel";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
+import { DealIntelligencePanel } from "@/components/brokerage/DealIntelligencePanel";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -360,6 +361,13 @@ function DealCockpitClientInner({
               provider is configured, honest stub otherwise. */}
           <div style={{ marginTop: 16 }}>
             <CommsPanel targetType="deal" targetId={dealId} />
+          </div>
+
+          {/* PR5 SPEC-BROKERAGE-OPERATING-SYSTEM-V1: commission splits and
+              deterministic-first AI assistance (drafts only, never applied
+              automatically). */}
+          <div style={{ marginTop: 16 }}>
+            <DealIntelligencePanel dealId={dealId} />
           </div>
         </div>
       </div>
