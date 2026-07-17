@@ -69,6 +69,11 @@ export async function getBorrowerSession(): Promise<BorrowerSession | null> {
 export async function createBorrowerSession(args: {
   dealId: string;
   bankId: string;
+  // Set immediately when this token is being minted for a borrower who
+  // already re-verified their email (returning-verified-borrower-on-a-
+  // new-device path) — skips the separate claimBorrowerSession() round
+  // trip since the email is already confirmed at creation time.
+  claimedEmail?: string;
 }): Promise<{ rawToken: string; tokenHash: string }> {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = hashToken(rawToken);
@@ -78,6 +83,9 @@ export async function createBorrowerSession(args: {
     token_hash: tokenHash,
     deal_id: args.dealId,
     bank_id: args.bankId,
+    ...(args.claimedEmail
+      ? { claimed_email: args.claimedEmail, claimed_at: new Date().toISOString() }
+      : {}),
   });
 
   const cookieStore = await cookies();

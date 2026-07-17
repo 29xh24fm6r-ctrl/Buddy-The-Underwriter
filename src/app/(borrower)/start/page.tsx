@@ -1,5 +1,6 @@
 import { StartConciergeClient } from "./StartConciergeClient";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
+import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 
 export const metadata = {
   title: "Get your SBA loan - Buddy",
@@ -22,6 +23,14 @@ export default async function StartPage({
   const params = await searchParams;
   const path = normalizePath(params.path);
   const isFranchisePath = path === "franchise";
+
+  // Resolve any existing verified session server-side so a returning
+  // borrower on the same device skips the email-verification gate
+  // entirely — no extra client round trip needed to find out.
+  const session = await getBorrowerSession();
+  const initialSession = session
+    ? { dealId: session.deal_id, name: await resolveBorrowerName(session.deal_id) }
+    : null;
 
   return (
     <main className="min-h-screen bg-[#f6f8fb]">
@@ -70,7 +79,7 @@ export default async function StartPage({
                     Secure return
                   </div>
                   <p className="mt-2 text-sm text-white/70">
-                    Your progress stays in this browser so you can come back without starting over.
+                    Your own verified workspace — pick up right where you left off from any device.
                   </p>
                 </div>
               </div>
@@ -119,7 +128,7 @@ export default async function StartPage({
           </div>
 
           <div className="relative mt-8 rounded-[1.75rem] bg-white p-4 shadow-[0_18px_50px_rgba(0,0,0,0.25)] sm:p-6">
-            <StartConciergeClient initialPath={path} />
+            <StartConciergeClient initialPath={path} initialSession={initialSession} />
           </div>
         </section>
 
@@ -129,4 +138,16 @@ export default async function StartPage({
       </div>
     </main>
   );
+}
+
+async function resolveBorrowerName(dealId: string): Promise<string | null> {
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const sb = supabaseAdmin();
+  const { data } = await sb
+    .from("deals")
+    .select("borrower_name")
+    .eq("id", dealId)
+    .maybeSingle();
+  const name = data?.borrower_name;
+  return typeof name === "string" && name.trim() ? name.trim().split(" ")[0] : null;
 }

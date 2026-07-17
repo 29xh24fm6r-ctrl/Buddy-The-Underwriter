@@ -41,9 +41,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     .delete()
     .lt("expires_at", now);
 
+  const verifications = await sb
+    .from("borrower_email_verifications")
+    .delete()
+    .lt("expires_at", now);
+
   return NextResponse.json({
     ok: true,
     tokens_deleted: tokens.count ?? 0,
     counters_deleted: counters.count ?? 0,
+    verifications_deleted: verifications.count ?? 0,
   });
 }

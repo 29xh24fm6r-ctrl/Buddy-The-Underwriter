@@ -153,26 +153,34 @@ export async function POST(req: NextRequest): Promise<Response> {
     // deal row.
     if (!session) {
       session = await getOrCreateBorrowerSession();
+    }
 
-      // Concierge session row is concierge-specific (transcript / facts /
-      // progress). It is not created by the session helper; it lives 1:1
-      // with the deal but only when the deal flows through the concierge.
-      await sb
+    // Concierge session row is concierge-specific (transcript / facts /
+    // progress). It is not created by the session helper; it lives 1:1 with
+    // the deal but only once the deal actually flows through the concierge.
+    // Checked (and created if missing) independent of whether `session`
+    // itself was just minted above — the /start email-verification gate
+    // (lib/brokerage/emailVerification.ts) can create a session before any
+    // chat turn ever happens, so "session is new" and "concierge row is
+    // missing" are no longer the same condition.
+    let { data: conciergeRow } = await sb
+      .from("borrower_concierge_sessions")
+      .select("*")
+      .eq("deal_id", session.deal_id)
+      .maybeSingle();
+
+    if (!conciergeRow) {
+      const { data: created } = await sb
         .from("borrower_concierge_sessions")
         .insert({
           deal_id: session.deal_id,
           bank_id: session.bank_id,
           program: "7a",
         })
-        .select("id")
+        .select("*")
         .maybeSingle();
+      conciergeRow = created;
     }
-
-    const { data: conciergeRow } = await sb
-      .from("borrower_concierge_sessions")
-      .select("*")
-      .eq("deal_id", session.deal_id)
-      .maybeSingle();
 
     if (!conciergeRow) {
       return NextResponse.json(
