@@ -1,0 +1,16 @@
+-- buddy_table_exists (schema-introspection helper: reports whether a
+-- named table exists in public) was EXECUTE-granted to PUBLIC, which
+-- implicitly includes anon and authenticated — a minor recon aid for
+-- anyone holding the anon key. Not referenced by any RLS policy
+-- (verified against pg_policies), and its only app caller
+-- (src/lib/feasibility/franchiseComparator.ts) is server-only and uses
+-- the service-role client, so revoking anon/authenticated cannot break
+-- any legitimate path.
+--
+-- Left alone (intentionally, not an oversight): can_access_deal() and
+-- is_deal_banker(), also flagged by the advisor as authenticated-
+-- executable. Unlike buddy_table_exists, both are genuinely referenced
+-- inside RLS policies (deal_documents, deal_status, deal_timeline_events,
+-- deal_reconciliation_findings) — revoking authenticated's EXECUTE would
+-- break RLS evaluation for any authenticated caller on those tables.
+REVOKE EXECUTE ON FUNCTION public.buddy_table_exists(text) FROM PUBLIC, anon, authenticated;
