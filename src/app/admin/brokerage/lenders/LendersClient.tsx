@@ -57,6 +57,20 @@ const EMPTY_FORM = {
   notes: "",
 };
 
+type LenderPerformance = {
+  activeSubmissions: number;
+  termSheetRate: number | null;
+  approvalRate: number | null;
+  fundingRate: number | null;
+  avgResponseTimeDays: number | null;
+  avgCloseTimeDays: number | null;
+  declineReasons: string[];
+};
+
+function pct(v: number | null): string {
+  return v == null ? "—" : `${Math.round(v * 100)}%`;
+}
+
 export default function LendersClient() {
   const [lenders, setLenders] = useState<Lender[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +78,22 @@ export default function LendersClient() {
   const [bulkJson, setBulkJson] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [performanceByLender, setPerformanceByLender] = useState<Record<string, LenderPerformance | "loading">>({});
+
+  const loadPerformance = useCallback(async (bankId: string) => {
+    setPerformanceByLender((prev) => ({ ...prev, [bankId]: "loading" }));
+    try {
+      const res = await fetch(`/api/admin/brokerage/crm/intelligence?type=lender-performance&lenderBankId=${encodeURIComponent(bankId)}`);
+      const data = await res.json();
+      if (data?.ok) setPerformanceByLender((prev) => ({ ...prev, [bankId]: data.performance }));
+    } catch {
+      setPerformanceByLender((prev) => {
+        const next = { ...prev };
+        delete next[bankId];
+        return next;
+      });
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -362,14 +392,46 @@ export default function LendersClient() {
                       </div>
                     ))}
                   </div>
-                  <button
-                    onClick={() => void offboard(l)}
-                    disabled={busy}
-                    className="shrink-0 rounded border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:border-red-600 disabled:opacity-50"
-                  >
-                    Offboard
-                  </button>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <button
+                      onClick={() => void offboard(l)}
+                      disabled={busy}
+                      className="rounded border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:border-red-600 disabled:opacity-50"
+                    >
+                      Offboard
+                    </button>
+                    <button
+                      onClick={() => void loadPerformance(l.bankId)}
+                      className="rounded border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+                    >
+                      {performanceByLender[l.bankId] ? "Refresh performance" : "View performance"}
+                    </button>
+                  </div>
                 </div>
+                {performanceByLender[l.bankId] && (
+                  <div className="mt-3 rounded border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-400">
+                    {performanceByLender[l.bankId] === "loading" ? (
+                      "Loading performance…"
+                    ) : (
+                      (() => {
+                        const perf = performanceByLender[l.bankId] as LenderPerformance;
+                        return (
+                          <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+                            <div>Active submissions: <span className="text-neutral-200">{perf.activeSubmissions}</span></div>
+                            <div>Term sheet rate: <span className="text-neutral-200">{pct(perf.termSheetRate)}</span></div>
+                            <div>Approval rate: <span className="text-neutral-200">{pct(perf.approvalRate)}</span></div>
+                            <div>Funding rate: <span className="text-neutral-200">{pct(perf.fundingRate)}</span></div>
+                            <div>Avg response: <span className="text-neutral-200">{perf.avgResponseTimeDays ?? "—"}d</span></div>
+                            <div>Avg close: <span className="text-neutral-200">{perf.avgCloseTimeDays ?? "—"}d</span></div>
+                            {perf.declineReasons.length > 0 && (
+                              <div className="col-span-2 md:col-span-6">Decline reasons: {perf.declineReasons.slice(0, 5).join("; ")}</div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
