@@ -31,11 +31,17 @@ type OwnerRow = {
 
 type FormStatus = { signed: boolean; submissionId: string | null };
 
+// Codes must use the FORM_ prefix — resolveTemplateId() in
+// src/lib/esign/signwell/service.ts only strips "FORM_" (matching the
+// Underwriter tenant's SbaSigningPanel.tsx and .env.example's
+// SIGNWELL_TEMPLATE_<CODE> naming), not the "SBA_"/"IRS_" prefixes the
+// form-generation pipeline's template_code uses (a separate, unrelated
+// column — see borrowerFormsOrchestration.ts).
 const TRACKED_FORMS = [
-  { code: "SBA_1919", label: "Form 1919" },
-  { code: "SBA_413", label: "Form 413 (PFS)" },
-  { code: "SBA_912", label: "Form 912" },
-  { code: "IRS_4506C", label: "Form 4506-C" },
+  { code: "FORM_1919", label: "Form 1919" },
+  { code: "FORM_413", label: "Form 413 (PFS)" },
+  { code: "FORM_912", label: "Form 912" },
+  { code: "FORM_4506C", label: "Form 4506-C" },
 ] as const;
 
 export function SigningPanel({ dealId }: { dealId: string }) {

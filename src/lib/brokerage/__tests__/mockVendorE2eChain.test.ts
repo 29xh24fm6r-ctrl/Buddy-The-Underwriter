@@ -161,7 +161,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
     {
       dealId: "deal-1",
       bankId: "bank-brokerage",
-      formCode: "SBA_1919",
+      formCode: "FORM_1919",
       templateVersion: "v1",
       signerOwnershipEntityId: "owner-1",
       signerRole: "applicant",
@@ -186,7 +186,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
     {
       dealId: "deal-1",
       bankId: "bank-brokerage",
-      formCode: "SBA_1919",
+      formCode: "FORM_1919",
       templateVersion: "v1",
       signerOwnershipEntityId: "owner-1",
       signerRole: "applicant",
@@ -201,7 +201,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
 
   // 4. Complete signing — mirrors getMockCompleteEsign, calling the REAL
   // handleSignwellWebhook, which re-checks IAL2 at completion time too.
-  const externalId = `deal:deal-1:form:SBA_1919:signer:owner-1`;
+  const externalId = `deal:deal-1:form:FORM_1919:signer:owner-1`;
   const esignWebhookResult = await handleSignwellWebhook(
     {
       event: { type: "document_completed" },
@@ -218,7 +218,7 @@ test("full mock-vendor chain: verify identity -> sign -> both complete, with rea
   );
   assert.equal(esignWebhookResult.ok, true);
   assert.equal(db.tables.signed_documents.length, 1);
-  assert.equal(db.tables.signed_documents[0].form_code, "SBA_1919");
+  assert.equal(db.tables.signed_documents[0].form_code, "FORM_1919");
   assert.equal(db.tables.signed_documents[0].signer_ownership_entity_id, "owner-1");
   assert.equal(db.tables.signed_documents[0].esign_provider, "signwell");
   assert.ok(db.storageUploads.some((u) => u.bucket === "signed-documents"));
