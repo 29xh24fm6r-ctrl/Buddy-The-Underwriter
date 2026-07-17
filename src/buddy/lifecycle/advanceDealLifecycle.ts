@@ -290,7 +290,7 @@ function getBlockersForTransition(
  * Map unified stage to underlying DealLifecycleStage.
  * Returns null if no underlying stage change is needed.
  */
-function mapToUnderlyingStage(
+export function mapToUnderlyingStage(
   unifiedStage: LifecycleStage
 ): "intake" | "collecting" | "underwriting" | "ready" | null {
   switch (unifiedStage) {

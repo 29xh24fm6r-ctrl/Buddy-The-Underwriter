@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { deriveLifecycleState } from "@/buddy/lifecycle";
+import { deriveLifecycleState, mapToUnderlyingStage } from "@/buddy/lifecycle";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import type { LifecycleStage } from "@/buddy/lifecycle";
 
@@ -27,21 +27,6 @@ const VALID_STAGES: LifecycleStage[] = [
   "closed",
   "workout",
 ];
-
-// Map unified stages to underlying deals.stage values
-const UNIFIED_TO_UNDERLYING: Record<string, string> = {
-  intake_created: "created",
-  docs_requested: "intake",
-  docs_in_progress: "collecting",
-  docs_satisfied: "collecting",
-  underwrite_ready: "collecting",
-  underwrite_in_progress: "underwriting",
-  committee_ready: "ready",
-  committee_decisioned: "ready",
-  closing_in_progress: "ready",
-  closed: "ready",
-  workout: "workout",
-};
 
 const BodySchema = z.object({
   targetStage: z.enum(VALID_STAGES as [LifecycleStage, ...LifecycleStage[]]),
@@ -147,8 +132,13 @@ export async function POST(
     const currentState = await deriveLifecycleState(dealId);
     const currentStage = currentState?.stage || "unknown";
 
-    // Determine underlying stage value
-    const underlyingStage = UNIFIED_TO_UNDERLYING[targetStage] || "collecting";
+    // Determine underlying stage value — reuses the single authoritative
+    // mapping from src/buddy/lifecycle/advanceDealLifecycle.ts rather than a
+    // second hand-maintained copy (the two had already drifted: this route
+    // used to map closing_in_progress/closed to "ready" and default unmapped
+    // stages to "collecting", where the authoritative mapping treats both as
+    // "no underlying deals.stage change needed").
+    const underlyingStage = mapToUnderlyingStage(targetStage);
 
     const sb = supabaseAdmin();
 
@@ -171,22 +161,25 @@ export async function POST(
       requiresHumanReview: false,
     });
 
-    // Update the underlying deals.stage
-    const { error: updateError } = await sb
-      .from("deals")
-      .update({
-        stage: underlyingStage,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", dealId)
-      .eq("bank_id", access.bankId);
+    // Update the underlying deals.stage, mirroring advanceDealLifecycle's own
+    // "null means no underlying change needed" convention.
+    if (underlyingStage) {
+      const { error: updateError } = await sb
+        .from("deals")
+        .update({
+          stage: underlyingStage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", dealId)
+        .eq("bank_id", access.bankId);
 
-    if (updateError) {
-      console.error("[lifecycle/force-advance] Update failed:", updateError);
-      return NextResponse.json(
-        { ok: false, error: "Failed to update deal", details: updateError.message },
-        { status: 500 }
-      );
+      if (updateError) {
+        console.error("[lifecycle/force-advance] Update failed:", updateError);
+        return NextResponse.json(
+          { ok: false, error: "Failed to update deal", details: updateError.message },
+          { status: 500 }
+        );
+      }
     }
 
     // For certain stages, also update deal_status for borrower-facing view

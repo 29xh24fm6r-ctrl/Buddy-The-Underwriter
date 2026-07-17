@@ -30,7 +30,7 @@ export type {
 
 // Core functions
 export { deriveLifecycleState } from "./deriveLifecycleState";
-export { advanceDealLifecycle, forceAdvanceLifecycle } from "./advanceDealLifecycle";
+export { advanceDealLifecycle, forceAdvanceLifecycle, mapToUnderlyingStage } from "./advanceDealLifecycle";
 export type { ForceAdvanceAuditMeta } from "./advanceDealLifecycle";
 
 // Guards
