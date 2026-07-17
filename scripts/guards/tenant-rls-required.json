@@ -12,7 +12,8 @@
     "crm_person_organization_roles",
     "deal_party_roles",
     "deal_source_attribution",
-    "crm_merge_log"
+    "crm_merge_log",
+    "brokerage_lead_qualifications"
   ],
   "membership_table": "bank_memberships",
   "membership_bank_id": "bank_id",

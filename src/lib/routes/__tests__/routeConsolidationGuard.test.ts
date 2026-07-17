@@ -200,13 +200,22 @@ describe("route consolidation invariants", () => {
   // people/[personId]/link-organization folded into people/[personId])
   // rather than inflating the threshold to cover them. Still 120 slots
   // under the 2048 hard cap.
-  it("total slot count stays below 1928 warning threshold", () => {
+  //
+  // Bumped 1928 -> 1940 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR2 (lead/opportunity pipeline engine) added lead detail, qualification,
+  // and pipeline UI. The three lead audited-command endpoints (transition
+  // stage / record contact attempt / convert) were folded into a single
+  // actions/route.ts dispatcher up front — following the ops/[...path] and
+  // workers/[...path] catch-all precedent already established in this
+  // file — rather than three near-identical route files. Still 108 slots
+  // under the 2048 hard cap.
+  it("total slot count stays below 1940 warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1928,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1928 warning threshold`,
+      totalSlots < 1940,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1940 warning threshold`,
     );
   });
 

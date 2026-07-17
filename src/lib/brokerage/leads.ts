@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { SB } from "@/lib/crm/types";
 
 /**
  * brokerage_leads existed in the schema with nothing writing to it —
@@ -44,6 +45,7 @@ export type UpsertLeadResult = {
 
 export async function upsertBrokerageLead(
   args: UpsertLeadArgs,
+  sb: SB = supabaseAdmin(),
 ): Promise<UpsertLeadResult | null> {
   const email = normalize(args.email);
   const phone = normalize(args.phone);
@@ -51,8 +53,6 @@ export async function upsertBrokerageLead(
   // Nothing to identify this person by — don't write a row we can never
   // dedup or follow up on later.
   if (!email && !phone) return null;
-
-  const sb = supabaseAdmin();
 
   let existingId: string | null = null;
   if (email) {

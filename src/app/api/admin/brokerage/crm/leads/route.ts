@@ -5,6 +5,7 @@ import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { upsertBrokerageLead } from "@/lib/brokerage/leads";
+import { listLeadQueue, LEAD_QUEUES, type LeadQueue } from "@/lib/leads/queries";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,22 +99,37 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/admin/brokerage/crm/leads?status=new
+ * GET /api/admin/brokerage/crm/leads?queue=overdue_follow_up
  *
- * Simple inbox listing across all leads for the tenant, newest first.
- * Powers a future dedicated leads view; org detail pulls its own
- * org-scoped slice directly.
+ * Plain status-filtered listing (back-compat) or one of the pipeline
+ * queues from §4.4 (my leads, unassigned, overdue follow-up, stale, ...).
  */
 export async function GET(req: NextRequest) {
+  let userId: string;
   try {
-    await requireBrokerageStaff();
+    ({ userId } = await requireBrokerageStaff());
   } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
   const brokerageBankId = await getBrokerageBankId();
-  const sb = supabaseAdmin();
   const status = req.nextUrl.searchParams.get("status");
+  const queue = req.nextUrl.searchParams.get("queue");
 
+  if (queue) {
+    if (!(LEAD_QUEUES as readonly string[]).includes(queue)) {
+      return NextResponse.json({ ok: false, error: `Unknown queue. Must be one of: ${LEAD_QUEUES.join(", ")}` }, { status: 400 });
+    }
+    try {
+      const leads = await listLeadQueue({ bankId: brokerageBankId, queue: queue as LeadQueue, actorClerkUserId: userId });
+      return NextResponse.json({ ok: true, queue, leads });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    }
+  }
+
+  const sb = supabaseAdmin();
   let query = sb
     .from("brokerage_leads")
     .select("*")
