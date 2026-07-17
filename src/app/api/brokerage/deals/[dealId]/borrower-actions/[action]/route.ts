@@ -65,6 +65,7 @@ import { initiateKyc, handleDiditWebhook } from "@/lib/identity/kyc/service";
 import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
 import { requestSignature, handleSignwellWebhook } from "@/lib/esign/signwell/service";
+import { computeSignwellPrefillFields } from "@/lib/esign/signwell/prefillFields";
 import {
   createSignwellDocumentFromTemplate,
   fetchSignwellDocument,
@@ -358,6 +359,11 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     return NextResponse.json({ ok: false, error: "owner_not_found" }, { status: 404 });
   }
 
+  const mockVendors = isMockVendorsEnabled();
+  const prefillFields = mockVendors
+    ? undefined
+    : await computeSignwellPrefillFields({ formCode, dealId, bankId, signerOwnershipEntityId, sb });
+
   const signatureArgs = {
     dealId,
     bankId,
@@ -367,12 +373,13 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     signerRole: signerRole as any,
     signerEmail,
     signerName,
+    prefillFields,
   };
 
-  const result = isMockVendorsEnabled()
-    ? await mockRequestSignature(signatureArgs, { sb: supabaseAdmin() })
+  const result = mockVendors
+    ? await mockRequestSignature(signatureArgs, { sb })
     : await requestSignature(signatureArgs, {
-        sb: supabaseAdmin(),
+        sb,
         signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
       });
 

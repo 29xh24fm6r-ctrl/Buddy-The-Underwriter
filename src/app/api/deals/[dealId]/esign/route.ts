@@ -18,6 +18,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
 import { requestSignature } from "@/lib/esign/signwell/service";
 import { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { computeSignwellPrefillFields } from "@/lib/esign/signwell/prefillFields";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
@@ -58,6 +59,15 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
     }
 
+    const sb = supabaseAdmin();
+    const prefillFields = await computeSignwellPrefillFields({
+      formCode,
+      dealId,
+      bankId,
+      signerOwnershipEntityId,
+      sb,
+    });
+
     const result = await requestSignature(
       {
         dealId,
@@ -68,9 +78,10 @@ export async function POST(req: Request, ctx: Ctx) {
         signerRole: signerRole as any,
         signerEmail,
         signerName,
+        prefillFields,
       },
       {
-        sb: supabaseAdmin(),
+        sb,
         signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
       },
     );

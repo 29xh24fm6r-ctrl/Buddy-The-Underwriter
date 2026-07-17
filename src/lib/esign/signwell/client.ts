@@ -67,6 +67,7 @@ export async function createSignwellDocumentFromTemplate(args: {
   externalId: string;
   embeddedSigning?: boolean;
   redirectUrl?: string;
+  templateFields?: Array<{ api_id: string; value: string }>;
 }): Promise<SignwellDocument> {
   const raw = await signwellFetch("/document_templates/documents", {
     method: "POST",
@@ -84,6 +85,7 @@ export async function createSignwellDocumentFromTemplate(args: {
         email: r.email,
         placeholder_name: r.placeholderName ?? "Borrower",
       })),
+      ...(args.templateFields && args.templateFields.length > 0 ? { template_fields: args.templateFields } : {}),
     }),
   });
   return DocumentSchema.parse(raw);

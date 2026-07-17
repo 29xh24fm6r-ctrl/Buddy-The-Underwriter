@@ -24,6 +24,7 @@ export async function mockCreateSignwellDocumentFromTemplate(_args: {
   externalId: string;
   embeddedSigning?: boolean;
   redirectUrl?: string;
+  templateFields?: Array<{ api_id: string; value: string }>;
 }): Promise<{ id: string | number; status: string; recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }> }> {
   const id = `mock_doc_${crypto.randomBytes(6).toString("hex")}`;
   return {

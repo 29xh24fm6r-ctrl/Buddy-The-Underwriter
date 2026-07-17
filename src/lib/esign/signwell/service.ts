@@ -10,6 +10,7 @@
  */
 
 import { hasValidIal2, type KycSupabaseClient } from "@/lib/identity/kyc/service";
+import { buildTemplateFields } from "@/lib/esign/signwell/fieldMaps";
 
 export type EsignSupabaseClient = KycSupabaseClient & {
   storage?: { from: (bucket: string) => { upload: (path: string, data: Buffer, opts?: any) => Promise<{ error: any }> } };
@@ -23,6 +24,7 @@ export type SignwellClient = {
     externalId: string;
     embeddedSigning?: boolean;
     redirectUrl?: string;
+    templateFields?: Array<{ api_id: string; value: string }>;
   }) => Promise<{
     id: string | number;
     status: string;
@@ -66,6 +68,14 @@ export type RequestSignatureArgs = {
   signerRole: "applicant" | "guarantor" | "spouse" | "agent" | "witness";
   signerEmail: string;
   signerName: string;
+  /**
+   * Buddy's internal field values for this form/signer — e.g. from
+   * computeSignwellPrefillFields() — keyed the same way each form's
+   * render*Pdf() flattens its build result. Mapped to SignWell's per-
+   * template api_ids via buildTemplateFields(); omit or leave a form's
+   * fieldMaps.ts entry empty to fall back to an unprefilled document.
+   */
+  prefillFields?: Record<string, string>;
 };
 
 export type RequestSignatureResult =
@@ -86,6 +96,7 @@ export async function requestSignature(
 
   const templateId = resolveTemplateId(args.formCode, args.templateVersion);
   const externalId = `deal:${args.dealId}:form:${args.formCode}:signer:${args.signerOwnershipEntityId}`;
+  const templateFields = args.prefillFields ? buildTemplateFields(args.formCode, args.prefillFields) : undefined;
 
   let document;
   try {
@@ -96,6 +107,7 @@ export async function requestSignature(
       externalId,
       embeddedSigning: true,
       redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/signing/complete`,
+      templateFields,
     });
   } catch (err: any) {
     return { ok: false, reason: "SUBMISSION_FAILED", detail: err?.message ?? String(err) };

@@ -26,7 +26,7 @@ const OUTPUT_BUCKET = "deal-documents";
 // blocked on outbound access to sba.gov in this environment), so these
 // aliases are provisional — verify against bank_document_template_fields
 // once scripts/ingest-sba-templates.ts has actually run and adjust here.
-function toFieldValues(fields: Sba159Fields): Record<string, string> {
+export function toFieldValues(fields: Sba159Fields): Record<string, string> {
   const values: Record<string, string> = {};
   if (fields.applicant_name) values["Applicant Name"] = fields.applicant_name;
   if (fields.loan_amount != null) values["Loan Amount"] = String(fields.loan_amount);

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { requestSignature, handleSignwellWebhook, type SignwellClient } from "@/lib/esign/signwell/service";
+import { SIGNWELL_FIELD_MAPS } from "@/lib/esign/signwell/fieldMaps";
 
 type Row = Record<string, any>;
 
@@ -137,6 +138,44 @@ test("requestSignature: with IAL2 -> creates document + writes esign.requested e
   assert.equal(r.ok, true);
   if (r.ok) assert.ok(r.embedUrl.includes("sub_abc"));
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
+});
+
+test("requestSignature: prefillFields + a configured field map -> passed through as template_fields", async () => {
+  process.env.SIGNWELL_TEMPLATE_1919 = "tmpl_1919";
+  const originalMap = SIGNWELL_FIELD_MAPS.FORM_1919;
+  SIGNWELL_FIELD_MAPS.FORM_1919 = { "section_i.borrower_legal_name": "TextField_1" };
+  try {
+    const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+    let receivedTemplateFields: Array<{ api_id: string; value: string }> | undefined;
+    const signwell = fakeSignwell({
+      createSignwellDocumentFromTemplate: async (args) => {
+        receivedTemplateFields = args.templateFields;
+        return {
+          id: 12345,
+          status: "pending",
+          recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
+        };
+      },
+    });
+    const r = await requestSignature(
+      {
+        dealId: DEAL_ID,
+        bankId: "b1",
+        formCode: "FORM_1919",
+        templateVersion: "v1",
+        signerOwnershipEntityId: OWNER_ID,
+        signerRole: "applicant",
+        signerEmail: "j@d.com",
+        signerName: "Jane Doe",
+        prefillFields: { "section_i.borrower_legal_name": "Acme Co", "section_i.unmapped_field": "ignored" },
+      },
+      { sb: db as any, signwell },
+    );
+    assert.equal(r.ok, true);
+    assert.deepEqual(receivedTemplateFields, [{ api_id: "TextField_1", value: "Acme Co" }]);
+  } finally {
+    SIGNWELL_FIELD_MAPS.FORM_1919 = originalMap;
+  }
 });
 
 test("handleSignwellWebhook: event.type=document_viewed -> ignored", async () => {
