@@ -24,6 +24,7 @@ import { PipelineIndicator } from "@/components/deals/PipelineStatus";
 import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
 import { InsightPanel } from "@/components/deals/cockpit/panels/InsightPanel";
+import { BrokerageStagePanel } from "@/components/deals/cockpit/panels/BrokerageStagePanel";
 
 // Glass panel style for Stitch-like design
 const glassPanel = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.12)]";
@@ -347,6 +348,11 @@ function DealCockpitClientInner({
               selects exactly one StageModeView; legacy column components are
               still composed inside DocumentsStageView / UnderwritingStageView. */}
           <StageModeView dealId={dealId} isAdmin={isAdmin} verify={verify} />
+
+          {/* PR3 SPEC-BROKERAGE-OPERATING-SYSTEM-V1: brokerage-pipeline stage,
+              tasks, and next actions — self-contained, renders nothing for
+              deals that haven't entered the brokerage pipeline yet. */}
+          <BrokerageStagePanel dealId={dealId} />
         </div>
       </div>
 

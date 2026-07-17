@@ -209,13 +209,21 @@ describe("route consolidation invariants", () => {
   // workers/[...path] catch-all precedent already established in this
   // file — rather than three near-identical route files. Still 108 slots
   // under the 2048 hard cap.
-  it("total slot count stays below 1940 warning threshold", () => {
+  //
+  // Bumped 1940 -> 1952 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR3 (deal execution / stage gates / tasks) added the deal-workspace
+  // summary + audited-actions dispatcher (transition stage / create task /
+  // update task / generate stage plan, again one dispatcher file rather
+  // than four) plus the management-queues endpoint and its page. The new
+  // BrokerageStagePanel mounts inside the existing cockpit rather than
+  // adding a second cockpit page. Still 96 slots under the 2048 hard cap.
+  it("total slot count stays below 1952 warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1940,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1940 warning threshold`,
+      totalSlots < 1952,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1952 warning threshold`,
     );
   });
 
