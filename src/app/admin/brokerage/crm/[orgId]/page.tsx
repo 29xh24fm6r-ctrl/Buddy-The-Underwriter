@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
+import { CommsPanel } from "@/components/brokerage/CommsPanel";
 
 type Activity = {
   id: string;
@@ -492,6 +493,8 @@ export default function CrmOrganizationDetailPage({
 
         {/* Contacts + referred deals */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <CommsPanel targetType="organization" targetId={orgId} onSent={load} />
+
           <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>
               Contacts

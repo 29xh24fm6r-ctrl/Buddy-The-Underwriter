@@ -75,6 +75,34 @@
     {
       "path": "/api/cron/sba-checks?check=template-staleness",
       "schedule": "0 13 * * 1"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=lead_stale",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=task_overdue",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=condition_overdue",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=lender_response_missing",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=referral_relationship_stale",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=document_missing",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/crm-automation?run=sequences",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

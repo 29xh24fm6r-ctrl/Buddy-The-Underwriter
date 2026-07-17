@@ -4,6 +4,7 @@ import { useEffect, useState, use as usePromise } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { CommsPanel } from "@/components/brokerage/CommsPanel";
 
 type Person = {
   id: string;
@@ -249,6 +250,8 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
               ))
             )}
           </div>
+
+          <CommsPanel targetType="person" targetId={personId} onSent={load} />
 
           <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 15 }}>

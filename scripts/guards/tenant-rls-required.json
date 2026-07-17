@@ -15,7 +15,11 @@
     "crm_merge_log",
     "brokerage_lead_qualifications",
     "deal_brokerage_stage_transitions",
-    "brokerage_tasks"
+    "brokerage_tasks",
+    "crm_activity_participants",
+    "crm_message_templates",
+    "crm_automation_executions",
+    "crm_sequence_enrollments"
   ],
   "membership_table": "bank_memberships",
   "membership_bank_id": "bank_id",

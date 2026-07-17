@@ -4,6 +4,7 @@ import { useEffect, useState, use as usePromise } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { CommsPanel } from "@/components/brokerage/CommsPanel";
 
 type Lead = {
   id: string;
@@ -94,6 +95,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
   const [preview, setPreview] = useState<any>(null);
   const [chosenBorrowerId, setChosenBorrowerId] = useState("");
 
+  const [sequenceCatalog, setSequenceCatalog] = useState<Array<{ key: string; label: string; entityType: string }>>([]);
+  const [sequenceEnrollments, setSequenceEnrollments] = useState<any[]>([]);
+  const [selectedSequence, setSelectedSequence] = useState("");
+  const [sequenceBusy, setSequenceBusy] = useState(false);
+
   async function load() {
     setLoading(true);
     try {
@@ -124,6 +130,64 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
+
+  async function loadSequences() {
+    try {
+      const res = await fetch(`/api/admin/brokerage/crm/sequences?entityType=lead&entityId=${leadId}`);
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        setSequenceCatalog((json.catalog ?? []).filter((s: any) => s.entityType === "lead"));
+        setSequenceEnrollments(json.enrollments ?? []);
+      }
+    } catch {
+      // Non-critical — sequence panel just stays empty.
+    }
+  }
+
+  useEffect(() => {
+    loadSequences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadId]);
+
+  async function enrollSequence() {
+    if (!selectedSequence) return;
+    setSequenceBusy(true);
+    try {
+      const res = await fetch("/api/admin/brokerage/crm/sequences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "enroll", sequenceKey: selectedSequence, entityType: "lead", entityId: leadId }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "enroll failed");
+      setSelectedSequence("");
+      await loadSequences();
+    } catch (e: any) {
+      setError(e?.message ?? "enroll failed");
+    } finally {
+      setSequenceBusy(false);
+    }
+  }
+
+  async function stopSequenceEnrollment(enrollmentId: string) {
+    const reason = window.prompt("Reason for stopping this sequence:");
+    if (!reason) return;
+    setSequenceBusy(true);
+    try {
+      const res = await fetch("/api/admin/brokerage/crm/sequences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop", enrollmentId, reason }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "stop failed");
+      await loadSequences();
+    } catch (e: any) {
+      setError(e?.message ?? "stop failed");
+    } finally {
+      setSequenceBusy(false);
+    }
+  }
 
   async function saveQualification() {
     setBusy(true);
@@ -345,6 +409,38 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
               )}
             </div>
           )}
+
+          <CommsPanel targetType="lead" targetId={leadId} onSent={load} />
+
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, padding: 14 }}>
+            <div style={{ fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14, marginBottom: 10 }}>Follow-up sequences</div>
+            {sequenceEnrollments.filter((e) => e.status === "active").map((e) => (
+              <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${c.divider}` }}>
+                <span style={{ fontSize: 11.5, color: c.paper }}>{e.sequence_key.replace(/_/g, " ")} — step {e.current_step + 1}</span>
+                <button onClick={() => stopSequenceEnrollment(e.id)} disabled={sequenceBusy} style={{ background: "transparent", border: "none", color: c.textMuted, fontSize: 10.5, cursor: "pointer" }}>
+                  stop
+                </button>
+              </div>
+            ))}
+            {sequenceEnrollments.filter((e) => e.status !== "active").length > 0 && (
+              <div style={{ fontSize: 10, color: c.textMuted, marginTop: 4 }}>
+                {sequenceEnrollments.filter((e) => e.status !== "active").length} past enrollment(s) (stopped/completed).
+              </div>
+            )}
+            {sequenceCatalog.length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <select value={selectedSequence} onChange={(e) => setSelectedSequence(e.target.value)} style={inputStyle()}>
+                  <option value="">Enroll in a sequence…</option>
+                  {sequenceCatalog.map((s) => (
+                    <option key={s.key} value={s.key}>{s.label}</option>
+                  ))}
+                </select>
+                <button onClick={enrollSequence} disabled={sequenceBusy || !selectedSequence} style={{ background: "rgba(255,255,255,.06)", border: "none", borderRadius: 4, color: c.paper, fontSize: 10.5, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  Enroll
+                </button>
+              </div>
+            )}
+          </div>
 
           <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "13px 16px", borderBottom: `1px solid ${c.border}`, fontFamily: "var(--font-brokerage-display)", fontWeight: 600, fontSize: 14 }}>
