@@ -114,34 +114,75 @@ async function writeDealCanonical(
   }
 }
 
-/** business section → deals.name (if not already set) */
+/** business section → deals.name (if not already set) + deals.operating_company_* (direct overwrite) */
 async function writeBusinessCanonical(
   dealId: string,
   data: Record<string, unknown>,
   sb: SupabaseClient,
 ): Promise<void> {
   const legalName = data.legal_entity_name;
-  if (typeof legalName !== "string" || !legalName.trim()) return;
-
-  const { data: existing } = await sb
-    .from("deals")
-    .select("name")
-    .eq("id", dealId)
-    .maybeSingle();
-
-  if (!existing?.name) {
-    const { error } = await sb
+  if (typeof legalName === "string" && legalName.trim()) {
+    const { data: existing } = await sb
       .from("deals")
-      .update({ name: legalName.trim() })
-      .eq("id", dealId);
-    if (error) {
-      console.error("[builderCanonicalWrite] deals.name update failed", {
-        dealId,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
-      });
+      .select("name")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (!existing?.name) {
+      const { error } = await sb
+        .from("deals")
+        .update({ name: legalName.trim() })
+        .eq("id", dealId);
+      if (error) {
+        console.error("[builderCanonicalWrite] deals.name update failed", {
+          dealId,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        });
+      }
     }
+  }
+
+  await writeOperatingCompanyCanonical(dealId, data, sb);
+}
+
+/**
+ * SBA 504 dual-entity structure — business.is_eligible_passive_company +
+ * the operating_company_* fields live on deals, not borrowers (a 1:1
+ * relationship with the deal, not a new table). Deliberate overwrite,
+ * same reasoning as writePartiesCanonical: this is direct banker input,
+ * not a probabilistic merge, so the form's current value wins — but only
+ * for keys actually present in this PATCH, so an unset field here never
+ * blanks out a value populated elsewhere.
+ */
+async function writeOperatingCompanyCanonical(
+  dealId: string,
+  data: Record<string, unknown>,
+  sb: SupabaseClient,
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (data.is_eligible_passive_company !== undefined) update.is_eligible_passive_company = Boolean(data.is_eligible_passive_company);
+  if (data.operating_company_legal_name !== undefined) update.operating_company_legal_name = data.operating_company_legal_name || null;
+  if (data.operating_company_address !== undefined) update.operating_company_address = data.operating_company_address || null;
+  if (data.operating_company_dba !== undefined) update.operating_company_dba = data.operating_company_dba || null;
+  if (data.operating_company_legal_structure !== undefined) update.operating_company_legal_structure = data.operating_company_legal_structure || null;
+  if (data.operating_company_tax_id !== undefined) update.operating_company_tax_id = data.operating_company_tax_id || null;
+  if (data.operating_company_duns_number !== undefined) update.operating_company_duns_number = data.operating_company_duns_number || null;
+  if (data.operating_company_contact_name !== undefined) update.operating_company_contact_name = data.operating_company_contact_name || null;
+  if (data.operating_company_email !== undefined) update.operating_company_email = data.operating_company_email || null;
+  if (data.operating_company_phone !== undefined) update.operating_company_phone = data.operating_company_phone || null;
+  if (data.operating_company_website !== undefined) update.operating_company_website = data.operating_company_website || null;
+
+  if (Object.keys(update).length === 0) return;
+  const { error } = await sb.from("deals").update(update).eq("id", dealId);
+  if (error) {
+    console.error("[builderCanonicalWrite] deals.operating_company_* update failed", {
+      dealId,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
   }
 }
 

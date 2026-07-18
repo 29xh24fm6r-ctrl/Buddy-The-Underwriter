@@ -148,3 +148,69 @@ test("writeBuilderCanonical: non-parties sections return no ownerEntityIds", asy
   const result = await writeBuilderCanonical("deal-1", "story", {}, client as any);
   assert.deepEqual(result, {});
 });
+
+/**
+ * Minimal fake Supabase client covering exactly the deals select/update
+ * chain writeBusinessCanonical/writeOperatingCompanyCanonical use.
+ * In-memory single deal row keyed by id, seeded by test setup.
+ */
+function makeFakeDealsSb(seed: Record<string, any> = {}) {
+  const deal: Record<string, any> = { id: "deal-1", ...seed };
+  const updateCalls: Array<Record<string, any>> = [];
+
+  const client = {
+    from(table: string) {
+      assert.equal(table, "deals");
+      return {
+        select() {
+          return {
+            eq: () => ({
+              maybeSingle: async () => ({ data: { ...deal } }),
+            }),
+          };
+        },
+        update(patch: Record<string, any>) {
+          return {
+            eq: async () => {
+              updateCalls.push(patch);
+              Object.assign(deal, patch);
+              return { error: null };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return { client, deal, updateCalls };
+}
+
+test("writeBusinessCanonical: is_eligible_passive_company + operating_company_* fields sync to deals", async () => {
+  const { client, deal } = makeFakeDealsSb({ name: "Acme Manufacturing LLC" });
+  await writeBuilderCanonical(
+    "deal-1",
+    "business",
+    {
+      is_eligible_passive_company: true,
+      operating_company_legal_name: "Acme Real Estate Holdings LLC",
+      operating_company_tax_id: "98-7654321",
+    },
+    client as any,
+  );
+
+  assert.equal(deal.is_eligible_passive_company, true);
+  assert.equal(deal.operating_company_legal_name, "Acme Real Estate Holdings LLC");
+  assert.equal(deal.operating_company_tax_id, "98-7654321");
+});
+
+test("writeBusinessCanonical: unprovided operating_company_* fields don't trigger an update", async () => {
+  const { client, updateCalls } = makeFakeDealsSb({ name: "Acme Manufacturing LLC" });
+  await writeBuilderCanonical("deal-1", "business", { entity_type: "LLC" }, client as any);
+  assert.equal(updateCalls.length, 0, "no operating-company keys present -> no deals update at all");
+});
+
+test("writeBusinessCanonical: legal_entity_name only fills deals.name when currently empty", async () => {
+  const { client, deal } = makeFakeDealsSb({ name: "Existing Name" });
+  await writeBuilderCanonical("deal-1", "business", { legal_entity_name: "New Name" }, client as any);
+  assert.equal(deal.name, "Existing Name", "must not overwrite an existing deals.name");
+});

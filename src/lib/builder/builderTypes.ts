@@ -118,6 +118,24 @@ export type BusinessSectionData = {
   employee_count?: number;
   seasonal?: boolean;
   key_customers?: string;
+  /**
+   * SBA 504 dual-entity structure — the Applicant business above can be an
+   * Eligible Passive Company (EPC) that owns/leases the project to a
+   * separate Operating Company. Gates whether the operating_company_*
+   * fields below apply at all (see form1244/build.ts's
+   * OC_REQUIRED_WHEN_EPC_KEYS). Only relevant to SBA 504 loans.
+   */
+  is_eligible_passive_company?: boolean;
+  operating_company_legal_name?: string;
+  operating_company_address?: string;
+  operating_company_dba?: string;
+  operating_company_legal_structure?: string;
+  operating_company_tax_id?: string;
+  operating_company_duns_number?: string;
+  operating_company_contact_name?: string;
+  operating_company_email?: string;
+  operating_company_phone?: string;
+  operating_company_website?: string;
 };
 
 export type BorrowerCard = {

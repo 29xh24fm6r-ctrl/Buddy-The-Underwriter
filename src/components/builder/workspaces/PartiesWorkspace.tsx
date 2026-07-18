@@ -37,9 +37,20 @@ export function PartiesWorkspace({ state, prefill, onSectionChange, dealId }: Pr
     city?: string;
     state?: string;
     zip?: string;
+    is_eligible_passive_company?: boolean;
+    operating_company_legal_name?: string;
+    operating_company_address?: string;
+    operating_company_dba?: string;
+    operating_company_legal_structure?: string;
+    operating_company_tax_id?: string;
+    operating_company_duns_number?: string;
+    operating_company_contact_name?: string;
+    operating_company_email?: string;
+    operating_company_phone?: string;
+    operating_company_website?: string;
   };
 
-  function handleBusinessChange(field: string, value: string) {
+  function handleBusinessChange(field: string, value: string | boolean) {
     onSectionChange("business", { ...business, [field]: value });
   }
 
@@ -189,6 +200,124 @@ export function PartiesWorkspace({ state, prefill, onSectionChange, dealId }: Pr
               />
             </div>
           </div>
+
+          {/* SBA 504 EPC/Operating Company structure */}
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              checked={business.is_eligible_passive_company ?? false}
+              onChange={(e) => handleBusinessChange("is_eligible_passive_company", e.target.checked)}
+              className="rounded border-white/15"
+            />
+            <label className="text-xs text-white/70">
+              Applicant is an Eligible Passive Company (EPC) — leases the project to a separate Operating Company (SBA 504)
+            </label>
+          </div>
+
+          {business.is_eligible_passive_company && (
+            <div className={`${glass} space-y-3`}>
+              <div className="text-xs font-semibold text-white/80">Operating Company</div>
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">Legal Name</label>
+                <input
+                  type="text"
+                  value={business.operating_company_legal_name ?? ""}
+                  onChange={(e) => handleBusinessChange("operating_company_legal_name", e.target.value)}
+                  placeholder="Samaritus Operating Co LLC"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">DBA</label>
+                  <input
+                    type="text"
+                    value={business.operating_company_dba ?? ""}
+                    onChange={(e) => handleBusinessChange("operating_company_dba", e.target.value)}
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">Legal Structure</label>
+                  <input
+                    type="text"
+                    value={business.operating_company_legal_structure ?? ""}
+                    onChange={(e) => handleBusinessChange("operating_company_legal_structure", e.target.value)}
+                    placeholder="LLC"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">Business Address</label>
+                <input
+                  type="text"
+                  value={business.operating_company_address ?? ""}
+                  onChange={(e) => handleBusinessChange("operating_company_address", e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">Tax ID</label>
+                  <input
+                    type="text"
+                    value={business.operating_company_tax_id ?? ""}
+                    onChange={(e) => handleBusinessChange("operating_company_tax_id", e.target.value)}
+                    placeholder="XX-XXXXXXX"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">DUNS Number</label>
+                  <input
+                    type="text"
+                    value={business.operating_company_duns_number ?? ""}
+                    onChange={(e) => handleBusinessChange("operating_company_duns_number", e.target.value)}
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">Contact Name</label>
+                <input
+                  type="text"
+                  value={business.operating_company_contact_name ?? ""}
+                  onChange={(e) => handleBusinessChange("operating_company_contact_name", e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">Email</label>
+                  <input
+                    type="email"
+                    value={business.operating_company_email ?? ""}
+                    onChange={(e) => handleBusinessChange("operating_company_email", e.target.value)}
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/50 mb-1 block">Phone</label>
+                  <input
+                    type="text"
+                    value={business.operating_company_phone ?? ""}
+                    onChange={(e) => handleBusinessChange("operating_company_phone", e.target.value)}
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">Web Address</label>
+                <input
+                  type="text"
+                  value={business.operating_company_website ?? ""}
+                  onChange={(e) => handleBusinessChange("operating_company_website", e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
