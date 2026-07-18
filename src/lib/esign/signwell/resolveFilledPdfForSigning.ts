@@ -46,7 +46,7 @@ export async function resolveFilledPdfForSigning(args: {
     case "FORM_1919": {
       const input = await buildForm1919Input(dealId, sb);
       const buildResult = buildForm1919(input);
-      const rendered = await renderForm1919Pdf({ supabase, buildResult });
+      const rendered = await renderForm1919Pdf({ supabase, buildResult, ownershipEntityId, dealId });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
@@ -55,7 +55,7 @@ export async function resolveFilledPdfForSigning(args: {
     case "FORM_413": {
       const input = await buildForm413Input(dealId, sb);
       const buildResult = buildForm413(input);
-      const rendered = await renderForm413Pdf({ supabase, buildResult, ownershipEntityId });
+      const rendered = await renderForm413Pdf({ supabase, buildResult, ownershipEntityId, dealId });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
@@ -64,7 +64,7 @@ export async function resolveFilledPdfForSigning(args: {
     case "FORM_912": {
       const input = await buildForm912Input(dealId, sb);
       const buildResult = buildForm912(input);
-      const rendered = await renderForm912Pdf({ supabase, buildResult, ownershipEntityId });
+      const rendered = await renderForm912Pdf({ supabase, buildResult, ownershipEntityId, dealId });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
@@ -73,7 +73,7 @@ export async function resolveFilledPdfForSigning(args: {
     case "FORM_4506C": {
       const input = await buildForm4506cInput(dealId, bankId, sb);
       const buildResult = buildForm4506c(input);
-      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId });
+      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId, dealId });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };

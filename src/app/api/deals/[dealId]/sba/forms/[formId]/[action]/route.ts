@@ -155,11 +155,17 @@ export async function GET(req: Request, ctx: Ctx) {
           const result = await buildForm1919WithSignature(dealId, sb);
           return NextResponse.json({ ok: true, dealId, ...result });
         }
+        // Section II (demographics/compliance questions/export section) is
+        // completed per covered individual on the real form — see
+        // render.ts's header comment — so rendering now requires knowing
+        // which individual's copy to produce.
+        const ownershipEntityId = requireOwnershipEntityId(req);
+        if (typeof ownershipEntityId !== "string") return ownershipEntityId;
         const input = await buildForm1919Input(dealId, sb);
         const buildResult = buildForm1919(input);
-        const rendered = await renderForm1919Pdf({ supabase: sb, buildResult });
+        const rendered = await renderForm1919Pdf({ supabase: sb, buildResult, ownershipEntityId, dealId });
         if (!rendered.ok) return NextResponse.json({ ok: false, reason: rendered.reason, detail: rendered.detail }, { status: 422 });
-        return pdfResponse(rendered.pdfBytes, `form-1919-${dealId}.pdf`);
+        return pdfResponse(rendered.pdfBytes, `form-1919-${dealId}-${ownershipEntityId}.pdf`);
       }
 
       case "413": {
@@ -171,7 +177,7 @@ export async function GET(req: Request, ctx: Ctx) {
         if (typeof ownershipEntityId !== "string") return ownershipEntityId;
         const input = await buildForm413Input(dealId, sb);
         const buildResult = buildForm413(input);
-        const rendered = await renderForm413Pdf({ supabase: sb, buildResult, ownershipEntityId });
+        const rendered = await renderForm413Pdf({ supabase: sb, buildResult, ownershipEntityId, dealId });
         if (!rendered.ok) return NextResponse.json({ ok: false, reason: rendered.reason, detail: rendered.detail }, { status: 422 });
         return pdfResponse(rendered.pdfBytes, `form-413-${ownershipEntityId}.pdf`);
       }
@@ -185,7 +191,7 @@ export async function GET(req: Request, ctx: Ctx) {
         if (typeof ownershipEntityId !== "string") return ownershipEntityId;
         const input = await buildForm4506cInput(dealId, bankId, sb);
         const buildResult = buildForm4506c(input);
-        const rendered = await renderForm4506cPdf({ supabase: sb, buildResult, ownershipEntityId });
+        const rendered = await renderForm4506cPdf({ supabase: sb, buildResult, ownershipEntityId, dealId });
         if (!rendered.ok) return NextResponse.json({ ok: false, reason: rendered.reason, detail: rendered.detail }, { status: 422 });
         return pdfResponse(rendered.pdfBytes, `form-4506c-${dealId}-${ownershipEntityId}.pdf`);
       }
@@ -210,7 +216,7 @@ export async function GET(req: Request, ctx: Ctx) {
         if (typeof ownershipEntityId !== "string") return ownershipEntityId;
         const input = await buildForm912Input(dealId, sb);
         const buildResult = buildForm912(input);
-        const rendered = await renderForm912Pdf({ supabase: sb, buildResult, ownershipEntityId });
+        const rendered = await renderForm912Pdf({ supabase: sb, buildResult, ownershipEntityId, dealId });
         if (!rendered.ok) return NextResponse.json({ ok: false, reason: rendered.reason, detail: rendered.detail }, { status: 422 });
         return pdfResponse(rendered.pdfBytes, `form-912-${dealId}-${ownershipEntityId}.pdf`);
       }

@@ -113,46 +113,91 @@ export async function buildForm1244Input(dealId: string, sb: Form1244InputBuilde
   const { data: ownershipEntities } = await sb
     .from("ownership_entities")
     .select(
-      "id, entity_type, display_name, tax_id_last4, ownership_pct, citizenship_status, date_of_birth, " +
+      "id, entity_type, display_name, title, ownership_pct, citizenship_status, date_of_birth, " +
         "place_of_birth, home_address_street, home_address_city, home_address_state, home_address_zip, " +
         "alien_registration_number, is_us_government_employee, has_other_government_employment, " +
         "arrested_or_charged_6mo, convicted_or_pleaded, pending_criminal_charges, subject_to_indictment, " +
-        "on_parole_or_probation, entity_ein, entity_address_street, entity_address_city, entity_address_state, " +
-        "entity_address_zip, evidence_json",
+        "on_parole_or_probation, veteran_status, sex, race, ethnicity, " +
+        "debarred_ineligible_or_bankrupt, defaulted_or_delinquent_gov_loan, owns_other_business, " +
+        "incarcerated_or_indicted_financial_crime, fee_paid_to_cdc_or_broker, fee_paid_to_lender_or_broker, " +
+        "restricted_revenue_source, sba_employee_conflict, former_sba_employee_conflict, " +
+        "congress_legislative_judicial_conflict, federal_employee_or_military_conflict, " +
+        "score_or_advisory_council_member, legal_action_pending, " +
+        "export_sales_total, export_country_1, export_country_2, export_country_3, " +
+        "entity_ein, entity_address_street, entity_address_city, entity_address_state, entity_address_zip, evidence_json",
     )
     .eq("deal_id", dealId);
 
   const entities = (ownershipEntities ?? []) as Array<Record<string, any>>;
 
-  const sectionII: Form1244Input["sectionII"] = entities
-    .filter((e) => isIndividual(e.entity_type))
-    .map((e) => {
-      const evidence = (e.evidence_json ?? {}) as Record<string, any>;
-      return {
-        ownership_entity_id: String(e.id),
-        fields: {
-          full_name: e.display_name ?? null,
-          ssn_last4: e.tax_id_last4 ?? null,
-          date_of_birth: e.date_of_birth ?? evidence.date_of_birth ?? null,
-          place_of_birth: e.place_of_birth ?? evidence.place_of_birth ?? null,
-          is_us_citizen: e.citizenship_status ? e.citizenship_status === "us_citizen" : null,
-          is_us_national: e.citizenship_status ? e.citizenship_status === "us_national" : null,
-          is_lpr: e.citizenship_status ? e.citizenship_status === "lawful_permanent_resident" : null,
-          alien_registration_number: e.alien_registration_number ?? evidence.alien_registration_number ?? null,
-          home_address_street: e.home_address_street ?? evidence.home_address_street ?? null,
-          home_address_city: e.home_address_city ?? evidence.home_address_city ?? null,
-          home_address_state: e.home_address_state ?? evidence.home_address_state ?? null,
-          home_address_zip: e.home_address_zip ?? evidence.home_address_zip ?? null,
-          is_employee_of_us_government: e.is_us_government_employee ?? evidence.is_employee_of_us_government ?? null,
-          has_other_government_employment: e.has_other_government_employment ?? evidence.has_other_government_employment ?? null,
-          has_been_arrested_or_charged_in_6mo: e.arrested_or_charged_6mo ?? evidence.has_been_arrested_or_charged_in_6mo ?? null,
-          has_been_convicted_or_pleaded: e.convicted_or_pleaded ?? evidence.has_been_convicted_or_pleaded ?? null,
-          has_pending_criminal_charges: e.pending_criminal_charges ?? evidence.has_pending_criminal_charges ?? null,
-          is_subject_to_indictment: e.subject_to_indictment ?? evidence.is_subject_to_indictment ?? null,
-          has_paroled_or_probation: e.on_parole_or_probation ?? evidence.has_paroled_or_probation ?? null,
-        },
-      };
+  // Section II is imported directly from form1919/fields.ts (see
+  // FORM_1244_SECTION_II_FIELDS above) — the same real 13-question/
+  // demographics/export field set, and the same underlying
+  // ownership_entities columns, as form1919/inputBuilder.ts. Kept in
+  // sync with that file rather than diverging, since it's identical
+  // data; 1244's own PDF hasn't been separately re-verified yet (backlog
+  // per docs/sba-forms/TASK-A-FORM-COVERAGE-AUDIT.md).
+  const sectionII: Form1244Input["sectionII"] = [];
+  for (const e of entities) {
+    if (!isIndividual(e.entity_type)) continue;
+    const evidence = (e.evidence_json ?? {}) as Record<string, any>;
+
+    const { data: piiRows } = await sb
+      .from("deal_pii_records")
+      .select("pii_type")
+      .eq("deal_id", dealId)
+      .eq("ownership_entity_id", e.id)
+      .eq("pii_type", "full_ssn");
+    const ssnOnFile = ((piiRows ?? []) as Array<{ pii_type: string }>).length > 0;
+
+    sectionII.push({
+      ownership_entity_id: String(e.id),
+      fields: {
+        full_name: e.display_name ?? null,
+        position: e.title ?? null,
+        full_ssn: ssnOnFile ? "on_file" : null,
+        date_of_birth: e.date_of_birth ?? evidence.date_of_birth ?? null,
+        place_of_birth: e.place_of_birth ?? evidence.place_of_birth ?? null,
+        is_us_citizen: e.citizenship_status ? e.citizenship_status === "us_citizen" : null,
+        is_us_national: e.citizenship_status ? e.citizenship_status === "us_national" : null,
+        is_lpr: e.citizenship_status ? e.citizenship_status === "lawful_permanent_resident" : null,
+        alien_registration_number: e.alien_registration_number ?? evidence.alien_registration_number ?? null,
+        home_address_street: e.home_address_street ?? evidence.home_address_street ?? null,
+        home_address_city: e.home_address_city ?? evidence.home_address_city ?? null,
+        home_address_state: e.home_address_state ?? evidence.home_address_state ?? null,
+        home_address_zip: e.home_address_zip ?? evidence.home_address_zip ?? null,
+        veteran_status: e.veteran_status ?? null,
+        sex: e.sex ?? null,
+        race: e.race ?? null,
+        ethnicity: e.ethnicity ?? null,
+        debarred_ineligible_or_bankrupt: e.debarred_ineligible_or_bankrupt ?? null,
+        defaulted_or_delinquent_gov_loan: e.defaulted_or_delinquent_gov_loan ?? null,
+        owns_other_business: e.owns_other_business ?? null,
+        incarcerated_or_indicted_financial_crime: e.incarcerated_or_indicted_financial_crime ?? null,
+        fee_paid_to_cdc_or_broker: e.fee_paid_to_cdc_or_broker ?? null,
+        fee_paid_to_lender_or_broker: e.fee_paid_to_lender_or_broker ?? null,
+        restricted_revenue_source: e.restricted_revenue_source ?? null,
+        sba_employee_conflict: e.sba_employee_conflict ?? null,
+        former_sba_employee_conflict: e.former_sba_employee_conflict ?? null,
+        congress_legislative_judicial_conflict: e.congress_legislative_judicial_conflict ?? null,
+        federal_employee_or_military_conflict: e.federal_employee_or_military_conflict ?? null,
+        score_or_advisory_council_member: e.score_or_advisory_council_member ?? null,
+        legal_action_pending: e.legal_action_pending ?? null,
+        export_sales_total: e.export_sales_total ?? null,
+        export_country_1: e.export_country_1 ?? null,
+        export_country_2: e.export_country_2 ?? null,
+        export_country_3: e.export_country_3 ?? null,
+        // Old 5-category fields — no longer part of FORM_1919_SECTION_II_FIELDS's
+        // required set, but kept populated here too since src/lib/score/*
+        // still reads these exact keys off other consumers of this shape.
+        has_been_arrested_or_charged_in_6mo: e.arrested_or_charged_6mo ?? evidence.has_been_arrested_or_charged_in_6mo ?? null,
+        has_been_convicted_or_pleaded: e.convicted_or_pleaded ?? evidence.has_been_convicted_or_pleaded ?? null,
+        has_pending_criminal_charges: e.pending_criminal_charges ?? evidence.has_pending_criminal_charges ?? null,
+        is_subject_to_indictment: e.subject_to_indictment ?? evidence.is_subject_to_indictment ?? null,
+        has_paroled_or_probation: e.on_parole_or_probation ?? evidence.has_paroled_or_probation ?? null,
+      },
     });
+  }
 
   const sectionIII: Form1244Input["sectionIII"] = entities
     .filter((e) => isEquityEntity(e.entity_type))

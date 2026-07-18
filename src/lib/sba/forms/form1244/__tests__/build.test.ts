@@ -35,7 +35,8 @@ const COMPLETE_SECTION_I = {
 
 const COMPLETE_PERSON_FIELDS = {
   full_name: "Jane Doe",
-  ssn_last4: "1234",
+  position: "Managing Member",
+  full_ssn: "on_file",
   date_of_birth: "1980-01-01",
   place_of_birth: "Austin, TX",
   is_us_citizen: true,
@@ -45,13 +46,19 @@ const COMPLETE_PERSON_FIELDS = {
   home_address_city: "Austin",
   home_address_state: "TX",
   home_address_zip: "78701",
-  is_employee_of_us_government: false,
-  has_other_government_employment: false,
-  has_been_arrested_or_charged_in_6mo: false,
-  has_been_convicted_or_pleaded: false,
-  has_pending_criminal_charges: false,
-  is_subject_to_indictment: false,
-  has_paroled_or_probation: false,
+  debarred_ineligible_or_bankrupt: false,
+  defaulted_or_delinquent_gov_loan: false,
+  owns_other_business: false,
+  incarcerated_or_indicted_financial_crime: false,
+  has_export_sales: false,
+  fee_paid_to_lender_or_broker: false,
+  restricted_revenue_source: false,
+  sba_employee_conflict: false,
+  former_sba_employee_conflict: false,
+  congress_legislative_judicial_conflict: false,
+  federal_employee_or_military_conflict: false,
+  score_or_advisory_council_member: false,
+  legal_action_pending: false,
 };
 
 test("buildForm1244: fully complete sectionI + sectionII -> is_complete=true", () => {
@@ -75,10 +82,10 @@ test("buildForm1244: missing 50/40/10 split fields -> flagged in section_i missi
   assert.ok(result.missing.section_i.includes("third_party_lender_amount"));
 });
 
-test("buildForm1244: sectionII person with has_been_convicted_or_pleaded=true -> triggers_form_912=true", () => {
+test("buildForm1244: sectionII person with incarcerated_or_indicted_financial_crime=true -> triggers_form_912=true", () => {
   const result = buildForm1244({
     sectionI: COMPLETE_SECTION_I,
-    sectionII: [{ ownership_entity_id: "o1", fields: { ...COMPLETE_PERSON_FIELDS, has_been_convicted_or_pleaded: true } }],
+    sectionII: [{ ownership_entity_id: "o1", fields: { ...COMPLETE_PERSON_FIELDS, incarcerated_or_indicted_financial_crime: true } }],
     sectionIII: [],
   });
   assert.equal(result.triggers_form_912, true);

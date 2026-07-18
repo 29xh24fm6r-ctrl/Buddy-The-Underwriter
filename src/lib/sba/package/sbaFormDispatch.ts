@@ -68,7 +68,13 @@ export async function renderSbaPackageItem(
     case "SBA_1919": {
       const buildResult = await buildForm1919WithSignature(dealId, sb);
       if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete" };
-      const rendered = await renderForm1919Pdf({ supabase, buildResult });
+      // Section II is per-individual on the real form (see form1919/
+      // render.ts) — same "first applicable signer only" simplification
+      // already used above for 413/912/148 until the package-run schema
+      // gains a signer dimension.
+      const person = buildResult.input.sectionII[0];
+      if (!person) return { ok: false, reason: "no_signers" };
+      const rendered = await renderForm1919Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 
@@ -83,7 +89,7 @@ export async function renderSbaPackageItem(
       const buildResult = await buildForm413WithSignature(dealId, sb);
       const signer = buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
-      const rendered = await renderForm413Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
+      const rendered = await renderForm413Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 
@@ -92,7 +98,7 @@ export async function renderSbaPackageItem(
       if (!buildResult.applicable) return { ok: false, reason: "not_applicable" };
       const person = buildResult.input.persons[0];
       if (!person) return { ok: false, reason: "no_triggering_persons" };
-      const rendered = await renderForm912Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id });
+      const rendered = await renderForm912Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 
@@ -100,7 +106,7 @@ export async function renderSbaPackageItem(
       const buildResult = await buildForm4506cWithSignature(dealId, bankId, sb);
       const signer = buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
-      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
+      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 

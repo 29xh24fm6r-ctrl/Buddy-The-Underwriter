@@ -4,17 +4,23 @@
 the real government AcroForm field names on Forms 1919, 413, 912, and
 4506-C, and check in a ground-truth field-name reference per form.
 
-**Status: ground truth obtained and checked in for all four wired forms
-(1919, 413, 912, 4506-C), plus 155 and 159 as a bonus. Field names are
-confirmed mismatched everywhere, as expected. The more important finding
-is bigger than a naming problem for 1919 and 912 specifically: the actual
-current-revision government forms ask for materially different — and in
-912's case, narrower and stricter (full SSN, not last 4) — information
-than what `fields.ts` currently models. Form 413 is the exception: its
-Section 1 summary is well-modeled conceptually and mostly a naming fix,
-though it's missing the itemized supporting schedules (notes payable,
-securities, multi-property real estate) the real form has. This needs a
-scoping decision before any fix is written, not just a rename.**
+**Status: FIXED. All four forms (1919, 413, 912, 4506-C) have been
+rewritten end-to-end — `fields.ts`, a new `pdfFieldMap.ts` per form,
+`inputBuilder.ts`, and `render.ts` — against the real, verified AcroForm
+field names, with type-aware fill logic (text/checkbox/radio/Yes-No
+checkbox pairs). The scoping question raised in the original version of
+this doc (full SSN vs. last-4) was resolved per the user's explicit
+instruction to capture enough information to complete these documents
+"completely, thoroughly and accurately... perfectly every single time":
+Buddy now persists the full SSN/TIN via the existing encrypted
+`deal_pii_records` vault (`storeSecurePii`/`getDecryptedPii`, AES-256-CBC),
+decrypted only transiently at render time — not the "have the signer type
+it at signing" shortcut. Every fix was verified with a visual fill-test
+(fake data rendered into the real government PDF and inspected page-by-page
+via the Read tool), which caught three real placement/authoring bugs a
+tooltip- or name-only mapping would have shipped silently (§7). Content
+gaps that have no intake source yet (Form 413's narrative Sections 5-8,
+spouse SSN) are tracked as open backlog in §8, not silently dropped.**
 
 ## 1. How the source PDFs were obtained
 
@@ -167,51 +173,146 @@ three form numbers) with its own four-slot year/period date structure —
 "Verification of Non-filing," which `fields.ts` models as a fourth
 transcript type, doesn't appear anywhere on this revision's fields at all.
 
-## 4. Why I stopped here instead of writing the fix
+## 4. Scoping decision made: full SSN, persisted, not signer-typed
 
-Task B's own instruction is "mismatches get fixed as their own small PRs,"
-which assumes the fix is a rename. For 413's Section 1 fields, it
-basically is — that part is safe to fix directly. For 1919, 912, and
-413's supporting schedules, it isn't: filling in the *correct* field
-names for compliance questions or itemized schedule rows Buddy doesn't
-currently collect (or doesn't collect in the requested shape) would mean
-either (a) silently leaving those fields blank on a legal document while
-claiming the render succeeded, or (b) inventing default answers to
-questions like "are you a member of Congress" — both are worse than
-stopping to ask. Expanding the data model (new `ownership_entities`
-columns, new conversational-intake questions, a full-SSN decision, a
-per-property real-estate array) is a real scoping decision, not something
-to fold into a "verification" pass.
+Sections 3 (912) and 413's SSN paragraphs both hit the same fork: the
+current-revision government forms want a full SSN/TIN, and nothing in the
+schema stored one (only last-4). The user's directive was explicit —
+capture enough information to complete these documents "completely,
+thoroughly and accurately... perfectly every single time" — which rules
+out the signer-types-it-at-signing shortcut as the default, since that
+would mean the rendered PDF Buddy hands to SignWell is *incomplete* until
+the signer manually fixes it, and underwriters reviewing the package
+beforehand would see a blank field.
 
-## 5. Per-form status (updated)
+Resolution: reuse the existing `deal_pii_records` encrypted-PII
+infrastructure (already built for other flows — AES-256-CBC,
+`PII_ENCRYPTION_KEY`/`BUDDY_PII_KEY`, audited access) rather than adding a
+new storage mechanism. `securePiiIntake.ts` gained `getDecryptedPii()` /
+`decryptStoredPii()`; `inputBuilder.ts` for every form only ever carries a
+*presence marker* (`"on_file"` vs. missing) through `build()`, and only
+`render.ts` — at the very last step, with a live `supabase` client injected
+by the caller — calls `getDecryptedPii()` to pull and decrypt the real
+value, write it into the PDF, and let it fall out of scope. No full SSN
+ever touches a build result, a log line, or a `fields.ts` default.
 
-| Form | Real AcroForm names + tooltips confirmed | Field-name mismatch confirmed | Content/coverage gap found | Fixed |
-|---|---|---|---|---|
-| FORM_1919 | Yes (`1919-fields.json`) | Yes — 0% overlap | **Yes — Section I models 4 of 13 real questions; demographics + export section unmodeled** | No — needs scoping |
-| FORM_413 | Yes (`413-fields.json`) | Yes — 0% overlap | **Partial — Section 1 summary conceptually complete (rename-only); itemized schedules (notes/securities/multi-property REO) unmodeled; full SSN vs last-4** | No — Section 1 rename is safe to do now, schedules need scoping |
-| FORM_912 | Yes (`912-fields.json`) | Yes — 0% overlap | **Yes — full SSN vs last-4, ownership %, and the 3 real questions vs. 5 modeled categories don't line up** | No — needs scoping |
-| FORM_4506C | Yes (`4506c-fields.json`) | Yes — 0% overlap | Yes — record-of-account transcript type missing, wage/income section structure differs, non-filing verification doesn't exist on this revision | No — needs scoping |
-| FORM_155 *(backlog per Task A)* | Yes (`155-fields.json`), bonus | Not diffed (not currently wired) | Not diffed | N/A |
-| FORM_159 *(separate pipeline, not e-sign)* | Yes (`159-fields.json`), bonus | Not diffed (out of Task B's scope) | Not diffed | N/A |
+## 5. The fix, form by form
 
-No visual fill-test PDFs were generated yet — there's no correct field
-mapping to test until the scoping questions in section 4 are answered
-(413's Section 1 fields are the exception — those could go straight to a
-fill-test once mapped).
+**FORM_912.** `fields.ts`, `pdfFieldMap.ts` (new), `inputBuilder.ts`,
+`render.ts` rewritten against the real field set: `full_ssn` (decrypted
+at render time), `ownership_percentage`, `date_of_birth`,
+`place_of_birth`, `is_us_citizen` (radio), and exactly the three real
+yes/no questions (`incarcerated_or_indicted_financial_crime`,
+`riot_related_conviction_past_year`, `delinquent_child_support_60days`,
+new `ownership_entities` columns) in place of the old five mismatched
+categories. `FORM_912_TRIGGER_FIELDS` in `form1919/fields.ts` now keys off
+the one real trigger question instead of the old four-category set.
 
-## 6. What's needed to close this out
+**FORM_1919.** Section I gained `unique_entity_id`, `project_address_*`,
+`special_ownership_type`. Section II was rebuilt around the real 13
+numbered yes/no questions (new `ownership_entities` columns — see
+migration below), the full demographic block (veteran status/sex/race/
+ethnicity, each a real checkbox group), and the export-sales sub-section
+(gated by `has_export_sales`, up to 3 countries). `render.ts` changed
+architecture: it now takes `ownershipEntityId` + `dealId` and renders one
+PDF per individual, filling the 5-slot owner-roster fields
+(`ownName1..5`/`ownTitle1..5`/`ownPerc1..5`/`ownTin1..5`/`ownHome1..5`) —
+the old code flattened every person into prefixed keys that could never
+match any real field name, so this was a correctness fix, not just a
+rename. `FORM_1244_SECTION_II_FIELDS` re-exports the same field list, so
+`form1244/inputBuilder.ts`'s Section II query was rewritten too (the 5 old
+category columns were kept populated since `src/lib/score/*` depends on
+them for underwriting scoring).
 
-1. Decide, per newly-found question/field, whether to (a) add the
-   real column(s)/questions to collect it, (b) knowingly leave it blank
-   on the rendered PDF with a visible flag (e.g. a `missing_from_intake`
-   list surfaced in the build result, not silently), or (c) confirm one of
-   the existing modeled fields is actually an acceptable proxy after all
-   (only checked where a tooltip genuinely supports it — none found so
-   far). The full-SSN question (912, and 413 ×2) is the one decision that
-   recurs across forms and is worth making once, not per-form.
-2. Once (1) is decided per field, write the real
-   `SEMANTIC_KEY -> AcroForm field name (+ type)` map per form and update
-   `render.ts` to dispatch by field type (text/checkbox/radio), not just
-   `getTextField`. 413's Section 1 mapping doesn't depend on (1) at all
-   and could be done immediately.
-3. Generate a filled test PDF with fake data and visually confirm.
+**FORM_413.** Section 1 identity/summary fields renamed to match the real
+form 1:1 as expected. `full_ssn` (+ a second, independent `spouse_full_ssn`
+field for the joint signer) now decrypts the same way as 912's. The
+itemized schedules were *not* left as a silent gap: three new tables
+(`borrower_pfs_notes_payable`, `borrower_pfs_securities`,
+`borrower_pfs_real_estate`, keyed by `applicant_id`) were added, and
+`fields.ts`/`inputBuilder.ts`/`render.ts` loop over them to fill Section 2
+(notes payable, 5 rows), Section 3 (securities, 4 rows), and Section 4
+(real estate, properties A/B/C). Sections 5-8 (other personal property,
+unpaid taxes, other liabilities, life insurance — all narrative/free-text
+on the real form) are registered in `borrowerFieldRegistry.ts` but have no
+intake UI wired to them yet; see §8.
+
+**FORM_4506-C.** `fields.ts`/`pdfFieldMap.ts` rewritten against the real
+XFA-style deep field paths. Added `full_ssn`, `tax_form_number_line6`
+(text, not the old enum), `transcript_type_record_of_account` (the third
+transcript type the old code didn't model), and widened the
+wage-and-income section (line 7) to its own independent up-to-3-form-number
+array with a 4-slot month/day/year date structure per period. IVES
+participant fields (name/ID/SOR mailbox ID) come from env vars, not the
+database — see §8 for the outstanding registration gap.
+
+## 6. New schema (applied live via Supabase MCP)
+
+- `20260718000000_sba_form_field_coverage_expansion.sql` — ~25 new
+  `ownership_entities` columns (demographics, the 13 real 1919 questions,
+  912's 3 real questions, prior address, export sales), 4 new `borrowers`
+  columns (unique entity ID, special ownership type, project address), and
+  the 3 new `borrower_pfs_*` itemized-schedule tables (RLS deny-all +
+  bank-membership-select, `set_updated_at()` triggers, matching the
+  existing `borrower_applicant_financials` `applicant_id` PK pattern).
+- `20260718000001_form1919_export_gate_fix.sql` — adds
+  `ownership_entities.has_export_sales`, written after the visual-test
+  discovery in §7.
+
+## 7. Bugs the visual fill-test caught (that name/tooltip mapping alone would have missed)
+
+Every form was fill-tested with fake data on the actual uploaded PDF and
+the rendered pages were visually inspected (not just "no exception
+thrown") — this caught three real bugs:
+
+1. **Form 912 residence-address placement.** `current_address`/
+   `prior_address` looked correctly named, but the rendered PDF showed the
+   values landing on the "From:" date lines instead of the address lines —
+   an ambiguity in which of two candidate fields is the address vs. the
+   date range. Per this project's standing rule to never guess field
+   placement on a legal document, this mapping was removed entirely
+   (documented in `render.ts`) rather than shipped as a guess.
+2. **Form 4506-C `customer_file_number` length.** pdf-lib threw
+   `Attempted to set text with length=14 for TextField with maxLength=10`
+   — the real field caps at 10 characters. Fixed by truncating
+   `dealId.slice(0, 10)`.
+3. **Form 1919 Q5/Q6 stale tooltip.** The `/TU` tooltip on `q5Yes`/`q5No`
+   read like a CDC-fee question, so the first mapping pointed
+   `fee_paid_to_cdc_or_broker` there. The rendered PDF showed Q5 is
+   actually the export-sales gate ("Are your products/services exported?")
+   sitting directly above the export sub-fields, with the fee question
+   actually at Q6 — confirmed by widget y-coordinates
+   (q5 y=337 → export fields y=311/268 → q6 y=241). This is a real
+   authoring bug in the government's own PDF (a stale/copy-pasted
+   tooltip), not a Buddy bug — but trusting the tooltip over the
+   position would have silently mis-filed which compliance question was
+   answered. Fixed by adding `has_export_sales` (migration above) mapped
+   to q5Yes/q5No, and making `fee_paid_to_lender_or_broker` (Q6) the real
+   fee-paid question.
+
+## 8. Per-form status (final)
+
+| Form | Real AcroForm names confirmed | Field-name mismatch fixed | Content/coverage gap | Type-aware fill (checkbox/radio) | Visual fill-test |
+|---|---|---|---|---|---|
+| FORM_1919 | Yes | Yes | Closed (13 questions + demographics + export modeled) | Yes | Passed |
+| FORM_413 | Yes | Yes | Closed for Sections 1-4; Sections 5-8 narrative fields have no intake UI yet (backlog) | Yes | Passed |
+| FORM_912 | Yes | Yes | Closed (3 real questions + full SSN + ownership %) | Yes | Passed |
+| FORM_4506C | Yes | Yes | Closed; IVES participant registration is env-var-only, not yet provisioned (backlog) | Yes | Passed |
+| FORM_155 *(backlog per Task A)* | Yes (`155-fields.json`), bonus | Not in scope (not currently wired) | Not diffed | N/A | N/A |
+| FORM_159 *(separate pipeline, not e-sign)* | Yes (`159-fields.json`), bonus | Not in scope | Not diffed | N/A | N/A |
+
+## 9. Known remaining gaps (tracked, not silent)
+
+- **Spouse SSN (413) and spouse fields generally**: `spouse_full_ssn` is
+  modeled and decrypts the same way as the primary signer's, but there is
+  no confirmed intake path that actually collects/stores a spouse's SSN
+  today — flagged in `borrowerFieldRegistry.ts`.
+- **413 Sections 5-8** (other personal property, unpaid taxes, other
+  liabilities, life insurance — narrative fields): registered but no
+  conversational-intake or form UI asks these questions yet.
+- **4506-C IVES participant registration**: fields are read from env vars
+  (`IVES_PARTICIPANT_NAME/ID/SOR_MAILBOX_ID`); actual IVES enrollment with
+  the IRS is an operational/business step outside this codebase.
+- **Forms 148/601/1244/155**: per Task A, confirmed backlog (0 of 12 open
+  deals have relevant data) — not touched by this fix, still gated behind
+  their own `not_applicable`/`applicable` guards.

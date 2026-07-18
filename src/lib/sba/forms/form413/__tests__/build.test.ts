@@ -42,7 +42,7 @@ test("complete signer, signed recently, no spouse -> is_complete = true", () => 
           address_state: "IL",
           address_zip: "62701",
           home_phone: "555-1234",
-          ssn_last4: "1234",
+          full_ssn: "on_file",
           date_of_birth: "1980-01-01",
           business_name: "Acme LLC",
           asset_cash_on_hand_and_in_banks: 10000,
