@@ -1,4 +1,4 @@
-import { FORM_148_SIGNER_FIELDS, missingRequiredFields } from "@/lib/sba/forms/form148/fields";
+import { FORM_148_SIGNER_FIELDS, FORM_148L_LIMITATION_FIELDS, missingRequiredFields } from "@/lib/sba/forms/form148/fields";
 import type { GuaranteeType } from "@/lib/ownership/rules";
 
 export type Form148SignerInput = {
@@ -31,8 +31,8 @@ export type Form148BuildResult = {
 export function buildForm148(input: Form148Input): Form148BuildResult {
   const missing = input.signers.map((s) => {
     const baseMissing = missingRequiredFields(FORM_148_SIGNER_FIELDS, s.fields);
-    const capMissing = s.guaranteeType === "limited" && s.fields.limited_guarantee_cap_amount == null ? ["limited_guarantee_cap_amount"] : [];
-    return { ownership_entity_id: s.ownership_entity_id, guaranteeType: s.guaranteeType, missing: [...baseMissing, ...capMissing] };
+    const limitationMissing = s.guaranteeType === "limited" ? missingRequiredFields(FORM_148L_LIMITATION_FIELDS, s.fields) : [];
+    return { ownership_entity_id: s.ownership_entity_id, guaranteeType: s.guaranteeType, missing: [...baseMissing, ...limitationMissing] };
   });
 
   const isComplete = input.signers.length > 0 && missing.every((m) => m.missing.length === 0);

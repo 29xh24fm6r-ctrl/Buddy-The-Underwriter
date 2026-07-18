@@ -4,29 +4,28 @@
 the real government AcroForm field names on Forms 1919, 413, 912, and
 4506-C, and check in a ground-truth field-name reference per form.
 
-**Status: FIXED for 1919, 413, 912, 4506-C, and 155 — five forms
-rewritten end-to-end — `fields.ts`, a new `pdfFieldMap.ts` per form,
-`inputBuilder.ts`, and `render.ts` — against real, verified AcroForm
-field names, with type-aware fill logic (text/checkbox/radio/Yes-No
-checkbox pairs). The scoping question raised in the original version of
-this doc (full SSN vs. last-4) was resolved per the user's explicit
-instruction to capture enough information to complete these documents
-"completely, thoroughly and accurately... perfectly every single time":
-Buddy now persists the full SSN/TIN (including a spouse's, for Form 413 —
-see §9) via the existing encrypted `deal_pii_records` vault
-(`storeSecurePii`/`getDecryptedPii`, AES-256-CBC), decrypted only
-transiently at render time — not the "have the signer type it at signing"
-shortcut. Every fix was verified with a visual fill-test (fake data
-rendered into the real government PDF and inspected page-by-page), which
-caught three real placement/authoring bugs a tooltip- or name-only mapping
-would have shipped silently (§7). All five forms' real PDFs are now
-actually ingested (`public/sba-templates/` + `bank_document_templates` —
-previously zero rows existed for ANY of these forms, so none could render
-end-to-end regardless of mapping correctness; see §8). Forms 148/601/1244
-remain genuinely blocked — no real source PDF for any of them has been
-supplied, so unlike 155 there is nothing to verify against (§9); their
-`render.ts` files are explicitly marked as unverified rather than left
-looking equivalent to the fixed forms.**
+**Status: FIXED for all nine forms — 1919, 413, 912, 4506-C, 155, 148,
+148L, 601, and 1244 — each rewritten end-to-end — `fields.ts`, a new
+`pdfFieldMap.ts` per form, `inputBuilder.ts`, and `render.ts` — against
+real, verified AcroForm field names, with type-aware fill logic
+(text/checkbox/radio/Yes-No checkbox pairs). The scoping question raised
+in the original version of this doc (full SSN vs. last-4) was resolved
+per the user's explicit instruction to capture enough information to
+complete these documents "completely, thoroughly and accurately...
+perfectly every single time": Buddy now persists the full SSN/TIN
+(including a spouse's, for Form 413 — see §9) via the existing encrypted
+`deal_pii_records` vault (`storeSecurePii`/`getDecryptedPii`,
+AES-256-CBC), decrypted only transiently at render time — not the "have
+the signer type it at signing" shortcut. Every fix was verified with a
+visual fill-test (fake data rendered into the real government PDF and
+inspected page-by-page), which caught real placement/authoring bugs a
+tooltip- or name-only mapping would have shipped silently (§7, §10). All
+nine forms' real PDFs are now actually ingested (`public/sba-templates/` +
+`bank_document_templates` — previously zero rows existed for ANY of these
+forms, so none could render end-to-end regardless of mapping correctness;
+see §8). Forms 148/148L/601/1244 were the last four blocked on a missing
+source PDF; the user supplied all four directly and they were fixed the
+same way as 155 — see §10 for that work.**
 
 ## 1. How the source PDFs were obtained
 
@@ -305,16 +304,19 @@ thrown") — this caught three real bugs:
 | FORM_912 | Yes | Yes | Closed (3 real questions + full SSN + ownership %) | Yes | Passed |
 | FORM_4506C | Yes | Yes | Closed; IVES participant config now per-bank (§9), IRS enrollment itself is still operational/outside this codebase | Yes | Passed |
 | FORM_155 | Yes (`155-fields.json`) | Yes — rewritten against the real 16-field/9-98-revision PDF | Closed (real 4-option radio group + SBA-assigned loan number; `full_standby_for_loan_term`/`subordination_terms_acknowledged` don't correspond to distinct fields on this revision, removed from the form's required set) | Yes (radio group) | Passed |
-| FORM_148/FORM_148L/FORM_601/FORM_1244 | **No — blocked** | Not attempted | Not attempted | N/A | N/A |
+| FORM_148 | Yes (`148-fields.json`) | Yes — rewritten against the real 11-field PDF | Closed (owner-scoped guarantee content, no separate guarantor address on this revision) | Yes | Passed |
+| FORM_148L | Yes (`148l-fields.json`) | Yes — rewritten against the real 43-field PDF | Closed (7 mutually-exclusive limitation types, each with its own amount/rate/description sub-fields — see §10) | Yes | Passed |
+| FORM_601 | Yes (`601-fields.json`) | Yes — rewritten against the real 12-field PDF | Closed (contractor identity block + dual authorized-official signature blocks; no separate "compliance acknowledged" checkbox — signing is the certification) | Yes | Passed |
+| FORM_1244 | Yes (`1244-fields.json`, 370 fields) | Yes — rewritten from scratch against the real PDF | Closed for Sections One-Three (dual EPC/Operating-Company entity structure, owner roster, the real 5-question Section Two, signature block); Section Four ("Completed by the CDC," pages 12-20) is intentionally out of scope — see §10 | Yes | Passed |
 | FORM_159 *(separate pipeline, not e-sign)* | Yes (`159-fields.json`), bonus | Not in scope | Not diffed | N/A | N/A |
 
-All 5 forms with confirmed ground truth (1919, 413, 912, 4506-C, 155) also
-had their real PDF committed to `public/sba-templates/` and registered in
-`bank_document_templates` (previously zero rows existed for any of these —
-the auto-ingestion script needs sba.gov/irs.gov, which are blocked here, so
-without this the correct field mapping would never actually render a PDF
-in this environment). 148/601/1244 remain unregistered — no real PDF
-exists to ingest.
+All 9 forms with confirmed ground truth (1919, 413, 912, 4506-C, 155, 148,
+148L, 601, 1244) also had their real PDF committed to
+`public/sba-templates/` and registered in `bank_document_templates`
+(previously zero rows existed for any of these — the auto-ingestion
+script needs sba.gov/irs.gov, which are blocked here, so without this the
+correct field mapping would never actually render a PDF in this
+environment).
 
 ## 9. Gaps resolved after the initial fix
 
@@ -343,9 +345,99 @@ The four gaps this doc originally left open have been resolved:
 - **Forms 148/601/1244/155**: per the decision to fix what's verifiable and
   flag the rest as blocked (not guess), **Form 155** was rewritten against
   a real uploaded copy of the PDF (see §8) — its previous "backlog" status
-  is closed. **148/601/1244** remain genuinely blocked: no real copy of
-  any of these three PDFs has been supplied, so unlike 155 there is no
-  ground truth to verify against. Their `render.ts` files are now
-  explicitly commented as unverified placeholders (rather than silently
-  looking equivalent to the fixed forms) so this isn't mistaken for "not
-  yet gotten to" — it's "cannot verify without a real source PDF."
+  is closed. **148/148L/601/1244** were blocked at the time this section
+  was written (no real copy of any of the four PDFs had been supplied) —
+  that block is now also closed; see §10 for the full write-up.
+
+## 10. Forms 148, 148L, 601, 1244 — fixed once the user supplied the real PDFs
+
+The remaining four forms stayed genuinely blocked (per §9) until the user
+uploaded `Form_148.pdf`, `Form_148L.pdf`, `Form_601.pdf`, `Form_1244.pdf`
+directly — the same resolution path as the six forms above. Ground truth
+was dumped and checked in the same way: `docs/sba-forms/{148,148l,601,1244}-fields.json`.
+
+**FORM_148 — Unconditional Guarantee.** A small, clean 11-field form.
+`fields.ts`/`pdfFieldMap.ts`/`inputBuilder.ts`/`render.ts` rewritten
+against the real field names. No separate guarantor home address field
+exists on this revision (confirmed against the real PDF) —
+`home_address_street/city/state/zip` stayed tagged for 912/4506-C/413/1919
+in `borrowerFieldRegistry.ts` but "148" was removed from those four.
+`sba_loan_number`/`sba_loan_closing_date` (new `sba_loans` columns) are
+the only loan-level facts this form needs beyond the guarantor's own
+identity.
+
+**FORM_148L — Unconditional Limited Guarantee.** The real form has 7
+mutually-exclusive limitation types (balance-under, principal-under,
+max-payment, percent-payment, time-years, collateral-description, plus a
+"see attached" narrative), each guarantor-negotiated — not one deal-wide
+cap amount as the old `limited_guarantee_cap_amount` loan-level field
+assumed. Re-modeled as `guarantee_limitation_type` +
+7 `guarantee_limit_*` fields, all owner-scoped (`ownership_entities`
+columns) since the limitation is per-guarantor, not per-deal. The old
+`limited_guarantee_cap_amount` loan-level column is left in place
+(unused) — not this task's call to delete.
+
+**FORM_601 — Agreement of Compliance.** 12 fields: contractor identity
+(name/address/phone/authorized official) plus two authorized-official
+signature blocks (native `PDFSignature` fields, never written to —
+SignWell owns those). No distinct "compliance certification acknowledged"
+checkbox exists on the real form — signing the document itself is the
+certification, matching the same pattern already found on Form 155's
+dropped `subordination_terms_acknowledged`.
+
+**FORM_1244 — Application for Section 504 Loans.** By far the largest and
+most structurally significant finding of the four:
+- **Section One is a dual-entity (EPC + Operating Company) structure** —
+  a real SBA 504 program concept (a borrower can be an Eligible Passive
+  Company that leases the project to an operating company) with zero
+  prior schema representation. Modeled as 9 new `deals.operating_company_*`
+  columns (1:1 with the deal, not a new table) plus
+  `deals.is_eligible_passive_company` as the gate.
+- **Section Two's real personal-history question set is 5 yes/no
+  questions** specific to this form (SBA-loan-entity interest, subject to
+  indictment, arrested in the last 6 months, convicted/diversion/parole,
+  suspended/debarred/ineligible) — not the 13 borrowed from Form 1919 the
+  old code assumed, which is a different SBA program with a different,
+  richer set. A second stale-tooltip bug (same discipline as 1919's Q5/Q6
+  finding in §7) was found and resolved by widget Y-coordinate position
+  cross-checked against the rendered page.
+- **Total project cost / sources-and-uses / franchise-directory lookup
+  live in Section Four** ("Completed by the CDC," pages 12-20 of the real
+  PDF, ~150+ of the form's 370 fields) — the CDC's own back-office
+  paperwork, not an Applicant-facing section. This is a deliberate scope
+  boundary confirmed by directly rendering and reading those pages, not an
+  oversight.
+- **Owner roster ambiguity, documented as a simplification, not guessed**:
+  the schema has no concept of "which entity (EPC vs. OC) does this owner
+  belong to" — when `isEligiblePassiveCompany` is true, the same owner
+  list populates both the Applicant/EPC and Operating Company ownership
+  tables (the common real-world case, where the same principals own both)
+  rather than inventing a split with no data to back it.
+- Per-individual PDF rendering, same architecture as Form 1919: one
+  rendered PDF per `ownershipEntityId`, each carrying Section One, both
+  owner rosters, and Section Three duplicated alongside that person's own
+  Section Two answers.
+- A phone-field `maxLength=10` bug (the real field wants raw digits, not
+  the "(xxx-xxx-xxxx)" label hint literally) was caught by the visual
+  fill-test and fixed via a `digitsOnly()` helper.
+
+**A new pdf-lib bug, found on 148L, fixed everywhere.** Some of 148L's
+multiline text fields (`loanName`/`guarantor`/`borrower`/`lender`) have an
+inverted `/Rect` array (`lly > ury`) — a real authoring defect in SBA's
+own PDF. `setText()` succeeds and the value is genuinely stored, but
+pdf-lib's flatten/appearance-stream generation renders no visible text for
+a multiline field with an inverted rect (single-line fields with the same
+defect are unaffected). Fixed generically via
+`src/lib/sba/forms/pdfRectFix.ts`'s `normalizeInvertedWidgetRects()`,
+applied to all nine forms' `render.ts` (retroactively patched onto the
+five forms fixed earlier in this doc, since the same latent defect could
+in principle affect any multiline field on any of them, even though none
+were observed failing in their own earlier visual tests).
+
+All four forms' real PDFs are committed to `public/sba-templates/`
+(`SBA_148.pdf`, `SBA_148L.pdf`, `SBA_601.pdf`, `SBA_1244.pdf`) and
+registered in `bank_document_templates` — see §8's updated table. Known
+remaining gaps, left as real gaps rather than guessed: Form 148's
+`StateSpecific` / 148L's `stateSpecific` boilerplate field has no data
+source; Form 1244's Section Four is intentionally out of scope (CDC
+back-office, not Buddy's concern).

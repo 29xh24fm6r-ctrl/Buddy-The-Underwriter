@@ -1,0 +1,5927 @@
+{
+  "file": "source: user-provided upload, 2026-07-18, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 20,
+  "fieldCount": 370,
+  "fields": [
+    {
+      "name": "Legal NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "Legal Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 678,
+          "width": 264.12,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Business AddressRow1",
+      "type": "PDFTextField",
+      "tooltip": "Business Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 678,
+          "width": 264.24,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "DBA or TradenameRow1",
+      "type": "PDFTextField",
+      "tooltip": "DBA or Tradename",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 648.72,
+          "width": 131.4,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Legal StructureRow1",
+      "type": "PDFTextField",
+      "tooltip": "Legal Structure",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 174,
+          "y": 648.72,
+          "width": 131.39999999999998,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Tax IDRow1",
+      "type": "PDFTextField",
+      "tooltip": "Tax ID",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 648.72,
+          "width": 131.39999999999998,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "DUNS NumberRow1",
+      "type": "PDFTextField",
+      "tooltip": "DUNS Number",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 439.44,
+          "y": 648.72,
+          "width": 131.52000000000004,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Contact NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "Contact Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 608.28,
+          "width": 131.4,
+          "height": 13.56000000000006
+        }
+      ]
+    },
+    {
+      "name": "Email AddressRow1",
+      "type": "PDFTextField",
+      "tooltip": "Email Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 174,
+          "y": 608.28,
+          "width": 131.39999999999998,
+          "height": 13.56000000000006
+        }
+      ]
+    },
+    {
+      "name": "Phone Number xxxxxxxxxxRow1",
+      "type": "PDFTextField",
+      "tooltip": "Phone Number (xxx-xxx-xxxx)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 608.28,
+          "width": 131.39999999999998,
+          "height": 13.56000000000006
+        }
+      ]
+    },
+    {
+      "name": "Business Web AddressRow1",
+      "type": "PDFTextField",
+      "tooltip": "Business Web Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 439.44,
+          "y": 608.28,
+          "width": 131.52000000000004,
+          "height": 13.56000000000006
+        }
+      ]
+    },
+    {
+      "name": "Legal NameRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Legal Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 564.36,
+          "width": 264.12,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Business AddressRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Business Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 564.36,
+          "width": 264.24,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "DBA or TradenameRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "DBA or Tradename",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 534.96,
+          "width": 131.4,
+          "height": 13.67999999999995
+        }
+      ]
+    },
+    {
+      "name": "Legal StructureRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Legal Structure",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 174,
+          "y": 534.96,
+          "width": 131.39999999999998,
+          "height": 13.67999999999995
+        }
+      ]
+    },
+    {
+      "name": "Tax IDRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Tax ID",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 534.96,
+          "width": 131.39999999999998,
+          "height": 13.67999999999995
+        }
+      ]
+    },
+    {
+      "name": "DUNS NumberRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "DUNS Number",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 439.44,
+          "y": 534.96,
+          "width": 131.52000000000004,
+          "height": 13.67999999999995
+        }
+      ]
+    },
+    {
+      "name": "Contact NameRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Contact Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 493.8,
+          "width": 131.4,
+          "height": 13.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Email AddressRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Email Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 174,
+          "y": 493.8,
+          "width": 131.39999999999998,
+          "height": 13.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Phone Number xxxxxxxxxxRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Phone Number (xxx-xxx-xxxx)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 493.8,
+          "width": 131.39999999999998,
+          "height": 13.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Business Web AddressRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Business Web Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 439.44,
+          "y": 493.8,
+          "width": 131.52000000000004,
+          "height": 13.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Project Address if different than OC Address Street City State Zip codeRow1",
+      "type": "PDFTextField",
+      "tooltip": "Project Address (if different than OC Address) (Street, City, State, Zip code)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 442.68,
+          "width": 264.12,
+          "height": 13.560000000000002
+        }
+      ]
+    },
+    {
+      "name": "Type of Business Summary DescriptionRow1",
+      "type": "PDFTextField",
+      "tooltip": "Type of Business (Summary Description)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 306.72,
+          "y": 442.68,
+          "width": 264.24,
+          "height": 13.560000000000002
+        }
+      ]
+    },
+    {
+      "name": " of existing employees employed by business including owners who work for this businessRow1",
+      "type": "PDFTextField",
+      "tooltip": "# of existing employees employed by business (including owners who work for this business)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 362.28,
+          "width": 138.12,
+          "height": 13.560000000000002
+        }
+      ]
+    },
+    {
+      "name": " of jobs to be created in the next two years as a result of the loanRow1",
+      "type": "PDFTextField",
+      "tooltip": "# of jobs to be created in the next two years as a result of the loan",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 180.3,
+          "y": 362.28,
+          "width": 183.24,
+          "height": 13.560000000000002
+        }
+      ]
+    },
+    {
+      "name": " of jobs to be retained in the next two years as a result of the loan including owners who work for this businessRow1",
+      "type": "PDFTextField",
+      "tooltip": "# of jobs to be retained in the next two years as a result of the loan (including owners who work for this business)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 362.28,
+          "width": 205.68000000000006,
+          "height": 13.560000000000002
+        }
+      ]
+    },
+    {
+      "name": "Purpose of the loan",
+      "type": "PDFTextField",
+      "tooltip": "Purpose of the loan_$",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 181.44,
+          "y": 308.52,
+          "width": 388.8,
+          "height": 37.31999999999999
+        }
+      ]
+    },
+    {
+      "name": "If yes provide CDCLender Name and Loan Program",
+      "type": "PDFTextField",
+      "tooltip": "If yes, provide CDC/Lender Name and Loan Program",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 318.84,
+          "y": 182.88,
+          "width": 252.00000000000006,
+          "height": 27.360000000000014
+        }
+      ]
+    },
+    {
+      "name": "401k",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant business owned by one of the following? 401(k)",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 346.255,
+          "y": 109.809,
+          "width": 11.64100000000002,
+          "height": 9.792000000000002
+        }
+      ]
+    },
+    {
+      "name": "ESOP",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant business owned by one of the following? ESOP",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 396.982,
+          "y": 109.896,
+          "width": 11.640999999999963,
+          "height": 9.792000000000002
+        }
+      ]
+    },
+    {
+      "name": "Trust",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant business owned by one of the following? Trust",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 446.528,
+          "y": 109.794,
+          "width": 11.640999999999963,
+          "height": 9.792000000000002
+        }
+      ]
+    },
+    {
+      "name": "Cooperative",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant business owned by one of the following? Cooperative",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 493.208,
+          "y": 109.794,
+          "width": 11.640999999999963,
+          "height": 9.792000000000002
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 492.36,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow1",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 492.36,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow1",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 492.36,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row1",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 492.36,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 478.08,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 478.08,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 478.08,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 478.08,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow3",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 463.68,
+          "width": 178.68,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow3",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 463.68,
+          "width": 142.67999999999998,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow3",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 463.68,
+          "width": 106.68,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row3",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 472.579,
+          "y": 463.68,
+          "width": 102.11999999999995,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow4",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 43.3822,
+          "y": 449.4,
+          "width": 178.6798,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow4",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 449.4,
+          "width": 142.67999999999998,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow4",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 449.4,
+          "width": 106.68,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row4",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row ",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 449.4,
+          "width": 102.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow5",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 435.12,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow5",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 435.12,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow5",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 435.12,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row5",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 435.12,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow6",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 420.84,
+          "width": 178.68,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow6",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 420.84,
+          "width": 142.67999999999998,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow6",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 420.84,
+          "width": 106.68,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row6",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 420.84,
+          "width": 102.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow7",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 406.56,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow7",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 406.56,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow7",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 406.56,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row7",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 406.56,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow8",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 42.6815,
+          "y": 392.28,
+          "width": 178.6795,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow8",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 392.28,
+          "width": 142.67999999999998,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow8",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 392.28,
+          "width": 106.68,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row8",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 392.28,
+          "width": 102.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow9",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 378,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow9",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 378,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow9",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 378,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row9",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 378,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow10",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 10",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 363.6,
+          "width": 178.68,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow10",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 10",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 363.6,
+          "width": 142.67999999999998,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow10",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 10",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 363.6,
+          "width": 106.68,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row10",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 10",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 363.6,
+          "width": 102.12,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 295.68,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 295.68,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow1_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 295.68,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row1_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 1",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 295.68,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow2_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 281.4,
+          "width": 178.68,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow2_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 281.4,
+          "width": 142.67999999999998,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow2_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 281.4,
+          "width": 106.68,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row2_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 2",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 281.4,
+          "width": 102.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow3_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 267,
+          "width": 178.68,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow3_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 267,
+          "width": 142.67999999999998,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow3_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 267,
+          "width": 106.68,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row3_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 3",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 267,
+          "width": 102.12,
+          "height": 14.021000000000015
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow4_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 252.72,
+          "width": 178.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow4_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 252.72,
+          "width": 142.67999999999998,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow4_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 252.72,
+          "width": 106.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row4_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 4",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 252.72,
+          "width": 102.12,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow5_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 238.44,
+          "width": 178.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow5_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 238.44,
+          "width": 142.67999999999998,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow5_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 238.44,
+          "width": 106.68,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row5_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 5",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 238.44,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow6_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 224.16,
+          "width": 178.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow6_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 224.16,
+          "width": 142.67999999999998,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow6_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 224.16,
+          "width": 106.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row6_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 6",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 225.561,
+          "width": 102.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow7_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 209.88,
+          "width": 178.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow7_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 209.88,
+          "width": 142.67999999999998,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow7_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 209.88,
+          "width": 106.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row7_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 7",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 209.88,
+          "width": 102.12,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow8_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 195.6,
+          "width": 178.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow8_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 195.6,
+          "width": 142.67999999999998,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow8_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 195.6,
+          "width": 106.68,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row8_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 8",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 195.6,
+          "width": 102.12,
+          "height": 13.200000000000017
+        }
+      ]
+    },
+    {
+      "name": "OwnerEntity NameRow9_2",
+      "type": "PDFTextField",
+      "tooltip": "Owner/Entity Name Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 181.2,
+          "width": 178.68,
+          "height": 13.320000000000022
+        }
+      ]
+    },
+    {
+      "name": "TitleOrganization TypeRow9_2",
+      "type": "PDFTextField",
+      "tooltip": "Title/Organization Type Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 221.28,
+          "y": 181.2,
+          "width": 142.67999999999998,
+          "height": 13.320000000000022
+        }
+      ]
+    },
+    {
+      "name": "SSNTINRow9_2",
+      "type": "PDFTextField",
+      "tooltip": "SSN/TIN Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 365.28,
+          "y": 181.2,
+          "width": 106.68,
+          "height": 13.320000000000022
+        }
+      ]
+    },
+    {
+      "name": "Ownership Row9_2",
+      "type": "PDFTextField",
+      "tooltip": "Ownership % Row 9",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 473.28,
+          "y": 181.2,
+          "width": 102.12,
+          "height": 13.320000000000022
+        }
+      ]
+    },
+    {
+      "name": "Name Last First MiddleRow1",
+      "type": "PDFTextField",
+      "tooltip": "Name (Last, First, Middle) ",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 45.72,
+          "y": 662.348,
+          "width": 264.12,
+          "height": -20.567000000000007
+        }
+      ]
+    },
+    {
+      "name": "Former Names and Dates UsedRow1",
+      "type": "PDFTextField",
+      "tooltip": "Former Names and Dates Used",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 311.28,
+          "y": 642.08,
+          "width": 264.12,
+          "height": 20.567000000000007
+        }
+      ]
+    },
+    {
+      "name": "USCIS Registration  if Legal Permanent ResidentYes No",
+      "type": "PDFTextField",
+      "tooltip": "USCIS Registration # (if Legal Permanent Resident) ",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 149.4,
+          "y": 596.2,
+          "width": 160.43999999999997,
+          "height": 15.120000000000005
+        }
+      ]
+    },
+    {
+      "name": "If a nonUS citizen or LPR provide Country of CitizenshipYes No",
+      "type": "PDFTextField",
+      "tooltip": "If a non-US citizen or LPR, provide Country of Citizenship",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 311.4,
+          "y": 596.2,
+          "width": 263.88,
+          "height": 15.120000000000005
+        }
+      ]
+    },
+    {
+      "name": "Place of Birth City and State or Foreign CountryRow1",
+      "type": "PDFTextField",
+      "tooltip": "Place of Birth (City and State or Foreign Country)",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 45.72,
+          "y": 553.12,
+          "width": 264.24,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "SSN or IRS TINRow1",
+      "type": "PDFTextField",
+      "tooltip": "SSN or IRS TIN",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 311.28,
+          "y": 553.12,
+          "width": 131.40000000000003,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Date of Birth mmddyyyyRow1",
+      "type": "PDFTextField",
+      "tooltip": "Date of Birth (mm/dd/yyyy)",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 444,
+          "y": 553.821,
+          "width": 131.39999999999998,
+          "height": 13.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Phone Number Home or Cell xxxxxxxxxxRow1",
+      "type": "PDFTextField",
+      "tooltip": "Phone Number (Home or Cell xxx-xxx-xxxx)",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 47.6015,
+          "y": 506.44,
+          "width": 263.2795,
+          "height": 29.640000000000043
+        }
+      ]
+    },
+    {
+      "name": "Home Address Street City State Zip codeRow1",
+      "type": "PDFTextField",
+      "tooltip": "Home Address (Street, City, State, Zip code)",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 311.76,
+          "y": 506.44,
+          "width": 263.15999999999997,
+          "height": 29.640000000000043
+        }
+      ]
+    },
+    {
+      "name": "If yes provide loan numbers and current status",
+      "type": "PDFTextField",
+      "tooltip": "If yes, provide loan numbers and current status",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 285.48,
+          "y": 378.96,
+          "width": 288.12,
+          "height": 19.738
+        }
+      ]
+    },
+    {
+      "name": "No_8",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 356.16,
+          "width": 30,
+          "height": 21.95999999999998
+        }
+      ]
+    },
+    {
+      "name": "No_9",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 294.48,
+          "width": 30,
+          "height": 21.95999999999998
+        }
+      ]
+    },
+    {
+      "name": "No_10",
+      "type": "PDFTextField",
+      "tooltip": "No",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 254.76,
+          "width": 30,
+          "height": 21.960000000000036
+        }
+      ]
+    },
+    {
+      "name": "No_11",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 135.6,
+          "width": 30,
+          "height": 21.960000000000008
+        }
+      ]
+    },
+    {
+      "name": "No_12",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 698.68,
+          "width": 30,
+          "height": 25.920000000000073
+        }
+      ]
+    },
+    {
+      "name": "No_13",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 611.32,
+          "width": 30,
+          "height": 25.91999999999996
+        }
+      ]
+    },
+    {
+      "name": "No_14",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 571.48,
+          "width": 30,
+          "height": 25.91999999999996
+        }
+      ]
+    },
+    {
+      "name": "No_15",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 531.76,
+          "width": 30,
+          "height": 25.91999999999996
+        }
+      ]
+    },
+    {
+      "name": "Response1NonVeteran 2Veteran 3ServiceDisabled Veteran 4Spouse of Veteran XNot Disclosed",
+      "type": "PDFTextField",
+      "tooltip": "Response_1=Non-Veteran; 2=Veteran; 3=Service-Disabled Veteran; 4=Spouse of Veteran; X=Not Disclosed",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 491.76,
+          "y": 398.52,
+          "width": 82.91999999999996,
+          "height": 26.52000000000004
+        }
+      ]
+    },
+    {
+      "name": "ResponseMMale FFemale XNot Disclosed",
+      "type": "PDFTextField",
+      "tooltip": "Response_M=Male; F=Female; X=Not Disclosed",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 491.28,
+          "y": 384.24,
+          "width": 83.88,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Response1American Indian or Alaska Native 2Asian 3Black or African American 4Native Hawaiian or Pacific Islander 5White XNot Disclosed",
+      "type": "PDFTextField",
+      "tooltip": "Response_1=American Indian or Alaska Native; 2=Asian; 3=Black or African American; 4=Native Hawaiian or Pacific Islander; 5=White; X=Not Disclosed",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 491.76,
+          "y": 356.04,
+          "width": 82.91999999999996,
+          "height": 26.639999999999986
+        }
+      ]
+    },
+    {
+      "name": "ResponseHHispanic or Latino NNot Hispanic or Latino XNot Disclosed",
+      "type": "PDFTextField",
+      "tooltip": "Response_H=Hispanic or Latino; N=Not Hispanic or Latino; X=Not Disclosed",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 491.28,
+          "y": 341.76,
+          "width": 83.88,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Signature",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 88.32,
+          "y": 104.52,
+          "width": 252,
+          "height": 25.92
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 444.6,
+          "y": 104.52,
+          "width": 90,
+          "height": 25.92
+        }
+      ]
+    },
+    {
+      "name": "Print Name",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 97.32,
+          "y": 77.88,
+          "width": 294,
+          "height": 25.560000000000002
+        }
+      ]
+    },
+    {
+      "name": "Signers Relationship with Applicant Business",
+      "type": "PDFTextField",
+      "tooltip": "Signer’s Relationship with Applicant Business",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 266.4,
+          "y": 51.12,
+          "width": 270,
+          "height": 25.92000000000001
+        }
+      ]
+    },
+    {
+      "name": "Legal Name of Applicant Business",
+      "type": "PDFTextField",
+      "tooltip": "Legal Name of Applicant Business",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 210.36,
+          "y": 580.44,
+          "width": 245.88,
+          "height": 19.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "EPC or OC",
+      "type": "PDFTextField",
+      "tooltip": "EPC or OC",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 520.2,
+          "y": 580.44,
+          "width": 48,
+          "height": 19.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "DBATrade Name if applicable",
+      "type": "PDFTextField",
+      "tooltip": "DBA/Trade Name (if applicable",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 201.24,
+          "y": 559.56,
+          "width": 366.12,
+          "height": 19.800000000000068
+        }
+      ]
+    },
+    {
+      "name": "Authorized Signature",
+      "type": "PDFSignature",
+      "tooltip": "Authorized Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 145.2,
+          "y": 538.68,
+          "width": 240.12,
+          "height": 19.800000000000068
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_2",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 489.6,
+          "y": 538.68,
+          "width": 78,
+          "height": 19.800000000000068
+        }
+      ]
+    },
+    {
+      "name": "Print Name of Authorized Representative",
+      "type": "PDFTextField",
+      "tooltip": "Print Name of Authorized Representative",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 241.44,
+          "y": 517.8,
+          "width": 168.12,
+          "height": 19.800000000000068
+        }
+      ]
+    },
+    {
+      "name": "Title",
+      "type": "PDFTextField",
+      "tooltip": "Title",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 438.6,
+          "y": 517.8,
+          "width": 132,
+          "height": 19.800000000000068
+        }
+      ]
+    },
+    {
+      "name": "Attested By",
+      "type": "PDFTextField",
+      "tooltip": "Attested By",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 99.36,
+          "y": 496.92,
+          "width": 270,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Legal Name of Business",
+      "type": "PDFTextField",
+      "tooltip": "Legal Name of Business",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 159.96,
+          "y": 470.04,
+          "width": 288,
+          "height": 19.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "EPC or OC_2",
+      "type": "PDFTextField",
+      "tooltip": "EPC or OC",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 511.92,
+          "y": 470.04,
+          "width": 53.99999999999994,
+          "height": 19.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "DBATrade Name if applicable_2",
+      "type": "PDFTextField",
+      "tooltip": "DBA/Trade Name (if applicable",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 201.24,
+          "y": 449.16,
+          "width": 366.12,
+          "height": 19.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "Authorized Signature_2",
+      "type": "PDFSignature",
+      "tooltip": "Authorized Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 145.2,
+          "y": 428.28,
+          "width": 240.12,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_3",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 489.6,
+          "y": 428.28,
+          "width": 78,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Print Name of Authorized Representative_2",
+      "type": "PDFTextField",
+      "tooltip": "Print Name of Authorized Representative",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 241.44,
+          "y": 407.4,
+          "width": 156.12,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Title_2",
+      "type": "PDFTextField",
+      "tooltip": "Title",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 438.6,
+          "y": 407.4,
+          "width": 120,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Attested By_2",
+      "type": "PDFTextField",
+      "tooltip": "Attested By",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 99.36,
+          "y": 386.4,
+          "width": 270,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Signature_2",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 88.32,
+          "y": 323.76,
+          "width": 258,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_4",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 456.72,
+          "y": 323.76,
+          "width": 114,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Print Name_2",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 97.32,
+          "y": 302.88,
+          "width": 246,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Signature_3",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 88.32,
+          "y": 270,
+          "width": 252,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_5",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 453.72,
+          "y": 270,
+          "width": 114,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Print Name_3",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 97.32,
+          "y": 249.12,
+          "width": 246,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Signature_4",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 88.32,
+          "y": 216.24,
+          "width": 252,
+          "height": 19.799999999999983
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_6",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 455.319,
+          "y": 216.24,
+          "width": 113.99999999999994,
+          "height": 19.799999999999983
+        }
+      ]
+    },
+    {
+      "name": "Print Name_4",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 97.32,
+          "y": 195.36,
+          "width": 246,
+          "height": 19.799999999999983
+        }
+      ]
+    },
+    {
+      "name": "Signature_5",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 88.32,
+          "y": 162.48,
+          "width": 252,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_7",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 456.72,
+          "y": 162.48,
+          "width": 114,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Print Name_5",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 97.32,
+          "y": 141.48,
+          "width": 246,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Signature_6",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 88.32,
+          "y": 108.6,
+          "width": 252,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Date mmddyyyy_8",
+      "type": "PDFTextField",
+      "tooltip": "Date (mm/dd/yyyy)",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 456.72,
+          "y": 108.6,
+          "width": 114,
+          "height": 19.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Print Name_6",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        10
+      ],
+      "widgetRects": [
+        {
+          "x": 97.32,
+          "y": 87.72,
+          "width": 240,
+          "height": 19.799999999999997
+        }
+      ]
+    },
+    {
+      "name": "Name of Certified Development CompanyRow1",
+      "type": "PDFTextField",
+      "tooltip": "Name of Certified Development Company",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 688.56,
+          "width": 273.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "CDC Number Location ID and FIRS NoRow1",
+      "type": "PDFTextField",
+      "tooltip": "CDC Number, Location ID, and FIRS No.",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.72,
+          "y": 688.56,
+          "width": 259.67999999999995,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "CDC Point of Contact Full NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "CDC Point of Contact (Full Name)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 648.36,
+          "width": 273.12,
+          "height": 13.319999999999936
+        }
+      ]
+    },
+    {
+      "name": "CDC Phone Number xxxxxxxxxxRow1",
+      "type": "PDFTextField",
+      "tooltip": "CDC Phone Number (xxx-xxx-xxxx)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.72,
+          "y": 648.36,
+          "width": 147.23999999999995,
+          "height": 13.319999999999936
+        }
+      ]
+    },
+    {
+      "name": "CDC POC EmailRow1",
+      "type": "PDFTextField",
+      "tooltip": "CDC POC Email",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 464.28,
+          "y": 648.36,
+          "width": 111.12,
+          "height": 13.319999999999936
+        }
+      ]
+    },
+    {
+      "name": "CDC or Contractor Underwriter NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "CDC or Contractor Underwriter Name",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.4,
+          "y": 618,
+          "width": 272.88,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "Name of ThirdParty Lender TPLRow1",
+      "type": "PDFTextField",
+      "tooltip": "Name of Third-Party Lender (TPL)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 552.84,
+          "width": 273.12,
+          "height": 13.199999999999932
+        }
+      ]
+    },
+    {
+      "name": "TPL ID Location IDRow1",
+      "type": "PDFTextField",
+      "tooltip": "TPL ID# (Location ID)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.72,
+          "y": 552.84,
+          "width": 259.67999999999995,
+          "height": 13.199999999999932
+        }
+      ]
+    },
+    {
+      "name": "TPL Point of Contact Full NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "TPL Point of Contact Full Name",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 512.76,
+          "width": 273.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TPL POC Phone Number xxxxxxxxxxRow1",
+      "type": "PDFTextField",
+      "tooltip": "TPL POC Phone Number (xxx-xxx-xxxx)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.72,
+          "y": 512.76,
+          "width": 147.23999999999995,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TPL POC EmailRow1",
+      "type": "PDFTextField",
+      "tooltip": "TPL POC Email",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 464.28,
+          "y": 512.76,
+          "width": 111.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "TPL AddressRow1",
+      "type": "PDFTextField",
+      "tooltip": "TPL Address",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 483.412,
+          "width": 534.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Name of Interim Lender IL If not the TPLRow1",
+      "type": "PDFTextField",
+      "tooltip": "Name of Interim Lender (IL) (If not the TPL)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 455.52,
+          "width": 273.12,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Interim Lender ID Location IDRow1",
+      "type": "PDFTextField",
+      "tooltip": "Interim Lender ID# (Location ID)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.72,
+          "y": 455.52,
+          "width": 259.67999999999995,
+          "height": 13.200000000000045
+        }
+      ]
+    },
+    {
+      "name": "Interim Lender Point of Contact Full NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "Interim Lender Point of Contact Full Name",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 415.44,
+          "width": 273.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "IL POC Phone Number xxxxxxxxxxRow1",
+      "type": "PDFTextField",
+      "tooltip": "IL POC Phone Number (xxx-xxx-xxxx)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.72,
+          "y": 415.44,
+          "width": 147.23999999999995,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "IL POC EmailRow1",
+      "type": "PDFTextField",
+      "tooltip": "IL POC Email",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 464.28,
+          "y": 415.44,
+          "width": 111.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Interim Lender Address Street City State ZipRow1",
+      "type": "PDFTextField",
+      "tooltip": "Interim Lender Address (Street, City, State, Zip)",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 386.88,
+          "width": 534.12,
+          "height": 13.199999999999989
+        }
+      ]
+    },
+    {
+      "name": "Applicant Business NameRow1",
+      "type": "PDFTextField",
+      "tooltip": "Applicant Business Name",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 41.28,
+          "y": 351.96,
+          "width": 171.12,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "Applicant Business SSNTax IDRow1",
+      "type": "PDFTextField",
+      "tooltip": "Applicant Business SSN/Tax ID",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 213.72,
+          "y": 351.96,
+          "width": 189.23999999999998,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "Applicant NAICS CodeRow1",
+      "type": "PDFTextField",
+      "tooltip": "Applicant NAICS Code",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 404.28,
+          "y": 351.96,
+          "width": 171.12,
+          "height": 13.319999999999993
+        }
+      ]
+    },
+    {
+      "name": "Guarantor",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant is an EPC, is the OC a: Guarantor",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 356.16,
+          "y": 310.178,
+          "width": 12.840999999999951,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "CoApplicant",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant is an EPC, is the OC a: Co-Applicant",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 422.64,
+          "y": 310.178,
+          "width": 12.841000000000008,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "With expansion",
+      "type": "PDFCheckBox",
+      "tooltip": "If yes, with or without expansion? With expansion",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 364.401,
+          "y": 285.681,
+          "width": 12.281000000000006,
+          "height": -10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "Without expansion",
+      "type": "PDFCheckBox",
+      "tooltip": "If yes, with or without expansion? Without expansion",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 462.118,
+          "y": 274.698,
+          "width": 12.281000000000006,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "Industry",
+      "type": "PDFCheckBox",
+      "tooltip": "What size standard is the CDC using to qualify the application? Industry",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 435,
+          "y": 679.2,
+          "width": 12.420000000000016,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Alternative",
+      "type": "PDFCheckBox",
+      "tooltip": "What size standard is the CDC using to qualify the application? Alternative",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 497.76,
+          "y": 689.763,
+          "width": 12.420000000000016,
+          "height": -10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Urban",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant located in a rural or urban area? Urban",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 474,
+          "y": 653.797,
+          "width": 12.420000000000016,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Rural",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant located in a rural or urban area? Rural",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 525.36,
+          "y": 653.797,
+          "width": 12.419999999999959,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "If no how long has the business been in operation",
+      "type": "PDFTextField",
+      "tooltip": "If no, how long has the business been in operation",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 329.88,
+          "y": 607.08,
+          "width": 204,
+          "height": 21.120000000000005
+        }
+      ]
+    },
+    {
+      "name": "Describe Project",
+      "type": "PDFTextField",
+      "tooltip": "Describe Project",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 157.92,
+          "y": 457.2,
+          "width": 396,
+          "height": 21.120000000000005
+        }
+      ]
+    },
+    {
+      "name": "fill_4",
+      "type": "PDFTextField",
+      "tooltip": "SBA Land/Building Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 185.88,
+          "y": 383.64,
+          "width": 58.44,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_5",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Land/Building Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 255.48,
+          "y": 383.64,
+          "width": 68.03999999999999,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_6",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Land/Building Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 334.68,
+          "y": 383.64,
+          "width": 83.15999999999997,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_7",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Land/Building Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 428.88,
+          "y": 383.64,
+          "width": 58.31999999999999,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_8",
+      "type": "PDFTextField",
+      "tooltip": "Land/Building Purchase total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.36,
+          "y": 383.64,
+          "width": 76.91999999999996,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_10",
+      "type": "PDFTextField",
+      "tooltip": "SBA Land only Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 185.88,
+          "y": 367.56,
+          "width": 58.44,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_11",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Land only Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 255.48,
+          "y": 367.56,
+          "width": 68.03999999999999,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_12",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Land only Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 334.68,
+          "y": 367.56,
+          "width": 83.15999999999997,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_13",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Land only Purchase amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 428.88,
+          "y": 367.56,
+          "width": 58.31999999999999,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_14",
+      "type": "PDFTextField",
+      "tooltip": "Land only Purchase total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.36,
+          "y": 367.56,
+          "width": 76.91999999999996,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_15",
+      "type": "PDFTextField",
+      "tooltip": "SBA New Construction/ Remodeling/Building Improvement amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 186.48,
+          "y": 326.04,
+          "width": 57.24000000000001,
+          "height": 39.71999999999997
+        }
+      ]
+    },
+    {
+      "name": "fill_16",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender New Construction/ Remodeling/Building Improvement amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 256.08,
+          "y": 326.04,
+          "width": 66.84000000000003,
+          "height": 39.71999999999997
+        }
+      ]
+    },
+    {
+      "name": "fill_17",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution New Construction/ Remodeling/Building Improvement amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 335.28,
+          "y": 326.04,
+          "width": 81.96000000000004,
+          "height": 39.71999999999997
+        }
+      ]
+    },
+    {
+      "name": "fill_18",
+      "type": "PDFTextField",
+      "tooltip": "Other Source New Construction/ Remodeling/Building Improvement amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 429.48,
+          "y": 326.04,
+          "width": 57.120000000000005,
+          "height": 39.71999999999997
+        }
+      ]
+    },
+    {
+      "name": "fill_19",
+      "type": "PDFTextField",
+      "tooltip": "New Construction/ Remodeling/Building Improvement total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.96,
+          "y": 326.04,
+          "width": 75.71999999999997,
+          "height": 39.71999999999997
+        }
+      ]
+    },
+    {
+      "name": "fill_20",
+      "type": "PDFTextField",
+      "tooltip": "SBA Machinery/Equipment amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 185.88,
+          "y": 309.96,
+          "width": 58.44,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_21",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Machinery/Equipment amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 255.48,
+          "y": 309.96,
+          "width": 68.03999999999999,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_22",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Machinery/Equipment amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 334.68,
+          "y": 309.96,
+          "width": 83.15999999999997,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_23",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Machinery/Equipment amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 428.88,
+          "y": 309.96,
+          "width": 58.31999999999999,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_24",
+      "type": "PDFTextField",
+      "tooltip": "Machinery/Equipment total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.36,
+          "y": 309.96,
+          "width": 76.91999999999996,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "fill_25",
+      "type": "PDFTextField",
+      "tooltip": "SBA Debt to be Refinanced amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 185.88,
+          "y": 293.76,
+          "width": 58.44,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_26",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Debt to be Refinanced amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 255.48,
+          "y": 293.76,
+          "width": 68.03999999999999,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_27",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Debt to be Refinanced amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 334.68,
+          "y": 293.76,
+          "width": 83.15999999999997,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_28",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Debt to be Refinanced amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 428.88,
+          "y": 293.76,
+          "width": 58.31999999999999,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_29",
+      "type": "PDFTextField",
+      "tooltip": "Debt to be Refinanced total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.36,
+          "y": 293.76,
+          "width": 76.91999999999996,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_30",
+      "type": "PDFTextField",
+      "tooltip": "SBA Eligible business expenses under Debt Refinancing amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 186.24,
+          "y": 264.96,
+          "width": 57.72,
+          "height": 27.24000000000001
+        }
+      ]
+    },
+    {
+      "name": "fill_31",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Eligible business expenses under Debt Refinancing amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 255.84,
+          "y": 264.96,
+          "width": 67.32000000000002,
+          "height": 27.24000000000001
+        }
+      ]
+    },
+    {
+      "name": "fill_32",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Eligible business expenses under Debt Refinancing amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 335.04,
+          "y": 264.96,
+          "width": 82.44,
+          "height": 27.24000000000001
+        }
+      ]
+    },
+    {
+      "name": "fill_33",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Eligible business expenses under Debt Refinancing amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 429.24,
+          "y": 264.96,
+          "width": 57.599999999999966,
+          "height": 27.24000000000001
+        }
+      ]
+    },
+    {
+      "name": "fill_34",
+      "type": "PDFTextField",
+      "tooltip": "Eligible business expenses under Debt Refinancing total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.72,
+          "y": 264.96,
+          "width": 76.19999999999993,
+          "height": 27.24000000000001
+        }
+      ]
+    },
+    {
+      "name": "fill_35",
+      "type": "PDFTextField",
+      "tooltip": "SBA Professional Fees (e.g., appraiser, architect, legal) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 186.24,
+          "y": 236.16,
+          "width": 57.72,
+          "height": 27.23999999999998
+        }
+      ]
+    },
+    {
+      "name": "fill_36",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Professional Fees (e.g., appraiser, architect, legal) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 255.84,
+          "y": 236.16,
+          "width": 67.32000000000002,
+          "height": 27.23999999999998
+        }
+      ]
+    },
+    {
+      "name": "fill_37",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Professional Fees (e.g., appraiser, architect, legal) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 335.04,
+          "y": 236.16,
+          "width": 82.44,
+          "height": 27.23999999999998
+        }
+      ]
+    },
+    {
+      "name": "fill_38",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Professional Fees (e.g., appraiser, architect, legal) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 429.24,
+          "y": 236.16,
+          "width": 57.599999999999966,
+          "height": 27.23999999999998
+        }
+      ]
+    },
+    {
+      "name": "fill_39",
+      "type": "PDFTextField",
+      "tooltip": "Professional Fees (e.g., appraiser, architect, legal) total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.72,
+          "y": 236.16,
+          "width": 76.19999999999993,
+          "height": 27.23999999999998
+        }
+      ]
+    },
+    {
+      "name": "fill_43",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Other Costs (e.g., construction contingency, interest on interim financing) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 429.48,
+          "y": 194.76,
+          "width": 57.120000000000005,
+          "height": 39.60000000000002
+        }
+      ]
+    },
+    {
+      "name": "fill_44",
+      "type": "PDFTextField",
+      "tooltip": "Other Costs (e.g., construction contingency, interest on interim financing) total amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.96,
+          "y": 194.76,
+          "width": 75.71999999999997,
+          "height": 39.60000000000002
+        }
+      ]
+    },
+    {
+      "name": "fill_46",
+      "type": "PDFTextField",
+      "tooltip": "SBA Totals amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 185.88,
+          "y": 178.56,
+          "width": 58.44,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_47",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Totals amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 254.779,
+          "y": 177.859,
+          "width": 68.04000000000002,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_48",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Totals amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 334.68,
+          "y": 178.56,
+          "width": 83.15999999999997,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_49",
+      "type": "PDFTextField",
+      "tooltip": "Other Source Totals amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 428.88,
+          "y": 178.56,
+          "width": 58.31999999999999,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "fill_50",
+      "type": "PDFTextField",
+      "tooltip": "Totals amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 498.36,
+          "y": 178.56,
+          "width": 76.91999999999996,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "Business District Revitalization",
+      "type": "PDFCheckBox",
+      "tooltip": "Business District Revitalization",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 474.84,
+          "width": 12,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Business restructuring from Federally",
+      "type": "PDFCheckBox",
+      "tooltip": "Business restructuring from Federally",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 455.858,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Changes Necessitated by Federal Budget",
+      "type": "PDFCheckBox",
+      "tooltip": "Changes Necessitated by Federal Budget",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 406.298,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Community or Area Development",
+      "type": "PDFCheckBox",
+      "tooltip": "Community or Area Development",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 372.458,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Enhanced Economic Competition",
+      "type": "PDFCheckBox",
+      "tooltip": "Enhanced Economic Competition",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 354.578,
+          "width": 12,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Expansion of Exports",
+      "type": "PDFCheckBox",
+      "tooltip": "Expansion of Exports",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 336.698,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Located in a HUBZone",
+      "type": "PDFCheckBox",
+      "tooltip": "Located in a HUBZone",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 318.818,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Manufacturing Firm",
+      "type": "PDFCheckBox",
+      "tooltip": "Manufacturing Firm",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 300.938,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "CDC Official Signature",
+      "type": "PDFSignature",
+      "tooltip": "CDC Official Signature",
+      "pageIndexes": [
+        19
+      ],
+      "widgetRects": [
+        {
+          "x": 156.36,
+          "y": 257.16,
+          "width": 168,
+          "height": 28.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "CDC Official Name",
+      "type": "PDFTextField",
+      "tooltip": "CDC Official Name",
+      "pageIndexes": [
+        19
+      ],
+      "widgetRects": [
+        {
+          "x": 138.84,
+          "y": 223.56,
+          "width": 204.11999999999998,
+          "height": 28.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Official Title",
+      "type": "PDFTextField",
+      "tooltip": "Official Title",
+      "pageIndexes": [
+        19
+      ],
+      "widgetRects": [
+        {
+          "x": 415.32,
+          "y": 223.56,
+          "width": 150.00000000000006,
+          "height": 28.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "Attested By_3",
+      "type": "PDFTextField",
+      "tooltip": "Attested By",
+      "pageIndexes": [
+        19
+      ],
+      "widgetRects": [
+        {
+          "x": 99.36,
+          "y": 189.96,
+          "width": 468,
+          "height": 28.799999999999983
+        }
+      ]
+    },
+    {
+      "name": "Loan Amount Required",
+      "type": "PDFTextField",
+      "tooltip": "Loan Amount Required",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 57.336,
+          "y": 313.256,
+          "width": 114.044,
+          "height": 28.80200000000002
+        }
+      ]
+    },
+    {
+      "name": "Check Box1",
+      "type": "PDFCheckBox",
+      "tooltip": " SBA employee, or the household member of an SBA employee, is a soleproprietor, partner, officer, director, or stockholder with a 10 percent or moreinterest of the Applicant. A “household member” of an SBA employee includesan SBA employee’s spouse, minor children, blood relatives, and the bloodrelatives of the employee’s spouse, who live in the same home as the employee. ",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 70.5744,
+          "y": 182.852,
+          "width": 12,
+          "height": -10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Check Box2",
+      "type": "PDFCheckBox",
+      "tooltip": " Former SBA employee, who has been separated from the SBA for less than oneyear prior to the request for financial assistance, is an employee, owner, partner,attorney, agent, owner of stock, officer, director, creditor or debtor of theApplicant. ",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 71.6771,
+          "y": 94.6343,
+          "width": 12,
+          "height": -10.142200000000003
+        }
+      ]
+    },
+    {
+      "name": "Check Box3",
+      "type": "PDFCheckBox",
+      "tooltip": " Member of Congress, or an appointed official or employee of the legislative orjudicial branch of the Federal Government, is a sole proprietor, general partner,officer, director, or stockholder with a 10 percent or more interest, or householdmember of such individual, of the Applicant. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 71.4716,
+          "y": 695.256,
+          "width": 12,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Check Box4",
+      "type": "PDFCheckBox",
+      "tooltip": " A member or employee of an SBA small business advisory council or a SCOREvolunteer is a sole proprietor, general partner, officer, or director of, orstockholder with a 10 percent or more interest in (or a household member of suchindividuals), of the Applicant. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 71.4716,
+          "y": 626.105,
+          "width": 12,
+          "height": -10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Check Box5",
+      "type": "PDFCheckBox",
+      "tooltip": " Government employee of another department or agency of the FederalGovernment having a grade of at least GS-13 or higher is a sole proprietor,general partner, officer, or director of, or stockholder with a 10 percent or moreinterest in, (or household member of such individuals), the Applicant. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 71.4716,
+          "y": 555.531,
+          "width": 12,
+          "height": -10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "Check Box6",
+      "type": "PDFCheckBox",
+      "tooltip": " Exhibit 1*: A credit memorandum, which addresses all the issues that the current versionof the SOP 50 10 requires to be addressed in the credit memorandum, including, but notlimited to the CDC's credit analysis, a history and description of the business, andanalysis of management ability (including a description of the qualifications andbackground of the Associates involved in day-to-day management of the business), anddiscussion demonstrating how the Applicant does not have credit available elsewhere. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 36.1844,
+          "y": 299.699,
+          "width": 12,
+          "height": -10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Check Box7",
+      "type": "PDFCheckBox",
+      "tooltip": " Exhibit 2*: Loan Authorization. The CDC must upload into E-Tran the draft loan Authorizationreflecting the proposed terms of the Project. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 36.1844,
+          "y": 197.837,
+          "width": 12,
+          "height": -10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Check Box8",
+      "type": "PDFCheckBox",
+      "tooltip": " Exhibit 3: SBA Form 413, Personal Financial Statement (or equivalent) signed and current within 90days for each proprietor, partner or stockholder with 20% or more ownership of the Applicant, and, ifdifferent, each owner with 20% or more ownership of the EPC, as well as copies of federal income taxreturns for the last one year. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 36.1844,
+          "y": 157.149,
+          "width": 12,
+          "height": -10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Check Box9",
+      "type": "PDFCheckBox",
+      "tooltip": " Exhibit 4: Applicant Size Standard Determination. ",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 36.1844,
+          "y": 75.1625,
+          "width": 12,
+          "height": 10.142200000000003
+        }
+      ]
+    },
+    {
+      "name": "Check Box17",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 12*: A copy of key cost documents such as contractor costs, estimates, vendor quotes for machinery and equipment, etc. as well as an itemized listing of estimated professional fees (e.g., appraiser, architect, legal, etc.). Full or partially executed purchase/sale agreements must be provided.  ",
+      "pageIndexes": [
+        16
+      ],
+      "widgetRects": [
+        {
+          "x": 35.1844,
+          "y": 314.369,
+          "width": 12.002400000000002,
+          "height": 10.669999999999959
+        }
+      ]
+    },
+    {
+      "name": "Check Box18",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 13*: An independent appraisal for project real estate (as required by SOP 50 10).  ",
+      "pageIndexes": [
+        16
+      ],
+      "widgetRects": [
+        {
+          "x": 35.1844,
+          "y": 270.07,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box19",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 14*: Environmental analysis (if applicable).  ",
+      "pageIndexes": [
+        16
+      ],
+      "widgetRects": [
+        {
+          "x": 35.1844,
+          "y": 246.913,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box20",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 15*: A letter of intent/term sheet from the Third-Party Lender stating the terms and conditions of its participation and the reason why it will not finance the entire project. For Loans made for debt refinancing, the TPL’s letter must provide the certifications required by the current version of SOP 50 10 (or any successor provision thereto) related to debt refinancing.  ",
+      "pageIndexes": [
+        16
+      ],
+      "widgetRects": [
+        {
+          "x": 35.1844,
+          "y": 221.55,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box21",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 16*: USCIS verification of the USCIS status of any alien who is an owner of 20% or more of the small business Applicant or any person who controls (as defined by SBA regulations and policies) the small business Applicant.  ",
+      "pageIndexes": [
+        16
+      ],
+      "widgetRects": [
+        {
+          "x": 35.1844,
+          "y": 150.565,
+          "width": 12.002400000000002,
+          "height": -10.669999999999987
+        }
+      ]
+    },
+    {
+      "name": "Check Box22",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 17: Credit reports for the Applicant, its owner(s) (regardless of ownership percentage), and affiliates who are guarantors (Credit reports are not required for non-guarantor affiliates).  ",
+      "pageIndexes": [
+        16
+      ],
+      "widgetRects": [
+        {
+          "x": 35.1844,
+          "y": 94.5316,
+          "width": 12.002400000000002,
+          "height": -10.669799999999995
+        }
+      ]
+    },
+    {
+      "name": "Check Box23",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 18: A completed SBA Form 159, Fee Disclosure Form and Compensation Agreement. (CDCs must upload the form into E-Tran in accordance with SOP 50 10 and must retain all SBA Forms 159 in their loan files.) In accordance with SOP 50 10, identify if the Small Business Applicant used any Agent (packager, loan broker, accountant, lawyer, etc.) to assist in (a) preparing the loan application or any related materials and/or (b) referring the loan to the lender.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 693.09,
+          "width": 12.002400000000002,
+          "height": 10.669999999999959
+        }
+      ]
+    },
+    {
+      "name": "Check Box24",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 19*: For “Debt Refinancing with Expansion:” Copies of the most current debt and lien instruments and transcript of account or equivalent for any debts being refinanced and certifications required for refinancing.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 615.017,
+          "width": 12.002400000000002,
+          "height": -10.670000000000073
+        }
+      ]
+    },
+    {
+      "name": "Check Box25",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 20*: For “Debt Refinancing Without Expansion:” Copies of the transcript(s) of account or equivalent for any debts being refinanced and certifications required for refinancing.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 561.086,
+          "width": 12.002400000000002,
+          "height": -10.669999999999959
+        }
+      ]
+    },
+    {
+      "name": "Check Box26",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 21*: Credit Alert Verification Reporting System (CAIVRS) report to document that the Applicant and its Associates, guarantors and affiliates do not have a Prior Loss to the government or Delinquent Federal Debt.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 520.285,
+          "width": 12.002400000000002,
+          "height": -10.669999999999959
+        }
+      ]
+    },
+    {
+      "name": "Check Box27",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 22*: SBA Form 2481, “Historic Property Borrower Certification,” if applicable, in accordance with SOP 50 10. SBA Form 2481 is required at time of application and must be included as part of this exhibit.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 466.252,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box28",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 23*: If applicable, documentation showing that the small business Applicant’s products and/or services are exported or that there is a plan to begin exporting as a result of this loan. Provide the estimated total export sales this loan will support. CDCs must comply with requirements related to export activity set forth in the current version of SOP 50 10 (or its subsequent revisions).  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 411.218,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box29",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 24*: If applicable, attach any licenses that are required to operate the business or describe the expected timeline and methods through which necessary licenses will be acquired (if applicable).  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 337.233,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box30",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 25*: For Applicants connected, associated or affiliated with a religious organization or which may have a religious component, an SBA Form 1971, “Religious Eligibility Worksheet,” and supporting documentation, including SBA clearance documents.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 299.741,
+          "width": 12.002400000000002,
+          "height": -10.669999999999959
+        }
+      ]
+    },
+    {
+      "name": "Check Box31",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 26*: Documents related to the Standards of Conduct Committee review or clearance of the Statement of No Objection.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 244.604,
+          "width": 12.002400000000002,
+          "height": -10.670000000000016
+        }
+      ]
+    },
+    {
+      "name": "Check Box32",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 27*: Identify all Applicant pending lawsuits (including divorce) and attach copies of the proceedings. CDC should provide comments on insurance coverage and a letter from the Applicant’s attorney on the impact of the pending litigation.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 204.009,
+          "width": 12.002400000000002,
+          "height": -10.669999999999987
+        }
+      ]
+    },
+    {
+      "name": "Check Box33",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 28*: Provide all documentation pertaining to the criminal backgrounds of the applicant and its associates.  ",
+      "pageIndexes": [
+        17
+      ],
+      "widgetRects": [
+        {
+          "x": 36.0817,
+          "y": 146.462,
+          "width": 12.002400000000002,
+          "height": -10.669999999999987
+        }
+      ]
+    },
+    {
+      "name": "amntinterim",
+      "type": "PDFTextField",
+      "tooltip": "If yes, provide the dollar amount of interim financing",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 401.028,
+          "y": 612.6,
+          "width": 168,
+          "height": 19.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Check Box16",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 11*: For an Applicant that is or will be operating under a Franchise/license/dealer/jobber or similar agreement:  ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 156.181,
+          "width": 12.002400000000002,
+          "height": -11.195000000000022
+        }
+      ]
+    },
+    {
+      "name": "Check Box15",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 10: The names of affiliated or subsidiary businesses (as determined under 13 C.F.R. § 121.301(f)) and their fiscal year-end financial statements and/or federal income tax returns for the last two years (or three years, if the industry size standard is being used to qualify under size standards). Concerns and entities are affiliates of each other when one controls or has the power to control the other, or a third party (or parties) controls or has power to control both. For example, affiliation may arise through ownership, common management (including through a management agreement), or when there is an identity of interest between close relatives with identical, or substantially identical, business interests.  ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 287.405,
+          "width": 12.002400000000002,
+          "height": -11.194999999999993
+        }
+      ]
+    },
+    {
+      "name": "Check Box14",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 9: A schedule of any previous government financing received by the Applicant or any affiliated company of the Applicant as well as any Associate of the Applicant. Include the name of the agency (Federal, State or local), original date and amount, outstanding balance, status of the loan (current, delinquent, technical default, paid in full, or charged off), and collateral securing the loan.  ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 359.082,
+          "width": 12.002400000000002,
+          "height": -11.194999999999993
+        }
+      ]
+    },
+    {
+      "name": "Check Box13",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 8: •Collateral securing the loan for each short-term and long-term loan that the business currently has outstanding or has planned for the next 12 months (other than the 504 loan). Please indicate whether each loan is current or delinquent. •A schedule of current debts. Include the original dates and amounts, monthly payments, interest rates, present balances owed, maturities, and to whom payable.   ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 473.971,
+          "width": 12.002400000000002,
+          "height": -11.194999999999993
+        }
+      ]
+    },
+    {
+      "name": "Check Box12",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 7: For a new business, a monthly cashflow analysis for the first 12 months of operation or for three months beyond the breakeven point (whichever is longer) together with assumptions used.  ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 509.95,
+          "width": 12.002400000000002,
+          "height": -11.194999999999993
+        }
+      ]
+    },
+    {
+      "name": "Check Box11",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 6: Projected, annualized income statement for the first two years after the loan is received along with assumptions used.  ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 552.059,
+          "width": 12.002400000000002,
+          "height": -11.194999999999936
+        }
+      ]
+    },
+    {
+      "name": "Check Box10",
+      "type": "PDFCheckBox",
+      "tooltip": "  Exhibit 5: A balance sheet and income statement dated within 120 days prior to submission to SBA and an aging of the accounts receivable and accounts payable. If the Applicant is a new business, provide a proforma balance sheet with assumptions.  ",
+      "pageIndexes": [
+        15
+      ],
+      "widgetRects": [
+        {
+          "x": 36.2872,
+          "y": 597.256,
+          "width": 12.002400000000002,
+          "height": 11.19500000000005
+        }
+      ]
+    },
+    {
+      "name": "citizenyes",
+      "type": "PDFCheckBox",
+      "tooltip": "U.S. Citizen? yes",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 84.7296,
+          "y": 599.279,
+          "width": 12.350399999999993,
+          "height": 9.441000000000031
+        }
+      ]
+    },
+    {
+      "name": "citizenno",
+      "type": "PDFCheckBox",
+      "tooltip": "U.S. Citizen? No",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 117.72,
+          "y": 599.279,
+          "width": 12.349999999999994,
+          "height": 9.441000000000031
+        }
+      ]
+    },
+    {
+      "name": "No_1",
+      "type": "PDFCheckBox",
+      "tooltip": " 1.Do you have an ownership interest in any other entity that has existing SBA loans? No  ",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 504.6,
+          "y": 415.043,
+          "width": 12,
+          "height": -10.843000000000018
+        }
+      ]
+    },
+    {
+      "name": "Yes_1",
+      "type": "PDFCheckBox",
+      "tooltip": " 1. Do you have an ownership interest in any other entity that has existing SBA loans?  Yes",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 468,
+          "y": 404.2,
+          "width": 12,
+          "height": 10.843000000000018
+        }
+      ]
+    },
+    {
+      "name": "initial 1",
+      "type": "PDFTextField",
+      "tooltip": "Initial",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 540,
+          "y": 400.88,
+          "width": 30,
+          "height": 21.95999999999998
+        }
+      ]
+    },
+    {
+      "name": "21yes",
+      "type": "PDFCheckBox",
+      "tooltip": "Does the Small Business Applicant have any Affiliates? Yes",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 504.347,
+          "y": 284.728,
+          "width": 11.641000000000076,
+          "height": 9.791999999999973
+        }
+      ]
+    },
+    {
+      "name": "21No",
+      "type": "PDFCheckBox",
+      "tooltip": "Does the Small Business Applicant have any Affiliates? No",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 542.332,
+          "y": 284.728,
+          "width": 11.640999999999963,
+          "height": 9.791999999999973
+        }
+      ]
+    },
+    {
+      "name": "22Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "Have the Small Business Applicant or any Affiliates ever obtained or applied for a direct or guaranteed loan from SBA, or from any other Federal, State or local government loan program or been a guarantor on such a loan?  Yes",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 504.347,
+          "y": 255.204,
+          "width": 11.641000000000076,
+          "height": 9.791999999999973
+        }
+      ]
+    },
+    {
+      "name": "22No",
+      "type": "PDFCheckBox",
+      "tooltip": "Have the Small Business Applicant or any Affiliates ever obtained or applied for a direct or guaranteed loan from SBA, or from any other Federal, State or local government loan program or been a guarantor on such a loan? No",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 542.332,
+          "y": 255.204,
+          "width": 11.640999999999963,
+          "height": 9.791999999999973
+        }
+      ]
+    },
+    {
+      "name": "23no",
+      "type": "PDFCheckBox",
+      "tooltip": "Has an application for this Project previously been submitted to the SBA by any CDC or Lender in connection with any SBA program? No",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 542.332,
+          "y": 211.933,
+          "width": 11.640999999999963,
+          "height": 9.792000000000002
+        }
+      ]
+    },
+    {
+      "name": "42y",
+      "type": "PDFCheckBox",
+      "tooltip": "Have you been arrested in the last 6 months for any criminal offense? Yes",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 469.191,
+          "y": 357.798,
+          "width": 12,
+          "height": 10.843000000000018
+        }
+      ]
+    },
+    {
+      "name": "42n",
+      "type": "PDFCheckBox",
+      "tooltip": "Have you been arrested in the last 6 months for any criminal offense? No",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 504.863,
+          "y": 357.798,
+          "width": 12.000000000000057,
+          "height": 10.843000000000018
+        }
+      ]
+    },
+    {
+      "name": "43y",
+      "type": "PDFCheckBox",
+      "tooltip": "Have you been arrested in the last 6 months for any criminal offense? Yes",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 469.191,
+          "y": 296.535,
+          "width": 12,
+          "height": 10.842999999999961
+        }
+      ]
+    },
+    {
+      "name": "43n",
+      "type": "PDFCheckBox",
+      "tooltip": "Have you been arrested in the last 6 months for any criminal offense? No",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 504.863,
+          "y": 296.535,
+          "width": 12.000000000000057,
+          "height": 10.842999999999961
+        }
+      ]
+    },
+    {
+      "name": "44y",
+      "type": "PDFCheckBox",
+      "tooltip": "For any criminal offense – other than a minor vehicle violation – have you ever: been convicted; 2) pleaded guilty; 3) pleaded nolo contendere; 4) been placed on pretrial diversion; or 5) been placed on any form of parole or probation (including probation before judgment)? Yes",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 469.191,
+          "y": 256.9,
+          "width": 12,
+          "height": 10.843000000000018
+        }
+      ]
+    },
+    {
+      "name": "44n",
+      "type": "PDFCheckBox",
+      "tooltip": "Are you presently suspended, debarred, proposed for debarment, declared ineligible, or voluntarily excluded from participation in this transaction by any Federal Department or agency? No ",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 504.863,
+          "y": 256.9,
+          "width": 12.000000000000057,
+          "height": 10.843000000000018
+        }
+      ]
+    },
+    {
+      "name": "45y",
+      "type": "PDFCheckBox",
+      "tooltip": "For any criminal offense – other than a minor vehicle violation – have you ever: been convicted; 2) pleaded guilty; 3) pleaded nolo contendere; 4) been placed on pretrial diversion; or 5) been placed on any form of parole or probation (including probation before judgment)? Yes",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 468.69,
+          "y": 137.483,
+          "width": 12,
+          "height": 10.84299999999999
+        }
+      ]
+    },
+    {
+      "name": "45n",
+      "type": "PDFCheckBox",
+      "tooltip": "Are you presently suspended, debarred, proposed for debarment, declared ineligible, or voluntarily excluded from participation in this transaction by any Federal Department or agency? No ",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 504.362,
+          "y": 137.483,
+          "width": 11.999999999999943,
+          "height": 10.84299999999999
+        }
+      ]
+    },
+    {
+      "name": "46y",
+      "type": "PDFCheckBox",
+      "tooltip": "  If you are a 50% or more owner of the Applicant, are you more than 60 days delinquent on any obligation to pay child support arising under an administrative                                             order, court order, repayment agreement between the holder and a custodial parent, or repayment agreement between the holder and a state agency providing child support enforcement services? Yes",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 467.299,
+          "y": 701.698,
+          "width": 12.701000000000022,
+          "height": 10.492000000000075
+        }
+      ]
+    },
+    {
+      "name": "46n",
+      "type": "PDFCheckBox",
+      "tooltip": "  If you are a 50% or more owner of the Applicant, are you more than 60 days delinquent on any obligation to pay child support arising under an administrative                                             order, court order, repayment agreement between the holder and a custodial parent, or repayment agreement between the holder and a state agency providing child support enforcement services? No",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 504.848,
+          "y": 701.698,
+          "width": 12.001000000000033,
+          "height": 10.492000000000075
+        }
+      ]
+    },
+    {
+      "name": "48n",
+      "type": "PDFCheckBox",
+      "tooltip": "Are you currently the subject of any pending lawsuits (including divorce)? No",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 504.848,
+          "y": 573.148,
+          "width": 11.999999999999943,
+          "height": 10.492999999999938
+        }
+      ]
+    },
+    {
+      "name": "48y",
+      "type": "PDFCheckBox",
+      "tooltip": "Are you currently the subject of any pending lawsuits (including divorce)? Yes",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 467.299,
+          "y": 573.148,
+          "width": 12,
+          "height": 10.492999999999938
+        }
+      ]
+    },
+    {
+      "name": "47y",
+      "type": "PDFCheckBox",
+      "tooltip": "Have you ever declared bankruptcy? Yes",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 467.299,
+          "y": 614.065,
+          "width": 12,
+          "height": 10.491999999999962
+        }
+      ]
+    },
+    {
+      "name": "47n",
+      "type": "PDFCheckBox",
+      "tooltip": "Have you ever declared bankruptcy? No",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 504.848,
+          "y": 614.065,
+          "width": 11.999999999999943,
+          "height": 10.491999999999962
+        }
+      ]
+    },
+    {
+      "name": "49y",
+      "type": "PDFCheckBox",
+      "tooltip": "Are you currently the subject of any pending lawsuits (including divorce)? Yes",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 467.299,
+          "y": 534.148,
+          "width": 12,
+          "height": 10.492999999999938
+        }
+      ]
+    },
+    {
+      "name": "49n",
+      "type": "PDFCheckBox",
+      "tooltip": "Are you currently the subject of any pending lawsuits (including divorce)? No",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 504.848,
+          "y": 534.148,
+          "width": 11.999999999999943,
+          "height": 10.492999999999938
+        }
+      ]
+    },
+    {
+      "name": "Contractor",
+      "type": "PDFCheckBox",
+      "tooltip": " Underwriter Employent Status Contractor",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 513.72,
+          "y": 620.378,
+          "width": 12.841000000000008,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "CDC Employee",
+      "type": "PDFCheckBox",
+      "tooltip": " Underwriter Employent Status CDC Employee",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 444.48,
+          "y": 620.378,
+          "width": 12.841000000000008,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "No_16N",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant and Eligible Passive Company? No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 183,
+          "y": 310.178,
+          "width": 12.841000000000008,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "No_17",
+      "type": "PDFCheckBox",
+      "tooltip": "Does the Applicant project involve debt refinancing? Yes",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 505.383,
+          "y": 291.858,
+          "width": 12.281000000000006,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "No_16",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant and Eligible Passive Company Yes",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 150.36,
+          "y": 310.178,
+          "width": 12.84099999999998,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "No_17N",
+      "type": "PDFCheckBox",
+      "tooltip": "Does the Applicant project involve debt refinancing? No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 541.023,
+          "y": 291.858,
+          "width": 12.280999999999949,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "No_18",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing with expansion: Is the debt being refinanced the debt of the CDC or the TPL, or of affiliates of either? Yes",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 505.383,
+          "y": 243.487,
+          "width": 12.281000000000006,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "No_18N",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing with expansion: Is the debt being refinanced the debt of the CDC or the TPL, or of affiliates of either? No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 541.023,
+          "y": 243.487,
+          "width": 12.280999999999949,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "No_19",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing with expansion: Is the CDC requesting an exception to the requirement that the new installmentpayment be at least 10% less than the existing installment amount(s)?  Yess",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 505.383,
+          "y": 213.979,
+          "width": 12.281000000000006,
+          "height": 10.982999999999976
+        }
+      ]
+    },
+    {
+      "name": "No_19N",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing with expansion: Is the CDC requesting an exception to the requirement that the new installmentpayment be at least 10% less than the existing installment amount(s)?  No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 541.023,
+          "y": 213.979,
+          "width": 12.280999999999949,
+          "height": 10.982999999999976
+        }
+      ]
+    },
+    {
+      "name": "No_20",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the CDC requesting a waiver of the requirement that the 504 eligible fixed assetscollateralizing any debt to be refinanced (or relating the portion of debt beingrefinanced in the case of partial refinance) also collateralize the 504 Loan? Yes",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 505.383,
+          "y": 169.993,
+          "width": 12.281000000000006,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "No_20N",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the CDC requesting a waiver of the requirement that the 504 eligible fixed assetscollateralizing any debt to be refinanced (or relating the portion of debt beingrefinanced in the case of partial refinance) also collateralize the 504 Loan? No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 541.023,
+          "y": 169.993,
+          "width": 12.280999999999949,
+          "height": 10.983000000000004
+        }
+      ]
+    },
+    {
+      "name": "No_21",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing without expansion: Is the debt being refinanced the debt of the CDC or the TPL, or of affiliates of either? yes",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 505.383,
+          "y": 106.483,
+          "width": 12.281000000000006,
+          "height": 10.98299999999999
+        }
+      ]
+    },
+    {
+      "name": "No_21N",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the debt being refinanced the debt of the CDC or the TPL, or of affiliates of either? No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 541.023,
+          "y": 106.483,
+          "width": 12.280999999999949,
+          "height": 10.98299999999999
+        }
+      ]
+    },
+    {
+      "name": "No_22",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing without expansion: If the debt being refinanced is subject to a guarantee by a Federal agency, is the CDC requesting anexception to the requirement that the new installment payment be at least 10% less than the existinginstallment amount(s)? yes",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 505.383,
+          "y": 63.2781,
+          "width": 12.281000000000006,
+          "height": 10.9831
+        }
+      ]
+    },
+    {
+      "name": "No_22N",
+      "type": "PDFCheckBox",
+      "tooltip": "If debt refinancing without expansion: If the debt being refinanced is subject to a guarantee by a Federal agency, is the CDC requesting anexception to the requirement that the new installment payment be at least 10% less than the existinginstallment amount(s)? No",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 541.023,
+          "y": 63.2781,
+          "width": 12.280999999999949,
+          "height": 10.9831
+        }
+      ]
+    },
+    {
+      "name": "ASM",
+      "type": "PDFCheckBox",
+      "tooltip": "Submission Method (Check if applicable) ASM",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 121.92,
+          "y": 601.262,
+          "width": 12.840999999999994,
+          "height": -10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "ALP Express",
+      "type": "PDFCheckBox",
+      "tooltip": "Submission Method (Check if applicable) ALP Express",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 250.2,
+          "y": 591.12,
+          "width": 12.841000000000008,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "PCLP",
+      "type": "PDFCheckBox",
+      "tooltip": "Submission Method (Check if applicable) PCLP",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 168.72,
+          "y": 601.262,
+          "width": 12.841000000000008,
+          "height": -10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "CDCs Lead SBA Office",
+      "type": "PDFTextField",
+      "tooltip": "CDC’s Lead SBA Office",
+      "pageIndexes": [
+        11
+      ],
+      "widgetRects": [
+        {
+          "x": 315.84,
+          "y": 587.64,
+          "width": 259.44,
+          "height": 14.879999999999995
+        }
+      ]
+    },
+    {
+      "name": "Yes_22",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant using project funds to relocate? Yes",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 502.898,
+          "y": 583.78,
+          "width": 12.419999999999959,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_21",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant a new business? Yes",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 502.898,
+          "y": 630.076,
+          "width": 12.419999999999959,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_23",
+      "type": "PDFCheckBox",
+      "tooltip": "If the project property is considered “Special Purpose” (as defined in SOP 50 10), has the Applicant or its affiliates received approval for a “Special Purpose” project previously? Yes",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 502.898,
+          "y": 560.412,
+          "width": 12.419999999999959,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_23N",
+      "type": "PDFCheckBox",
+      "tooltip": "If the project property is considered “Special Purpose” (as defined in SOP 50 10), has the Applicant or its affiliates received approval for a “Special Purpose” project previously? No",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 540.146,
+          "y": 560.412,
+          "width": 12.420000000000073,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_22N",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant using project funds to relocate? No",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 540.146,
+          "y": 583.78,
+          "width": 12.420000000000073,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_21N",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant a new business? No",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 540.146,
+          "y": 630.076,
+          "width": 12.420000000000073,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "nature of the funds",
+      "type": "PDFTextField",
+      "tooltip": "If there is an amount in the Other Source column in the table above identify the source and describe the nature of the funds (e.g. grant, line of credit, etc",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 663.24,
+          "width": 498,
+          "height": 19.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "Yes_25",
+      "type": "PDFCheckBox",
+      "tooltip": "Does this project involve interim financing? Yes",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 503.234,
+          "y": 642.851,
+          "width": 13.261000000000024,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Yes_25N",
+      "type": "PDFCheckBox",
+      "tooltip": "Does this project involve interim financing? No",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 541.73,
+          "y": 642.851,
+          "width": 13.260999999999967,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Yes_26N",
+      "type": "PDFCheckBox",
+      "tooltip": "Does the project create or retain the required number of jobs per debenture amount?  No",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 541.691,
+          "y": 584.107,
+          "width": 13.260999999999967,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Yes_27",
+      "type": "PDFCheckBox",
+      "tooltip": "If no, is the project eligible based on the CDC’s overall portfolio job ratio? Yes",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 504.456,
+          "y": 568.508,
+          "width": 13.260999999999967,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "Yes_27N",
+      "type": "PDFCheckBox",
+      "tooltip": "If no, is the project eligible based on the CDC’s overall portfolio job ratio?  No",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 541.749,
+          "y": 568.912,
+          "width": 13.260999999999967,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "Yes_26",
+      "type": "PDFCheckBox",
+      "tooltip": "Does the project create or retain the required number of jobs per debenture amount? Yes",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 504.456,
+          "y": 584.107,
+          "width": 13.260999999999967,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Yes_24",
+      "type": "PDFCheckBox",
+      "tooltip": "Are there any licensing requirements that the Applicant must comply with to operate the business? (If yes, provide copies of the licenses or expected timeline to obtain in Exhibit 24) Yes",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 502.898,
+          "y": 521.477,
+          "width": 12.419999999999959,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_24N",
+      "type": "PDFCheckBox",
+      "tooltip": "Are there any licensing requirements that the Applicant must comply with to operate the business? (If yes, provide copies of the licenses or expected timeline to obtain in Exhibit 24) No",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 540.146,
+          "y": 521.477,
+          "width": 12.420000000000073,
+          "height": 10.562999999999988
+        }
+      ]
+    },
+    {
+      "name": "Yes_28N",
+      "type": "PDFCheckBox",
+      "tooltip": "If no, is the project eligible under the 504 debt refinance alternative job goal? No",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 541.457,
+          "y": 553.912,
+          "width": 13.260999999999967,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "Yes_29",
+      "type": "PDFCheckBox",
+      "tooltip": "Has the CDC had staffing changes since last debenture request? yes",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 502.646,
+          "y": 473.924,
+          "width": 13.576999999999941,
+          "height": 11.19300000000004
+        }
+      ]
+    },
+    {
+      "name": "Yes_29N",
+      "type": "PDFCheckBox",
+      "tooltip": "Has the CDC had staffing changes since last debenture request? No",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 540.457,
+          "y": 473.924,
+          "width": 13.576999999999998,
+          "height": 11.19300000000004
+        }
+      ]
+    },
+    {
+      "name": "Yes_30",
+      "type": "PDFCheckBox",
+      "tooltip": "If yes, has the new staff received SBA clearance via the Form 1081 clearance process? yes",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 502.646,
+          "y": 460.587,
+          "width": 13.576999999999941,
+          "height": -11.194000000000017
+        }
+      ]
+    },
+    {
+      "name": "Yes_30N",
+      "type": "PDFCheckBox",
+      "tooltip": "If yes, has the new staff received SBA clearance via the Form 1081 clearance process? No",
+      "pageIndexes": [
+        14
+      ],
+      "widgetRects": [
+        {
+          "x": 540.457,
+          "y": 449.393,
+          "width": 13.576999999999998,
+          "height": 11.194000000000017
+        }
+      ]
+    },
+    {
+      "name": "Date1_af_date",
+      "type": "PDFTextField",
+      "tooltip": "Date of Signature",
+      "pageIndexes": [
+        19
+      ],
+      "widgetRects": [
+        {
+          "x": 416.557,
+          "y": 256.892,
+          "width": 150,
+          "height": 28.80200000000002
+        }
+      ]
+    },
+    {
+      "name": "23yes",
+      "type": "PDFCheckBox",
+      "tooltip": "Has an application for this Project previously been submitted to the SBA by any CDC or Lender in connection with any SBA program? Yes",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 504.347,
+          "y": 211.933,
+          "width": 11.641000000000076,
+          "height": 9.792000000000002
+        }
+      ]
+    },
+    {
+      "name": "24yes",
+      "type": "PDFCheckBox",
+      "tooltip": "Has the Applicant business ever declared bankruptcy? Yes",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 504.347,
+          "y": 168.99,
+          "width": 11.641000000000076,
+          "height": 9.790999999999997
+        }
+      ]
+    },
+    {
+      "name": "24No",
+      "type": "PDFCheckBox",
+      "tooltip": "Has the Applicant business ever declared bankruptcy?  No",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 542.332,
+          "y": 168.815,
+          "width": 11.640999999999963,
+          "height": 9.790999999999997
+        }
+      ]
+    },
+    {
+      "name": "25yes",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant business involved in any pending lawsuits? Yes",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 504.347,
+          "y": 139.398,
+          "width": 11.641000000000076,
+          "height": 9.790999999999997
+        }
+      ]
+    },
+    {
+      "name": "25No",
+      "type": "PDFCheckBox",
+      "tooltip": "Is the Applicant business involved in any pending lawsuits? No",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 542.332,
+          "y": 139.661,
+          "width": 11.640999999999963,
+          "height": 9.790999999999997
+        }
+      ]
+    },
+    {
+      "name": "Yes_28",
+      "type": "PDFCheckBox",
+      "tooltip": "Has the CDC had staffing changes since last debenture request? yes",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 504.456,
+          "y": 553.508,
+          "width": 13.260999999999967,
+          "height": 10.141999999999939
+        }
+      ]
+    },
+    {
+      "name": "Located in an Opportunity Zone",
+      "type": "PDFCheckBox",
+      "tooltip": "Located in an Opportunity Zone",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 474.84,
+          "width": 12,
+          "height": 10.142000000000053
+        }
+      ]
+    },
+    {
+      "name": "Reduce Energy Use By 10",
+      "type": "PDFCheckBox",
+      "tooltip": "Reduce Energy Use By 10 %",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 455.858,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Reduces Unemployment in Labor",
+      "type": "PDFCheckBox",
+      "tooltip": "Reduces Unemployment in Labor",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 437.978,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Renewable Energy Production",
+      "type": "PDFCheckBox",
+      "tooltip": "Renewable Energy Production",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 404.258,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Rural Development",
+      "type": "PDFCheckBox",
+      "tooltip": "Rural Development",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 386.378,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "Sustainable Building Designs",
+      "type": "PDFCheckBox",
+      "tooltip": "Sustainable Building Designs",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 368.498,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "VeteranOwned Business",
+      "type": "PDFCheckBox",
+      "tooltip": "Veteran-Owned Business",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 350.498,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "WomenOwned Business",
+      "type": "PDFCheckBox",
+      "tooltip": "Women-Owned Business",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 332.738,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "MinorityOwned Business",
+      "type": "PDFCheckBox",
+      "tooltip": "Minority-Owned Business",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 360,
+          "y": 317.138,
+          "width": 12,
+          "height": 10.141999999999996
+        }
+      ]
+    },
+    {
+      "name": "11 What is the CDCs overall portfolio job ratio as of the date of its last Annual Report",
+      "type": "PDFTextField",
+      "tooltip": "11. What is the CDC’s overall portfolio job ratio as of the date of its last Annual Report",
+      "pageIndexes": [
+        13
+      ],
+      "widgetRects": [
+        {
+          "x": 483.48,
+          "y": 524.28,
+          "width": 78,
+          "height": 19.56000000000006
+        }
+      ]
+    },
+    {
+      "name": "fill_40",
+      "type": "PDFTextField",
+      "tooltip": "SBA Other Costs (e.g., construction contingency, interest on interim financing) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 186.48,
+          "y": 194.76,
+          "width": 57.24000000000001,
+          "height": 39.60000000000002
+        }
+      ]
+    },
+    {
+      "name": "fill_41",
+      "type": "PDFTextField",
+      "tooltip": "Third Party Lender Other Costs (e.g., construction contingency, interest on interim financing) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 256.08,
+          "y": 194.059,
+          "width": 66.84000000000003,
+          "height": 39.599999999999994
+        }
+      ]
+    },
+    {
+      "name": "fill_42",
+      "type": "PDFTextField",
+      "tooltip": "Borrower Contribution Other Costs (e.g., construction contingency, interest on interim financing) amount",
+      "pageIndexes": [
+        12
+      ],
+      "widgetRects": [
+        {
+          "x": 335.28,
+          "y": 194.76,
+          "width": 81.96000000000004,
+          "height": 39.60000000000002
+        }
+      ]
+    }
+  ]
+}

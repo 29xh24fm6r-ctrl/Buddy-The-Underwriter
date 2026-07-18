@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
+import { normalizeInvertedWidgetRects } from "@/lib/sba/forms/pdfRectFix";
 import type { Form912BuildResult } from "@/lib/sba/forms/form912/build";
 import { FORM_912_TEXT_FIELDS, FORM_912_CHECKBOX_FIELDS, FORM_912_RADIO_FIELDS } from "@/lib/sba/forms/form912/pdfFieldMap";
 import { decryptStoredPii } from "@/lib/builder/secure/securePiiIntake";
@@ -110,6 +111,7 @@ export async function renderForm912Pdf(args: {
 
   try {
     const pdfDoc = await PDFDocument.load(templateBytes);
+    normalizeInvertedWidgetRects(pdfDoc);
     const form = pdfDoc.getForm();
     const fields = form.getFields();
 

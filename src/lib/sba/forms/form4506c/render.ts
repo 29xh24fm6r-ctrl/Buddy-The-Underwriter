@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
+import { normalizeInvertedWidgetRects } from "@/lib/sba/forms/pdfRectFix";
 import type { Form4506cBuildResult } from "@/lib/sba/forms/form4506c/build";
 import { FORM_4506C_TEXT_FIELDS, FORM_4506C_TAX_PERIOD_FIELDS, FORM_4506C_CHECKBOX_FIELDS } from "@/lib/sba/forms/form4506c/pdfFieldMap";
 import { decryptStoredPii } from "@/lib/builder/secure/securePiiIntake";
@@ -147,6 +148,7 @@ export async function renderForm4506cPdf(args: {
 
   try {
     const pdfDoc = await PDFDocument.load(templateBytes);
+    normalizeInvertedWidgetRects(pdfDoc);
     const form = pdfDoc.getForm();
     const fields = form.getFields();
 

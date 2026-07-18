@@ -118,11 +118,17 @@ export async function GET(req: Request, ctx: Ctx) {
           const result = await buildForm1244WithSignature(dealId, sb);
           return NextResponse.json({ ok: true, dealId, ...result });
         }
+        // Section Two (per-associate personal history) is completed per
+        // individual on the real form — see render.ts's header comment —
+        // so rendering requires knowing which individual's copy to
+        // produce, same as Form 1919.
+        const ownershipEntityId = requireOwnershipEntityId(req);
+        if (typeof ownershipEntityId !== "string") return ownershipEntityId;
         const input = await buildForm1244Input(dealId, sb);
         const buildResult = buildForm1244(input);
-        const rendered = await renderForm1244Pdf({ supabase: sb, buildResult });
+        const rendered = await renderForm1244Pdf({ supabase: sb, buildResult, ownershipEntityId, dealId });
         if (!rendered.ok) return NextResponse.json({ ok: false, reason: rendered.reason, detail: rendered.detail }, { status: 422 });
-        return pdfResponse(rendered.pdfBytes, `form-1244-${dealId}.pdf`);
+        return pdfResponse(rendered.pdfBytes, `form-1244-${dealId}-${ownershipEntityId}.pdf`);
       }
 
       case "148": {

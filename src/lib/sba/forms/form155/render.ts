@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
+import { normalizeInvertedWidgetRects } from "@/lib/sba/forms/pdfRectFix";
 import type { Form155BuildResult } from "@/lib/sba/forms/form155/build";
 import { FORM_155_TEXT_FIELDS, FORM_155_RADIO_FIELDS } from "@/lib/sba/forms/form155/pdfFieldMap";
 
@@ -76,6 +77,7 @@ export async function renderForm155Pdf(args: { supabase: SupabaseClient; buildRe
 
   try {
     const pdfDoc = await PDFDocument.load(templateBytes);
+    normalizeInvertedWidgetRects(pdfDoc);
     const form = pdfDoc.getForm();
     const fields = form.getFields();
 
