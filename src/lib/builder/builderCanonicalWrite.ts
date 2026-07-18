@@ -4,6 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BuilderSectionKey, DealSectionData, PartiesSectionData, StorySectionData } from "./builderTypes";
 import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
 
+export type BuilderCanonicalWriteResult = {
+  ownerEntityIds?: Array<{ id: string; ownership_entity_id: string }>;
+};
+
 /**
  * Write-through from builder sections to canonical tables.
  * Best-effort — never throws. All errors are logged.
@@ -13,7 +17,7 @@ export async function writeBuilderCanonical(
   sectionKey: BuilderSectionKey,
   data: Record<string, unknown>,
   sb: SupabaseClient,
-): Promise<void> {
+): Promise<BuilderCanonicalWriteResult> {
   try {
     switch (sectionKey) {
       case "deal":
@@ -22,9 +26,10 @@ export async function writeBuilderCanonical(
       case "business":
         await writeBusinessCanonical(dealId, data, sb);
         break;
-      case "parties":
-        await writePartiesCanonical(dealId, data as Partial<PartiesSectionData>, sb);
-        break;
+      case "parties": {
+        const result = await writePartiesCanonical(dealId, data as Partial<PartiesSectionData>, sb);
+        return { ownerEntityIds: result.ownerEntityIds };
+      }
       case "story":
         await writeStoryCanonical(dealId, data as Partial<StorySectionData>, sb);
         break;
@@ -40,6 +45,7 @@ export async function writeBuilderCanonical(
       hint: err?.hint,
     });
   }
+  return {};
 }
 
 /** deal section → deals.loan_amount */
@@ -139,17 +145,63 @@ async function writeBusinessCanonical(
   }
 }
 
-/** parties section → ensureOwnerEntity for each owner */
+/**
+ * parties section → ensureOwnerEntity + sync every structured field onto
+ * that row (title/ownership_pct/dob/ssn_last4/home address). Previously
+ * this only ensured the row existed by name — a banker filling out
+ * OwnerDrawer by hand (the manual builder path, as opposed to
+ * conversational/voice intake's propagateBorrowerFacts.ts, which already
+ * writes these columns) had everything past the owner's name silently
+ * stop at the deal_builder_sections JSON blob and never reach
+ * ownership_entities — the table every SBA form renderer queries
+ * directly. Returns the client-id -> ownership_entity_id mapping so the
+ * builder UI can learn the real ID (needed to call the full-SSN vault
+ * endpoint, which requires it).
+ *
+ * Deliberate overwrite, not fill-if-null: this is a human directly
+ * editing the record (unlike voice-extraction's probabilistic merge), so
+ * the form's current value wins — but only for keys the owner object
+ * actually carries, so an unset field here never blanks out a value
+ * populated by the other intake path.
+ */
 async function writePartiesCanonical(
   dealId: string,
   data: Partial<PartiesSectionData>,
   sb: SupabaseClient,
-): Promise<void> {
+): Promise<{ ownerEntityIds: Array<{ id: string; ownership_entity_id: string }> }> {
   const owners = data.owners ?? [];
+  const ownerEntityIds: Array<{ id: string; ownership_entity_id: string }> = [];
+
   for (const owner of owners) {
     if (!owner.full_legal_name?.trim()) continue;
-    await ensureOwnerEntity(sb, dealId, owner.full_legal_name.trim());
+    const ownershipEntityId = await ensureOwnerEntity(sb, dealId, owner.full_legal_name.trim());
+    if (!ownershipEntityId) continue;
+    ownerEntityIds.push({ id: owner.id, ownership_entity_id: ownershipEntityId });
+
+    const update: Record<string, unknown> = {};
+    if (owner.title !== undefined) update.title = owner.title || null;
+    if (owner.ownership_pct !== undefined) update.ownership_pct = owner.ownership_pct ?? null;
+    if (owner.dob !== undefined) update.date_of_birth = owner.dob || null;
+    if (owner.ssn_last4 !== undefined) update.tax_id_last4 = owner.ssn_last4 || null;
+    if (owner.home_address !== undefined) update.home_address_street = owner.home_address || null;
+    if (owner.home_city !== undefined) update.home_address_city = owner.home_city || null;
+    if (owner.home_state !== undefined) update.home_address_state = owner.home_state || null;
+    if (owner.home_zip !== undefined) update.home_address_zip = owner.home_zip || null;
+
+    if (Object.keys(update).length === 0) continue;
+    const { error } = await sb.from("ownership_entities").update(update).eq("id", ownershipEntityId);
+    if (error) {
+      console.error("[builderCanonicalWrite] ownership_entities field sync failed", {
+        dealId,
+        ownershipEntityId,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+    }
   }
+
+  return { ownerEntityIds };
 }
 
 /**

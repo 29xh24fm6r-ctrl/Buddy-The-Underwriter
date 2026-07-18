@@ -10,11 +10,12 @@ type Props = {
   state: BuilderState;
   prefill: BuilderPrefill | null;
   onSectionChange: (sectionKey: string, data: Record<string, unknown>) => void;
+  dealId: string;
 };
 
 const glass = "rounded-xl border border-white/10 bg-white/[0.03] p-4";
 
-export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
+export function PartiesWorkspace({ state, prefill, onSectionChange, dealId }: Props) {
   const parties = (state.sections.parties ?? { owners: [] }) as PartiesSectionData;
   const guarantorsSection = (state.sections.guarantors ?? { guarantors: [] }) as GuarantorsSectionData;
   const owners = parties.owners ?? [];
@@ -355,6 +356,7 @@ export function PartiesWorkspace({ state, prefill, onSectionChange }: Props) {
         open={profileDrawer.open}
         onClose={() => setProfileDrawer({ open: false, owner: null })}
         owner={profileDrawer.owner}
+        dealId={dealId}
       />
     </div>
   );

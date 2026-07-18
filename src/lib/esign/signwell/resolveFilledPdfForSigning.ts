@@ -17,6 +17,9 @@ import { buildForm4506cInput } from "@/lib/sba/forms/form4506c/inputBuilder";
 import { buildForm4506c } from "@/lib/sba/forms/form4506c/build";
 import { renderForm4506cPdf } from "@/lib/sba/forms/form4506c/render";
 
+import { buildForm155Input } from "@/lib/sba/forms/form155/inputBuilder";
+import { renderForm155Pdf } from "@/lib/sba/forms/form155/render";
+
 /**
  * SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 §4/§5 — the resolver SignWell signing
  * actually needs: given an esign formCode + deal + signer, produce the
@@ -24,9 +27,12 @@ import { renderForm4506cPdf } from "@/lib/sba/forms/form4506c/render";
  * loan data. Reuses the same build*Input -> build* -> render*Pdf pipeline
  * /api/deals/[dealId]/sba/forms/[formId]/render already exercises
  * (src/lib/sba/forms/*​/{inputBuilder,build,render}.ts) — this is not a new
- * fill engine, just a formCode -> form-module dispatch for the subset of
- * forms the signing panel currently tracks (FORM_1919, FORM_413, FORM_912,
- * FORM_4506C — see TRACKED_FORMS in SbaSigningPanel.tsx).
+ * fill engine, just a formCode -> form-module dispatch for the forms the
+ * signing panel tracks: FORM_1919/FORM_413/FORM_912/FORM_4506C per-signer
+ * (TRACKED_FORMS in SbaSigningPanel.tsx) plus FORM_155, deal-level
+ * (dealLevelForms in the same component — SbaSigningPanel already showed
+ * a "Send" button for it before this case existed, which would have hit
+ * UNSUPPORTED_FORM_CODE).
  */
 export type ResolveFilledPdfResult =
   | { ok: true; pdfBytes: Buffer }
@@ -74,6 +80,14 @@ export async function resolveFilledPdfForSigning(args: {
       const input = await buildForm4506cInput(dealId, bankId, sb);
       const buildResult = buildForm4506c(input);
       const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId, dealId, bankId });
+      return rendered.ok
+        ? { ok: true, pdfBytes: rendered.pdfBytes }
+        : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_155": {
+      const buildResult = await buildForm155Input(dealId, bankId, sb);
+      const rendered = await renderForm155Pdf({ supabase, buildResult });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
