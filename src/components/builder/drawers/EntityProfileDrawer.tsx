@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DrawerShell } from "./DrawerShell";
+import { PfsSchedules } from "./PfsSchedules";
 import type { BorrowerCard } from "@/lib/builder/builderTypes";
 
 type Props = {
@@ -33,6 +34,11 @@ export function EntityProfileDrawer({ open, onClose, owner, dealId }: Props) {
       <div className="border-t border-white/10 pt-4">
         <div className="text-sm font-semibold text-white mb-2">Secure Info</div>
         <SsnCapture dealId={dealId} ownershipEntityId={owner.ownership_entity_id} />
+      </div>
+
+      <div className="border-t border-white/10 pt-4">
+        <div className="text-sm font-semibold text-white mb-2">Personal Financial Statement — Schedules</div>
+        <PfsSchedules dealId={dealId} ownershipEntityId={owner.ownership_entity_id} />
       </div>
     </DrawerShell>
   );

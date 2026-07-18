@@ -146,6 +146,56 @@ export type PartiesSectionData = {
   owners: BorrowerCard[];
 };
 
+/**
+ * Form 413's itemized supporting schedules (Sections 2-4) — one set per
+ * 20%+ owner (applicant_id -> ownership_entities.id), backed by
+ * borrower_pfs_notes_payable/securities/real_estate. Previously these
+ * tables had no intake path at all (see form413/inputBuilder.ts, which
+ * reads them, but nothing wrote them) — captured via a repeater UI in
+ * EntityProfileDrawer, not the section-JSON/canonical-write pattern the
+ * rest of the builder uses, since these are frequently-edited child rows
+ * rather than a flat per-deal fact set.
+ */
+export type PfsNotePayable = {
+  id: string;
+  applicant_id: string;
+  noteholder_name_address?: string | null;
+  original_balance?: number | null;
+  current_balance?: number | null;
+  payment_amount?: number | null;
+  payment_frequency?: string | null;
+  collateral_description?: string | null;
+  sort_order: number;
+};
+
+export type PfsSecurity = {
+  id: string;
+  applicant_id: string;
+  number_of_shares?: number | null;
+  name_of_securities?: string | null;
+  cost?: number | null;
+  market_value_quotation_exchange?: string | null;
+  date_of_quotation?: string | null;
+  total_value?: number | null;
+  sort_order: number;
+};
+
+export type PfsRealEstateProperty = {
+  id: string;
+  applicant_id: string;
+  property_label: "A" | "B" | "C";
+  property_type?: string | null;
+  address?: string | null;
+  date_purchased?: string | null;
+  original_cost?: number | null;
+  present_market_value?: number | null;
+  mortgage_holder_name_address?: string | null;
+  mortgage_account_number?: string | null;
+  mortgage_balance?: number | null;
+  mortgage_payment_per_month_year?: string | null;
+  mortgage_status?: string | null;
+};
+
 export type GuarantorCard = {
   id: string;
   same_as_borrower_id?: string;

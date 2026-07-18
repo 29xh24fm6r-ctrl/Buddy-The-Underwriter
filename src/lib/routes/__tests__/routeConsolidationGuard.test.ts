@@ -217,13 +217,24 @@ describe("route consolidation invariants", () => {
   // than four) plus the management-queues endpoint and its page. The new
   // BrokerageStagePanel mounts inside the existing cockpit rather than
   // adding a second cockpit page. Still 96 slots under the 2048 hard cap.
-  it("total slot count stays below 1952 warning threshold", () => {
+  //
+  // Bumped 1952 -> 1954 on 2026-07-18: SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 —
+  // Form 413's itemized PFS schedules (notes payable/securities/real
+  // estate) had no writer anywhere; added one GET/POST/PATCH/DELETE
+  // dispatcher keyed by a `[scheduleType]` dynamic segment (not 3
+  // resources x 2 files — PATCH/DELETE take `item_id` in the body rather
+  // than a `[itemId]` segment) — same one-dispatcher-not-N-files
+  // precedent as ops/[...path]/workers/[...path] above. No new page. This
+  // was already at the ceiling (0 slots of headroom), so even the single
+  // consolidated file needed this bump. Still 94 slots under the 2048
+  // hard cap.
+  it("total slot count stays below 1954 warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1952,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1952 warning threshold`,
+      totalSlots < 1954,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1954 warning threshold`,
     );
   });
 
