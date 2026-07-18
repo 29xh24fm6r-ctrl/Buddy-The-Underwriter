@@ -10,6 +10,13 @@ import type { Form1244BuildResult } from "@/lib/sba/forms/form1244/build";
  * (template_key `SBA_1244`, already in scripts/ingest-sba-templates.ts's
  * manifest from Phase 0, not yet ingested — sba.gov blocked). Same
  * fill-or-overlay / never-fabricate contract as form1919/render.ts.
+ *
+ * BLOCKED, not fixed: unlike 1919/413/912/4506-C/155, no real copy of
+ * this PDF has been supplied (docs/sba-forms/ has no 1244-fields.json).
+ * Section II's fields were extended to match the real 1919/1244 data
+ * model (see inputBuilder.ts), but the AcroForm field names/types below
+ * remain unverified placeholders pending a real source PDF — see
+ * docs/sba-forms/TASK-B-ACROFORM-FIELD-VERIFICATION.md §8.
  */
 
 export type RenderForm1244Result =

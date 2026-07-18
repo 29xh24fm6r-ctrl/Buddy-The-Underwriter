@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { buildForm155 } from "@/lib/sba/forms/form155/build";
 
 const COMPLETE_FIELDS = {
-  borrower_legal_name: "Acme LLC",
-  lender_name: "First National Bank",
-  loan_amount: 500_000,
+  sba_loan_number: "SBA-1234567-01",
+  sba_loan_name: "Acme LLC",
+  standby_borrower_name: "Acme LLC",
   standby_creditor_name: "Jane Seller",
-  standby_creditor_address: "1 Seller Ln, Austin, TX",
+  lender_name: "First National Bank",
   note_principal_amount: 100_000,
-  note_date: "2026-01-01",
-  full_standby_for_loan_term: true,
-  subordination_terms_acknowledged: true,
+  note_interest_amount: 5_000,
+  lenders_loan_amount: 500_000,
+  agree_option: "1",
 };
 
 test("buildForm155: not applicable -> { applicable: false }", () => {
@@ -28,6 +28,17 @@ test("buildForm155: applicable, fully complete + borrower signer resolved -> is_
   assert.equal(result.standby_creditor_signable, false);
 });
 
+test("buildForm155: option 4 selected but option-4 rate/date not required at the flat-field level (still complete)", () => {
+  const result = buildForm155({
+    applicable: true,
+    fields: { ...COMPLETE_FIELDS, agree_option: "4" },
+    borrowerOwnershipEntityId: "o1",
+  });
+  assert.equal(result.applicable, true);
+  if (!result.applicable) return;
+  assert.equal(result.is_complete, true);
+});
+
 test("buildForm155: applicable but standby_creditor_name missing (real schema gap) -> flagged, is_complete=false", () => {
   const result = buildForm155({
     applicable: true,
@@ -38,4 +49,16 @@ test("buildForm155: applicable but standby_creditor_name missing (real schema ga
   if (!result.applicable) return;
   assert.equal(result.is_complete, false);
   assert.ok(result.missing.includes("standby_creditor_name"));
+});
+
+test("buildForm155: sba_loan_number missing (not yet SBA-assigned) -> flagged", () => {
+  const result = buildForm155({
+    applicable: true,
+    fields: { ...COMPLETE_FIELDS, sba_loan_number: null },
+    borrowerOwnershipEntityId: "o1",
+  });
+  assert.equal(result.applicable, true);
+  if (!result.applicable) return;
+  assert.equal(result.is_complete, false);
+  assert.ok(result.missing.includes("sba_loan_number"));
 });

@@ -4,23 +4,29 @@
 the real government AcroForm field names on Forms 1919, 413, 912, and
 4506-C, and check in a ground-truth field-name reference per form.
 
-**Status: FIXED. All four forms (1919, 413, 912, 4506-C) have been
+**Status: FIXED for 1919, 413, 912, 4506-C, and 155 — five forms
 rewritten end-to-end — `fields.ts`, a new `pdfFieldMap.ts` per form,
-`inputBuilder.ts`, and `render.ts` — against the real, verified AcroForm
+`inputBuilder.ts`, and `render.ts` — against real, verified AcroForm
 field names, with type-aware fill logic (text/checkbox/radio/Yes-No
 checkbox pairs). The scoping question raised in the original version of
 this doc (full SSN vs. last-4) was resolved per the user's explicit
 instruction to capture enough information to complete these documents
 "completely, thoroughly and accurately... perfectly every single time":
-Buddy now persists the full SSN/TIN via the existing encrypted
-`deal_pii_records` vault (`storeSecurePii`/`getDecryptedPii`, AES-256-CBC),
-decrypted only transiently at render time — not the "have the signer type
-it at signing" shortcut. Every fix was verified with a visual fill-test
-(fake data rendered into the real government PDF and inspected page-by-page
-via the Read tool), which caught three real placement/authoring bugs a
-tooltip- or name-only mapping would have shipped silently (§7). Content
-gaps that have no intake source yet (Form 413's narrative Sections 5-8,
-spouse SSN) are tracked as open backlog in §8, not silently dropped.**
+Buddy now persists the full SSN/TIN (including a spouse's, for Form 413 —
+see §9) via the existing encrypted `deal_pii_records` vault
+(`storeSecurePii`/`getDecryptedPii`, AES-256-CBC), decrypted only
+transiently at render time — not the "have the signer type it at signing"
+shortcut. Every fix was verified with a visual fill-test (fake data
+rendered into the real government PDF and inspected page-by-page), which
+caught three real placement/authoring bugs a tooltip- or name-only mapping
+would have shipped silently (§7). All five forms' real PDFs are now
+actually ingested (`public/sba-templates/` + `bank_document_templates` —
+previously zero rows existed for ANY of these forms, so none could render
+end-to-end regardless of mapping correctness; see §8). Forms 148/601/1244
+remain genuinely blocked — no real source PDF for any of them has been
+supplied, so unlike 155 there is nothing to verify against (§9); their
+`render.ts` files are explicitly marked as unverified rather than left
+looking equivalent to the fixed forms.**
 
 ## 1. How the source PDFs were obtained
 
@@ -295,24 +301,51 @@ thrown") — this caught three real bugs:
 | Form | Real AcroForm names confirmed | Field-name mismatch fixed | Content/coverage gap | Type-aware fill (checkbox/radio) | Visual fill-test |
 |---|---|---|---|---|---|
 | FORM_1919 | Yes | Yes | Closed (13 questions + demographics + export modeled) | Yes | Passed |
-| FORM_413 | Yes | Yes | Closed for Sections 1-4; Sections 5-8 narrative fields have no intake UI yet (backlog) | Yes | Passed |
+| FORM_413 | Yes | Yes | Closed, including Sections 5-8 narratives and spouse SSN (§9) | Yes | Passed |
 | FORM_912 | Yes | Yes | Closed (3 real questions + full SSN + ownership %) | Yes | Passed |
-| FORM_4506C | Yes | Yes | Closed; IVES participant registration is env-var-only, not yet provisioned (backlog) | Yes | Passed |
-| FORM_155 *(backlog per Task A)* | Yes (`155-fields.json`), bonus | Not in scope (not currently wired) | Not diffed | N/A | N/A |
+| FORM_4506C | Yes | Yes | Closed; IVES participant config now per-bank (§9), IRS enrollment itself is still operational/outside this codebase | Yes | Passed |
+| FORM_155 | Yes (`155-fields.json`) | Yes — rewritten against the real 16-field/9-98-revision PDF | Closed (real 4-option radio group + SBA-assigned loan number; `full_standby_for_loan_term`/`subordination_terms_acknowledged` don't correspond to distinct fields on this revision, removed from the form's required set) | Yes (radio group) | Passed |
+| FORM_148/FORM_148L/FORM_601/FORM_1244 | **No — blocked** | Not attempted | Not attempted | N/A | N/A |
 | FORM_159 *(separate pipeline, not e-sign)* | Yes (`159-fields.json`), bonus | Not in scope | Not diffed | N/A | N/A |
 
-## 9. Known remaining gaps (tracked, not silent)
+All 5 forms with confirmed ground truth (1919, 413, 912, 4506-C, 155) also
+had their real PDF committed to `public/sba-templates/` and registered in
+`bank_document_templates` (previously zero rows existed for any of these —
+the auto-ingestion script needs sba.gov/irs.gov, which are blocked here, so
+without this the correct field mapping would never actually render a PDF
+in this environment). 148/601/1244 remain unregistered — no real PDF
+exists to ingest.
 
-- **Spouse SSN (413) and spouse fields generally**: `spouse_full_ssn` is
-  modeled and decrypts the same way as the primary signer's, but there is
-  no confirmed intake path that actually collects/stores a spouse's SSN
-  today — flagged in `borrowerFieldRegistry.ts`.
-- **413 Sections 5-8** (other personal property, unpaid taxes, other
-  liabilities, life insurance — narrative fields): registered but no
-  conversational-intake or form UI asks these questions yet.
-- **4506-C IVES participant registration**: fields are read from env vars
-  (`IVES_PARTICIPANT_NAME/ID/SOR_MAILBOX_ID`); actual IVES enrollment with
-  the IRS is an operational/business step outside this codebase.
-- **Forms 148/601/1244/155**: per Task A, confirmed backlog (0 of 12 open
-  deals have relevant data) — not touched by this fix, still gated behind
-  their own `not_applicable`/`applicable` guards.
+## 9. Gaps resolved after the initial fix
+
+The four gaps this doc originally left open have been resolved:
+
+- **Spouse SSN (413)**: `deal_pii_records` now accepts a `spouse_full_ssn`
+  pii_type (same row-per-owner pattern as `full_ssn`, keyed by the SAME
+  `ownership_entity_id` as the primary signer — a spouse isn't a separate
+  ownership entity on this form). `storeSecurePii`/`getDecryptedPii` widened
+  to accept it; `form413/inputBuilder.ts` and `render.ts` wire it the same
+  way as the primary signer's own SSN. (Also fixed in the same migration:
+  `deal_pii_records` had no unique constraint on
+  `(deal_id, ownership_entity_id, pii_type)` despite `storeSecurePii`'s
+  upsert requiring one for `ON CONFLICT` to work — a latent bug, now fixed.)
+- **413 Sections 5-8**: `borrower_applicant_financials` gained
+  `other_personal_property_description`/`unpaid_taxes_description`/
+  `other_liabilities_description`/`life_insurance_description` columns;
+  `inputBuilder.ts` now reads them (the PDF mapping was already correct —
+  only the data source was missing).
+- **4506-C IVES participant registration**: fields now read from
+  `banks.settings` (per-bank, same pattern as `src/lib/etran/generator.ts`'s
+  `sba_lender_id`/`sba_service_center`), falling back to env vars.
+  `renderForm4506cPdf` takes an optional `bankId`; all three call sites
+  updated. Actual IVES enrollment with the IRS remains a real operational
+  step outside this codebase — code can supply the values, not obtain them.
+- **Forms 148/601/1244/155**: per the decision to fix what's verifiable and
+  flag the rest as blocked (not guess), **Form 155** was rewritten against
+  a real uploaded copy of the PDF (see §8) — its previous "backlog" status
+  is closed. **148/601/1244** remain genuinely blocked: no real copy of
+  any of these three PDFs has been supplied, so unlike 155 there is no
+  ground truth to verify against. Their `render.ts` files are now
+  explicitly commented as unverified placeholders (rather than silently
+  looking equivalent to the fixed forms) so this isn't mistaken for "not
+  yet gotten to" — it's "cannot verify without a real source PDF."

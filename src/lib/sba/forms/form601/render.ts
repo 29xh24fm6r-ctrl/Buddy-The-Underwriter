@@ -10,6 +10,11 @@ import type { Form601BuildResult } from "@/lib/sba/forms/form601/build";
  * (template_key `SBA_601`, already in scripts/ingest-sba-templates.ts's
  * manifest from Phase 0, not yet ingested — sba.gov blocked). Deal-level,
  * same shape as form155/render.ts.
+ *
+ * BLOCKED, not fixed: unlike 1919/413/912/4506-C/155, no real copy of
+ * this PDF has been supplied (docs/sba-forms/ has no 601-fields.json).
+ * Field keys below are still unverified placeholders pending a real
+ * source PDF — see docs/sba-forms/TASK-B-ACROFORM-FIELD-VERIFICATION.md §8.
  */
 
 export type RenderForm601Result =

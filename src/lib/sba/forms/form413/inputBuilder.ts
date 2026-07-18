@@ -22,11 +22,12 @@ function sumOrNull(values: Array<number | null | undefined>): number | null {
  * they surface as complete once their components are known.
  *
  * Rewritten against the real current-revision PDF (see fields.ts /
- * pdfFieldMap.ts): full SSN (via deal_pii_records, presence marker only —
- * see render.ts for the decrypt step; spouse SSN isn't collected
- * anywhere in this schema yet, a real gap, not built here), and the
- * itemized supporting schedules (notes payable, securities, up to 3 real
- * estate properties) from the new borrower_pfs_* tables.
+ * pdfFieldMap.ts): full SSN and spouse full SSN (both via
+ * deal_pii_records, presence markers only — see render.ts for the
+ * decrypt step; spouse SSN is stored under the same owner's
+ * ownership_entity_id with pii_type "spouse_full_ssn"), and the itemized
+ * supporting schedules (notes payable, securities, up to 3 real estate
+ * properties) from the new borrower_pfs_* tables.
  */
 export async function buildForm413Input(
   dealId: string,
@@ -68,7 +69,9 @@ export async function buildForm413Input(
           "liability_loan_on_life_insurance, liability_mortgages_on_real_estate, liability_unpaid_taxes, " +
           "liability_other, contingent_as_endorser_or_comaker, contingent_legal_claims_judgments, " +
           "contingent_provision_for_federal_income_tax, contingent_other_special_debt, income_salary, " +
-          "income_net_investment, income_real_estate, income_other, income_other_description",
+          "income_net_investment, income_real_estate, income_other, income_other_description, " +
+          "other_personal_property_description, unpaid_taxes_description, other_liabilities_description, " +
+          "life_insurance_description",
       )
       .eq("applicant_id", owner.id)
       .maybeSingle();
@@ -103,8 +106,10 @@ export async function buildForm413Input(
       .select("pii_type")
       .eq("deal_id", dealId)
       .eq("ownership_entity_id", owner.id)
-      .eq("pii_type", "full_ssn");
-    const ssnOnFile = ((piiRows ?? []) as Array<{ pii_type: string }>).length > 0;
+      .in("pii_type", ["full_ssn", "spouse_full_ssn"]);
+    const piiTypesOnFile = new Set(((piiRows ?? []) as Array<{ pii_type: string }>).map((r) => r.pii_type));
+    const ssnOnFile = piiTypesOnFile.has("full_ssn");
+    const spouseSsnOnFile = piiTypesOnFile.has("spouse_full_ssn");
 
     const { data: notesPayable } = await sb
       .from("borrower_pfs_notes_payable")
@@ -181,17 +186,18 @@ export async function buildForm413Input(
         notes_payable: notesPayable ?? [],
         securities: securities ?? [],
         real_estate_properties: realEstate ?? [],
-        other_personal_property_description: null,
-        unpaid_taxes_description: null,
-        other_liabilities_description: null,
-        life_insurance_description: null,
+        other_personal_property_description: f.other_personal_property_description ?? null,
+        unpaid_taxes_description: f.unpaid_taxes_description ?? null,
+        other_liabilities_description: f.other_liabilities_description ?? null,
+        life_insurance_description: f.life_insurance_description ?? null,
 
         signed_at: null,
         has_spouse: owner.has_spouse ?? evidence.has_spouse ?? null,
         spouse_full_name: owner.spouse_full_name ?? evidence.spouse_full_name ?? null,
-        // Spouse full SSN isn't collected anywhere in this schema yet —
-        // a real, separate gap from the primary signer's SSN handling.
-        spouse_full_ssn: null,
+        // Presence marker only, same pattern as full_ssn above — see
+        // render.ts for the decrypt step. Stored under this same owner's
+        // ownership_entity_id with pii_type "spouse_full_ssn".
+        spouse_full_ssn: spouseSsnOnFile ? "on_file" : null,
       },
     });
   }

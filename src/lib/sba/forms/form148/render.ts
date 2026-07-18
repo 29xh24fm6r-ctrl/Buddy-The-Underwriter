@@ -12,6 +12,11 @@ import type { Form148BuildResult } from "@/lib/sba/forms/form148/build";
  * manifest from Phase 0, neither ingested yet (sba.gov blocked). Same
  * fill-or-overlay / never-fabricate contract as every other renderer in
  * this arc.
+ *
+ * BLOCKED, not fixed: unlike 1919/413/912/4506-C/155, no real copy of
+ * this PDF has been supplied (docs/sba-forms/ has no 148-fields.json).
+ * Field keys below are still unverified placeholders pending a real
+ * source PDF — see docs/sba-forms/TASK-B-ACROFORM-FIELD-VERIFICATION.md §8.
  */
 
 export type RenderForm148Result =

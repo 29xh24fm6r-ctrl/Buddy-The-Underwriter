@@ -146,6 +146,11 @@ export const BORROWER_FIELD_REGISTRY: BorrowerFieldEntry[] = [
   { key: "parole_explanation", label: "Explanation of parole/probation status", type: "string", entityScope: "owner", factPath: "owner.parole_explanation", sourceTable: "ownership_entities", sourceColumn: "parole_explanation", appliesToForms: ["912"], requiredForForms: [], sensitive: true },
   { key: "has_spouse", label: "Has spouse (joint filer)?", type: "boolean", entityScope: "owner", factPath: "owner.has_spouse", sourceTable: "ownership_entities", sourceColumn: "has_spouse", appliesToForms: ["413"], requiredForForms: ["413"], sensitive: false },
   { key: "spouse_full_name", label: "Spouse full name", type: "string", entityScope: "owner", factPath: "owner.spouse_full_name", sourceTable: "ownership_entities", sourceColumn: "spouse_full_name", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
+  // Same PII-vault pattern as full_ssn above — encrypted in
+  // deal_pii_records under this SAME owner's ownership_entity_id, keyed
+  // by pii_type "spouse_full_ssn" (not a separate spouse entity/table).
+  // Only asked when has_spouse is true.
+  { key: "spouse_full_ssn", label: "Spouse Social Security Number (full)", type: "string", entityScope: "owner", factPath: "owner.spouse_full_ssn", sourceTable: "deal_pii_records", sourceColumn: "encrypted_payload", appliesToForms: ["413"], requiredForForms: [], sensitive: true },
 
   // ── entity (ownership_entities, equity-owning entities) ───────────────
   { key: "entity_legal_name", label: "Entity legal name", type: "string", entityScope: "entity", factPath: "entity.legal_name", sourceTable: "ownership_entities", sourceColumn: "display_name", appliesToForms: ["1919", "1244"], requiredForForms: ["1919", "1244"], sensitive: false },
@@ -160,10 +165,21 @@ export const BORROWER_FIELD_REGISTRY: BorrowerFieldEntry[] = [
   { key: "amount_requested", label: "Loan amount requested", type: "number", entityScope: "loan", factPath: "loan.amount_requested", sourceTable: "deal_loan_requests", sourceColumn: "requested_amount", appliesToForms: ["1919", "148", "155"], requiredForForms: ["1919", "148", "155"], sensitive: false },
   { key: "use_of_proceeds", label: "Use of proceeds", type: "string", entityScope: "loan", factPath: "loan.use_of_proceeds", sourceTable: "deal_loan_requests", sourceColumn: "use_of_proceeds", appliesToForms: ["1919"], requiredForForms: ["1919"], sensitive: false },
   { key: "standby_creditor_name", label: "Standby creditor (seller) name", type: "string", entityScope: "loan", factPath: "loan.standby_creditor_name", sourceTable: "deal_loan_requests", sourceColumn: "standby_creditor_name", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
-  { key: "standby_creditor_address", label: "Standby creditor address", type: "string", entityScope: "loan", factPath: "loan.standby_creditor_address", sourceTable: "deal_loan_requests", sourceColumn: "standby_creditor_address", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
-  { key: "note_date", label: "Standby note date", type: "date", entityScope: "loan", factPath: "loan.note_date", sourceTable: "deal_loan_requests", sourceColumn: "note_date", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
-  { key: "note_interest_rate", label: "Standby note interest rate", type: "number", entityScope: "loan", factPath: "loan.note_interest_rate", sourceTable: "deal_loan_requests", sourceColumn: "note_interest_rate", appliesToForms: ["155"], requiredForForms: [], sensitive: false },
-  { key: "subordination_terms_acknowledged", label: "Subordination terms acknowledged", type: "boolean", entityScope: "loan", factPath: "loan.subordination_terms_acknowledged", sourceTable: "deal_loan_requests", sourceColumn: "subordination_terms_acknowledged", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
+  { key: "sba_loan_number", label: "SBA-assigned loan number", type: "string", entityScope: "loan", factPath: "loan.sba_loan_number", sourceTable: "sba_loans", sourceColumn: "loan_number", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
+  // standby_creditor_address/subordination_terms_acknowledged no longer
+  // correspond to any distinct field on the real current-revision 155
+  // (confirmed against docs/sba-forms/155-fields.json) — "155" removed
+  // from applies/required; columns kept as-is, not this task's call to
+  // delete.
+  { key: "standby_creditor_address", label: "Standby creditor address", type: "string", entityScope: "loan", factPath: "loan.standby_creditor_address", sourceTable: "deal_loan_requests", sourceColumn: "standby_creditor_address", appliesToForms: [], requiredForForms: [], sensitive: false },
+  { key: "subordination_terms_acknowledged", label: "Subordination terms acknowledged", type: "boolean", entityScope: "loan", factPath: "loan.subordination_terms_acknowledged", sourceTable: "deal_loan_requests", sourceColumn: "subordination_terms_acknowledged", appliesToForms: [], requiredForForms: [], sensitive: false },
+  // Reinterpreted per the real form: note_date is Section 1's option-4
+  // "beginning on ___" date, note_interest_rate is whichever of options
+  // 2/3/4 was agreed to — see form155/render.ts.
+  { key: "note_date", label: "Standby note — option 4 payment start date", type: "date", entityScope: "loan", factPath: "loan.note_date", sourceTable: "deal_loan_requests", sourceColumn: "note_date", appliesToForms: ["155"], requiredForForms: [], sensitive: false },
+  { key: "note_interest_rate", label: "Standby note interest rate (whichever option applies)", type: "number", entityScope: "loan", factPath: "loan.note_interest_rate", sourceTable: "deal_loan_requests", sourceColumn: "note_interest_rate", appliesToForms: ["155"], requiredForForms: [], sensitive: false },
+  { key: "standby_note_interest_amount", label: "Standby note interest owed as of this agreement (dollar amount)", type: "number", entityScope: "loan", factPath: "loan.standby_note_interest_amount", sourceTable: "deal_loan_requests", sourceColumn: "standby_note_interest_amount", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
+  { key: "standby_agreement_option", label: "Which payment arrangement the standby creditor agrees to (1-4)", type: "string", entityScope: "loan", factPath: "loan.standby_agreement_option", sourceTable: "deal_loan_requests", sourceColumn: "standby_agreement_option", appliesToForms: ["155"], requiredForForms: ["155"], sensitive: false },
   { key: "contractor_name", label: "Contractor name", type: "string", entityScope: "loan", factPath: "loan.contractor_name", sourceTable: "deal_loan_requests", sourceColumn: "contractor_name", appliesToForms: ["601"], requiredForForms: [], sensitive: false },
   { key: "compliance_certification_acknowledged", label: "Compliance certification acknowledged", type: "boolean", entityScope: "loan", factPath: "loan.compliance_certification_acknowledged", sourceTable: "deal_loan_requests", sourceColumn: "compliance_certification_acknowledged", appliesToForms: ["601"], requiredForForms: ["601"], sensitive: false },
   { key: "limited_guarantee_cap_amount", label: "Limited guarantee cap amount", type: "number", entityScope: "loan", factPath: "loan.limited_guarantee_cap_amount", sourceTable: "deal_loan_requests", sourceColumn: "limited_guarantee_cap_amount", appliesToForms: ["148"], requiredForForms: [], sensitive: false },
@@ -198,6 +214,12 @@ export const BORROWER_FIELD_REGISTRY: BorrowerFieldEntry[] = [
   { key: "income_real_estate", label: "Real estate income", type: "number", entityScope: "pfs", factPath: "pfs.income_real_estate", sourceTable: "borrower_applicant_financials", sourceColumn: "income_real_estate", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
   { key: "income_other", label: "Other income", type: "number", entityScope: "pfs", factPath: "pfs.income_other", sourceTable: "borrower_applicant_financials", sourceColumn: "income_other", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
   { key: "income_other_description", label: "Description of other income", type: "string", entityScope: "pfs", factPath: "pfs.income_other_description", sourceTable: "borrower_applicant_financials", sourceColumn: "income_other_description", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
+  // Sections 5-8 of the real 413 — free-text narratives, each mapped to
+  // a single Row1 AcroForm field (see form413/pdfFieldMap.ts).
+  { key: "other_personal_property_description", label: "Other personal property & assets (Section 5) — describe", type: "string", entityScope: "pfs", factPath: "pfs.other_personal_property_description", sourceTable: "borrower_applicant_financials", sourceColumn: "other_personal_property_description", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
+  { key: "unpaid_taxes_description", label: "Unpaid taxes (Section 6) — describe", type: "string", entityScope: "pfs", factPath: "pfs.unpaid_taxes_description", sourceTable: "borrower_applicant_financials", sourceColumn: "unpaid_taxes_description", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
+  { key: "other_liabilities_description", label: "Other liabilities (Section 7) — describe", type: "string", entityScope: "pfs", factPath: "pfs.other_liabilities_description", sourceTable: "borrower_applicant_financials", sourceColumn: "other_liabilities_description", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
+  { key: "life_insurance_description", label: "Life insurance held (Section 8) — face amount, CSV, company, beneficiaries", type: "string", entityScope: "pfs", factPath: "pfs.life_insurance_description", sourceTable: "borrower_applicant_financials", sourceColumn: "life_insurance_description", appliesToForms: ["413"], requiredForForms: [], sensitive: false },
   // NOTE: Form 413's real Section 2/3/4 (notes payable, securities, up to
   // 3 real estate properties) are itemized one-to-many schedules, now
   // sourced from borrower_pfs_notes_payable/borrower_pfs_securities/

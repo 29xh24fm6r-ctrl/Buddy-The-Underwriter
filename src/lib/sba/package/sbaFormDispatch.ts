@@ -106,7 +106,7 @@ export async function renderSbaPackageItem(
       const buildResult = await buildForm4506cWithSignature(dealId, bankId, sb);
       const signer = buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
-      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId });
+      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId, bankId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 

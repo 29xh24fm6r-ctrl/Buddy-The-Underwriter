@@ -14,11 +14,13 @@ import * as crypto from "node:crypto";
 
 const ENCRYPTION_KEY = process.env.PII_ENCRYPTION_KEY ?? process.env.BUDDY_PII_KEY ?? "";
 
+export type PiiType = "full_ssn" | "full_tin" | "spouse_full_ssn";
+
 type StorePiiInput = {
   dealId: string;
   bankId: string;
   ownershipEntityId: string | null;
-  piiType: "full_ssn" | "full_tin";
+  piiType: PiiType;
   plaintext: string;
   actorUserId: string;
 };
@@ -40,7 +42,7 @@ export async function storeSecurePii(input: StorePiiInput): Promise<StorePiiResu
 
   // Validate format
   const digits = plaintext.replace(/\D/g, "");
-  if (piiType === "full_ssn" && digits.length !== 9) {
+  if ((piiType === "full_ssn" || piiType === "spouse_full_ssn") && digits.length !== 9) {
     return { ok: false, error: "SSN must be exactly 9 digits" };
   }
   if (piiType === "full_tin" && digits.length !== 9) {
@@ -78,7 +80,7 @@ export async function storeSecurePii(input: StorePiiInput): Promise<StorePiiResu
       bankId,
       eventKey: "builder.secure_pii_captured",
       uiState: "done",
-      uiMessage: `Secure ${piiType === "full_ssn" ? "SSN" : "TIN"} captured`,
+      uiMessage: `Secure ${piiType === "full_tin" ? "TIN" : "SSN"} captured`,
       meta: {
         pii_type: piiType,
         last4,
@@ -103,6 +105,8 @@ export async function getPiiStatus(dealId: string, ownershipEntityId: string): P
   ssnLast4: string | null;
   tinOnFile: boolean;
   tinLast4: string | null;
+  spouseSsnOnFile: boolean;
+  spouseSsnLast4: string | null;
 }> {
   const sb = supabaseAdmin();
 
@@ -115,12 +119,15 @@ export async function getPiiStatus(dealId: string, ownershipEntityId: string): P
   const records = data ?? [];
   const ssn = records.find((r: any) => r.pii_type === "full_ssn");
   const tin = records.find((r: any) => r.pii_type === "full_tin");
+  const spouseSsn = records.find((r: any) => r.pii_type === "spouse_full_ssn");
 
   return {
     ssnOnFile: Boolean(ssn),
     ssnLast4: ssn?.last4 ?? null,
     tinOnFile: Boolean(tin),
     tinLast4: tin?.last4 ?? null,
+    spouseSsnOnFile: Boolean(spouseSsn),
+    spouseSsnLast4: spouseSsn?.last4 ?? null,
   };
 }
 
@@ -141,7 +148,7 @@ export async function getPiiStatus(dealId: string, ownershipEntityId: string): P
 export async function getDecryptedPii(
   dealId: string,
   ownershipEntityId: string,
-  piiType: "full_ssn" | "full_tin",
+  piiType: PiiType,
 ): Promise<string | null> {
   const sb = supabaseAdmin();
   const { data } = await sb

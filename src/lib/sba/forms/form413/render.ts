@@ -19,9 +19,9 @@ import { decryptStoredPii } from "@/lib/builder/secure/securePiiIntake";
  * current-revision PDF (docs/sba-forms/413-fields.json — see
  * pdfFieldMap.ts). One rendered PDF per signer.
  *
- * The full SSN (this signer's own — spouse SSN isn't collected anywhere
- * in this schema yet, see inputBuilder.ts) is decrypted here, written
- * into the PDF, and discarded — never logged, never returned.
+ * The full SSN (this signer's own, and their spouse's if has_spouse is
+ * true) is decrypted here, written into the PDF, and discarded — never
+ * logged, never returned.
  */
 
 export type RenderForm413Result =
@@ -74,14 +74,17 @@ export async function renderForm413Pdf(args: {
   }
 
   const f = signer.fields;
-  const { data: piiRow } = await args.supabase
+  const { data: piiRows } = await args.supabase
     .from("deal_pii_records")
-    .select("encrypted_payload")
+    .select("pii_type, encrypted_payload")
     .eq("deal_id", args.dealId)
     .eq("ownership_entity_id", args.ownershipEntityId)
-    .eq("pii_type", "full_ssn")
-    .maybeSingle();
-  const fullSsn = piiRow?.encrypted_payload ? decryptStoredPii(piiRow.encrypted_payload) : null;
+    .in("pii_type", ["full_ssn", "spouse_full_ssn"]);
+  const piiByType = new Map(
+    ((piiRows ?? []) as Array<{ pii_type: string; encrypted_payload: string }>).map((r) => [r.pii_type, r.encrypted_payload]),
+  );
+  const fullSsn = piiByType.has("full_ssn") ? decryptStoredPii(piiByType.get("full_ssn")!) : null;
+  const spouseFullSsn = piiByType.has("spouse_full_ssn") ? decryptStoredPii(piiByType.get("spouse_full_ssn")!) : null;
 
   const textValues: Record<string, string> = {};
   const setText = (key: keyof typeof FORM_413_TEXT_FIELDS, value: unknown) => {
@@ -133,9 +136,7 @@ export async function renderForm413Pdf(args: {
   setText("full_ssn", fullSsn);
   if (f.has_spouse) {
     setText("spouse_print_name", f.spouse_full_name);
-    // Spouse full SSN isn't collected anywhere in this schema yet — left
-    // unfilled rather than sending a masked/partial value. See
-    // inputBuilder.ts.
+    setText("spouse_full_ssn", spouseFullSsn);
   }
 
   const checkboxValues: Record<string, boolean> = {};

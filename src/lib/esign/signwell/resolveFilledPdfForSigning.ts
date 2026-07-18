@@ -73,7 +73,7 @@ export async function resolveFilledPdfForSigning(args: {
     case "FORM_4506C": {
       const input = await buildForm4506cInput(dealId, bankId, sb);
       const buildResult = buildForm4506c(input);
-      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId, dealId });
+      const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId, dealId, bankId });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };

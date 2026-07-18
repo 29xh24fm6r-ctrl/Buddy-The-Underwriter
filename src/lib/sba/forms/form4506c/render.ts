@@ -16,6 +16,9 @@ import { decryptStoredPii } from "@/lib/builder/secure/securePiiIntake";
  * Type-aware fill (text/checkbox), matching form912/render.ts's pattern.
  * The full taxpayer SSN is decrypted here, written into the PDF, and
  * discarded — never logged, never returned.
+ *
+ * IVES participant fields (§5a) read from banks.settings (per-bank),
+ * falling back to env vars — see the bankId-gated block below.
  */
 
 export type RenderForm4506cResult =
@@ -27,12 +30,28 @@ export async function renderForm4506cPdf(args: {
   buildResult: Form4506cBuildResult;
   ownershipEntityId: string;
   dealId: string;
+  bankId?: string;
 }): Promise<RenderForm4506cResult> {
   const signer = args.buildResult.input.signers.find((s) => s.ownership_entity_id === args.ownershipEntityId);
   if (!signer) {
     return { ok: false, reason: "SIGNER_NOT_FOUND" };
   }
   const thirdParty = args.buildResult.input.thirdParty;
+
+  // IVES participant (§5a) — per-bank config (banks.settings jsonb, same
+  // pattern as src/lib/etran/generator.ts's sba_lender_id/sba_service_center),
+  // falling back to env vars for a single-tenant/dev setup. Actual IVES
+  // enrollment with the IRS is a separate operational step this codebase
+  // can't provision — left blank if neither source has a value, never
+  // fabricated.
+  let bankSettings: Record<string, unknown> = {};
+  if (args.bankId) {
+    const { data: bank } = await args.supabase.from("banks").select("settings").eq("id", args.bankId).maybeSingle();
+    bankSettings = (bank as { settings?: Record<string, unknown> } | null)?.settings ?? {};
+  }
+  const ivesParticipantName = (bankSettings.ives_participant_name as string | undefined) ?? process.env.IVES_PARTICIPANT_NAME ?? null;
+  const ivesParticipantId = (bankSettings.ives_participant_id as string | undefined) ?? process.env.IVES_PARTICIPANT_ID ?? null;
+  const ivesSorMailboxId = (bankSettings.ives_sor_mailbox_id as string | undefined) ?? process.env.IVES_SOR_MAILBOX_ID ?? null;
 
   const { data: template } = await args.supabase
     .from("bank_document_templates")
@@ -88,13 +107,9 @@ export async function renderForm4506cPdf(args: {
   setText("previous_address_city", f.previous_address_city);
   setText("previous_address_state", f.previous_address_state);
   setText("previous_address_zip", f.previous_address_zip);
-  // IVES participant (§5a) — a separate IRS registration Buddy hasn't
-  // provisioned in this environment (same "not yet provisioned" pattern
-  // as SIGNWELL_API_KEY etc.) — sourced from env vars if ever configured,
-  // left blank otherwise rather than fabricated.
-  setText("ives_participant_name", process.env.IVES_PARTICIPANT_NAME ?? null);
-  setText("ives_participant_id", process.env.IVES_PARTICIPANT_ID ?? null);
-  setText("ives_sor_mailbox_id", process.env.IVES_SOR_MAILBOX_ID ?? null);
+  setText("ives_participant_name", ivesParticipantName);
+  setText("ives_participant_id", ivesParticipantId);
+  setText("ives_sor_mailbox_id", ivesSorMailboxId);
   setText("customer_file_number", f.customer_file_number);
   setText("client_name", f.client_name);
   setText("client_phone", f.client_phone);

@@ -191,7 +191,7 @@ export async function GET(req: Request, ctx: Ctx) {
         if (typeof ownershipEntityId !== "string") return ownershipEntityId;
         const input = await buildForm4506cInput(dealId, bankId, sb);
         const buildResult = buildForm4506c(input);
-        const rendered = await renderForm4506cPdf({ supabase: sb, buildResult, ownershipEntityId, dealId });
+        const rendered = await renderForm4506cPdf({ supabase: sb, buildResult, ownershipEntityId, dealId, bankId });
         if (!rendered.ok) return NextResponse.json({ ok: false, reason: rendered.reason, detail: rendered.detail }, { status: 422 });
         return pdfResponse(rendered.pdfBytes, `form-4506c-${dealId}-${ownershipEntityId}.pdf`);
       }
