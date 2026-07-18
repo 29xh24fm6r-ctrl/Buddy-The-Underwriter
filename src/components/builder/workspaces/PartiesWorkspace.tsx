@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { BuilderState, BuilderPrefill, BorrowerCard, GuarantorCard, PartiesSectionData, GuarantorsSectionData, ExtractedOwnerCandidateSummary } from "@/lib/builder/builderTypes";
+import type { BuilderState, BuilderPrefill, BorrowerCard, GuarantorCard, PartiesSectionData, GuarantorsSectionData, ExtractedOwnerCandidateSummary, BusinessSectionData } from "@/lib/builder/builderTypes";
 import { OwnerDrawer } from "../drawers/OwnerDrawer";
 import { GuarantorDrawer } from "../drawers/GuarantorDrawer";
 import { EntityProfileDrawer } from "../drawers/EntityProfileDrawer";
@@ -29,28 +29,9 @@ export function PartiesWorkspace({ state, prefill, onSectionChange, dealId }: Pr
 
   const totalPct = owners.reduce((s, o) => s + (o.ownership_pct ?? 0), 0);
 
-  const business = (state.sections.business ?? {}) as {
-    legal_entity_name?: string;
-    entity_type?: string;
-    state_of_formation?: string;
-    business_address?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    is_eligible_passive_company?: boolean;
-    operating_company_legal_name?: string;
-    operating_company_address?: string;
-    operating_company_dba?: string;
-    operating_company_legal_structure?: string;
-    operating_company_tax_id?: string;
-    operating_company_duns_number?: string;
-    operating_company_contact_name?: string;
-    operating_company_email?: string;
-    operating_company_phone?: string;
-    operating_company_website?: string;
-  };
+  const business = (state.sections.business ?? {}) as BusinessSectionData;
 
-  function handleBusinessChange(field: string, value: string | boolean) {
+  function handleBusinessChange(field: string, value: string | boolean | number | undefined) {
     onSectionChange("business", { ...business, [field]: value });
   }
 
@@ -198,6 +179,172 @@ export function PartiesWorkspace({ state, prefill, onSectionChange, dealId }: Pr
                 maxLength={10}
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
               />
+            </div>
+          </div>
+
+          {/* Additional business details — DBA/EIN/phone/website/NAICS/employee count
+              previously had no UI at all despite existing in BusinessSectionData,
+              so Forms 1919/1244/148/etc. rendered these as null for any deal built
+              purely through the builder. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">DBA</label>
+              <input
+                type="text"
+                value={business.dba ?? ""}
+                onChange={(e) => handleBusinessChange("dba", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">EIN / Tax ID</label>
+              <input
+                type="text"
+                value={business.ein ?? ""}
+                onChange={(e) => handleBusinessChange("ein", e.target.value)}
+                placeholder="XX-XXXXXXX"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Phone</label>
+              <input
+                type="text"
+                value={business.phone ?? ""}
+                onChange={(e) => handleBusinessChange("phone", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Web Address</label>
+              <input
+                type="text"
+                value={business.website ?? ""}
+                onChange={(e) => handleBusinessChange("website", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">NAICS Code</label>
+              <input
+                type="text"
+                value={business.naics_code ?? ""}
+                onChange={(e) => handleBusinessChange("naics_code", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block"># of Employees</label>
+              <input
+                type="number"
+                value={business.employee_count != null ? String(business.employee_count) : ""}
+                onChange={(e) => handleBusinessChange("employee_count", e.target.value ? Number(e.target.value) : undefined)}
+                min={0}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">DUNS Number</label>
+              <input
+                type="text"
+                value={business.duns_number ?? ""}
+                onChange={(e) => handleBusinessChange("duns_number", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Contact Name</label>
+              <input
+                type="text"
+                value={business.contact_name ?? ""}
+                onChange={(e) => handleBusinessChange("contact_name", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Contact Email</label>
+              <input
+                type="email"
+                value={business.contact_email ?? ""}
+                onChange={(e) => handleBusinessChange("contact_email", e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-white/50 mb-1 block">Type of Business (Summary Description)</label>
+            <input
+              type="text"
+              value={business.type_of_business ?? ""}
+              onChange={(e) => handleBusinessChange("type_of_business", e.target.value)}
+              placeholder="e.g. Metal fabrication"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+            />
+          </div>
+
+          {/* SBA 504/1244 compliance-history questions */}
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={business.has_affiliates ?? false}
+                onChange={(e) => handleBusinessChange("has_affiliates", e.target.checked)}
+                className="rounded border-white/15"
+              />
+              <label className="text-xs text-white/70">Applicant has affiliates</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={business.obtained_direct_or_guaranteed_loan ?? false}
+                onChange={(e) => handleBusinessChange("obtained_direct_or_guaranteed_loan", e.target.checked)}
+                className="rounded border-white/15"
+              />
+              <label className="text-xs text-white/70">Ever obtained/applied for a direct or guaranteed government loan</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={business.prior_application_submitted ?? false}
+                onChange={(e) => handleBusinessChange("prior_application_submitted", e.target.checked)}
+                className="rounded border-white/15"
+              />
+              <label className="text-xs text-white/70">Application for this project previously submitted to SBA</label>
+            </div>
+            {business.prior_application_submitted && (
+              <div>
+                <label className="text-xs text-white/50 mb-1 block">Prior CDC/Lender Name and Loan Program</label>
+                <input
+                  type="text"
+                  value={business.prior_cdc_lender_name_and_program ?? ""}
+                  onChange={(e) => handleBusinessChange("prior_cdc_lender_name_and_program", e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-white/25 focus:outline-none"
+                />
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={business.has_bankruptcy_history ?? false}
+                onChange={(e) => handleBusinessChange("has_bankruptcy_history", e.target.checked)}
+                className="rounded border-white/15"
+              />
+              <label className="text-xs text-white/70">Applicant business has ever declared bankruptcy</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={business.has_pending_lawsuits ?? false}
+                onChange={(e) => handleBusinessChange("has_pending_lawsuits", e.target.checked)}
+                className="rounded border-white/15"
+              />
+              <label className="text-xs text-white/70">Applicant business involved in any pending lawsuits</label>
             </div>
           </div>
 

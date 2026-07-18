@@ -92,6 +92,20 @@ export function LoanRequestDrawer({ open, onClose, deal, structure, onSave }: Pr
       </div>
 
       <div className="border-t border-white/10 pt-4 mt-2">
+        <div className="text-sm font-semibold text-white mb-3">Jobs Impact (SBA Form 1244)</div>
+        <BuilderField label="# of Jobs to be Created (next 2 years)" value={d.jobs_created_count != null ? String(d.jobs_created_count) : ""} onChange={(v) => setD((p) => ({ ...p, jobs_created_count: v ? Number(v) : undefined }))} type="number" min={0} />
+        <BuilderField label="# of Jobs to be Retained (next 2 years)" value={d.jobs_retained_count != null ? String(d.jobs_retained_count) : ""} onChange={(v) => setD((p) => ({ ...p, jobs_retained_count: v ? Number(v) : undefined }))} type="number" min={0} />
+      </div>
+
+      <div className="border-t border-white/10 pt-4 mt-2">
+        <div className="text-sm font-semibold text-white mb-3">Contractor (SBA Form 601)</div>
+        <BuilderField label="Contractor Name" value={d.contractor_name ?? ""} onChange={(v) => setD((p) => ({ ...p, contractor_name: v }))} />
+        <BuilderField label="Contractor Address" value={d.contractor_address ?? ""} onChange={(v) => setD((p) => ({ ...p, contractor_address: v }))} />
+        <BuilderField label="Contractor Phone" value={d.contractor_phone ?? ""} onChange={(v) => setD((p) => ({ ...p, contractor_phone: v }))} />
+        <BuilderField label="Contractor's Authorized Official (Name & Title)" value={d.contractor_authorized_official ?? ""} onChange={(v) => setD((p) => ({ ...p, contractor_authorized_official: v }))} />
+      </div>
+
+      <div className="border-t border-white/10 pt-4 mt-2">
         <div className="text-sm font-semibold text-white mb-3">Deposit Relationship</div>
         {(["deposit_dda", "deposit_treasury", "deposit_payroll", "deposit_merchant"] as const).map((key) => (
           <div key={key} className="flex items-center gap-2 mb-1">

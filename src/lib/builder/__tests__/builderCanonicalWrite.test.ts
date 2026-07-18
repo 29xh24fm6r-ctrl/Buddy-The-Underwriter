@@ -106,6 +106,63 @@ test("writePartiesCanonical: new owner -> creates row and syncs all fields", asy
   assert.equal(row?.home_address_zip, "78701");
 });
 
+test("writePartiesCanonical: new owner -> syncs Form 1244 Section Two fields", async () => {
+  const { client, rows } = makeFakeSb();
+  const data: Partial<PartiesSectionData> = {
+    owners: [
+      {
+        id: "draft-1",
+        full_legal_name: "Jane Doe",
+        home_phone: "555-0100",
+        former_names_and_dates_used: "Jane Smith (until 2015)",
+        citizenship_status: "us_citizen",
+        country_of_citizenship: "",
+        sba_loan_entity_interest: true,
+        sba_loan_entity_interest_details: "SBA loan #1234, current",
+        subject_to_indictment: false,
+        arrested_or_charged_6mo: false,
+        convicted_diversion_or_parole: false,
+        suspended_debarred_ineligible: false,
+      },
+    ],
+  };
+
+  const result = await writeBuilderCanonical("deal-1", "parties", data as Record<string, unknown>, client as any);
+  const row = rows.get(result.ownerEntityIds![0].ownership_entity_id);
+
+  assert.equal(row?.home_phone, "555-0100");
+  assert.equal(row?.former_names_and_dates_used, "Jane Smith (until 2015)");
+  assert.equal(row?.citizenship_status, "us_citizen");
+  assert.equal(row?.sba_loan_entity_interest, true);
+  assert.equal(row?.sba_loan_entity_interest_details, "SBA loan #1234, current");
+  assert.equal(row?.subject_to_indictment, false);
+  assert.equal(row?.arrested_or_charged_6mo, false);
+  assert.equal(row?.convicted_diversion_or_parole, false);
+  assert.equal(row?.suspended_debarred_ineligible, false);
+});
+
+test("writePartiesCanonical: new owner -> syncs Form 148L guarantee limitation fields", async () => {
+  const { client, rows } = makeFakeSb();
+  const data: Partial<PartiesSectionData> = {
+    owners: [
+      {
+        id: "draft-1",
+        full_legal_name: "Jane Doe",
+        ownership_pct: 15,
+        guarantee_limitation_type: "percentage",
+        guarantee_limit_percent_payment: 50,
+      },
+    ],
+  };
+
+  const result = await writeBuilderCanonical("deal-1", "parties", data as Record<string, unknown>, client as any);
+  const row = rows.get(result.ownerEntityIds![0].ownership_entity_id);
+
+  assert.equal(row?.guarantee_limitation_type, "percentage");
+  assert.equal(row?.guarantee_limit_percent_payment, 50);
+  assert.equal(row?.guarantee_limit_balance_under, undefined, "unrelated limitation sub-fields must not be written");
+});
+
 test("writePartiesCanonical: existing owner, partial edit -> only provided fields overwritten", async () => {
   const { client, rows } = makeFakeSb([
     {
@@ -213,4 +270,136 @@ test("writeBusinessCanonical: legal_entity_name only fills deals.name when curre
   const { client, deal } = makeFakeDealsSb({ name: "Existing Name" });
   await writeBuilderCanonical("deal-1", "business", { legal_entity_name: "New Name" }, client as any);
   assert.equal(deal.name, "Existing Name", "must not overwrite an existing deals.name");
+});
+
+/**
+ * Minimal fake Supabase client covering deals + borrowers, for
+ * writeBorrowerFieldsCanonical. `deal.borrower_id` seeds which borrowers
+ * row (if any) the deals select resolves to.
+ */
+function makeFakeBorrowerSb(dealSeed: Record<string, any> = {}, borrowerSeed: Record<string, any> = {}) {
+  const deal: Record<string, any> = { id: "deal-1", ...dealSeed };
+  const borrower: Record<string, any> = { id: "borrower-1", ...borrowerSeed };
+  const borrowerUpdateCalls: Array<Record<string, any>> = [];
+
+  const client = {
+    from(table: string) {
+      if (table === "deals") {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: { ...deal } }) }),
+          }),
+        };
+      }
+      assert.equal(table, "borrowers");
+      return {
+        update(patch: Record<string, any>) {
+          return {
+            eq: async () => {
+              borrowerUpdateCalls.push(patch);
+              Object.assign(borrower, patch);
+              return { error: null };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return { client, borrower, borrowerUpdateCalls };
+}
+
+test("writeBusinessCanonical: business fields sync to borrowers when deal has a borrower_id", async () => {
+  const { client, borrower } = makeFakeBorrowerSb({ borrower_id: "borrower-1" });
+  await writeBuilderCanonical(
+    "deal-1",
+    "business",
+    {
+      dba: "Acme Metal Works",
+      ein: "12-3456789",
+      duns_number: "123456789",
+      contact_name: "Jane Doe",
+      contact_email: "jane@acme.example",
+      type_of_business: "Metal fabrication",
+      has_affiliates: true,
+      has_bankruptcy_history: false,
+    },
+    client as any,
+  );
+
+  assert.equal(borrower.dba, "Acme Metal Works");
+  assert.equal(borrower.ein, "12-3456789");
+  assert.equal(borrower.duns_number, "123456789");
+  assert.equal(borrower.contact_name, "Jane Doe");
+  assert.equal(borrower.contact_email, "jane@acme.example");
+  assert.equal(borrower.naics_description, "Metal fabrication", "type_of_business maps to naics_description");
+  assert.equal(borrower.has_affiliates, true);
+  assert.equal(borrower.has_bankruptcy_history, false);
+});
+
+test("writeBusinessCanonical: no borrower_id on deal -> borrowers never touched", async () => {
+  const { client, borrowerUpdateCalls } = makeFakeBorrowerSb({});
+  await writeBuilderCanonical("deal-1", "business", { dba: "Acme Metal Works" }, client as any);
+  assert.equal(borrowerUpdateCalls.length, 0, "deal with no borrower_id must not attempt a borrowers write");
+});
+
+/**
+ * Minimal fake Supabase client covering deals + deal_loan_requests, for
+ * writeDealCanonical's upsert path.
+ */
+function makeFakeLoanRequestSb(dealSeed: Record<string, any> = {}) {
+  const deal: Record<string, any> = { id: "deal-1", bank_id: "bank-1", ...dealSeed };
+  let upserted: Record<string, any> | null = null;
+
+  const client = {
+    from(table: string) {
+      if (table === "deals") {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { ...deal } }) }) }),
+          update: () => ({ eq: async () => ({ error: null }) }),
+        };
+      }
+      assert.equal(table, "deal_loan_requests");
+      return {
+        upsert: async (row: Record<string, any>) => {
+          upserted = row;
+          return { error: null };
+        },
+      };
+    },
+  };
+
+  return { client, getUpserted: () => upserted };
+}
+
+test("writeDealCanonical: jobs + contractor fields upsert into deal_loan_requests", async () => {
+  const { client, getUpserted } = makeFakeLoanRequestSb();
+  await writeBuilderCanonical(
+    "deal-1",
+    "deal",
+    {
+      loan_purpose: "Purchase manufacturing facility",
+      jobs_created_count: 3,
+      jobs_retained_count: 12,
+      contractor_name: "Acme Builders LLC",
+      contractor_address: "1 Contractor Way",
+      contractor_phone: "555-0100",
+      contractor_authorized_official: "Bob Smith, President",
+    },
+    client as any,
+  );
+
+  const row = getUpserted();
+  assert.equal(row?.jobs_created_count, 3);
+  assert.equal(row?.jobs_retained_count, 12);
+  assert.equal(row?.contractor_name, "Acme Builders LLC");
+  assert.equal(row?.contractor_address, "1 Contractor Way");
+  assert.equal(row?.contractor_phone, "555-0100");
+  assert.equal(row?.contractor_authorized_official, "Bob Smith, President");
+});
+
+test("writeDealCanonical: contractor_name alone triggers the deal_loan_requests upsert", async () => {
+  const { client, getUpserted } = makeFakeLoanRequestSb();
+  await writeBuilderCanonical("deal-1", "deal", { contractor_name: "Acme Builders LLC" }, client as any);
+  assert.equal(getUpserted()?.contractor_name, "Acme Builders LLC");
 });

@@ -70,7 +70,7 @@ async function writeDealCanonical(
   }
 
   // Also upsert loan_request record so hasLoanRequest blocker clears
-  if (data.loan_type || data.loan_purpose || data.requested_amount) {
+  if (data.loan_type || data.loan_purpose || data.requested_amount || data.contractor_name) {
     // Get bank_id for the deal (required column)
     const { data: dealRow } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
     const bankId = dealRow?.bank_id ?? null;
@@ -100,6 +100,12 @@ async function writeDealCanonical(
       product_type: mappedProductType,
       loan_purpose: data.loan_purpose ?? null,
       requested_amount: data.requested_amount ?? null,
+      jobs_created_count: data.jobs_created_count ?? null,
+      jobs_retained_count: data.jobs_retained_count ?? null,
+      contractor_name: data.contractor_name ?? null,
+      contractor_address: data.contractor_address ?? null,
+      contractor_phone: data.contractor_phone ?? null,
+      contractor_authorized_official: data.contractor_authorized_official ?? null,
       source: "banker",
       status: "draft",
     }, { onConflict: "deal_id,request_number" });
@@ -145,6 +151,71 @@ async function writeBusinessCanonical(
   }
 
   await writeOperatingCompanyCanonical(dealId, data, sb);
+  await writeBorrowerFieldsCanonical(dealId, data, sb);
+}
+
+/**
+ * business section → borrowers (the Applicant's own identity/eligibility
+ * fields Forms 1919/1244/148/etc. read via deals.borrower_id). Previously
+ * ONLY deals.name got a write-through here — every other business-section
+ * field (dba/ein/address/phone/website/naics/employee_count, plus the
+ * newer 1244-only fields below) stopped at the deal_builder_sections JSON
+ * blob and never reached `borrowers`, so a deal built purely by hand in
+ * the builder UI would render these SBA forms with real nulls despite the
+ * banker having typed the values in. Deliberate overwrite, same reasoning
+ * as writePartiesCanonical/writeOperatingCompanyCanonical: direct banker
+ * input wins. Skips entirely if the deal has no borrower_id yet (deals
+ * created via the real /api/deals/create or /borrower/ensure flows always
+ * get one; this is just a defensive no-op, not silently swallowing data
+ * for a deal that legitimately has none).
+ */
+async function writeBorrowerFieldsCanonical(
+  dealId: string,
+  data: Record<string, unknown>,
+  sb: SupabaseClient,
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (data.legal_entity_name !== undefined) update.legal_name = data.legal_entity_name || null;
+  if (data.dba !== undefined) update.dba = data.dba || null;
+  if (data.ein !== undefined) update.ein = data.ein || null;
+  if (data.entity_type !== undefined) update.entity_type = data.entity_type || null;
+  if (data.state_of_formation !== undefined) update.state_of_formation = data.state_of_formation || null;
+  if (data.business_address !== undefined) update.address_line1 = data.business_address || null;
+  if (data.city !== undefined) update.city = data.city || null;
+  if (data.state !== undefined) update.state = data.state || null;
+  if (data.zip !== undefined) update.zip = data.zip || null;
+  if (data.phone !== undefined) update.phone = data.phone || null;
+  if (data.website !== undefined) update.website = data.website || null;
+  if (data.naics_code !== undefined) update.naics_code = data.naics_code || null;
+  if (data.employee_count !== undefined) update.employee_count = data.employee_count ?? null;
+  // Form 1244 Section One fields with no prior representation.
+  if (data.duns_number !== undefined) update.duns_number = data.duns_number || null;
+  if (data.contact_name !== undefined) update.contact_name = data.contact_name || null;
+  if (data.contact_email !== undefined) update.contact_email = data.contact_email || null;
+  if (data.type_of_business !== undefined) update.naics_description = data.type_of_business || null;
+  if (data.has_affiliates !== undefined) update.has_affiliates = Boolean(data.has_affiliates);
+  if (data.obtained_direct_or_guaranteed_loan !== undefined) update.obtained_direct_or_guaranteed_government_loan = Boolean(data.obtained_direct_or_guaranteed_loan);
+  if (data.prior_application_submitted !== undefined) update.prior_project_application_submitted = Boolean(data.prior_application_submitted);
+  if (data.prior_cdc_lender_name_and_program !== undefined) update.prior_project_cdc_lender_name_and_program = data.prior_cdc_lender_name_and_program || null;
+  if (data.has_bankruptcy_history !== undefined) update.has_bankruptcy_history = Boolean(data.has_bankruptcy_history);
+  if (data.has_pending_lawsuits !== undefined) update.has_pending_lawsuits = Boolean(data.has_pending_lawsuits);
+
+  if (Object.keys(update).length === 0) return;
+
+  const { data: deal } = await sb.from("deals").select("borrower_id").eq("id", dealId).maybeSingle();
+  const borrowerId = (deal as { borrower_id?: string } | null)?.borrower_id;
+  if (!borrowerId) return;
+
+  const { error } = await sb.from("borrowers").update(update).eq("id", borrowerId);
+  if (error) {
+    console.error("[builderCanonicalWrite] borrowers field sync failed", {
+      dealId,
+      borrowerId,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+  }
 }
 
 /**
@@ -228,6 +299,28 @@ async function writePartiesCanonical(
     if (owner.home_city !== undefined) update.home_address_city = owner.home_city || null;
     if (owner.home_state !== undefined) update.home_address_state = owner.home_state || null;
     if (owner.home_zip !== undefined) update.home_address_zip = owner.home_zip || null;
+    // Form 1244 Section Two / Form 912 overlap fields.
+    if (owner.home_phone !== undefined) update.home_phone = owner.home_phone || null;
+    if (owner.former_names_and_dates_used !== undefined) update.former_names_and_dates_used = owner.former_names_and_dates_used || null;
+    if (owner.citizenship_status !== undefined) update.citizenship_status = owner.citizenship_status || null;
+    if (owner.country_of_citizenship !== undefined) update.country_of_citizenship = owner.country_of_citizenship || null;
+    if (owner.sba_loan_entity_interest !== undefined) update.sba_loan_entity_interest = owner.sba_loan_entity_interest;
+    if (owner.sba_loan_entity_interest_details !== undefined) update.sba_loan_entity_interest_details = owner.sba_loan_entity_interest_details || null;
+    if (owner.subject_to_indictment !== undefined) update.subject_to_indictment = owner.subject_to_indictment;
+    if (owner.arrested_or_charged_6mo !== undefined) update.arrested_or_charged_6mo = owner.arrested_or_charged_6mo;
+    if (owner.convicted_diversion_or_parole !== undefined) update.convicted_diversion_or_parole = owner.convicted_diversion_or_parole;
+    if (owner.suspended_debarred_ineligible !== undefined) update.suspended_debarred_ineligible = owner.suspended_debarred_ineligible;
+    // Form 148L — only meaningful when determineGuaranteeType(ownership_pct)
+    // resolves "limited" (src/lib/ownership/rules.ts), but written whenever
+    // present so an owner who later crosses the 20% threshold doesn't lose
+    // previously-entered limitation terms.
+    if (owner.guarantee_limitation_type !== undefined) update.guarantee_limitation_type = owner.guarantee_limitation_type || null;
+    if (owner.guarantee_limit_balance_under !== undefined) update.guarantee_limit_balance_under = owner.guarantee_limit_balance_under ?? null;
+    if (owner.guarantee_limit_principal_under !== undefined) update.guarantee_limit_principal_under = owner.guarantee_limit_principal_under ?? null;
+    if (owner.guarantee_limit_max_payment !== undefined) update.guarantee_limit_max_payment = owner.guarantee_limit_max_payment ?? null;
+    if (owner.guarantee_limit_percent_payment !== undefined) update.guarantee_limit_percent_payment = owner.guarantee_limit_percent_payment ?? null;
+    if (owner.guarantee_limit_time_years !== undefined) update.guarantee_limit_time_years = owner.guarantee_limit_time_years ?? null;
+    if (owner.guarantee_limit_collateral_description !== undefined) update.guarantee_limit_collateral_description = owner.guarantee_limit_collateral_description || null;
 
     if (Object.keys(update).length === 0) continue;
     const { error } = await sb.from("ownership_entities").update(update).eq("id", ownershipEntityId);
