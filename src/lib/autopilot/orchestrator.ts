@@ -20,9 +20,14 @@
  *   S9: Assemble package bundle (PDF/DOCX + evidence index)
  */
 
+import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assemblePackageBundle } from "./package-bundle";
 import { evaluateDocumentSubstitutions } from "@/lib/connect/substitutions";
+import { orchestrator as agentOrchestrator } from "@/lib/agents";
+import { ingestClaimsForDeal } from "@/lib/arbitration/ingestClaims";
+import { reconcileConflictsForDeal } from "@/lib/arbitration/reconcileConflicts";
+import { materializeTruthSnapshotForDeal } from "@/lib/arbitration/materializeTruthSnapshot";
 
 export type PipelineStage =
   | "S1_INTAKE"
@@ -115,10 +120,15 @@ export async function startAutopilotRun(
       return { ok: false, error: runError?.message || "Failed to create pipeline run" };
     }
 
-    // Execute pipeline asynchronously (don't await)
-    executeAutopilotPipeline(run.id, dealId, bankId, mode).catch((err) => {
-      console.error(`[Autopilot] Fatal error in pipeline ${run.id}:`, err);
-    });
+    // Execute pipeline asynchronously (don't await the HTTP response on it),
+    // but register it with Next's after() so the serverless function isn't
+    // torn down mid-pipeline once the response streams back — a bare
+    // fire-and-forget .catch() has no such guarantee on Vercel.
+    after(() =>
+      executeAutopilotPipeline(run.id, dealId, bankId, mode).catch((err) => {
+        console.error(`[Autopilot] Fatal error in pipeline ${run.id}:`, err);
+      }),
+    );
 
     return { ok: true, runId: run.id };
   } catch (err) {
@@ -218,17 +228,32 @@ async function executeStage1_Intake(runId: string, dealId: string, bankId: strin
 async function executeStage2_Agents(runId: string, dealId: string, bankId: string) {
   await logStage(runId, "S2_AGENTS", "started", "Running agent swarm");
 
-  // Call agent execution API
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/deals/${dealId}/agents/execute`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  // In-process call (not an HTTP round-trip to /agents/execute) — a
+  // server-to-server fetch back into this same app carries no Clerk
+  // session, so getCurrentBankId() on the receiving end would always
+  // throw "not_authenticated" and this stage would fail on every run.
+  // bankId is already authenticated/validated by whoever called
+  // startAutopilotRun, so calling the orchestrator directly is both
+  // correct and strictly faster.
+  const result = await agentOrchestrator.executeSBAUnderwritingPipeline({
+    deal_id: dealId,
+    bank_id: bankId,
   });
 
-  if (!res.ok) {
-    throw new Error("Agent execution failed");
-  }
+  // Per-agent failures (e.g. the 5 of 9 agent names — credit, collateral,
+  // management, narrative, evidence — that have no registered
+  // implementation yet) are caught inside executeAgents() and don't throw
+  // here; surface them honestly in the stage log instead of reporting a
+  // blanket "succeeded" that hides a degraded run.
+  const failedAgents = result.errors.map((e) => e.agent_name).join(", ");
+  const message = result.errors.length > 0
+    ? `${result.findings.length}/${result.agents_executed.length} agents completed (failed: ${failedAgents})`
+    : `${result.findings.length}/${result.agents_executed.length} agents completed`;
 
-  await logStage(runId, "S2_AGENTS", "succeeded", "Agents completed");
+  await logStage(runId, "S2_AGENTS", "succeeded", message, {
+    findings: result.findings.length,
+    errors: result.errors,
+  });
 }
 
 /**
@@ -237,31 +262,27 @@ async function executeStage2_Agents(runId: string, dealId: string, bankId: strin
 async function executeStage3_Claims(runId: string, dealId: string, bankId: string) {
   await logStage(runId, "S3_CLAIMS", "started", "Ingesting claims");
 
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/deals/${dealId}/arbitration/ingest`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }
+  const result = await ingestClaimsForDeal(dealId, bankId);
+
+  await logStage(
+    runId,
+    "S3_CLAIMS",
+    "succeeded",
+    `${result.claims_created} claims ingested, ${result.conflict_sets_created} conflict sets`,
   );
-
-  if (!res.ok) {
-    throw new Error("Claims ingest failed");
-  }
-
-  await logStage(runId, "S3_CLAIMS", "succeeded", "Claims ingested");
 }
 
 /**
  * Stage 4: Apply Bank Overlays
  */
 async function executeStage4_Overlays(runId: string, dealId: string, bankId: string) {
-  await logStage(runId, "S4_OVERLAYS", "started", "Applying bank overlays");
-
-  // Bank overlays are applied during reconciliation (S5)
-  // This stage is a placeholder for future pre-reconciliation overlay logic
-
-  await logStage(runId, "S4_OVERLAYS", "succeeded", "Overlays prepared");
+  void dealId;
+  void bankId;
+  // Bank overlays are actually applied during reconciliation (S5, see
+  // executeStage5_Arbitration's applyBankOverlay:true), not here — this
+  // stage does no real work of its own. Logged as "skipped", not
+  // "succeeded", so the stage log doesn't claim work that didn't happen.
+  await logStage(runId, "S4_OVERLAYS", "skipped", "No standalone overlay step — applied during S5 reconciliation");
 }
 
 /**
@@ -270,19 +291,17 @@ async function executeStage4_Overlays(runId: string, dealId: string, bankId: str
 async function executeStage5_Arbitration(runId: string, dealId: string, bankId: string) {
   await logStage(runId, "S5_ARBITRATION", "started", "Reconciling conflicts");
 
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/deals/${dealId}/arbitration/reconcile`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }
+  // applyBankOverlay:true here, not at S4 — see executeStage4_Overlays.
+  const result = await reconcileConflictsForDeal(dealId, bankId, { applyBankOverlay: true });
+
+  await logStage(
+    runId,
+    "S5_ARBITRATION",
+    "succeeded",
+    result.decisions_made > 0
+      ? `${result.decisions_made} decisions made (${result.needs_human_review ?? 0} need human review)`
+      : result.message || "No open conflicts to reconcile",
   );
-
-  if (!res.ok) {
-    throw new Error("Arbitration reconcile failed");
-  }
-
-  await logStage(runId, "S5_ARBITRATION", "succeeded", "Conflicts reconciled");
 }
 
 /**
@@ -291,52 +310,44 @@ async function executeStage5_Arbitration(runId: string, dealId: string, bankId: 
 async function executeStage6_Truth(runId: string, dealId: string, bankId: string) {
   await logStage(runId, "S6_TRUTH", "started", "Materializing truth snapshot");
 
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL}/api/deals/${dealId}/arbitration/materialize`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }
-  );
+  const result = await materializeTruthSnapshotForDeal(dealId, bankId);
 
-  if (!res.ok) {
-    throw new Error("Truth materialization failed");
+  if (!result.truth_snapshot_created) {
+    // No arbitration_decisions rows yet (e.g. no agent findings/claims
+    // exist for this deal) — honest "skipped", not a fabricated "v? created".
+    await logStage(runId, "S6_TRUTH", "skipped", result.message || "No decisions to materialize");
+    return;
   }
 
-  const data = await res.json();
-
-  // Store truth snapshot ID in pipeline run
   const sb = supabaseAdmin();
   await sb
     .from("deal_pipeline_runs")
-    .update({ truth_snapshot_id: data.data?.snapshot_id })
+    .update({ truth_snapshot_id: result.snapshot_id })
     .eq("id", runId);
 
-  await logStage(runId, "S6_TRUTH", "succeeded", `Truth snapshot v${data.data?.version} created`);
+  await logStage(runId, "S6_TRUTH", "succeeded", `Truth snapshot v${result.version} created`);
 }
 
 /**
  * Stage 7: Generate Conditions
  */
 async function executeStage7_Conditions(runId: string, dealId: string, bankId: string) {
-  await logStage(runId, "S7_CONDITIONS", "started", "Generating conditions");
-
-  // TODO: Call conditions evaluation API (when implemented)
-  // For now, log success
-
-  await logStage(runId, "S7_CONDITIONS", "succeeded", "Conditions generated");
+  void dealId;
+  void bankId;
+  // TODO: no conditions-evaluation API exists yet — logged as "skipped",
+  // not a fabricated "succeeded", so the audit trail stays honest.
+  await logStage(runId, "S7_CONDITIONS", "skipped", "Conditions evaluation not yet implemented");
 }
 
 /**
  * Stage 8: Generate Narrative
  */
 async function executeStage8_Narrative(runId: string, dealId: string, bankId: string) {
-  await logStage(runId, "S8_NARRATIVE", "started", "Generating narrative memo");
-
-  // TODO: Call narrative agent (when implemented)
-  // For now, log success
-
-  await logStage(runId, "S8_NARRATIVE", "succeeded", "Narrative memo generated");
+  void dealId;
+  void bankId;
+  // TODO: the `narrative` agent (src/lib/agents/) has no implementation
+  // yet — logged as "skipped", not a fabricated "succeeded".
+  await logStage(runId, "S8_NARRATIVE", "skipped", "Narrative agent not yet implemented");
 }
 
 /**
