@@ -212,6 +212,12 @@ export async function buildSbaEligibilityInput(
     .select("status")
     .eq("deal_id", dealId);
 
+  const { data: borrowerStory } = await sb
+    .from("deal_borrower_story")
+    .select("credit_elsewhere_documented, credit_elsewhere_finding")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+
   const franchiseBrandId =
     (dealFranchise as { brand_id?: string } | null)?.brand_id ??
     (loanRequest as { franchise_brand_id?: string } | null)?.franchise_brand_id ??
@@ -417,8 +423,12 @@ export async function buildSbaEligibilityInput(
     lender_is_federally_regulated: null,
     screening_uses_sbss: false,
 
-    credit_elsewhere_test_documented: null,
-    credit_elsewhere_finding: null,
+    credit_elsewhere_test_documented:
+      (borrowerStory as { credit_elsewhere_documented?: boolean | null } | null)
+        ?.credit_elsewhere_documented ?? null,
+    credit_elsewhere_finding:
+      (borrowerStory as { credit_elsewhere_finding?: string | null } | null)?.credit_elsewhere_finding ??
+      null,
 
     retaining_seller_present: null,
     retaining_seller_guarantees_2yr: null,

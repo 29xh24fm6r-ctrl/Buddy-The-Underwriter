@@ -98,6 +98,11 @@ export type DealBorrowerStory = {
   hq_city?: string | null;
   hq_state?: string | null;
   banker_identity_summary?: string | null;
+  // Feeds ELIGIBILITY.CREDIT_ELSEWHERE_50108 (SOP 50 10 8 §A Ch.5 HARD_STOP
+  // rule) via buildSbaEligibilityInput — see src/lib/sba/dealDataBuilder.ts.
+  credit_elsewhere_documented?: boolean | null;
+  credit_elsewhere_finding?: "unavailable" | "available_but_unfavorable_terms" | "available" | null;
+  credit_elsewhere_narrative?: string | null;
   source: "banker" | "borrower" | "buddy" | "research";
   confidence: number | null;
   created_at: string;

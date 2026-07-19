@@ -29,11 +29,17 @@ export interface Punchlist {
   blocking_count: number;
 }
 
+export type PunchlistSupabaseClient = { from: (table: string) => any };
+
 /**
  * Generate punchlist for a deal
  */
-export async function generatePunchlist(dealId: string, bankId: string): Promise<Punchlist> {
-  const sb = supabaseAdmin();
+export async function generatePunchlist(
+  dealId: string,
+  bankId: string,
+  opts: { sb?: PunchlistSupabaseClient } = {},
+): Promise<Punchlist> {
+  const sb: PunchlistSupabaseClient = opts.sb ?? supabaseAdmin();
 
   const borrowerActions: PunchlistItem[] = [];
   const bankerActions: PunchlistItem[] = [];
@@ -98,7 +104,7 @@ export async function generatePunchlist(dealId: string, bankId: string): Promise
     .eq("deal_id", dealId)
     .eq("topic", "eligibility");
 
-  const eligibilityHashes = (eligibilityConflicts ?? []).map((c) => c.claim_hash);
+  const eligibilityHashes = (eligibilityConflicts ?? []).map((c: any) => c.claim_hash);
 
   const { data: eligibilityDecisions } = eligibilityHashes.length > 0
     ? await sb
@@ -154,6 +160,12 @@ export async function generatePunchlist(dealId: string, bankId: string): Promise
   }
 
   // 5. Check for pending conditions
+  //
+  // deal_conditions has no `assignee`/`severity` columns — real columns are
+  // title/description/category/status/source/source_key (see
+  // 20251219000007_conditions_generator.sql). This previously read
+  // condition.assignee/severity/condition_title/condition_description/reason,
+  // none of which exist, so every field below was always undefined.
   const { data: openConditions } = await sb
     .from("deal_conditions")
     .select("*")
@@ -162,19 +174,28 @@ export async function generatePunchlist(dealId: string, bankId: string): Promise
 
   if (openConditions && openConditions.length > 0) {
     for (const condition of openConditions) {
+      // No assignee column exists — mitigant-driven conditions ("policy"
+      // source) typically require a borrower document upload; everything
+      // else defaults to a banker action.
+      const isBorrowerAction = condition.source === "policy";
+      // No severity column exists — derive a priority/blocking signal from
+      // category instead: legal and credit conditions are treated as
+      // high-priority and blocking, the rest as medium/non-blocking.
+      const isHighStakes = condition.category === "legal" || condition.category === "credit";
+
       const item: PunchlistItem = {
         id: `condition-${condition.id}`,
-        type: condition.assignee === "borrower" ? "borrower_action" : "banker_action",
-        priority: condition.severity === "critical" ? "critical" : "medium",
-        title: condition.condition_title,
-        description: condition.condition_description || "",
-        reason: condition.reason || "Required for approval",
+        type: isBorrowerAction ? "borrower_action" : "banker_action",
+        priority: isHighStakes ? "high" : "medium",
+        title: condition.title,
+        description: condition.description || "",
+        reason: condition.description || "Required for approval",
         source: "condition",
         sba_vs_bank: condition.source === "bank_policy" ? "bank" : "sba",
-        blocking: condition.severity === "critical",
+        blocking: isHighStakes,
       };
-      
-      if (condition.assignee === "borrower") {
+
+      if (isBorrowerAction) {
         borrowerActions.push(item);
       } else {
         bankerActions.push(item);

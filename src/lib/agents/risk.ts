@@ -211,7 +211,28 @@ export class RiskSynthesisAgent extends Agent<RiskInput, RiskSynthesisFinding> {
         };
       }
     }
-    
+
+    if (finding.agent_name === 'collateral') {
+      if (output.sop_compliant === false) {
+        return {
+          risk: output.explanation || 'Collateral coverage does not meet policy LTV limit',
+          severity: output.shortfall_amount > 0 ? 'high' : 'moderate',
+          mitigation: 'Obtain additional collateral or reduce loan amount to meet LTV policy',
+        };
+      }
+    }
+
+    if (finding.agent_name === 'management') {
+      const flagged = output.principals?.filter((p: any) => p.concerns?.length > 0);
+      if (flagged?.length > 0) {
+        return {
+          risk: `${flagged.length} management principal(s) have unresolved experience/documentation concerns`,
+          severity: flagged.length >= (output.principals?.length ?? 1) ? 'high' : 'moderate',
+          mitigation: 'Complete borrower interview and document principal experience/background',
+        };
+      }
+    }
+
     // Default risk extraction
     if (finding.status === 'fail') {
       return {
@@ -316,6 +337,9 @@ export class RiskSynthesisAgent extends Agent<RiskInput, RiskSynthesisFinding> {
             break;
           case 'collateral':
             conditions.push('Obtain collateral appraisals and UCC searches');
+            break;
+          case 'management':
+            conditions.push('Obtain resumes and background disclosures for all key principals');
             break;
         }
       }

@@ -92,12 +92,20 @@ function makeFakeSb(tables: Record<string, any[]> = {}) {
         };
       },
       update(patch: any) {
-        return {
-          eq: async () => {
-            state[name] = state[name].map((r) => ({ ...r, ...patch }));
-            return { error: null };
+        const filters: Array<(row: any) => boolean> = [];
+        const updateBuilder: any = {
+          eq(col: string, val: unknown) {
+            filters.push((row) => row[col] === val);
+            return updateBuilder;
+          },
+          then(resolve: any) {
+            state[name] = state[name].map((r) =>
+              filters.every((f) => f(r)) ? { ...r, ...patch } : r,
+            );
+            resolve({ error: null });
           },
         };
+        return updateBuilder;
       },
     };
   }
@@ -129,6 +137,63 @@ test("reconcileConflictsForDeal: no open conflicts -> zero decisions, honest mes
   const result = await reconcileConflictsForDeal("deal-1", "bank-1", { sb: client as any });
   assert.equal(result.decisions_made, 0);
   assert.equal(result.message, "No open conflicts to reconcile");
+});
+
+/**
+ * S4 "bank overlays" is not a standalone pipeline stage — orchestrator.ts's
+ * executeStage4_Overlays is an intentional no-op; the real overlay
+ * application happens here, inside S5, via applyBankOverlay:true. This had
+ * zero test coverage before this fix, and a live check found zero rows in
+ * overlay_application_log / zero active bank_overlays across the whole
+ * database — the wiring is real but has never fired for an actual deal yet.
+ */
+test("reconcileConflictsForDeal: applyBankOverlay:true + active overlay -> logs to overlay_application_log", async () => {
+  const { client, state } = makeFakeSb({
+    claim_conflict_sets: [
+      { id: "cs-1", deal_id: "deal-1", bank_id: "bank-1", status: "open", claim_hash: "hash-1", topic: "dscr" },
+    ],
+    agent_claims: [
+      {
+        id: "claim-1",
+        deal_id: "deal-1",
+        claim_hash: "hash-1",
+        finding_id: "finding-1",
+        topic: "dscr",
+        predicate: "global_dscr",
+        value_json: { value: 1.25 },
+        severity: "info",
+        sop_citations: [],
+        evidence_json: null,
+      },
+    ],
+    bank_overlays: [
+      {
+        id: "overlay-1",
+        bank_id: "bank-1",
+        version: 1,
+        is_active: true,
+        overlay_json: {
+          bank_id: "bank-1",
+          version: 1,
+          name: "Test Overlay",
+          constraints: {},
+          risk_triggers: [],
+          doc_requirements: [],
+          arbitration_overrides: {},
+        },
+      },
+    ],
+  });
+
+  const result = await reconcileConflictsForDeal("deal-1", "bank-1", {
+    sb: client as any,
+    applyBankOverlay: true,
+  });
+
+  assert.equal(result.decisions_made, 1);
+  assert.equal(result.overlay_applied, true);
+  assert.equal(state.overlay_application_log.length, 1);
+  assert.equal(state.overlay_application_log[0].overlay_id, "overlay-1");
 });
 
 test("materializeTruthSnapshotForDeal: no decisions -> truth_snapshot_created false, honest message", async () => {
