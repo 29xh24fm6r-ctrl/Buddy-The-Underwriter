@@ -28,6 +28,7 @@ import { orchestrator as agentOrchestrator } from "@/lib/agents";
 import { ingestClaimsForDeal } from "@/lib/arbitration/ingestClaims";
 import { reconcileConflictsForDeal } from "@/lib/arbitration/reconcileConflicts";
 import { materializeTruthSnapshotForDeal } from "@/lib/arbitration/materializeTruthSnapshot";
+import { generateConditionsForDeal } from "@/lib/conditions/generateConditionsForDeal";
 
 export type PipelineStage =
   | "S1_INTAKE"
@@ -332,11 +333,11 @@ async function executeStage6_Truth(runId: string, dealId: string, bankId: string
  * Stage 7: Generate Conditions
  */
 async function executeStage7_Conditions(runId: string, dealId: string, bankId: string) {
-  void dealId;
-  void bankId;
-  // TODO: no conditions-evaluation API exists yet — logged as "skipped",
-  // not a fabricated "succeeded", so the audit trail stays honest.
-  await logStage(runId, "S7_CONDITIONS", "skipped", "Conditions evaluation not yet implemented");
+  await logStage(runId, "S7_CONDITIONS", "started", "Generating conditions");
+
+  const result = await generateConditionsForDeal(dealId, bankId);
+
+  await logStage(runId, "S7_CONDITIONS", "succeeded", result.message);
 }
 
 /**

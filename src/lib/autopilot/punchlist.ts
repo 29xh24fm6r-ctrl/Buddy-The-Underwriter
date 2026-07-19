@@ -70,6 +70,15 @@ export async function generatePunchlist(
   }
 
   // 2. Check for missing required documents
+  //
+  // deal_required_documents has no required/document_type/description/
+  // reason/source columns — real columns are document_key/document_label/
+  // document_category/is_required/status. This previously read
+  // doc.required/document_type/description/reason/source, none of which
+  // exist, so every field below was always undefined. There is also no
+  // column distinguishing bank-overlay-driven requirements from SBA ones,
+  // so sba_vs_bank defaults to "sba" for all rows (documented limitation,
+  // not a bug — no data source exists to tell the two apart).
   const { data: missingDocs } = await sb
     .from("deal_required_documents")
     .select("*")
@@ -78,15 +87,16 @@ export async function generatePunchlist(
 
   if (missingDocs && missingDocs.length > 0) {
     for (const doc of missingDocs) {
+      const label = doc.document_label || doc.document_key;
       borrowerActions.push({
         id: `doc-${doc.id}`,
         type: "borrower_action",
-        priority: doc.required ? "high" : "medium",
-        title: `Upload ${doc.document_type}`,
-        description: doc.description || `We need your ${doc.document_type}`,
-        reason: doc.reason || "Required for SBA compliance",
+        priority: doc.is_required ? "high" : "medium",
+        title: `Upload ${label}`,
+        description: doc.document_label ? `We need your ${label}` : "",
+        reason: "Required for SBA compliance",
         source: "missing_doc",
-        sba_vs_bank: doc.source === "bank_overlay" ? "bank" : "sba",
+        sba_vs_bank: "sba",
         link: `/borrower/upload`,
         eta_minutes: 5,
         blocking: doc.required,
@@ -138,8 +148,13 @@ export async function generatePunchlist(
   }
 
   // 4. Check for unverified documents
+  //
+  // borrower_files does not exist as a table at all — this query always
+  // silently returned zero rows. The real, populated document intake
+  // table is deal_documents (status='pending' for documents still awaiting
+  // OCR/classification).
   const { data: unverifiedDocs } = await sb
-    .from("borrower_files")
+    .from("deal_documents")
     .select("*")
     .eq("deal_id", dealId)
     .eq("status", "pending");
