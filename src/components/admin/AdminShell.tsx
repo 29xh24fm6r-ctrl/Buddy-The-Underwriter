@@ -28,6 +28,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-2">
             <NavLink href="/admin" label="Admin" />
             <NavLink href="/admin/brokerage" label="Brokerage HQ" />
+            <NavLink href="/admin/brokerage/command-center" label="Command Center" />
             <NavLink href="/admin/brokerage/lenders" label="Lenders" />
             <NavLink href="/admin/brokerage-owner" label="Owner Command Center" />
             <NavLink href="/admin/audit" label="Audit" />
