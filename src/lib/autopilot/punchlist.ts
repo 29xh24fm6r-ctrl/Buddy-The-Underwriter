@@ -53,7 +53,7 @@ export async function generatePunchlist(dealId: string, bankId: string): Promise
         type: "banker_action",
         priority: "high",
         title: `Resolve conflict: ${conflict.topic}`,
-        description: `${conflict.claim_ids.length} agents disagree on ${conflict.field_path}`,
+        description: `${conflict.num_claims} agents disagree on ${conflict.predicate}`,
         reason: "Agent arbitration requires human decision",
         source: "conflict",
         sba_vs_bank: "both",
@@ -89,26 +89,40 @@ export async function generatePunchlist(dealId: string, bankId: string): Promise
   }
 
   // 3. Check for eligibility failures
-  const { data: eligibilityDecisions } = await sb
-    .from("arbitration_decisions")
-    .select("*")
+  // arbitration_decisions has no `topic` column of its own (topic lives on
+  // claim_conflict_sets/agent_claims) - resolve the eligibility-topic claim
+  // hashes first, then filter decisions by claim_hash.
+  const { data: eligibilityConflicts } = await sb
+    .from("claim_conflict_sets")
+    .select("claim_hash")
     .eq("deal_id", dealId)
-    .eq("topic", "eligibility")
-    .eq("decision_status", "chosen");
+    .eq("topic", "eligibility");
+
+  const eligibilityHashes = (eligibilityConflicts ?? []).map((c) => c.claim_hash);
+
+  const { data: eligibilityDecisions } = eligibilityHashes.length > 0
+    ? await sb
+        .from("arbitration_decisions")
+        .select("*")
+        .eq("deal_id", dealId)
+        .in("claim_hash", eligibilityHashes)
+        .eq("decision_status", "chosen")
+    : { data: [] };
 
   if (eligibilityDecisions && eligibilityDecisions.length > 0) {
     for (const decision of eligibilityDecisions) {
+      const chosenValue = decision.chosen_value_json as Record<string, any> | null;
       if (
-        decision.chosen_value?.status === "fail" &&
-        decision.chosen_value?.severity === "blocker"
+        chosenValue?.status === "fail" &&
+        chosenValue?.severity === "blocker"
       ) {
         borrowerActions.push({
           id: `eligibility-${decision.id}`,
           type: "borrower_action",
           priority: "critical",
           title: "Fix eligibility issue",
-          description: decision.chosen_value?.explanation || "Eligibility requirement not met",
-          reason: decision.chosen_value?.sba_citation || "SBA SOP 50 10",
+          description: chosenValue?.explanation || "Eligibility requirement not met",
+          reason: chosenValue?.sba_citation || "SBA SOP 50 10",
           source: "sba_rule",
           sba_vs_bank: "sba",
           blocking: true,
