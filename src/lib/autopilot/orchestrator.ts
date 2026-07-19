@@ -29,6 +29,7 @@ import { ingestClaimsForDeal } from "@/lib/arbitration/ingestClaims";
 import { reconcileConflictsForDeal } from "@/lib/arbitration/reconcileConflicts";
 import { materializeTruthSnapshotForDeal } from "@/lib/arbitration/materializeTruthSnapshot";
 import { generateConditionsForDeal } from "@/lib/conditions/generateConditionsForDeal";
+import { runNarrativeBridge } from "./narrativeBridge";
 
 export type PipelineStage =
   | "S1_INTAKE"
@@ -344,11 +345,11 @@ async function executeStage7_Conditions(runId: string, dealId: string, bankId: s
  * Stage 8: Generate Narrative
  */
 async function executeStage8_Narrative(runId: string, dealId: string, bankId: string) {
-  void dealId;
-  void bankId;
-  // TODO: the `narrative` agent (src/lib/agents/) has no implementation
-  // yet — logged as "skipped", not a fabricated "succeeded".
-  await logStage(runId, "S8_NARRATIVE", "skipped", "Narrative agent not yet implemented");
+  await logStage(runId, "S8_NARRATIVE", "started", "Building credit memo and narrative sections");
+
+  const result = await runNarrativeBridge(dealId, bankId);
+
+  await logStage(runId, "S8_NARRATIVE", result.ok ? "succeeded" : "failed", result.message);
 }
 
 /**
