@@ -7,9 +7,6 @@ src/app/api/deals/[dealId]/advisor/blocker-observations/route.ts
 src/app/api/deals/[dealId]/advisor/feedback/[signalKey]/route.ts
 src/app/api/deals/[dealId]/advisor/feedback/route.ts
 src/app/api/deals/[dealId]/agents/findings/route.ts
-src/app/api/deals/[dealId]/arbitration/ingest/route.ts
-src/app/api/deals/[dealId]/arbitration/materialize/route.ts
-src/app/api/deals/[dealId]/arbitration/reconcile/route.ts
 src/app/api/deals/[dealId]/arbitration/status/route.ts
 src/app/api/deals/[dealId]/artifacts/backfill/route.ts
 src/app/api/deals/[dealId]/artifacts/matches/[matchId]/confirm/route.ts
@@ -23,7 +20,6 @@ src/app/api/deals/[dealId]/borrower-nudge/route.ts
 src/app/api/deals/[dealId]/borrower/readiness-score/route.ts
 src/app/api/deals/[dealId]/buddy/explain/route.ts
 src/app/api/deals/[dealId]/checklist/set-required/route.ts
-src/app/api/deals/[dealId]/conditions/generate-from-mitigants/route.ts
 src/app/api/deals/[dealId]/context/route.ts
 src/app/api/deals/[dealId]/credit-memo/pricing/insert/route.ts
 src/app/api/deals/[dealId]/explain/route.ts
