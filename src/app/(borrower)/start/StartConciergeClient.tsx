@@ -149,7 +149,24 @@ export function StartConciergeClient({
     <div>
       <div className="mb-3 text-center">
         <p className="text-sm text-slate-500">
-          {session.name ? `Welcome, ${session.name} — this` : "This"} is your private workspace.
+          {session.name ? `Welcome, ${session.name} — this` : "This"} is your private workspace.{" "}
+          <button
+            type="button"
+            onClick={async () => {
+              if (
+                !window.confirm(
+                  "Start a brand-new application on this device? Your current one is safe — you can always get back to it by re-verifying with the email you used.",
+                )
+              ) {
+                return;
+              }
+              await fetch("/api/brokerage/session/clear", { method: "POST" });
+              window.location.reload();
+            }}
+            className="font-medium text-slate-500 underline decoration-dotted hover:text-slate-800"
+          >
+            Not you? Start a new application
+          </button>
         </p>
       </div>
       <div className="mb-5">
