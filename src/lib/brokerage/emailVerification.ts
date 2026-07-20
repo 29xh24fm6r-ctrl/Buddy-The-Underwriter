@@ -36,6 +36,29 @@ import {
 const CODE_TTL_SECONDS = 10 * 60;
 const MAX_VERIFY_ATTEMPTS = 5;
 
+// Accepts "email@domain.tld" or "Name <email@domain.tld>" — the two shapes
+// Resend's `from` field validation allows. A malformed EMAIL_FROM env var
+// (e.g. missing a TLD, like "buddy@localhost") previously reached the
+// provider as-is and hard-failed every OTP send in production with no
+// actionable signal beyond a generic 500 — see incident 2026-07-20.
+const FROM_ADDRESS_RE =
+  /^(?:[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+|.+\s<[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>)$/;
+const DEFAULT_FROM_ADDRESS = "noreply@buddy.com";
+
+export function resolveFromAddress(): string {
+  const configured = process.env.EMAIL_FROM;
+  if (configured && FROM_ADDRESS_RE.test(configured.trim())) {
+    return configured.trim();
+  }
+  if (configured) {
+    console.error(
+      `[emailVerification] EMAIL_FROM is set but malformed ("${configured}") — ` +
+        `falling back to ${DEFAULT_FROM_ADDRESS}. Fix the EMAIL_FROM env var.`,
+    );
+  }
+  return DEFAULT_FROM_ADDRESS;
+}
+
 async function requestIp(): Promise<string> {
   const h = await headers();
   return (
@@ -100,7 +123,7 @@ export async function sendVerificationCode(args: {
 
   try {
     const provider = getEmailProvider();
-    const from = process.env.EMAIL_FROM || "noreply@buddy.com";
+    const from = resolveFromAddress();
     await provider.send({
       to: email,
       from,
