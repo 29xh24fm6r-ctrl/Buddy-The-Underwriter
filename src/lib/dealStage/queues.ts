@@ -41,6 +41,15 @@ export type ListManagementQueueInput = {
   limit?: number;
 };
 
+/**
+ * Deal ids belonging to a bank, for queue cases whose target table (closing
+ * conditions / closing workflows) carries deal_id but no bank_id of its own.
+ */
+async function bankScopedDealIds(sb: SB, bankId: string, limit: number): Promise<string[]> {
+  const { data } = await sb.from("deals").select("id").eq("bank_id", bankId).limit(Math.max(limit, 2000));
+  return ((data ?? []) as Array<{ id: string }>).map((d) => d.id);
+}
+
 export async function listManagementQueue(input: ListManagementQueueInput, sb: SB = supabaseAdmin()): Promise<any[]> {
   const limit = input.limit ?? 200;
   const now = new Date();
@@ -117,6 +126,7 @@ export async function listManagementQueue(input: ListManagementQueueInput, sb: S
       const { data } = await sb
         .from("deal_checklist_items")
         .select("deal_id, title")
+        .eq("bank_id", input.bankId)
         .eq("status", "missing")
         .eq("required", true)
         .limit(limit);
@@ -143,20 +153,31 @@ export async function listManagementQueue(input: ListManagementQueueInput, sb: S
       return data ?? [];
     }
     case "outstanding_conditions": {
+      // brokerage_closing_conditions has no bank_id column of its own —
+      // scope through the bank's own deal ids first. Found missing
+      // entirely (returning every tenant's open conditions) during live
+      // QA of SPEC-BROKERAGE-OPERATING-SYSTEM-V1.
+      const bankDealIds = await bankScopedDealIds(sb, input.bankId, limit);
+      if (bankDealIds.length === 0) return [];
       const { data } = await sb
         .from("brokerage_closing_conditions")
         .select("deal_id, title, status")
         .eq("status", "open")
+        .in("deal_id", bankDealIds)
         .limit(limit);
       return data ?? [];
     }
     case "closing_next_30_days": {
       const cutoff = new Date(now.getTime() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      // brokerage_closing_workflows has no bank_id column either — same fix.
+      const bankDealIds = await bankScopedDealIds(sb, input.bankId, limit);
+      if (bankDealIds.length === 0) return [];
       const { data } = await sb
         .from("brokerage_closing_workflows" as any)
         .select("deal_id, target_close_date, status")
         .lte("target_close_date", cutoff)
         .neq("status", "cancelled")
+        .in("deal_id", bankDealIds)
         .limit(limit);
       return data ?? [];
     }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
 
 const QUEUES: Array<{ id: string; label: string; needsActor?: boolean; needsRole?: boolean }> = [
@@ -27,7 +28,11 @@ function itemDealId(item: any): string | null {
 }
 
 export default function ManagementQueuesPage() {
-  const [queue, setQueue] = useState("overdue_tasks");
+  const searchParams = useSearchParams();
+  const requestedQueue = searchParams.get("queue");
+  const [queue, setQueue] = useState(
+    requestedQueue && QUEUES.some((q) => q.id === requestedQueue) ? requestedQueue : "overdue_tasks",
+  );
   const [role, setRole] = useState("broker");
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

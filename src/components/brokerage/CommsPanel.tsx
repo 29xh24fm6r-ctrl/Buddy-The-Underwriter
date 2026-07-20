@@ -30,6 +30,7 @@ export function CommsPanel({ targetType, targetId, onSent }: { targetType: Targe
   const [body, setBody] = useState("");
   const [direction, setDirection] = useState<"inbound" | "outbound">("outbound");
   const [outcome, setOutcome] = useState("");
+  const [commitmentsText, setCommitmentsText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -74,6 +75,11 @@ export function CommsPanel({ targetType, targetId, onSent }: { targetType: Targe
       } else if (channel === "meeting") {
         payload.title = subject || "Meeting";
         payload.outcome = outcome || undefined;
+        const commitmentsMade = commitmentsText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (commitmentsMade.length > 0) payload.commitmentsMade = commitmentsMade;
       }
 
       const res = await fetch("/api/admin/brokerage/crm/comms/send", {
@@ -88,6 +94,7 @@ export function CommsPanel({ targetType, targetId, onSent }: { targetType: Targe
       setSubject("");
       setBody("");
       setOutcome("");
+      setCommitmentsText("");
       setTemplateKey("");
       onSent?.();
     } catch (e: any) {
@@ -155,6 +162,12 @@ export function CommsPanel({ targetType, targetId, onSent }: { targetType: Targe
         <>
           <input style={{ ...inputStyle(), marginBottom: 6 }} placeholder="Meeting title" value={subject} onChange={(e) => setSubject(e.target.value)} />
           <input style={{ ...inputStyle(), marginBottom: 6 }} placeholder="Outcome (optional)" value={outcome} onChange={(e) => setOutcome(e.target.value)} />
+          <textarea
+            style={{ ...inputStyle(), marginBottom: 6, minHeight: 56, resize: "vertical" as const, fontFamily: "inherit" }}
+            placeholder="Commitments made (one per line — each becomes a task on this deal)"
+            value={commitmentsText}
+            onChange={(e) => setCommitmentsText(e.target.value)}
+          />
         </>
       )}
 

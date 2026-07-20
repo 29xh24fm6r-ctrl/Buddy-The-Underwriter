@@ -74,10 +74,11 @@ export async function GET(req: NextRequest) {
     computePipelineForecast(bankId, sb),
   ]);
 
-  const dealsWithBlockersIds = new Set<string>([
-    ...missingDocuments.map((d: any) => d.id),
-    ...outstandingConditions.map((d: any) => d.id),
-  ]);
+  const dealsWithBlockersIds = new Set<string>(
+    [...missingDocuments.map((d: any) => d.deal_id), ...outstandingConditions.map((d: any) => d.deal_id)].filter(
+      (id): id is string => Boolean(id),
+    ),
+  );
 
   const d30 = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
 

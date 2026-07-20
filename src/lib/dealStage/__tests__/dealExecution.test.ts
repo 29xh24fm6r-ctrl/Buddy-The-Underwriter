@@ -455,3 +455,64 @@ test("tenant isolation: stalled_deals queue never crosses banks", async () => {
   assert.equal(result.length, 1);
   assert.equal(result[0].bank_id, BANK_A);
 });
+
+// Regression: found live during SPEC-BROKERAGE-OPERATING-SYSTEM-V1 QA —
+// these three cases queried deal_checklist_items / brokerage_closing_conditions
+// / brokerage_closing_workflows with no bank_id scoping at all, returning
+// every tenant's rows to whichever bank asked. A production symptom: the
+// command center's "missing documents" panel showed ~200 items and several
+// "Open deal" links 404'd, because most of what came back belonged to
+// other tenants entirely.
+
+test("tenant isolation: missing_documents queue never crosses banks", async () => {
+  const db = new FakeDb();
+  const dealA = makeDeal(db, { bank_id: BANK_A });
+  const dealB = makeDeal(db, { bank_id: BANK_B });
+  db.tables.deal_checklist_items.push(
+    { id: "ci-1", bank_id: BANK_A, deal_id: dealA.id, title: "Personal Financial Statement", status: "missing", required: true },
+    { id: "ci-2", bank_id: BANK_B, deal_id: dealB.id, title: "Rent roll", status: "missing", required: true },
+  );
+
+  const result = await queues.listManagementQueue({ bankId: BANK_A, queue: "missing_documents" }, db as any);
+  assert.equal(result.length, 1, "must not return bank B's checklist items");
+  assert.equal(result[0].deal_id, dealA.id);
+});
+
+test("tenant isolation: outstanding_conditions queue never crosses banks", async () => {
+  const db = new FakeDb();
+  const dealA = makeDeal(db, { bank_id: BANK_A });
+  const dealB = makeDeal(db, { bank_id: BANK_B });
+  db.tables.brokerage_closing_conditions.push(
+    { id: "cc-1", deal_id: dealA.id, title: "Insurance binder", status: "open" },
+    { id: "cc-2", deal_id: dealB.id, title: "Title commitment", status: "open" },
+  );
+
+  const result = await queues.listManagementQueue({ bankId: BANK_A, queue: "outstanding_conditions" }, db as any);
+  assert.equal(result.length, 1, "must not return bank B's closing conditions");
+  assert.equal(result[0].deal_id, dealA.id);
+});
+
+test("tenant isolation: closing_next_30_days queue never crosses banks", async () => {
+  const db = new FakeDb();
+  const dealA = makeDeal(db, { bank_id: BANK_A });
+  const dealB = makeDeal(db, { bank_id: BANK_B });
+  const soon = new Date(Date.now() + 10 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  db.tables.brokerage_closing_workflows.push(
+    { id: "wf-1", deal_id: dealA.id, target_close_date: soon, status: "in_progress" },
+    { id: "wf-2", deal_id: dealB.id, target_close_date: soon, status: "in_progress" },
+  );
+
+  const result = await queues.listManagementQueue({ bankId: BANK_A, queue: "closing_next_30_days" }, db as any);
+  assert.equal(result.length, 1, "must not return bank B's closing workflows");
+  assert.equal(result[0].deal_id, dealA.id);
+});
+
+test("missing_documents / outstanding_conditions / closing_next_30_days queues return an empty list, not an error, for a bank with no deals", async () => {
+  const db = new FakeDb();
+  const results = await Promise.all([
+    queues.listManagementQueue({ bankId: "bank-empty", queue: "missing_documents" }, db as any),
+    queues.listManagementQueue({ bankId: "bank-empty", queue: "outstanding_conditions" }, db as any),
+    queues.listManagementQueue({ bankId: "bank-empty", queue: "closing_next_30_days" }, db as any),
+  ]);
+  for (const r of results) assert.deepEqual(r, []);
+});

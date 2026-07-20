@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
@@ -72,7 +73,11 @@ function priorityPill(priority: string) {
 }
 
 export default function CrmLeadsPage() {
-  const [queue, setQueue] = useState("all");
+  const searchParams = useSearchParams();
+  const requestedQueue = searchParams.get("queue");
+  const [queue, setQueue] = useState(
+    requestedQueue && QUEUES.some((q) => q.id === requestedQueue) ? requestedQueue : "all",
+  );
   const [view, setView] = useState<"table" | "kanban">("table");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
