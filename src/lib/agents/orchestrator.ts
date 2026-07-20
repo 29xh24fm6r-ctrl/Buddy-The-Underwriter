@@ -244,7 +244,19 @@ export class AgentOrchestrator {
           ...baseInput,
           credit_context: creditFindings.map(f => f.output_json),
         };
-      
+
+      case 'collateral':
+        return {
+          ...baseInput,
+          // CollateralAgent self-queries deals.loan_amount when omitted.
+        };
+
+      case 'management':
+        return {
+          ...baseInput,
+          // ManagementAgent queries deal_management_profiles/ownership_entities directly.
+        };
+
       case 'risk':
         // Risk agent synthesizes all previous findings
         return {

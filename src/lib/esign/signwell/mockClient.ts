@@ -15,15 +15,17 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 
 // Unused by mockRequestSignature (which builds its own fake document id
 // directly) — exists only so callers needing the full SignwellClient shape
-// never have to fall back to the real createSignwellDocumentFromTemplate in
+// never have to fall back to the real createSignwellDocumentFromFile in
 // mock mode.
-export async function mockCreateSignwellDocumentFromTemplate(_args: {
-  templateId: string;
+export async function mockCreateSignwellDocumentFromFile(_args: {
+  fileBase64: string;
+  fileName: string;
   documentName: string;
-  recipients: Array<{ id: string; email: string; name: string; placeholderName?: string }>;
+  recipients: Array<{ id: string; email: string; name: string }>;
   externalId: string;
   embeddedSigning?: boolean;
   redirectUrl?: string;
+  fields?: unknown[][];
 }): Promise<{ id: string | number; status: string; recipients: Array<{ id: string | number; signing_url?: string | null; embedded_signing_url?: string | null }> }> {
   const id = `mock_doc_${crypto.randomBytes(6).toString("hex")}`;
   return {

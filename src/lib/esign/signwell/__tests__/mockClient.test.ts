@@ -2,14 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument } from "pdf-lib";
 import {
-  mockCreateSignwellDocumentFromTemplate,
+  mockCreateSignwellDocumentFromFile,
   mockFetchSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
 
-test("mockCreateSignwellDocumentFromTemplate: returns a document with an embedded signing URL", async () => {
-  const result = await mockCreateSignwellDocumentFromTemplate({
-    templateId: "t1",
+test("mockCreateSignwellDocumentFromFile: returns a document with an embedded signing URL", async () => {
+  const result = await mockCreateSignwellDocumentFromFile({
+    fileBase64: "cGRm",
+    fileName: "SBA_1919.pdf",
     documentName: "SBA_1919 — A B",
     recipients: [{ id: "1", email: "a@b.com", name: "A B" }],
     externalId: "deal:d1:form:SBA_1919:signer:o1",

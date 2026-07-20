@@ -1,0 +1,199 @@
+{
+  "file": "source: user-provided upload, 2026-07-18, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 2,
+  "fieldCount": 12,
+  "fields": [
+    {
+      "name": "In consideration of the approved by the Small Business Administration of a loan to",
+      "type": "PDFTextField",
+      "tooltip": "Name of Applicant line 1",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 437.76,
+          "y": 495.88,
+          "width": 93.89599999999996,
+          "height": 16.19500000000005
+        }
+      ]
+    },
+    {
+      "name": "the general contractor mutually promise and agree that they will comply with all nondiscrimination",
+      "type": "PDFTextField",
+      "tooltip": "Name of Applicant line 2",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 57.96,
+          "y": 493.16,
+          "width": 164.76,
+          "height": -12.480000000000018
+        }
+      ]
+    },
+    {
+      "name": "Applicant said Applicant and",
+      "type": "PDFTextField",
+      "tooltip": "Name of general contractor",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 366.84,
+          "y": 479.845,
+          "width": 165.69099999999997,
+          "height": 14.103999999999985
+        }
+      ]
+    },
+    {
+      "name": "Executed the",
+      "type": "PDFTextField",
+      "tooltip": "Form signed on this day",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 118.44,
+          "y": 436.64,
+          "width": 161.04000000000002,
+          "height": 19.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "day of",
+      "type": "PDFTextField",
+      "tooltip": "Form signed during this month",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 309.96,
+          "y": 437.64,
+          "width": 41.879999999999995,
+          "height": 19.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "20",
+      "type": "PDFTextField",
+      "tooltip": "Form signed in this year, Last 2 digits of year",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 364.44,
+          "y": 437.64,
+          "width": 51.72000000000003,
+          "height": 19.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Name Address  Phone No of Applicant",
+      "type": "PDFTextField",
+      "tooltip": "Name, Address, & Phone Number of Applicant",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 304.92,
+          "y": 415.332,
+          "width": 217.2,
+          "height": 19.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Typed Name  Title of Authorized Official",
+      "type": "PDFTextField",
+      "tooltip": "Typed Name & Title of Authorized Official",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 319.32,
+          "y": 376.16,
+          "width": 217.2,
+          "height": 19.67999999999995
+        }
+      ]
+    },
+    {
+      "name": "Signature of Authorized Official",
+      "type": "PDFSignature",
+      "tooltip": "Signature of Authorized Official",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 300.96,
+          "y": 342.68,
+          "width": 216.83999999999997,
+          "height": 19.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Name Address  Phone No of Subrecipient",
+      "type": "PDFTextField",
+      "tooltip": "Name, Address, & Phone Number of Subrecipient",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 299.52,
+          "y": 314.12,
+          "width": 217.20000000000005,
+          "height": -19.680000000000007
+        }
+      ]
+    },
+    {
+      "name": "Typed Name  Title of Authorized Official_2",
+      "type": "PDFTextField",
+      "tooltip": "Typed Name & Title of Authorized Official",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 314.64,
+          "y": 253.04,
+          "width": 217.20000000000005,
+          "height": 19.680000000000035
+        }
+      ]
+    },
+    {
+      "name": "Signature of Authorized Official_2",
+      "type": "PDFSignature",
+      "tooltip": "Signature of Authorized Official",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 298.08,
+          "y": 219.2,
+          "width": 234.12000000000006,
+          "height": 19.680000000000007
+        }
+      ]
+    }
+  ]
+}

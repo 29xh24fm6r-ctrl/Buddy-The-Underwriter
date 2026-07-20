@@ -1,0 +1,325 @@
+{
+  "file": "source: user-provided upload, 2026-07-17, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 2,
+  "fieldCount": 16,
+  "fields": [
+    {
+      "name": "LoanName",
+      "type": "PDFTextField",
+      "tooltip": "please enter sba loan name",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 149,
+          "y": 568,
+          "width": 398,
+          "height": 27
+        }
+      ]
+    },
+    {
+      "name": "StandbyBorrower",
+      "type": "PDFTextField",
+      "tooltip": "please enter standby borrower",
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 149,
+          "y": 523,
+          "width": 394,
+          "height": 14
+        },
+        {
+          "x": 50,
+          "y": 450,
+          "width": 409,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "PrincipalAmount",
+      "type": "PDFTextField",
+      "tooltip": "please enter amount",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 80,
+          "y": 429,
+          "width": 176,
+          "height": 11
+        }
+      ]
+    },
+    {
+      "name": "InterestAmount",
+      "type": "PDFTextField",
+      "tooltip": "please enter amount",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 322,
+          "y": 428,
+          "width": 175,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "StandbyCreditor",
+      "type": "PDFTextField",
+      "tooltip": "please enter standby creditor",
+      "pageIndexes": [
+        0,
+        0,
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 149,
+          "y": 547,
+          "width": 396,
+          "height": 13
+        },
+        {
+          "x": 50,
+          "y": 407,
+          "width": 414,
+          "height": 11
+        },
+        {
+          "x": 136,
+          "y": 242,
+          "width": 323,
+          "height": 13
+        }
+      ]
+    },
+    {
+      "name": "Lender",
+      "type": "PDFTextField",
+      "tooltip": "please enter lender",
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 149,
+          "y": 501,
+          "width": 393,
+          "height": 14
+        },
+        {
+          "x": 50,
+          "y": 363,
+          "width": 410,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "LenderLoan",
+      "type": "PDFTextField",
+      "tooltip": "please enter amount",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 125,
+          "y": 318,
+          "width": 252,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "Agree",
+      "type": "PDFRadioGroup",
+      "tooltip": "Please indicate which statement that the standby creditor has agreed to by checking the appropriate box.",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "pageIndexes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 65,
+          "y": 251,
+          "width": 9,
+          "height": 10
+        },
+        {
+          "x": 65,
+          "y": 229,
+          "width": 9,
+          "height": 10
+        },
+        {
+          "x": 65,
+          "y": 185,
+          "width": 9,
+          "height": 10
+        },
+        {
+          "x": 65,
+          "y": 141,
+          "width": 9,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "Agree2Percent",
+      "type": "PDFTextField",
+      "tooltip": null,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 263,
+          "y": 228,
+          "width": 53,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "Agree3Percent",
+      "type": "PDFTextField",
+      "tooltip": null,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 315,
+          "y": 184,
+          "width": 53,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "Agree4Percent",
+      "type": "PDFTextField",
+      "tooltip": "Please enter rate",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 316,
+          "y": 140,
+          "width": 53,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "Agree4Date",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the date",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 95,
+          "y": 118,
+          "width": 144,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "Date",
+      "type": "PDFTextField",
+      "tooltip": "please enter date",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 79,
+          "y": 312,
+          "width": 164,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "LoanNumber",
+      "type": "PDFTextField",
+      "tooltip": "please enter sba loan number",
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 149,
+          "y": 604,
+          "width": 397,
+          "height": 16
+        },
+        {
+          "x": 431,
+          "y": 340,
+          "width": 164,
+          "height": 11
+        }
+      ]
+    },
+    {
+      "name": "SignatureName",
+      "type": "PDFTextField",
+      "tooltip": "please enter signature name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 167,
+          "y": 144,
+          "width": 295,
+          "height": 12
+        }
+      ]
+    },
+    {
+      "name": "SignatureNamex",
+      "type": "PDFTextField",
+      "tooltip": "please enter signature",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 182.28076,
+          "y": 187.56206,
+          "width": 294.9404,
+          "height": 11.39255
+        }
+      ]
+    }
+  ]
+}

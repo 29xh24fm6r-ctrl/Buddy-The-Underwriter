@@ -43,6 +43,9 @@ export type UpsertBorrowerStoryArgs = {
       | "hq_city"
       | "hq_state"
       | "banker_identity_summary"
+      | "credit_elsewhere_documented"
+      | "credit_elsewhere_finding"
+      | "credit_elsewhere_narrative"
     >
   >;
   source?: DealBorrowerStory["source"];

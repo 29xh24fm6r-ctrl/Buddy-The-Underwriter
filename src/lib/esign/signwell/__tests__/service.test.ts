@@ -8,6 +8,7 @@ class Q {
   db: FakeDb;
   table: string;
   filters: Array<{ t: string; k: string; v: any }> = [];
+  _u: Row | null = null;
   _i: Row[] | null = null;
   _l: number | null = null;
   constructor(db: FakeDb, table: string) {
@@ -44,16 +45,31 @@ class Q {
     this._i = withIds;
     return this;
   }
+  update(u: Row) {
+    this._u = u;
+    return this;
+  }
   single(): Promise<{ data: any; error: any }> {
     if (this._i) return Promise.resolve({ data: this._i[0], error: null });
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   maybeSingle(): Promise<{ data: any; error: any }> {
+    if (this._u) {
+      this.applyUpdate();
+      return Promise.resolve({ data: this.rows()[0], error: null });
+    }
     return Promise.resolve({ data: this.rows()[0] ?? null, error: null });
   }
   then(resolve: any, reject?: any) {
+    if (this._u) {
+      this.applyUpdate();
+      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+    }
     if (this._i) return Promise.resolve({ data: this._i, error: null }).then(resolve, reject);
     return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+  }
+  private applyUpdate() {
+    for (const r of this.rows()) Object.assign(r, this._u);
   }
   private rows(): Row[] {
     let rows = [...(this.db.tables[this.table] ?? [])];
@@ -95,7 +111,7 @@ class FakeDb {
 
 function fakeSignwell(overrides?: Partial<SignwellClient>): SignwellClient {
   return {
-    createSignwellDocumentFromTemplate: async () => ({
+    createSignwellDocumentFromFile: async () => ({
       id: 12345,
       status: "pending",
       recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_abc" }],
@@ -110,6 +126,8 @@ function fakeSignwell(overrides?: Partial<SignwellClient>): SignwellClient {
   };
 }
 
+const fakeRenderFilledPdf = async () => ({ ok: true as const, pdfBytes: Buffer.from("filled-pdf-bytes") });
+
 const DEAL_ID = "d1";
 const OWNER_ID = "o1";
 
@@ -121,22 +139,36 @@ test("requestSignature: no IAL2 -> IAL2_NOT_COMPLETED", async () => {
   const db = new FakeDb();
   const r = await requestSignature(
     { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
-    { sb: db as any, signwell: fakeSignwell() },
+    { sb: db as any, signwell: fakeSignwell(), renderFilledPdf: fakeRenderFilledPdf },
   );
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.reason, "IAL2_NOT_COMPLETED");
 });
 
-test("requestSignature: with IAL2 -> creates document + writes esign.requested event", async () => {
-  process.env.SIGNWELL_TEMPLATE_1919 = "tmpl_1919";
+test("requestSignature: with IAL2 -> creates document + writes esign.requested event + signing_requests row", async () => {
   const db = new FakeDb({ borrower_identity_verifications: withIal2() });
   const r = await requestSignature(
     { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
-    { sb: db as any, signwell: fakeSignwell() },
+    { sb: db as any, signwell: fakeSignwell(), renderFilledPdf: fakeRenderFilledPdf },
   );
   assert.equal(r.ok, true);
   if (r.ok) assert.ok(r.embedUrl.includes("sub_abc"));
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
+  assert.equal(db.tables.signing_requests?.length, 1);
+  assert.equal(db.tables.signing_requests?.[0].signwell_document_id, "12345");
+});
+
+test("requestSignature: pdf render fails -> SUBMISSION_FAILED, no document created", async () => {
+  const db = new FakeDb({ borrower_identity_verifications: withIal2() });
+  const r = await requestSignature(
+    { dealId: DEAL_ID, bankId: "b1", formCode: "FORM_1919", templateVersion: "v1", signerOwnershipEntityId: OWNER_ID, signerRole: "applicant", signerEmail: "j@d.com", signerName: "Jane Doe" },
+    { sb: db as any, signwell: fakeSignwell(), renderFilledPdf: async () => ({ ok: false, reason: "TEMPLATE_NOT_AVAILABLE" }) },
+  );
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.reason, "SUBMISSION_FAILED");
+    assert.match(r.detail ?? "", /TEMPLATE_NOT_AVAILABLE/);
+  }
 });
 
 test("handleSignwellWebhook: event.type=document_viewed -> ignored", async () => {

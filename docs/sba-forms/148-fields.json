@@ -1,0 +1,183 @@
+{
+  "file": "source: user-provided upload, 2026-07-18, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 5,
+  "fieldCount": 11,
+  "fields": [
+    {
+      "name": "Date",
+      "type": "PDFTextField",
+      "tooltip": "date",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 442,
+          "width": 402,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "name": "StateSpecific",
+      "type": "PDFTextField",
+      "tooltip": "state specfic provisions",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 68,
+          "width": 489,
+          "height": 627
+        }
+      ]
+    },
+    {
+      "name": "LoanNumber",
+      "type": "PDFTextField",
+      "tooltip": "loan number",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 611,
+          "width": 405,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "LoanName",
+      "type": "PDFTextField",
+      "tooltip": "sba loan name",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 573,
+          "width": 406,
+          "height": 32
+        }
+      ]
+    },
+    {
+      "name": "Guarantor",
+      "type": "PDFTextField",
+      "tooltip": "guarantor",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 537,
+          "width": 405,
+          "height": 33
+        }
+      ]
+    },
+    {
+      "name": "Borrower",
+      "type": "PDFTextField",
+      "tooltip": "borrower",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 500,
+          "width": 404,
+          "height": 34
+        }
+      ]
+    },
+    {
+      "name": "Lender",
+      "type": "PDFTextField",
+      "tooltip": "lender",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 463,
+          "width": 403,
+          "height": 35
+        }
+      ]
+    },
+    {
+      "name": "NoteAmount",
+      "type": "PDFTextField",
+      "tooltip": "note amount",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 145,
+          "y": 420,
+          "width": 402,
+          "height": 19
+        }
+      ]
+    },
+    {
+      "name": "NoteAmountSO",
+      "type": "PDFTextField",
+      "tooltip": "amount",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 73,
+          "y": 237,
+          "width": 442,
+          "height": 15
+        }
+      ]
+    },
+    {
+      "name": "SignatureBlock",
+      "type": "PDFTextField",
+      "tooltip": "GUARANTOR NAME(S) AND SIGNATURE(S)",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 72.1528,
+          "y": 61.61111,
+          "width": 488.61371,
+          "height": 548.7410500000001
+        }
+      ]
+    },
+    {
+      "name": "NoteDate",
+      "type": "PDFTextField",
+      "tooltip": "date",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 241,
+          "y": 259,
+          "width": 197,
+          "height": 17
+        }
+      ]
+    }
+  ]
+}

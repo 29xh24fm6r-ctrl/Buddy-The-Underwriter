@@ -1,11 +1,23 @@
 /**
  * Connect Accounts Panel
- * 
+ *
  * Borrower-facing UI for connecting accounts:
  * - Plaid (bank accounts)
  * - QuickBooks (accounting)
  * - IRS (tax transcripts)
  * - Payroll systems
+ *
+ * ORPHANED — not currently mounted anywhere. Left as-is rather than
+ * adapted: its Connection type (connection_type/provider_metadata) matches
+ * the dead Stack-1 connect tables, not the real Stack-2 tables
+ * (borrower_bank_connections, borrower_irs_transcript_requests) that
+ * src/lib/connect/substitutions.ts now targets; two of its four account
+ * types (QuickBooks, Gusto/ADP/Paychex payroll) have no real integration
+ * anywhere in this codebase and are vendor-credential-blocked. Real,
+ * working borrower-facing UI for Plaid linking and IRS transcript requests
+ * already exists and is wired to /api/borrower/plaid/[action] and
+ * /api/deals/[dealId]/irs-transcripts — adapting this component would
+ * duplicate that rather than fill a gap.
  */
 
 "use client";

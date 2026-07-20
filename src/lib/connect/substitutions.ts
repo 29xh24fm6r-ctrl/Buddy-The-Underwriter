@@ -1,82 +1,118 @@
 /**
  * Document Substitution Engine
- * 
- * Automatically satisfies document requirements when connected accounts
- * provide equivalent data.
+ *
+ * Automatically satisfies document requirements when a borrower's
+ * connected bank account (Plaid, via src/lib/integrations/plaid/) or a
+ * completed IRS transcript request (src/lib/integrations/irsTranscripts/)
+ * provides equivalent data — Stack 2, the real, working integration
+ * stack. This previously targeted borrower_account_connections /
+ * connected_account_data (Stack 1), tables that were never actually
+ * created live despite their migration being recorded as applied (see
+ * specs/schema-drift/SD-C-first-report-2026-04-27.json) — so this always
+ * silently returned zero substitutions. There is no QuickBooks
+ * integration in Stack 2, so the former P&L/Balance Sheet rules are
+ * dropped rather than left pointing at nothing.
+ *
+ * "Business" vs "Personal" is derived from ownership_entity_id: a null
+ * ownership_entity_id means the connection/request belongs to the
+ * borrower entity itself (business); a set ownership_entity_id means it
+ * belongs to a specific owner (personal) — the only distinguishing signal
+ * either Stack-2 table actually carries.
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-/**
- * Substitution rules: Which connected account can satisfy which doc requirement
- */
-const SUBSTITUTION_RULES = [
-  {
+type SubstitutionRule = {
+  doc_requirement: string;
+  satisfied_by: "plaid_bank" | "irs_transcript";
+  readiness_boost: number;
+  docs_saved: number;
+};
+
+const BANK_STATEMENT_RULES: Record<"business" | "personal", SubstitutionRule & { min_history_months: number }> = {
+  business: {
     doc_requirement: "Business Bank Statements",
     satisfied_by: "plaid_bank",
-    conditions: [
-      { field: "min_history_months", operator: ">=", value: 12 },
-      { field: "transaction_count", operator: ">", value: 0 },
-    ],
+    min_history_months: 12,
     readiness_boost: 15,
-    docs_saved: 12, // 12 months of statements
+    docs_saved: 12,
   },
-  {
+  personal: {
     doc_requirement: "Personal Bank Statements",
     satisfied_by: "plaid_bank",
-    conditions: [
-      { field: "min_history_months", operator: ">=", value: 3 },
-    ],
+    min_history_months: 3,
     readiness_boost: 10,
     docs_saved: 3,
   },
-  {
-    doc_requirement: "Profit & Loss Statement",
-    satisfied_by: "quickbooks_online",
-    conditions: [
-      { field: "data_category", operator: "===", value: "p_and_l" },
-    ],
-    readiness_boost: 20,
-    docs_saved: 3, // 3 years of P&Ls
-  },
-  {
-    doc_requirement: "Balance Sheet",
-    satisfied_by: "quickbooks_online",
-    conditions: [
-      { field: "data_category", operator: "===", value: "balance_sheet" },
-    ],
-    readiness_boost: 15,
-    docs_saved: 1,
-  },
-  {
+};
+
+const TAX_TRANSCRIPT_RULES: Record<"business" | "personal", SubstitutionRule & { min_tax_years: number }> = {
+  business: {
     doc_requirement: "Business Tax Returns",
     satisfied_by: "irs_transcript",
-    conditions: [
-      { field: "data_category", operator: "===", value: "tax_verification" },
-      { field: "tax_years_count", operator: ">=", value: 3 },
-    ],
+    min_tax_years: 3,
     readiness_boost: 25,
-    docs_saved: 9, // 3 years × 3 docs (1040 + Schedule C + State)
+    docs_saved: 9, // 3 years x 3 docs (1040 + Schedule C + State)
   },
-  {
+  personal: {
     doc_requirement: "Personal Tax Returns",
     satisfied_by: "irs_transcript",
-    conditions: [
-      { field: "data_category", operator: "===", value: "tax_verification" },
-      { field: "tax_years_count", operator: ">=", value: 2 },
-    ],
+    min_tax_years: 2,
     readiness_boost: 20,
-    docs_saved: 4, // 2 years × 2 docs
+    docs_saved: 4, // 2 years x 2 docs
   },
-] as const;
+};
+
+type BankConnectionRow = {
+  id: string;
+  ownership_entity_id: string | null;
+  status: string;
+  earliest_transaction_date: string | null;
+  latest_transaction_date: string | null;
+};
+
+type IrsRequestRow = {
+  id: string;
+  ownership_entity_id: string | null;
+  status: string;
+  tax_years: number[] | null;
+};
+
+function monthsBetween(startIso: string | null, endIso: string | null): number {
+  if (!startIso || !endIso) return 0;
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+}
+
+async function countTransactionsForConnection(sb: any, connectionId: string): Promise<number> {
+  const { data: accounts } = await sb
+    .from("borrower_bank_accounts")
+    .select("id")
+    .eq("connection_id", connectionId);
+
+  const accountIds = ((accounts ?? []) as { id: string }[]).map((a) => a.id);
+  if (accountIds.length === 0) return 0;
+
+  const { count } = await sb
+    .from("borrower_bank_transactions")
+    .select("id", { count: "exact", head: true })
+    .in("account_id", accountIds);
+
+  return count ?? 0;
+}
 
 /**
- * Evaluate and apply document substitutions for a deal
+ * Evaluate and apply document substitutions for a deal against the real
+ * Stack-2 tables, recording each new one in document_substitutions.
  */
-export async function evaluateDocumentSubstitutions(params: {
-  dealId: string;
-  bankId: string;
-}): Promise<{
+export async function evaluateDocumentSubstitutions(
+  params: {
+    dealId: string;
+    bankId: string;
+  },
+  opts: { sb?: any } = {},
+): Promise<{
   substitutions_applied: number;
   total_readiness_boost: number;
   total_docs_saved: number;
@@ -86,169 +122,102 @@ export async function evaluateDocumentSubstitutions(params: {
     connection_id: string;
   }>;
 }> {
-  const sb = supabaseAdmin();
+  const sb = opts.sb ?? supabaseAdmin();
 
-  // Get active connections for this deal
-  const { data: connections } = await sb
-    .from("borrower_account_connections")
-    .select("id, connection_type, status, provider_metadata")
-    .eq("deal_id", params.dealId)
-    .eq("status", "active");
+  const [connectionsRes, transcriptRequestsRes] = await Promise.all([
+    sb
+      .from("borrower_bank_connections")
+      .select("id, ownership_entity_id, status, earliest_transaction_date, latest_transaction_date")
+      .eq("deal_id", params.dealId)
+      .eq("status", "active"),
+    sb
+      .from("borrower_irs_transcript_requests")
+      .select("id, ownership_entity_id, status, tax_years")
+      .eq("deal_id", params.dealId)
+      .in("status", ["received", "reconciled"]),
+  ]);
 
-  if (!connections || connections.length === 0) {
-    return {
-      substitutions_applied: 0,
-      total_readiness_boost: 0,
-      total_docs_saved: 0,
-      details: [],
-    };
-  }
+  const connections = (connectionsRes.data ?? []) as BankConnectionRow[];
+  const transcriptRequests = (transcriptRequestsRes.data ?? []) as IrsRequestRow[];
 
-  const substitutions: typeof SUBSTITUTION_RULES[number][] = [];
+  const applied: SubstitutionRule[] = [];
   const details: Array<{ doc_requirement: string; satisfied_by: string; connection_id: string }> = [];
 
-  // For each connection, check which rules it satisfies
   for (const connection of connections) {
-    for (const rule of SUBSTITUTION_RULES) {
-      if (rule.satisfied_by === connection.connection_type) {
-        // Check if conditions are met
-        const conditionsMet = await checkSubstitutionConditions({
-          dealId: params.dealId,
-          connectionId: connection.id,
-          conditions: rule.conditions,
-        });
+    const kind = connection.ownership_entity_id ? "personal" : "business";
+    const rule = BANK_STATEMENT_RULES[kind];
 
-        if (conditionsMet) {
-          // Check if substitution already exists
-          const { data: existing } = await sb
-            .from("document_substitutions")
-            .select("id")
-            .eq("deal_id", params.dealId)
-            .eq("connection_id", connection.id)
-            .eq("original_doc_requirement", rule.doc_requirement)
-            .single();
+    const historyMonths = monthsBetween(connection.earliest_transaction_date, connection.latest_transaction_date);
+    if (historyMonths < rule.min_history_months) continue;
 
-          if (!existing) {
-            // Apply substitution
-            await sb.from("document_substitutions").insert({
-              bank_id: params.bankId,
-              deal_id: params.dealId,
-              connection_id: connection.id,
-              original_doc_requirement: rule.doc_requirement,
-              substituted_by: rule.satisfied_by,
-              substitution_conditions: rule.conditions,
-              readiness_boost: rule.readiness_boost,
-              docs_saved: rule.docs_saved,
-              auto_approved: true,
-            });
+    const transactionCount = await countTransactionsForConnection(sb, connection.id);
+    if (transactionCount <= 0) continue;
 
-            substitutions.push(rule);
-            details.push({
-              doc_requirement: rule.doc_requirement,
-              satisfied_by: rule.satisfied_by,
-              connection_id: connection.id,
-            });
-          }
-        }
-      }
-    }
+    const { data: existing } = await sb
+      .from("document_substitutions")
+      .select("id")
+      .eq("deal_id", params.dealId)
+      .eq("original_doc_requirement", rule.doc_requirement)
+      .eq("substituted_by", "plaid_bank")
+      .maybeSingle();
+
+    if (existing?.id) continue;
+
+    await sb.from("document_substitutions").insert({
+      bank_id: params.bankId,
+      deal_id: params.dealId,
+      bank_connection_id: connection.id,
+      original_doc_requirement: rule.doc_requirement,
+      substituted_by: "plaid_bank",
+      substitution_conditions: { min_history_months: rule.min_history_months, history_months: historyMonths, transaction_count: transactionCount },
+      readiness_boost: rule.readiness_boost,
+      docs_saved: rule.docs_saved,
+      auto_approved: true,
+    });
+
+    applied.push(rule);
+    details.push({ doc_requirement: rule.doc_requirement, satisfied_by: rule.satisfied_by, connection_id: connection.id });
+  }
+
+  for (const request of transcriptRequests) {
+    const kind = request.ownership_entity_id ? "personal" : "business";
+    const rule = TAX_TRANSCRIPT_RULES[kind];
+
+    const taxYearsCount = (request.tax_years ?? []).length;
+    if (taxYearsCount < rule.min_tax_years) continue;
+
+    const { data: existing } = await sb
+      .from("document_substitutions")
+      .select("id")
+      .eq("deal_id", params.dealId)
+      .eq("original_doc_requirement", rule.doc_requirement)
+      .eq("substituted_by", "irs_transcript")
+      .maybeSingle();
+
+    if (existing?.id) continue;
+
+    await sb.from("document_substitutions").insert({
+      bank_id: params.bankId,
+      deal_id: params.dealId,
+      irs_request_id: request.id,
+      original_doc_requirement: rule.doc_requirement,
+      substituted_by: "irs_transcript",
+      substitution_conditions: { min_tax_years: rule.min_tax_years, tax_years_count: taxYearsCount },
+      readiness_boost: rule.readiness_boost,
+      docs_saved: rule.docs_saved,
+      auto_approved: true,
+    });
+
+    applied.push(rule);
+    details.push({ doc_requirement: rule.doc_requirement, satisfied_by: rule.satisfied_by, connection_id: request.id });
   }
 
   return {
-    substitutions_applied: substitutions.length,
-    total_readiness_boost: substitutions.reduce((sum, s) => sum + s.readiness_boost, 0),
-    total_docs_saved: substitutions.reduce((sum, s) => sum + s.docs_saved, 0),
+    substitutions_applied: applied.length,
+    total_readiness_boost: applied.reduce((sum, s) => sum + s.readiness_boost, 0),
+    total_docs_saved: applied.reduce((sum, s) => sum + s.docs_saved, 0),
     details,
   };
-}
-
-/**
- * Check if substitution conditions are met
- */
-async function checkSubstitutionConditions(params: {
-  dealId: string;
-  connectionId: string;
-  conditions: readonly any[];
-}): Promise<boolean> {
-  const sb = supabaseAdmin();
-
-  // Get connected account data for this connection
-  const { data: accountData } = await sb
-    .from("connected_account_data")
-    .select("*")
-    .eq("deal_id", params.dealId)
-    .eq("connection_id", params.connectionId);
-
-  if (!accountData || accountData.length === 0) {
-    return false;
-  }
-
-  // Check each condition
-  for (const condition of params.conditions) {
-    let actualValue: any;
-
-    // Extract value based on field
-    switch (condition.field) {
-      case "min_history_months":
-        const oldestData = accountData.reduce((oldest, d) => {
-          const start = new Date(d.period_start);
-          return !oldest || start < oldest ? start : oldest;
-        }, null as Date | null);
-
-        if (!oldestData) return false;
-
-        const monthsDiff = Math.floor((Date.now() - oldestData.getTime()) / (1000 * 60 * 60 * 24 * 30));
-        actualValue = monthsDiff;
-        break;
-
-      case "transaction_count":
-        actualValue = accountData.reduce((sum, d) => {
-          return sum + (d.raw_data?.transaction_count || 0);
-        }, 0);
-        break;
-
-      case "data_category":
-        actualValue = accountData[0]?.data_category;
-        break;
-
-      case "tax_years_count":
-        const uniqueYears = new Set(
-          accountData.map((d) => new Date(d.period_start).getFullYear())
-        );
-        actualValue = uniqueYears.size;
-        break;
-
-      default:
-        return false;
-    }
-
-    // Evaluate condition
-    if (!evaluateCondition(actualValue, condition.operator, condition.value)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Evaluate condition operator
- */
-function evaluateCondition(actual: any, operator: string, expected: any): boolean {
-  switch (operator) {
-    case ">=":
-      return actual >= expected;
-    case ">":
-      return actual > expected;
-    case "===":
-      return actual === expected;
-    case "<=":
-      return actual <= expected;
-    case "<":
-      return actual < expected;
-    default:
-      return false;
-  }
 }
 
 /**

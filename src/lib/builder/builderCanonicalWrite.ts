@@ -4,6 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BuilderSectionKey, DealSectionData, PartiesSectionData, StorySectionData } from "./builderTypes";
 import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
 
+export type BuilderCanonicalWriteResult = {
+  ownerEntityIds?: Array<{ id: string; ownership_entity_id: string }>;
+};
+
 /**
  * Write-through from builder sections to canonical tables.
  * Best-effort — never throws. All errors are logged.
@@ -13,7 +17,7 @@ export async function writeBuilderCanonical(
   sectionKey: BuilderSectionKey,
   data: Record<string, unknown>,
   sb: SupabaseClient,
-): Promise<void> {
+): Promise<BuilderCanonicalWriteResult> {
   try {
     switch (sectionKey) {
       case "deal":
@@ -22,9 +26,10 @@ export async function writeBuilderCanonical(
       case "business":
         await writeBusinessCanonical(dealId, data, sb);
         break;
-      case "parties":
-        await writePartiesCanonical(dealId, data as Partial<PartiesSectionData>, sb);
-        break;
+      case "parties": {
+        const result = await writePartiesCanonical(dealId, data as Partial<PartiesSectionData>, sb);
+        return { ownerEntityIds: result.ownerEntityIds };
+      }
       case "story":
         await writeStoryCanonical(dealId, data as Partial<StorySectionData>, sb);
         break;
@@ -40,6 +45,7 @@ export async function writeBuilderCanonical(
       hint: err?.hint,
     });
   }
+  return {};
 }
 
 /** deal section → deals.loan_amount */
@@ -64,7 +70,7 @@ async function writeDealCanonical(
   }
 
   // Also upsert loan_request record so hasLoanRequest blocker clears
-  if (data.loan_type || data.loan_purpose || data.requested_amount) {
+  if (data.loan_type || data.loan_purpose || data.requested_amount || data.contractor_name) {
     // Get bank_id for the deal (required column)
     const { data: dealRow } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
     const bankId = dealRow?.bank_id ?? null;
@@ -94,6 +100,12 @@ async function writeDealCanonical(
       product_type: mappedProductType,
       loan_purpose: data.loan_purpose ?? null,
       requested_amount: data.requested_amount ?? null,
+      jobs_created_count: data.jobs_created_count ?? null,
+      jobs_retained_count: data.jobs_retained_count ?? null,
+      contractor_name: data.contractor_name ?? null,
+      contractor_address: data.contractor_address ?? null,
+      contractor_phone: data.contractor_phone ?? null,
+      contractor_authorized_official: data.contractor_authorized_official ?? null,
       source: "banker",
       status: "draft",
     }, { onConflict: "deal_id,request_number" });
@@ -108,48 +120,222 @@ async function writeDealCanonical(
   }
 }
 
-/** business section → deals.name (if not already set) */
+/** business section → deals.name (if not already set) + deals.operating_company_* (direct overwrite) */
 async function writeBusinessCanonical(
   dealId: string,
   data: Record<string, unknown>,
   sb: SupabaseClient,
 ): Promise<void> {
   const legalName = data.legal_entity_name;
-  if (typeof legalName !== "string" || !legalName.trim()) return;
-
-  const { data: existing } = await sb
-    .from("deals")
-    .select("name")
-    .eq("id", dealId)
-    .maybeSingle();
-
-  if (!existing?.name) {
-    const { error } = await sb
+  if (typeof legalName === "string" && legalName.trim()) {
+    const { data: existing } = await sb
       .from("deals")
-      .update({ name: legalName.trim() })
-      .eq("id", dealId);
+      .select("name")
+      .eq("id", dealId)
+      .maybeSingle();
+
+    if (!existing?.name) {
+      const { error } = await sb
+        .from("deals")
+        .update({ name: legalName.trim() })
+        .eq("id", dealId);
+      if (error) {
+        console.error("[builderCanonicalWrite] deals.name update failed", {
+          dealId,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        });
+      }
+    }
+  }
+
+  await writeOperatingCompanyCanonical(dealId, data, sb);
+  await writeBorrowerFieldsCanonical(dealId, data, sb);
+}
+
+/**
+ * business section → borrowers (the Applicant's own identity/eligibility
+ * fields Forms 1919/1244/148/etc. read via deals.borrower_id). Previously
+ * ONLY deals.name got a write-through here — every other business-section
+ * field (dba/ein/address/phone/website/naics/employee_count, plus the
+ * newer 1244-only fields below) stopped at the deal_builder_sections JSON
+ * blob and never reached `borrowers`, so a deal built purely by hand in
+ * the builder UI would render these SBA forms with real nulls despite the
+ * banker having typed the values in. Deliberate overwrite, same reasoning
+ * as writePartiesCanonical/writeOperatingCompanyCanonical: direct banker
+ * input wins. Skips entirely if the deal has no borrower_id yet (deals
+ * created via the real /api/deals/create or /borrower/ensure flows always
+ * get one; this is just a defensive no-op, not silently swallowing data
+ * for a deal that legitimately has none).
+ */
+async function writeBorrowerFieldsCanonical(
+  dealId: string,
+  data: Record<string, unknown>,
+  sb: SupabaseClient,
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (data.legal_entity_name !== undefined) update.legal_name = data.legal_entity_name || null;
+  if (data.dba !== undefined) update.dba = data.dba || null;
+  if (data.ein !== undefined) update.ein = data.ein || null;
+  if (data.entity_type !== undefined) update.entity_type = data.entity_type || null;
+  if (data.state_of_formation !== undefined) update.state_of_formation = data.state_of_formation || null;
+  if (data.business_address !== undefined) update.address_line1 = data.business_address || null;
+  if (data.city !== undefined) update.city = data.city || null;
+  if (data.state !== undefined) update.state = data.state || null;
+  if (data.zip !== undefined) update.zip = data.zip || null;
+  if (data.phone !== undefined) update.phone = data.phone || null;
+  if (data.website !== undefined) update.website = data.website || null;
+  if (data.naics_code !== undefined) update.naics_code = data.naics_code || null;
+  if (data.employee_count !== undefined) update.employee_count = data.employee_count ?? null;
+  // Form 1244 Section One fields with no prior representation.
+  if (data.duns_number !== undefined) update.duns_number = data.duns_number || null;
+  if (data.contact_name !== undefined) update.contact_name = data.contact_name || null;
+  if (data.contact_email !== undefined) update.contact_email = data.contact_email || null;
+  if (data.type_of_business !== undefined) update.naics_description = data.type_of_business || null;
+  if (data.has_affiliates !== undefined) update.has_affiliates = Boolean(data.has_affiliates);
+  if (data.obtained_direct_or_guaranteed_loan !== undefined) update.obtained_direct_or_guaranteed_government_loan = Boolean(data.obtained_direct_or_guaranteed_loan);
+  if (data.prior_application_submitted !== undefined) update.prior_project_application_submitted = Boolean(data.prior_application_submitted);
+  if (data.prior_cdc_lender_name_and_program !== undefined) update.prior_project_cdc_lender_name_and_program = data.prior_cdc_lender_name_and_program || null;
+  if (data.has_bankruptcy_history !== undefined) update.has_bankruptcy_history = Boolean(data.has_bankruptcy_history);
+  if (data.has_pending_lawsuits !== undefined) update.has_pending_lawsuits = Boolean(data.has_pending_lawsuits);
+
+  if (Object.keys(update).length === 0) return;
+
+  const { data: deal } = await sb.from("deals").select("borrower_id").eq("id", dealId).maybeSingle();
+  const borrowerId = (deal as { borrower_id?: string } | null)?.borrower_id;
+  if (!borrowerId) return;
+
+  const { error } = await sb.from("borrowers").update(update).eq("id", borrowerId);
+  if (error) {
+    console.error("[builderCanonicalWrite] borrowers field sync failed", {
+      dealId,
+      borrowerId,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+  }
+}
+
+/**
+ * SBA 504 dual-entity structure — business.is_eligible_passive_company +
+ * the operating_company_* fields live on deals, not borrowers (a 1:1
+ * relationship with the deal, not a new table). Deliberate overwrite,
+ * same reasoning as writePartiesCanonical: this is direct banker input,
+ * not a probabilistic merge, so the form's current value wins — but only
+ * for keys actually present in this PATCH, so an unset field here never
+ * blanks out a value populated elsewhere.
+ */
+async function writeOperatingCompanyCanonical(
+  dealId: string,
+  data: Record<string, unknown>,
+  sb: SupabaseClient,
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (data.is_eligible_passive_company !== undefined) update.is_eligible_passive_company = Boolean(data.is_eligible_passive_company);
+  if (data.operating_company_legal_name !== undefined) update.operating_company_legal_name = data.operating_company_legal_name || null;
+  if (data.operating_company_address !== undefined) update.operating_company_address = data.operating_company_address || null;
+  if (data.operating_company_dba !== undefined) update.operating_company_dba = data.operating_company_dba || null;
+  if (data.operating_company_legal_structure !== undefined) update.operating_company_legal_structure = data.operating_company_legal_structure || null;
+  if (data.operating_company_tax_id !== undefined) update.operating_company_tax_id = data.operating_company_tax_id || null;
+  if (data.operating_company_duns_number !== undefined) update.operating_company_duns_number = data.operating_company_duns_number || null;
+  if (data.operating_company_contact_name !== undefined) update.operating_company_contact_name = data.operating_company_contact_name || null;
+  if (data.operating_company_email !== undefined) update.operating_company_email = data.operating_company_email || null;
+  if (data.operating_company_phone !== undefined) update.operating_company_phone = data.operating_company_phone || null;
+  if (data.operating_company_website !== undefined) update.operating_company_website = data.operating_company_website || null;
+
+  if (Object.keys(update).length === 0) return;
+  const { error } = await sb.from("deals").update(update).eq("id", dealId);
+  if (error) {
+    console.error("[builderCanonicalWrite] deals.operating_company_* update failed", {
+      dealId,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+  }
+}
+
+/**
+ * parties section → ensureOwnerEntity + sync every structured field onto
+ * that row (title/ownership_pct/dob/ssn_last4/home address). Previously
+ * this only ensured the row existed by name — a banker filling out
+ * OwnerDrawer by hand (the manual builder path, as opposed to
+ * conversational/voice intake's propagateBorrowerFacts.ts, which already
+ * writes these columns) had everything past the owner's name silently
+ * stop at the deal_builder_sections JSON blob and never reach
+ * ownership_entities — the table every SBA form renderer queries
+ * directly. Returns the client-id -> ownership_entity_id mapping so the
+ * builder UI can learn the real ID (needed to call the full-SSN vault
+ * endpoint, which requires it).
+ *
+ * Deliberate overwrite, not fill-if-null: this is a human directly
+ * editing the record (unlike voice-extraction's probabilistic merge), so
+ * the form's current value wins — but only for keys the owner object
+ * actually carries, so an unset field here never blanks out a value
+ * populated by the other intake path.
+ */
+async function writePartiesCanonical(
+  dealId: string,
+  data: Partial<PartiesSectionData>,
+  sb: SupabaseClient,
+): Promise<{ ownerEntityIds: Array<{ id: string; ownership_entity_id: string }> }> {
+  const owners = data.owners ?? [];
+  const ownerEntityIds: Array<{ id: string; ownership_entity_id: string }> = [];
+
+  for (const owner of owners) {
+    if (!owner.full_legal_name?.trim()) continue;
+    const ownershipEntityId = await ensureOwnerEntity(sb, dealId, owner.full_legal_name.trim());
+    if (!ownershipEntityId) continue;
+    ownerEntityIds.push({ id: owner.id, ownership_entity_id: ownershipEntityId });
+
+    const update: Record<string, unknown> = {};
+    if (owner.title !== undefined) update.title = owner.title || null;
+    if (owner.ownership_pct !== undefined) update.ownership_pct = owner.ownership_pct ?? null;
+    if (owner.dob !== undefined) update.date_of_birth = owner.dob || null;
+    if (owner.ssn_last4 !== undefined) update.tax_id_last4 = owner.ssn_last4 || null;
+    if (owner.home_address !== undefined) update.home_address_street = owner.home_address || null;
+    if (owner.home_city !== undefined) update.home_address_city = owner.home_city || null;
+    if (owner.home_state !== undefined) update.home_address_state = owner.home_state || null;
+    if (owner.home_zip !== undefined) update.home_address_zip = owner.home_zip || null;
+    // Form 1244 Section Two / Form 912 overlap fields.
+    if (owner.home_phone !== undefined) update.home_phone = owner.home_phone || null;
+    if (owner.former_names_and_dates_used !== undefined) update.former_names_and_dates_used = owner.former_names_and_dates_used || null;
+    if (owner.citizenship_status !== undefined) update.citizenship_status = owner.citizenship_status || null;
+    if (owner.country_of_citizenship !== undefined) update.country_of_citizenship = owner.country_of_citizenship || null;
+    if (owner.sba_loan_entity_interest !== undefined) update.sba_loan_entity_interest = owner.sba_loan_entity_interest;
+    if (owner.sba_loan_entity_interest_details !== undefined) update.sba_loan_entity_interest_details = owner.sba_loan_entity_interest_details || null;
+    if (owner.subject_to_indictment !== undefined) update.subject_to_indictment = owner.subject_to_indictment;
+    if (owner.arrested_or_charged_6mo !== undefined) update.arrested_or_charged_6mo = owner.arrested_or_charged_6mo;
+    if (owner.convicted_diversion_or_parole !== undefined) update.convicted_diversion_or_parole = owner.convicted_diversion_or_parole;
+    if (owner.suspended_debarred_ineligible !== undefined) update.suspended_debarred_ineligible = owner.suspended_debarred_ineligible;
+    // Form 148L — only meaningful when determineGuaranteeType(ownership_pct)
+    // resolves "limited" (src/lib/ownership/rules.ts), but written whenever
+    // present so an owner who later crosses the 20% threshold doesn't lose
+    // previously-entered limitation terms.
+    if (owner.guarantee_limitation_type !== undefined) update.guarantee_limitation_type = owner.guarantee_limitation_type || null;
+    if (owner.guarantee_limit_balance_under !== undefined) update.guarantee_limit_balance_under = owner.guarantee_limit_balance_under ?? null;
+    if (owner.guarantee_limit_principal_under !== undefined) update.guarantee_limit_principal_under = owner.guarantee_limit_principal_under ?? null;
+    if (owner.guarantee_limit_max_payment !== undefined) update.guarantee_limit_max_payment = owner.guarantee_limit_max_payment ?? null;
+    if (owner.guarantee_limit_percent_payment !== undefined) update.guarantee_limit_percent_payment = owner.guarantee_limit_percent_payment ?? null;
+    if (owner.guarantee_limit_time_years !== undefined) update.guarantee_limit_time_years = owner.guarantee_limit_time_years ?? null;
+    if (owner.guarantee_limit_collateral_description !== undefined) update.guarantee_limit_collateral_description = owner.guarantee_limit_collateral_description || null;
+
+    if (Object.keys(update).length === 0) continue;
+    const { error } = await sb.from("ownership_entities").update(update).eq("id", ownershipEntityId);
     if (error) {
-      console.error("[builderCanonicalWrite] deals.name update failed", {
+      console.error("[builderCanonicalWrite] ownership_entities field sync failed", {
         dealId,
+        ownershipEntityId,
         code: error.code,
         details: error.details,
         hint: error.hint,
       });
     }
   }
-}
 
-/** parties section → ensureOwnerEntity for each owner */
-async function writePartiesCanonical(
-  dealId: string,
-  data: Partial<PartiesSectionData>,
-  sb: SupabaseClient,
-): Promise<void> {
-  const owners = data.owners ?? [];
-  for (const owner of owners) {
-    if (!owner.full_legal_name?.trim()) continue;
-    await ensureOwnerEntity(sb, dealId, owner.full_legal_name.trim());
-  }
+  return { ownerEntityIds };
 }
 
 /**

@@ -25,6 +25,7 @@ import CockpitAuthGate from "@/components/deals/CockpitAuthGate";
 import { IntelligencePanel } from "@/components/deal/IntelligencePanel";
 import { InsightPanel } from "@/components/deals/cockpit/panels/InsightPanel";
 import { BrokerageStagePanel } from "@/components/deals/cockpit/panels/BrokerageStagePanel";
+import { AutopilotPanel } from "@/components/deals/cockpit/panels/AutopilotPanel";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
 import { DealIntelligencePanel } from "@/components/brokerage/DealIntelligencePanel";
 
@@ -355,6 +356,11 @@ function DealCockpitClientInner({
               tasks, and next actions — self-contained, renders nothing for
               deals that haven't entered the brokerage pipeline yet. */}
           <BrokerageStagePanel dealId={dealId} />
+
+          {/* Post-arc fix: real trigger + live status for the S1-S9
+              autopilot pipeline (agents -> claims -> arbitration -> truth
+              -> package), replacing the old fake stub route. */}
+          <AutopilotPanel dealId={dealId} />
 
           {/* PR4 SPEC-BROKERAGE-OPERATING-SYSTEM-V1: send/log email, SMS, call,
               and meeting activity directly from the deal — real sends where a

@@ -18,6 +18,13 @@ import { resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "../../../..");
 
+// See the "Bumped ... on ..." comment trail below the warning-threshold
+// test for the history of this number. Actual measured total as of the
+// 2026-07-19 merge of SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 and
+// SPEC-BROKERAGE-OPERATING-SYSTEM-V1 PR5 (both bumped this independently
+// off the same 1952 base): 790 route.ts * 2 + 192 page.tsx * 2 = 1964.
+const MERGED_WARNING_THRESHOLD = 1970;
+
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
     cwd: ROOT,
@@ -218,7 +225,19 @@ describe("route consolidation invariants", () => {
   // BrokerageStagePanel mounts inside the existing cockpit rather than
   // adding a second cockpit page. Still 96 slots under the 2048 hard cap.
   //
-  // Bumped 1952 -> 1975 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // Bumped 1952 -> 1954 on 2026-07-18: SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 —
+  // Form 413's itemized PFS schedules (notes payable/securities/real
+  // estate) had no writer anywhere; added one GET/POST/PATCH/DELETE
+  // dispatcher keyed by a `[scheduleType]` dynamic segment (not 3
+  // resources x 2 files — PATCH/DELETE take `item_id` in the body rather
+  // than a `[itemId]` segment) — same one-dispatcher-not-N-files
+  // precedent as ops/[...path]/workers/[...path] above. No new page. This
+  // was already at the ceiling (0 slots of headroom), so even the single
+  // consolidated file needed this bump. Still 94 slots under the 2048
+  // hard cap.
+  //
+  // Bumped 1952 -> 1975 on 2026-07-17 (developed in parallel on a
+  // different branch, merged 2026-07-19): SPEC-BROKERAGE-OPERATING-SYSTEM-V1
   // PR5 (intelligence, analytics, revenue, command center) added 5 route
   // files, each already a query-param/action dispatcher rather than one
   // route per read/write (crm/intelligence covers relationship-score,
@@ -231,13 +250,18 @@ describe("route consolidation invariants", () => {
   // referral-analytics, lender-performance, and commission-split UI were
   // mounted into the existing org/lenders/deal-cockpit pages instead of
   // new pages. Still 73 slots under the 2048 hard cap.
-  it("total slot count stays below 1975 warning threshold", () => {
+  //
+  // Merged 2026-07-19: both bumps land on main together. Threshold set to
+  // the actual post-merge total (see below) plus headroom, not just the
+  // sum of the two deltas, since the two branches' route additions don't
+  // stack in a simple arithmetic way once merged.
+  it("total slot count stays below the merged warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1975,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1975 warning threshold`,
+      totalSlots < MERGED_WARNING_THRESHOLD,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds ${MERGED_WARNING_THRESHOLD} warning threshold`,
     );
   });
 

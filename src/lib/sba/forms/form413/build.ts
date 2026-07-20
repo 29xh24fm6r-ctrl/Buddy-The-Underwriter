@@ -2,7 +2,9 @@ import { FORM_413_FIELDS, missingRequiredFields } from "@/lib/sba/forms/form413/
 
 export type Form413SignerInput = {
   ownership_entity_id: string;
-  fields: Record<string, string | number | boolean | null>;
+  // notes_payable/securities/real_estate_properties are itemized-schedule
+  // arrays, not a single scalar.
+  fields: Record<string, string | number | boolean | unknown[] | null>;
 };
 
 export type Form413Input = {

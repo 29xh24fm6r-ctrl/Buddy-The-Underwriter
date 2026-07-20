@@ -1,0 +1,484 @@
+{
+  "file": "source: user-provided upload, 2026-07-17, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 2,
+  "fieldCount": 27,
+  "fields": [
+    {
+      "name": "1a. Name and address of Applicant/Borrower/Assumptor (Firm/Business Name; Street, City, State, Zip Code, and Email):",
+      "type": "PDFTextField",
+      "tooltip": "1a. Name and address of Applicant/Borrower/Assumptor (Firm/Business Name; Street, City, State, Zip Code, and Email):",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 35.3456,
+          "y": 606.36298,
+          "width": 558.4384,
+          "height": 61.27301
+        }
+      ]
+    },
+    {
+      "name": "1b. Personal Statement of : (State name in full, if no middle name state NMN, or if initial only indicate initial). List all former names used, and dates each name was used. Use separate sheet if necessary",
+      "type": "PDFTextField",
+      "tooltip": "1b. Personal Statement of : (State name in full, if no middle name state NMN, or if initial only indicate initial). List all former names used, and dates each name was used. Use separate sheet if necessary.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 32.072899,
+          "y": 521.27197,
+          "width": 561.0561309999999,
+          "height": 48.83600000000001
+        }
+      ]
+    },
+    {
+      "name": "SBA Office",
+      "type": "PDFTextField",
+      "tooltip": "SBA Office",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 35.3456,
+          "y": 481.34399,
+          "width": 267.16441000000003,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "Loan Number",
+      "type": "PDFTextField",
+      "tooltip": "Loan Number",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 322.03799,
+          "y": 480.035,
+          "width": 265.85502,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "2. Give the percentage of ownership in the small business (if applicable):",
+      "type": "PDFTextField",
+      "tooltip": "2. Give the percentage of ownership in the small business (if applicable):",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.000198,
+          "y": 447.30801,
+          "width": 256.69179199999996,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "3. Social Security Number",
+      "type": "PDFTextField",
+      "tooltip": "3. Social Security Number",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 320.729,
+          "y": 446.65302,
+          "width": 276.32801,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "4. Date of Birth (month, day, and year)",
+      "type": "PDFTextField",
+      "tooltip": "4. Date of Birth (month, day, and year)",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.000198,
+          "y": 411.96201,
+          "width": 259.963792,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "5. Place of Birth (City & State or Foreign Country)",
+      "type": "PDFTextField",
+      "tooltip": "5. Place of Birth (City & State or Foreign Country)",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 320.729,
+          "y": 410.65302,
+          "width": 275.67298,
+          "height": 23.96297999999996
+        }
+      ]
+    },
+    {
+      "name": "I do not have an alien registration number",
+      "type": "PDFCheckBox",
+      "tooltip": "Check for I do not have an alien registration number",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 255.00999,
+          "y": 362.423,
+          "width": 18.000020000000035,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "6. Are you a United States Citizen - Initials",
+      "type": "PDFTextField",
+      "tooltip": "Initials",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 470.649,
+          "y": 341.86,
+          "width": 93.971,
+          "height": 20.55899999999997
+        }
+      ]
+    },
+    {
+      "name": "7. Present Residence Address",
+      "type": "PDFTextField",
+      "tooltip": "Enter from to Date",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 65.454903,
+          "y": 299.379,
+          "width": 257.346087,
+          "height": 20.692009999999982
+        }
+      ]
+    },
+    {
+      "name": "7. Present Residence Address - to Address",
+      "type": "PDFTextField",
+      "tooltip": "To Address",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 65.454803,
+          "y": 278.43399,
+          "width": 256.691197,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "name": "Home Telephone No. (include area code)",
+      "type": "PDFTextField",
+      "tooltip": "Home Telephone No. (include area code)",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 195.05499,
+          "y": 261.41599,
+          "width": 129.05499999999998,
+          "height": 18.727019999999982
+        }
+      ]
+    },
+    {
+      "name": "Business Telephone No. (include area code)",
+      "type": "PDFTextField",
+      "tooltip": "Business Telephone No. (include area code)",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 195.655,
+          "y": 244.27,
+          "width": 129.05499,
+          "height": 16.76399999999998
+        }
+      ]
+    },
+    {
+      "name": "Most recent prior address (omit if over 10 years ago)",
+      "type": "PDFTextField",
+      "tooltip": "Enter Date",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 361.31,
+          "y": 285.634,
+          "width": 229.85602,
+          "height": 30.50900999999999
+        }
+      ]
+    },
+    {
+      "name": "Initial20_es_:signer:initials Initials for 8. Are you currently incarcerated, serving a sentence of imprisonment imposed upon adjudication of guilty or under indictment for a felony or any crime involving or relating to financial misconduct or a false statement?",
+      "type": "PDFTextField",
+      "tooltip": "Initials for 8. Are you currently incarcerated, serving a sentence of imprisonment imposed upon adjudication of guilty or under indictment for a felony or any crime involving or relating to financial misconduct or a false statement?",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 402.878,
+          "y": 194.314,
+          "width": 93.971,
+          "height": 20.558999999999997
+        }
+      ]
+    },
+    {
+      "name": "Initial22_es_:signer:initials - 9. In the past year, have you been convicted of a criminal offense committed during and in connection with a riot or civil disorder or other declared disaster?",
+      "type": "PDFTextField",
+      "tooltip": "nitials for 9. In the past year, have you been convicted of a criminal offense committed during and in connection with a riot or civil disorder or other declared disaster?",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 401.86,
+          "y": 158.041,
+          "width": 93.971,
+          "height": 20.558999999999997
+        }
+      ]
+    },
+    {
+      "name": "Initial21_es_:signer:initials - 10. Are you currently more than 60 days late on paying any child support obligations?",
+      "type": "PDFTextField",
+      "tooltip": "Initials for 10. Are you currently more than 60 days late on paying any child support obligations?",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 402.151,
+          "y": 128.158,
+          "width": 93.971,
+          "height": 20.559000000000026
+        }
+      ]
+    },
+    {
+      "name": "Signature",
+      "type": "PDFSignature",
+      "tooltip": "Signature",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 63.491199,
+          "y": 17.087601,
+          "width": 149.99980100000002,
+          "height": 32
+        }
+      ]
+    },
+    {
+      "name": "Title",
+      "type": "PDFTextField",
+      "tooltip": "Title",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 247.41901,
+          "y": 18.578501,
+          "width": 150.00000000000003,
+          "height": 30.5091
+        }
+      ]
+    },
+    {
+      "name": "Date_af_date",
+      "type": "PDFTextField",
+      "tooltip": "Date",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 435.27499,
+          "y": 18.578501,
+          "width": 150.00003000000004,
+          "height": 29.199999000000002
+        }
+      ]
+    },
+    {
+      "name": "If no, please provide an alien registration number",
+      "type": "PDFTextField",
+      "tooltip": "If no, please provide an alien registration number",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 430.297,
+          "y": 387.366,
+          "width": 164.39999999999998,
+          "height": 16.76400000000001
+        }
+      ]
+    },
+    {
+      "name": "Are you a United States Citizen?",
+      "type": "PDFRadioGroup",
+      "tooltip": "Are you a United States Citizen?",
+      "options": [
+        "Yes, I'm a United States Citizen",
+        "No, I'm not a United States Citizen"
+      ],
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 41.8908,
+          "y": 371.565,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "x": 41.8908,
+          "y": 346.692,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "Are you currently incarcerated, serving a sentence of imprisonment imposed upon adjudication of guilty or under indictment for a felony or any crime",
+      "type": "PDFRadioGroup",
+      "tooltip": "Are you currently incarcerated, serving a sentence of imprisonment imposed upon adjudication of guilty or under indictment for a felony or any crime",
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 55.3453,
+          "y": 196.147,
+          "width": 17.999999999999993,
+          "height": 18
+        },
+        {
+          "x": 162.491,
+          "y": 196.147,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "9. In the past year, have you been convicted of a criminal offense committed during and in connection with a riot or civil disorder or other declared disaster?",
+      "type": "PDFRadioGroup",
+      "tooltip": "9. In the past year, have you been convicted of a criminal offense committed during and in connection with a riot or civil disorder or other declared disaster?",
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 55.3453,
+          "y": 157.311,
+          "width": 17.999999999999993,
+          "height": 18
+        },
+        {
+          "x": 162.491,
+          "y": 157.311,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "10. Are you currently more than 60 days late on paying any child support obligations?",
+      "type": "PDFRadioGroup",
+      "tooltip": "10. Are you currently more than 60 days late on paying any child support obligations?",
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "pageIndexes": [
+        0,
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 55.3453,
+          "y": 123.201,
+          "width": 17.999999999999993,
+          "height": 18
+        },
+        {
+          "x": 162.491,
+          "y": 123.201,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "Address",
+      "type": "PDFTextField",
+      "tooltip": "To  Address",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 361.965,
+          "y": 245.70599,
+          "width": 231.16402999999997,
+          "height": 37.05600000000001
+        }
+      ]
+    }
+  ]
+}

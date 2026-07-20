@@ -66,10 +66,11 @@ import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "
 import { requiresPersonalPackage } from "@/lib/ownership/rules";
 import { requestSignature, handleSignwellWebhook } from "@/lib/esign/signwell/service";
 import {
-  createSignwellDocumentFromTemplate,
+  createSignwellDocumentFromFile,
   fetchSignwellDocument,
   downloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/client";
+import { resolveFilledPdfForSigning } from "@/lib/esign/signwell/resolveFilledPdfForSigning";
 import {
   prepareBrokerageSbaForms,
   getBrokerageFormsStatus,
@@ -80,7 +81,7 @@ import { isMockVendorsEnabled } from "@/lib/testMode/mockVendors";
 import { mockCreateDiditSession, mockFetchDiditSession, mockGetDiditSessionDecision } from "@/lib/identity/kyc/mockDidit";
 import { mockRequestSignature } from "@/lib/esign/signwell/mockService";
 import {
-  mockCreateSignwellDocumentFromTemplate,
+  mockCreateSignwellDocumentFromFile,
   mockFetchSignwellDocument,
   mockDownloadSignwellCompletedPdf,
 } from "@/lib/esign/signwell/mockClient";
@@ -373,7 +374,8 @@ async function postEsign(req: NextRequest, dealId: string, bankId: string): Prom
     ? await mockRequestSignature(signatureArgs, { sb: supabaseAdmin() })
     : await requestSignature(signatureArgs, {
         sb: supabaseAdmin(),
-        signwell: { createSignwellDocumentFromTemplate, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: supabaseAdmin() }),
       });
 
   if (!result.ok) {
@@ -404,7 +406,7 @@ async function getMockCompleteEsign(req: NextRequest, dealId: string): Promise<N
     {
       sb,
       signwell: {
-        createSignwellDocumentFromTemplate: mockCreateSignwellDocumentFromTemplate,
+        createSignwellDocumentFromFile: mockCreateSignwellDocumentFromFile,
         fetchSignwellDocument: mockFetchSignwellDocument,
         downloadSignwellCompletedPdf: mockDownloadSignwellCompletedPdf,
       },

@@ -2,7 +2,9 @@ import { FORM_4506C_SIGNER_FIELDS, FORM_4506C_THIRD_PARTY_FIELDS, missingRequire
 
 export type Form4506cSignerInput = {
   ownership_entity_id: string;
-  fields: Record<string, string | number | boolean | null>;
+  // §7 (wage_income_form_numbers) and §8 (tax_periods) are each up to a
+  // handful of string values — arrays, not a single scalar.
+  fields: Record<string, string | number | boolean | string[] | null>;
 };
 
 export type Form4506cThirdPartyInput = Record<string, string | number | boolean | null>;
