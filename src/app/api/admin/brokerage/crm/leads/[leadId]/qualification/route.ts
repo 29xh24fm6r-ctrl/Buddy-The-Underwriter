@@ -8,6 +8,39 @@ import { getQualification, upsertQualification, QUALIFICATION_FIELDS, PROVENANCE
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Fields the underlying table enforces as numeric / enum via CHECK
+// constraints. A free-text UI input let staff type "yes" into a numeric
+// field and "SBA 7(a)" into deal_type, both surfacing the raw Postgres
+// constraint-violation message to the browser — found during live QA.
+// Validated here so a bad value gets a clear 400 before it ever reaches
+// the database, instead of a leaked SQL error.
+const NUMERIC_FIELDS = new Set([
+  "business_age_years",
+  "liquidity_estimate",
+  "equity_injection_available",
+  "annual_revenue_estimate",
+  "cash_flow_estimate",
+]);
+const DEAL_TYPE_VALUES = new Set(["startup", "acquisition", "expansion", "refinance", "other"]);
+const FRANCHISE_STATUS_VALUES = new Set(["franchise", "independent", "unknown"]);
+
+/** Returns an error string, or null if the value is acceptable for this field. */
+function validateQualificationField(key: string, value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (NUMERIC_FIELDS.has(key)) {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n)) return `${key} must be a number`;
+    return null;
+  }
+  if (key === "deal_type" && !DEAL_TYPE_VALUES.has(String(value))) {
+    return `deal_type must be one of: ${Array.from(DEAL_TYPE_VALUES).join(", ")}`;
+  }
+  if (key === "franchise_status" && !FRANCHISE_STATUS_VALUES.has(String(value))) {
+    return `franchise_status must be one of: ${Array.from(FRANCHISE_STATUS_VALUES).join(", ")}`;
+  }
+  return null;
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ leadId: string }> },
@@ -25,8 +58,8 @@ export async function GET(
     const qualification = await getQualification(brokerageBankId, leadId);
     return NextResponse.json({ ok: true, qualification });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error("[qualification GET] failed", e);
+    return NextResponse.json({ ok: false, error: "Failed to load qualification." }, { status: 500 });
   }
 }
 
@@ -57,6 +90,14 @@ export async function PUT(
     if (body?.fields && key in body.fields) fields[key] = body.fields[key];
   }
 
+  for (const [key, value] of Object.entries(fields)) {
+    const err = validateQualificationField(key, value);
+    if (err) return NextResponse.json({ ok: false, error: err }, { status: 400 });
+    if (NUMERIC_FIELDS.has(key) && value !== null && value !== undefined && value !== "") {
+      fields[key] = Number(value);
+    }
+  }
+
   let provenance: Record<string, string> | undefined;
   if (body?.provenance && typeof body.provenance === "object") {
     provenance = {};
@@ -77,7 +118,7 @@ export async function PUT(
     });
     return NextResponse.json({ ok: true, qualification });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error("[qualification PUT] failed", e);
+    return NextResponse.json({ ok: false, error: "Failed to save qualification. Check that each field's value matches its expected type." }, { status: 500 });
   }
 }

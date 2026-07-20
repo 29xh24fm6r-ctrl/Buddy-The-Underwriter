@@ -136,7 +136,20 @@ export default function CrmOrganizationDetailPage({
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? "load failed");
       setOrg(json.organization);
-      setPeople(json.people ?? []);
+      // Contacts come from two sources: the legacy single-org crm_people.organization_id
+      // column (json.people) and the proper many-to-many crm_person_organization_roles
+      // join (json.peopleWithRoles, used by "+ Link org" on the person page). Rendering
+      // json.people alone meant a contact linked via "+ Link org" never appeared here —
+      // found during live QA. Union both, deduped by person id, preferring the
+      // role-specific job_title when a role-linked record exists.
+      const roleLinked = ((json.peopleWithRoles ?? []) as Array<{ person: any; job_title: string | null }>).map((r) => ({
+        ...r.person,
+        job_title: r.job_title ?? r.person?.job_title ?? null,
+      }));
+      const byId = new Map<string, any>();
+      for (const p of json.people ?? []) if (p?.id) byId.set(p.id, p);
+      for (const p of roleLinked) if (p?.id) byId.set(p.id, { ...byId.get(p.id), ...p });
+      setPeople(Array.from(byId.values()));
       setActivities(json.activities ?? []);
       setReferredDeals(json.referredDeals ?? []);
       setLeads(json.leads ?? []);

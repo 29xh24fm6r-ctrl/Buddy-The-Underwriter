@@ -68,6 +68,23 @@ const QUALIFICATION_FIELDS = [
 
 const PROVENANCE_STATES = ["unknown", "borrower_stated", "document_supported", "verified", "conflicting", "not_applicable"];
 
+// The underlying brokerage_lead_qualifications table enforces these via
+// CHECK constraints / numeric columns. A free-text input let a raw
+// Postgres constraint-violation message reach the browser on ordinary
+// input (e.g. typing "yes" into a numeric field) — found during live QA.
+// Rendering the correct control per field prevents the bad value at entry.
+const QUALIFICATION_NUMERIC_FIELDS = new Set([
+  "business_age_years",
+  "liquidity_estimate",
+  "equity_injection_available",
+  "annual_revenue_estimate",
+  "cash_flow_estimate",
+]);
+const QUALIFICATION_ENUM_OPTIONS: Record<string, string[]> = {
+  deal_type: ["startup", "acquisition", "expansion", "refinance", "other"],
+  franchise_status: ["franchise", "independent", "unknown"],
+};
+
 function inputStyle(): CSSProperties {
   return { background: c.ink, border: `1px solid ${c.border}`, borderRadius: 5, padding: "7px 9px", color: c.paper, fontSize: 11.5, width: "100%" };
 }
@@ -471,11 +488,25 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
               <div key={field} style={{ display: "flex", gap: 6 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 10, color: c.textMuted, marginBottom: 2 }}>{field.replace(/_/g, " ")}</div>
-                  <input
-                    style={inputStyle()}
-                    value={qualFields[field] ?? ""}
-                    onChange={(e) => setQualFields((f) => ({ ...f, [field]: e.target.value }))}
-                  />
+                  {QUALIFICATION_ENUM_OPTIONS[field] ? (
+                    <select
+                      style={inputStyle()}
+                      value={qualFields[field] ?? ""}
+                      onChange={(e) => setQualFields((f) => ({ ...f, [field]: e.target.value }))}
+                    >
+                      <option value="">—</option>
+                      {QUALIFICATION_ENUM_OPTIONS[field].map((opt) => (
+                        <option key={opt} value={opt}>{opt.replace(/_/g, " ")}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={QUALIFICATION_NUMERIC_FIELDS.has(field) ? "number" : "text"}
+                      style={inputStyle()}
+                      value={qualFields[field] ?? ""}
+                      onChange={(e) => setQualFields((f) => ({ ...f, [field]: e.target.value }))}
+                    />
+                  )}
                 </div>
                 <div style={{ width: 130 }}>
                   <div style={{ fontSize: 10, color: c.textMuted, marginBottom: 2 }}>provenance</div>

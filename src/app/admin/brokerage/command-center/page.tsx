@@ -174,17 +174,17 @@ export default function CommandCenterPage() {
 
       {/* Operational queues — spec 7.6 panel list */}
       <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-        <PanelCard title="New leads needing contact" items={p.newLeadsNeedingContact} renderItem={(i) => i.business_name ?? i.first_name ?? i.id} href="/admin/brokerage/crm/leads" />
-        <PanelCard title="Overdue lead follow-ups" items={p.overdueLeadFollowUps} renderItem={(i) => i.business_name ?? i.first_name ?? i.id} href="/admin/brokerage/crm/leads" />
-        <PanelCard title="Qualified, awaiting conversion" items={p.qualifiedLeadsAwaitingConversion} renderItem={(i) => i.business_name ?? i.first_name ?? i.id} href="/admin/brokerage/crm/leads" />
-        <PanelCard title="Deals with blockers" items={p.dealsWithBlockers} renderItem={(id) => String(id)} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Stalled deals" items={p.stalledDeals} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Missing documents" items={p.missingDocuments} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Ready for lender strategy" items={p.readyForLenderStrategy} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Submitted, awaiting response" items={p.submittedAwaitingResponse} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Outstanding conditions" items={p.outstandingConditions} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Closings approaching" items={p.closingsApproaching} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
-        <PanelCard title="Funded, awaiting payment" items={p.fundedAwaitingPayment} renderItem={(i) => i.title ?? i.id} href="/admin/brokerage/pipeline/queues" />
+        <PanelCard title="New leads needing contact" items={p.newLeadsNeedingContact} renderItem={(i) => i.business_name ?? i.first_name ?? i.id} href="/admin/brokerage/crm/leads?queue=no_contact_attempted" />
+        <PanelCard title="Overdue lead follow-ups" items={p.overdueLeadFollowUps} renderItem={(i) => i.business_name ?? i.first_name ?? i.id} href="/admin/brokerage/crm/leads?queue=overdue_follow_up" />
+        <PanelCard title="Qualified, awaiting conversion" items={p.qualifiedLeadsAwaitingConversion} renderItem={(i) => i.business_name ?? i.first_name ?? i.id} href="/admin/brokerage/crm/leads?queue=qualified_not_converted" />
+        <PanelCard title="Deals with blockers" items={p.dealsWithBlockers} renderItem={(id) => String(id)} href="/admin/brokerage/pipeline/queues?queue=missing_documents" />
+        <PanelCard title="Stalled deals" items={p.stalledDeals} renderItem={(i) => i.name ?? i.id} href="/admin/brokerage/pipeline/queues?queue=stalled_deals" />
+        <PanelCard title="Missing documents" items={p.missingDocuments} renderItem={(i) => i.title ?? i.deal_id} href="/admin/brokerage/pipeline/queues?queue=missing_documents" />
+        <PanelCard title="Ready for lender strategy" items={p.readyForLenderStrategy} renderItem={(i) => i.name ?? i.id} href="/admin/brokerage/pipeline/queues?queue=ready_for_lender_strategy" />
+        <PanelCard title="Submitted, awaiting response" items={p.submittedAwaitingResponse} renderItem={(i) => i.name ?? i.id} href="/admin/brokerage/pipeline/queues?queue=submitted_no_lender_response" />
+        <PanelCard title="Outstanding conditions" items={p.outstandingConditions} renderItem={(i) => i.title ?? i.deal_id} href="/admin/brokerage/pipeline/queues?queue=outstanding_conditions" />
+        <PanelCard title="Closings approaching" items={p.closingsApproaching} renderItem={(i) => `Closing ${i.target_close_date ?? "—"} (deal ${i.deal_id})`} href="/admin/brokerage/pipeline/queues?queue=closing_next_30_days" />
+        <PanelCard title="Funded, awaiting payment" items={p.fundedAwaitingPayment} renderItem={(i) => i.name ?? i.id} href="/admin/brokerage/pipeline/queues?queue=funded_awaiting_payment" />
         <PanelCard title="Referral relationships needing attention" items={p.referralRelationshipsNeedingAttention} renderItem={(i) => `${i.name} (${i.health})`} href="/admin/brokerage/crm" />
         <PanelCard title="Team workload" items={p.teamWorkload} renderItem={(i) => `${i.clerkUserId}: ${i.activeDealCount} active`} emptyLabel="No brokers assigned yet." />
         <PanelCard title="Recent wins" items={[...p.recentWins.leadsConverted, ...p.recentWins.dealsFunded]} renderItem={(i) => i.business_name ?? `deal ${i.deal_id}`} />

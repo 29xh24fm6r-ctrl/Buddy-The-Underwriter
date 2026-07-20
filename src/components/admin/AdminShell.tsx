@@ -11,8 +11,8 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className={`text-sm px-2 py-1 rounded hover:bg-muted/60 transition ${
-        active ? "bg-muted font-medium" : "text-muted-foreground"
+      className={`text-sm px-2 py-1 rounded hover:bg-neutral-800 transition ${
+        active ? "bg-neutral-800 font-medium text-neutral-50" : "text-neutral-300"
       }`}
     >
       {label}
@@ -22,8 +22,15 @@ function NavLink({ href, label }: { href: string; label: string }) {
 
 export default function AdminShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen">
-      <div className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
+    <div className="min-h-screen bg-neutral-950">
+      {/*
+        Explicit neutral-* colors rather than bg-background/text-muted-foreground:
+        those CSS variables depend on a `dark` class this route tree doesn't
+        reliably apply, which rendered this whole bar white-text-on-white —
+        the new "Command Center" link was technically present and clickable
+        but invisible. Found during live QA of SPEC-BROKERAGE-OPERATING-SYSTEM-V1.
+      */}
+      <div className="sticky top-0 z-20 border-b border-neutral-800 bg-neutral-950/90 backdrop-blur">
         <div className="px-4 py-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <NavLink href="/admin" label="Admin" />
