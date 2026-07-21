@@ -319,7 +319,7 @@ test("Gemini 3.x model: generationConfig sets thinkingConfig + maxOutputTokens",
     );
     assert.ok(capturedBody);
     assert.equal(capturedBody.generationConfig.thinkingConfig.thinkingLevel, "low");
-    assert.equal(capturedBody.generationConfig.maxOutputTokens, 4096);
+    assert.equal(capturedBody.generationConfig.maxOutputTokens, 16384);
   } finally {
     restore();
   }
