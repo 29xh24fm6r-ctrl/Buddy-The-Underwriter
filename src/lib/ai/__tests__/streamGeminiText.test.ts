@@ -117,9 +117,33 @@ test("streamGeminiText: Gemini 3.x model disables thinking and caps output token
   }
 
   assert.deepEqual(capturedBody.generationConfig.thinkingConfig, {
-    thinkingBudget: 0,
+    thinkingLevel: "low",
   });
   assert.equal(capturedBody.generationConfig.maxOutputTokens, 4096);
+});
+
+test("streamGeminiText: filters out thought-marked parts from yielded text", async (t) => {
+  process.env.GEMINI_API_KEY = "test-key";
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = (async () =>
+    fakeGeminiSSEResponse([
+      'data: {"candidates":[{"content":{"parts":[{"text":"reasoning...","thought":true},{"text":"Hi Matt"}]}}]}\n\n',
+    ])) as unknown as typeof fetch;
+
+  const deltas: string[] = [];
+  for await (const delta of streamGeminiText({
+    model: "gemini-3.5-flash",
+    prompt: "hello",
+    logTag: "test",
+  })) {
+    deltas.push(delta);
+  }
+
+  assert.deepEqual(deltas, ["Hi Matt"]);
 });
 
 test("streamGeminiText throws when GEMINI_API_KEY is missing", async (t) => {

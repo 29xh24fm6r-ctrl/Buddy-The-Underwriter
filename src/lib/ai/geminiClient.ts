@@ -31,6 +31,13 @@ export type GeminiCallOptions = {
   systemInstruction?: string;
   timeoutMs?: number;
   maxRetries?: number;
+  /**
+   * SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1 (same root cause, applied here too —
+   * see streamGeminiText's doc comment below for the full incident writeup).
+   * Override only if the default budgets below are wrong for a given caller.
+   */
+  maxOutputTokens?: number;
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
 };
 
 export type GeminiCallResult<T> = {
@@ -70,6 +77,8 @@ export async function callGeminiJSON<T>(
         logTag: opts.logTag,
         timeoutMs,
         systemInstruction: opts.systemInstruction,
+        maxOutputTokens: opts.maxOutputTokens,
+        thinkingLevel: opts.thinkingLevel,
       });
       return {
         ok: true,
@@ -110,6 +119,9 @@ export type GeminiStreamOptions = {
   prompt: string;
   logTag: string;
   timeoutMs?: number;
+  /** See doc comment below — override only if the default is wrong for a caller. */
+  maxOutputTokens?: number;
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
 };
 
 /**
@@ -123,6 +135,23 @@ export type GeminiStreamOptions = {
  * One hard timeout for the whole stream (not per-chunk) — a model that's
  * merely slow to start is indistinguishable from one that's stalled from the
  * caller's perspective, and both should give up at the same wall-clock cap.
+ *
+ * INCIDENT (found in production live audit, 2026-07-20): this function never
+ * set `maxOutputTokens` or `thinkingConfig`. Gemini 3.x models think by
+ * default, and thinking tokens are drawn from the SAME output budget as the
+ * visible answer. With no maxOutputTokens set, the SDK/API default budget
+ * can be consumed entirely by invisible reasoning tokens before a single
+ * answer token is emitted — the call returns HTTP 200, the stream completes
+ * cleanly with finishReason MAX_TOKENS, and zero text is ever yielded. No
+ * exception is thrown anywhere in this path, so it fails 100% silently: the
+ * borrower-facing concierge route only sees "the model produced no reply
+ * text" and falls back to a generic "didn't quite catch that" message on
+ * every single turn. This exact failure mode was already diagnosed and
+ * fixed once in this codebase (SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1, see
+ * src/lib/financialSpreads/extractors/gemini/geminiClient.ts) but that fix
+ * was never applied to this shared client, which is what the borrower
+ * concierge (text + voice) and the bank-side concierge all actually call.
+ * Fixed here so every caller gets it at once.
  */
 export async function* streamGeminiText(
   opts: GeminiStreamOptions,
@@ -133,16 +162,17 @@ export async function* streamGeminiText(
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  const generationConfig: Record<string, unknown> = {};
+  const generationConfig: Record<string, unknown> = {
+    // Conversational reply + fact-JSON tail is short-form — 4096 leaves
+    // comfortable headroom without inviting runaway thinking-token spend.
+    maxOutputTokens: opts.maxOutputTokens ?? 4096,
+  };
   if (isGemini3Model(opts.model)) {
-    // Without this, Gemini 3.x's dynamic thinking can silently consume the
-    // entire output budget on internal reasoning and stream zero visible
-    // text — the model call succeeds but produces nothing. Thinking is not
-    // needed for a conversational concierge reply, so disable it outright
-    // rather than budget for it. See geminiClient.ts (extraction sibling)
-    // and SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1 for the same failure mode.
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    generationConfig.maxOutputTokens = 4096;
+    // "low" mirrors the extraction client's choice: enough reasoning to
+    // track multi-turn borrower context, not so much it eats the budget.
+    generationConfig.thinkingConfig = {
+      thinkingLevel: opts.thinkingLevel ?? "low",
+    };
   } else {
     generationConfig.temperature = 0.1;
   }
@@ -180,7 +210,18 @@ export async function* streamGeminiText(
       for (const evt of events) {
         try {
           const parsed = JSON.parse(evt.data);
-          const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
+          // thinkingConfig can still surface thought-marked parts even
+          // without include_thoughts requested — filter them out so
+          // reasoning text never leaks into the borrower's chat. See
+          // naics-suggest/route.ts for the same guard on the non-streaming
+          // path.
+          const parts = parsed?.candidates?.[0]?.content?.parts as
+            | Array<{ text?: string; thought?: boolean }>
+            | undefined;
+          const text = parts
+            ?.filter((p) => !p.thought)
+            ?.map((p) => p.text ?? "")
+            ?.join("");
           if (typeof text === "string" && text) yield text;
         } catch {
           // Malformed/partial SSE chunk — skip it, the model keeps streaming.
@@ -203,18 +244,25 @@ async function callOnce<T>(args: {
   logTag: string;
   timeoutMs: number;
   systemInstruction?: string;
+  maxOutputTokens?: number;
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent?key=${args.apiKey}`;
 
   const generationConfig: Record<string, unknown> = {
     responseMimeType: "application/json",
+    // See streamGeminiText's doc comment: without this, Gemini 3.x's
+    // default thinking budget can consume the entire output allowance
+    // before any answer text is emitted (HTTP 200, finishReason MAX_TOKENS,
+    // zero text — no exception thrown anywhere in this path).
+    maxOutputTokens: args.maxOutputTokens ?? 4096,
   };
-  // Gemini 3.x rejects sub-1.0 temperatures — omit entirely for that family.
   if (isGemini3Model(args.model)) {
-    // See streamGeminiText above — same silent-empty-response failure mode.
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    generationConfig.maxOutputTokens = 4096;
+    generationConfig.thinkingConfig = {
+      thinkingLevel: args.thinkingLevel ?? "low",
+    };
   } else {
+    // Gemini 3.x rejects sub-1.0 temperatures — omit entirely for that family.
     generationConfig.temperature = 0.1;
   }
 
@@ -247,9 +295,23 @@ async function callOnce<T>(args: {
   }
 
   const data = await res.json();
+  // Filter out thought-marked parts (see streamGeminiText's doc comment) —
+  // otherwise a thought part landing at parts[0] would be mistaken for the
+  // answer.
+  const parts = data?.candidates?.[0]?.content?.parts as
+    | Array<{ text?: string; thought?: boolean }>
+    | undefined;
   const text: string =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  if (!text) throw new Error("empty response");
+    parts
+      ?.filter((p) => !p.thought)
+      ?.map((p) => p.text ?? "")
+      ?.join("") ?? "";
+  if (!text) {
+    const finishReason = data?.candidates?.[0]?.finishReason;
+    throw new Error(
+      finishReason ? `empty response (finishReason: ${finishReason})` : "empty response",
+    );
+  }
 
   // Gemini occasionally wraps JSON in ```json fences even with responseMimeType.
   const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
