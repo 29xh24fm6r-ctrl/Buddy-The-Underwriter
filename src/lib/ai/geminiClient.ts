@@ -163,9 +163,19 @@ export async function* streamGeminiText(
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
   const generationConfig: Record<string, unknown> = {
-    // Conversational reply + fact-JSON tail is short-form — 4096 leaves
-    // comfortable headroom without inviting runaway thinking-token spend.
-    maxOutputTokens: opts.maxOutputTokens ?? 4096,
+    // INCIDENT (2026-07-21, live audit continuation): 4096 was still too low
+    // even after the thinkingLevel fix above. The concierge's combined-turn
+    // prompt asks Gemini to emit a conversational reply AND a structured
+    // facts JSON blob covering the full BORROWER_FIELD_REGISTRY (173 fields
+    // across business/loan/owner/pfs/entity scopes) in one completion.
+    // Thinking (even at "low") plus that JSON payload routinely exceeded
+    // 4096 output tokens, so the model hit finishReason MAX_TOKENS before
+    // emitting a single visible reply token on effectively every turn —
+    // reproducing 100% of the time regardless of the thinkingConfig field
+    // name. Matches the budget already proven correct for the same model
+    // family in the extraction client (financialSpreads/extractors/gemini/
+    // geminiClient.ts), which emits a comparably large JSON payload.
+    maxOutputTokens: opts.maxOutputTokens ?? 16384,
   };
   if (isGemini3Model(opts.model)) {
     // "low" mirrors the extraction client's choice: enough reasoning to
@@ -254,8 +264,10 @@ async function callOnce<T>(args: {
     // See streamGeminiText's doc comment: without this, Gemini 3.x's
     // default thinking budget can consume the entire output allowance
     // before any answer text is emitted (HTTP 200, finishReason MAX_TOKENS,
-    // zero text — no exception thrown anywhere in this path).
-    maxOutputTokens: args.maxOutputTokens ?? 4096,
+    // zero text — no exception thrown anywhere in this path). 16384 matches
+    // the budget already proven correct for large structured-JSON payloads
+    // on this model family (see streamGeminiText's incident note above).
+    maxOutputTokens: args.maxOutputTokens ?? 16384,
   };
   if (isGemini3Model(args.model)) {
     generationConfig.thinkingConfig = {

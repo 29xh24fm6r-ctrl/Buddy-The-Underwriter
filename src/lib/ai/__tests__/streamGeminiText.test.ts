@@ -119,7 +119,7 @@ test("streamGeminiText: Gemini 3.x model disables thinking and caps output token
   assert.deepEqual(capturedBody.generationConfig.thinkingConfig, {
     thinkingLevel: "low",
   });
-  assert.equal(capturedBody.generationConfig.maxOutputTokens, 4096);
+  assert.equal(capturedBody.generationConfig.maxOutputTokens, 16384);
 });
 
 test("streamGeminiText: filters out thought-marked parts from yielded text", async (t) => {
