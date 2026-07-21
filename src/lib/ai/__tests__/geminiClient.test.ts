@@ -225,6 +225,55 @@ test("Gemini 3.x model: generationConfig omits temperature", async () => {
   }
 });
 
+test("Gemini 3.x model: generationConfig disables thinking and caps output tokens", async () => {
+  // Regression test for the 2026-07-21 incident: gemini-3.5-flash's dynamic
+  // thinking silently consumed the entire output budget on internal
+  // reasoning, streaming zero visible text — every /start "Chat with Buddy"
+  // turn fell back to the generic "didn't quite catch that" message. See
+  // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1 for the same failure mode elsewhere.
+  let capturedBody: any = null;
+  const restore = installFetch(async (_url, init) => {
+    capturedBody = init ? JSON.parse(String(init.body)) : null;
+    return okResponse('{"ok":true}');
+  });
+  try {
+    await withApiKey("test-key", () =>
+      callGeminiJSON({
+        model: GEMINI_FLASH,
+        prompt: "p",
+        logTag: "unit",
+      }),
+    );
+    assert.deepEqual(capturedBody.generationConfig.thinkingConfig, {
+      thinkingBudget: 0,
+    });
+    assert.equal(capturedBody.generationConfig.maxOutputTokens, 4096);
+  } finally {
+    restore();
+  }
+});
+
+test("non-3.x model: generationConfig omits thinkingConfig/maxOutputTokens", async () => {
+  let capturedBody: any = null;
+  const restore = installFetch(async (_url, init) => {
+    capturedBody = init ? JSON.parse(String(init.body)) : null;
+    return okResponse('{"ok":true}');
+  });
+  try {
+    await withApiKey("test-key", () =>
+      callGeminiJSON({
+        model: NON_GEMINI_3_MODEL,
+        prompt: "p",
+        logTag: "unit",
+      }),
+    );
+    assert.equal("thinkingConfig" in capturedBody.generationConfig, false);
+    assert.equal("maxOutputTokens" in capturedBody.generationConfig, false);
+  } finally {
+    restore();
+  }
+});
+
 test("non-3.x model: generationConfig includes temperature 0.1", async () => {
   let capturedBody: any = null;
   const restore = installFetch(async (_url, init) => {
