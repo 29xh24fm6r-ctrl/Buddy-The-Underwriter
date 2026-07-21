@@ -160,7 +160,14 @@ export async function* streamGeminiText(
   if (!apiKey) throw new Error("GEMINI_API_KEY missing");
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  // Per current Gemini API reference (ai.google.dev/api): "All requests to
+  // the Gemini API must include a x-goog-api-key header with your API key."
+  // The ?key= query-param form is legacy — verified via docs on 2026-07-21
+  // while investigating the concierge zero-text incident. Not confirmed to
+  // be the cause (a rejected key would 401/403 loudly, and zero such
+  // failures have appeared in production gemini-stream logs), but it's the
+  // documented method now and costs nothing to align on.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse`;
 
   const generationConfig: Record<string, unknown> = {
     // INCIDENT (2026-07-21, live audit continuation): 4096 was still too low
@@ -193,7 +200,10 @@ export async function* streamGeminiText(
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: opts.prompt }] }],
         generationConfig,
@@ -210,6 +220,26 @@ export async function* streamGeminiText(
     const decoder = new TextDecoder();
     let buf = "";
 
+    // DIAGNOSTIC (2026-07-21): three consecutive fixes (#727 thinkingBudget,
+    // #728 thinkingLevel, #729 maxOutputTokens 4096->16384) have all guessed
+    // at this failure from the OUTSIDE — none of them ever inspected what
+    // Gemini's raw response actually contains, because this function only
+    // ever surfaced "zero text" with no further detail, and the caller's
+    // fallback swallows that silently. #729 is confirmed live in production
+    // and the exact same zero-text failure still reproduces, which rules out
+    // the token-budget theory entirely. Capture the real signals here so the
+    // NEXT reproduction tells us the actual cause instead of us inferring it
+    // again: promptFeedback.blockReason (prompt safety-blocked before any
+    // generation happened — a live possibility given this prompt asks the
+    // model to extract SSN/income/PII into structured JSON), finishReason
+    // per candidate, and whether every part that did arrive was thought-only.
+    let sawVisibleText = false;
+    let eventCount = 0;
+    let thoughtPartCount = 0;
+    let textPartCount = 0;
+    let lastFinishReason: string | undefined;
+    let blockReason: string | undefined;
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -220,6 +250,13 @@ export async function* streamGeminiText(
       for (const evt of events) {
         try {
           const parsed = JSON.parse(evt.data);
+          eventCount++;
+          if (parsed?.promptFeedback?.blockReason) {
+            blockReason = String(parsed.promptFeedback.blockReason);
+          }
+          if (parsed?.candidates?.[0]?.finishReason) {
+            lastFinishReason = String(parsed.candidates[0].finishReason);
+          }
           // thinkingConfig can still surface thought-marked parts even
           // without include_thoughts requested — filter them out so
           // reasoning text never leaks into the borrower's chat. See
@@ -228,14 +265,36 @@ export async function* streamGeminiText(
           const parts = parsed?.candidates?.[0]?.content?.parts as
             | Array<{ text?: string; thought?: boolean }>
             | undefined;
+          for (const p of parts ?? []) {
+            if (p.thought) thoughtPartCount++;
+            else if (p.text) textPartCount++;
+          }
           const text = parts
             ?.filter((p) => !p.thought)
             ?.map((p) => p.text ?? "")
             ?.join("");
-          if (typeof text === "string" && text) yield text;
+          if (typeof text === "string" && text) {
+            sawVisibleText = true;
+            yield text;
+          }
         } catch {
           // Malformed/partial SSE chunk — skip it, the model keeps streaming.
         }
+      }
+    }
+
+    if (!sawVisibleText) {
+      console.warn(
+        `[gemini-stream:${opts.logTag}] DIAGNOSTIC: stream completed with zero visible text — ` +
+          `events=${eventCount} finishReason=${lastFinishReason ?? "none"} ` +
+          `blockReason=${blockReason ?? "none"} thoughtParts=${thoughtPartCount} textParts=${textPartCount}`,
+      );
+      if (blockReason) {
+        // A hard block is a distinct, actionable failure mode from
+        // MAX_TOKENS — surface it as a thrown error so it's caught and
+        // logged separately by the caller ("stream failed"), not folded
+        // into the generic "no reply text" fallback path.
+        throw new Error(`Gemini blocked the prompt: ${blockReason}`);
       }
     }
   } catch (e) {
@@ -257,7 +316,8 @@ async function callOnce<T>(args: {
   maxOutputTokens?: number;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent?key=${args.apiKey}`;
+  // Per current Gemini API reference — see streamGeminiText's matching note.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent`;
 
   const generationConfig: Record<string, unknown> = {
     responseMimeType: "application/json",
@@ -293,7 +353,10 @@ async function callOnce<T>(args: {
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": args.apiKey,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
