@@ -134,7 +134,16 @@ export async function* streamGeminiText(
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
   const generationConfig: Record<string, unknown> = {};
-  if (!isGemini3Model(opts.model)) {
+  if (isGemini3Model(opts.model)) {
+    // Without this, Gemini 3.x's dynamic thinking can silently consume the
+    // entire output budget on internal reasoning and stream zero visible
+    // text — the model call succeeds but produces nothing. Thinking is not
+    // needed for a conversational concierge reply, so disable it outright
+    // rather than budget for it. See geminiClient.ts (extraction sibling)
+    // and SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1 for the same failure mode.
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    generationConfig.maxOutputTokens = 4096;
+  } else {
     generationConfig.temperature = 0.1;
   }
 
@@ -201,7 +210,11 @@ async function callOnce<T>(args: {
     responseMimeType: "application/json",
   };
   // Gemini 3.x rejects sub-1.0 temperatures — omit entirely for that family.
-  if (!isGemini3Model(args.model)) {
+  if (isGemini3Model(args.model)) {
+    // See streamGeminiText above — same silent-empty-response failure mode.
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    generationConfig.maxOutputTokens = 4096;
+  } else {
     generationConfig.temperature = 0.1;
   }
 
