@@ -163,15 +163,22 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
           if (streamRef.current) void startMicCaptureRef.current(streamRef.current);
           return;
 
-        case "response.audio.delta":
+        // GA gpt-realtime (shipped Aug 2025) renamed these from the beta-era
+        // response.audio.* / response.audio_transcript.* to
+        // response.output_audio.* / response.output_audio_transcript.* —
+        // confirmed against OpenAI's own openai-python example
+        // (examples/realtime/push_to_talk_app.py). The old names never fire,
+        // which is why Buddy generated audio server-side but the browser
+        // never played it or rendered a transcript.
+        case "response.output_audio.delta":
           if (typeof data.delta === "string") void playAudioChunk(data.delta);
           return;
 
-        case "response.audio_transcript.delta":
+        case "response.output_audio_transcript.delta":
           if (typeof data.delta === "string") setCurrentTranscript(prev => prev + data.delta);
           return;
 
-        case "response.audio_transcript.done": {
+        case "response.output_audio_transcript.done": {
           const text = String(data.transcript ?? "").trim();
           setCurrentTranscript("");
           if (text) pushMessage(mkMsg("assistant", text));

@@ -277,7 +277,12 @@ export async function handleOpenAIRealtimeProxy(
       }
     }
 
-    if (isBorrower && type === "response.audio_transcript.done") {
+    // GA gpt-realtime renamed this from response.audio_transcript.done to
+    // response.output_audio_transcript.done (confirmed against OpenAI's own
+    // openai-python example, examples/realtime/push_to_talk_app.py). The old
+    // name never fired, so borrower sessions were silently missing every
+    // assistant-side fact Buddy's own speech might have surfaced.
+    if (isBorrower && type === "response.output_audio_transcript.done") {
       const assistantText = String((parsed as any).transcript ?? "").trim();
       if (assistantText) {
         void routeBorrowerIntent({
