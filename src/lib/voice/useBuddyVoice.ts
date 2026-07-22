@@ -73,7 +73,19 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
   const connectAttemptIdRef = useRef(0);
   const earlyCloseRetryRef = useRef(0);
   const nextPlayTimeRef = useRef(0);
-  const pendingAudioRef = useRef<AudioBufferSourceNode | null>(null);
+  // Every response.output_audio.delta chunk gets its own AudioBufferSourceNode
+  // scheduled back-to-back via nextPlayTimeRef. A single pendingAudioRef can
+  // only ever remember the LAST chunk created — every earlier chunk already
+  // playing or queued ahead in the Web Audio timeline becomes untracked and
+  // uncancellable the moment a newer chunk arrives. On barge-in (the user
+  // starts talking mid-response), that meant only the most recent chunk got
+  // stopped while the rest of the interrupted response kept playing under
+  // the next response's freshly scheduled audio — the "talking over itself"
+  // bug. Track every active node instead, tagged with a playback generation
+  // so a stale response's onended callback can't clobber a newer response's
+  // speaking state.
+  const activeAudioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const playbackGenerationRef = useRef(0);
   const isAssistantSpeakingRef = useRef(false);
   const sessionConfigRef = useRef<{ outputSampleRate: number } | null>(null);
   const statusRef = useRef<VoiceStatus>("idle");
@@ -103,6 +115,8 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
       const ctx = playbackCtxRef.current;
       if (ctx.state === "suspended") await ctx.resume();
 
+      const generation = playbackGenerationRef.current;
+
       const sampleRate = sessionConfigRef.current?.outputSampleRate ?? 24000;
       const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
       const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
@@ -115,14 +129,18 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
+      activeAudioSourcesRef.current.add(source);
       isAssistantSpeakingRef.current = true;
       setIsAssistantSpeaking(true);
       setStatus("speaking");
-      pendingAudioRef.current = source;
 
       source.onended = () => {
-        if (pendingAudioRef.current === source) {
-          pendingAudioRef.current = null;
+        activeAudioSourcesRef.current.delete(source);
+        // A chunk from an interrupted response can still fire onended after
+        // cancelAudioPlayback bumps the generation — ignore it so it can't
+        // report "done speaking" on behalf of whatever response came next.
+        if (generation !== playbackGenerationRef.current) return;
+        if (activeAudioSourcesRef.current.size === 0) {
           isAssistantSpeakingRef.current = false;
           setIsAssistantSpeaking(false);
           if (connectedRef.current) setStatus("listening");
@@ -139,7 +157,11 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
   }, [setStatus]);
 
   const cancelAudioPlayback = useCallback(() => {
-    try { if (pendingAudioRef.current) { pendingAudioRef.current.stop(); pendingAudioRef.current = null; } } catch { }
+    playbackGenerationRef.current++;
+    for (const source of activeAudioSourcesRef.current) {
+      try { source.stop(); } catch { }
+    }
+    activeAudioSourcesRef.current.clear();
     nextPlayTimeRef.current = 0;
     isAssistantSpeakingRef.current = false;
     setIsAssistantSpeaking(false);
