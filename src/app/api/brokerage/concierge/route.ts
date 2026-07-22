@@ -24,7 +24,7 @@ import {
 import { getOrCreateBorrowerSession } from "@/lib/brokerage/session";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
-import { streamGeminiText } from "@/lib/ai/geminiClient";
+import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { MODEL_CONCIERGE_REASONING } from "@/lib/ai/models";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import {
@@ -40,12 +40,10 @@ import {
   type BorrowerFacts,
 } from "@/lib/brokerage/propagateBorrowerFacts";
 import {
-  buildCombinedConciergeTurnPrompt,
-  CONCIERGE_FACTS_SENTINEL,
+  buildCombinedConciergeTurnPromptJSON,
   mergeExtractedFacts,
   deepMerge,
 } from "@/lib/brokerage/borrowerConversation";
-import { createSentinelSplitter } from "@/lib/brokerage/sentinelStreamSplitter";
 import { redactSsnPatterns } from "@/lib/brokerage/redactSensitive";
 import { correctableFieldFor } from "@/lib/brokerage/correctableFacts";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
@@ -449,15 +447,22 @@ export async function POST(req: NextRequest): Promise<Response> {
       });
     }
 
-    // ── Combined turn: extraction + warm reply in ONE Gemini call, streamed ──
-    // Previously two sequential calls (extract, then respond) — that's the
-    // dominant latency cost per turn. Now one call, streamed to the client:
-    // the reply (STEP 1 of the prompt) flushes to the browser as it's
-    // generated; the structured facts (STEP 2, after CONCIERGE_FACTS_SENTINEL)
-    // are buffered here and never shown to the borrower.
+    // ── Combined turn: extraction + warm reply in ONE Gemini call ──
+    // INCIDENT (2026-07-22): from 2026-07-16 (#704) through today, this call
+    // was made via streamGeminiText + a hand-rolled SSE parser + a text
+    // sentinel the model had to reproduce verbatim mid-prose. ai_events shows
+    // zero genuine replies since 2026-07-15 21:37 UTC — every turn since has
+    // been a fallback, despite 8 rounds of fixes (#710, #713, #727-#730) to
+    // that streaming/sentinel machinery. Switched to callGeminiJSON — the
+    // same non-streaming, JSON-mode call already proven reliable elsewhere in
+    // this codebase (financialSpreads extraction; buildBorrowerExtractionPrompt's
+    // own caller) — asking for one JSON object instead of free text + a
+    // marker string. Keeps #704's one-call-per-turn latency win; drops the
+    // two components that were actually fragile. See
+    // buildCombinedConciergeTurnPromptJSON's doc comment for the full trace.
     const existingFacts =
       (conciergeRow.extracted_facts as Record<string, unknown>) ?? {};
-    const prompt = buildCombinedConciergeTurnPrompt(
+    const prompt = buildCombinedConciergeTurnPromptJSON(
       conciergeRow.conversation_history ?? [],
       body.userMessage,
       existingFacts,
@@ -465,238 +470,180 @@ export async function POST(req: NextRequest): Promise<Response> {
     const priorTurnCount =
       ((conciergeRow.conversation_history as unknown[]) ?? []).length / 2;
 
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        const sendEvent = (event: string, data: unknown) => {
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
-          );
-        };
-
-        const splitter = createSentinelSplitter(CONCIERGE_FACTS_SENTINEL);
-
-        try {
-          for await (const delta of streamGeminiText({
-            model: MODEL_CONCIERGE_REASONING,
-            prompt,
-            logTag: "brokerage-concierge-turn",
-            // Fail fast rather than let a slow model call stall the
-            // borrower's reply — whatever text already streamed through is
-            // kept and used as the reply (see the fallback logic below).
-            timeoutMs: 15_000,
-          })) {
-            const toShow = splitter.feed(delta);
-            if (toShow) sendEvent("token", { text: toShow });
-          }
-        } catch (e) {
-          console.warn(
-            "[brokerage-concierge] stream failed (using partial text, if any):",
-            e instanceof Error ? e.message : String(e),
-          );
-        }
-
-        const { messageText: streamedMessage, trailingToShow, factsRaw } = splitter.finish();
-        if (trailingToShow) sendEvent("token", { text: trailingToShow });
-
-        let messageText = streamedMessage;
-        let newFacts: Record<string, unknown> = {};
-        let nextQuestion: string | null = null;
-
-        if (factsRaw !== null) {
-          const cleaned = factsRaw
-            .replace(/```json\s*/gi, "")
-            .replace(/```/g, "")
-            .trim();
-          try {
-            const parsed = JSON.parse(cleaned) as {
-              extracted_facts?: Record<string, unknown>;
-              next_question?: string | null;
-            };
-            newFacts = parsed.extracted_facts ?? {};
-            nextQuestion = parsed.next_question ?? null;
-          } catch (e) {
-            console.warn(
-              "[brokerage-concierge] facts JSON parse failed (non-fatal, no facts extracted this turn):",
-              e instanceof Error ? e.message : String(e),
-            );
-          }
-        }
-        // factsRaw === null means the sentinel never arrived (stream died
-        // early, or the model deviated from the format) — no facts
-        // extracted this turn, but the borrower still got whatever text
-        // did stream through as their reply.
-
-        if (!messageText) {
-          // The model call succeeded (no gemini-stream error above) but
-          // produced no text before the sentinel — a prompt-compliance
-          // deviation, not a network failure. This was previously silent,
-          // so a borrower correcting a stored fact (e.g. a different
-          // franchise brand than what's already saved) would see a fully
-          // generic reply and the correction would never get extracted,
-          // reading as "Buddy ignored what I just said." Logged now so a
-          // recurrence is diagnosable; copy is honest that Buddy missed it
-          // rather than pretending nothing was said.
-          console.warn(
-            "[brokerage-concierge] model produced no reply text before sentinel (non-fatal, generic fallback used):",
-            { dealId: session.deal_id, hadFactsSentinel: factsRaw !== null },
-          );
-          messageText =
-            "Sorry, I didn't quite catch that — could you tell me again what you're looking to finance?";
-          sendEvent("token", { text: messageText });
-        }
-
-        const mergedFacts = mergeExtractedFacts(existingFacts, newFacts);
-
-        // Proactive draft assumptions persistence — keeps buddy_sba_assumptions
-        // tracking the borrower's current best-known inputs from turn 1, so a
-        // valid row always exists before trident generation. Never downgrades
-        // a confirmed row; non-fatal on failure (the trident path's
-        // ensureAssumptionsForPreview is the safety net).
-        persistAssumptionsDraft({
-          dealId: session.deal_id,
-          conciergeFacts: mergedFacts as Parameters<
-            typeof persistAssumptionsDraft
-          >[0]["conciergeFacts"],
-          sb,
-        }).catch((e) => {
-          console.warn(
-            "[brokerage-concierge] draft assumptions persist failed (non-fatal):",
-            e?.message ?? String(e),
-          );
-        });
-
-        // Claim the session the first time an email appears.
-        const extractedEmail = (newFacts as any)?.borrower?.email;
-        let sessionClaimed = false;
-        if (
-          typeof extractedEmail === "string" &&
-          extractedEmail.includes("@") &&
-          !session.claimed_email
-        ) {
-          await claimBorrowerSession({
-            tokenHash: session.tokenHash,
-            email: extractedEmail,
-          });
-          sessionClaimed = true;
-        }
-
-        // Display-name convenience update — never needs to gate the
-        // borrower's reply. Fire-and-forget, same as the propagation call
-        // below.
-        updateDealNames(sb, session.deal_id, mergedFacts).catch((e) => {
-          console.warn(
-            "[brokerage-concierge] updateDealNames failed (non-fatal):",
-            e?.message ?? String(e),
-          );
-        });
-
-        // Write-through: push extracted facts to the canonical tables the
-        // score engine and packaging pipeline actually read. Non-fatal —
-        // the conversation never breaks because a propagation write failed.
-        propagateBorrowerFacts({
-          dealId: session.deal_id,
-          bankId: brokerageBankId,
-          facts: mergedFacts as BorrowerFacts,
-          sb,
-        })
-          .then((r) => {
-            if (!r.ok) {
-              console.warn(
-                "[brokerage-concierge] fact propagation partial failure:",
-                r.errors.join("; "),
-              );
-            }
-          })
-          .catch((e) => {
-            console.warn(
-              "[brokerage-concierge] fact propagation failed (non-fatal):",
-              e?.message ?? String(e),
-            );
-          });
-
-        const updatedHistory = [
-          ...(conciergeRow.conversation_history ?? []),
-          { role: "user", content: body.userMessage },
-          { role: "assistant", content: messageText },
-        ];
-        const progressPct = computeProgress(mergedFacts);
-
-        await sb
-          .from("borrower_concierge_sessions")
-          .update({
-            conversation_history: updatedHistory,
-            extracted_facts: mergedFacts,
-            progress_pct: progressPct,
-            last_question: nextQuestion,
-            last_response: body.userMessage,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", conciergeRow.id);
-
-        // Audit log — pure telemetry, never needs to gate the borrower's reply.
-        sb.from("ai_events")
-          .insert({
-            deal_id: session.deal_id,
-            scope: "brokerage_concierge",
-            action: "turn",
-            input_json: {
-              userMessage: body.userMessage,
-              source: body.source ?? "text",
-            },
-            output_json: { buddyResponse: messageText, progressPct, sessionClaimed },
-            confidence: 0.9,
-            requires_human_review: false,
-          })
-          .then(({ error }) => {
-            if (error) {
-              console.warn("[brokerage-concierge] ai_events insert failed (non-fatal):", error.message);
-            }
-          });
-
-        // S1-5: score trigger is fire-and-forget for v1. Non-fatal on failure.
-        const turnCount = priorTurnCount + 1;
-        if (turnCount >= 5 || sessionClaimed) {
-          computeBuddySBAScore({
-            dealId: session.deal_id,
-            sb,
-            context: "concierge_fact_change",
-          }).catch((e) => {
-            console.warn(
-              "[brokerage-concierge] score compute failed (non-fatal):",
-              e?.message ?? String(e),
-            );
-          });
-        }
-
-        sendEvent("done", {
-          ok: true,
-          dealId: session.deal_id,
-          buddyResponse: messageText,
-          extractedFacts: mergedFacts,
-          progressPct,
-          nextQuestion,
-          sessionClaimed,
-          tridentPreview: null,
-          // SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 4 — canonical response
-          // surface. Aliased alongside the existing fields so legacy clients
-          // keep working while new code can target the documented contract.
-          sessionId: session.deal_id,
-          assistantMessage: messageText,
-          nextRequiredFields: computeNextRequiredFields(mergedFacts),
-          readinessHint: readinessHintFromProgress(progressPct),
-        });
-        controller.close();
-      },
+    const turnResult = await callGeminiJSON<{
+      message: string;
+      next_question: string | null;
+      extracted_facts: Record<string, unknown>;
+    }>({
+      model: MODEL_CONCIERGE_REASONING,
+      prompt,
+      logTag: "brokerage-concierge-turn",
+      timeoutMs: 15_000,
+      maxRetries: 0,
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
+    if (!turnResult.ok) {
+      console.warn(
+        "[brokerage-concierge] combined turn call failed (non-fatal, generic fallback used):",
+        { dealId: session.deal_id, error: turnResult.error },
+      );
+    }
+
+    let messageText = turnResult.result?.message ?? "";
+    const newFacts: Record<string, unknown> = turnResult.result?.extracted_facts ?? {};
+    const nextQuestion: string | null = turnResult.result?.next_question ?? null;
+
+    if (!messageText) {
+      // The call itself may have succeeded with an empty/malformed "message"
+      // field, or failed outright (turnResult.ok === false, logged above
+      // with the real error) — either way, give the borrower an honest,
+      // non-generic fallback rather than pretending nothing was said.
+      messageText =
+        "Sorry, I didn't quite catch that — could you tell me again what you're looking to finance?";
+    }
+
+    const mergedFacts = mergeExtractedFacts(existingFacts, newFacts);
+
+    // Proactive draft assumptions persistence — keeps buddy_sba_assumptions
+    // tracking the borrower's current best-known inputs from turn 1, so a
+    // valid row always exists before trident generation. Never downgrades
+    // a confirmed row; non-fatal on failure (the trident path's
+    // ensureAssumptionsForPreview is the safety net).
+    persistAssumptionsDraft({
+      dealId: session.deal_id,
+      conciergeFacts: mergedFacts as Parameters<
+        typeof persistAssumptionsDraft
+      >[0]["conciergeFacts"],
+      sb,
+    }).catch((e) => {
+      console.warn(
+        "[brokerage-concierge] draft assumptions persist failed (non-fatal):",
+        e?.message ?? String(e),
+      );
+    });
+
+    // Claim the session the first time an email appears.
+    const extractedEmail = (newFacts as any)?.borrower?.email;
+    let sessionClaimed = false;
+    if (
+      typeof extractedEmail === "string" &&
+      extractedEmail.includes("@") &&
+      !session.claimed_email
+    ) {
+      await claimBorrowerSession({
+        tokenHash: session.tokenHash,
+        email: extractedEmail,
+      });
+      sessionClaimed = true;
+    }
+
+    // Display-name convenience update — never needs to gate the
+    // borrower's reply. Fire-and-forget, same as the propagation call
+    // below.
+    updateDealNames(sb, session.deal_id, mergedFacts).catch((e) => {
+      console.warn(
+        "[brokerage-concierge] updateDealNames failed (non-fatal):",
+        e?.message ?? String(e),
+      );
+    });
+
+    // Write-through: push extracted facts to the canonical tables the
+    // score engine and packaging pipeline actually read. Non-fatal —
+    // the conversation never breaks because a propagation write failed.
+    propagateBorrowerFacts({
+      dealId: session.deal_id,
+      bankId: brokerageBankId,
+      facts: mergedFacts as BorrowerFacts,
+      sb,
+    })
+      .then((r) => {
+        if (!r.ok) {
+          console.warn(
+            "[brokerage-concierge] fact propagation partial failure:",
+            r.errors.join("; "),
+          );
+        }
+      })
+      .catch((e) => {
+        console.warn(
+          "[brokerage-concierge] fact propagation failed (non-fatal):",
+          e?.message ?? String(e),
+        );
+      });
+
+    const updatedHistory = [
+      ...(conciergeRow.conversation_history ?? []),
+      { role: "user", content: body.userMessage },
+      { role: "assistant", content: messageText },
+    ];
+    const progressPct = computeProgress(mergedFacts);
+
+    await sb
+      .from("borrower_concierge_sessions")
+      .update({
+        conversation_history: updatedHistory,
+        extracted_facts: mergedFacts,
+        progress_pct: progressPct,
+        last_question: nextQuestion,
+        last_response: body.userMessage,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", conciergeRow.id);
+
+    // Audit log — pure telemetry, never needs to gate the borrower's reply.
+    sb.from("ai_events")
+      .insert({
+        deal_id: session.deal_id,
+        scope: "brokerage_concierge",
+        action: "turn",
+        input_json: {
+          userMessage: body.userMessage,
+          source: body.source ?? "text",
+        },
+        output_json: { buddyResponse: messageText, progressPct, sessionClaimed },
+        confidence: 0.9,
+        requires_human_review: false,
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.warn("[brokerage-concierge] ai_events insert failed (non-fatal):", error.message);
+        }
+      });
+
+    // S1-5: score trigger is fire-and-forget for v1. Non-fatal on failure.
+    const turnCount = priorTurnCount + 1;
+    if (turnCount >= 5 || sessionClaimed) {
+      computeBuddySBAScore({
+        dealId: session.deal_id,
+        sb,
+        context: "concierge_fact_change",
+      }).catch((e) => {
+        console.warn(
+          "[brokerage-concierge] score compute failed (non-fatal):",
+          e?.message ?? String(e),
+        );
+      });
+    }
+
+    // Plain JSON — no streaming. The frontend's existing short-circuit path
+    // (used today for trident-intent / assumptions-confirm responses)
+    // already handles exactly this field shape, so no client change needed.
+    return NextResponse.json({
+      ok: true,
+      dealId: session.deal_id,
+      buddyResponse: messageText,
+      extractedFacts: mergedFacts,
+      progressPct,
+      nextQuestion,
+      sessionClaimed,
+      tridentPreview: null,
+      // SPEC-BROKERAGE-PRODUCTIONIZATION-V1 §Phase 4 — canonical response
+      // surface. Aliased alongside the existing fields so legacy clients
+      // keep working while new code can target the documented contract.
+      sessionId: session.deal_id,
+      assistantMessage: messageText,
+      nextRequiredFields: computeNextRequiredFields(mergedFacts),
+      readinessHint: readinessHintFromProgress(progressPct),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
