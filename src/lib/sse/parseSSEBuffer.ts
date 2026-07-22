@@ -12,6 +12,22 @@
  */
 export type SSEEvent = { event: string; data: string };
 
+// INCIDENT (2026-07-22): this only ever searched for a bare "\n\n" frame
+// boundary and split lines on bare "\n". Every hand-written test fixture in
+// this repo's test suite uses LF-only framing, so that blind spot was
+// invisible in tests — but Gemini's real streamGenerateContent SSE response
+// uses CRLF line endings. Diagnostic logging (src/lib/ai/geminiClient.ts)
+// caught this live: production requests were returning HTTP 200 with ~19KB
+// of real SSE data across dozens of chunks, yet this function extracted
+// zero events from it every single time, because "\r\n\r\n" does not
+// contain the substring "\n\n". This was the actual root cause of the
+// "model produced no reply text" concierge-chat incident — the request and
+// Gemini's response were fine the entire time; #727-#729 were each fixing a
+// real-but-secondary config issue while this parsing bug was the one thing
+// that mattered. Now tolerant of CRLF, bare CR, and bare LF framing.
+const FRAME_BOUNDARY_RE = /\r\n\r\n|\n\n|\r\r/;
+const LINE_SPLIT_RE = /\r\n|\r|\n/;
+
 export function splitSSEEvents(buffer: string): {
   events: SSEEvent[];
   rest: string;
@@ -19,14 +35,15 @@ export function splitSSEEvents(buffer: string): {
   const events: SSEEvent[] = [];
   let rest = buffer;
 
-  let boundary: number;
-  while ((boundary = rest.indexOf("\n\n")) !== -1) {
+  let match: RegExpMatchArray | null;
+  while ((match = rest.match(FRAME_BOUNDARY_RE)) !== null) {
+    const boundary = match.index as number;
     const rawFrame = rest.slice(0, boundary);
-    rest = rest.slice(boundary + 2);
+    rest = rest.slice(boundary + match[0].length);
 
     let event = "message";
     const dataLines: string[] = [];
-    for (const line of rawFrame.split("\n")) {
+    for (const line of rawFrame.split(LINE_SPLIT_RE)) {
       if (line.startsWith("event:")) {
         event = line.slice(6).trim();
       } else if (line.startsWith("data:")) {
