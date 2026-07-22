@@ -240,9 +240,28 @@ export async function* streamGeminiText(
     let lastFinishReason: string | undefined;
     let blockReason: string | undefined;
 
+    // DIAGNOSTIC (2026-07-22): the first real reproduction under PR #730's
+    // instrumentation came back events=0 — not "the model replied with no
+    // text" (the assumption every prior fix made), but zero SSE frames ever
+    // parsed at all. That's a layer beneath anything #727-#729 could have
+    // fixed. Capture the raw byte count and chunk count actually read off
+    // the wire, plus the response status/headers, so the next reproduction
+    // tells us whether Google is returning a genuinely empty 200 body
+    // (infra/auth/caching issue) versus bytes arriving that never form a
+    // complete "\n\n"-terminated SSE frame (parser/framing issue).
+    let rawByteCount = 0;
+    let rawChunkCount = 0;
+    const resStatus = res.status;
+    const resContentType = res.headers.get("content-type") ?? "none";
+    const resContentLength = res.headers.get("content-length") ?? "none";
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value) {
+        rawChunkCount++;
+        rawByteCount += value.byteLength;
+      }
       buf += decoder.decode(value, { stream: true });
 
       const { events, rest } = splitSSEEvents(buf);
@@ -287,7 +306,9 @@ export async function* streamGeminiText(
       console.warn(
         `[gemini-stream:${opts.logTag}] DIAGNOSTIC: stream completed with zero visible text — ` +
           `events=${eventCount} finishReason=${lastFinishReason ?? "none"} ` +
-          `blockReason=${blockReason ?? "none"} thoughtParts=${thoughtPartCount} textParts=${textPartCount}`,
+          `blockReason=${blockReason ?? "none"} thoughtParts=${thoughtPartCount} textParts=${textPartCount} ` +
+          `status=${resStatus} contentType=${resContentType} contentLength=${resContentLength} ` +
+          `rawChunks=${rawChunkCount} rawBytes=${rawByteCount}`,
       );
       if (blockReason) {
         // A hard block is a distinct, actionable failure mode from
