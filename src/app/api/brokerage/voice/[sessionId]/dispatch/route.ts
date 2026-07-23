@@ -3,8 +3,7 @@ import "server-only";
 /**
  * POST /api/brokerage/voice/[sessionId]/dispatch
  *
- * Gateway-only endpoint. Dispatches events from the Fly voice gateway back
- * into the app:
+ * Dispatches events back into the app for a borrower voice session:
  *   - utterance (borrower | assistant)     → conversation_history append
  *                                          + server-side fact extraction
  *                                            (borrower utterances only) →
@@ -14,9 +13,14 @@ import "server-only";
  *   - session_ended                        → state='ended' + audit
  *   - error                                → audit
  *
- * Authentication: x-gateway-secret header must equal BUDDY_GATEWAY_SECRET.
- * The browser has no way to reach this route directly because it can't
- * forge that header without learning the secret.
+ * Authentication — two valid callers:
+ *   1. The Fly.io gateway (legacy WS relay): x-gateway-secret header must
+ *      equal BUDDY_GATEWAY_SECRET.
+ *   2. SPEC-BUDDY-VOICE-WEBRTC: the borrower's own browser, directly, once
+ *      voice moved to WebRTC with no server-side relay in front of it.
+ *      Gated by the borrower session cookie's tokenHash matching this
+ *      exact session's borrower_session_token_hash — proves the caller
+ *      owns *this* voice session, not just some borrower session.
  *
  * Scope: sessions with actor_scope='banker' return 400 — banker voice has
  * its own dispatch route at /api/deals/[dealId]/banker-session/dispatch.
@@ -30,6 +34,7 @@ import { detectTridentIntent } from "@/lib/brokerage/trident/conciergeIntent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
 import { secretEquals } from "@/lib/brokerage/secretEquals";
+import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import {
   buildBorrowerExtractionPrompt,
   mergeExtractedFacts,
@@ -57,11 +62,6 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> },
 ): Promise<NextResponse> {
-  const provided = req.headers.get("x-gateway-secret");
-  if (!secretEquals(provided, GATEWAY_SECRET)) {
-    return NextResponse.json({ ok: false }, { status: 401 });
-  }
-
   const { sessionId } = await params;
   const body = (await req.json().catch(() => null)) as DispatchBody | null;
   if (!body || !body.intent) {
@@ -69,6 +69,28 @@ export async function POST(
       { ok: false, error: "bad_request" },
       { status: 400 },
     );
+  }
+
+  // Gateway-secret path stays a fast pre-DB short-circuit, matching the
+  // original behavior exactly (no session lookup, no cookie read). Only
+  // when it's absent/wrong do we fall through to the borrower-cookie
+  // path — which requires a borrower session to even exist before
+  // touching the DB, so an unauthenticated caller with no cookie and no
+  // secret still gets a plain 401 with zero DB round trips.
+  const providedSecret = req.headers.get("x-gateway-secret");
+  const isGatewayAuthed = secretEquals(providedSecret, GATEWAY_SECRET);
+
+  let borrowerTokenHash: string | null = null;
+  if (!isGatewayAuthed) {
+    try {
+      const borrowerSession = await getBorrowerSession();
+      borrowerTokenHash = borrowerSession?.tokenHash ?? null;
+    } catch {
+      borrowerTokenHash = null;
+    }
+    if (!borrowerTokenHash) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
   }
 
   const sb = supabaseAdmin();
@@ -90,6 +112,16 @@ export async function POST(
       { ok: false, error: "wrong_actor_scope" },
       { status: 400 },
     );
+  }
+
+  if (!isGatewayAuthed) {
+    // SPEC-BUDDY-VOICE-WEBRTC: proves the caller owns *this* voice
+    // session (not just some borrower session) before it can touch
+    // this session's data.
+    const ownsThisSession = secretEquals(borrowerTokenHash, (session as any).borrower_session_token_hash);
+    if (!ownsThisSession) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
   }
 
   const dealId = (session as any).deal_id as string;

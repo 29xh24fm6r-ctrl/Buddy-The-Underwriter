@@ -1,31 +1,50 @@
 "use client";
 
 /**
- * useBuddyVoice — OpenAI Realtime API voice hook for banker credit interviews.
+ * useBuddyVoice — OpenAI Realtime API voice hook for Buddy concierge
+ * sessions (banker credit interviews + brokerage borrower calls).
+ *
+ * SPEC-BUDDY-VOICE-WEBRTC: connects directly browser<->OpenAI over WebRTC
+ * instead of relaying through buddy-voice-gateway over WebSocket. Per
+ * OpenAI's own guidance for browser clients, WebRTC's Opus codec +
+ * congestion control makes it resilient to real-world network conditions
+ * in a way a WS relay isn't, and the server manages the output audio
+ * buffer directly — interruption/truncation is automatic, not something
+ * this hook has to hand-roll (the old WS implementation's
+ * playAudioChunk/cancelAudioPlayback/activeAudioSourcesRef/
+ * playbackGenerationRef machinery, and the AudioWorklet mic-capture path,
+ * are gone entirely — WebRTC's native audio pipeline replaces all of it).
  *
  * Architecture:
- *   - POST /api/deals/[dealId]/banker-session/realtime-token → proxyToken + sessionId
- *   - WebSocket to buddy-voice-gateway /realtime?token=TOKEN&sessionId=ID
- *   - Gateway relays to OpenAI's Realtime API (gpt-realtime, API key stays server-side)
- *   - Mic: 24kHz PCM16 via AudioWorklet (buddy-mic-processor.js)
- *   - Audio out: 24kHz PCM16 via AudioContext
- *   - Tool calls intercepted by gateway → writes to deal_financial_facts
+ *   - POST {tokenEndpoint} → { clientSecret, sessionId, actorScope, ... }
+ *     (ephemeral OpenAI Realtime client_secret, 60s TTL — mirrors the
+ *     existing pattern in src/app/api/deals/[dealId]/voice/token/route.ts
+ *     and src/components/deals/VoiceInterviewButton.tsx)
+ *   - RTCPeerConnection directly against OpenAI's Realtime API
+ *     (https://api.openai.com/v1/realtime/calls) — mic via addTrack,
+ *     playback via a native <audio> element fed by pc.ontrack
+ *   - Data channel ("oai-events") carries the same Realtime event schema
+ *     as the old WS relay (GA event names — see handleDataChannelMessage)
+ *   - buddy_query tool calls: this hook cannot execute them itself (the
+ *     browser must never write facts unsupervised) — it POSTs the call to
+ *     a server-side dispatch route, then relays the server's result back
+ *     onto its own data channel as function_call_output + response.create.
+ *     Banker calls are trusted for fact writes (server re-derives
+ *     userId/bankId from the caller's own authenticated session, never
+ *     trusts client-supplied identity); borrower calls remain audit-only,
+ *     matching the S2-2 invariant unchanged from the WS-relay era.
  *
- * Same return shape as before. Drop-in for DealHealthPanel.
+ * Same public return shape as the WS-relay version. Drop-in for
+ * BankerVoicePanel / BorrowerVoicePanel.
  */
 
 import { useRef, useState, useCallback, useEffect } from "react";
 
-const GATEWAY_WS_BASE =
-  process.env.NEXT_PUBLIC_BUDDY_VOICE_GATEWAY_URL ?? "ws://localhost:8080";
-
-const INPUT_SAMPLE_RATE = 24000;
-const MAX_EARLY_CLOSE_RETRIES = 2;
-const EARLY_CLOSE_BACKOFF = [150, 350, 700];
-
 type VoiceStatus =
   | "idle" | "connecting" | "listening"
   | "speaking" | "processing" | "error" | "reconnecting";
+
+type ActorScope = "banker" | "borrower";
 
 interface Message {
   id: string;
@@ -62,35 +81,17 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const captureCtxRef = useRef<AudioContext | null>(null);
-  const playbackCtxRef = useRef<AudioContext | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dcRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const workletRef = useRef<AudioWorkletNode | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
   const connectedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const connectAttemptIdRef = useRef(0);
-  const earlyCloseRetryRef = useRef(0);
-  const nextPlayTimeRef = useRef(0);
-  // Every response.output_audio.delta chunk gets its own AudioBufferSourceNode
-  // scheduled back-to-back via nextPlayTimeRef. A single pendingAudioRef can
-  // only ever remember the LAST chunk created — every earlier chunk already
-  // playing or queued ahead in the Web Audio timeline becomes untracked and
-  // uncancellable the moment a newer chunk arrives. On barge-in (the user
-  // starts talking mid-response), that meant only the most recent chunk got
-  // stopped while the rest of the interrupted response kept playing under
-  // the next response's freshly scheduled audio — the "talking over itself"
-  // bug. Track every active node instead, tagged with a playback generation
-  // so a stale response's onended callback can't clobber a newer response's
-  // speaking state.
-  const activeAudioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const playbackGenerationRef = useRef(0);
-  const isAssistantSpeakingRef = useRef(false);
-  const sessionConfigRef = useRef<{ outputSampleRate: number } | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const actorScopeRef = useRef<ActorScope>("banker");
+  const callNamesByIdRef = useRef<Map<string, string>>(new Map());
   const statusRef = useRef<VoiceStatus>("idle");
-  const connectInternalRef = useRef<() => Promise<void>>(async () => {});
-  const startMicCaptureRef = useRef<(stream: MediaStream) => Promise<void>>(async () => {});
 
   const setStatus = useCallback((s: VoiceStatus) => {
     statusRef.current = s;
@@ -103,97 +104,128 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     onMessage?.(msg);
   }, [onMessage]);
 
-  // ---- Audio playback (24kHz PCM16) ----
-
-  const playAudioChunk = useCallback(async (base64Data: string) => {
-    try {
-      if (!playbackCtxRef.current) {
-        playbackCtxRef.current = new AudioContext({
-          sampleRate: sessionConfigRef.current?.outputSampleRate ?? 24000,
-        });
-      }
-      const ctx = playbackCtxRef.current;
-      if (ctx.state === "suspended") await ctx.resume();
-
-      const generation = playbackGenerationRef.current;
-
-      const sampleRate = sessionConfigRef.current?.outputSampleRate ?? 24000;
-      const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
-      const float32 = new Float32Array(int16.length);
-      for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-
-      const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate);
-      audioBuffer.getChannelData(0).set(float32);
-
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      activeAudioSourcesRef.current.add(source);
-      isAssistantSpeakingRef.current = true;
-      setIsAssistantSpeaking(true);
-      setStatus("speaking");
-
-      source.onended = () => {
-        activeAudioSourcesRef.current.delete(source);
-        // A chunk from an interrupted response can still fire onended after
-        // cancelAudioPlayback bumps the generation — ignore it so it can't
-        // report "done speaking" on behalf of whatever response came next.
-        if (generation !== playbackGenerationRef.current) return;
-        if (activeAudioSourcesRef.current.size === 0) {
-          isAssistantSpeakingRef.current = false;
-          setIsAssistantSpeaking(false);
-          if (connectedRef.current) setStatus("listening");
-        }
-      };
-
-      const now = ctx.currentTime;
-      const startAt = Math.max(now, nextPlayTimeRef.current);
-      source.start(startAt);
-      nextPlayTimeRef.current = startAt + audioBuffer.duration;
-    } catch (e) {
-      console.error("[BUDDY_VOICE] Audio playback error", e);
-    }
-  }, [setStatus]);
-
-  const cancelAudioPlayback = useCallback(() => {
-    playbackGenerationRef.current++;
-    for (const source of activeAudioSourcesRef.current) {
-      try { source.stop(); } catch { }
-    }
-    activeAudioSourcesRef.current.clear();
-    nextPlayTimeRef.current = 0;
-    isAssistantSpeakingRef.current = false;
-    setIsAssistantSpeaking(false);
+  // ---- Tool-call relay ----
+  // response.function_call_arguments.done lands on this hook's own data
+  // channel — it must not execute the call itself (that would let any
+  // client fabricate fact writes). POST it to the same dispatch route the
+  // Fly gateway used to call server-to-server, now authenticated by the
+  // caller's own session cookie instead of a shared gateway secret, then
+  // relay the server's answer back onto the data channel as the model's
+  // function_call_output.
+  const sendFunctionCallOutput = useCallback((callId: string, output: Record<string, unknown>) => {
+    const dc = dcRef.current;
+    if (!dc || dc.readyState !== "open") return;
+    dc.send(JSON.stringify({
+      type: "conversation.item.create",
+      item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) },
+    }));
+    // Function call outputs don't auto-trigger a response — ask the model
+    // to continue the conversation now that it has the result.
+    dc.send(JSON.stringify({ type: "response.create" }));
   }, []);
 
-  // ---- WS message handler (OpenAI Realtime events) ----
+  const handleFunctionCall = useCallback(async (callId: string, callName: string, argsJson: string) => {
+    let args: Record<string, unknown> = {};
+    try { args = JSON.parse(argsJson); } catch { /* leave empty */ }
 
-  const handleWsMessage = useCallback((event: MessageEvent) => {
+    if (args?.fact_key && onGapResolved) onGapResolved(String(args.fact_key));
+
+    const sessionId = sessionIdRef.current;
+    if (actorScopeRef.current === "borrower") {
+      // Sprint 2 / S2-2: borrower tool calls audit via the brokerage
+      // dispatch route; they are NOT trusted for fact writes. Fire the
+      // audit without awaiting it (matches the old gateway's
+      // fire-and-forget timing) and ack the model immediately.
+      void fetch(`/api/brokerage/voice/${sessionId}/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ intent: "tool_call", toolName: callName, args }),
+      }).catch((err) => console.warn("[BUDDY_VOICE] borrower tool_call relay failed", err));
+      sendFunctionCallOutput(callId, { result: "audited" });
+      return;
+    }
+
+    if (callName !== "buddy_query") return;
+
     try {
-      const data = JSON.parse(
-        typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data)
+      const res = await fetch(`/api/deals/${dealId}/banker-session/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          intent: String(args.intent ?? ""),
+          sessionId,
+          gapId: args.gap_id,
+          factKey: args.fact_key,
+          value: args.value,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      sendFunctionCallOutput(
+        callId,
+        data?.ok ? { result: data.message ?? "confirmed" } : { error: data?.error ?? "dispatch_failed" },
       );
+    } catch (err) {
+      console.error("[BUDDY_VOICE] banker tool_call relay failed", err);
+      sendFunctionCallOutput(callId, { error: "Internal tool routing error." });
+    }
+  }, [dealId, onGapResolved, sendFunctionCallOutput]);
+
+  // Borrower-scope utterance relay. Each of these events already carries
+  // the complete utterance text — mirrors what the gateway used to
+  // forward server-side; now the browser is the only thing that ever
+  // sees these events, so it has to make the call itself.
+  const relayBorrowerUtterance = useCallback((speaker: "borrower" | "assistant", text: string) => {
+    if (actorScopeRef.current !== "borrower" || !text.trim()) return;
+    const sessionId = sessionIdRef.current;
+    void fetch(`/api/brokerage/voice/${sessionId}/dispatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ intent: "utterance", speaker, text }),
+    }).catch((err) => console.warn(`[BUDDY_VOICE] borrower ${speaker} utterance relay failed`, err));
+  }, []);
+
+  // ---- Data channel message handler (OpenAI Realtime events over WebRTC) ----
+
+  const handleDataChannelMessage = useCallback((event: MessageEvent) => {
+    try {
+      const data = JSON.parse(typeof event.data === "string" ? event.data : "");
+      const item = data?.item;
+
+      // Track function-call item names as soon as the output item appears
+      // — response.function_call_arguments.done doesn't itself carry the
+      // function name.
+      if ((data.type === "response.output_item.added" || data.type === "response.output_item.done")) {
+        if (item?.type === "function_call" && item.call_id && item.name) {
+          callNamesByIdRef.current.set(item.call_id, item.name);
+        }
+      }
 
       switch (data.type) {
         case "session.created":
-          return;
-
         case "session.updated":
-          connectedRef.current = true;
-          setStatus("listening");
-          if (streamRef.current) void startMicCaptureRef.current(streamRef.current);
+          // Session config (persona, tools, voice) is embedded in the
+          // ephemeral client_secret at mint time for WebRTC — there's no
+          // separate session.update round trip to wait on. dc.onopen is
+          // the readiness signal (see connectInternal).
           return;
 
-        // GA gpt-realtime (shipped Aug 2025) renamed these from the beta-era
-        // response.audio.* / response.audio_transcript.* to
-        // response.output_audio.* / response.output_audio_transcript.* —
-        // confirmed against OpenAI's own openai-python example
-        // (examples/realtime/push_to_talk_app.py). The old names never fire,
-        // which is why Buddy generated audio server-side but the browser
-        // never played it or rendered a transcript.
-        case "response.output_audio.delta":
-          if (typeof data.delta === "string") void playAudioChunk(data.delta);
+        // WebRTC/SIP-specific: the server manages the output audio buffer
+        // directly and emits these around actual playback start/stop —
+        // far more reliable than trying to infer speaking state from
+        // audio chunk scheduling, which is what the old WS implementation
+        // had to do by hand.
+        case "output_audio_buffer.started":
+          setIsAssistantSpeaking(true);
+          setStatus("speaking");
+          return;
+
+        case "output_audio_buffer.stopped":
+        case "output_audio_buffer.cleared":
+          setIsAssistantSpeaking(false);
+          if (connectedRef.current) setStatus("listening");
           return;
 
         case "response.output_audio_transcript.delta":
@@ -204,6 +236,7 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
           const text = String(data.transcript ?? "").trim();
           setCurrentTranscript("");
           if (text) pushMessage(mkMsg("assistant", text));
+          relayBorrowerUtterance("assistant", text);
           return;
         }
 
@@ -211,12 +244,16 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
           setIsUserSpeaking(false);
           const text = String(data.transcript ?? "").trim();
           if (text) pushMessage(mkMsg("user", text));
+          relayBorrowerUtterance("borrower", text);
           return;
         }
 
         case "input_audio_buffer.speech_started":
+          // No manual playback cancellation here — under WebRTC the
+          // server truncates/stops the output audio buffer itself on
+          // interruption (turn_detection.interrupt_response, set at mint
+          // time). output_audio_buffer.stopped fires on its own.
           setIsUserSpeaking(true);
-          cancelAudioPlayback();
           return;
 
         case "input_audio_buffer.speech_stopped":
@@ -224,10 +261,9 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
 
         case "response.function_call_arguments.done": {
           setStatus("processing");
-          try {
-            const args = JSON.parse(String(data.arguments ?? "{}"));
-            if (args?.fact_key && onGapResolved) onGapResolved(String(args.fact_key));
-          } catch { /* non-JSON args — nothing to extract */ }
+          const callId = String(data.call_id ?? "");
+          const callName = callNamesByIdRef.current.get(callId) ?? "buddy_query";
+          void handleFunctionCall(callId, callName, String(data.arguments ?? "{}"));
           return;
         }
 
@@ -240,69 +276,33 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
           return;
       }
     } catch (e) {
-      console.warn("[BUDDY_VOICE] Message parse error", e);
+      console.warn("[BUDDY_VOICE] Data channel message parse error", e);
     }
-  }, [setStatus, playAudioChunk, cancelAudioPlayback, pushMessage, onGapResolved]);
+  }, [setStatus, pushMessage, relayBorrowerUtterance, handleFunctionCall]);
 
-  // ---- Mic capture (24kHz AudioWorklet) ----
+  // ---- Teardown ----
 
-  const startMicCapture = useCallback(async (stream: MediaStream) => {
+  const teardownConnection = useCallback(() => {
+    try { dcRef.current?.close(); } catch { }
+    dcRef.current = null;
+
     try {
-      if (!captureCtxRef.current) {
-        captureCtxRef.current = new AudioContext({ sampleRate: INPUT_SAMPLE_RATE });
-      }
-      const ctx = captureCtxRef.current;
-      const source = ctx.createMediaStreamSource(stream);
-      sourceRef.current = source;
-
-      await ctx.audioWorklet.addModule("/audio/buddy-mic-processor.js");
-      const worklet = new AudioWorkletNode(ctx, "buddy-mic-processor");
-      workletRef.current = worklet;
-
-      worklet.port.onmessage = (evt) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        const int16 = new Int16Array(evt.data as ArrayBuffer);
-        const bytes = new Uint8Array(int16.buffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        const base64 = btoa(binary);
-        wsRef.current.send(JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: base64,
-        }));
-      };
-
-      source.connect(worklet);
-      const silentGain = ctx.createGain();
-      silentGain.gain.value = 0;
-      worklet.connect(silentGain);
-      silentGain.connect(ctx.destination);
-    } catch (e) {
-      console.error("[BUDDY_VOICE] Mic capture error", e);
-    }
-  }, []);
-
-  // Sync ref outside render (lint: no-ref-in-render).
-  // Behavior preserved: ref points at the latest startMicCapture each commit,
-  // same as the previous in-render assignment.
-  useEffect(() => {
-    startMicCaptureRef.current = startMicCapture;
-  }, [startMicCapture]);
-
-  const stopMicCapture = useCallback(() => {
-    try { if (workletRef.current) { workletRef.current.disconnect(); workletRef.current = null; } } catch { }
-    try { if (sourceRef.current) { sourceRef.current.disconnect(); sourceRef.current = null; } } catch { }
-    setIsUserSpeaking(false);
-  }, []);
-
-  const hardCloseWebSocket = useCallback((reason: string) => {
-    const ws = wsRef.current;
-    if (!ws) return;
-    try {
-      ws.onopen = null; ws.onclose = null; ws.onerror = null; ws.onmessage = null;
-      ws.close();
+      pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch { } });
+      pcRef.current?.close();
     } catch { }
-    wsRef.current = null;
+    pcRef.current = null;
+
+    if (audioElRef.current) {
+      try { audioElRef.current.pause(); audioElRef.current.srcObject = null; } catch { }
+      audioElRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+
+    callNamesByIdRef.current.clear();
   }, []);
 
   // ---- Connect ----
@@ -315,74 +315,90 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
     setError(null);
 
     try {
-      hardCloseWebSocket("restart");
+      teardownConnection();
 
-      if (!streamRef.current) {
-        streamRef.current = await navigator.mediaDevices.getUserMedia({
-          audio: { sampleRate: INPUT_SAMPLE_RATE, channelCount: 1, echoCancellation: true, noiseSuppression: true },
-        });
-      }
-
-      if (attemptId !== connectAttemptIdRef.current) return;
-
-      const endpoint =
-        tokenEndpoint ?? `/api/deals/${dealId}/banker-session/realtime-token`;
+      const endpoint = tokenEndpoint ?? `/api/deals/${dealId}/banker-session/realtime-token`;
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         credentials: "include", // S2-1: borrower cookie rides along
       });
-
       const data = await res.json();
 
       if (attemptId !== connectAttemptIdRef.current) return;
 
-      if (!data.ok || !data.proxyToken || !data.sessionId) {
+      if (!data.ok || !data.clientSecret || !data.sessionId) {
         setError(data.error ?? "Failed to get voice token.");
         setStatus("error");
         return;
       }
 
-      sessionConfigRef.current = data.config ?? null;
+      sessionIdRef.current = data.sessionId;
+      actorScopeRef.current = data.actorScope === "borrower" ? "borrower" : "banker";
 
-      const wsUrl = `${GATEWAY_WS_BASE}/realtime?token=${encodeURIComponent(data.proxyToken)}&sessionId=${encodeURIComponent(data.sessionId)}`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (attemptId !== connectAttemptIdRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+      streamRef.current = stream;
 
-      let opened = false;
+      const pc = new RTCPeerConnection();
+      pcRef.current = pc;
 
-      ws.onopen = () => {
+      const audioEl = document.createElement("audio");
+      audioEl.autoplay = true;
+      audioElRef.current = audioEl;
+      pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+
+      const [track] = stream.getAudioTracks();
+      pc.addTrack(track, stream);
+
+      const dc = pc.createDataChannel("oai-events");
+      dcRef.current = dc;
+      dc.onmessage = handleDataChannelMessage;
+
+      dc.onopen = () => {
         if (attemptId !== connectAttemptIdRef.current) return;
-        opened = true;
-        earlyCloseRetryRef.current = 0;
+        connectedRef.current = true;
+        setStatus("listening");
+        // Buddy speaks first — the session's instructions describe the
+        // opening move (summarize the deal / greet warmly); this just
+        // triggers the model to actually produce that first turn.
+        if (dc.readyState === "open") dc.send(JSON.stringify({ type: "response.create" }));
       };
 
-      ws.onmessage = handleWsMessage;
-
-      ws.onerror = () => {
-        if (attemptId !== connectAttemptIdRef.current) return;
-        setError("WebSocket connection error.");
-        setStatus("error");
-        connectedRef.current = false;
-      };
-
-      ws.onclose = (ev) => {
+      pc.onconnectionstatechange = () => {
         if (attemptId !== connectAttemptIdRef.current) return;
         if (stopRequestedRef.current) return;
-
-        if (!opened && ev.code !== 1000 && earlyCloseRetryRef.current < MAX_EARLY_CLOSE_RETRIES) {
-          earlyCloseRetryRef.current++;
-          const delay = EARLY_CLOSE_BACKOFF[earlyCloseRetryRef.current - 1] ?? 700;
-          setTimeout(() => { if (!stopRequestedRef.current) void connectInternalRef.current(); }, delay);
-          return;
+        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+          connectedRef.current = false;
+          if (statusRef.current !== "error") {
+            setError("Voice connection lost.");
+            setStatus("error");
+          }
         }
-
-        connectedRef.current = false;
-        stopMicCapture();
-        if (statusRef.current !== "error") setStatus("idle");
       };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const sdpRes = await fetch("https://api.openai.com/v1/realtime/calls", {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${data.clientSecret}`,
+          "Content-Type": "application/sdp",
+        },
+      });
+
+      if (attemptId !== connectAttemptIdRef.current) return;
+
+      if (!sdpRes.ok) {
+        const detail = await sdpRes.text().catch(() => "");
+        throw new Error(`Realtime SDP exchange failed: ${sdpRes.status} ${detail}`);
+      }
+
+      const answerSdp = await sdpRes.text();
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (e: unknown) {
       if (attemptId !== connectAttemptIdRef.current) return;
       const msg = e instanceof Error
@@ -390,25 +406,13 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
         : "Connection failed.";
       setError(msg);
       setStatus("error");
+      teardownConnection();
     }
-    // tokenEndpoint is read on line ~288 to override the default endpoint.
-    // Adding it to deps keeps the React Compiler's manual memoization
-    // analysis honest (preserve-manual-memoization). When tokenEndpoint
-    // changes, a new connectInternal closure captures the new value —
-    // identical to the previous behavior, just deps now match the body.
-  }, [dealId, tokenEndpoint, setStatus, hardCloseWebSocket, handleWsMessage, stopMicCapture]);
-
-  // Sync ref outside render (lint: no-ref-in-render).
-  // Behavior preserved: ref points at the latest connectInternal each commit,
-  // same as the previous in-render assignment.
-  useEffect(() => {
-    connectInternalRef.current = connectInternal;
-  }, [connectInternal]);
+  }, [dealId, tokenEndpoint, setStatus, teardownConnection, handleDataChannelMessage]);
 
   const connect = useCallback(async () => {
     if (connectedRef.current) return;
     stopRequestedRef.current = false;
-    earlyCloseRetryRef.current = 0;
     setMessages([]);
     setCurrentTranscript("");
     await connectInternal();
@@ -416,45 +420,44 @@ export function useBuddyVoice(options: UseBuddyVoiceOptions) {
 
   const disconnect = useCallback(() => {
     stopRequestedRef.current = true;
+    const wasConnected = connectedRef.current;
     connectedRef.current = false;
-    stopMicCapture();
-    cancelAudioPlayback();
-    hardCloseWebSocket("disconnect");
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
+
+    if (wasConnected && actorScopeRef.current === "borrower" && sessionIdRef.current) {
+      void fetch(`/api/brokerage/voice/${sessionIdRef.current}/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ intent: "session_ended", reason: "client_disconnect" }),
+      }).catch(() => {});
     }
-    for (const ref of [captureCtxRef, playbackCtxRef]) {
-      if (ref.current) { try { ref.current.close(); } catch { } ref.current = null; }
-    }
+
+    teardownConnection();
+    sessionIdRef.current = null;
     setStatus("idle");
     setError(null);
     setIsUserSpeaking(false);
     setIsAssistantSpeaking(false);
     setCurrentTranscript("");
-    setTimeout(() => { stopRequestedRef.current = false; earlyCloseRetryRef.current = 0; }, 0);
-  }, [setStatus, stopMicCapture, cancelAudioPlayback, hardCloseWebSocket]);
+    setTimeout(() => { stopRequestedRef.current = false; }, 0);
+  }, [setStatus, teardownConnection]);
 
   const sendTextMessage = useCallback((text: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !text.trim()) return;
+    const dc = dcRef.current;
+    if (!dc || dc.readyState !== "open" || !text.trim()) return;
     pushMessage(mkMsg("user", text));
-    wsRef.current.send(JSON.stringify({
+    dc.send(JSON.stringify({
       type: "conversation.item.create",
       item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
     }));
-    wsRef.current.send(JSON.stringify({ type: "response.create" }));
+    dc.send(JSON.stringify({ type: "response.create" }));
     setStatus("processing");
   }, [setStatus, pushMessage]);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      try { wsRef.current?.close(); } catch { }
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      for (const ref of [captureCtxRef, playbackCtxRef]) {
-        if (ref.current) { try { ref.current.close(); } catch { } }
-      }
-    };
+    return () => { teardownConnection(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const isConnected = ["listening", "speaking", "processing", "reconnecting"].includes(status);

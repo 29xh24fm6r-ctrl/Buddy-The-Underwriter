@@ -5,12 +5,19 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { randomUUID } from "crypto";
 import { computeDealGaps, REQUIRED_FACT_KEYS } from "@/lib/gapEngine/computeDealGaps";
 import { TRUSTED_RESOLUTION_FILTER, resolutionLabel } from "@/lib/financialReview/isTrustedFinancialResolution";
+import { BUDDY_QUERY_TOOL } from "@/lib/voice/buddyQueryTool";
+import { mintRealtimeClientSecret } from "@/lib/voice/mintRealtimeClientSecret";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
-const PROXY_TOKEN_TTL_MS = 180_000; // 3 minutes
+// SPEC-BUDDY-VOICE-WEBRTC: this used to be a 3-minute Fly-gateway proxy
+// token TTL. The ephemeral OpenAI client_secret has its own, much shorter
+// expiry (set in mintRealtimeClientSecret) — this constant now only sizes
+// the deal_voice_sessions row's expires_at, kept generous since a banker
+// session can legitimately run 8-12 minutes per the system prompt below.
+const SESSION_ROW_TTL_MS = 15 * 60_000; // 15 minutes
 
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
 const REALTIME_VOICE = process.env.OPENAI_REALTIME_VOICE ?? "marin";
@@ -158,10 +165,21 @@ HOW TO CONDUCT THIS SESSION:
 
 COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only objective, verifiable facts. Subjectivity is a fair lending violation.`;
 
-    const proxyToken = randomUUID();
     const traceId = randomUUID();
-    const expiresAt = new Date(Date.now() + PROXY_TOKEN_TTL_MS).toISOString();
+    const expiresAt = new Date(Date.now() + SESSION_ROW_TTL_MS).toISOString();
     const sessionId = randomUUID();
+
+    const minted = await mintRealtimeClientSecret({
+      model: REALTIME_MODEL,
+      voice: REALTIME_VOICE,
+      instructions: systemInstruction,
+      tools: [BUDDY_QUERY_TOOL],
+    });
+
+    if (!minted.ok) {
+      console.error("[realtime-token] client_secret mint failed", minted.error);
+      return NextResponse.json({ ok: false, error: "client_secret_mint_failed" }, { status: 502 });
+    }
 
     const { error: insertError } = await sb.from("deal_voice_sessions").insert({
       id: sessionId,
@@ -171,8 +189,6 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
       state: "active",
       expires_at: expiresAt,
       metadata: {
-        proxyToken,
-        proxyTokenExpiresAt: expiresAt,
         proxyUserId: userId,
         proxyTraceId: traceId,
         proxyDealId: dealId,
@@ -191,7 +207,8 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
     return NextResponse.json(
       {
         ok: true,
-        proxyToken,
+        actorScope: "banker",
+        clientSecret: minted.clientSecret,
         sessionId,
         traceId,
         model: REALTIME_MODEL,
@@ -200,8 +217,6 @@ COMPLIANCE: Every recorded fact becomes part of a regulatory credit file. Only o
         config: {
           model: REALTIME_MODEL,
           voice: REALTIME_VOICE,
-          ttlMs: PROXY_TOKEN_TTL_MS,
-          outputSampleRate: 24000,
         },
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } }

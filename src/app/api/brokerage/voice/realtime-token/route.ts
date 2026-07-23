@@ -20,12 +20,16 @@ import { randomUUID } from "crypto";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { checkBorrowerVoiceRateLimit } from "@/lib/brokerage/rateLimits";
 import { computeNextCriticalField } from "@/lib/brokerage/borrowerConversation";
+import { BUDDY_QUERY_TOOL } from "@/lib/voice/buddyQueryTool";
+import { mintRealtimeClientSecret } from "@/lib/voice/mintRealtimeClientSecret";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
-const PROXY_TOKEN_TTL_MS = 180_000; // 3 minutes
+// SPEC-BUDDY-VOICE-WEBRTC: see banker-session/realtime-token/route.ts —
+// same rationale, only sizes the deal_voice_sessions row now.
+const SESSION_ROW_TTL_MS = 15 * 60_000; // 15 minutes
 const REALTIME_MODEL =
   process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
 const REALTIME_VOICE =
@@ -93,10 +97,27 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
       : null,
   });
 
-  const proxyToken = randomUUID();
   const traceId = randomUUID();
   const sessionId = randomUUID();
-  const expiresAt = new Date(Date.now() + PROXY_TOKEN_TTL_MS).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_ROW_TTL_MS).toISOString();
+
+  const minted = await mintRealtimeClientSecret({
+    model: REALTIME_MODEL,
+    voice: REALTIME_VOICE,
+    instructions: systemInstruction,
+    tools: [BUDDY_QUERY_TOOL],
+  });
+
+  if (!minted.ok) {
+    console.error(
+      "[brokerage/voice/realtime-token] client_secret mint failed",
+      minted.error,
+    );
+    return NextResponse.json(
+      { ok: false, error: "client_secret_mint_failed" },
+      { status: 502 },
+    );
+  }
 
   const { error: insertError } = await sb.from("deal_voice_sessions").insert({
     id: sessionId,
@@ -109,8 +130,6 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
     state: "active",
     expires_at: expiresAt,
     metadata: {
-      proxyToken,
-      proxyTokenExpiresAt: expiresAt,
       proxyTraceId: traceId,
       proxyDealId: dealId,
       proxyBankId: bankId,
@@ -146,15 +165,14 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
   return NextResponse.json(
     {
       ok: true,
-      proxyToken,
+      actorScope: "borrower",
+      clientSecret: minted.clientSecret,
       sessionId,
       traceId,
       model: REALTIME_MODEL,
       config: {
         model: REALTIME_MODEL,
         voice: REALTIME_VOICE,
-        ttlMs: PROXY_TOKEN_TTL_MS,
-        outputSampleRate: 24000,
       },
     },
     { headers: { "Cache-Control": "no-store, max-age=0" } },
