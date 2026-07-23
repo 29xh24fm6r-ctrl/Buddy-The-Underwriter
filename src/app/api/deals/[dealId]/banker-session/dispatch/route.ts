@@ -1,8 +1,17 @@
-// route-class: WORKER (called by the Fly.io gateway, not a browser — gated
-// by the x-gateway-secret header check below, not a deal/tenant access call)
+// route-class: WORKER — two valid callers:
+//   1. The Fly.io gateway (legacy WS relay), gated by x-gateway-secret.
+//      Trusts userId/bankId from the body, since the gateway already
+//      resolved them from deal_voice_sessions server-side.
+//   2. SPEC-BUDDY-VOICE-WEBRTC: the banker's own browser, directly, once
+//      voice moved to WebRTC with no server-side relay in front of it.
+//      Gated by requireDealCockpitAccess instead — userId/bankId are
+//      always re-derived from the caller's own authenticated session in
+//      this branch, never trusted from the request body.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveDealGap } from "@/lib/gapEngine/resolveDealGap";
+import { requireDealCockpitAccess, COCKPIT_ROLES } from "@/lib/auth/requireDealCockpitAccess";
+import { secretEquals } from "@/lib/brokerage/secretEquals";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -13,20 +22,28 @@ export async function POST(
   req: NextRequest,
   props: { params: Promise<{ dealId: string }> }
 ) {
-  // Verify gateway secret — this route is called by Fly.io gateway, not browser
-  const secret = req.headers.get("x-gateway-secret");
-  if (!GATEWAY_SECRET || secret !== GATEWAY_SECRET) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  const { dealId } = await props.params;
+  const body = await req.json().catch(() => ({}));
+
+  const providedSecret = req.headers.get("x-gateway-secret");
+  let userId: string;
+  let bankId: string;
+
+  if (GATEWAY_SECRET && secretEquals(providedSecret, GATEWAY_SECRET)) {
+    userId = body.userId;
+    bankId = body.bankId;
+  } else {
+    const auth = await requireDealCockpitAccess(dealId, COCKPIT_ROLES);
+    if (!auth.ok) {
+      return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+    }
+    userId = auth.userId;
+    bankId = auth.bankId;
   }
 
   try {
-    const { dealId } = await props.params;
-    const body = await req.json().catch(() => ({}));
-
     const {
       intent,
-      userId,
-      bankId,
       sessionId,
       gapId,
       factKey,
