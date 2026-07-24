@@ -13,20 +13,26 @@ function parseUseOfProceeds(raw: unknown): UseOfProceedsLine[] {
   return raw.filter((r): r is UseOfProceedsLine => typeof r === "object" && r !== null);
 }
 
-type PropertyAddress = { street?: string; city?: string; state?: string; zip?: string } | null;
+function combineNameAddressPhone(name: unknown, street: unknown, city: unknown, state: unknown, zip: unknown, phone: unknown): string | null {
+  const address = [street, [city, state].filter(Boolean).join(", "), zip].filter((p) => p != null && p !== "").join(", ");
+  const parts = [name, address || null, phone].filter((p) => p != null && p !== "");
+  return parts.length > 0 ? parts.join(" — ") : null;
+}
 
 /**
  * SPEC S7 (ARC-00 Phase 5) — applicable when use-of-proceeds construction
  * line items sum to more than $10,000, matching the spec's stated
- * threshold. Same borrower-signer resolution as form155/inputBuilder.ts
- * (largest individual owner by ownership_pct).
+ * threshold — the real form has no field for this dollar amount itself
+ * (confirmed against docs/sba-forms/601-fields.json), only for the
+ * applicant/contractor identity blocks. Same borrower-signer resolution
+ * as form155/inputBuilder.ts (largest individual owner by ownership_pct).
  */
 export async function buildForm601Input(dealId: string, bankId: string, sb: Form601InputBuilderClient): Promise<Form601BuildResult> {
   const { data: deal } = await sb.from("deals").select("id, borrower_id").eq("id", dealId).maybeSingle();
 
   const { data: loanRequest } = await sb
     .from("deal_loan_requests")
-    .select("use_of_proceeds, property_address_json, contractor_name, compliance_certification_acknowledged")
+    .select("use_of_proceeds, contractor_name, contractor_address, contractor_phone, contractor_authorized_official")
     .eq("deal_id", dealId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -44,28 +50,27 @@ export async function buildForm601Input(dealId: string, bankId: string, sb: Form
   }
 
   const borrowerId = (deal as { borrower_id?: string } | null)?.borrower_id ?? null;
-  const { data: borrower } = borrowerId ? await sb.from("borrowers").select("legal_name").eq("id", borrowerId).maybeSingle() : { data: null };
-  const { data: bank } = await sb.from("banks").select("name").eq("id", bankId).maybeSingle();
+  const { data: borrower } = borrowerId
+    ? await sb.from("borrowers").select("legal_name, phone, address_line1, city, state, zip").eq("id", borrowerId).maybeSingle()
+    : { data: null };
 
-  const { data: ownershipEntities } = await sb.from("ownership_entities").select("id, entity_type, ownership_pct").eq("deal_id", dealId);
-  const individualOwners = ((ownershipEntities ?? []) as Array<{ id: string; entity_type: string | null; ownership_pct: number | null }>)
+  const { data: ownershipEntities } = await sb.from("ownership_entities").select("id, entity_type, ownership_pct, display_name, title").eq("deal_id", dealId);
+  const individualOwners = ((ownershipEntities ?? []) as Array<{ id: string; entity_type: string | null; ownership_pct: number | null; display_name: string | null; title: string | null }>)
     .filter((e) => e.entity_type === "individual" || e.entity_type === "person")
     .sort((a, b) => (b.ownership_pct ?? 0) - (a.ownership_pct ?? 0));
-  const borrowerOwnershipEntityId = individualOwners[0]?.id ?? null;
+  const signer = individualOwners[0] ?? null;
+  const borrowerOwnershipEntityId = signer?.id ?? null;
 
-  const projectAddress = ((loanRequest as { property_address_json?: unknown } | null)?.property_address_json ?? null) as PropertyAddress;
+  const b = (borrower ?? {}) as Record<string, string | null | undefined>;
+  const lr = (loanRequest ?? {}) as Record<string, string | null | undefined>;
 
   const fields: Form601Input = {
-    borrower_legal_name: (borrower as { legal_name?: string } | null)?.legal_name ?? null,
-    lender_name: (bank as { name?: string } | null)?.name ?? null,
-    project_address_street: projectAddress?.street ?? null,
-    project_address_city: projectAddress?.city ?? null,
-    project_address_state: projectAddress?.state ?? null,
-    project_address_zip: projectAddress?.zip ?? null,
-    construction_amount: constructionAmount,
-    contractor_name: (loanRequest as { contractor_name?: string } | null)?.contractor_name ?? null,
-    compliance_certification_acknowledged:
-      (loanRequest as { compliance_certification_acknowledged?: boolean } | null)?.compliance_certification_acknowledged ?? null,
+    applicant_name: b.legal_name ?? null,
+    applicant_name_address_phone: combineNameAddressPhone(b.legal_name, b.address_line1, b.city, b.state, b.zip, b.phone),
+    applicant_official_name_title: signer ? [signer.display_name, signer.title].filter(Boolean).join(", ") || null : null,
+    general_contractor_name: lr.contractor_name ?? null,
+    subrecipient_name_address_phone: combineNameAddressPhone(lr.contractor_name, lr.contractor_address, null, null, null, lr.contractor_phone),
+    contractor_official_name_title: lr.contractor_authorized_official ?? null,
   };
 
   return buildForm601({ applicable: true, fields, borrowerOwnershipEntityId });

@@ -12,7 +12,16 @@ export const dynamic = "force-dynamic";
  *   agreement). Previously unauthenticated — it returned borrower deal data
  *   (name, amount, documents, timeline) to any caller; the honest security gate
  *   (audit C3) surfaced it.
- * - Lenders are cross-tenant by design; the gate is "is a lender at all".
+ * - Lenders are cross-tenant by design (see lenderAuth.ts), but per that same
+ *   module's documented invariant, access to any *specific* deal still
+ *   requires an explicit, unrevoked marketplace_package_access grant for
+ *   (dealId, lenderBankId) -- "is a lender at all" is not sufficient. This
+ *   route previously skipped that check (unlike its sibling
+ *   /api/lender/marketplace/package/[accessId]), letting any lender pull
+ *   full deal detail for any deal, including competitors' deals, by
+ *   guessing/enumerating deal IDs.
+ * - 404 (not 403) on a missing/revoked grant, matching the sibling route's
+ *   no-existence-leak convention.
  * - No mutations allowed.
  */
 export async function GET(
@@ -26,6 +35,19 @@ export async function GET(
 
   const { dealId } = await context.params;
   const sb = supabaseAdmin();
+
+  const { data: grant } = await sb
+    .from("marketplace_package_access")
+    .select("id")
+    .eq("deal_id", dealId)
+    .eq("lender_bank_id", lender.lenderBankId)
+    .is("revoked_at", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (!grant) {
+    return NextResponse.json({ ok: false, error: "Deal not found" }, { status: 404 });
+  }
 
   try {
     // Fetch deal

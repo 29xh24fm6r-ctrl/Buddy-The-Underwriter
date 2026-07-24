@@ -15,6 +15,7 @@ import { isPublicBorrowerPortalRoute } from "@/lib/portal/isPublicBorrowerPortal
  */
 const PUBLIC_BORROWER_PREFIXES = [
   "/brokerage",
+  "/apply",
   "/start",
   "/for-banks",
   "/pricing",

@@ -1,5 +1,6 @@
 // src/buddy/emitBuddySignal.ts
 import type { BuddySignalBase } from "./signals";
+import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
 
 const EVENT_NAME = "buddy:signal";
 
@@ -31,7 +32,14 @@ export function emitBuddySignal(input: Omit<BuddySignalBase, "ts"> & { ts?: numb
   if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
     window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: signal }));
 
-    if (process.env.NEXT_PUBLIC_BUDDY_OBSERVER_MODE === "1") {
+    // /api/buddy/signals/record requires a Clerk session + resolved bank
+    // tenant. Public borrower routes (e.g. /start) never have either, so
+    // this beacon would 401 on every signal — skip it there rather than
+    // spamming the console for visitors who were never going to auth.
+    if (
+      process.env.NEXT_PUBLIC_BUDDY_OBSERVER_MODE === "1" &&
+      !isPublicBorrowerRoute(window.location.pathname)
+    ) {
       try {
         void fetch("/api/buddy/signals/record", {
           method: "POST",

@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { RefinedStamp } from "@/components/brokerage/StatusStamp";
+import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
 /**
  * CRM command center — not a list, a dashboard. Summary tiles, a
@@ -52,6 +53,19 @@ const GRID = "1.5fr 1fr 1fr 100px 130px 120px";
 const TYPE_LABELS: Record<string, string> = {
   referral_source: "Referral source",
   professional_partner: "Professional partner",
+  borrower_business: "Borrower business",
+  cpa_firm: "CPA firm",
+  law_firm: "Law firm",
+  lender: "Lender",
+  insurance_provider: "Insurance provider",
+  appraisal_firm: "Appraisal firm",
+  environmental_firm: "Environmental firm",
+  title_company: "Title company",
+  franchise_organization: "Franchise organization",
+  seller: "Seller",
+  landlord: "Landlord",
+  investor: "Investor",
+  vendor: "Vendor",
   other: "Other",
 };
 
@@ -163,6 +177,8 @@ export default function BrokerageCrmPage() {
 
   return (
     <div style={{ padding: "18px 24px 40px" }}>
+      <CrmTabs />
+
       {error && (
         <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, fontSize: 12, padding: 12, borderRadius: 6, marginBottom: 16 }}>
           {error}
@@ -260,9 +276,9 @@ export default function BrokerageCrmPage() {
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1fr", gap: 10 }}>
             <input style={inputStyle()} placeholder="Organization name" value={name} onChange={(e) => setName(e.target.value)} />
             <select style={inputStyle()} value={type} onChange={(e) => setType(e.target.value)}>
-              <option value="referral_source">Referral source</option>
-              <option value="professional_partner">Professional partner</option>
-              <option value="other">Other</option>
+              {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
             <input style={inputStyle()} placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
             <input style={inputStyle()} placeholder="State" value={state} onChange={(e) => setState(e.target.value)} />

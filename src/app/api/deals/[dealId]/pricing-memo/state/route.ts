@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,10 @@ export async function GET(
 ) {
   try {
     const { dealId } = await ctx.params;
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
         { status: 401 },

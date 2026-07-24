@@ -363,6 +363,91 @@ test("real_estate_speculation: 531* NAICS + 'speculative' in UOP fails", () => {
   assert.ok(r.failures.some((f) => f.check === "real_estate_speculation"));
 });
 
+// ─── 7. Real-estate speculation: extended patterns ─────────────────────
+
+test("real_estate_speculation: 531* NAICS + 'flip' language fails (extended pattern, not just 'speculative')", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "531210",
+    useOfProceeds: ["acquire single-family home to flip"],
+  }));
+  assert.ok(r.failures.some((f) => f.check === "real_estate_speculation"));
+});
+
+test("real_estate_speculation: 531* NAICS + 'hold for appreciation' fails", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "531210",
+    useOfProceeds: ["purchase land and hold for appreciation"],
+  }));
+  assert.ok(r.failures.some((f) => f.check === "real_estate_speculation"));
+});
+
+test("real_estate_speculation: 531* NAICS with clean UOP passes", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "531210",
+    useOfProceeds: ["acquire office building for owner-occupied operations"],
+  }));
+  const check = r.checks.find((c) => c.check === "real_estate_speculation")!;
+  assert.equal(check.passed, true);
+});
+
+// ─── 8. Pyramid / MLM ───────────────────────────────────────────────────
+
+test("pyramid_mlm: direct-sales NAICS + pyramid language fails", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "454390",
+    useOfProceeds: ["fund recruiting distributors for our downline"],
+  }));
+  assert.ok(r.failures.some((f) => f.check === "pyramid_mlm"));
+});
+
+test("pyramid_mlm: MLM text without confirmatory NAICS downgrades to pass-with-flag, does not fail the deal", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "722513", // restaurant NAICS, no MLM signal
+    useOfProceeds: ["discussion mentions multi-level marketing competitor"],
+  }));
+  const check = r.checks.find((c) => c.check === "pyramid_mlm")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /flagged for underwriter review/i);
+  assert.equal(r.failures.some((f) => f.check === "pyramid_mlm"), false);
+});
+
+test("pyramid_mlm: direct-sales NAICS alone (no MLM text) passes cleanly", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ naics: "454390" }));
+  const check = r.checks.find((c) => c.check === "pyramid_mlm")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /no pyramid\/MLM signal/i);
+});
+
+// ─── 6. Passive business ────────────────────────────────────────────────
+
+test("passive_business: pure rental NAICS + no active-operations language flags for review (still passes)", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "531110",
+    useOfProceeds: ["acquire residential rental property"],
+  }));
+  const check = r.checks.find((c) => c.check === "passive_business")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /flagged for underwriter review/i);
+  assert.equal(r.failures.some((f) => f.check === "passive_business"), false);
+});
+
+test("passive_business: pure rental NAICS + active-operations language passes cleanly", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "531110",
+    useOfProceeds: ["fund staff and operations to manage the rental portfolio"],
+  }));
+  const check = r.checks.find((c) => c.check === "passive_business")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /no passive-business signal/i);
+});
+
+test("passive_business: non-rental NAICS never flags", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({ naics: "722513" }));
+  const check = r.checks.find((c) => c.check === "passive_business")!;
+  assert.equal(check.passed, true);
+  assert.match(check.detail!, /no passive-business signal/i);
+});
+
 // ─── Size-standard table integrity ─────────────────────────────────────
 
 test("SIZE_STANDARDS_TOP_50 is indexed without collisions", () => {

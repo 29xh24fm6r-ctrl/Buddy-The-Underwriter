@@ -1,0 +1,770 @@
+{
+  "file": "source: user-provided upload, 2026-07-17, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 4,
+  "fieldCount": 47,
+  "fields": [
+    {
+      "name": "7a loan",
+      "type": "PDFCheckBox",
+      "tooltip": " 7(a) loan",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 34.998,
+          "y": 648.851,
+          "width": 10.193800000000003,
+          "height": 10.960000000000036
+        }
+      ]
+    },
+    {
+      "name": "504 loan",
+      "type": "PDFCheckBox",
+      "tooltip": " 504 loan",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 124.908,
+          "y": 648.851,
+          "width": 10.457000000000008,
+          "height": 10.960000000000036
+        }
+      ]
+    },
+    {
+      "name": "SBA Loan Name",
+      "type": "PDFTextField",
+      "tooltip": "SBA Loan Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 112.81,
+          "y": 630.75,
+          "width": 462.57800000000003,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "SBA Location ID 67 digit number",
+      "type": "PDFTextField",
+      "tooltip": "SBA Location ID (6-7 digit number) ",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 485.388,
+          "y": 614.72,
+          "width": 90.00000000000006,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "SBA Lender Legal Name",
+      "type": "PDFTextField",
+      "tooltip": "SBA Lender Legal Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 150.348,
+          "y": 598.28,
+          "width": 425.04,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "Services Performed by Name of Agent",
+      "type": "PDFTextField",
+      "tooltip": "Services Performed by (Name of Agent) ",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 211.723,
+          "y": 581.6,
+          "width": 363.665,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "Agent Contact Person",
+      "type": "PDFTextField",
+      "tooltip": "Agent Contact Person",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 135.468,
+          "y": 565.16,
+          "width": 439.9200000000001,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "Agent Address",
+      "type": "PDFTextField",
+      "tooltip": "Agent Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 105.468,
+          "y": 548.6,
+          "width": 469.92,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "SBA Lender",
+      "type": "PDFCheckBox",
+      "tooltip": "SBA Lender",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 36,
+          "y": 516.8,
+          "width": 8.880000000000003,
+          "height": 9.246000000000095
+        }
+      ]
+    },
+    {
+      "name": "Independent Loan Packager",
+      "type": "PDFCheckBox",
+      "tooltip": "Independent Loan Packager",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 36,
+          "y": 499.074,
+          "width": 8.880000000000003,
+          "height": 9.245999999999981
+        }
+      ]
+    },
+    {
+      "name": "Referral AgentBroker",
+      "type": "PDFCheckBox",
+      "tooltip": "Referral Agent/Broker",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 36,
+          "y": 482.514,
+          "width": 8.880000000000003,
+          "height": 9.245999999999981
+        }
+      ]
+    },
+    {
+      "name": "Consultant",
+      "type": "PDFCheckBox",
+      "tooltip": "Consultant",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 228,
+          "y": 516.8,
+          "width": 8.879999999999995,
+          "height": 9.246000000000095
+        }
+      ]
+    },
+    {
+      "name": "Accountant preparing financial",
+      "type": "PDFCheckBox",
+      "tooltip": "Accountant preparing financial",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 228,
+          "y": 499.074,
+          "width": 8.879999999999995,
+          "height": 9.245999999999981
+        }
+      ]
+    },
+    {
+      "name": "Third Party Lender TPL",
+      "type": "PDFCheckBox",
+      "tooltip": "Third Party Lender (\u201cTPL",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 420,
+          "y": 516.8,
+          "width": 8.879999999999995,
+          "height": 9.246000000000095
+        }
+      ]
+    },
+    {
+      "name": "Other",
+      "type": "PDFCheckBox",
+      "tooltip": "Other",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 420,
+          "y": 499.074,
+          "width": 9,
+          "height": 9.245999999999981
+        }
+      ]
+    },
+    {
+      "name": "other type of agent",
+      "type": "PDFTextField",
+      "tooltip": "other",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 460.08,
+          "y": 497.153,
+          "width": 114.95999999999998,
+          "height": 16.646999999999935
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by ApplicantLoan packaging",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by Applicant* Loan packaging",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 272.16,
+          "y": 427.68,
+          "width": 141.35999999999996,
+          "height": 17.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by SBA LenderLoan packaging",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by SBA Lender* Loan packaging",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 415.08,
+          "y": 427.68,
+          "width": 147.00000000000006,
+          "height": 17.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by ApplicantFinancial statement preparation for loan application",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by Applicant* Financial statement preparation for loan application",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 272.16,
+          "y": 409.2,
+          "width": 141.35999999999996,
+          "height": 17.28000000000003
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by SBA LenderFinancial statement preparation for loan application",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by SBA Lender* Financial statement preparation for loan application",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 415.08,
+          "y": 409.2,
+          "width": 147.00000000000006,
+          "height": 17.28000000000003
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by ApplicantBroker or Referral services",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by Applicant* Broker or Referral services",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 272.16,
+          "y": 390.6,
+          "width": 141.35999999999996,
+          "height": 17.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by SBA LenderBroker or Referral services",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by SBA Lender* Broker or Referral services",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 415.08,
+          "y": 390.6,
+          "width": 147.00000000000006,
+          "height": 17.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by ApplicantConsultant services",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by Applicant* Consultant services",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 272.16,
+          "y": 372.12,
+          "width": 141.35999999999996,
+          "height": 17.279999999999973
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by SBA LenderConsultant services",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by SBA Lender* Consultant services",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 415.08,
+          "y": 372.12,
+          "width": 147.00000000000006,
+          "height": 17.279999999999973
+        }
+      ]
+    },
+    {
+      "name": "Other_2",
+      "type": "PDFTextField",
+      "tooltip": "Other type of service",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 82.68,
+          "y": 353.568,
+          "width": 180.92700000000002,
+          "height": 16.785000000000025
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by ApplicantOther",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by Applicant* Other:",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 272.16,
+          "y": 353.52,
+          "width": 141.35999999999996,
+          "height": 17.400000000000034
+        }
+      ]
+    },
+    {
+      "name": "Amount Paid by SBA LenderOther",
+      "type": "PDFTextField",
+      "tooltip": "Amount Paid by SBA Lender* Other:",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 415.08,
+          "y": 353.52,
+          "width": 147.00000000000006,
+          "height": 17.400000000000034
+        }
+      ]
+    },
+    {
+      "name": "Applicant",
+      "type": "PDFTextField",
+      "tooltip": "Total compensation paid by applicant",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 281.16,
+          "y": 305.342,
+          "width": 90,
+          "height": 16.65100000000001
+        }
+      ]
+    },
+    {
+      "name": "SBA Lender_2",
+      "type": "PDFTextField",
+      "tooltip": "Total compensation paid by SBA lender",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 474.96,
+          "y": 305.867,
+          "width": 79.92000000000002,
+          "height": 16.125999999999976
+        }
+      ]
+    },
+    {
+      "name": "Itemization and supporting documentation is attached",
+      "type": "PDFCheckBox",
+      "tooltip": "Itemization and supporting documentation is attached.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 36,
+          "y": 290.582,
+          "width": 9,
+          "height": 9.578000000000031
+        }
+      ]
+    },
+    {
+      "name": "CDC received referral fee from a TPL",
+      "type": "PDFCheckBox",
+      "tooltip": "CDC received referral fee from a TPL",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 36,
+          "y": 202.28,
+          "width": 8.880000000000003,
+          "height": 8.596000000000004
+        }
+      ]
+    },
+    {
+      "name": "Amount of Fee",
+      "type": "PDFTextField",
+      "tooltip": "Amount of Fee",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 397.92,
+          "y": 201.2,
+          "width": 169.92000000000002,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "TPL Name",
+      "type": "PDFTextField",
+      "tooltip": "TPL Name",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 87.84,
+          "y": 186.029,
+          "width": 480,
+          "height": 14.759999999999991
+        }
+      ]
+    },
+    {
+      "name": "TPL Address",
+      "type": "PDFTextField",
+      "tooltip": "TPL Address",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 98.88,
+          "y": 168.2,
+          "width": 468.96000000000004,
+          "height": 15.600000000000023
+        }
+      ]
+    },
+    {
+      "name": "Signature of Authorized Representative of Applicant",
+      "type": "PDFSignature",
+      "tooltip": "Signature of Authorized Representative of Applicant",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 40.44,
+          "y": 596.72,
+          "width": 245.04000000000002,
+          "height": 22.43999999999994
+        }
+      ]
+    },
+    {
+      "name": "Date 1 mm/dd/yyyy",
+      "type": "PDFTextField",
+      "tooltip": "Date mm/dd/yyyy",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 328.56,
+          "y": 596.72,
+          "width": 105,
+          "height": 22.43999999999994
+        }
+      ]
+    },
+    {
+      "name": "Print Name",
+      "type": "PDFTextField",
+      "tooltip": "Print Name",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 40.56,
+          "y": 547.76,
+          "width": 244.92000000000002,
+          "height": 22.440000000000055
+        }
+      ]
+    },
+    {
+      "name": "Title",
+      "type": "PDFTextField",
+      "tooltip": "Title",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 328.56,
+          "y": 547.618,
+          "width": 239.99999999999994,
+          "height": 22.43999999999994
+        }
+      ]
+    },
+    {
+      "name": "Signature of Authorized Representative of Agent",
+      "type": "PDFSignature",
+      "tooltip": "Signature of Authorized Representative of Agent",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 40.44,
+          "y": 352.2,
+          "width": 245.04000000000002,
+          "height": 22.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "Date 2 mm/dd/yyyy",
+      "type": "PDFTextField",
+      "tooltip": "Date signed by authorized representative of agent ( mm/dd/yyyy)",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 328.56,
+          "y": 352.2,
+          "width": 105,
+          "height": 22.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "Print Name_2",
+      "type": "PDFTextField",
+      "tooltip": "Print Name of authorized representative of agent",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 40.56,
+          "y": 317.64,
+          "width": 244.92000000000002,
+          "height": 22.19999999999999
+        }
+      ]
+    },
+    {
+      "name": "Title_2",
+      "type": "PDFTextField",
+      "tooltip": "Title",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 328.56,
+          "y": 317.64,
+          "width": 239.99999999999994,
+          "height": 22.19999999999999
+        }
+      ]
+    },
+    {
+      "name": "Signature of Authorized Representative of SBA Lender",
+      "type": "PDFSignature",
+      "tooltip": "Signature of Authorized Representative of SBA Lender",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.04,
+          "y": 136.44,
+          "width": 244.92,
+          "height": 22.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "Date 3 mm/dd/yyyy",
+      "type": "PDFTextField",
+      "tooltip": "Date signed by authorized representative of SBA Lender (mm/dd/yyyy)",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 324,
+          "y": 136.44,
+          "width": 105,
+          "height": 22.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "Print Name_3",
+      "type": "PDFTextField",
+      "tooltip": "Print Name of authorized representative of SBA Lender",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 41.04,
+          "y": 101.64,
+          "width": 244.92,
+          "height": 22.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "Title_3",
+      "type": "PDFTextField",
+      "tooltip": "Title",
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 324,
+          "y": 101.64,
+          "width": 245.03999999999996,
+          "height": 22.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "SBA Loan Number 10 digit number",
+      "type": "PDFTextField",
+      "tooltip": "SBA Loan Number (10 digit number",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 199.909,
+          "y": 614.244,
+          "width": 85.05900000000003,
+          "height": 16.192000000000007
+        }
+      ]
+    }
+  ]
+}

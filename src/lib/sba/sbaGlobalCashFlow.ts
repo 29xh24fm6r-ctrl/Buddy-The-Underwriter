@@ -3,6 +3,9 @@
 // Pure function. Combines business EBITDA with each 20%+ guarantor's net
 // personal cash (income - obligations) to compute a Global DSCR.
 
+import { globalDscr as finengineGlobalDscr } from "@/lib/finengine/metrics/ratios";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+
 export interface GuarantorCashFlow {
   entityId: string;
   name: string;
@@ -39,10 +42,8 @@ export interface GlobalCashFlowResult {
   globalDebtService: number;
   globalDSCR: number;
   guarantorsWithNegativeCashFlow: number;
-  meetsSbaThreshold: boolean; // >= 1.25
+  meetsSbaThreshold: boolean; // single source of truth: finengine's dscr_floor axis
 }
-
-const SBA_DSCR_THRESHOLD = 1.25;
 
 export interface ComputeGlobalCashFlowInput {
   businessEbitda: number;
@@ -90,8 +91,13 @@ export function computeGlobalCashFlow(
 
   const globalCashAvailable = businessEbitda + totalNetPersonalCash;
   const globalDebtService = businessDebtService; // personal obligations already subtracted above
-  const globalDSCR =
-    globalDebtService > 0 ? globalCashAvailable / globalDebtService : 0;
+  // Single source of truth for both the formula and the threshold:
+  // finengine/metrics/ratios::globalDscr (SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 /
+  // directive 2026-07-14). Preserves this function's existing 0 sentinel for
+  // "no debt service to divide by" (finengine's div() returns null there).
+  const globalDscrResult = finengineGlobalDscr(globalCashAvailable, globalDebtService);
+  const globalDSCR = globalDscrResult.value ?? 0;
+  const dscrThreshold = resolvePolicy("dscr_floor").effective ?? 1.25;
 
   return {
     businessEbitda,
@@ -105,6 +111,6 @@ export function computeGlobalCashFlow(
     globalDSCR,
     guarantorsWithNegativeCashFlow: summaries.filter((g) => g.negativeCashFlow)
       .length,
-    meetsSbaThreshold: globalDSCR >= SBA_DSCR_THRESHOLD,
+    meetsSbaThreshold: globalDSCR >= dscrThreshold,
   };
 }

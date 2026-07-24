@@ -1,37 +1,44 @@
 import { NextResponse } from "next/server";
-import { writeAiEvent } from "@/lib/aiEvents";
+import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { startAutopilotRun } from "@/lib/autopilot/orchestrator";
 
+interface AutopilotRunRequest {
+  mode?: "full" | "fast";
+  force?: boolean;
+}
+
+/**
+ * POST /api/deals/[dealId]/autopilot/run
+ *
+ * Starts the real S1-S9 "Make E-Tran Ready" pipeline (agent swarm ->
+ * claims -> arbitration -> truth snapshot -> package bundle). Previously
+ * this route wrote 4 hardcoded fake `ai_events` rows and claimed
+ * `etran_ready: true` without doing any real work — replaced with a real
+ * call to startAutopilotRun(), which returns immediately with a runId;
+ * poll GET /api/deals/[dealId]/autopilot/status?runId=... for progress.
+ */
 export async function POST(
-  _: Request,
+  req: Request,
   { params }: { params: Promise<{ dealId: string }> }
 ) {
   const { dealId } = await params;
 
-  await writeAiEvent({
-    deal_id: dealId,
-    kind: "autopilot.run.started",
-    scope: "sba",
-    action: "execute"
-  });
-
-  for (const stage of ["intake", "analysis", "conditions", "package"]) {
-    await writeAiEvent({
-      deal_id: dealId,
-      kind: "autopilot.stage.completed",
-      scope: stage,
-      action: "complete",
-      confidence: 0.9
-    });
+  const access = await ensureDealBankAccess(dealId);
+  if (!access.ok) {
+    return NextResponse.json({ ok: false, error: access.error }, { status: 403 });
   }
 
-  await writeAiEvent({
-    deal_id: dealId,
-    kind: "autopilot.run.completed",
-    scope: "sba",
-    action: "finalize",
-    output_json: { etran_ready: true },
-    confidence: 0.97
+  const body = (await req.json().catch(() => ({}))) as AutopilotRunRequest;
+
+  const result = await startAutopilotRun(dealId, access.bankId, {
+    mode: body.mode,
+    force: body.force,
+    triggeredBy: "banker",
   });
 
-  return NextResponse.json({ ok: true });
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error }, { status: 409 });
+  }
+
+  return NextResponse.json({ ok: true, runId: result.runId });
 }

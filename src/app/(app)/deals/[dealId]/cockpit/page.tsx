@@ -4,7 +4,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
 import { isGatekeeperPrimaryRoutingEnabled } from "@/lib/flags/openaiGatekeeper";
@@ -92,7 +92,7 @@ export default async function DealCockpitPage({ params }: Props) {
   let verifyLedger: UnderwriteVerifyLedgerEvent | null = null;
   let unifiedLifecycleState: LifecycleState | null = null;
   let lifecycleAvailable = true; // Track whether lifecycle data is reliable
-  const access = await ensureDealBankAccess(dealId);
+  const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
   if (!access.ok) {
     const err = access.error;
     const title =

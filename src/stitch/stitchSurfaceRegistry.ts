@@ -83,13 +83,17 @@ export const STITCH_SURFACES: StitchSurfaceConfig[] = [
   },
   {
     key: "borrower_portal",
-    route: "/borrower/portal",
+    // Retargeted from the retired (app)/borrower/portal tree (confirmed
+    // dead: zero rows ever in borrower_invites/borrower_portal_links/
+    // borrower_portal_sessions/borrower_portal_events) to the canonical,
+    // live borrower portal.
+    route: "/portal/[token]",
     required: true,
     owner: "borrower",
     mode: "iframe",
     slug: "borrower-document-upload-review",
     activation: "token",
-    pagePath: "src/app/(app)/borrower/portal/page.tsx",
+    pagePath: "src/app/(borrower)/portal/[token]/page.tsx",
   },
   {
     key: "portfolio",

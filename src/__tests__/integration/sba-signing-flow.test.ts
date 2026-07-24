@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initiateKyc, handlePersonaWebhook, type PersonaClient } from "@/lib/identity/kyc/service";
-import { requestSignature, handleDocusealWebhook, type DocusealClient } from "@/lib/esign/docuseal/service";
+import { initiateKyc, handleDiditWebhook, type DiditClient } from "@/lib/identity/kyc/service";
+import { requestSignature, handleSignwellWebhook, type SignwellClient } from "@/lib/esign/signwell/service";
 
 /**
  * SPEC S3 — integration test for the full IAL2 -> e-sign happy path
- * (mocked external services): initiate KYC -> Persona webhook completes ->
- * request signature (IAL2 gate passes) -> DocuSeal webhook completes ->
+ * (mocked external services): initiate KYC -> Didit webhook completes ->
+ * request signature (IAL2 gate passes) -> SignWell webhook completes ->
  * signed_documents row exists.
  */
 
@@ -115,9 +115,6 @@ class FakeDb {
 }
 
 test("full IAL2 -> e-sign happy path", async () => {
-  process.env.DOCUSEAL_TEMPLATE_1919 = "tmpl_1919";
-  process.env.DOCUSEAL_BASE_URL_PUBLIC = "https://docuseal.example.com";
-
   const DEAL_ID = "d1";
   const BANK_ID = "b1";
   const OWNER_ID = "o1";
@@ -127,33 +124,31 @@ test("full IAL2 -> e-sign happy path", async () => {
     deals: [{ id: DEAL_ID, bank_id: BANK_ID }],
   });
 
-  const persona: PersonaClient = {
-    createPersonaInquiry: async () => ({ data: { id: "inq_1" } }),
-    fetchPersonaInquiry: async (id) => ({
-      data: { id, attributes: { status: "completed", "name-first": "Jane", "name-last": "Doe" } },
-    }),
-    generatePersonaOneTimeLink: async () => "https://withpersona.com/verify/otl_1",
+  const didit: DiditClient = {
+    createDiditSession: async () => ({ session_id: "sess_1", status: "Not Started", workflow_id: "wf_1", url: "https://verify.didit.me/session/sess_1" }),
+    fetchDiditSession: async (id) => ({ session_id: id, status: "Approved", workflow_id: "wf_1", url: "https://verify.didit.me/session/sess_1" }),
+    getDiditSessionDecision: async (id) => ({ session_id: id, status: "Approved" }),
   };
 
   // 1. Initiate KYC
   const kycResult = await initiateKyc(
     { dealId: DEAL_ID, bankId: BANK_ID, ownershipEntityId: OWNER_ID, initiatorUserId: "u1" },
-    { sb: db as any, persona, templateId: "itmpl_1" },
+    { sb: db as any, didit, workflowId: "wf_1" },
   );
   assert.equal(kycResult.ok, true);
 
-  // 2. Persona webhook completes the verification
-  const webhookResult = await handlePersonaWebhook({ data: { id: "inq_1" } }, { sb: db as any, persona });
+  // 2. Didit webhook completes the verification
+  const webhookResult = await handleDiditWebhook({ session_id: "sess_1", status: "Approved", webhook_type: "status.updated" }, { sb: db as any, didit });
   assert.equal(webhookResult.ok, true);
-  assert.equal(db.tables.borrower_identity_verifications[0].status, "completed");
+  assert.equal(db.tables.borrower_identity_verifications[0].status, "approved");
 
   // 3. Request signature — IAL2 gate must now pass
-  const docuseal: DocusealClient = {
-    createDocusealSubmission: async () => ({ id: 99, status: "pending", submitters: [{ id: 1, slug: "sub_xyz" }] }),
-    fetchDocusealSubmission: async () => ({ id: 99, status: "completed", submitters: [{ id: 1, slug: "sub_xyz" }] }),
-    downloadDocusealSignedPdf: async () => Buffer.from("pdf-bytes"),
-    downloadDocusealAuditTrail: async () => Buffer.from("audit-bytes"),
+  const signwell: SignwellClient = {
+    createSignwellDocumentFromFile: async () => ({ id: 99, status: "pending", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
+    fetchSignwellDocument: async () => ({ id: 99, status: "completed", recipients: [{ id: "1", embedded_signing_url: "https://www.signwell.com/embed/sub_xyz" }] }),
+    downloadSignwellCompletedPdf: async () => Buffer.from("pdf-bytes"),
   };
+  const renderFilledPdf = async () => ({ ok: true as const, pdfBytes: Buffer.from("filled-pdf-bytes") });
 
   const sigResult = await requestSignature(
     {
@@ -166,18 +161,19 @@ test("full IAL2 -> e-sign happy path", async () => {
       signerEmail: "jane@example.com",
       signerName: "Jane Doe",
     },
-    { sb: db as any, docuseal },
+    { sb: db as any, signwell, renderFilledPdf },
   );
   assert.equal(sigResult.ok, true);
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.requested"));
+  assert.equal(db.tables.signing_requests?.length, 1);
 
-  // 4. DocuSeal webhook completes the signature
-  const esignWebhookResult = await handleDocusealWebhook(
+  // 4. SignWell webhook completes the signature
+  const esignWebhookResult = await handleSignwellWebhook(
     {
-      event_type: "form.completed",
-      data: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}`, submission_id: 99 },
+      event: { type: "document_completed" },
+      data: { object: { id: 99, metadata: { external_id: `deal:${DEAL_ID}:form:FORM_1919:signer:${OWNER_ID}` } } },
     },
-    { sb: db as any, docuseal },
+    { sb: db as any, signwell },
   );
   assert.equal(esignWebhookResult.ok, true);
 
@@ -187,6 +183,10 @@ test("full IAL2 -> e-sign happy path", async () => {
   assert.equal(signedDoc.deal_id, DEAL_ID);
   assert.equal(signedDoc.form_code, "FORM_1919");
   assert.equal(signedDoc.signer_ownership_entity_id, OWNER_ID);
+  assert.equal(signedDoc.esign_provider, "signwell");
   assert.ok(signedDoc.identity_verification_id);
   assert.ok(db.tables.deal_events.some((e) => e.kind === "esign.completed"));
+
+  // 6. signing_requests mirrors the completion
+  assert.equal(db.tables.signing_requests?.[0].status, "Completed");
 });

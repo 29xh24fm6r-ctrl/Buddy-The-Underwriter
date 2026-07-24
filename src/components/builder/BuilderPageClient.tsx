@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import type {
   BuilderState,
   BuilderStepKey,
@@ -130,34 +130,66 @@ export default function BuilderPageClient({
 
   const steps = computeStepCompletions(state, serverFlags);
 
-  // Debounced section save
-  const saveSection = useCallback(
-    (sectionKey: string, data: Record<string, unknown>) => {
-      const existing = debounceRef.current.get(sectionKey);
-      if (existing) clearTimeout(existing);
-      setSaveState("saving");
-      const timer = setTimeout(async () => {
-        try {
-          const res = await fetch(`/api/deals/${dealId}/builder/sections`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ section_key: sectionKey, data }),
+  // Raw (non-debounced) section persist. Plain hoisted function
+  // declaration rather than a useCallback const — it calls itself for the
+  // parties owner-id follow-up persist below, and a self-reference from
+  // inside a `const x = useCallback(...)` initializer trips
+  // react-hooks' TDZ check even though the recursive call only ever fires
+  // async, well after the binding exists. Not passed to any child as a
+  // prop, so it doesn't need useCallback's referential stability.
+  async function persistSection(sectionKey: string, data: Record<string, unknown>) {
+    try {
+      const res = await fetch(`/api/deals/${dealId}/builder/sections`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section_key: sectionKey, data }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        setSaveState("saved");
+        setLastSaved(json.updated_at);
+        // Learn the real ownership_entities.id for each owner — the
+        // client-side draft id is synthetic (crypto.randomUUID()) until
+        // the canonical write-through resolves/creates the row. Needed
+        // before the SSN capture UI can call the PII vault endpoint,
+        // which requires a real ownership_entity_id.
+        const ownerEntityIds = json.ownerEntityIds as Array<{ id: string; ownership_entity_id: string }> | undefined;
+        if (sectionKey === "parties" && ownerEntityIds?.length) {
+          const idById = new Map(ownerEntityIds.map((m) => [m.id, m.ownership_entity_id]));
+          const prevOwners = ((data as { owners?: Array<{ id: string; ownership_entity_id?: string }> }).owners ?? []);
+          let changed = false;
+          const nextOwners = prevOwners.map((o) => {
+            if (idById.has(o.id) && o.ownership_entity_id !== idById.get(o.id)) {
+              changed = true;
+              return { ...o, ownership_entity_id: idById.get(o.id) };
+            }
+            return o;
           });
-          const json = await res.json();
-          if (res.ok && json.ok) {
-            setSaveState("saved");
-            setLastSaved(json.updated_at);
-          } else {
-            setSaveState("error");
+          if (changed) {
+            setSections((prev) => ({ ...prev, parties: { ...(prev.parties ?? {}), owners: nextOwners } }));
+            // Persist the resolved IDs — otherwise they're only in memory
+            // until the next unrelated parties save. Safe to call from
+            // here: writePartiesCanonical is idempotent, so this
+            // round-trip returns matching IDs and doesn't loop further.
+            persistSection("parties", { ...(data as Record<string, unknown>), owners: nextOwners });
           }
-        } catch {
-          setSaveState("error");
         }
-      }, 500);
-      debounceRef.current.set(sectionKey, timer);
-    },
-    [dealId],
-  );
+      } else {
+        setSaveState("error");
+      }
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  // Debounced section save
+  function saveSection(sectionKey: string, data: Record<string, unknown>) {
+    const existing = debounceRef.current.get(sectionKey);
+    if (existing) clearTimeout(existing);
+    setSaveState("saving");
+    const timer = setTimeout(() => { persistSection(sectionKey, data); }, 500);
+    debounceRef.current.set(sectionKey, timer);
+  }
 
   function handleSectionChange(sectionKey: string, data: Record<string, unknown>) {
     setSections((prev) => ({ ...prev, [sectionKey]: data }));

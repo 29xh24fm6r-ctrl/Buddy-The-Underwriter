@@ -46,6 +46,7 @@ export function BuilderWorkspace(props: Props) {
           state={props.state}
           prefill={props.prefill}
           onSectionChange={props.onSectionChange}
+          dealId={props.dealId}
         />
       );
     case "loan_request":

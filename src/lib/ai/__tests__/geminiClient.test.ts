@@ -297,6 +297,92 @@ test("systemInstruction: when provided, included as top-level body field", async
   }
 });
 
+// INCIDENT REGRESSION (2026-07-20): callOnce previously sent no
+// maxOutputTokens/thinkingConfig at all, letting Gemini 3.x's default
+// thinking budget silently consume the entire output allowance before any
+// answer text was emitted — HTTP 200, finishReason MAX_TOKENS, zero text,
+// no exception. This broke the borrower concierge chat on every turn. These
+// two tests pin the fix.
+test("Gemini 3.x model: generationConfig sets thinkingConfig + maxOutputTokens", async () => {
+  let capturedBody: any = null;
+  const restore = installFetch(async (_url, init) => {
+    capturedBody = init ? JSON.parse(String(init.body)) : null;
+    return okResponse('{"ok":true}');
+  });
+  try {
+    await withApiKey("test-key", () =>
+      callGeminiJSON({
+        model: GEMINI_FLASH,
+        prompt: "p",
+        logTag: "unit",
+      }),
+    );
+    assert.ok(capturedBody);
+    assert.equal(capturedBody.generationConfig.thinkingConfig.thinkingLevel, "low");
+    assert.equal(capturedBody.generationConfig.maxOutputTokens, 16384);
+  } finally {
+    restore();
+  }
+});
+
+test("thought-marked parts are filtered out of the extracted text", async () => {
+  const restore = installFetch(async () =>
+    new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: "reasoning about the answer...", thought: true },
+                { text: '{"value":42}' },
+              ],
+            },
+            finishReason: "STOP",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+  try {
+    const res = await withApiKey("test-key", () =>
+      callGeminiJSON<{ value: number }>({
+        model: GEMINI_FLASH,
+        prompt: "p",
+        logTag: "unit",
+      }),
+    );
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.result, { value: 42 });
+  } finally {
+    restore();
+  }
+});
+
+test("MAX_TOKENS with empty parts (all budget spent thinking): error names finishReason", async () => {
+  const restore = installFetch(async () =>
+    new Response(
+      JSON.stringify({
+        candidates: [{ content: {}, finishReason: "MAX_TOKENS" }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+  try {
+    const res = await withApiKey("test-key", () =>
+      callGeminiJSON({
+        model: GEMINI_FLASH,
+        prompt: "p",
+        logTag: "unit",
+      }),
+    );
+    assert.equal(res.ok, false);
+    assert.match(res.error ?? "", /MAX_TOKENS/);
+  } finally {
+    restore();
+  }
+});
+
 test("transient failure then success: retries and returns ok:true on attempt 2", async () => {
   let calls = 0;
   const restore = installFetch(async () => {

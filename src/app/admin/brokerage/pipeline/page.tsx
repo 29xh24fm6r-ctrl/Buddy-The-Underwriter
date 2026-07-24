@@ -97,6 +97,11 @@ export default async function BrokeragePipelinePage() {
 
   return (
     <div style={{ padding: "18px 24px 40px" }}>
+      <div style={{ marginBottom: 12 }}>
+        <Link href="/admin/brokerage/pipeline/queues" style={{ fontSize: 11.5, color: c.brassBright, textDecoration: "none" }}>
+          Management queues →
+        </Link>
+      </div>
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 8, overflow: "hidden" }}>
         <div
           style={{

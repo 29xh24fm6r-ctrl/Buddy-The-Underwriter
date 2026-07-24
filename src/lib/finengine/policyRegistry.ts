@@ -38,6 +38,14 @@ type PolicyAxisDef = {
   asOf: string;
   /** Optional per-product floor/overlay overrides (e.g. SBA small vs standard). */
   byProduct?: Record<string, { regulatoryFloor?: number | null; institutionalOverlay?: number | null; citation?: string }>;
+  /**
+   * Optional new-business variant — takes priority over byProduct when
+   * ctx.isNewBusiness is true, since SOP 50 10 8's new-business DSCR
+   * standard (§B Ch.1) applies uniformly across 7(a) small/standard/504,
+   * not layered by loan-size product tier the way the established-business
+   * floor/overlay is.
+   */
+  newBusiness?: { regulatoryFloor?: number | null; institutionalOverlay?: number | null; citation?: string };
   notes?: string;
 };
 
@@ -61,6 +69,11 @@ const AXES: Record<string, PolicyAxisDef> = {
       SBA_504: { regulatoryFloor: 1.15, institutionalOverlay: 1.25, citation: "SOP 50 10 8 §B — 504 ≥ 1.15x" },
       CI_TERM: { regulatoryFloor: null, institutionalOverlay: 1.25, citation: "Institutional C&I DSCR overlay (POLICY_DEFAULTS.dscr_minimum 1.25)" },
     },
+    // A business generating revenue for ≤24 months requires PROJECTED (not
+    // historical) DSCR analysis at a stricter floor, uniformly across 7(a)
+    // small/standard/504 — see src/lib/sba/newBusinessProtocol.ts, which this
+    // axis replaces as the single source of truth for the threshold value.
+    newBusiness: { regulatoryFloor: 1.25, institutionalOverlay: null, citation: "SOP 50 10 8 §B Ch.1 — new business (≤24mo) projected DSCR ≥ 1.25x" },
   },
   fccr_floor: {
     axis: "fccr_floor",
@@ -243,8 +256,23 @@ const AXES: Record<string, PolicyAxisDef> = {
   },
 };
 
-/** Pick the floor/overlay for an axis, honoring product-specific values. */
-function layerFor(def: PolicyAxisDef, productId?: string | null): { floor: number | null; overlay: number | null; citation: string } {
+/** Pick the floor/overlay for an axis, honoring new-business and product-specific values. */
+function layerFor(
+  def: PolicyAxisDef,
+  productId?: string | null,
+  isNewBusiness?: boolean,
+): { floor: number | null; overlay: number | null; citation: string } {
+  // New-business takes priority over byProduct — SOP's new-business standard
+  // applies uniformly regardless of loan-size product tier (see newBusiness's
+  // doc comment on PolicyAxisDef).
+  if (isNewBusiness && def.newBusiness) {
+    const nb = def.newBusiness;
+    return {
+      floor: nb.regulatoryFloor ?? null,
+      overlay: nb.institutionalOverlay ?? null,
+      citation: nb.citation ?? def.citation,
+    };
+  }
   const p = productId ? def.byProduct?.[productId] : undefined;
   const floor = p?.regulatoryFloor !== undefined ? p.regulatoryFloor : def.regulatoryFloor ?? null;
   const overlay = p?.institutionalOverlay !== undefined ? p.institutionalOverlay : def.institutionalOverlay ?? null;
@@ -263,7 +291,7 @@ export function resolvePolicy(axis: string, ctx?: PolicyContext): ResolvedPolicy
   if (!def) {
     throw new Error(`[policyRegistry] unknown policy axis: ${axis}`);
   }
-  const { floor, overlay, citation } = layerFor(def, ctx?.productId);
+  const { floor, overlay, citation } = layerFor(def, ctx?.productId, ctx?.isNewBusiness);
   const tenantOverride = ctx?.overrides?.[axis] ?? null;
 
   // Precedence: first defined wins.

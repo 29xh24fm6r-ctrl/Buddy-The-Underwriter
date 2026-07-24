@@ -106,7 +106,9 @@ export const SURFACE_WIRING_LEDGER: SurfaceWiringEntry[] = [
   },
   {
     key: "borrower_portal",
-    route: "/borrower/portal",
+    // Retargeted from the retired (app)/borrower/portal tree to the
+    // canonical, live borrower portal — see stitchSurfaceRegistry.ts.
+    route: "/portal/[token]",
     slug: "borrower-document-upload-review",
     owner: "borrower",
     required: true,

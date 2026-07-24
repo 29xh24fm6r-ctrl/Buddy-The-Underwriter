@@ -6,6 +6,8 @@ import "server-only";
 // set of milestones the borrower can actually use. Falls back to a deterministic
 // summary if the model call fails or GEMINI_API_KEY is unavailable.
 
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 export interface RoadmapInput {
@@ -20,6 +22,13 @@ export interface RoadmapInput {
   grossMarginPct: number;
   cogsPercent: number;
   revenueGrowthY1: number;
+  /**
+   * DSCR floor this deal must clear — single source of truth is finengine's
+   * dscr_floor policy axis (SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / directive
+   * 2026-07-14). Falls back to finengine's flat resolution when the caller
+   * hasn't been updated to pass the deal-specific value.
+   */
+  dscrThreshold?: number;
 }
 
 export async function generateActionableRoadmap(
@@ -117,7 +126,8 @@ function buildFallbackRoadmap(input: RoadmapInput): string {
   const reserveGoal = Math.round(input.monthlyDebtService * 2);
   const earlyTarget = Math.round(monthlyRev * 0.8);
   const safetyPct = Math.round(input.marginOfSafetyPct * 100);
-  const downsideOk = input.dscrDownside >= 1.25;
+  const dscrThreshold = input.dscrThreshold ?? resolvePolicy("dscr_floor").effective ?? 1.25;
+  const downsideOk = input.dscrDownside >= dscrThreshold;
 
   return [
     `Your business is projected to generate $${monthlyRev.toLocaleString()} per month in Year 1. ` +
@@ -132,6 +142,6 @@ function buildFallbackRoadmap(input: RoadmapInput): string {
       ? `Even in a stress scenario where revenue drops 15%, your projections show you can still comfortably cover all your obligations. That's a strong foundation — but don't get complacent. Watch your monthly revenue closely in the first two quarters; that's when the surprises show up.`
       : `If revenue came in 15% below projection, cash flow would get tight. That doesn't mean disaster — it means you should build reserves early, keep a close eye on monthly revenue, and have a plan for trimming costs if you see two months in a row fall short.`,
     ``,
-    `Your financial foundation is ${input.dscrYear1 >= 1.5 ? "strong" : input.dscrYear1 >= 1.25 ? "solid" : "under pressure but workable with discipline"} — stick to the numbers in this plan and you'll have the visibility you need to run the business with confidence.`,
+    `Your financial foundation is ${input.dscrYear1 >= dscrThreshold * 1.2 ? "strong" : input.dscrYear1 >= dscrThreshold ? "solid" : "under pressure but workable with discipline"} — stick to the numbers in this plan and you'll have the visibility you need to run the business with confidence.`,
   ].join("\n");
 }

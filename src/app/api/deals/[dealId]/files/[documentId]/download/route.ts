@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { signGcsReadUrl } from "@/lib/storage/gcs";
@@ -17,8 +17,10 @@ type Context = {
 
 export async function GET(_req: NextRequest, ctx: Context) {
   try {
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 

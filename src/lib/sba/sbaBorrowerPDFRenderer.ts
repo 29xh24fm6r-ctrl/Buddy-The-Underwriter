@@ -7,6 +7,7 @@ import "server-only";
 // narrower section set and borrower-appropriate tone.
 
 import PDFDocument from "pdfkit";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import type {
   AnnualProjectionYear,
   MonthlyProjection,
@@ -45,7 +46,14 @@ const SERIES_AMBER = "#d97706";
 const DSCR_RED = "#cc0000";
 const PASS_GREEN = "#15803d";
 
-const SBA_DSCR_THRESHOLD = 1.25;
+/**
+ * Single source of truth for the DSCR floor this document renders
+ * pass/fail coloring against — finengine's dscr_floor policy axis
+ * (SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / directive 2026-07-14).
+ */
+function resolveDscrThreshold(input: BorrowerPDFInput): number {
+  return input.dscrThreshold ?? resolvePolicy("dscr_floor").effective ?? 1.25;
+}
 
 const DISCLAIMER =
   "This document is prepared for planning purposes based on the assumptions you provided. " +
@@ -88,6 +96,14 @@ export interface BorrowerPDFInput {
   kpiDashboard?: KPITarget[] | null;
   riskContingencyMatrix?: RiskContingency[] | null;
   borrowerStory?: BorrowerStory | null;
+  /**
+   * DSCR floor this PDF renders pass/fail coloring against — single source
+   * of truth is finengine's dscr_floor policy axis. Pass the deal-specific
+   * value (see generate-pdf/route.ts, which resolves it via
+   * newBusinessProtocol.ts's assessNewBusinessRisk); falls back to
+   * finengine's flat resolution otherwise, never a bare literal.
+   */
+  dscrThreshold?: number;
 }
 
 type DocState = {
@@ -341,8 +357,9 @@ function renderDSCRChart(s: DocState) {
       ],
     });
   }
+  const dscrThreshold = resolveDscrThreshold(input);
   const allD = scenarios.flatMap((sc) => sc.dscrs);
-  const dMax = Math.max(...allD, SBA_DSCR_THRESHOLD * 1.2, 1);
+  const dMax = Math.max(...allD, dscrThreshold * 1.2, 1);
   const dMin = 0;
 
   doc
@@ -353,7 +370,7 @@ function renderDSCRChart(s: DocState) {
     .stroke();
 
   const thresholdY =
-    chartY + chartH - ((SBA_DSCR_THRESHOLD - dMin) / (dMax - dMin)) * chartH;
+    chartY + chartH - ((dscrThreshold - dMin) / (dMax - dMin)) * chartH;
   doc
     .strokeColor(DSCR_RED)
     .dash(3, { space: 3 })
@@ -414,6 +431,7 @@ function renderDSCRChart(s: DocState) {
 
 function renderProjectionsTable(s: DocState) {
   const { doc, input } = s;
+  const dscrThreshold = resolveDscrThreshold(input);
   const allYears = [input.baseYear, ...input.annualProjections];
   const colLabels = ["", "Base Year", "Year 1", "Year 2", "Year 3"];
   const colWidths = [140, 95, 95, 95, 95];
@@ -484,7 +502,7 @@ function renderProjectionsTable(s: DocState) {
         display = fmtPct(val);
       } else if (row.label === "Coverage Ratio") {
         display = val >= 99 ? "—" : fmtDscr(val);
-        if (val < SBA_DSCR_THRESHOLD && val < 99 && i > 0) {
+        if (val < dscrThreshold && val < 99 && i > 0) {
           doc.fillColor(DSCR_RED);
         }
       } else {
@@ -637,6 +655,7 @@ function renderBreakEven(s: DocState) {
 
 function renderSensitivity(s: DocState) {
   const { doc, input } = s;
+  const dscrThreshold = resolveDscrThreshold(input);
   const colWidths = [120, 75, 65, 65, 65, 80];
   const colLabels = [
     "Scenario",
@@ -686,7 +705,7 @@ function renderSensitivity(s: DocState) {
       scenario.dscrYear3,
     ];
     for (const dscr of dscrs) {
-      if (dscr < SBA_DSCR_THRESHOLD && dscr < 99) doc.fillColor(DSCR_RED);
+      if (dscr < dscrThreshold && dscr < 99) doc.fillColor(DSCR_RED);
       doc.text(dscr >= 99 ? "—" : fmtDscr(dscr), x, s.y, {
         width: 65,
         align: "right",

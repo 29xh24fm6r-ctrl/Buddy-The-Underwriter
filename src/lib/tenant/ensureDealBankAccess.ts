@@ -1,5 +1,7 @@
 import { clerkAuth } from "@/lib/auth/clerkServer";
 import { getCurrentBankId } from "./getCurrentBankId";
+import { getBrokerageBankId } from "./brokerage";
+import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type EnsureResult =
@@ -54,5 +56,46 @@ export async function ensureDealBankAccess(dealId: string): Promise<EnsureResult
     const msg = e instanceof Error ? e.message : "unknown";
     console.warn("[ensureDealBankAccess] error", { dealId, userId, userBankId, error: msg });
     return { ok: false, error: "unauthorized", detail: msg };
+  }
+}
+
+/**
+ * Brokerage-aware variant of ensureDealBankAccess.
+ *
+ * ensureDealBankAccess compares a deal's bank_id against the caller's single
+ * "active bank" (profiles.bank_id, driven by the bank-picker UI) — a
+ * per-user, one-bank-at-a-time model. Brokerage staff, however, are
+ * authorized via requireBrokerageStaff(): role membership on the singleton
+ * Buddy Brokerage tenant specifically, or super_admin — independent of
+ * whatever bank their picker happens to be pointed at. Without this, a
+ * fully-authorized brokerage staffer gets "tenant_mismatch" on every deal
+ * the CRM creates or attributes unless their active-bank picker happens to
+ * already be set to the brokerage tenant. Found during live end-to-end QA
+ * of SPEC-BROKERAGE-OPERATING-SYSTEM-V1 (PR1-PR5) — every brokerage-sourced
+ * deal was unopenable in its own cockpit.
+ *
+ * Only ever loosens access for deals that actually belong to the brokerage
+ * tenant; every other deal falls through to the unchanged strict check.
+ * Deliberately scoped to a new function + a single call site (the deal
+ * cockpit page) rather than changing ensureDealBankAccess itself, which is
+ * relied on by dozens of unrelated underwriting routes this program never
+ * touched.
+ */
+export async function ensureDealBankAccessAllowingBrokerageStaff(dealId: string): Promise<EnsureResult> {
+  const strict = await ensureDealBankAccess(dealId);
+  if (strict.ok || strict.error !== "tenant_mismatch") return strict;
+
+  try {
+    const sb = supabaseAdmin();
+    const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
+    if (!deal?.bank_id) return strict;
+
+    const brokerageBankId = await getBrokerageBankId();
+    if (deal.bank_id !== brokerageBankId) return strict;
+
+    const { userId } = await requireBrokerageStaff();
+    return { ok: true, dealId, bankId: deal.bank_id, userId };
+  } catch {
+    return strict;
   }
 }

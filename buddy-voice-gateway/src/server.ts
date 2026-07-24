@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { env } from "./lib/env.js";
-import { handleGeminiProxy } from "./gemini/geminiProxy.js";
+import { handleOpenAIRealtimeProxy } from "./openai/openaiRealtimeProxy.js";
 
 const PORT = Number(env("PORT"));
 
@@ -24,9 +24,9 @@ server.listen(PORT, () => {
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url || "", `http://localhost:${PORT}`);
 
-  if (url.pathname === "/gemini-live") {
-    handleGeminiProxy(req, socket as any, head).catch((err) => {
-      console.error("[GeminiProxy] Fatal error:", err);
+  if (url.pathname === "/realtime") {
+    handleOpenAIRealtimeProxy(req, socket as any, head).catch((err) => {
+      console.error("[OpenAIRealtimeProxy] Fatal error:", err);
       socket.destroy();
     });
     return;

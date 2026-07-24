@@ -1,5 +1,6 @@
 // src/lib/underwrite/guardAutomation.ts
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { SB } from "@/lib/crm/types";
 
 type Guard = {
   dealId: string;
@@ -68,8 +69,7 @@ function nudgeMessageForIssue(issue: Guard["issues"][number]) {
   }
 }
 
-export async function applyGuardAutomation(input: { bankerUserId: string; guard: Guard }) {
-  const sb = supabaseAdmin();
+export async function applyGuardAutomation(input: { bankerUserId: string; guard: Guard }, sb: SB = supabaseAdmin()) {
   const dealId = input.guard.dealId;
 
   // 1) Load prior state
@@ -117,24 +117,35 @@ export async function applyGuardAutomation(input: { bankerUserId: string; guard:
       ? "Underwriting inputs are partially complete."
       : "Underwriting is blocked by missing inputs.";
 
-  await sb.from("deal_timeline_events").insert([
+  // Columns here must match the live deal_timeline_events table (kind,
+  // visible_to_borrower, meta — see src/lib/deals/status.ts for the same
+  // shape) not the incompatible visibility/event_type shape from the
+  // migration that defined this table a second time and never actually
+  // applied against production (CREATE TABLE IF NOT EXISTS silently no-ops
+  // when the table already exists from the earlier migration). The
+  // visibility/event_type version previously used here meant every
+  // underwrite-guard-transition timeline write silently failed.
+  const { error: timelineErr } = await sb.from("deal_timeline_events").insert([
     {
       deal_id: dealId,
-      visibility: "banker",
-      event_type: "UNDERWRITE_GUARD_TRANSITION",
+      kind: "underwrite_guard_transition",
       title: bankerTitle,
       detail: bankerDetail,
+      visible_to_borrower: false,
       meta: { prevSeverity, nextSeverity: input.guard.severity, blocked: input.guard.stats.blockedCount, warn: input.guard.stats.warnCount },
     },
     {
       deal_id: dealId,
-      visibility: "borrower",
-      event_type: "UNDERWRITE_STATUS_UPDATED",
+      kind: "underwrite_status_updated",
       title: "Application status updated",
       detail: borrowerSafeStatus(input.guard.severity),
+      visible_to_borrower: true,
       meta: { status: input.guard.severity },
     },
   ]);
+  if (timelineErr) {
+    console.error("[applyGuardAutomation] deal_timeline_events insert failed:", timelineErr.message);
+  }
 
   // 4) Next Actions: upsert open actions for each current issue; auto-complete stale ones
   // Fetch existing open actions

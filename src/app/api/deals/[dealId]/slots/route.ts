@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -19,8 +19,10 @@ export async function GET(
   _req: NextRequest,
   ctx: RouteContext,
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
@@ -123,8 +125,10 @@ export async function POST(
   req: NextRequest,
   ctx: RouteContext,
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

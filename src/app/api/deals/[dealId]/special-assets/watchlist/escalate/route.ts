@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { escalateWatchlistToWorkout } from "@/core/special-assets/escalateToWorkout";
 
@@ -9,8 +9,12 @@ export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ dealId: string }> },
 ) {
-  const { userId } = await clerkAuth();
-  if (!userId) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
 
   let bankId: string;
   try { bankId = await getCurrentBankId(); } catch {

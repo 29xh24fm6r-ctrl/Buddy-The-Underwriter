@@ -1,0 +1,695 @@
+{
+  "file": "source: user-provided upload, 2026-07-18, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 6,
+  "fieldCount": 43,
+  "fields": [
+    {
+      "name": "loanNum",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the SBA loan number here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 600.96,
+          "width": 411.54999999999995,
+          "height": 28.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "loanName",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the SBA loan name here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 599.04,
+          "width": 411.54999999999995,
+          "height": -43.43999999999994
+        }
+      ]
+    },
+    {
+      "name": "guarantor",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the guarantor's full name here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 553.68,
+          "width": 411.54999999999995,
+          "height": -43.43999999999994
+        }
+      ]
+    },
+    {
+      "name": "borrower",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the borrower's full name here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 508.32,
+          "width": 411.54999999999995,
+          "height": -43.44
+        }
+      ]
+    },
+    {
+      "name": "lender",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the lender's full name here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 462.96,
+          "width": 411.54999999999995,
+          "height": -43.44
+        }
+      ]
+    },
+    {
+      "name": "noteAmount",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the principal amount of the loan IN NUMERALS here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 385.44,
+          "width": 411.54999999999995,
+          "height": -28.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "limitBalanceReduction",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is of all amounts owing under the Note, and will continue until the total of all amounts owing under the Note is reduced below a specified amount, at which time Guarantor will be released from liability if the Note is not in default, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 72.6,
+          "y": 715.32,
+          "width": 10.560000000000002,
+          "height": 10.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "limitMaxLiability",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is limited to Guarantor’s payment of a specified maximum amount, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 72.6,
+          "y": 586.44,
+          "width": 10.560000000000002,
+          "height": 10.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "limitPrincipalReduction",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is of all amounts owing under the Note, and will continue until the outstanding principal balance of the Note is reduced below a specified amount, at which time Guarantor will be released from liability if the Note is not in default, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 72.6,
+          "y": 649.92,
+          "width": 10.560000000000002,
+          "height": 10.440000000000055
+        }
+      ]
+    },
+    {
+      "name": "limitBalanceUnder",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the total amount owing under the Note below which Guarantor will be released from liability if the Note is not in default.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 322.92,
+          "y": 694.04,
+          "width": 115.07999999999998,
+          "height": 16.920000000000073
+        }
+      ]
+    },
+    {
+      "name": "limitPrincipalUnder",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the outstanding principal balance of the Note below which Guarantor will be released from liability if the Note is not in default.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 339.12,
+          "y": 628.52,
+          "width": 120,
+          "height": 16.920000000000073
+        }
+      ]
+    },
+    {
+      "name": "limitMaxPayment",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the maximum payment by Guarantor to which the guarantee is limited.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 418.32,
+          "y": 583.88,
+          "width": 99.95999999999998,
+          "height": 16.91999999999996
+        }
+      ]
+    },
+    {
+      "name": "limitPercentage",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is limited to Guarantor’s payment of a specified percentage of all amounts owing under the Note at the time demand is first made on Guarantor, plus the same percentage of any accrued interest and other costs charged to the Note after demand, until Guarantor fully performs this Guarantee, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 72.6,
+          "y": 559.32,
+          "width": 10.560000000000002,
+          "height": 10.559999999999945
+        }
+      ]
+    },
+    {
+      "name": "limitPercentPayment",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the percentage of all amounts owing under the Note at the time demand is first made on Guarantor, to Guarantor's payment of which the guarantee is limited.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 374.76,
+          "y": 556.88,
+          "width": 60.120000000000005,
+          "height": 16.91999999999996
+        }
+      ]
+    },
+    {
+      "name": "limitTime",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is of all amounts owing under the Note, and will continue until the later of a specified number of years after final loan disbursement OR the loan has been current for 12 consecutive months, at the end of which period, if Borrower is in default, the guarantee will continue until all defaults are cured and payments are made when due in accordance with the terms of the Note for a period of 12 consecutive months, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 74.76,
+          "y": 495.48,
+          "width": 10.559999999999988,
+          "height": 10.439999999999998
+        }
+      ]
+    },
+    {
+      "name": "limitTimeYears",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the number of years after final loan disbursement until which the guarantee will continue.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 93.6,
+          "y": 462.08,
+          "width": 45,
+          "height": 16.920000000000016
+        }
+      ]
+    },
+    {
+      "name": "limitCollateral",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is limited to the amount Lender obtains from Collateral pledged by Guarantor, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 72.6,
+          "y": 406.56,
+          "width": 10.560000000000002,
+          "height": 10.560000000000002
+        }
+      ]
+    },
+    {
+      "name": "limitCollateralSpecify",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the Collateral pledged by Guarantor.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 89.88,
+          "y": 87.12,
+          "width": 440.4,
+          "height": 300.48
+        }
+      ]
+    },
+    {
+      "name": "limitCommunity",
+      "type": "PDFCheckBox",
+      "tooltip": "If the guarantee is limited to Guarantor’s community property or spousal interest in collateral pledged to secure the Note or any guarantee, please check this box by clicking or pressing the space bar or Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 72.6,
+          "y": 75.72,
+          "width": 10.560000000000002,
+          "height": 10.560000000000002
+        }
+      ]
+    },
+    {
+      "name": "stateSpecific",
+      "type": "PDFTextField",
+      "tooltip": "Please enter any state-specific provisions.",
+      "pageIndexes": [
+        4
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 93.24,
+          "width": 495.72,
+          "height": 633
+        }
+      ]
+    },
+    {
+      "name": "noteDate",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the date of the promissory note here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 236.16,
+          "y": 238.52,
+          "width": 199.92,
+          "height": 20.640000000000015
+        }
+      ]
+    },
+    {
+      "name": "principalAmount",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the principal amount of the loan IN WORDS here. The amount must match the amount entered two fields previously.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 72,
+          "y": 216.68,
+          "width": 440.03999999999996,
+          "height": 20.639999999999986
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature1",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the first Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 634.68,
+          "width": 246.293,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the first Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 634.68,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the second Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 578.707,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the third Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 522.733,
+          "width": 246.29299999999998,
+          "height": -53.99999999999994
+        }
+      ]
+    },
+    {
+      "name": "guarantorName4",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the fourth Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 466.76,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName5",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the fifth Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 410.787,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName6",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the sixth Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 354.813,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName7",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the seventh Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 298.84,
+          "width": 246.29299999999998,
+          "height": -53.99999999999997
+        }
+      ]
+    },
+    {
+      "name": "guarantorName8",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the eighth Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 242.867,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName9",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the ninth Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 186.893,
+          "width": 246.29299999999998,
+          "height": -54
+        }
+      ]
+    },
+    {
+      "name": "guarantorName10",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the name of the tenth Guarantor here.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 68.16,
+          "y": 130.92,
+          "width": 246.29299999999998,
+          "height": -53.999999999999986
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature2",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the second Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 524.707,
+          "width": 246.293,
+          "height": 54
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature3",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the third Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 468.733,
+          "width": 246.293,
+          "height": 53.99999999999994
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature4",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the fourth Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 412.76,
+          "width": 246.293,
+          "height": 54
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature5",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the fifth Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 356.787,
+          "width": 246.293,
+          "height": 54
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature6",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the sixth Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 300.813,
+          "width": 246.293,
+          "height": 54
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature7",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the seventh Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 244.84,
+          "width": 246.293,
+          "height": 53.99999999999997
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature8",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the eighth Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 188.867,
+          "width": 246.293,
+          "height": 54
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature9",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the ninth Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 132.893,
+          "width": 246.293,
+          "height": 54
+        }
+      ]
+    },
+    {
+      "name": "guarantorSignature10",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the tenth Guarantor here by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        5
+      ],
+      "widgetRects": [
+        {
+          "x": 317.587,
+          "y": 76.92,
+          "width": 246.293,
+          "height": 53.999999999999986
+        }
+      ]
+    },
+    {
+      "name": "dateSigned",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the the date the Guarantee is signed here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 142.01,
+          "y": 416.88,
+          "width": 411.54999999999995,
+          "height": -28.80000000000001
+        }
+      ]
+    }
+  ]
+}

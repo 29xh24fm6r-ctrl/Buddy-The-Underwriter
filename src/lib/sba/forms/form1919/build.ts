@@ -18,10 +18,23 @@ export type Form1919EntityInput = {
   fields: Record<string, string | number | boolean | null>;
 };
 
+export type Form1919OwnerRosterRow = {
+  ownership_entity_id: string;
+  name: string | null;
+  title: string | null;
+  percentage: number | null;
+  is_individual: boolean;
+  entity_ein: string | null;
+  home_address: string | null;
+};
+
 export type Form1919Input = {
   sectionI: Form1919SectionIInput;
   sectionII: Form1919PersonInput[];
   sectionIII: Form1919EntityInput[];
+  // Section I's up-to-5-owner summary roster — separate from Section
+  // II/III's per-individual/per-entity disclosure blocks.
+  ownerRoster: Form1919OwnerRosterRow[];
 };
 
 export type Form1919BuildResult = {

@@ -13,6 +13,10 @@ import {
 } from "./sbaForwardModelBuilder";
 import { calculateSBAGuarantee, detectSBAProgram } from "./sbaGuarantee";
 import {
+  detectNewBusinessFromFacts,
+  assessNewBusinessRisk,
+} from "./newBusinessProtocol";
+import {
   generateBusinessOverviewNarrative,
   generateSensitivityNarrative,
   generateExecutiveSummary,
@@ -20,6 +24,7 @@ import {
   generateMarketingAndOperations,
   generateSWOTAnalysis,
   generatePlanThesis,
+  generateFranchiseSection,
 } from "./sbaPackageNarrative";
 import {
   generateMilestoneTimeline,
@@ -42,8 +47,6 @@ import { validateAgainstBenchmarks } from "./sbaAssumptionBenchmarks";
 import { crossFillSBAForms } from "./sbaFormCrossFill";
 import { extractResearchForBusinessPlan } from "./sbaResearchExtractor";
 import type { SBAAssumptions } from "./sbaReadinessTypes";
-
-const SBA_DSCR_THRESHOLD = 1.25;
 
 /**
  * Sprint 3: optional `mode` parameter. Default "final" preserves the
@@ -187,7 +190,7 @@ export async function generateSBAPackage(
   // Phase BPG — additional balance-sheet base-year facts
   const { data: bsFacts } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num")
+    .select("fact_key, fact_value_num, fact_value_text")
     .eq("deal_id", dealId)
     .in("fact_key", [
       "CASH",
@@ -198,6 +201,9 @@ export async function generateSBAPackage(
       "TOTAL_LONG_TERM_DEBT",
       "TOTAL_EQUITY",
       "YEARS_IN_BUSINESS",
+      "MONTHS_IN_BUSINESS",
+      "BUSINESS_DATE_FORMED",
+      "DATE_FORMED",
     ]);
   const getBSFact = (key: string): number => {
     const f = (bsFacts ?? []).find((r: { fact_key: string }) => r.fact_key === key);
@@ -218,6 +224,47 @@ export async function generateSBAPackage(
     ),
   };
   const yearsInBusiness = getBSFact("YEARS_IN_BUSINESS");
+
+  // Deal scalar context — hoisted above its original later fetch so the
+  // new-business assessment below (which needs deal_type + loan_amount to
+  // resolve the correct finengine productId) can use it too.
+  const { data: deal } = await sb
+    .from("deals")
+    .select("name, deal_type, loan_amount, city, state")
+    .eq("id", dealId)
+    .single();
+
+  // New-business detection + risk assessment — single source of truth
+  // (src/lib/sba/newBusinessProtocol.ts), same function sbaRiskProfile.ts
+  // and feasibilityEngine.ts already call. This used to be a local
+  // `yearsInBusiness < 2` one-off, independent of the canonical detector.
+  const { yearsInBusiness: nbYears, monthsInBusiness: nbMonths } =
+    detectNewBusinessFromFacts(
+      (bsFacts ?? []).map((f: { fact_key: string; fact_value_num: unknown; fact_value_text: unknown }) => ({
+        fact_key: f.fact_key,
+        value_numeric:
+          typeof f.fact_value_num === "number"
+            ? f.fact_value_num
+            : f.fact_value_num != null
+              ? Number(f.fact_value_num)
+              : null,
+        value_text: (f.fact_value_text as string | null) ?? null,
+      })),
+    );
+  const managementYearsInIndustry =
+    assumptions.managementTeam.length > 0
+      ? Math.max(...assumptions.managementTeam.map((m) => m.yearsInIndustry))
+      : null;
+  const newBusinessAssessment = assessNewBusinessRisk({
+    yearsInBusiness: nbYears,
+    monthsInBusiness: nbMonths,
+    hasBusinessPlan: true,
+    managementYearsInIndustry,
+    loanType: deal?.deal_type ?? "SBA",
+    loanAmount: deal?.loan_amount ?? null,
+  });
+  const isNewBusiness = newBusinessAssessment.flags.isNewBusiness;
+  const projectedDscrThreshold = newBusinessAssessment.flags.projectedDscrThreshold;
 
   const baseYear = buildBaseYear({
     revenue,
@@ -245,6 +292,7 @@ export async function generateSBAPackage(
   const sensitivityScenarios = buildSensitivityScenarios(
     assumptions,
     annualProjections,
+    projectedDscrThreshold,
   );
 
   // Use of proceeds
@@ -259,7 +307,6 @@ export async function generateSBAPackage(
   );
 
   // Phase BPG — Sources & Uses (after useOfProceeds is known)
-  const isNewBusiness = yearsInBusiness < 2;
   const sourcesAndUses = buildSourcesAndUses({
     loanAmount: assumptions.loanImpact.loanAmount,
     equityInjectionAmount: assumptions.loanImpact.equityInjectionAmount ?? 0,
@@ -283,16 +330,9 @@ export async function generateSBAPackage(
   const dscrYear1Downside =
     sensitivityScenarios.find((s) => s.name === "downside")?.dscrYear1 ?? 0;
   const dscrBelowThreshold =
-    dscrYear1Base < SBA_DSCR_THRESHOLD ||
-    dscrYear2Base < SBA_DSCR_THRESHOLD ||
-    dscrYear3Base < SBA_DSCR_THRESHOLD;
-
-  // Deal scalar context.
-  const { data: deal } = await sb
-    .from("deals")
-    .select("name, deal_type, loan_amount, city, state")
-    .eq("id", dealId)
-    .single();
+    dscrYear1Base < projectedDscrThreshold ||
+    dscrYear2Base < projectedDscrThreshold ||
+    dscrYear3Base < projectedDscrThreshold;
 
   // Phase BPG — borrower_applications supplies naics/industry/ein (deals
   // does not carry these columns in this schema).
@@ -641,13 +681,63 @@ export async function generateSBAPackage(
   const benchmarkWarnings = validateAgainstBenchmarks(assumptions, naicsCode);
 
   // ── Phase BPG — Franchise detection
-  // Currently disabled: deals has no franchise_brand_id / franchise_brand_name
-  // column, and there is no FK or relationship table linking deals to
-  // franchise_brands. The franchise_brands / FDD / Item 19 intelligence
-  // remains intact and is unaffected by this stub.
-  // TODO: Future franchise feature should link deals to franchise_brands
-  // through a real FK or relationship table.
-  const franchiseSection: string | null = null;
+  // deal_franchises links a deal to its franchise_brands row (one brand per
+  // deal) — same lookup feasibilityEngine.ts's "9. Franchise detection"
+  // step uses. Was previously hardcoded null with a comment claiming no
+  // such link existed; deal_franchises has existed and been in active use
+  // by the borrower-facing franchise-picker routes since 2026-07-12.
+  // Gracefully degrades to null on any failure (missing table, no link,
+  // RLS) — a franchise section is a bonus, never a reason to fail the
+  // whole package.
+  let franchiseSection: string | null = null;
+  try {
+    const { data: franchiseLink } = await sb
+      .from("deal_franchises")
+      .select("brand_id")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+    const franchiseBrandId = (franchiseLink as { brand_id?: string } | null)?.brand_id ?? null;
+
+    if (franchiseBrandId) {
+      const { data: brandRow } = await sb
+        .from("franchise_brands")
+        .select("brand_name, initial_investment_min, initial_investment_max, unit_count, has_item_19")
+        .eq("id", franchiseBrandId)
+        .maybeSingle();
+
+      if (brandRow?.brand_name) {
+        // Latest AVERAGE_GROSS_REVENUE reading — same metric
+        // franchiseComparator.ts uses for cross-brand comparison, so the
+        // business plan and the feasibility study cite the same figure.
+        let item19Avg: number | undefined;
+        if (brandRow.has_item_19) {
+          const { data: item19Row } = await sb
+            .from("fdd_item19_facts")
+            .select("value")
+            .eq("brand_id", franchiseBrandId)
+            .eq("metric_name", "AVERAGE_GROSS_REVENUE")
+            .order("filing_year", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          item19Avg = (item19Row as { value?: number } | null)?.value ?? undefined;
+        }
+
+        franchiseSection = await generateFranchiseSection({
+          dealName: deal?.name ?? "Borrower",
+          franchiseBrand: brandRow.brand_name,
+          fddItem7Min: brandRow.initial_investment_min ?? undefined,
+          fddItem7Max: brandRow.initial_investment_max ?? undefined,
+          fddItem19Avg: item19Avg,
+          unitCount: brandRow.unit_count ?? undefined,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn(
+      "[sbaPackageOrchestrator] franchise section lookup failed (non-fatal):",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
 
   // Render PDF.
   // Sprint 3: for mode='preview' we redact at the data layer *before* calling
@@ -709,6 +799,7 @@ export async function generateSBAPackage(
       dealName: redacted.dealName,
       loanType: redacted.loanType,
       loanAmount: redacted.loanAmount,
+      dscrThreshold: projectedDscrThreshold,
       baseYear: { ...baseYear, ...redacted.baseYear },
       annualProjections: annualProjections.map((p, i) => ({
         ...p,

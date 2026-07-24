@@ -84,21 +84,38 @@ export interface EligibilityFinding {
 
 /**
  * Credit Agent Output
+ *
+ * Shaped as a `.checks[]` array (one entry per borrower/check performed)
+ * with top-level `sba_impact`/`mitigation_options` — this matches what
+ * risk.ts's parseRiskFromFinding/extractMitigations already read for the
+ * 'credit' agent_name (output.checks?.filter(c => c.derogatories?.length),
+ * output.sba_impact, output.mitigation_options), the same shape the
+ * 'eligibility' and 'cash_flow' findings use. Do not change back to a
+ * singular per-borrower shape without updating risk.ts.
  */
-export interface CreditFinding {
-  borrower_id: string;
-  borrower_name: string;
+export interface CreditCheckItem {
+  check_name: string; // "fico_score" | "tradeline_delinquency" | "caivrs" | "sam_exclusion"
+  passed: boolean;
+  borrower_id?: string;
+  borrower_name?: string;
   credit_score?: number;
   derogatories: {
-    type: string; // "bankruptcy" | "tax_lien" | "judgment" | "delinquency"
-    date: string;
+    type: string; // "bankruptcy" | "tax_lien" | "judgment" | "delinquency" | "collection" | "charge_off"
+    date?: string;
     amount?: number;
     status: string; // "open" | "closed" | "paid"
     explanation?: string;
   }[];
+  detail: string;
+  sop_citation?: string;
+}
+
+export interface CreditFinding {
+  checks: CreditCheckItem[];
   sba_impact: 'fatal' | 'mitigable' | 'none';
   mitigation_options: string[];
   summary: string;
+  overall_pass: boolean;
 }
 
 /**

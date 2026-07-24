@@ -38,12 +38,28 @@ const nextConfig = {
   // external package tells Next.js to load it from node_modules at runtime
   // instead of inlining it, so the font file resolution works correctly.
   serverExternalPackages: ["pdfkit"],
-  // headers() removed in Phase 6b — migrated to Vercel Project Routes.
-  // 3 rules (HTML no-cache, global security, microphone for credit-memo/deals)
-  // now configured at project level via `vercel routes`. Project routes are
-  // manifest-independent (verified in Phase 5 smoke test), so this removal
-  // shrinks the deployment manifest.
-  // To edit: `vercel routes list` / `vercel routes add` / `vercel routes edit`.
+  // headers() mostly removed in Phase 6b in favor of Vercel Project Routes
+  // (HTML no-cache, global security). To edit those: `vercel routes list` /
+  // `vercel routes add` / `vercel routes edit`.
+  //
+  // Microphone Permissions-Policy reinstated here on 2026-07-20: the
+  // Project Routes version only allowlisted /deals and /credit-memo,
+  // silently blocking "Talk with Buddy" everywhere else (e.g. /start —
+  // the borrower's own onboarding flow) with no user-visible permission
+  // prompt at all, just a browser-level policy violation. Voice access to
+  // Buddy is a system-wide feature (borrowers, bankers, everyone), so this
+  // is intentionally unscoped rather than another hardcoded path list.
+  // NOTE: if the old Project Routes rule for /deals and /credit-memo is
+  // still active, remove it (`vercel routes list` -> `vercel routes rm`)
+  // so there's a single source of truth instead of two competing headers.
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [{ key: "Permissions-Policy", value: "microphone=(self)" }],
+      },
+    ];
+  },
   // CRITICAL: stitch_exports must be in the Vercel serverless bundle.
   // loadRawStitchHtml uses dynamic fs.readFile which Next.js cannot auto-trace.
   // Every route that renders StitchSurface needs the HTML files at runtime.

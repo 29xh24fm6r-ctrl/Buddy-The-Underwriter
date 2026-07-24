@@ -1,6 +1,7 @@
 import "server-only";
 
 import PDFDocument from "pdfkit";
+import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import type {
   AnnualProjectionYear,
   MonthlyProjection,
@@ -41,7 +42,19 @@ const SERIES_AMBER = "#d97706";
 const DSCR_RED = "#cc0000";
 const PASS_GREEN = "#15803d";
 
-const SBA_DSCR_THRESHOLD = 1.25;
+/**
+ * Single source of truth for the DSCR floor this document renders
+ * pass/fail coloring against — finengine's dscr_floor policy axis
+ * (SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / directive 2026-07-14). Prefers
+ * the deal-specific value threaded in via RenderInput.dscrThreshold (see
+ * sbaPackageOrchestrator.ts, which resolves it from
+ * newBusinessProtocol.ts's assessNewBusinessRisk); falls back to
+ * finengine's flat resolution for any caller that hasn't been updated to
+ * pass one, never to a bare literal.
+ */
+function resolveDscrThreshold(input: RenderInput): number {
+  return input.dscrThreshold ?? resolvePolicy("dscr_floor").effective ?? 1.25;
+}
 
 const DISCLAIMER =
   "This document is prepared for informational purposes only and does not constitute a commitment to lend. " +
@@ -106,6 +119,15 @@ interface RenderInput {
   globalCashFlow?: GlobalCashFlowResult;
   /** Sprint 3: when true, stamps a cosmetic preview watermark on every page. */
   previewWatermark?: boolean;
+  /**
+   * DSCR floor this package's pass/fail coloring is measured against —
+   * single source of truth is finengine's dscr_floor policy axis. Pass the
+   * deal-specific value (business age + SBA product tier — see
+   * newBusinessProtocol.ts's assessNewBusinessRisk) when known; falls back
+   * to finengine's flat (no-context) resolution otherwise, never to a bare
+   * literal.
+   */
+  dscrThreshold?: number;
 }
 
 type DocState = {
@@ -228,6 +250,7 @@ function renderKeyMetricsDashboard(s: DocState) {
   const breakEven = input.breakEven;
   const su = input.sourcesAndUses;
   const gcf = input.globalCashFlow;
+  const dscrThreshold = resolveDscrThreshold(input);
 
   const metrics: Array<{
     label: string;
@@ -238,8 +261,8 @@ function renderKeyMetricsDashboard(s: DocState) {
     {
       label: "DSCR Year 1",
       value: dscrY1 >= 99 ? "—" : fmtDscr(dscrY1),
-      sub: "SBA Min: 1.25x",
-      pass: dscrY1 >= SBA_DSCR_THRESHOLD,
+      sub: `SBA Min: ${fmtDscr(dscrThreshold)}`,
+      pass: dscrY1 >= dscrThreshold,
     },
     {
       label: "Break-Even Safety",
@@ -257,7 +280,7 @@ function renderKeyMetricsDashboard(s: DocState) {
       label: "Global DSCR",
       value: gcf ? fmtDscr(gcf.globalDSCR) : "N/A",
       sub: "Business + Personal",
-      pass: gcf ? gcf.globalDSCR >= SBA_DSCR_THRESHOLD : true,
+      pass: gcf ? gcf.globalDSCR >= dscrThreshold : true,
     },
   ];
 
@@ -636,8 +659,9 @@ function renderDSCRChart(s: DocState) {
       ],
     });
   }
+  const dscrThreshold = resolveDscrThreshold(input);
   const allD = scenarios.flatMap((sc) => sc.dscrs);
-  const dMax = Math.max(...allD, SBA_DSCR_THRESHOLD * 1.2, 1);
+  const dMax = Math.max(...allD, dscrThreshold * 1.2, 1);
   const dMin = 0;
 
   // Axes
@@ -648,9 +672,9 @@ function renderDSCRChart(s: DocState) {
     .lineTo(plotX + plotW, chartY + chartH)
     .stroke();
 
-  // 1.25x threshold red line
+  // DSCR threshold red line
   const thresholdY =
-    chartY + chartH - ((SBA_DSCR_THRESHOLD - dMin) / (dMax - dMin)) * chartH;
+    chartY + chartH - ((dscrThreshold - dMin) / (dMax - dMin)) * chartH;
   doc
     .strokeColor(DSCR_RED)
     .dash(3, { space: 3 })
@@ -955,6 +979,7 @@ function renderSection2_Projections(s: DocState) {
   doc.fillColor("#000000");
   s.y += ROW_HEIGHT;
 
+  const dscrThreshold = resolveDscrThreshold(input);
   const rows: Array<{ label: string; values: number[]; bold?: boolean; pct?: boolean }> = [
     { label: "Revenue", values: allYears.map((y) => y.revenue) },
     { label: "COGS", values: allYears.map((y) => y.cogs) },
@@ -993,7 +1018,7 @@ function renderSection2_Projections(s: DocState) {
       } else if (row.label === "DSCR") {
         display = fmtDscr(val);
         if (i > 0 && val < 99) {
-          if (val < SBA_DSCR_THRESHOLD) {
+          if (val < dscrThreshold) {
             cellBg = "#fef2f2";
             doc.fillColor(DSCR_RED);
           } else {
@@ -1009,7 +1034,7 @@ function renderSection2_Projections(s: DocState) {
         // re-assert font color since fill() resets state in some pdfkit builds
         if (row.label === "DSCR") {
           doc.fillColor(
-            row.values[i] < SBA_DSCR_THRESHOLD ? DSCR_RED : "#16a34a",
+            row.values[i] < dscrThreshold ? DSCR_RED : "#16a34a",
           );
         }
       }
@@ -1110,8 +1135,9 @@ function renderSection4_BreakEven(s: DocState) {
 
 function renderSection5_Sensitivity(s: DocState) {
   const { doc, input } = s;
+  const dscrThreshold = resolveDscrThreshold(input);
   const colWidths = [120, 70, 65, 65, 65, 70];
-  const colLabels = ["Scenario", "Y1 Revenue", "DSCR Y1", "DSCR Y2", "DSCR Y3", "SBA 1.25x"];
+  const colLabels = ["Scenario", "Y1 Revenue", "DSCR Y1", "DSCR Y2", "DSCR Y3", `SBA ${fmtDscr(dscrThreshold)}`];
   const startX = PAGE_MARGIN;
 
   doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
@@ -1133,7 +1159,7 @@ function renderSection5_Sensitivity(s: DocState) {
     x += colWidths[1];
 
     for (const dscr of [scenario.dscrYear1, scenario.dscrYear2, scenario.dscrYear3]) {
-      if (dscr < SBA_DSCR_THRESHOLD) doc.fillColor(DSCR_RED);
+      if (dscr < dscrThreshold) doc.fillColor(DSCR_RED);
       doc.text(fmtDscr(dscr), x, s.y, { width: 65, align: "right" });
       doc.fillColor("#000000");
       x += 65;
@@ -1346,12 +1372,13 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
     {
       const y1 = input.annualProjections[0];
       const dscrY1 = y1?.dscr ?? 0;
+      const dscrThreshold = resolveDscrThreshold(input);
       const insight =
         dscrY1 >= 1.5
-          ? `${input.dealName} generates $${fmtCurrency(Math.round(y1?.ebitda ?? 0))} in Year 1 EBITDA against $${fmtCurrency(Math.round(y1?.totalDebtService ?? 0))} in annual debt service — a ${fmtDscr(dscrY1)} coverage ratio providing ${Math.round((dscrY1 - 1) * 100)}% cushion above the SBA 1.25x minimum.`
-          : dscrY1 >= SBA_DSCR_THRESHOLD
-            ? `${input.dealName} meets the SBA 1.25x DSCR threshold at ${fmtDscr(dscrY1)} in Year 1. Break-even margin of safety is ${fmtPct(input.breakEven.marginOfSafetyPct)}.`
-            : `Year 1 projected DSCR of ${fmtDscr(dscrY1)} falls below the SBA 1.25x minimum. Assumption review is recommended before submission.`;
+          ? `${input.dealName} generates $${fmtCurrency(Math.round(y1?.ebitda ?? 0))} in Year 1 EBITDA against $${fmtCurrency(Math.round(y1?.totalDebtService ?? 0))} in annual debt service — a ${fmtDscr(dscrY1)} coverage ratio providing ${Math.round((dscrY1 - 1) * 100)}% cushion above the SBA ${fmtDscr(dscrThreshold)} minimum.`
+          : dscrY1 >= dscrThreshold
+            ? `${input.dealName} meets the SBA ${fmtDscr(dscrThreshold)} DSCR threshold at ${fmtDscr(dscrY1)} in Year 1. Break-even margin of safety is ${fmtPct(input.breakEven.marginOfSafetyPct)}.`
+            : `Year 1 projected DSCR of ${fmtDscr(dscrY1)} falls below the SBA ${fmtDscr(dscrThreshold)} minimum. Assumption review is recommended before submission.`;
       renderInsightCallout(s, insight, "7. Financial Projections");
     }
     renderSection2_Projections(s);

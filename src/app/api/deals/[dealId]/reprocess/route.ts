@@ -46,7 +46,7 @@ import {
 } from "@/lib/gatekeeper/classifyAllDocs";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import type { SpreadType } from "@/lib/financialSpreads/types";
 import { spreadsForDocType } from "@/lib/financialSpreads/docTypeToSpreadTypes";
 
@@ -114,8 +114,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 // source stamped by processArtifact or manual UI classification).
 
 async function handleSingleDoc(dealId: string) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401 },
@@ -223,8 +225,10 @@ async function handleSingleDoc(dealId: string) {
 // async re-extraction via the doc.extract outbox with forceRefresh=true.
 
 async function handleExtractAll(dealId: string) {
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
       { status: 401 },

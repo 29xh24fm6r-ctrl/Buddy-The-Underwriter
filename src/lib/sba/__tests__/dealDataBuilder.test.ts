@@ -88,16 +88,42 @@ test("loan 400K + sba_7a -> is_7a_small_loan = false", async () => {
   assert.equal(r.is_7a_small_loan, false);
 });
 
-test("all owners us_citizen + us_national -> all_owners_citizenship_eligible = true", async () => {
+test("all owners us_citizen + us_national, principal residence confirmed in US -> all_owners_citizenship_eligible = true", async () => {
   const db = new FakeDb({
     deals: [{ id: "d1", deal_type: "sba_7a" }],
     ownership_entities: [
-      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_citizen", ownership_pct: 60 },
-      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_national", ownership_pct: 40 },
+      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_citizen", ownership_pct: 60, principal_residence_in_us: true },
+      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_national", ownership_pct: 40, principal_residence_in_us: true },
     ],
   });
   const r = await buildSbaEligibilityInput("d1", db as any);
   assert.equal(r.all_owners_citizenship_eligible, true);
+});
+
+// SBA Procedural Notice 5000-876626 (eff. 2026-03-01): principal residence
+// outside the US/its territories is disqualifying even for a
+// citizenship-eligible owner — see T0-findings.md item 2 and
+// specs/follow-ups/SPEC-BROKERAGE-SBA-READY-V1-principal-residence-certification.md.
+test("us_citizen owner with principal_residence_in_us = false -> all_owners_citizenship_eligible = false", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    ownership_entities: [
+      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_citizen", ownership_pct: 100, principal_residence_in_us: false },
+    ],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.all_owners_citizenship_eligible, false);
+});
+
+test("us_citizen owner with principal_residence_in_us unset -> all_owners_citizenship_eligible = null (fails closed, not fabricated)", async () => {
+  const db = new FakeDb({
+    deals: [{ id: "d1", deal_type: "sba_7a" }],
+    ownership_entities: [
+      { deal_id: "d1", entity_type: "individual", citizenship_status: "us_citizen", ownership_pct: 100, principal_residence_in_us: null },
+    ],
+  });
+  const r = await buildSbaEligibilityInput("d1", db as any);
+  assert.equal(r.all_owners_citizenship_eligible, null);
 });
 
 // SBA Procedural Notice 5000-876626 (eff. 2026-03-01): LPRs are no longer

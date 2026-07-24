@@ -33,6 +33,7 @@ import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { Icon } from "@/components/ui/Icon";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
+import { MilestoneToast, type MilestoneKey, type MilestoneMessages } from "@/components/borrower/MilestoneToast";
 import {
   BorrowerJourneyChecklist,
   type JourneyStatusInput,
@@ -188,6 +189,36 @@ const BORROWER_EXPECTATION_COPY = {
   helpCopy:
     "Need help finding a document or understanding your checklist? Your banker will reach out if anything else is needed — this portal always reflects the latest status.",
 } as const;
+
+// This journey ends in a banker reviewing the sealed package, not an E-Tran
+// submission — MilestoneToast's default 100% copy is written for a
+// different (bulk-upload) borrower flow, so this portal supplies its own.
+const PORTAL_MILESTONE_MESSAGES: MilestoneMessages = {
+  "25": {
+    emoji: "🎉",
+    title: "Nice — you've started!",
+    description: "Keep going, you're building momentum",
+    color: "bg-blue-500",
+  },
+  "50": {
+    emoji: "🚀",
+    title: "Halfway there!",
+    description: "The big stuff is done — you've got this",
+    color: "bg-green-500",
+  },
+  "75": {
+    emoji: "💪",
+    title: "Almost there!",
+    description: "Just a few more items and your package is complete",
+    color: "bg-yellow-500",
+  },
+  "100": {
+    emoji: "🎊",
+    title: "Package complete!",
+    description: "Buddy is reviewing everything now — you'll hear about next steps soon",
+    color: "bg-purple-500",
+  },
+};
 
 function sanitizeBorrowerError(input: unknown) {
   const text = typeof input === "string" ? input.toLowerCase() : "";
@@ -596,7 +627,9 @@ export function PortalClient({ token }: { token: string }) {
   const [busy, setBusy] = React.useState(false);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [celebrate, setCelebrate] = React.useState(false);
+  const [milestone, setMilestone] = React.useState<MilestoneKey | null>(null);
   const prevMissingRequiredCountRef = React.useRef<number | null>(null);
+  const prevProgressValueRef = React.useRef<number | null>(null);
 
   const activeDoc = React.useMemo(
     () => docs.find((doc) => doc.upload_id === activeUploadId) ?? null,
@@ -813,6 +846,24 @@ export function PortalClient({ token }: { token: string }) {
 
   const stageCopy = formatStageCopy(portalStatus, deal);
   const progressValue = portalStatus?.progress ?? portalStatus?.checklist?.pct ?? 0;
+
+  React.useEffect(() => {
+    const prev = prevProgressValueRef.current;
+    if (prev !== null) {
+      // Highest-first: a progress value that jumps straight from 10 to 100
+      // (e.g. right after the initial fetch resolves) celebrates the 100
+      // milestone, not 25 — the most significant threshold actually crossed.
+      const thresholds: MilestoneKey[] = ["100", "75", "50", "25"];
+      for (const t of thresholds) {
+        const n = Number(t);
+        if (prev < n && progressValue >= n) {
+          setMilestone(t);
+          break;
+        }
+      }
+    }
+    prevProgressValueRef.current = progressValue;
+  }, [progressValue]);
   const safeStage = deriveSafeBorrowerStage({
     checklistStats,
     docs,
@@ -1232,6 +1283,11 @@ export function PortalClient({ token }: { token: string }) {
     >
       <div className="space-y-6 pb-24 sm:pb-0">
         <ConfettiBurst fire={celebrate} />
+        <MilestoneToast
+          milestone={milestone}
+          onDismiss={() => setMilestone(null)}
+          messages={PORTAL_MILESTONE_MESSAGES}
+        />
         {actionMessage ? (
           actionMessage.includes("temporary issue") ||
           actionMessage.includes("no longer active") ? (

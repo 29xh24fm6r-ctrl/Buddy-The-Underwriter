@@ -1,5 +1,6 @@
 /**
- * buddyDispatch.ts — Routes tool intents from Gemini to Buddy Next.js API.
+ * buddyDispatch.ts — Routes tool intents from the OpenAI Realtime proxy to
+ * the Buddy Next.js API.
  *
  * The gateway calls POST /api/deals/[dealId]/banker-session/dispatch on the
  * Buddy Vercel deployment. This route receives the banker's confirmed fact

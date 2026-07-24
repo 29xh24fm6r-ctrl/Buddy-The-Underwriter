@@ -71,4 +71,33 @@ describe("policyRegistry — resolution precedence (V1.1)", () => {
       assert.ok(axes.has(required), `missing axis ${required}`);
     }
   });
+
+  // SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 / SPEC-BROKERAGE-SBA-READY-V1: a
+  // business ≤24mo old requires the SOP's stricter projected-DSCR standard
+  // (1.25x) uniformly, regardless of 7(a) small/standard/504 product tier —
+  // this is the single source of truth src/lib/sba/newBusinessProtocol.ts
+  // now reads instead of hardcoding 1.25/1.10 locally.
+  it("isNewBusiness overrides byProduct for dscr_floor (uniform 1.25x, not the product tier's own floor)", () => {
+    const small = resolvePolicy("dscr_floor", { productId: "SBA_7A_SMALL", isNewBusiness: true });
+    assert.equal(small.effective, 1.25);
+    assert.match(small.citation, /new business/i);
+
+    const standard = resolvePolicy("dscr_floor", { productId: "SBA_7A_STANDARD", isNewBusiness: true });
+    assert.equal(standard.effective, 1.25);
+  });
+
+  it("isNewBusiness=false (or unset) falls back to the normal byProduct resolution", () => {
+    const r = resolvePolicy("dscr_floor", { productId: "SBA_7A_SMALL", isNewBusiness: false });
+    assert.equal(r.effective, 1.2); // unchanged from the existing byProduct test above
+  });
+
+  it("isNewBusiness has no effect on an axis with no newBusiness variant (e.g. occupancy_min)", () => {
+    const r = resolvePolicy("occupancy_min", { productId: "SBA_504", isNewBusiness: true });
+    assert.equal(r.effective, 0.51); // unchanged — occupancy_min defines no newBusiness override
+  });
+
+  it("a new-business tenant override still wins over the new-business floor (precedence unchanged)", () => {
+    const r = resolvePolicy("dscr_floor", { isNewBusiness: true, overrides: { dscr_floor: 1.4 } });
+    assert.equal(r.effective, 1.4);
+  });
 });

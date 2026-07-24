@@ -1,0 +1,1170 @@
+{
+  "file": "source: user-provided upload, 2026-07-17, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 2,
+  "fieldCount": 72,
+  "fields": [
+    {
+      "name": "form1[0].page_1[0].name_shown[0].first_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "Page 1. 1a. Current name. 1a.i. First name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 666,
+          "width": 79.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].name_shown[0].middle_initial[0]",
+      "type": "PDFTextField",
+      "tooltip": "1a.i i. Middle initial.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 111.6,
+          "y": 666,
+          "width": 50.400000000000006,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].name_shown[0].last_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "1a.i i i. Last name/B M F company name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 169.2,
+          "y": 666,
+          "width": 133.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].name_shown[0].first_ssn[0]",
+      "type": "PDFTextField",
+      "tooltip": "1b. First taxpayer identification number (see instructions).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 633.6,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].name_shown[0].previous_first_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "1c. Previous name shown on the last return filed if different from line 1a. i. First name",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 601.2,
+          "width": 79.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].name_shown[0].previous_middle_initial[0]",
+      "type": "PDFTextField",
+      "tooltip": "1c.i i. Middle initial.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 111.6,
+          "y": 601.2,
+          "width": 50.400000000000006,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].name_shown[0].previous_last_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "1c.i i i. Last name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 169.2,
+          "y": 601.2,
+          "width": 133.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].first_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "2a. Spouse's current name (if joint return and transcripts are requested for both taxpayers). 2a.i. Spouse\u2019s first name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 666,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].middle_initial[0]",
+      "type": "PDFTextField",
+      "tooltip": "2a.i i. Middle initial.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 666,
+          "width": 46.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].last_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "2a.i i i. Spouse\u2019s last name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 666,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].second_ssn[0]",
+      "type": "PDFTextField",
+      "tooltip": "2b. Spouse's taxpayer identification number (if joint return and transcripts are requested for both taxpayers).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 633.6,
+          "width": 277.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].previous_first_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "2c. Spouse's previous name shown on the last return filed if different from line 2a. i. First name",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 601.2,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].previous_middle_initial[0]",
+      "type": "PDFTextField",
+      "tooltip": "2c.i i. Middle initial.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 601.2,
+          "width": 46.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].if_a_joint[0].previous_last_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "2c.i i i. Last name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 601.2,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].current_name_address[0].street_address[0]",
+      "type": "PDFTextField",
+      "tooltip": "3. Current address (including apt., room, or suite no.), city, state, and ZIP code (see instructions). a. Street address (including apt., room, or suite no.).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 568.8,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].current_name_address[0].city[0]",
+      "type": "PDFTextField",
+      "tooltip": "b. City.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 568.8,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].current_name_address[0].state[0]",
+      "type": "PDFTextField",
+      "tooltip": "c. State.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 568.8,
+          "width": 46.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].current_name_address[0].zip_code[0]",
+      "type": "PDFTextField",
+      "tooltip": "d. Z I P code.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 568.8,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].previous_address_shown[0].street_address[0]",
+      "type": "PDFTextField",
+      "tooltip": "4. Previous address shown on the last return filed if different from line 3 (see instructions). a. Street address (including apt., room, or suite no.).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 536.4,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].previous_address_shown[0].city[0]",
+      "type": "PDFTextField",
+      "tooltip": "b. City.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 536.4,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].previous_address_shown[0].state[0]",
+      "type": "PDFTextField",
+      "tooltip": "c. State.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 536.4,
+          "width": 46.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].previous_address_shown[0].zip_code[0]",
+      "type": "PDFTextField",
+      "tooltip": "d. Z I P code.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 536.4,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].ives_participant_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a. I V E S participant name, I D number, S O R mailbox I D, and address. i. I V E S participant name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 504,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].ives_participant_id[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a.i i. I V E S participant I D number.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 504,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].sor_mailbox_id[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a.i i i. S O R mailbox I D.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 504,
+          "width": 169.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].street_address[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a.i v. Street address (including apt., room, or suite no.).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 482.4,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].city[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a.v. City.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 482.4,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].state[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a.v i. State.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 482.4,
+          "width": 46.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].ives_participant_name[0].zip_code[0]",
+      "type": "PDFTextField",
+      "tooltip": "5a.v i i. Z I P code.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 482.4,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].customer_file_number[0]",
+      "type": "PDFTextField",
+      "tooltip": "5b. Customer file number (if applicable) (see instructions).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 460.8,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].unique_identifer[0]",
+      "type": "PDFTextField",
+      "tooltip": "5c. Unique identifier (if applicable) (see instructions).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 460.8,
+          "width": 277.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].client_info[0].first_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "5d. Client name, telephone number, and address (this field cannot be blank or not applicable (N A)). i. Client name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 428.4,
+          "width": 439.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].client_info[0].telephone_number[0]",
+      "type": "PDFTextField",
+      "tooltip": "5d.i i. Telephone number.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 428.4,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].client_info[0].street_address[0]",
+      "type": "PDFTextField",
+      "tooltip": "5d.i i i. Street address (including apt., room, or suite no.).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 406.8,
+          "width": 277.2,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].client_info[0].city[0]",
+      "type": "PDFTextField",
+      "tooltip": "5d.i v. City.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 309.6,
+          "y": 406.8,
+          "width": 100.79999999999995,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].client_info[0].state[0]",
+      "type": "PDFTextField",
+      "tooltip": "5d.v. State.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 406.8,
+          "width": 46.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].client_info[0].zip_code[0]",
+      "type": "PDFTextField",
+      "tooltip": "5d.v i. Z I P code.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 471.6,
+          "y": 406.8,
+          "width": 115.19999999999993,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].transcript_reqeust[0]",
+      "type": "PDFTextField",
+      "tooltip": "6. Transcript requested. Enter the tax form number here (1040, 1065, 1120, etc.) and check the appropriate box below. Enter only one tax form number per request for line 6 transcripts.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 360,
+          "width": 561.5999999999999,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].transcript_type[0].return_transcript[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "6a. Return Transcript, which includes most of the line items of a tax return as filed with the I R S. A tax return transcript does not reflect changes made to the account after the return is processed. Transcripts are only available for the following returns: Form 1040 series, Form 1065, Form 1120, Form 1120-A, Form 1120-H, Form 1120-L, and Form 1120S. Return transcripts are available for the current year and returns processed during the prior 3 processing years.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 97.2,
+          "y": 347.8,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].transcript_type[0].account_transcript[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "6b. Account Transcript, which contains information on the financial status of the account, such as payments made on the account, penalty assessments, and adjustments made by you or the I R S after the return was filed. Return information is limited to items such as tax liability and estimated tax payments. Account transcripts are available for most returns.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 259.2,
+          "y": 347.8,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].transcript_type[0].record_of_account[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "6c. Record of Account, which provides the most detailed information as it is a combination of the Return Transcript and the Account Transcript. Available for current year and 3 prior tax years.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 417.6,
+          "y": 347.8,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_7[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "7. Wage and Income transcript (W-2, 1098-E, 1099-G, etc.).",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 259.2,
+          "y": 333.4,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].#subform[9].form_number1[0]",
+      "type": "PDFTextField",
+      "tooltip": "7a. Enter a max of three form numbers here; if no entry is made, all forms will be sent.. Line 1 of 3.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 306,
+          "y": 316.8,
+          "width": 86.39999999999998,
+          "height": 14.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].#subform[9].form_number2[0]",
+      "type": "PDFTextField",
+      "tooltip": "7a. Line 2 of 3.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 399.6,
+          "y": 316.8,
+          "width": 82.79999999999995,
+          "height": 14.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].#subform[9].form_number3[0]",
+      "type": "PDFTextField",
+      "tooltip": "7a. Line 3 of 3.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 489.6,
+          "y": 316.8,
+          "width": 97.19999999999993,
+          "height": 14.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].taxpayer_requesting[0].line_1a[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "7b. Mark the checkbox for taxpayer(s) requesting the wage and income transcripts. If no box is checked, transcripts will be provided for all listed taxpayers. Line 1a.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 97.2,
+          "y": 293.8,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].taxpayer_requesting[0].line_2a[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "7b. Line 2a.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 259.2,
+          "y": 293.8,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_15[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. Year or period requested. Enter the ending date of the tax year or period using the m m/d d/y y y y format (see instructions). 2 digit month. 1 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 21.603,
+          "y": 266.4,
+          "width": 21.6,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_16[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit day. 1 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 50.403,
+          "y": 266.4,
+          "width": 21.205999999999996,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_17[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 4 digit Year. 1 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 79.203,
+          "y": 266.4,
+          "width": 28.799999999999997,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_18[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit month. 2 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 183.6,
+          "y": 266.4,
+          "width": 21.599999999999994,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_19[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit day. 2 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 212.4,
+          "y": 266.4,
+          "width": 21.20599999999999,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_20[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 4 digit Year. 2 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 241.2,
+          "y": 266.4,
+          "width": 28.80000000000001,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_21[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit month. 3 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 342,
+          "y": 266.4,
+          "width": 21.600000000000023,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_22[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit day. 3 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 370.8,
+          "y": 266.4,
+          "width": 21.20599999999996,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_23[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 4 digit Year. 3 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 399.6,
+          "y": 266.4,
+          "width": 28.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_24[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit month. 4 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 504.003,
+          "y": 266.4,
+          "width": 21.599999999999966,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_25[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 2 digit day. 4 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 532.803,
+          "y": 266.4,
+          "width": 21.206000000000017,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].question_8[0].f1_26[0]",
+      "type": "PDFTextField",
+      "tooltip": "8. 4 digit Year. 4 of 4.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 561.6,
+          "y": 266.4,
+          "width": 28.799999999999955,
+          "height": 12.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].signature_attests[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "above attestation clause",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 25.2,
+          "y": 193,
+          "width": 10.000000000000004,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].signature[0]",
+      "type": "PDFTextField",
+      "tooltip": "Sign Here. Signature for Line 1a (see instructions).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 165.6,
+          "width": 273.6,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].date[0]",
+      "type": "PDFTextField",
+      "tooltip": "Date.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 342,
+          "y": 165.6,
+          "width": 82.80000000000001,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].phone_number[0]",
+      "type": "PDFTextField",
+      "tooltip": "Phone number of taxpayer on line 1a or 2a.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 432,
+          "y": 165.6,
+          "width": 154.79999999999995,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].form_4506c[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "Form 4506-C was signed by an Authorized Representative.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 153.4,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].signatory_confirms[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "Signatory confirms document was electronically signed.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 342,
+          "y": 153.4,
+          "width": 10,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].print_type_name[0]",
+      "type": "PDFTextField",
+      "tooltip": "Print/Type name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 126,
+          "width": 525.5999999999999,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].title[0]",
+      "type": "PDFTextField",
+      "tooltip": "Title (if line 1a above is a corporation, partnership, estate, or trust).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 100.8,
+          "width": 525.5999999999999,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].spouses_signature[0]",
+      "type": "PDFTextField",
+      "tooltip": "Spouse's signature (required if listed on Line 2a).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 75.6,
+          "width": 363.6,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].spouses_form_4506c[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "Form 4506-C was signed by an Authorized Representative.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 63.4,
+          "width": 10,
+          "height": 10.000000000000007
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].spouses_signatory_confirms[0]",
+      "type": "PDFCheckBox",
+      "tooltip": "Signatory confirms document was electronically signed.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 342,
+          "y": 63.4,
+          "width": 10,
+          "height": 10.000000000000007
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].date[1]",
+      "type": "PDFTextField",
+      "tooltip": "Date.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 432,
+          "y": 75.6,
+          "width": 154.79999999999995,
+          "height": 15.840000000000003
+        }
+      ]
+    },
+    {
+      "name": "form1[0].page_1[0].print_type_name[1]",
+      "type": "PDFTextField",
+      "tooltip": "Print/Type name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 61.2,
+          "y": 36,
+          "width": 525.5999999999999,
+          "height": 15.840000000000003
+        }
+      ]
+    }
+  ]
+}

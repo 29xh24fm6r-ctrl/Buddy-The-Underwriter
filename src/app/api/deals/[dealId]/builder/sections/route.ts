@@ -78,15 +78,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Fire canonical write-through (non-fatal)
-  writeBuilderCanonical(dealId, section_key as BuilderSectionKey, data, sb).catch(
-    (err) =>
-      console.error("[builder/sections] canonical write failed", {
-        dealId,
-        section_key,
-        error: err?.message,
-      }),
-  );
+  // Canonical write-through — awaited (not fire-and-forget) so the
+  // response can carry back the real ownership_entity_id for each owner
+  // (needed by the client to call the full-SSN vault endpoint). The
+  // function itself never throws — it logs and returns {} on failure —
+  // so awaiting adds latency, not failure risk.
+  const canonicalResult = await writeBuilderCanonical(dealId, section_key as BuilderSectionKey, data, sb);
 
   // Fire ledger event (best-effort, fire-and-forget)
   writeEvent({
@@ -97,5 +94,5 @@ export async function PATCH(req: Request, ctx: Ctx) {
     input: { section_key },
   }).catch(() => {});
 
-  return NextResponse.json({ ok: true, updated_at: new Date().toISOString() });
+  return NextResponse.json({ ok: true, updated_at: new Date().toISOString(), ...canonicalResult });
 }

@@ -25,6 +25,7 @@ function resetState() {
   state.concierge = [];
   state.audits = [];
   state.extractResult = null;
+  mockBorrowerTokenHash = null;
 }
 
 function makeQueryBuilder(tableName: string) {
@@ -123,6 +124,23 @@ require.cache[require.resolve("@/lib/ai/geminiClient")] = {
   },
 } as any;
 
+// SPEC-BUDDY-VOICE-WEBRTC: the dispatch route now also accepts a directly
+// browser-authenticated borrower (no gateway secret), gated on the
+// borrower session cookie's tokenHash matching the target session's
+// borrower_session_token_hash. mockBorrowerTokenHash simulates "what
+// getBorrowerSession() would resolve from the caller's cookie" per test —
+// null means "no cookie presented" (the unauthenticated case).
+let mockBorrowerTokenHash: string | null = null;
+require.cache[require.resolve("@/lib/brokerage/sessionToken")] = {
+  id: "session-token-stub",
+  filename: "session-token-stub",
+  loaded: true,
+  exports: {
+    getBorrowerSession: async () =>
+      mockBorrowerTokenHash ? { tokenHash: mockBorrowerTokenHash } : null,
+  },
+} as any;
+
 process.env.BUDDY_GATEWAY_SECRET = "test-secret";
 
 // Load the route under test.
@@ -171,6 +189,79 @@ test("wrong secret → 401", async () => {
     text: "hi",
   });
   assert.equal(r.status, 401);
+});
+
+// SPEC-BUDDY-VOICE-WEBRTC: the WebRTC migration removed the Fly gateway
+// from the picture for new sessions, so the borrower's own browser now
+// calls this route directly, authenticated by session cookie instead of
+// the gateway secret. These three tests are the explicit trust-boundary
+// check the spec calls for — a borrower-scope call must not reach the
+// write path without owning *this exact* session.
+
+test("no gateway secret, no borrower cookie → 401 (no DB touched)", async () => {
+  resetState();
+  state.sessions.push({
+    id: "s-cookie-1",
+    actor_scope: "borrower",
+    deal_id: "d",
+    bank_id: "b",
+    user_id: null,
+    borrower_session_token_hash: "hash-of-the-real-borrower",
+    borrower_concierge_session_id: null,
+  });
+  const r = await call("s-cookie-1", null, {
+    intent: "tool_call",
+    toolName: "buddy_query",
+    args: { intent: "confirm loan amount 500000" },
+  });
+  assert.equal(r.status, 401);
+  // Audit-only write path never ran — no rows landed despite a valid session existing.
+  assert.equal(state.audits.length, 0);
+});
+
+test("no gateway secret, borrower cookie tokenHash mismatches session owner → 401", async () => {
+  resetState();
+  state.sessions.push({
+    id: "s-cookie-2",
+    actor_scope: "borrower",
+    deal_id: "d",
+    bank_id: "b",
+    user_id: null,
+    borrower_session_token_hash: "hash-of-the-real-borrower",
+    borrower_concierge_session_id: null,
+  });
+  mockBorrowerTokenHash = "hash-of-a-DIFFERENT-borrower";
+  const r = await call("s-cookie-2", null, {
+    intent: "tool_call",
+    toolName: "buddy_query",
+    args: { intent: "confirm loan amount 500000" },
+  });
+  assert.equal(r.status, 401);
+  assert.equal(state.audits.length, 0);
+});
+
+test("no gateway secret, borrower cookie tokenHash matches session owner → succeeds, tool_call audited (not fact-write)", async () => {
+  resetState();
+  state.sessions.push({
+    id: "s-cookie-3",
+    actor_scope: "borrower",
+    deal_id: "d",
+    bank_id: "b",
+    user_id: null,
+    borrower_session_token_hash: "hash-of-the-real-borrower",
+    borrower_concierge_session_id: null,
+  });
+  mockBorrowerTokenHash = "hash-of-the-real-borrower";
+  const r = await call("s-cookie-3", null, {
+    intent: "tool_call",
+    toolName: "buddy_query",
+    args: { intent: "confirm loan amount 500000" },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  // S2-2 still holds under the new auth path: tool_call is audit-only.
+  assert.equal(state.audits.length, 1);
+  assert.equal(state.audits[0].event_type, "tool_call");
 });
 
 test("banker-scoped session on brokerage dispatch → 400 wrong_actor_scope", async () => {

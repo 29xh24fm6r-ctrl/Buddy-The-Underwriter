@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
 import { getOmegaAdvisoryState, synthesizeAdvisoryFromRisk } from "@/core/omega/OmegaAdvisoryAdapter";
@@ -20,8 +20,10 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   try {
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 

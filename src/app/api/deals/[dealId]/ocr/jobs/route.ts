@@ -1,7 +1,7 @@
 // src/app/api/deals/[dealId]/ocr/jobs/route.ts
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -17,8 +17,12 @@ function json(status: number, body: any) {
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
-    const { userId } = await clerkAuth();
-    if (!userId) return json(401, { ok: false, error: "Unauthorized" });
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
+      return json(401, { ok: false, error: "Unauthorized" });
+    }
 
     const p = await ctx.params;
     const dealId = p?.dealId;

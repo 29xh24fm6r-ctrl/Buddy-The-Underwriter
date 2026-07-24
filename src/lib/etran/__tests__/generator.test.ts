@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mapTruthToETran } from "@/lib/etran/generator";
+import { mapTruthToETran, generateETranXML } from "@/lib/etran/generator";
 
 function truthFor(amount: number, dealType: string) {
   return {
@@ -42,4 +42,58 @@ test("etran generator: $300K Export Express → 90% guarantee", () => {
     "SC1",
   );
   assert.equal(data.sba_guarantee_percentage, 90);
+});
+
+/**
+ * Regression test for the real bug: generateETranXML used to query
+ * deal_truth_snapshots.select("truth") and read row.truth — but the real
+ * column (both in the original 20251227000002_agent_arbitration.sql
+ * migration and the restored 20260718000008 one) is truth_json. This fake
+ * client only implements the exact truth_json/version/settings shape
+ * those migrations define, so it would have failed loudly against the old
+ * ("truth") query.
+ */
+function makeFakeEtranSb(truthJson: Record<string, unknown>) {
+  return {
+    from(table: string) {
+      if (table === "deal_truth_snapshots") {
+        return {
+          select: (cols: string) => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  single: async () => ({ data: cols === "id" ? { id: "snap-1" } : null, error: null }),
+                }),
+              }),
+              single: async () => ({
+                data: cols === "truth_json" ? { truth_json: truthJson } : null,
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "banks") {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: async () => ({ data: { settings: { sba_lender_id: "L1", sba_service_center: "SC1" } } }),
+            }),
+          }),
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    },
+  };
+}
+
+test("generateETranXML: reads deal_truth_snapshots.truth_json (not .truth) and produces XML", async () => {
+  const result = await generateETranXML({
+    dealId: "deal-1",
+    bankId: "bank-1",
+    sb: makeFakeEtranSb(truthFor(120_000, "sba_7a")) as any,
+  });
+
+  assert.ok(result.xml.includes("Acme LLC"), "XML should contain data pulled from truth_json");
+  assert.ok(result.xml.includes("<LenderID>L1</LenderID>"));
 });

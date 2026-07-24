@@ -80,7 +80,14 @@ export async function checkConciergeRateLimit(args: {
   return { allowed: true };
 }
 
-async function incrementAndCheck(
+/**
+ * Fixed-window counter backed by the Postgres increment_rate_counter RPC —
+ * durable across serverless instances/cold starts (unlike an in-process
+ * counter), and fails open on RPC error. Exported for reuse by any new
+ * anonymous-endpoint rate limit (e.g. email-verification send/verify)
+ * rather than duplicating the same window-bucket logic.
+ */
+export async function incrementAndCheck(
   key: string,
   windowSeconds: number,
   limit: number,
@@ -126,6 +133,3 @@ export async function checkBorrowerVoiceRateLimit(
   );
   return outcome.allowed;
 }
-
-// Exported for unit testing.
-export const __test_incrementAndCheck = incrementAndCheck;

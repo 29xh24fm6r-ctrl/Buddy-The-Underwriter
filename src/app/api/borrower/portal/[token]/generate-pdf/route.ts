@@ -17,6 +17,10 @@ import {
 import { renderBorrowerProjectionPDF } from "@/lib/sba/sbaBorrowerPDFRenderer";
 import { generateActionableRoadmap } from "@/lib/sba/sbaActionableRoadmap";
 import { loadBorrowerStory } from "@/lib/sba/sbaBorrowerStory";
+import {
+  detectNewBusinessFromFacts,
+  assessNewBusinessRisk,
+} from "@/lib/sba/newBusinessProtocol";
 import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 import type {
   Milestone,
@@ -28,7 +32,11 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-type FactRow = { fact_key: string; fact_value_num: number | string | null };
+type FactRow = {
+  fact_key: string;
+  fact_value_num: number | string | null;
+  fact_value_text?: string | null;
+};
 
 export async function POST(
   _req: NextRequest,
@@ -71,7 +79,7 @@ export async function POST(
 
   const { data: facts } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, fact_value_num")
+    .select("fact_key, fact_value_num, fact_value_text")
     .eq("deal_id", ctx.dealId)
     .in("fact_key", [
       "TOTAL_REVENUE_IS",
@@ -88,6 +96,10 @@ export async function POST(
       "INTEREST_EXPENSE",
       "TOTAL_TAX",
       "ADS",
+      "YEARS_IN_BUSINESS",
+      "MONTHS_IN_BUSINESS",
+      "BUSINESS_DATE_FORMED",
+      "DATE_FORMED",
     ])
     .order("created_at", { ascending: false });
 
@@ -115,6 +127,33 @@ export async function POST(
     ebitda = netIncome + interestExpense + depreciation + totalTax;
   }
   const ads = getFact("ADS");
+
+  // Single source of truth for the DSCR floor this PDF renders pass/fail
+  // coloring against — same detector + finengine-backed resolution used by
+  // sbaPackageOrchestrator.ts (SPEC-BROKERAGE-SBA-READY-V1 /
+  // SPEC-BUDDY-FINANCIAL-ENGINE-ELITE-1 directive 2026-07-14).
+  const { yearsInBusiness: nbYears, monthsInBusiness: nbMonths } =
+    detectNewBusinessFromFacts(
+      factRows.map((f) => ({
+        fact_key: f.fact_key,
+        value_numeric:
+          typeof f.fact_value_num === "number"
+            ? f.fact_value_num
+            : f.fact_value_num != null
+              ? Number(f.fact_value_num)
+              : null,
+        value_text: f.fact_value_text ?? null,
+      })),
+    );
+  const newBusinessAssessment = assessNewBusinessRisk({
+    yearsInBusiness: nbYears,
+    monthsInBusiness: nbMonths,
+    hasBusinessPlan: true,
+    managementYearsInIndustry: null,
+    loanType: deal?.deal_type ?? "SBA",
+    loanAmount: deal?.loan_amount ?? null,
+  });
+  const projectedDscrThreshold = newBusinessAssessment.flags.projectedDscrThreshold;
 
   const loanImpactRaw = (row.loan_impact ?? {}) as Partial<
     SBAAssumptions["loanImpact"]
@@ -171,10 +210,11 @@ export async function POST(
   }
   const monthly = buildMonthlyProjections(assumptions, year1);
   const breakEven = computeBreakEven(assumptions, year1);
-  const scenarios = buildSensitivityScenarios(assumptions, [
-    baseYear,
-    ...annual,
-  ]);
+  const scenarios = buildSensitivityScenarios(
+    assumptions,
+    [baseYear, ...annual],
+    projectedDscrThreshold,
+  );
 
   // Reconstruct a briefing from the most recent compiled research narrative.
   let researchBriefing = "";
@@ -225,6 +265,7 @@ export async function POST(
     cogsPercent: assumptions.costAssumptions.cogsPercentYear1 ?? 0.3,
     revenueGrowthY1:
       assumptions.revenueStreams[0]?.growthRateYear1 ?? 0.05,
+    dscrThreshold: projectedDscrThreshold,
   });
 
   // God Tier additions — load the most recent SBA package for this deal so we
@@ -253,6 +294,7 @@ export async function POST(
     businessName: deal?.name ?? "Your Business",
     loanAmount: assumptions.loanImpact.loanAmount || deal?.loan_amount || 0,
     loanType: deal?.deal_type ?? "SBA",
+    dscrThreshold: projectedDscrThreshold,
     baseYear,
     annualProjections: annual,
     monthlyProjections: monthly,

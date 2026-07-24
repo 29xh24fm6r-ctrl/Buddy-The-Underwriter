@@ -74,6 +74,47 @@ const LENDING_NAICS_PREFIXES = new Set([
   "525", // funds, trusts
 ]);
 
+/** Real-estate speculation: text signals beyond the literal word "speculat*". */
+const REAL_ESTATE_SPECULATION_PATTERNS: RegExp[] = [
+  /\bspecul/i,
+  /\bflip(ping)?\b/i,
+  /\bhold\s+for\s+appreciation\b/i,
+  /\bland\s+bank(ing)?\b/i,
+];
+
+/**
+ * Pyramid/MLM: NAICS codes associated with direct-sales structures (a soft
+ * signal — legitimate direct sellers can share these codes) combined with
+ * text describing a multi-level/recruiting compensation structure. Neither
+ * signal alone is sufficient; see rule 8 below for how they combine.
+ */
+const PYRAMID_MLM_NAICS_PREFIXES = new Set([
+  "454390", // other direct selling establishments
+  "561499", // all other business support services (common MLM catch-all)
+]);
+const PYRAMID_MLM_TEXT_PATTERNS: RegExp[] = [
+  /\bmulti-?level\s+marketing\b/i,
+  /\bpyramid\b/i,
+  /\bdownline\b/i,
+  /\brecruit(ing)?\s+(distributors|reps|representatives)\b/i,
+];
+
+/**
+ * Passive business: NAICS codes for pure rental/holding activity combined
+ * with an absence of active-operations language. A soft heuristic given
+ * the limited signal available to this pure function — see rule 6 below.
+ */
+const PASSIVE_BUSINESS_NAICS_PREFIXES = new Set([
+  "531110", // lessors of residential buildings and dwellings
+  "531120", // lessors of nonresidential buildings
+]);
+const ACTIVE_OPERATIONS_TEXT_PATTERNS: RegExp[] = [
+  /\bmanage(s|d|ment)?\b/i,
+  /\boperat(e|es|ed|ing|ions)\b/i,
+  /\bstaff\b/i,
+  /\bemployees?\b/i,
+];
+
 export type BuddyEligibilityInputs = {
   naics: string | null;
   industry: string | null;
@@ -260,45 +301,62 @@ export function evaluateBuddySbaEligibility(
     }
   }
 
-  // ─── 6. Passive business (scaffolded) ─────────────────────────────────
-  // Real detection requires NAICS classification + business-model evidence.
-  // Today: flag only if use-of-proceeds mentions "passive" (already caught
-  // in rule 3). Keep this check as an explicit pass so the framework is
-  // complete and future logic has a hook.
-  checks.push(mkCheck(
-    "passive_business",
-    "passive",
-    true,
-    SOP.passive,
-    "scaffolded — richer passive-business detection deferred",
-  ));
-
-  // ─── 7. Real-estate speculation (scaffolded) ──────────────────────────
-  // Detect 531* NAICS (real estate) combined with speculative use-of-proceeds
-  // language. Today: naive check.
+  // ─── 6. Passive business ───────────────────────────────────────────────
+  // Heuristic given the limited signal in this pure function's inputs:
+  // pure rental/holding NAICS + absence of active-operations language in
+  // use-of-proceeds/sources-and-uses text. Flags for underwriter review
+  // rather than auto-failing — this heuristic can't reliably distinguish a
+  // genuinely passive holding company from an active operator that simply
+  // didn't mention operations language in its use-of-proceeds text.
   const naics = (inputs.naics ?? "").trim();
+  const isPassiveRentalNaics = PASSIVE_BUSINESS_NAICS_PREFIXES.has(naics);
+  const hasActiveOperationsLanguage = ACTIVE_OPERATIONS_TEXT_PATTERNS.some((p) => p.test(uopText));
+  if (isPassiveRentalNaics && !hasActiveOperationsLanguage) {
+    checks.push(mkCheck("passive_business", "passive", true, SOP.passive,
+      `NAICS ${naics} is a pure rental/holding code with no active-operations language detected — flagged for underwriter review`));
+  } else {
+    checks.push(mkCheck("passive_business", "passive", true, SOP.passive,
+      "no passive-business signal detected"));
+  }
+
+  // ─── 7. Real-estate speculation ────────────────────────────────────────
+  // NAICS 531* (real estate) combined with speculative/flip/hold-for-
+  // appreciation/land-banking language in use-of-proceeds text.
   const isRealEstate531 = naics.startsWith("531");
-  const speculativeText = /\bspecul/i.test(uopText);
+  const speculativeText = REAL_ESTATE_SPECULATION_PATTERNS.some((p) => p.test(uopText));
   if (isRealEstate531 && speculativeText) {
     checks.push(mkCheck("real_estate_speculation", "other", false, SOP.real_estate,
-      "NAICS 531* combined with speculative language in use-of-proceeds"));
+      "NAICS 531* combined with speculative/flip/hold-for-appreciation language in use-of-proceeds"));
     failures.push(mkFail("real_estate_speculation", "other",
       "Real-estate NAICS (531*) with speculative use-of-proceeds language; SBA excludes speculation",
       SOP.real_estate));
   } else {
     checks.push(mkCheck("real_estate_speculation", "other", true, SOP.real_estate,
-      "scaffolded — deep real-estate speculation detection deferred"));
+      "no real-estate speculation signal detected"));
   }
 
-  // ─── 8. Pyramid / MLM (scaffolded) ────────────────────────────────────
-  // Real detection: compensation structure review. Today: none.
-  checks.push(mkCheck(
-    "pyramid_mlm",
-    "other",
-    true,
-    SOP.pyramid,
-    "scaffolded — pyramid/MLM detection deferred",
-  ));
+  // ─── 8. Pyramid / MLM ──────────────────────────────────────────────────
+  // Fails only when BOTH a direct-sales NAICS code AND MLM/pyramid
+  // compensation-structure language are present — a NAICS match alone is
+  // too common among legitimate direct sellers, and text alone can be a
+  // false positive (e.g. discussing a competitor). Text-only match
+  // downgrades to pass-with-flag-for-review rather than a blind pass.
+  const naicsPrefix6 = naics; // full code — these prefixes are 6-digit
+  const hasMlmNaics = PYRAMID_MLM_NAICS_PREFIXES.has(naicsPrefix6);
+  const hasMlmText = PYRAMID_MLM_TEXT_PATTERNS.some((p) => p.test(uopText));
+  if (hasMlmNaics && hasMlmText) {
+    checks.push(mkCheck("pyramid_mlm", "other", false, SOP.pyramid,
+      `NAICS ${naics} combined with pyramid/MLM compensation-structure language in use-of-proceeds`));
+    failures.push(mkFail("pyramid_mlm", "other",
+      "Direct-sales NAICS code combined with pyramid/MLM compensation-structure language; SBA excludes this category",
+      SOP.pyramid));
+  } else if (hasMlmText) {
+    checks.push(mkCheck("pyramid_mlm", "other", true, SOP.pyramid,
+      "pyramid/MLM text pattern present without confirmatory NAICS — flagged for underwriter review"));
+  } else {
+    checks.push(mkCheck("pyramid_mlm", "other", true, SOP.pyramid,
+      "no pyramid/MLM signal detected"));
+  }
 
   // ─── 9. Lending / investment business ─────────────────────────────────
   const naicsPrefix = naics.slice(0, 3);

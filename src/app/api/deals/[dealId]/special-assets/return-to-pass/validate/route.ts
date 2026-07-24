@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { validateResolution } from "@/core/special-assets-fusion/validateResolution";
 import { assertDealAccess } from "@/lib/server/deal-access";
@@ -24,8 +24,10 @@ export async function POST(
 
     await assertDealAccess(dealId);
 
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 

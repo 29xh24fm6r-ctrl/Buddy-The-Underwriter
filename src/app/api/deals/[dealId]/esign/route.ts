@@ -2,26 +2,23 @@ import "server-only";
 
 /**
  * SPEC S3 B-7 — /api/deals/[dealId]/esign
- * POST -> request a signature (DocuSeal submission)
- * GET  ?submissionId=... -> submission status
+ * POST -> request a signature (SignWell document)
+ * GET  ?submissionId=... -> document status
  *
  * Consolidates the former separate esign/request (POST) and
  * esign/status/[submissionId] (GET) route files into one file — route/page
  * slot budget discipline (see the Drift Log). The POST path changes from
  * /esign/request to /esign (caller updated: SbaSigningPanel.tsx); GET had
- * no caller.
+ * no caller. Vendor is SignWell (replaces DocuSeal — see
+ * docs/build-logs/ARC00_VENDOR_PROVISIONING_CHECKLIST.md item 3).
  */
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { assertDealAccess } from "@/lib/server/deal-access";
-import { requestSignature } from "@/lib/esign/docuseal/service";
-import {
-  createDocusealSubmission,
-  fetchDocusealSubmission,
-  downloadDocusealSignedPdf,
-  downloadDocusealAuditTrail,
-} from "@/lib/esign/docuseal/client";
+import { requestSignature } from "@/lib/esign/signwell/service";
+import { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
+import { resolveFilledPdfForSigning } from "@/lib/esign/signwell/resolveFilledPdfForSigning";
 import { accessErrorToResponse } from "@/lib/server/withDealAccess";
 
 export const runtime = "nodejs";
@@ -62,6 +59,7 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
     }
 
+    const sb = supabaseAdmin();
     const result = await requestSignature(
       {
         dealId,
@@ -74,8 +72,9 @@ export async function POST(req: Request, ctx: Ctx) {
         signerName,
       },
       {
-        sb: supabaseAdmin(),
-        docuseal: { createDocusealSubmission, fetchDocusealSubmission, downloadDocusealSignedPdf, downloadDocusealAuditTrail },
+        sb,
+        signwell: { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf },
+        renderFilledPdf: (a) => resolveFilledPdfForSigning({ ...a, supabase: sb }),
       },
     );
 
@@ -84,7 +83,7 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: result.reason, detail: result.detail }, { status });
     }
 
-    return NextResponse.json({ ok: true, submission_id: result.submissionId, embed_url: result.embedUrl });
+    return NextResponse.json({ ok: true, submission_id: result.documentId, embed_url: result.embedUrl });
   } catch (e: unknown) {
     const accessRes = accessErrorToResponse(e);
     if (accessRes) return accessRes;
@@ -108,15 +107,15 @@ export async function GET(req: Request, ctx: Ctx) {
       .from("signed_documents")
       .select("*")
       .eq("deal_id", dealId)
-      .eq("docuseal_submission_id", submissionId)
+      .eq("esign_document_id", submissionId)
       .maybeSingle();
 
     if (signedDoc) {
       return NextResponse.json({ ok: true, status: "completed", signedDocument: signedDoc });
     }
 
-    const submission = await fetchDocusealSubmission(submissionId);
-    return NextResponse.json({ ok: true, status: submission.status, submission });
+    const document = await fetchSignwellDocument(submissionId);
+    return NextResponse.json({ ok: true, status: document.status, submission: document });
   } catch (e: unknown) {
     const accessRes = accessErrorToResponse(e);
     if (accessRes) return accessRes;

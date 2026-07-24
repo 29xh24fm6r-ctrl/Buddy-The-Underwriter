@@ -73,20 +73,30 @@ export interface ETranData {
   }>;
 }
 
+export type ETranGeneratorSupabaseClient = { from: (table: string) => any };
+
 /**
- * Generate E-Tran XML from deal truth snapshot
+ * Generate E-Tran XML from deal truth snapshot.
+ *
+ * `sb` is DI'd (defaults to supabaseAdmin()) — same testability pattern as
+ * submitter.ts, so this function's real bug (querying a "truth" column
+ * that has never existed; the real column is deal_truth_snapshots.truth_json,
+ * see the 20251227000002_agent_arbitration.sql / 20260718000008 migrations)
+ * can actually be covered by a regression test instead of only being
+ * catchable by hand-inspection.
  */
 export async function generateETranXML(params: {
   dealId: string;
   bankId: string;
   truthSnapshotId?: string;
+  sb?: ETranGeneratorSupabaseClient;
 }): Promise<{
   xml: string;
   validation_errors: string[];
   ready_for_review: boolean;
 }> {
-  const sb = supabaseAdmin();
-  
+  const sb = params.sb ?? supabaseAdmin();
+
   // Get latest truth snapshot if not specified
   let snapshotId = params.truthSnapshotId;
   if (!snapshotId) {
@@ -97,10 +107,10 @@ export async function generateETranXML(params: {
       .order("version", { ascending: false })
       .limit(1)
       .single();
-    
+
     snapshotId = snapshot?.id;
   }
-  
+
   if (!snapshotId) {
     return {
       xml: "",
@@ -108,34 +118,34 @@ export async function generateETranXML(params: {
       ready_for_review: false,
     };
   }
-  
+
   // Get truth snapshot
-  const { data: truth, error: truthErr } = await sb
+  const { data: snapshotRow, error: truthErr } = await sb
     .from("deal_truth_snapshots")
-    .select("truth")
+    .select("truth_json")
     .eq("id", snapshotId)
     .single();
-  
-  if (truthErr || !truth) {
+
+  if (truthErr || !snapshotRow) {
     return {
       xml: "",
       validation_errors: ["Failed to load truth snapshot"],
       ready_for_review: false,
     };
   }
-  
+
   // Get bank settings for SBA lender ID
   const { data: bank } = await sb
     .from("banks")
     .select("settings")
     .eq("id", params.bankId)
     .single();
-  
+
   const lenderId = bank?.settings?.sba_lender_id || process.env.SBA_LENDER_ID || "";
   const serviceCenter = bank?.settings?.sba_service_center || process.env.SBA_SERVICE_CENTER || "";
-  
+
   // Map truth snapshot to E-Tran data
-  const etranData = mapTruthToETran(truth.truth, lenderId, serviceCenter);
+  const etranData = mapTruthToETran(snapshotRow.truth_json, lenderId, serviceCenter);
   
   // Validate data
   const validationErrors = validateETranData(etranData);

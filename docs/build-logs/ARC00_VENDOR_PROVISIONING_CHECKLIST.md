@@ -10,9 +10,9 @@ below requires either a business relationship, a government approval, or a
 credential that only a human with account access can obtain.
 
 **How to use this:** work top to bottom, roughly in priority order (Plaid
-and Persona/DocuSeal unblock the most downstream form-fill/e-sign work;
-SBA E-Tran is last because nothing upstream of it in the pipeline depends
-on it). For each item, the "Verify" step tells you how to confirm Buddy
+and Didit/SignWell unblock the most downstream form-fill/e-sign work; SBA
+E-Tran is last because nothing upstream of it in the pipeline depends on
+it). For each item, the "Verify" step tells you how to confirm Buddy
 picked it up — mostly "trigger the flow and see the error message change
 from vendor-credentials-missing to something else."
 
@@ -48,72 +48,81 @@ deferred to v2 — today it's one global Plaid app for the whole platform.
 
 ---
 
-## 2. Persona — IAL2 identity verification
+## 2. Didit — IAL2-equivalent identity verification
 
 **What it's for:** required before any SBA form can be e-signed (SOP 50
 10 8 Appendix 10 identity-proofing requirement).
 
-**Get:** a Persona account, then build an **IAL2 inquiry template** in
-the Persona dashboard (government ID + selfie liveness check, IAL2 tier
-specifically — not the default IAL1 template).
+**Replaced Persona 2026-07-15** — same requirement, different vendor.
+Persona was built but never provisioned; Didit was chosen instead after a
+cost/build comparison (80% cheaper per check, 500/mo free permanently,
+SOC 2 Type I + ISO/IEC 27001:2022 + iBeta Level 1 liveness cert). Whether
+Didit is acceptable to Buddy's lender partners (some banks maintain an
+approved-vendor list) is a business/compliance question for Matt and the
+CCO, not settled by this checklist — pilot in parallel with the current
+setup before treating it as final.
+
+**Get:** a Didit account at https://business.didit.me, then build a
+**verification workflow** in the Didit dashboard (ID scan + liveness +
+face match) — note its `workflow_id`.
 
 **Set:**
-- `PERSONA_API_KEY`
-- `PERSONA_TEMPLATE_ID_IAL2` (format `itmpl_...`)
-- `PERSONA_WEBHOOK_SECRET` — configure a Persona webhook pointing at
-  `https://<buddy-app-domain>/api/webhooks/persona`, verifies the
-  `Persona-Signature` header
+- `DIDIT_API_KEY`
+- `DIDIT_WORKFLOW_ID`
+- `DIDIT_WEBHOOK_SECRET_KEY` — configure a Didit webhook pointing at
+  `https://<buddy-app-domain>/api/webhooks/didit`; verifies the
+  `X-Signature-Simple` + `X-Timestamp` headers (see
+  `src/lib/identity/kyc/verifyDiditWebhook.ts` — this scheme was never
+  checked against a live account during the build; Didit's docs describe
+  a stronger `X-Signature-V2` canonicalized-body scheme as preferred, not
+  yet implemented pending that confirmation)
 
 **Verify:** initiate identity verification for a test owner
-(`POST /api/deals/[dealId]/kyc`), complete the Persona-hosted flow,
-confirm the webhook lands and the owner's verification status flips.
+(`POST /api/deals/[dealId]/kyc`), complete the Didit-hosted flow, confirm
+the webhook lands and the owner's verification status flips. Also spot-
+check that Didit's decision payload (document type, name, DOB, selfie
+match score) actually matches the field paths assumed in
+`src/lib/identity/kyc/service.ts`'s `handleDiditWebhook` — those detail
+fields aren't populated yet pending that confirmation (status is).
 
 ---
 
-## 3. DocuSeal — e-signature
+## 3. SignWell — e-signature
 
 **What it's for:** signing every fillable SBA form (1919, 413, 912,
-1244, 4506-C, 148/148L, 601, and Form 155's borrower side). Self-hosted,
-AGPL-3.0 — **never modify the DocuSeal source**, run the unmodified
-container only.
+1244, 4506-C, 148/148L, 601, and Form 155's borrower side).
 
-**This is the biggest lift on this list** — it's a deployment, not just
-an account. Full runbook: `infrastructure/docuseal/README.md`.
+**Replaced DocuSeal 2026-07-15** — DocuSeal was fully built
+(`src/lib/esign/docuseal/`) but never deployed; self-hosting it would
+have added a second unmanaged service on top of unresolved ops debt on
+the Chatto droplet (no offsite backups, no fail2ban, SSH hardening
+pending). SignWell is a hosted REST API on every tier including free —
+no deployment, no separate Postgres database, no Cloud Run cold-start
+risk during a live signing ceremony.
 
-**Get / do, in order:**
-1. GCP project access with Artifact Registry + Cloud Run + Secret Manager
-   permissions on the `buddy-the-underwriter` project (or wherever this
-   gets deployed).
-2. Provision a Postgres database for DocuSeal itself — **a separate
-   database from Buddy's Supabase project**, isolated from Buddy's RLS
-   and schema.
-3. Build + push the DocuSeal image, deploy to Cloud Run
-   (`infrastructure/docuseal/cloudrun.yaml`), map the domain
-   (`docuseal.buddytheunderwriter.com` via GoDaddy CNAME). Budget ~$20-30/mo
-   for `minScale=1` (keeps one instance warm — avoids cold-start delays
-   during a live signing ceremony).
-4. In the DocuSeal admin UI: generate an API token, configure a webhook
-   pointing at `https://<buddy-app-domain>/api/webhooks/docuseal`
-   with a secret, upload the SBA Form 1919 and Form 413 PDF templates.
+**Get:** a SignWell account at https://www.signwell.com (free, no card).
+Get the API key from **Settings > API**. Build a template for each SBA
+form under **Templates**, note each `template_id`, and configure a
+webhook under **API > Webhooks** pointing at
+`https://<buddy-app-domain>/api/webhooks/signwell` — the response
+includes a webhook id, which is the HMAC key (not the API key).
 
 **Set:**
-- `DOCUSEAL_BASE_URL`, `DOCUSEAL_BASE_URL_PUBLIC` (already correct in
-  `.env.example` if you use the domain above)
-- `DOCUSEAL_API_TOKEN`
-- `DOCUSEAL_WEBHOOK_SECRET`
-- `DOCUSEAL_TEMPLATE_1919`, `DOCUSEAL_TEMPLATE_413` — **note the exact
-  names**: `.env.example` and the README used to say
-  `DOCUSEAL_TEMPLATE_FORM_1919`/`_FORM_413` (with `FORM_`); the actual
-  code (`src/lib/esign/docuseal/service.ts:42`) never reads those names.
-  Both docs were corrected 2026-07-12 — if you're working from an older
-  copy or Slack message, use the names without `FORM_`.
+- `SIGNWELL_API_KEY`
+- `SIGNWELL_TEST_MODE` (`true` in dev — documents don't count against
+  billing and aren't legally binding; `false` in prod)
+- `SIGNWELL_WEBHOOK_ID` — from the webhook Create/List response
+- `SIGNWELL_TEMPLATE_1919`, `SIGNWELL_TEMPLATE_413` — **no `FORM_`
+  infix**, same convention DocuSeal used
+  (`src/lib/esign/signwell/service.ts` reads these exact names)
 
-**Verify:** confirm
-`src/lib/esign/docuseal/verifyDocusealWebhook.ts`'s assumed header format
-(`X-Docuseal-Signature: <hex HMAC-SHA256 of raw body>`) actually matches
-what your deployed instance sends — this was never checked against a
-live instance during the build. Then run a real signature request for
-Form 1919 end to end and confirm `signed_documents` gets a row.
+**Verify:** confirm `src/lib/esign/signwell/verifySignwellWebhook.ts`'s
+assumed payload shape (`event.type`/`event.time`/`event.hash` embedded in
+the JSON body, keyed by the webhook id) actually matches what SignWell
+sends — this was built from SignWell's public API reference without a
+live account to confirm against. Then run a real signature request for
+Form 1919 end to end and confirm `signed_documents` gets a row with
+`esign_provider = 'signwell'`.
 
 ---
 

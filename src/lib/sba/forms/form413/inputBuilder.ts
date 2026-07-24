@@ -20,6 +20,14 @@ function sumOrNull(values: Array<number | null | undefined>): number | null {
  * the original net_worth/liquid_assets summary. asset_total/liability_total
  * are derived by summing the itemized lines rather than asked directly —
  * they surface as complete once their components are known.
+ *
+ * Rewritten against the real current-revision PDF (see fields.ts /
+ * pdfFieldMap.ts): full SSN and spouse full SSN (both via
+ * deal_pii_records, presence markers only — see render.ts for the
+ * decrypt step; spouse SSN is stored under the same owner's
+ * ownership_entity_id with pii_type "spouse_full_ssn"), and the itemized
+ * supporting schedules (notes payable, securities, up to 3 real estate
+ * properties) from the new borrower_pfs_* tables.
  */
 export async function buildForm413Input(
   dealId: string,
@@ -28,15 +36,16 @@ export async function buildForm413Input(
   const { data: deal } = await sb.from("deals").select("borrower_id").eq("id", dealId).maybeSingle();
   const borrowerId = (deal as { borrower_id?: string } | null)?.borrower_id ?? null;
   const { data: borrower } = borrowerId
-    ? await sb.from("borrowers").select("legal_name, phone").eq("id", borrowerId).maybeSingle()
+    ? await sb.from("borrowers").select("legal_name, phone, entity_type").eq("id", borrowerId).maybeSingle()
     : { data: null };
   const businessName = (borrower as { legal_name?: string } | null)?.legal_name ?? null;
   const businessPhone = (borrower as { phone?: string } | null)?.phone ?? null;
+  const businessEntityType = (borrower as { entity_type?: string } | null)?.entity_type ?? null;
 
   const { data: ownershipEntities } = await sb
     .from("ownership_entities")
     .select(
-      "id, entity_type, display_name, tax_id_last4, ownership_pct, date_of_birth, home_phone, " +
+      "id, entity_type, display_name, ownership_pct, date_of_birth, home_phone, " +
         "business_phone, has_spouse, spouse_full_name, " +
         "home_address_street, home_address_city, home_address_state, home_address_zip, evidence_json",
     )
@@ -61,8 +70,8 @@ export async function buildForm413Input(
           "liability_other, contingent_as_endorser_or_comaker, contingent_legal_claims_judgments, " +
           "contingent_provision_for_federal_income_tax, contingent_other_special_debt, income_salary, " +
           "income_net_investment, income_real_estate, income_other, income_other_description, " +
-          "real_estate_property_address, real_estate_type_title, real_estate_original_cost, " +
-          "real_estate_present_market_value, real_estate_amount_of_mortgage",
+          "other_personal_property_description, unpaid_taxes_description, other_liabilities_description, " +
+          "life_insurance_description",
       )
       .eq("applicant_id", owner.id)
       .maybeSingle();
@@ -92,6 +101,38 @@ export async function buildForm413Input(
       f.liability_other as number | null,
     ]);
 
+    const { data: piiRows } = await sb
+      .from("deal_pii_records")
+      .select("pii_type")
+      .eq("deal_id", dealId)
+      .eq("ownership_entity_id", owner.id)
+      .in("pii_type", ["full_ssn", "spouse_full_ssn"]);
+    const piiTypesOnFile = new Set(((piiRows ?? []) as Array<{ pii_type: string }>).map((r) => r.pii_type));
+    const ssnOnFile = piiTypesOnFile.has("full_ssn");
+    const spouseSsnOnFile = piiTypesOnFile.has("spouse_full_ssn");
+
+    const { data: notesPayable } = await sb
+      .from("borrower_pfs_notes_payable")
+      .select("noteholder_name_address, original_balance, current_balance, payment_amount, payment_frequency, collateral_description")
+      .eq("applicant_id", owner.id)
+      .order("sort_order", { ascending: true })
+      .limit(5);
+
+    const { data: securities } = await sb
+      .from("borrower_pfs_securities")
+      .select("number_of_shares, name_of_securities, cost, market_value_quotation_exchange, date_of_quotation, total_value")
+      .eq("applicant_id", owner.id)
+      .order("sort_order", { ascending: true })
+      .limit(4);
+
+    const { data: realEstate } = await sb
+      .from("borrower_pfs_real_estate")
+      .select(
+        "property_label, property_type, address, date_purchased, original_cost, present_market_value, " +
+          "mortgage_holder_name_address, mortgage_account_number, mortgage_balance, mortgage_payment_per_month_year, mortgage_status",
+      )
+      .eq("applicant_id", owner.id);
+
     signers.push({
       ownership_entity_id: String(owner.id),
       fields: {
@@ -102,9 +143,11 @@ export async function buildForm413Input(
         address_zip: owner.home_address_zip ?? evidence.home_address_zip ?? null,
         business_phone: owner.business_phone ?? businessPhone ?? null,
         home_phone: owner.home_phone ?? evidence.home_phone ?? null,
-        ssn_last4: owner.tax_id_last4 ?? null,
+        // Presence marker only — see render.ts for the decrypt step.
+        full_ssn: ssnOnFile ? "on_file" : null,
         date_of_birth: owner.date_of_birth ?? evidence.date_of_birth ?? null,
         business_name: businessName,
+        business_entity_type: businessEntityType,
 
         asset_cash_on_hand_and_in_banks: f.liquid_assets ?? null,
         asset_savings_accounts: f.asset_savings_accounts ?? null,
@@ -140,15 +183,21 @@ export async function buildForm413Input(
         income_other: f.income_other ?? null,
         income_other_description: f.income_other_description ?? null,
 
-        real_estate_property_address: f.real_estate_property_address ?? null,
-        real_estate_type_title: f.real_estate_type_title ?? null,
-        real_estate_original_cost: f.real_estate_original_cost ?? null,
-        real_estate_present_market_value: f.real_estate_present_market_value ?? null,
-        real_estate_amount_of_mortgage: f.real_estate_amount_of_mortgage ?? null,
+        notes_payable: notesPayable ?? [],
+        securities: securities ?? [],
+        real_estate_properties: realEstate ?? [],
+        other_personal_property_description: f.other_personal_property_description ?? null,
+        unpaid_taxes_description: f.unpaid_taxes_description ?? null,
+        other_liabilities_description: f.other_liabilities_description ?? null,
+        life_insurance_description: f.life_insurance_description ?? null,
 
         signed_at: null,
         has_spouse: owner.has_spouse ?? evidence.has_spouse ?? null,
         spouse_full_name: owner.spouse_full_name ?? evidence.spouse_full_name ?? null,
+        // Presence marker only, same pattern as full_ssn above — see
+        // render.ts for the decrypt step. Stored under this same owner's
+        // ownership_entity_id with pii_type "spouse_full_ssn".
+        spouse_full_ssn: spouseSsnOnFile ? "on_file" : null,
       },
     });
   }

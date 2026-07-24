@@ -1,0 +1,2086 @@
+{
+  "file": "source: user-provided upload, 2026-07-17, dumped via pdf-lib getForm().getFields() + /TU tooltip extraction",
+  "pageCount": 7,
+  "fieldCount": 126,
+  "fields": [
+    {
+      "name": "applicantname",
+      "type": "PDFTextField",
+      "tooltip": "Enter the Applicant Business Legal Name.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 238.01,
+          "y": 698.898,
+          "width": 345.898,
+          "height": 15.80099999999993
+        }
+      ]
+    },
+    {
+      "name": "OC",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant is an Operating Company (OC), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 179.6,
+          "y": 703.28,
+          "width": 9,
+          "height": 7.927000000000021
+        }
+      ]
+    },
+    {
+      "name": "EPC",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant is an Eligible Passive Company (EPC), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 212.16,
+          "y": 703.28,
+          "width": 9,
+          "height": 7.927000000000021
+        }
+      ]
+    },
+    {
+      "name": "operatingnbusname",
+      "type": "PDFTextField",
+      "tooltip": "If EPC is checked, enter the Operating Business Legal Name. ",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 237.864,
+          "y": 682.112,
+          "width": 346.0949999999999,
+          "height": 15.801000000000045
+        }
+      ]
+    },
+    {
+      "name": "dba",
+      "type": "PDFTextField",
+      "tooltip": "Enter the DBA or Tradename, if applicable.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 237.864,
+          "y": 665.45,
+          "width": 345.832,
+          "height": 15.80099999999993
+        }
+      ]
+    },
+    {
+      "name": "busTIN",
+      "type": "PDFTextField",
+      "tooltip": "Enter the Business TIN (may be an EIN or an SSN). ",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 237.864,
+          "y": 648.884,
+          "width": 345.701,
+          "height": 15.538000000000011
+        }
+      ]
+    },
+    {
+      "name": "PrimarIndustry",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the 6-digit Primary Industry or NAICS code here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 237.94,
+          "y": 631.343,
+          "width": 57.952999999999975,
+          "height": 16.677999999999997
+        }
+      ]
+    },
+    {
+      "name": "busphone",
+      "type": "PDFTextField",
+      "tooltip": "Enter the primary business phone number, including area code. ",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.039,
+          "y": 631.343,
+          "width": 192.67200000000003,
+          "height": 16.677999999999997
+        }
+      ]
+    },
+    {
+      "name": "UniqueEntityID",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the Unique Entity ID used in SAM.gov, if applicable.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 237.94,
+          "y": 615.251,
+          "width": 57.952999999999975,
+          "height": 15.970000000000027
+        }
+      ]
+    },
+    {
+      "name": "yearbeginoperations",
+      "type": "PDFTextField",
+      "tooltip": "Enter the four-digit year the applicant business began operations.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.039,
+          "y": 615.139,
+          "width": 192.73800000000006,
+          "height": 15.801000000000045
+        }
+      ]
+    },
+    {
+      "name": "soleprop",
+      "type": "PDFCheckBox",
+      "tooltip": "If the entity type is Sole Proprietor, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 98.269,
+          "y": 603.96,
+          "width": 8.039999999999992,
+          "height": 7.817000000000007
+        }
+      ]
+    },
+    {
+      "name": "partnership",
+      "type": "PDFCheckBox",
+      "tooltip": "If the entity type is Partnership, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 98.269,
+          "y": 592.238,
+          "width": 8.039999999999992,
+          "height": 7.816999999999894
+        }
+      ]
+    },
+    {
+      "name": "ccorp",
+      "type": "PDFCheckBox",
+      "tooltip": "If the entity type is C-Corp, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 98.269,
+          "y": 581.093,
+          "width": 8.039999999999992,
+          "height": 7.817000000000007
+        }
+      ]
+    },
+    {
+      "name": "scorp",
+      "type": "PDFCheckBox",
+      "tooltip": "If the entity type is S-Corp, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 98.269,
+          "y": 569.949,
+          "width": 8.039999999999992,
+          "height": 7.817000000000007
+        }
+      ]
+    },
+    {
+      "name": "llc",
+      "type": "PDFCheckBox",
+      "tooltip": "If the entity type is LLC, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 98.269,
+          "y": 558.804,
+          "width": 8.039999999999992,
+          "height": 7.817000000000007
+        }
+      ]
+    },
+    {
+      "name": "etother",
+      "type": "PDFCheckBox",
+      "tooltip": "If the entity type is Other, please check this box by clicking or pressing the Enter key or space bar, then enter a description in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 98.269,
+          "y": 547.659,
+          "width": 8.039999999999992,
+          "height": 7.817000000000007
+        }
+      ]
+    },
+    {
+      "name": "entityother",
+      "type": "PDFTextField",
+      "tooltip": "Please specify what other type of entity the applicant business is.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 130.957,
+          "y": 546.14,
+          "width": 99.42500000000001,
+          "height": 11.82000000000005
+        }
+      ]
+    },
+    {
+      "name": "ownESOP",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Special Ownership Type is Employee Stock Ownership Plan (ESOP), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 390.84,
+          "y": 603.715,
+          "width": 8.04000000000002,
+          "height": 7.764999999999986
+        }
+      ]
+    },
+    {
+      "name": "own401k",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Special Ownership Type is 401(k) or ROBS 401(k) Trust, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 390.84,
+          "y": 591.663,
+          "width": 8.04000000000002,
+          "height": 8.736999999999966
+        }
+      ]
+    },
+    {
+      "name": "ownCooperative",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Special Ownership Type is Cooperative, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 390.84,
+          "y": 580.503,
+          "width": 8.04000000000002,
+          "height": 8.736999999999966
+        }
+      ]
+    },
+    {
+      "name": "ownNATribe",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Special Ownership Type is Native-American Tribal-Owned Business, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 390.84,
+          "y": 569.343,
+          "width": 8.04000000000002,
+          "height": 8.73700000000008
+        }
+      ]
+    },
+    {
+      "name": "ownOther",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Special Ownership Type is Other, please check this box by clicking or pressing the Enter key or space bar, then describe the other ownership type in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 390.84,
+          "y": 558.183,
+          "width": 8.04000000000002,
+          "height": 8.736999999999966
+        }
+      ]
+    },
+    {
+      "name": "specOwnTypeOther",
+      "type": "PDFTextField",
+      "tooltip": "Please specify the other special ownership type of the applicant business.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 423.96,
+          "y": 557.72,
+          "width": 117.65500000000003,
+          "height": 10.319999999999936
+        }
+      ]
+    },
+    {
+      "name": "busAddr",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the Applicant business full address, including street, city, state, and zip code.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 35.683,
+          "y": 450.283,
+          "width": 264.028,
+          "height": 70.21699999999998
+        }
+      ]
+    },
+    {
+      "name": "projAddr",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the Applicant business project address, if different from the business address, including street, city, state, and zip code.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 301.152,
+          "y": 450.249,
+          "width": 282.527,
+          "height": 70.25099999999998
+        }
+      ]
+    },
+    {
+      "name": "pocName",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the primary contact's name here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 472.44,
+          "y": 432.759,
+          "width": 111.00000000000006,
+          "height": 15.906000000000006
+        }
+      ]
+    },
+    {
+      "name": "pocEmail",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the primary contact's email address here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 472.44,
+          "y": 415.999,
+          "width": 111.00000000000006,
+          "height": 15.875
+        }
+      ]
+    },
+    {
+      "name": "existEmp",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the number of existing employees here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 472.44,
+          "y": 388.434,
+          "width": 111.00000000000006,
+          "height": 26.565999999999974
+        }
+      ]
+    },
+    {
+      "name": "fteJobs",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the number of FTE jobs retained or saved in the next two years because of the loan, including owners.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 472.44,
+          "y": 371.339,
+          "width": 111.00000000000006,
+          "height": 16.158000000000015
+        }
+      ]
+    },
+    {
+      "name": "debtAmt",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the debt refinance here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 511.92,
+          "y": 284.418,
+          "width": 60.839999999999975,
+          "height": 11.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "purchConstr",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is the purchase of an existing building or the construction of commerical real estate, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 304.273,
+          "y": 318.553,
+          "width": 9.236999999999966,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "purchAmt",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the building purchase or construction here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 511.92,
+          "y": 317.96,
+          "width": 60.839999999999975,
+          "height": 11.28000000000003
+        }
+      ]
+    },
+    {
+      "name": "ownName1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the first owner's legal name, including first, middle, and last names.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.24,
+          "y": 164.32,
+          "width": 110.39999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownTitle1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the first owner's title here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 148.68,
+          "y": 164.32,
+          "width": 110.51999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownPerc1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the first owner's percent ownership here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 261.24,
+          "y": 164.32,
+          "width": 56.39999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownTin1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the first owner's TIN (SSN or EIN).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 319.68,
+          "y": 164.32,
+          "width": 69.95999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownHome1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the first owner's home address here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.68,
+          "y": 164.32,
+          "width": 191.52000000000004,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownName2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the second owner's legal name, including first, middle, and last names.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.24,
+          "y": 137.575,
+          "width": 110.39999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownTitle2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the second owner's title here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 148.68,
+          "y": 137.575,
+          "width": 110.51999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownPerc2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the second owner's percent ownership here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 261.24,
+          "y": 138.049,
+          "width": 56.39999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownTin2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the second owner's TIN (SSN or EIN).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 319.68,
+          "y": 137.575,
+          "width": 69.95999999999998,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownHome2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the second owner's home address here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.68,
+          "y": 137.575,
+          "width": 191.52000000000004,
+          "height": 24.305000000000007
+        }
+      ]
+    },
+    {
+      "name": "ownName3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the third owner's legal name, including first, middle, and last names.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.24,
+          "y": 111.175,
+          "width": 110.39999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownTitle3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the third owner's title here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 148.68,
+          "y": 111.175,
+          "width": 110.51999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownPerc3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the third owner's percent ownership here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 261.24,
+          "y": 111.175,
+          "width": 56.39999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownTin3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the third owner's TIN (SSN or EIN).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 319.68,
+          "y": 111.175,
+          "width": 69.95999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownHome3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the third owner's home address here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.68,
+          "y": 111.175,
+          "width": 191.52000000000004,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownName4",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fourth owner's legal name, including first, middle, and last names.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.24,
+          "y": 84.775,
+          "width": 110.39999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownTitle4",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fourth owner's title here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 148.68,
+          "y": 84.775,
+          "width": 110.51999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownPerc4",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fourth owner's percent ownership here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 261.24,
+          "y": 84.775,
+          "width": 56.39999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownTin4",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fourth owner's TIN (SSN or EIN).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 319.68,
+          "y": 84.775,
+          "width": 69.95999999999998,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownHome4",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fourth owner's home address here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.68,
+          "y": 84.775,
+          "width": 191.52000000000004,
+          "height": 24.304999999999993
+        }
+      ]
+    },
+    {
+      "name": "ownName5",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fifth owner's legal name, including first, middle, and last names.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 36.24,
+          "y": 58.3746,
+          "width": 110.39999999999998,
+          "height": 24.305400000000006
+        }
+      ]
+    },
+    {
+      "name": "ownTitle5",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fifth owner's title here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 148.68,
+          "y": 58.3746,
+          "width": 110.51999999999998,
+          "height": 24.305400000000006
+        }
+      ]
+    },
+    {
+      "name": "ownPerc5",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fifth owner's percent ownership here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 261.24,
+          "y": 58.3746,
+          "width": 56.39999999999998,
+          "height": 24.305400000000006
+        }
+      ]
+    },
+    {
+      "name": "ownTin5",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fifth owner's TIN (SSN or EIN).",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 319.68,
+          "y": 58.3746,
+          "width": 69.95999999999998,
+          "height": 24.305400000000006
+        }
+      ]
+    },
+    {
+      "name": "ownHome5",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the fifth owner's home address here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 391.68,
+          "y": 58.3746,
+          "width": 191.52000000000004,
+          "height": 24.305400000000006
+        }
+      ]
+    },
+    {
+      "name": "ownPos",
+      "type": "PDFTextField",
+      "tooltip": "Enter the owner's position.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 256.827999,
+          "y": 638.003,
+          "width": 326.943001,
+          "height": 20.659999999999968
+        }
+      ]
+    },
+    {
+      "name": "statNonVet",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner is not a veteran, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 197,
+          "y": 622.84,
+          "width": 9.238,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "statVet",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner is a veteran, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 261.959999,
+          "y": 632.08,
+          "width": 9.238000999999997,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "statVetD",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner is a service-disabled veteran, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 307.08,
+          "y": 632.08,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "statVetSp",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner is a veteran's spouse, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 416.64,
+          "y": 632.08,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "statND",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner didn't disclose their veteran status, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 500.04,
+          "y": 631.916,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "male",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner is male, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 197,
+          "y": 615.04,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "female",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner is female, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 233.4,
+          "y": 615.04,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "raceAIAN",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's race is American Indian or Alaska Native, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 197,
+          "y": 599,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "raceAsian",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's race is Asian, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 340.16,
+          "y": 599,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "raceBAA",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's race is Black or African American, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 380.24,
+          "y": 599,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "raceNHPI",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's race is Native Hawaiian or Pacific Islander, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 197,
+          "y": 586.04,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "raceWhite",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's race is White, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 345.2,
+          "y": 586.04,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "raceND",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner did not disclose their race, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 386.24,
+          "y": 586.04,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "ethHisp",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's ethnicity is Hispanic or Latino, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 197,
+          "y": 569.2,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "ethNot",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's ethnicity is not Hispanic or Latino, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 284.64,
+          "y": 569.2,
+          "width": 9.238,
+          "height": -9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "ethND",
+      "type": "PDFCheckBox",
+      "tooltip": "If the owner's ethnicity is not disclosed, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 385.88,
+          "y": 559.96,
+          "width": 9.238,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "q1Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the applicant or any associate is presently suspended, debarred, proposed for debarment, declared ineligible, voluntarily excluded from participation in a transaction by any Federal department or agency, or presently involved in any bankruptcy, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 490.469,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q1No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the applicant or any associate is not presently suspended, debarred, proposed for debarment, declared ineligible, voluntarily excluded from participation in a transaction by any Federal department or agency, or presently involved in any bankruptcy, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 490.469,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q2Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the applicant or any associate is currently delinquent or has ever defaulted on a direct or guaranteed loan or been a guarantor on such a loan, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 453.862,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q2No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the applicant or any associate is not currently delinquent and has never defaulted on a direct or guaranteed loan or been a guarantor on such a loan, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 453.862,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q3Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant or any owner of the Applicant is an owner of any other business, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 422.497,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q3No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant and any owners of the Applicant are not owners of any other business, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 422.497,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q4Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant or any Associate of the Applicant is currently incarcerated or under indictment for a felony or any crime involving or relating to financial misconduct or a false statement, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 391.234,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q4No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant and any Associate of the Applicant are not currently incarcerated or under indictment for a felony or any crime involving or relating to financial misconduct or a false statement, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 391.234,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q4Init",
+      "type": "PDFSignature",
+      "tooltip": "Please enter your electronic signature to confirm your response to question 4 by clicking or pressing the Enter key.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 518.124,
+          "y": 365.44,
+          "width": 65.35299999999995,
+          "height": 17.072000000000003
+        }
+      ]
+    },
+    {
+      "name": "q5Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant has paid or committed to pay a fee to the Lender/CDC or a third party to assist in the preparation of the loan application or application materials, or if the Applicant has paid or committed to pay a referral agent or broker a fee, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 337.271,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q5No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant has not paid or committed to pay a fee to the Lender/CDC or a third party to assist in the preparation of the loan application or application materials, and if the Applicant has not paid or committed to pay a referral agent or broker a fee, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 337.271,
+          "width": 19.576999999999998,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q6Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the applicant has paid or committed to pay a fee to the Lender or a third party to assist in the preparation of the loan application or application materials, or if the applicant has paid or committed to pay a referral agent or broker a fee, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 241.38,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q6No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the applicant has not paid or committed to pay a fee to the Lender or a third party to assist in the preparation of the loan application or application materials, and the applicant has not paid or committed to pay a referral agent or broker a fee, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 241.38,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q7Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If any of the Applicant\u2019s revenues are derived from gambling, loan packaging, lending activities, lobbying activities, or from the sale of products or services, or the presentation of any depiction, displays or live performances, of a prurient sexual nature, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 204.432,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q7No",
+      "type": "PDFCheckBox",
+      "tooltip": "If none of the Applicant\u2019s revenues are derived from gambling, loan packaging, lending activities, lobbying activities, or from the sale of products or services, or the presentation of any depiction, displays or live performances, of a prurient sexual nature, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 204.432,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q8Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If any sole proprietor, partner, officer, director, stockholder with a 10% or more interest in the Applicant is an SBA employee or a Household Member of an SBA employee, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 161.556,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q8No",
+      "type": "PDFCheckBox",
+      "tooltip": "If no sole proprietor, partner, officer, director, stockholder with a 10% or more interest in the Applicant is an SBA employee or a Household Member of an SBA employee, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 161.556,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q9Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If any employee, owner, partner, attorney, agent, owner of stock, officer, director, creditor or debtor of the Applicant is a former SBA employee who has been separated from SBA for less than one year prior to the request for financial assistance, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 126.235,
+          "width": 18,
+          "height": 18.000000000000014
+        }
+      ]
+    },
+    {
+      "name": "q9No",
+      "type": "PDFCheckBox",
+      "tooltip": "If no employee, owner, partner, attorney, agent, owner of stock, officer, director, creditor or debtor of the Applicant is a former SBA employee who has been separated from SBA for less than one year prior to the request for financial assistance, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 126.235,
+          "width": 18,
+          "height": 18.000000000000014
+        }
+      ]
+    },
+    {
+      "name": "q10Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If any sole proprietor, general partner, officer, director, or stockholder with a 10% or more interest in the Applicant, or a household member of such individual, is a member of Congress, or an appointed official or employee of the legislative or judicial branch of the Federal Government, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 94.22,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q10No",
+      "type": "PDFCheckBox",
+      "tooltip": "If no sole proprietor, general partner, officer, director, or stockholder with a 10% or more interest in the Applicant, or a household member of such individual, is a member of Congress, or an appointed official or employee of the legislative or judicial branch of the Federal Government, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 94.22,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "EquipAmt",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the acquisition or installation of equipment here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 233.16,
+          "y": 317.84,
+          "width": 60.84,
+          "height": 11.400000000000034
+        }
+      ]
+    },
+    {
+      "name": "purpEquip",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is the Acquisition or Installation of Equipment, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 41.3091,
+          "y": 318.625,
+          "width": 9.2376,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "workCap",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is Working Capital, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 41.3091,
+          "y": 300.426,
+          "width": 9.2376,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "busAcq",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is the Business Acquisition (Change of Ownership), please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 41.3091,
+          "y": 282.824,
+          "width": 9.2376,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "purpOther1",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is Other, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 41.3091,
+          "y": 264.952999,
+          "width": 9.2376,
+          "height": 9.240001000000007
+        }
+      ]
+    },
+    {
+      "name": "purpOther2",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan includes a second Other Purpose, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 304.273,
+          "y": 265.014,
+          "width": 9.236999999999966,
+          "height": 9.240999999999985
+        }
+      ]
+    },
+    {
+      "name": "purpInv",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is the Acquisition of Inventory, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 304.273,
+          "y": 301.182,
+          "width": 9.236999999999966,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "debtRef",
+      "type": "PDFCheckBox",
+      "tooltip": "If the purpose of the loan is Debt Refinancing, please check this box by clicking or pressing the Enter key or space bar, then enter the dollar amount in the following field.",
+      "isChecked": false,
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 304.273,
+          "y": 283.36,
+          "width": 9.236999999999966,
+          "height": 9.240000000000009
+        }
+      ]
+    },
+    {
+      "name": "otherAmt2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the second other purpose here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 511.92,
+          "y": 266.156,
+          "width": 60.839999999999975,
+          "height": 11.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "otherAmt1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the other purpose here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 233.16,
+          "y": 266.156,
+          "width": 60.84,
+          "height": 11.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "invAmt",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the acquisition of inventory here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 511.92,
+          "y": 301.992,
+          "width": 60.839999999999975,
+          "height": 11.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "busAcqAmt",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the business acquisition here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 233.16,
+          "y": 284.418,
+          "width": 60.84,
+          "height": 11.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "capitalAmt",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the dollar amount of the working capital here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 233.16,
+          "y": 301.992,
+          "width": 60.84,
+          "height": 11.399999999999977
+        }
+      ]
+    },
+    {
+      "name": "q11Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If any sole proprietor, general partner, officer, director, or stockholder with a 10 percent or more interest in the Applicant, or a household member of such individual, is a Federal Government employee or Member of the Military having a grade of at least GS-13 or higher (or Military equivalent), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 57.2493,
+          "width": 18,
+          "height": 17.999699999999997
+        }
+      ]
+    },
+    {
+      "name": "q11No",
+      "type": "PDFCheckBox",
+      "tooltip": "If no sole proprietor, general partner, officer, director, or stockholder with a 10 percent or more interest in the Applicant, or a household member of such individual, is a Federal Government employee or Member of the Military having a grade of at least GS-13 or higher (or Military equivalent), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 57.2493,
+          "width": 18,
+          "height": 17.999699999999997
+        }
+      ]
+    },
+    {
+      "name": "q12Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If any sole proprietor, general partner, officer, director, or stockholder with a 10% or more interest in the Applicant, or a household member of such individual, is a member or employee of a Small Business Advisory Council or a SCORE volunteer, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 688.249,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q12No",
+      "type": "PDFCheckBox",
+      "tooltip": "If no sole proprietor, general partner, officer, director, or stockholder with a 10% or more interest in the Applicant, or a household member of such individual, is a member or employee of a Small Business Advisory Council or a SCORE volunteer, please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 688.249,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "ownName",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the owner's legal name, including first, middle, and last names.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 256.827999,
+          "y": 659.728,
+          "width": 326.59800100000007,
+          "height": 21.359000000000037
+        }
+      ]
+    },
+    {
+      "name": "expSalesTot",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the estimated total export sales this loan will support.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 526.371999,
+          "y": 311.794,
+          "width": 56.92600100000004,
+          "height": 16.12299999999999
+        }
+      ]
+    },
+    {
+      "name": "expCtry1",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the first principal country of export here.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 226.282,
+          "y": 268.594,
+          "width": 109.72599999999997,
+          "height": 16.12299999999999
+        }
+      ]
+    },
+    {
+      "name": "expCtry2",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the second principal country of export here.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 338.518,
+          "y": 268.594,
+          "width": 114.08900000000006,
+          "height": 16.12299999999999
+        }
+      ]
+    },
+    {
+      "name": "expCtry3",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the third principal country of export here.",
+      "pageIndexes": [
+        1
+      ],
+      "widgetRects": [
+        {
+          "x": 456.191,
+          "y": 268.594,
+          "width": 126.74399999999997,
+          "height": 16.12299999999999
+        }
+      ]
+    },
+    {
+      "name": "q13Yes",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant, any owner of the Applicant, or any business owned by them (Affiliates), is presently involved in any legal action (including divorce), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 526.024,
+          "y": 656.416,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "q13No",
+      "type": "PDFCheckBox",
+      "tooltip": "If the Applicant, any owner of the Applicant, or any business owned by them (Affiliates), is not presently involved in any legal action (including divorce), please check this box by clicking or pressing the Enter key or space bar.",
+      "isChecked": false,
+      "pageIndexes": [
+        2
+      ],
+      "widgetRects": [
+        {
+          "x": 558.826,
+          "y": 656.416,
+          "width": 18,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "name": "repSig",
+      "type": "PDFSignature",
+      "tooltip": "Please enter the digital signature of the authorized representative of the applicant by clicking or pressing the Enter key. ",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 21.6,
+          "y": 525,
+          "width": 256.79999999999995,
+          "height": 28.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "sigDate",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the date of the representative's signature in two-digit month / two-digit day / four-digit year format.",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 375.24,
+          "y": 525,
+          "width": 108,
+          "height": 28.799999999999955
+        }
+      ]
+    },
+    {
+      "name": "repName",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the authorized representative's name here.",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 21.6,
+          "y": 479.88,
+          "width": 256.79999999999995,
+          "height": 28.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "repTitle",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the authorized representative's title here.",
+      "pageIndexes": [
+        3
+      ],
+      "widgetRects": [
+        {
+          "x": 375.24,
+          "y": 479.88,
+          "width": 108,
+          "height": 28.80000000000001
+        }
+      ]
+    },
+    {
+      "name": "fteCreate",
+      "type": "PDFTextField",
+      "tooltip": "Please enter the number of FTE jobs created in the next two years because of the loan, including owners.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 472.44,
+          "y": 354.069,
+          "width": 111.00000000000006,
+          "height": 16.33499999999998
+        }
+      ]
+    },
+    {
+      "name": "other1spec",
+      "type": "PDFTextField",
+      "tooltip": "Please specify the other purpose of the loan here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 77.3724,
+          "y": 262.815,
+          "width": 143.2906,
+          "height": 16.33499999999998
+        }
+      ]
+    },
+    {
+      "name": "other2spec",
+      "type": "PDFTextField",
+      "tooltip": "Please specify the second other purpose of the loan here.",
+      "pageIndexes": [
+        0
+      ],
+      "widgetRects": [
+        {
+          "x": 340.499,
+          "y": 262.815,
+          "width": 159.43599999999998,
+          "height": 16.33499999999998
+        }
+      ]
+    }
+  ]
+}

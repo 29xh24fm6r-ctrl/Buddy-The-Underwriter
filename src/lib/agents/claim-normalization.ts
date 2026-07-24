@@ -231,6 +231,133 @@ function normalizeCashFlowFinding(finding: AgentFinding): NormalizedClaim[] {
 }
 
 /**
+ * Normalize finding from Credit Agent
+ */
+function normalizeCreditFinding(finding: AgentFinding): NormalizedClaim[] {
+  const claims: NormalizedClaim[] = [];
+  const output = finding.output_json as any;
+
+  const overallHash = generateClaimHash('credit', 'sba_impact');
+  claims.push({
+    deal_id: finding.deal_id,
+    bank_id: finding.bank_id,
+    claim_hash: overallHash,
+    topic: 'credit',
+    predicate: 'sba_impact',
+    value_json: {
+      sba_impact: output.sba_impact,
+      overall_pass: output.overall_pass,
+      summary: output.summary,
+    },
+    source_agent: finding.agent_name,
+    finding_id: finding.id!,
+    sop_citations: [],
+    confidence: finding.confidence,
+    severity: output.sba_impact === 'fatal' ? 'blocker' : output.sba_impact === 'mitigable' ? 'warning' : 'info',
+  });
+
+  if (Array.isArray(output.checks)) {
+    for (const check of output.checks as any[]) {
+      const timeframe = check.borrower_id ? String(check.borrower_id) : undefined;
+      const claimHash = generateClaimHash('credit', check.check_name, timeframe);
+      claims.push({
+        deal_id: finding.deal_id,
+        bank_id: finding.bank_id,
+        claim_hash: claimHash,
+        topic: 'credit',
+        predicate: check.check_name,
+        value_json: {
+          passed: check.passed,
+          detail: check.detail,
+          derogatories: check.derogatories,
+          borrower_name: check.borrower_name,
+        },
+        timeframe,
+        source_agent: finding.agent_name,
+        finding_id: finding.id!,
+        sop_citations: [check.sop_citation || ''],
+        confidence: finding.confidence,
+        severity: check.passed
+          ? 'info'
+          : check.check_name === 'caivrs' || check.check_name === 'sam_exclusion'
+            ? 'blocker'
+            : 'warning',
+      });
+    }
+  }
+
+  return claims;
+}
+
+/**
+ * Normalize finding from Collateral Agent
+ */
+function normalizeCollateralFinding(finding: AgentFinding): NormalizedClaim[] {
+  const claims: NormalizedClaim[] = [];
+  const output = finding.output_json as any;
+
+  const claimHash = generateClaimHash('collateral', 'sop_compliant');
+  claims.push({
+    deal_id: finding.deal_id,
+    bank_id: finding.bank_id,
+    claim_hash: claimHash,
+    topic: 'collateral',
+    predicate: 'sop_compliant',
+    value_json: {
+      sop_compliant: output.sop_compliant,
+      total_collateral_value: output.total_collateral_value,
+      loan_amount: output.loan_amount,
+      shortfall: output.shortfall,
+      shortfall_amount: output.shortfall_amount,
+      explanation: output.explanation,
+    },
+    source_agent: finding.agent_name,
+    finding_id: finding.id!,
+    sop_citations: [],
+    confidence: finding.confidence,
+    severity: output.sop_compliant === false ? 'warning' : 'info',
+  });
+
+  return claims;
+}
+
+/**
+ * Normalize finding from Management Agent
+ */
+function normalizeManagementFinding(finding: AgentFinding): NormalizedClaim[] {
+  const claims: NormalizedClaim[] = [];
+  const output = finding.output_json as any;
+
+  if (Array.isArray(output.principals)) {
+    for (const principal of output.principals as any[]) {
+      const claimHash = generateClaimHash('management', 'principal_experience', principal.principal_name);
+      claims.push({
+        deal_id: finding.deal_id,
+        bank_id: finding.bank_id,
+        claim_hash: claimHash,
+        topic: 'management',
+        predicate: 'principal_experience',
+        value_json: {
+          principal_name: principal.principal_name,
+          years_experience: principal.years_experience,
+          industry_match: principal.industry_match,
+          relevance_score: principal.relevance_score,
+          concerns: principal.concerns,
+        },
+        timeframe: principal.principal_name,
+        source_agent: finding.agent_name,
+        finding_id: finding.id!,
+        sop_citations: [],
+        confidence: finding.confidence,
+        severity: principal.concerns?.length > 0 ? 'warning' : 'info',
+      });
+    }
+  }
+
+  return claims;
+}
+
+/**
  * Normalize finding from Risk Synthesis Agent
  */
 function normalizeRiskFinding(finding: AgentFinding): NormalizedClaim[] {
@@ -278,10 +405,16 @@ export function normalizeAgentFinding(finding: AgentFinding): NormalizedClaim[] 
     
     case 'risk':
       return normalizeRiskFinding(finding);
-    
+
     case 'credit':
+      return normalizeCreditFinding(finding);
+
     case 'collateral':
+      return normalizeCollateralFinding(finding);
+
     case 'management':
+      return normalizeManagementFinding(finding);
+
     case 'narrative':
     case 'evidence':
     case 'banker_copilot':

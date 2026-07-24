@@ -78,6 +78,10 @@ const PATCHABLE_BORROWER_STORY_KEYS = [
   "hq_city",
   "hq_state",
   "banker_identity_summary",
+  // Feeds ELIGIBILITY.CREDIT_ELSEWHERE_50108 (SOP 50 10 8 §A Ch.5 HARD_STOP
+  // rule) — credit_elsewhere_documented is boolean, coerced separately below.
+  "credit_elsewhere_finding",
+  "credit_elsewhere_narrative",
 ] as const;
 
 const COLLATERAL_STRING_KEYS = [
@@ -189,14 +193,26 @@ async function getPrefill(dealId: string) {
   return NextResponse.json({ ok: true, prefill: result.prefill });
 }
 
+const CREDIT_ELSEWHERE_FINDINGS = [
+  "unavailable",
+  "available_but_unfavorable_terms",
+  "available",
+] as const;
+
 async function putBorrowerStory(
   dealId: string,
   body: Record<string, unknown>,
 ) {
-  const patch: Record<string, string | number | null> = {};
+  const patch: Record<string, string | number | boolean | null> = {};
   for (const k of PATCHABLE_BORROWER_STORY_KEYS) {
     const v = body[k];
     if (typeof v === "string") patch[k] = v;
+  }
+  if (
+    typeof patch.credit_elsewhere_finding === "string" &&
+    !(CREDIT_ELSEWHERE_FINDINGS as readonly string[]).includes(patch.credit_elsewhere_finding)
+  ) {
+    delete patch.credit_elsewhere_finding;
   }
   // SPEC-NAICS-TOOL-MEMO-INPUTS-INTEGRATION-1: naics_confidence is numeric.
   // Accept a number directly or a numeric string; "" / null clears it.
@@ -208,6 +224,14 @@ async function putBorrowerStory(
     if (Number.isFinite(n)) patch.naics_confidence = n;
   } else if (conf === null || conf === "") {
     patch.naics_confidence = null;
+  }
+  // credit_elsewhere_documented is boolean — accept true/false directly, or
+  // null to clear it back to "not yet documented" (rule fails closed).
+  const documented = body.credit_elsewhere_documented;
+  if (typeof documented === "boolean") {
+    patch.credit_elsewhere_documented = documented;
+  } else if (documented === null) {
+    patch.credit_elsewhere_documented = null;
   }
   const result = await upsertBorrowerStory({
     dealId,

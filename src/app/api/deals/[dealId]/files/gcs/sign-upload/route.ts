@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { buildGcsObjectKey, getGcsBucketName } from "@/lib/storage/gcs";
 import { createGcsV4SignedPutUrl } from "@/lib/storage/gcsSignedPutUrl";
@@ -51,8 +51,10 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    const { userId } = await clerkAuth();
-    if (!userId) {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 

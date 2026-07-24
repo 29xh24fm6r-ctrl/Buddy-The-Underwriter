@@ -9,7 +9,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +26,10 @@ function isMissingTableError(message: string | null | undefined): boolean {
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
-  const { userId } = await clerkAuth().catch(() => ({ userId: null }));
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 

@@ -1,7 +1,7 @@
 // src/app/api/deals/[dealId]/portal/requests/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { clerkAuth } from "@/lib/auth/clerkServer";
+import { requireUser } from "@/lib/server/authz";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 
 export const runtime = "nodejs";
@@ -19,8 +19,10 @@ export async function GET(
   ctx: { params: Promise<{ dealId: string }> },
 ) {
   const { dealId } = await ctx.params;
-  const { userId } = await clerkAuth();
-  if (!userId) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch {
     return NextResponse.json({ ok: false, error: "Unauthorized", requests: [] }, { status: 401 });
   }
 

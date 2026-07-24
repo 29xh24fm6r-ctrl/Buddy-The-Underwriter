@@ -30,9 +30,11 @@ export async function calculateFinalBorrowerPackagingFee(dealId: string, sb: SB)
 export async function calculateFinalLenderReferralFee(dealId: string, lenderBankId: string, fundedAmountCents: number, sb: SB): Promise<{ bps: number; amountCents: number; waived: boolean }> {
   const { data: entry } = await sb.from("brokerage_fee_ledger").select("bps, status").eq("deal_id", dealId).eq("fee_type", "lender_referral").limit(1).maybeSingle();
   if (entry && str(entry.status) === "waived") return { bps: 0, amountCents: 0, waived: true };
-  const { data: cl } = await sb.from("marketplace_claims").select("committed_rate_bps").eq("deal_id", dealId).eq("lender_bank_id", lenderBankId).eq("status", "picked").limit(1).maybeSingle();
-  let bps = num(cl?.committed_rate_bps);
-  if (bps == null) { const { data: agr } = await sb.from("lender_marketplace_agreements").select("referral_fee_bps").eq("lender_bank_id", lenderBankId).eq("status", "active").limit(1).maybeSingle(); bps = num(agr?.referral_fee_bps) ?? 100; }
+  // marketplace_claims carries no rate column (verified live — status/claimed_at/expires_at
+  // only); the committed rate for a picked lender lives on the lender's marketplace
+  // agreement, not the claim itself.
+  const { data: agr } = await sb.from("lender_marketplace_agreements").select("referral_fee_bps").eq("lender_bank_id", lenderBankId).eq("status", "active").limit(1).maybeSingle();
+  const bps = num(agr?.referral_fee_bps) ?? 100;
   return { bps, amountCents: Math.round(fundedAmountCents * bps / 10000), waived: false };
 }
 

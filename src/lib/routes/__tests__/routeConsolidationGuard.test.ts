@@ -5,7 +5,7 @@
  *   1. Consolidated route groups expose the same public URL patterns
  *   2. _handlers files are not counted as route files
  *   3. No duplicate route segment accidentally reappears
- *   4. Route count stays below warning threshold (1900)
+ *   4. Route count stays below warning threshold (see MERGED_WARNING_THRESHOLD)
  *   5. Route count stays below hard threshold (2048)
  *   6. Consolidated groups retain their catch-all route files
  */
@@ -17,6 +17,25 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "../../../..");
+
+// See the "Bumped ... on ..." comment trail below the warning-threshold
+// test for the history of this number. Actual measured total as of the
+// 2026-07-19 merge of SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 and
+// SPEC-BROKERAGE-OPERATING-SYSTEM-V1 PR5 (both bumped this independently
+// off the same 1952 base): 790 route.ts * 2 + 192 page.tsx * 2 = 1964.
+//
+// Bumped 1970 -> 1980 on 2026-07-24: fixing 7 stale-fetch 404s
+// (check:api-fetches) added 2 net-new route.ts files —
+// /deals/[dealId]/status and /deals/[dealId]/uploads/status — each
+// needing their own file (no existing sibling shares their exact URL
+// prefix). portal/share's view+upload actions were consolidated into one
+// [action] dispatcher (net zero new files). A third planned addition,
+// /deals/[dealId]/messages/[messageId] (DELETE), turned out unnecessary —
+// its only caller, ConditionMessagingCard.tsx, was removed by an
+// unrelated main-branch commit before this merged, so the route was
+// dropped rather than landing dead. Actual measured total: 793 route.ts *
+// 2 + 192 page.tsx * 2 = 1970. Still 78 slots under the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 1980;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
@@ -184,23 +203,77 @@ describe("route consolidation invariants", () => {
 
   // ── 4. Route count below warning threshold ──────────────────────────
   //
-  // Bumped 1900 -> 1920 when fixing 7 stale-fetch 404s (check:api-fetches):
-  // portal/share's view+upload actions were consolidated into one [action]
-  // dispatcher (net zero new files), but /deals/[dealId]/status,
-  // /deals/[dealId]/uploads/status, and /deals/[dealId]/messages/[messageId]
-  // each need their own file — no existing sibling route shares their exact
-  // URL prefix, and folding them into unrelated existing routes (e.g.
-  // stage/ETA writes onto the read-only timeline route) would trade route-
-  // count hygiene for file-cohesion hygiene. Still well under the 2048 hard
-  // cap (the actual Vercel function-count boundary) with 128 slots to spare.
-
-  it("total slot count stays below 1920 warning threshold", () => {
+  // Bumped 1900 -> 1904 on 2026-07-14: SPEC-BROKERAGE-SBA-READY-V1
+  // debt-schedule-wiring added one legitimate new route
+  // (/api/brokerage/deals/[dealId]/existing-debt) — a borrower-facing CRUD
+  // endpoint for existing business debt, distinct enough from the
+  // already-existing banker-facing route at the same path under
+  // /api/deals/ that merging them would mean branching banker vs. borrower
+  // auth inside one handler, which this codebase has hit real cross-tenant
+  // bugs from before (see git history: "close cross-tenant data leak").
+  //
+  // Bumped 1904 -> 1928 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR1 (unified relationship graph) added people/party-role/dedup/search
+  // CRUD endpoints and their CRM UI pages. Two genuinely-redundant route
+  // pairs were folded together first (dedup + dedup/merge into one file;
+  // people/[personId]/link-organization folded into people/[personId])
+  // rather than inflating the threshold to cover them. Still 120 slots
+  // under the 2048 hard cap.
+  //
+  // Bumped 1928 -> 1940 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR2 (lead/opportunity pipeline engine) added lead detail, qualification,
+  // and pipeline UI. The three lead audited-command endpoints (transition
+  // stage / record contact attempt / convert) were folded into a single
+  // actions/route.ts dispatcher up front — following the ops/[...path] and
+  // workers/[...path] catch-all precedent already established in this
+  // file — rather than three near-identical route files. Still 108 slots
+  // under the 2048 hard cap.
+  //
+  // Bumped 1940 -> 1952 on 2026-07-17: SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR3 (deal execution / stage gates / tasks) added the deal-workspace
+  // summary + audited-actions dispatcher (transition stage / create task /
+  // update task / generate stage plan, again one dispatcher file rather
+  // than four) plus the management-queues endpoint and its page. The new
+  // BrokerageStagePanel mounts inside the existing cockpit rather than
+  // adding a second cockpit page. Still 96 slots under the 2048 hard cap.
+  //
+  // Bumped 1952 -> 1954 on 2026-07-18: SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 —
+  // Form 413's itemized PFS schedules (notes payable/securities/real
+  // estate) had no writer anywhere; added one GET/POST/PATCH/DELETE
+  // dispatcher keyed by a `[scheduleType]` dynamic segment (not 3
+  // resources x 2 files — PATCH/DELETE take `item_id` in the body rather
+  // than a `[itemId]` segment) — same one-dispatcher-not-N-files
+  // precedent as ops/[...path]/workers/[...path] above. No new page. This
+  // was already at the ceiling (0 slots of headroom), so even the single
+  // consolidated file needed this bump. Still 94 slots under the 2048
+  // hard cap.
+  //
+  // Bumped 1952 -> 1975 on 2026-07-17 (developed in parallel on a
+  // different branch, merged 2026-07-19): SPEC-BROKERAGE-OPERATING-SYSTEM-V1
+  // PR5 (intelligence, analytics, revenue, command center) added 5 route
+  // files, each already a query-param/action dispatcher rather than one
+  // route per read/write (crm/intelligence covers relationship-score,
+  // referral-analytics, lender-performance, revenue, and forecast behind
+  // one GET; crm/intelligence/alerts covers list+dismiss+snooze+
+  // acknowledge; crm/intelligence/ai-assist covers all 5 AI actions;
+  // command-center aggregates every panel into one response;
+  // deals/[dealId]/commission-splits covers list/initialize/recalculate/
+  // update-status). One new page (command-center) — relationship-score,
+  // referral-analytics, lender-performance, and commission-split UI were
+  // mounted into the existing org/lenders/deal-cockpit pages instead of
+  // new pages. Still 73 slots under the 2048 hard cap.
+  //
+  // Merged 2026-07-19: both bumps land on main together. Threshold set to
+  // the actual post-merge total (see below) plus headroom, not just the
+  // sum of the two deltas, since the two branches' route additions don't
+  // stack in a simple arithmetic way once merged.
+  it("total slot count stays below the merged warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();
     const totalSlots = apiRoutes * 2 + pages * 2;
     assert.ok(
-      totalSlots < 1920,
-      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds 1920 warning threshold`,
+      totalSlots < MERGED_WARNING_THRESHOLD,
+      `Total slot estimate ${totalSlots} (${apiRoutes} routes, ${pages} pages) exceeds ${MERGED_WARNING_THRESHOLD} warning threshold`,
     );
   });
 
