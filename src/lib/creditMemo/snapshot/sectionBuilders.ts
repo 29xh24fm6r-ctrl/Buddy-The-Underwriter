@@ -13,16 +13,27 @@
 // entire class of legitimate deals becomes permanently unsubmittable with no
 // escape hatch.
 //
-// Some of these were later given DEAL-TYPE-AWARE checks (income_statement,
-// collateral, debt_coverage) using memo.meta.deal_classification — narrow
-// is_cre_deal/is_loc_deal flags reused from buildCanonicalCreditMemo.ts's
-// existing condIsCre/isLOC locals. The remaining sections (new_debt,
-// global_cash_flow, repayment_breakeven, personal_financial_statements,
-// policy_exceptions, conditions) still intentionally have no completeness
-// check: reliably detecting "this deal has an individual guarantor" or "this
-// deal is refinancing existing debt" is not currently derivable from the
-// canonical memo without risking false-positive blockers, so they're left
-// for a future pass with better classification data.
+// Some of these were later given DEAL-TYPE-AWARE checks using
+// memo.meta.deal_classification, all computed in buildCanonicalCreditMemo.ts
+// and all fail-closed (default to false / not-gated on missing or ambiguous
+// data, never a hard blocker source):
+//   - income_statement, collateral: is_cre_deal/is_loc_deal
+//   - global_cash_flow, personal_financial_statements:
+//     has_individual_guarantor_at_threshold (see isLikelyIndividualOwner in
+//     src/lib/ownership/entityClassification.ts — combines entity_type with
+//     a name-suffix heuristic and the 20% SBA guaranty threshold, firing
+//     only on positive evidence)
+//   - repayment_breakeven: is_new_business (SBA SOP 50 10 8, < 24 months,
+//     via src/lib/sba/newBusinessProtocol.ts — the same detector
+//     feasibilityEngine.ts/sbaRiskProfile.ts already use)
+//
+// new_debt still intentionally has no completeness check: it's now wired to
+// real deal_existing_debt_schedule data, but zero rows is ambiguous between
+// "no other debt" and "debt schedule not yet entered" — no intake-completeness
+// signal exists to disambiguate, so it's left ungated (see buildNewDebtSection).
+//
+// policy_exceptions and conditions also remain ungated — no per-deal
+// applicability signal for either has been derived yet.
 
 import type { CanonicalCreditMemoV1 } from "@/lib/creditMemo/canonical/types";
 import type {
@@ -297,13 +308,19 @@ export function buildDebtCoverageSection(input: SectionInput): FloridaArmorySect
 }
 
 export function buildNewDebtSection(input: SectionInput): FloridaArmorySection {
-  const rows = ((input.memo as any).new_debt?.rows ?? []) as Array<Record<string, unknown>>;
+  const rows = (input.memo.new_debt?.rows ?? []) as unknown as Array<Record<string, unknown>>;
 
+  // Intentionally NOT gated (no requireValue/warning): deal_existing_debt_schedule
+  // is optional manual entry with no intake-completeness signal — zero rows is
+  // ambiguous between "this borrower genuinely has no other debt" and "nobody
+  // has entered the existing-debt schedule yet." A hard blocker here would risk
+  // permanently un-submittable memos for the common (clean, no-other-debt) case.
+  // See sectionBuilders.ts's top docblock.
   return section(
     "new_debt",
     "New Debt",
     "Proposed new debt structure and estimated repayment obligation.",
-    { new_debt: (input.memo as any).new_debt ?? null },
+    { new_debt: input.memo.new_debt ?? null },
     [{
       key: "new_debt",
       title: "New Debt",
@@ -315,8 +332,20 @@ export function buildNewDebtSection(input: SectionInput): FloridaArmorySection {
 }
 
 export function buildGlobalCashFlowSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
   const global = input.memo.global_cash_flow ?? {};
   const rows = ((global as any).global_cf_table ?? []) as Array<Record<string, unknown>>;
+
+  // Global cash flow only matters when an individual is guaranteeing the
+  // loan (it blends business + personal cash flow). Gate only fires on
+  // positive evidence from meta.deal_classification — see
+  // isLikelyIndividualOwner in entityClassification.ts. Missing/ambiguous
+  // ownership data leaves the flag false, so this never blocks a deal we
+  // can't positively classify.
+  const hasIndividualGuarantor = input.memo.meta?.deal_classification?.has_individual_guarantor_at_threshold ?? false;
+  if (hasIndividualGuarantor && rows.length === 0) {
+    warnings.push("Global cash flow missing for a deal with an individual guarantor");
+  }
 
   return section(
     "global_cash_flow",
@@ -330,6 +359,7 @@ export function buildGlobalCashFlowSection(input: SectionInput): FloridaArmorySe
       rows,
     }],
     input.sources,
+    warnings,
   );
 }
 
@@ -364,17 +394,32 @@ export function buildIncomeStatementSection(input: SectionInput): FloridaArmoryS
 }
 
 export function buildRepaymentBreakevenSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
+  const breakeven = (input.memo.financial_analysis as any)?.breakeven ?? null;
+
+  // SBA SOP 50 10 8 requires projected DSCR/breakeven analysis for new
+  // businesses (< 24 months). buildStressTestTable always returns a non-null
+  // object (all-null fields on missing input), so "populated" is judged by
+  // baseline_dscr, not object presence. Gate fires only on positive
+  // new-business evidence — see meta.deal_classification.is_new_business.
+  const isNewBusiness = input.memo.meta?.deal_classification?.is_new_business ?? false;
+  if (isNewBusiness && (breakeven?.baseline_dscr ?? null) === null) {
+    warnings.push("Repayment breakeven analysis missing for a new business (< 2 years)");
+  }
+
   return section(
     "repayment_breakeven",
     "Repayment Ability / Breakeven",
     "Projection feasibility, repayment sensitivity, and breakeven analysis.",
-    { breakeven: (input.memo.financial_analysis as any)?.breakeven ?? null },
+    { breakeven },
     [],
     input.sources,
+    warnings,
   );
 }
 
 export function buildPfsSection(input: SectionInput): FloridaArmorySection {
+  const warnings: string[] = [];
   // Canonical type is GuarantorBudget[]; spec assumes { guarantors: [...] }.
   // Accept either.
   const pfs = input.memo.personal_financial_statements;
@@ -383,6 +428,14 @@ export function buildPfsSection(input: SectionInput): FloridaArmorySection {
       ? pfs
       : ((pfs as any)?.guarantors ?? [])
   ) as Array<Record<string, unknown>>;
+
+  // Same guarantor signal as global_cash_flow — a PFS is only required when
+  // there's positive evidence of an individual guarantor at/above the SBA
+  // threshold. See isLikelyIndividualOwner in entityClassification.ts.
+  const hasIndividualGuarantor = input.memo.meta?.deal_classification?.has_individual_guarantor_at_threshold ?? false;
+  if (hasIndividualGuarantor && rows.length === 0) {
+    warnings.push("Personal financial statement missing for an individual guarantor");
+  }
 
   return section(
     "personal_financial_statements",
@@ -396,6 +449,7 @@ export function buildPfsSection(input: SectionInput): FloridaArmorySection {
       rows,
     }],
     input.sources,
+    warnings,
   );
 }
 

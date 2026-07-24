@@ -5,7 +5,7 @@
  *   1. Consolidated route groups expose the same public URL patterns
  *   2. _handlers files are not counted as route files
  *   3. No duplicate route segment accidentally reappears
- *   4. Route count stays below warning threshold (1900)
+ *   4. Route count stays below warning threshold (see MERGED_WARNING_THRESHOLD)
  *   5. Route count stays below hard threshold (2048)
  *   6. Consolidated groups retain their catch-all route files
  */
@@ -23,7 +23,19 @@ const ROOT = resolve(__dirname, "../../../..");
 // 2026-07-19 merge of SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 and
 // SPEC-BROKERAGE-OPERATING-SYSTEM-V1 PR5 (both bumped this independently
 // off the same 1952 base): 790 route.ts * 2 + 192 page.tsx * 2 = 1964.
-const MERGED_WARNING_THRESHOLD = 1970;
+//
+// Bumped 1970 -> 1980 on 2026-07-24: fixing 7 stale-fetch 404s
+// (check:api-fetches) added 2 net-new route.ts files —
+// /deals/[dealId]/status and /deals/[dealId]/uploads/status — each
+// needing their own file (no existing sibling shares their exact URL
+// prefix). portal/share's view+upload actions were consolidated into one
+// [action] dispatcher (net zero new files). A third planned addition,
+// /deals/[dealId]/messages/[messageId] (DELETE), turned out unnecessary —
+// its only caller, ConditionMessagingCard.tsx, was removed by an
+// unrelated main-branch commit before this merged, so the route was
+// dropped rather than landing dead. Actual measured total: 793 route.ts *
+// 2 + 192 page.tsx * 2 = 1970. Still 78 slots under the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 1980;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
@@ -190,7 +202,7 @@ describe("route consolidation invariants", () => {
   });
 
   // ── 4. Route count below warning threshold ──────────────────────────
-
+  //
   // Bumped 1900 -> 1904 on 2026-07-14: SPEC-BROKERAGE-SBA-READY-V1
   // debt-schedule-wiring added one legitimate new route
   // (/api/brokerage/deals/[dealId]/existing-debt) — a borrower-facing CRUD

@@ -26,6 +26,7 @@ export function DealEvidenceDeepLinkHandler(props: { dealId: string }) {
     const fileId = params.get("fileId");
     const pageRaw = params.get("page");
     const overlayId = params.get("overlayId");
+    const memoId = params.get("memoId");
 
     const gcsRaw = params.get("gcs");
     const gceRaw = params.get("gce");
@@ -49,9 +50,14 @@ export function DealEvidenceDeepLinkHandler(props: { dealId: string }) {
       // flash ring immediately even before geometry fetch
       setFocusedOverlayId(overlayId);
 
+      // Geometry is scoped to a memo draft (credit_memo_citations.memo_draft_id) —
+      // without memoId in the deep-link URL, we still opened the file/page above
+      // and flashed the overlay ring, just skip the precise-box fetch.
+      if (!memoId) return;
+
       try {
         // Fetch geometry overlays for this file
-        const res = await fetch(`/api/deals/${encodeURIComponent(props.dealId)}/credit-memo/geometry?fileId=${encodeURIComponent(fileId!)}`, { cache: "no-store" });
+        const res = await fetch(`/api/deals/${encodeURIComponent(props.dealId)}/credit-memo/${encodeURIComponent(memoId)}/geometry?fileId=${encodeURIComponent(fileId!)}`, { cache: "no-store" });
         const json = await res.json();
 
         const overlays: GeometryOverlay[] = (json?.overlays ?? []) as GeometryOverlay[];

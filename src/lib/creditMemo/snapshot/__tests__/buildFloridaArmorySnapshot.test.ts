@@ -325,3 +325,105 @@ test("[fa-13] submitted_at consistent across meta and banker_submission", () => 
   assert.equal(snap.banker_submission.submitted_at, FIXED_SUBMITTED_AT);
   assert.equal(snap.meta.generated_at, FIXED_SUBMITTED_AT);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Guard 14: global_cash_flow / personal_financial_statements gate on the
+// individual-guarantor signal — fires only on positive evidence, and only
+// when the section's own data is empty.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function buildArgsWithClassification(classification: Record<string, unknown>) {
+  const memo = buildMemoFixture();
+  (memo.meta as any).deal_classification = {
+    ...(memo.meta as any).deal_classification,
+    ...classification,
+  };
+  const readiness = buildPassingReadiness(memo);
+  return buildArgs({ canonicalMemo: memo, readinessContract: readiness });
+}
+
+test("[fa-14] individual guarantor + empty GCF/PFS data blocks certification", () => {
+  // assertCommitteeMemoSafe requires diagnostics.warnings.length===0 with no
+  // override, so a fired gate surfaces as a build-time throw, not a
+  // warnings array to inspect post-hoc — mirrors guard 1's assertion style.
+  assert.throws(
+    () => buildFloridaArmorySnapshot(buildArgsWithClassification({ has_individual_guarantor_at_threshold: true })),
+    (err: unknown) => {
+      assert.ok(err instanceof FloridaArmoryBuildError);
+      assert.equal((err as FloridaArmoryBuildError).code, "committee_artifact_unsafe");
+      assert.deepEqual((err as FloridaArmoryBuildError).missingFields, ["diagnostics.warnings.length!=0"]);
+      return true;
+    },
+  );
+});
+
+test("[fa-15] no individual guarantor evidence produces no GCF/PFS warnings", () => {
+  const snap = buildFloridaArmorySnapshot(
+    buildArgsWithClassification({ has_individual_guarantor_at_threshold: false }),
+  );
+  assert.equal(snap.sections.global_cash_flow.warnings.length, 0);
+  assert.equal(snap.sections.personal_financial_statements.warnings.length, 0);
+});
+
+test("[fa-16] individual guarantor evidence with populated GCF/PFS data produces no warnings", () => {
+  const memo = buildMemoFixture();
+  (memo.meta as any).deal_classification = {
+    ...(memo.meta as any).deal_classification,
+    has_individual_guarantor_at_threshold: true,
+  };
+  (memo.global_cash_flow as any).global_cf_table = [
+    { period: "2025", business_cash_flow: 100_000, personal_cash_flow: 50_000, global_cash_flow: 150_000, global_dscr: 1.4 },
+  ];
+  (memo as any).personal_financial_statements = [
+    { owner_entity_id: "o1", name: "Jane Smith", assets: 1_000_000, liabilities: 400_000, net_worth: 600_000 },
+  ];
+  const readiness = buildPassingReadiness(memo);
+  const snap = buildFloridaArmorySnapshot(buildArgs({ canonicalMemo: memo, readinessContract: readiness }));
+  assert.equal(snap.sections.global_cash_flow.warnings.length, 0);
+  assert.equal(snap.sections.personal_financial_statements.warnings.length, 0);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Guard 17: repayment_breakeven gates on the new-business signal — fires only
+// when a new business (< 24 months) has no populated breakeven analysis.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("[fa-17] new business + empty breakeven analysis blocks certification", () => {
+  assert.throws(
+    () => buildFloridaArmorySnapshot(buildArgsWithClassification({ is_new_business: true })),
+    (err: unknown) => {
+      assert.ok(err instanceof FloridaArmoryBuildError);
+      assert.equal((err as FloridaArmoryBuildError).code, "committee_artifact_unsafe");
+      assert.deepEqual((err as FloridaArmoryBuildError).missingFields, ["diagnostics.warnings.length!=0"]);
+      return true;
+    },
+  );
+});
+
+test("[fa-18] established business produces no repayment_breakeven warning", () => {
+  const snap = buildFloridaArmorySnapshot(
+    buildArgsWithClassification({ is_new_business: false }),
+  );
+  assert.equal(snap.sections.repayment_breakeven.warnings.length, 0);
+});
+
+test("[fa-19] new business with populated breakeven analysis produces no warning", () => {
+  const memo = buildMemoFixture();
+  (memo.meta as any).deal_classification = {
+    ...(memo.meta as any).deal_classification,
+    is_new_business: true,
+  };
+  (memo.financial_analysis as any).breakeven = {
+    baseline_dscr: 1.3,
+    scenarios: [],
+    breakeven_ebitda_1x: 100_000,
+    breakeven_ebitda_125x: 125_000,
+    breakeven_revenue_1x: null,
+    revenue_cushion_pct: 10,
+    worst_case_dscr: 1.1,
+    narrative: "Passes stress scenarios.",
+  };
+  const readiness = buildPassingReadiness(memo);
+  const snap = buildFloridaArmorySnapshot(buildArgs({ canonicalMemo: memo, readinessContract: readiness }));
+  assert.equal(snap.sections.repayment_breakeven.warnings.length, 0);
+});
