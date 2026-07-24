@@ -1,4 +1,5 @@
 import "server-only";
+import { MISTRAL_OCR } from "@/lib/ai/models";
 
 export type OcrEnvDiagnostics = {
   useGeminiOcrEnabled: boolean;
@@ -6,6 +7,9 @@ export type OcrEnvDiagnostics = {
   hasGoogleCredentialsHint: boolean;
   googleLocation: string | null;
   geminiModel: string | null;
+  /** Whether the Mistral fallback (used when Gemini OCR fails/is disabled) is configured. */
+  mistralFallbackConfigured: boolean;
+  mistralModel: string;
 };
 
 export function getOcrEnvDiagnostics(): OcrEnvDiagnostics {
@@ -33,11 +37,15 @@ export function getOcrEnvDiagnostics(): OcrEnvDiagnostics {
   const geminiModel =
     process.env.GEMINI_OCR_MODEL || process.env.GEMINI_MODEL || null;
 
+  const mistralFallbackConfigured = Boolean(process.env.MISTRAL_API_KEY);
+
   return {
     useGeminiOcrEnabled,
     hasGoogleProject,
     hasGoogleCredentialsHint,
     googleLocation,
     geminiModel,
+    mistralFallbackConfigured,
+    mistralModel: MISTRAL_OCR,
   };
 }

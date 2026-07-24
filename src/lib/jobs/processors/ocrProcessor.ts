@@ -9,7 +9,7 @@ import { isGatekeeperInlineEnabled } from "@/lib/flags/openaiGatekeeper";
  * OCR Job Processor
  * 
  * Leases jobs from document_jobs queue
- * Processes OCR via Gemini OCR
+ * Processes OCR via Gemini OCR (Mistral fallback on failure/disable)
  * Stores results in document_ocr_results
  * Enqueues CLASSIFY job on success
  */
@@ -82,7 +82,7 @@ export async function processOcrJob(jobId: string, leaseOwner: string) {
     });
     
     // runOcrJob returns result object directly
-    const extractedText = String(ocrResult?.raw?.geminiText ?? ocrResult?.text_preview ?? "");
+    const extractedText = String(ocrResult?.raw?.ocrText ?? ocrResult?.text_preview ?? "");
     const rawData = ocrResult.raw;
 
     // Store OCR result
@@ -91,7 +91,7 @@ export async function processOcrJob(jobId: string, leaseOwner: string) {
       .upsert({
         deal_id: job.deal_id,
         attachment_id: job.attachment_id,
-        provider: "gemini_google",
+        provider: ocrResult?.engine ?? "gemini_google",
         status: "SUCCEEDED",
         raw_json: rawData,
         extracted_text: extractedText,
