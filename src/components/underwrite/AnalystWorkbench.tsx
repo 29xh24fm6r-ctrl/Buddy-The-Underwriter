@@ -280,8 +280,10 @@ export default function AnalystWorkbench({ dealId }: Props) {
           drift={drift}
           onReviewDrift={() => setDriftModalOpen(true)}
           onRefresh={() => {
-            fetch(`/api/deals/${dealId}/underwriting/refresh`, { method: "POST" })
-              .then(() => fetchState());
+            // /underwrite/state recomputes drift live on every GET (see
+            // detectCanonicalDrift in underwrite/state/route.ts) — no
+            // separate refresh mutation is needed before re-fetching.
+            void fetchState();
           }}
         />
       )}

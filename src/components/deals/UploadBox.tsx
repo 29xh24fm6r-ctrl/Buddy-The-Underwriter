@@ -6,7 +6,6 @@ import { v4 as uuidv4 } from "uuid";
 import BorrowerWowCard from "@/components/deals/BorrowerWowCard";
 import FinancialStatementWowCard from "@/components/deals/FinancialStatementWowCard";
 import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
-import { markUploadsCompletedAction } from "@/lib/uploads/actions";
 import { CHECKLIST_KEY_OPTIONS } from "@/lib/checklist/checklistKeyOptions";
 
 import PnlSpreadCard from "@/components/deals/PnlSpreadCard";
@@ -464,18 +463,8 @@ if (!res.ok || !data?.ok) {
       }
     }
 
-    // 🔥 CRITICAL: Mark upload batch as complete to unblock auto-seed
     if (successCount > 0) {
-      try {
-        const bankRes = await fetch('/api/tenant/current-bank');
-        if (bankRes.ok) {
-          const { bankId } = await bankRes.json();
-          await markUploadsCompletedAction(safeDealId, bankId);
-          console.log(`✅ Marked ${successCount} uploads completed for deal ${safeDealId}`);
-        }
-      } catch (e) {
-        console.error('[UploadBox] Failed to mark uploads completed:', e);
-      }
+      console.log(`✅ Uploaded ${successCount} files for deal ${safeDealId}`);
     }
   }
 

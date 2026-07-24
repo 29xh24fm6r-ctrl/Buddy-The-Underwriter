@@ -125,47 +125,12 @@ const ALLOWLIST = new Set([
 // the ongoing list without breaking CI for unrelated work. Each entry
 // must include a one-line reason; when the underlying client is fixed,
 // remove the entry. NEW stale fetches will still fail the guard.
-const KNOWN_STALE_PENDING_FIX = new Map([
-  [
-    "/api/portal/share/upload",
-    "portal share upload route was removed; portal/share page still POSTs to it (TODO)",
-  ],
-  [
-    "/api/deals/${props.dealId}/status",
-    "DealStageEtaControls expects a generic per-deal /status that no longer exists (TODO: route to /pricing/status or /intake/status)",
-  ],
-  [
-    "/api/deals/${dealId}/messages/${messageId}",
-    "ConditionMessagingCard DELETE/PATCH against a removed per-message route (TODO)",
-  ],
-  [
-    "/api/deals/${dealId}/messages/${messageId}/approve",
-    "DraftMessagesCard expects an approve route that was removed (TODO: replace with /drafts/[draftId]/approve)",
-  ],
-  [
-    "/api/deals/${dealId}/missing-docs/send",
-    "MissingDocsCard posts to a /send sub-path that does not exist (TODO: replace with /outbound/missing-docs/send)",
-  ],
-  [
-    "/api/tenant/current-bank",
-    "UploadBox reads a removed tenant endpoint (TODO: replace with /api/banks/current or remove)",
-  ],
-  [
-    "/api/deals/${encodeURIComponent(props.dealId)}/credit-memo/geometry?fileId=${encodeURIComponent(fileId!)}",
-    "DealEvidenceDeepLinkHandler missing memoId segment vs surviving /credit-memo/[memoId]/geometry (TODO)",
-  ],
-  [
-    "/api/deals/${dealId}/underwriting/refresh",
-    "AnalystWorkbench expects a /refresh sub-path that was removed (TODO)",
-  ],
-  [
-    // SPEC-PORTAL-1 §4c: surfaced once the wrapper-aware needle began scanning
-    // useSWR()/j() calls. Pre-existing dead deals route, out of scope for the
-    // borrower portal fix (TODO: restore /uploads/status or repoint UploadStatusCard).
-    "/api/deals/${dealId}/uploads/status",
-    "UploadStatusCard polls a removed per-deal uploads/status route (TODO)",
-  ],
-]);
+//
+// All entries previously tracked here have been fixed (either the route
+// was built, or the client call was repointed/removed) — see git history
+// for the fixes. Left as an empty Map rather than deleted so future
+// pending-fix entries have a documented place to land.
+const KNOWN_STALE_PENDING_FIX = new Map([]);
 
 // Files / directories to skip entirely. Stitch activation modules build
 // URLs by concatenation and produce trailing-slash prefixes the static
