@@ -2,6 +2,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runGeminiOcrJob } from "./runGeminiOcrJob";
+import { runMistralOcrJob } from "./runMistralOcrJob";
 
 type RunArgs = { dealId: string; jobId: string; reqId?: string; bankId?: string };
 
@@ -256,11 +257,18 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
 
   {
     const started = Date.now();
+    const engineAttempts: string[] = [];
     try {
-      // 🚀 GEMINI OCR: Use Gemini if enabled (priority over Mistral/Claude/Azure)
-      if (process.env.USE_GEMINI_OCR !== "true") {
+      // 🚀 OCR: Gemini is the primary engine; Mistral's OCR endpoint is the
+      // fallback when Gemini fails or is disabled, so a Gemini outage/model
+      // retirement doesn't fail every OCR job (Azure DI/Claude remain
+      // disabled — Mistral is the only configured fallback provider).
+      const geminiEnabled = process.env.USE_GEMINI_OCR === "true";
+      const mistralConfigured = Boolean(process.env.MISTRAL_API_KEY);
+
+      if (!geminiEnabled && !mistralConfigured) {
         throw new Error(
-          "Gemini OCR is required. Set USE_GEMINI_OCR=\"true\". (Mistral/Azure DI OCR are disabled.)",
+          "No OCR provider configured. Set USE_GEMINI_OCR=\"true\" and/or MISTRAL_API_KEY.",
         );
       }
 
@@ -269,28 +277,82 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
       }
 
       const finalMimeType = mimeType || inferMimeTypeFromName(sourceFileName || storedName);
+      const finalFileName = sourceFileName || storedName || undefined;
 
-      const geminiResult = await runGeminiOcrJob({
-        fileBytes,
-        mimeType: finalMimeType,
-        fileName: sourceFileName || storedName || undefined,
-      });
+      let engine: string;
+      let model: string;
+      let ocrText: string;
+      let ocrPageCount: number;
+      let primaryEngineError: any = null;
 
-      const auditMap = buildAuditMapFromMarkers(geminiResult.text);
+      if (geminiEnabled) {
+        try {
+          engineAttempts.push("gemini_google");
+          const geminiResult = await runGeminiOcrJob({
+            fileBytes,
+            mimeType: finalMimeType,
+            fileName: finalFileName,
+          });
+          engine = "gemini_google";
+          model = geminiResult.model;
+          ocrText = geminiResult.text;
+          ocrPageCount = geminiResult.pageCount;
+        } catch (geminiErr: any) {
+          primaryEngineError = geminiErr;
+          if (!mistralConfigured) throw geminiErr;
+
+          console.warn("[OCR] Gemini failed, falling back to Mistral", {
+            dealId,
+            jobId,
+            error: geminiErr?.message ?? String(geminiErr),
+          });
+
+          engineAttempts.push("mistral");
+          const mistralResult = await runMistralOcrJob({
+            fileBytes,
+            mimeType: finalMimeType,
+            fileName: finalFileName,
+          });
+          engine = "mistral";
+          model = mistralResult.model;
+          ocrText = mistralResult.text;
+          ocrPageCount = mistralResult.pageCount;
+        }
+      } else {
+        // Gemini disabled by flag — go straight to Mistral.
+        engineAttempts.push("mistral");
+        const mistralResult = await runMistralOcrJob({
+          fileBytes,
+          mimeType: finalMimeType,
+          fileName: finalFileName,
+        });
+        engine = "mistral";
+        model = mistralResult.model;
+        ocrText = mistralResult.text;
+        ocrPageCount = mistralResult.pageCount;
+      }
+
+      const auditMap = buildAuditMapFromMarkers(ocrText);
       const findings = [
-        { kind: "engine", note: "gemini_google" },
-        { kind: "model", note: geminiResult.model || null },
+        { kind: "engine", note: engine },
+        { kind: "model", note: model || null },
         { kind: "page_markers", note: auditMap ? "present" : "missing" },
+        ...(primaryEngineError
+          ? [{
+              kind: "primary_engine_failed",
+              note: `gemini_google: ${primaryEngineError?.message ?? String(primaryEngineError)}`,
+            }]
+          : []),
       ];
 
       const result = {
-        engine: "gemini_google",
-        model: geminiResult.model,
+        engine,
+        model,
         elapsed_ms: Date.now() - started,
-        pages_estimate: geminiResult.pageCount,
-        text_preview: geminiResult.text.slice(0, 14000),
+        pages_estimate: ocrPageCount,
+        text_preview: ocrText.slice(0, 14000),
         raw: {
-          geminiText: geminiResult.text,
+          ocrText,
           auditMap,
           findings,
         },
@@ -304,10 +366,10 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
           {
             deal_id: dealId,
             attachment_id: resolvedAttachmentId,
-            provider: "gemini_google",
+            provider: engine,
             status: "SUCCEEDED",
             raw_json: result.raw,
-            extracted_text: geminiResult.text,
+            extracted_text: ocrText,
             tables_json: null,
             error: null,
             updated_at: nowIso(),
@@ -347,7 +409,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
             updated_at: nowIso(),
             error: null,
             metadata: {
-              engine: "gemini_google",
+              engine,
               model: result.model,
               pages_estimate: result.pages_estimate,
               storage_bucket: storageBucket,
@@ -380,7 +442,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
             job_id: jobId,
             pages: result.pages_estimate,
             elapsed_ms: result.elapsed_ms,
-            engine: "gemini",
+            engine,
           },
         });
       }
@@ -411,7 +473,7 @@ export async function runOcrJob({ dealId, jobId, reqId: _reqId, bankId }: RunArg
           bank_id: bankId,
           stage: "ocr_complete",
           status: "error",
-          payload: { job_id: jobId, engine: "gemini" },
+          payload: { job_id: jobId, engine: engineAttempts.join(",") || "none" },
           error: e?.message ?? String(e),
         });
       }

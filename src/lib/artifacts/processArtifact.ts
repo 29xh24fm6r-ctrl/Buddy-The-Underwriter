@@ -175,9 +175,12 @@ async function runOcrForDocument(
   mimeType: string | null,
   bankId: string,
 ): Promise<OcrResult> {
-  // Check if Gemini OCR is enabled
-  if (process.env.USE_GEMINI_OCR !== "true") {
-    return { ok: false, code: "ocr_disabled", message: "USE_GEMINI_OCR is not enabled" };
+  // Gemini is the primary OCR engine; Mistral's OCR endpoint is the fallback
+  // below when Gemini fails or is disabled. Bail out only if neither is configured.
+  const geminiEnabled = process.env.USE_GEMINI_OCR === "true";
+  const mistralConfigured = Boolean(process.env.MISTRAL_API_KEY);
+  if (!geminiEnabled && !mistralConfigured) {
+    return { ok: false, code: "ocr_disabled", message: "No OCR provider configured" };
   }
 
   try {
@@ -300,22 +303,66 @@ async function runOcrForDocument(
     // 2. Infer mime type if not provided
     const inferredMimeType = mimeType || inferMimeTypeFromFilename(originalFilename);
 
-    // 3. Call Gemini OCR
-    const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
+    // 3. Call Gemini OCR, falling back to Mistral if Gemini fails/is disabled
+    // (same fallback used by the document_jobs queue's runOcrJob).
+    let provider: "gemini_google" | "mistral";
+    let ocrModel: string;
+    let ocrText: string;
+    let ocrPageCount: number;
+    let usedGemini = false;
 
-    console.log("[processArtifact] Running Gemini OCR", {
-      dealId,
-      documentId,
-      filename: originalFilename,
-      mimeType: inferredMimeType,
-      fileSize: fileBytes.length,
-    });
+    if (geminiEnabled) {
+      try {
+        const { runGeminiOcrJob } = await import("@/lib/ocr/runGeminiOcrJob");
 
-    const ocrResult = await runGeminiOcrJob({
-      fileBytes,
-      mimeType: inferredMimeType,
-      fileName: originalFilename,
-    });
+        console.log("[processArtifact] Running Gemini OCR", {
+          dealId,
+          documentId,
+          filename: originalFilename,
+          mimeType: inferredMimeType,
+          fileSize: fileBytes.length,
+        });
+
+        const geminiResult = await runGeminiOcrJob({
+          fileBytes,
+          mimeType: inferredMimeType,
+          fileName: originalFilename,
+        });
+        provider = "gemini_google";
+        ocrModel = geminiResult.model;
+        ocrText = geminiResult.text;
+        ocrPageCount = geminiResult.pageCount;
+        usedGemini = true;
+      } catch (geminiErr: any) {
+        if (!mistralConfigured) throw geminiErr;
+        console.warn("[processArtifact] Gemini OCR failed, falling back to Mistral", {
+          documentId,
+          error: geminiErr?.message ?? String(geminiErr),
+        });
+
+        const { runMistralOcrJob } = await import("@/lib/ocr/runMistralOcrJob");
+        const mistralResult = await runMistralOcrJob({
+          fileBytes,
+          mimeType: inferredMimeType,
+          fileName: originalFilename,
+        });
+        provider = "mistral";
+        ocrModel = mistralResult.model;
+        ocrText = mistralResult.text;
+        ocrPageCount = mistralResult.pageCount;
+      }
+    } else {
+      const { runMistralOcrJob } = await import("@/lib/ocr/runMistralOcrJob");
+      const mistralResult = await runMistralOcrJob({
+        fileBytes,
+        mimeType: inferredMimeType,
+        fileName: originalFilename,
+      });
+      provider = "mistral";
+      ocrModel = mistralResult.model;
+      ocrText = mistralResult.text;
+      ocrPageCount = mistralResult.pageCount;
+    }
 
     // 4. Save OCR results to database
     const nowIso = new Date().toISOString();
@@ -323,13 +370,13 @@ async function runOcrForDocument(
       {
         deal_id: dealId,
         attachment_id: documentId,
-        provider: "gemini_google",
+        provider,
         status: "SUCCEEDED",
         raw_json: {
-          model: ocrResult.model,
-          pageCount: ocrResult.pageCount,
+          model: ocrModel,
+          pageCount: ocrPageCount,
         },
-        extracted_text: ocrResult.text,
+        extracted_text: ocrText,
         tables_json: null,
         error: null,
         updated_at: nowIso,
@@ -347,27 +394,33 @@ async function runOcrForDocument(
 
     console.log("[processArtifact] OCR completed successfully", {
       documentId,
-      textLength: ocrResult.text.length,
-      pageCount: ocrResult.pageCount,
-      model: ocrResult.model,
+      provider,
+      textLength: ocrText.length,
+      pageCount: ocrPageCount,
+      model: ocrModel,
     });
 
     // ── Cache WRITE: persist OCR result for future identical uploads ──
-    writeExtractionCache({
-      sb,
-      bankId,
-      contentSha256: hashResult.sha256Hex,
-      engine: "GEMINI_OCR",
-      engineVersion: GEMINI_OCR_VERSION,
-      payload: {
-        text: ocrResult.text,
-        model: ocrResult.model,
-        pageCount: ocrResult.pageCount,
-      },
-    }).catch(() => {}); // fire-and-forget, never block OCR return
+    // Only cache under the GEMINI_OCR engine tag when Gemini actually
+    // produced the result — a Mistral-fallback result cached under that tag
+    // would be silently served as "Gemini OCR" on the next identical upload.
+    if (usedGemini) {
+      writeExtractionCache({
+        sb,
+        bankId,
+        contentSha256: hashResult.sha256Hex,
+        engine: "GEMINI_OCR",
+        engineVersion: GEMINI_OCR_VERSION,
+        payload: {
+          text: ocrText,
+          model: ocrModel,
+          pageCount: ocrPageCount,
+        },
+      }).catch(() => {}); // fire-and-forget, never block OCR return
+    }
     // ── End cache WRITE ───────────────────────────────────────────────
 
-    return { ok: true, text: ocrResult.text };
+    return { ok: true, text: ocrText };
 
   } catch (err: any) {
     console.error("[processArtifact] OCR failed", {

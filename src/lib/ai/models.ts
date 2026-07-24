@@ -81,6 +81,17 @@ export const GEMINI_FLASH_PRECISION = "gemini-3.5-flash";
  */
 export const GEMINI_PRO = "gemini-3.1-pro-preview";
 
+// ── MISTRAL — OCR fallback provider ────────────────────────────────────────
+
+/**
+ * Mistral's purpose-built document OCR endpoint (client.ocr.process), used
+ * as a fallback when Gemini OCR (the primary provider) fails or is
+ * unavailable. Not a chat/vision model — this is Mistral's dedicated OCR
+ * API, which returns per-page markdown directly rather than requiring a
+ * prompt-engineered text-extraction response.
+ */
+export const MISTRAL_OCR = "mistral-ocr-latest";
+
 // ── OPENAI — Legacy stack (existing, not migrating in this phase) ─────────
 
 /**
@@ -140,6 +151,7 @@ export const MODEL_RESEARCH       = GEMINI_FLASH;  // BIE 8-thread research
  */
 export const MODEL_RESEARCH_FALLBACK = GEMINI_FLASH_PRECISION;
 export const MODEL_OCR            = GEMINI_FLASH;  // Gemini OCR job
+export const MODEL_OCR_FALLBACK   = MISTRAL_OCR;    // OCR fallback when Gemini fails/unavailable
 export const MODEL_SBA_NARRATIVE  = GEMINI_PRO;    // SBA package narrative (Phase 2 upgrade — Pro for deal-specific prose)
 export const MODEL_CLASSIC_SPREAD = GEMINI_FLASH;  // classic spread narrative engine
 export const MODEL_OMEGA          = GEMINI_FLASH;  // Omega relationship/portfolio
