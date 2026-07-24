@@ -83,12 +83,19 @@ export async function POST(req: NextRequest) {
   }
 
   if (organizationId) {
+    // upsertBrokerageLead dedups by email/phone — resubmitting the same
+    // person's info correctly updates the existing lead rather than
+    // creating a second row, but this activity log was written
+    // unconditionally, logging a second "Lead submitted" event for what
+    // was actually just an update. Found during live QA of
+    // SPEC-BROKERAGE-OPERATING-SYSTEM-V1 (the org timeline showed two
+    // "Lead submitted" entries for one lead, no duplicate lead row).
     const label = [body?.firstName, body?.lastName].filter(Boolean).join(" ") || email || phone;
     await sb.from("crm_activities").insert({
       bank_id: brokerageBankId,
       kind: "system",
-      title: `Lead submitted: ${label}`,
-      properties: { leadId: result.id },
+      title: result.isNew ? `Lead submitted: ${label}` : `Lead re-submitted: ${label}`,
+      properties: { leadId: result.id, isNew: result.isNew },
       actor_clerk_user_id: userId,
       target_organization_id: organizationId,
     });
