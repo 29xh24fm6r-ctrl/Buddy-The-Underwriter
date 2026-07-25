@@ -45,10 +45,10 @@ class EmptyQuery {
 
 const emptySupabase = { from: () => new EmptyQuery() } as any;
 
-test("isDispatchedSbaTemplateCode: recognizes all 11 ARC-00 form codes, rejects unknown", () => {
+test("isDispatchedSbaTemplateCode: recognizes all 13 form codes (11 ARC-00 + Note/Authorization), rejects unknown", () => {
   for (const code of [
     "SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C",
-    "SBA_148", "SBA_148L", "SBA_601", "SBA_722",
+    "SBA_148", "SBA_148L", "SBA_601", "SBA_722", "SBA_NOTE", "SBA_AUTHORIZATION",
   ]) {
     assert.equal(isDispatchedSbaTemplateCode(code), true);
   }
@@ -138,4 +138,18 @@ test("renderSbaPackageItem: SBA_722 not yet acknowledged -> not_acknowledged", a
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "not_acknowledged");
+});
+
+test("renderSbaPackageItem: SBA_NOTE on empty deal -> form_incomplete, not a fabricated PDF", async () => {
+  const result = await renderSbaPackageItem("SBA_NOTE", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.reason, /^form_incomplete/);
+});
+
+test("renderSbaPackageItem: SBA_AUTHORIZATION on empty deal -> form_incomplete, not a fabricated PDF", async () => {
+  const result = await renderSbaPackageItem("SBA_AUTHORIZATION", { dealId: "d1", bankId: "b1", supabase: emptySupabase });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.reason, /^form_incomplete/);
 });

@@ -10,6 +10,7 @@
  */
 
 import { hasValidIal2, type KycSupabaseClient } from "@/lib/identity/kyc/service";
+import { hasCompletedLegalReview } from "@/lib/sba/legalReview/service";
 
 export type EsignSupabaseClient = KycSupabaseClient & {
   storage?: { from: (bucket: string) => { upload: (path: string, data: Buffer, opts?: any) => Promise<{ error: any }> } };
@@ -74,7 +75,7 @@ export type RequestSignatureArgs = {
 
 export type RequestSignatureResult =
   | { ok: true; documentId: string; embedUrl: string }
-  | { ok: false; reason: "IAL2_NOT_COMPLETED" | "SUBMISSION_FAILED"; detail?: string };
+  | { ok: false; reason: "IAL2_NOT_COMPLETED" | "LEGAL_REVIEW_NOT_COMPLETED" | "SUBMISSION_FAILED"; detail?: string };
 
 export async function requestSignature(
   args: RequestSignatureArgs,
@@ -86,6 +87,15 @@ export async function requestSignature(
   const ial2Valid = await hasValidIal2(args.dealId, args.signerOwnershipEntityId, sb);
   if (!ial2Valid) {
     return { ok: false, reason: "IAL2_NOT_COMPLETED" };
+  }
+
+  // LEGAL REVIEW GATE — Buddy-drafted closing documents (SBA Note, Loan
+  // Authorization) may not be sent for signature until an attorney/
+  // compliance reviewer has explicitly approved them for this deal. A
+  // no-op for every other form code (see FORMS_REQUIRING_LEGAL_REVIEW).
+  const legalReviewComplete = await hasCompletedLegalReview(args.dealId, args.formCode, sb);
+  if (!legalReviewComplete) {
+    return { ok: false, reason: "LEGAL_REVIEW_NOT_COMPLETED" };
   }
 
   // SignWell must never fill loan data itself — it only ever receives an

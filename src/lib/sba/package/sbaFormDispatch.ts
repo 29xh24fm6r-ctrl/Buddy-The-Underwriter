@@ -21,6 +21,10 @@ import { renderForm148Pdf } from "@/lib/sba/forms/form148/render";
 import { buildForm601WithSignature } from "@/lib/sba/forms/form601/buildWithSignature";
 import { renderForm601Pdf } from "@/lib/sba/forms/form601/render";
 import { getForm722Status } from "@/lib/sba/forms/form722/service";
+import { buildSbaNoteWithSignature } from "@/lib/sba/forms/sbaNote/buildWithSignature";
+import { renderSbaNotePdf } from "@/lib/sba/forms/sbaNote/render";
+import { buildLoanAuthorizationWithSignature } from "@/lib/sba/forms/loanAuthorization/buildWithSignature";
+import { renderLoanAuthorizationPdf } from "@/lib/sba/forms/loanAuthorization/render";
 
 /**
  * SPEC S4 H-1 — dispatches an SBA package item's `template_code` to the
@@ -50,7 +54,7 @@ export type SbaFormDispatchResult =
 
 const DISPATCHED_TEMPLATE_CODES = new Set([
   "SBA_1919", "SBA_1244", "SBA_413", "SBA_912", "SBA_155", "SBA_159", "IRS_4506C",
-  "SBA_148", "SBA_148L", "SBA_601", "SBA_722",
+  "SBA_148", "SBA_148L", "SBA_601", "SBA_722", "SBA_NOTE", "SBA_AUTHORIZATION",
 ]);
 
 export function isDispatchedSbaTemplateCode(templateCode: string): boolean {
@@ -172,6 +176,20 @@ export async function renderSbaPackageItem(
       } catch {
         return { ok: false, reason: "template_not_available" };
       }
+    }
+
+    case "SBA_NOTE": {
+      const buildResult = await buildSbaNoteWithSignature(dealId, bankId, sb);
+      if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${buildResult.missing.join(",")}` };
+      const rendered = await renderSbaNotePdf({ buildResult });
+      return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
+    }
+
+    case "SBA_AUTHORIZATION": {
+      const buildResult = await buildLoanAuthorizationWithSignature(dealId, bankId, sb);
+      if (!buildResult.is_complete) return { ok: false, reason: `form_incomplete: ${buildResult.missing.join(",")}` };
+      const rendered = await renderLoanAuthorizationPdf({ buildResult });
+      return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
     }
 
     default:

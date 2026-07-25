@@ -20,6 +20,12 @@ import { renderForm4506cPdf } from "@/lib/sba/forms/form4506c/render";
 import { buildForm155Input } from "@/lib/sba/forms/form155/inputBuilder";
 import { renderForm155Pdf } from "@/lib/sba/forms/form155/render";
 
+import { buildSbaNoteWithSignature } from "@/lib/sba/forms/sbaNote/buildWithSignature";
+import { renderSbaNotePdf } from "@/lib/sba/forms/sbaNote/render";
+
+import { buildLoanAuthorizationWithSignature } from "@/lib/sba/forms/loanAuthorization/buildWithSignature";
+import { renderLoanAuthorizationPdf } from "@/lib/sba/forms/loanAuthorization/render";
+
 /**
  * SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 §4/§5 — the resolver SignWell signing
  * actually needs: given an esign formCode + deal + signer, produce the
@@ -88,6 +94,24 @@ export async function resolveFilledPdfForSigning(args: {
     case "FORM_155": {
       const buildResult = await buildForm155Input(dealId, bankId, sb);
       const rendered = await renderForm155Pdf({ supabase, buildResult });
+      return rendered.ok
+        ? { ok: true, pdfBytes: rendered.pdfBytes }
+        : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_SBA_NOTE": {
+      const buildResult = await buildSbaNoteWithSignature(dealId, bankId, sb);
+      if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete", detail: buildResult.missing.join(",") };
+      const rendered = await renderSbaNotePdf({ buildResult });
+      return rendered.ok
+        ? { ok: true, pdfBytes: rendered.pdfBytes }
+        : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_SBA_AUTHORIZATION": {
+      const buildResult = await buildLoanAuthorizationWithSignature(dealId, bankId, sb);
+      if (!buildResult.is_complete) return { ok: false, reason: "form_incomplete", detail: buildResult.missing.join(",") };
+      const rendered = await renderLoanAuthorizationPdf({ buildResult });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
