@@ -5,7 +5,7 @@ import { standardLateChargeText, standardPrepaymentPenaltyText } from "@/lib/sba
 
 const COMPLETE_FIELDS = {
   borrower_legal_name: "Acme LLC",
-  lender_name: "Old Glory Bank",
+  lender_name: "First National Bank",
   lender_address: null,
   principal_amount: 500_000,
   interest_rate_pct: 8.5,

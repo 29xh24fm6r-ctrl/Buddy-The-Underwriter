@@ -4,7 +4,7 @@ import { buildLoanAuthorization } from "@/lib/sba/forms/loanAuthorization/build"
 
 const COMPLETE_FIELDS = {
   borrower_legal_name: "Acme LLC",
-  lender_name: "Old Glory Bank",
+  lender_name: "First National Bank",
   principal_amount: 500_000,
   interest_rate_pct: 8.5,
   rate_type: "fixed" as const,
