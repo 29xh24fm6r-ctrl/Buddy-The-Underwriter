@@ -52,6 +52,8 @@ import { postToSbaEtran } from "@/lib/etran/etranHttpClient";
 import { buildForm1919Input } from "@/lib/sba/forms/form1919/inputBuilder";
 import { FORM_912_TRIGGER_FIELDS } from "@/lib/sba/forms/form1919/fields";
 import { buildForm155Input } from "@/lib/sba/forms/form155/inputBuilder";
+import { buildSbaNoteWithSignature, SBA_NOTE_FORM_CODE } from "@/lib/sba/forms/sbaNote/buildWithSignature";
+import { buildLoanAuthorizationWithSignature, LOAN_AUTHORIZATION_FORM_CODE } from "@/lib/sba/forms/loanAuthorization/buildWithSignature";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // generate-package action is long-running
@@ -776,7 +778,34 @@ async function getSigningStatus(dealId: string, bankId: string): Promise<Respons
     .limit(1)
     .maybeSingle();
 
+  // SBA Note / Loan Authorization: always-applicable closing documents,
+  // deal-level (single primary signer), gated on the legal-review approval
+  // before they can be sent for signature — see
+  // src/lib/sba/legalReview/service.ts. buildXWithSignature already
+  // resolves both signature and legal-review status, so no separate
+  // signedDocs lookup is needed here the way FORM_155 needs.
+  const [sbaNoteResult, loanAuthorizationResult] = await Promise.all([
+    buildSbaNoteWithSignature(dealId, bankId, sb),
+    buildLoanAuthorizationWithSignature(dealId, bankId, sb),
+  ]);
+
   const dealLevelForms = [
+    {
+      formCode: SBA_NOTE_FORM_CODE,
+      label: "SBA Note",
+      applicable: true,
+      signed: sbaNoteResult.signature.has_valid_signature,
+      ownershipEntityId: sbaNoteResult.borrower_ownership_entity_id,
+      legalReviewApproved: sbaNoteResult.legal_review.approved,
+    },
+    {
+      formCode: LOAN_AUTHORIZATION_FORM_CODE,
+      label: "Loan Authorization & Agreement",
+      applicable: true,
+      signed: loanAuthorizationResult.signature.has_valid_signature,
+      ownershipEntityId: loanAuthorizationResult.borrower_ownership_entity_id,
+      legalReviewApproved: loanAuthorizationResult.legal_review.approved,
+    },
     {
       formCode: "FORM_155",
       label: "Form 155 (Standby Creditor's Agreement)",
@@ -797,7 +826,8 @@ async function getSigningStatus(dealId: string, bankId: string): Promise<Respons
     const doc = (signedDocs ?? []).find(
       (d: any) => d.signer_ownership_entity_id === form155Result.borrower_ownership_entity_id && d.form_code === "FORM_155",
     );
-    dealLevelForms[0].signed = Boolean(doc) && (!doc?.expires_at || new Date(doc.expires_at) > new Date());
+    const form155Row = dealLevelForms.find((f) => f.formCode === "FORM_155")!;
+    form155Row.signed = Boolean(doc) && (!doc?.expires_at || new Date(doc.expires_at) > new Date());
   }
 
   return NextResponse.json({ ok: true, rows, dealLevelForms });

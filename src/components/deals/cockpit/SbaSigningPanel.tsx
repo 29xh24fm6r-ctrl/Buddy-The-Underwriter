@@ -22,7 +22,13 @@ type DealLevelForm = {
   applicable: boolean;
   signed: boolean;
   ownershipEntityId: string | null;
+  legalReviewApproved?: boolean;
 };
+
+/** Mirrors FORMS_REQUIRING_LEGAL_REVIEW in src/lib/sba/legalReview/service.ts
+ *  — Buddy-drafted closing documents, not the fixed federal disclosure
+ *  forms, need an explicit attorney/compliance sign-off before Send. */
+const FORMS_REQUIRING_LEGAL_REVIEW = new Set(["FORM_SBA_NOTE", "FORM_SBA_AUTHORIZATION"]);
 
 /** SPEC S4 H-2 — extended from {1919, 413} to all 5 per-signer forms. */
 const TRACKED_FORMS = [
@@ -75,6 +81,28 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
         const data = await res.json();
         if (data.ok && data.oneTimeLink) {
           window.open(data.oneTimeLink, "_blank", "noopener,noreferrer");
+        }
+        load();
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [dealId, load],
+  );
+
+  const markLegalReviewed = useCallback(
+    async (formCode: string) => {
+      const key = `review:${formCode}`;
+      setBusyKey(key);
+      try {
+        const res = await fetch(`/api/deals/${dealId}/sba/legal-review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ form_code: formCode }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          window.alert(data?.error === "role_not_allowed" ? "Only a bank admin can approve this document for signature." : "Failed to record review.");
         }
         load();
       } finally {
@@ -208,29 +236,49 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
             Deal-level forms
           </div>
           <ul className="space-y-1 text-xs">
-            {dealLevelForms.map((f) => (
-              <li key={f.formCode} className="flex items-center justify-between text-white/70">
-                <span>{f.label}</span>
-                {!f.applicable ? (
-                  <span className="text-white/25">Not applicable</span>
-                ) : f.signed ? (
-                  <span className="text-emerald-400">✓ Signed</span>
-                ) : f.ownershipEntityId ? (
-                  <button
-                    type="button"
-                    onClick={() => sendForSignature(f.ownershipEntityId as string, f.formCode)}
-                    disabled={busyKey === `esign:${f.ownershipEntityId}:${f.formCode}`}
-                    className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60 hover:bg-white/10 disabled:opacity-40"
-                  >
-                    ⏳ Send
-                  </button>
-                ) : (
-                  <span className="text-white/30" title="No signer resolved yet">
-                    — Pending
+            {dealLevelForms.map((f) => {
+              const needsReview = FORMS_REQUIRING_LEGAL_REVIEW.has(f.formCode);
+              const reviewBlocking = needsReview && !f.legalReviewApproved;
+              return (
+                <li key={f.formCode} className="flex items-center justify-between text-white/70">
+                  <span className="flex items-center gap-2">
+                    {f.label}
+                    {needsReview && (
+                      <span className={reviewBlocking ? "text-amber-400" : "text-emerald-400"}>
+                        {reviewBlocking ? "· Draft, needs review" : "· Reviewed ✓"}
+                      </span>
+                    )}
                   </span>
-                )}
-              </li>
-            ))}
+                  {!f.applicable ? (
+                    <span className="text-white/25">Not applicable</span>
+                  ) : f.signed ? (
+                    <span className="text-emerald-400">✓ Signed</span>
+                  ) : !f.ownershipEntityId ? (
+                    <span className="text-white/30" title="No signer resolved yet">
+                      — Pending
+                    </span>
+                  ) : reviewBlocking ? (
+                    <button
+                      type="button"
+                      onClick={() => markLegalReviewed(f.formCode)}
+                      disabled={busyKey === `review:${f.formCode}`}
+                      className="rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300 hover:bg-amber-400/20 disabled:opacity-40"
+                    >
+                      Mark reviewed by counsel
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => sendForSignature(f.ownershipEntityId as string, f.formCode)}
+                      disabled={busyKey === `esign:${f.ownershipEntityId}:${f.formCode}`}
+                      className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-white/60 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      ⏳ Send
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
