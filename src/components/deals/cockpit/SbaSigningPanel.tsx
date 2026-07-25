@@ -95,10 +95,10 @@ export default function SbaSigningPanel({ dealId }: { dealId: string }) {
       const key = `review:${formCode}`;
       setBusyKey(key);
       try {
-        const res = await fetch(`/api/deals/${dealId}/sba/legal-review`, {
+        const res = await fetch(`/api/deals/${dealId}/sba`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ form_code: formCode }),
+          body: JSON.stringify({ action: "legal-review-approve", form_code: formCode }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => null);
