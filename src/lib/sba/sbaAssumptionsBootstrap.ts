@@ -32,6 +32,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadSBAAssumptionsPrefill } from "./sbaAssumptionsPrefill";
 import { validateSBAAssumptions } from "./sbaAssumptionsValidator";
+import { findBenchmarkByNaics } from "./sbaAssumptionBenchmarks";
 import type {
   SBAAssumptions,
   ManagementMember,
@@ -41,13 +42,22 @@ import type {
 const PREVIEW_BIO_PLACEHOLDER =
   "Principal of the business; full biography will be added before final package generation.";
 
+const REVENUE_STREAM_BLOCKER = "At least one revenue stream is required";
+const STARTUP_REVENUE_BLOCKER =
+  "This business hasn't launched yet, so I need your projected first-year revenue to build your projections";
+
 export type EnsureResult =
   | { ok: true; assumptionsId: string; alreadyConfirmed: boolean }
   | { ok: false; blockers: string[] };
 
 export type ConciergeFacts = {
   borrower?: { first_name?: string | null; last_name?: string | null } | null;
-  business?: { legal_name?: string | null } | null;
+  business?: {
+    legal_name?: string | null;
+    annual_revenue?: number | null;
+    is_startup?: boolean | null;
+    naics?: string | null;
+  } | null;
   loan?: { amount_requested?: number | null } | null;
 } | null;
 
@@ -90,7 +100,10 @@ export async function ensureAssumptionsForPreview(args: {
     await upsertAssumptionsRow(sb, args.dealId, candidate, "draft");
     return {
       ok: false,
-      blockers: validation.blockers,
+      blockers: rephraseBlockersForBorrower(
+        validation.blockers,
+        args.conciergeFacts ?? null,
+      ),
     } as EnsureResult;
   }
 
@@ -101,6 +114,48 @@ export async function ensureAssumptionsForPreview(args: {
     "confirmed",
   );
   return { ok: true, assumptionsId: id, alreadyConfirmed: false };
+}
+
+// Generic growth-rate fallback used when no NAICS benchmark is available —
+// mirrors the default applied in sbaAssumptionsPrefill.ts.
+const GENERIC_GROWTH_Y1 = 0.1;
+const GENERIC_GROWTH_Y2 = 0.08;
+const GENERIC_GROWTH_Y3 = 0.06;
+
+function buildConciergeRevenueStream(
+  conciergeFacts: ConciergeFacts,
+  annualRevenue: number,
+): RevenueStream {
+  const bench = findBenchmarkByNaics(conciergeFacts?.business?.naics ?? null);
+  const legalName = conciergeFacts?.business?.legal_name?.trim();
+  return {
+    id: "stream_concierge",
+    name: legalName ? `${legalName} Revenue` : "Primary Revenue",
+    baseAnnualRevenue: annualRevenue,
+    growthRateYear1: bench?.revenueGrowthMedian ?? GENERIC_GROWTH_Y1,
+    growthRateYear2: bench ? bench.revenueGrowthMedian * 0.8 : GENERIC_GROWTH_Y2,
+    growthRateYear3: bench ? bench.revenueGrowthMedian * 0.6 : GENERIC_GROWTH_Y3,
+    pricingModel: "flat",
+    seasonalityProfile: null,
+  };
+}
+
+// Rewrites the generic "at least one revenue stream" validator blocker into
+// startup-specific guidance when the concierge already told us this business
+// hasn't launched (or has $0 revenue) — "base revenue" language is confusing
+// for someone who has nothing to report yet and needs to give a projection
+// instead. All other blockers pass through unchanged.
+function rephraseBlockersForBorrower(
+  blockers: string[],
+  conciergeFacts: ConciergeFacts,
+): string[] {
+  const isPreRevenue =
+    conciergeFacts?.business?.is_startup === true ||
+    Number(conciergeFacts?.business?.annual_revenue ?? -1) === 0;
+  if (!isPreRevenue) return blockers;
+  return blockers.map((b) =>
+    b === REVENUE_STREAM_BLOCKER ? STARTUP_REVENUE_BLOCKER : b,
+  );
 }
 
 function buildCandidate(args: {
@@ -127,10 +182,23 @@ function buildCandidate(args: {
 
   const exRevenueStreams =
     (ex.revenue_streams as RevenueStream[] | null) ?? null;
+  const conciergeRevenue = Number(
+    conciergeFacts?.business?.annual_revenue ?? 0,
+  );
+  // Concierge-sourced deals never go through the bank-side
+  // AssumptionInterview UI, so a revenue figure the borrower already told
+  // Buddy about (extracted into conciergeFacts.business.annual_revenue)
+  // is the only source available. A genuine pre-revenue startup reports
+  // annual_revenue: 0 here — that case is left as a validator blocker
+  // (rephraseBlockersForBorrower below) rather than fabricating a number.
   const revenueStreams: RevenueStream[] =
     exRevenueStreams && exRevenueStreams.length
       ? exRevenueStreams
-      : (prefill.revenueStreams ?? []);
+      : prefill.revenueStreams && prefill.revenueStreams.length
+        ? prefill.revenueStreams
+        : conciergeRevenue > 0
+          ? [buildConciergeRevenueStream(conciergeFacts, conciergeRevenue)]
+          : [];
 
   const exCost = (ex.cost_assumptions as
     | SBAAssumptions["costAssumptions"]
@@ -333,3 +401,4 @@ export async function persistAssumptionsDraft(args: {
 // Exported for unit testing.
 export const __test_buildCandidate = buildCandidate;
 export const __test_PREVIEW_BIO_PLACEHOLDER = PREVIEW_BIO_PLACEHOLDER;
+export const __test_rephraseBlockersForBorrower = rephraseBlockersForBorrower;
