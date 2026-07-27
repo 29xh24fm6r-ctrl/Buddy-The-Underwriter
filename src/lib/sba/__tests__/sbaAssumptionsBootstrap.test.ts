@@ -234,6 +234,91 @@ test("zero loan amount → validator BLOCKS", () => {
   }
 });
 
+// ── Concierge-sourced revenue fallback (T-BORROWER-PACKAGE-COMPLETENESS) ──
+//
+// All 7 production buddy_sba_assumptions rows pulled 2026-07-23 were
+// status='draft' with zero revenue streams. Every one of those deals came
+// exclusively through the brokerage concierge chat funnel (no
+// borrower_invites / borrower_portal_links row) — meaning
+// conciergeFacts.business.annual_revenue (already captured by fact
+// extraction) was the only revenue source available, and buildCandidate
+// never read it. These tests lock in the fix.
+
+test("falls back to concierge-reported annual revenue when prefill has none", () => {
+  const prefillNoRevenue = { ...FULL_PREFILL, revenueStreams: [] };
+  const c = buildCandidate({
+    dealId: "deal-1",
+    prefill: prefillNoRevenue,
+    existingRow: null,
+    conciergeFacts: {
+      borrower: { first_name: "Sebrina", last_name: "Colon" },
+      business: { legal_name: "Acme Bakery", annual_revenue: 500_000 },
+      loan: { amount_requested: 275_000 },
+    },
+  });
+  assert.equal(c.revenueStreams.length, 1);
+  assert.equal(c.revenueStreams[0].baseAnnualRevenue, 500_000);
+  assert.equal(c.revenueStreams[0].name, "Acme Bakery Revenue");
+  assert.ok(c.revenueStreams[0].growthRateYear1 > 0);
+  const v = validateSBAAssumptions(c);
+  assert.equal(v.ok, true, JSON.stringify(v));
+});
+
+test("does NOT fabricate a revenue stream for a genuine pre-revenue startup", () => {
+  const prefillNoRevenue = { ...FULL_PREFILL, revenueStreams: [] };
+  const c = buildCandidate({
+    dealId: "deal-1",
+    prefill: prefillNoRevenue,
+    existingRow: null,
+    conciergeFacts: {
+      borrower: { first_name: "Matt", last_name: "Paller" },
+      business: { legal_name: "New Co", annual_revenue: 0, is_startup: true },
+      loan: { amount_requested: 50_000 },
+    },
+  });
+  assert.equal(c.revenueStreams.length, 0);
+});
+
+test("existing/prefill revenue streams still win over concierge facts", () => {
+  const c = buildCandidate({
+    dealId: "deal-1",
+    prefill: FULL_PREFILL,
+    existingRow: null,
+    conciergeFacts: {
+      business: { legal_name: "Acme Bakery", annual_revenue: 999_999 },
+    },
+  });
+  assert.equal(c.revenueStreams[0].name, "Catering Revenue");
+  assert.equal(c.revenueStreams[0].baseAnnualRevenue, 850_000);
+});
+
+test("rephraseBlockersForBorrower: swaps the generic revenue blocker for startup guidance", () => {
+  const rephrase = bootstrap.__test_rephraseBlockersForBorrower;
+  const blockers = [
+    "At least one revenue stream is required",
+    "Loan term (months) is required",
+  ];
+  const out = rephrase(blockers, {
+    business: { is_startup: true, annual_revenue: 0 },
+  });
+  assert.ok(
+    out.some((b) => b.includes("hasn't launched yet")),
+    JSON.stringify(out),
+  );
+  assert.ok(!out.includes("At least one revenue stream is required"));
+  // Unrelated blockers pass through untouched.
+  assert.ok(out.includes("Loan term (months) is required"));
+});
+
+test("rephraseBlockersForBorrower: leaves blockers untouched for an established business", () => {
+  const rephrase = bootstrap.__test_rephraseBlockersForBorrower;
+  const blockers = ["At least one revenue stream is required"];
+  const out = rephrase(blockers, {
+    business: { is_startup: false, annual_revenue: 850_000 },
+  });
+  assert.deepEqual(out, blockers);
+});
+
 // ── persistAssumptionsDraft no-downgrade rule ────────────────────────────
 //
 // A confirmed row must NEVER be downgraded by a background draft refresh.
