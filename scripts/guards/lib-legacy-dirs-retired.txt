@@ -4,3 +4,4 @@
 # a trailing "/" for directory imports).
 ai-events
 checklists
+lender
