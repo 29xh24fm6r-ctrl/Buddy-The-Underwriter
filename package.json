@@ -8,7 +8,7 @@
   "packageManager": "pnpm@10.27.0",
   "scripts": {
     "dev": "next dev",
-    "build": "NODE_OPTIONS='--max-old-space-size=7168' next build --webpack",
+    "build": "NODE_OPTIONS='--max-old-space-size=5120' next build --webpack",
     "build:ci": "bash scripts/build-ci.sh",
     "build:mcp": "cd mcp-server && npm install && npm run build",
     "start": "next start",
@@ -94,7 +94,6 @@
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.64.0",
-    "@opentelemetry/exporter-jaeger": "^2.3.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.206.0",
     "@opentelemetry/resources": "^2.1.0",
     "@opentelemetry/sdk-node": "^0.206.0",
