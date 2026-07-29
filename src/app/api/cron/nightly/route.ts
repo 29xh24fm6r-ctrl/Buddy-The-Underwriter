@@ -1,11 +1,13 @@
 /**
  * POST /api/cron/nightly
- * 
+ *
  * Nightly cron job for automated governance tasks:
+ * 0. Telemetry retention purge (buddy_system_events / franchise_sync_runs /
+ *    buddy_workers) — global, not per-bank.
  * 1. Portfolio aggregation (system-wide risk snapshot)
  * 2. Policy drift detection (compare actual to stated policy)
  * 3. Living policy suggestions (AI-driven policy updates)
- * 
+ *
  * Trigger via Vercel Cron or Supabase Edge Functions.
  */
 
@@ -14,12 +16,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { aggregatePortfolio } from "@/lib/macro/aggregatePortfolio";
 import { detectPolicyDrift } from "@/lib/nightly/policyDrift";
 import { suggestPolicyUpdates } from "@/lib/nightly/livingPolicy";
+import { runTelemetryRetentionPurge } from "@/lib/nightly/telemetryRetention";
 
 export async function POST(req: NextRequest) {
   // Verify cron secret (recommended for production)
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  
+
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json(
       { ok: false, error: "Unauthorized" },
@@ -29,11 +32,23 @@ export async function POST(req: NextRequest) {
 
   const sb = supabaseAdmin();
 
+  // 0. Telemetry retention purge — global, runs regardless of bank count.
+  // A missing/broken purge RPC is a loud failure (SPEC-SYSTEM-DEBLOAT-1
+  // Phase B): it is reported in the response, not swallowed.
+  let retention: { ok: true; results: Awaited<ReturnType<typeof runTelemetryRetentionPurge>> } | { ok: false; error: string };
+  try {
+    const results = await runTelemetryRetentionPurge(sb);
+    retention = { ok: true, results };
+  } catch (error: any) {
+    console.error("Telemetry retention purge failed:", error);
+    retention = { ok: false, error: error.message ?? String(error) };
+  }
+
   // Fetch all banks
   const { data: banks } = await sb.from("banks").select("id");
 
   if (!banks || banks.length === 0) {
-    return NextResponse.json({ ok: true, message: "No banks to process" });
+    return NextResponse.json({ ok: true, message: "No banks to process", retention });
   }
 
   const results = [];
@@ -68,9 +83,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ 
-    ok: true, 
+  return NextResponse.json({
+    ok: true,
     processed: results.length,
-    results 
+    results,
+    retention,
   });
 }
