@@ -33,6 +33,7 @@ import {
 } from "./sessionToken";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { emitFirstInteraction, emitFormlessStart } from "./beatMetrics";
 
 export type BrokerageBorrowerSession = BorrowerSession;
 
@@ -85,6 +86,21 @@ export async function getOrCreateBorrowerSession(): Promise<BrokerageBorrowerSes
     maxAge: COOKIE_MAX_AGE_SECONDS,
     path: "/",
   });
+
+  // SPEC-M2 BEAT-METRICS-1: this branch runs exactly once per new deal
+  // (the `if (existing) return existing;` above short-circuits every
+  // subsequent request for the same borrower) — the correct single point
+  // to mark t0 for ttfa_minutes and record formless_start. Always false
+  // today: this is the form/token-based entry path; SPEC-M5's
+  // conversational intake entry point will pass true from its own call
+  // site. Best-effort — a metrics-write failure must not block session
+  // creation for the borrower.
+  try {
+    await emitFirstInteraction(dealId, sb);
+    await emitFormlessStart(dealId, false, sb);
+  } catch (err) {
+    console.error("[beatMetrics] failed to emit session-creation metrics", err);
+  }
 
   return {
     rawToken,

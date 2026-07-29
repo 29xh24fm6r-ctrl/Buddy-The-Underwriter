@@ -122,6 +122,22 @@ export type BrokerageActivityEvent = {
   category: BrokerageActivityCategory;
 };
 
+/**
+ * SPEC-M2 BEAT-METRICS-1 — the five program "beat condition" metrics,
+ * sourced from v_beat_summary (supabase/migrations/20260729000001_beat_metrics.sql).
+ * Each field is null when there's no data yet — an honest "not measured
+ * yet" state (e.g. ttfa/repeat-ask before SPEC-M3/M5 ship), not a zero.
+ */
+export type BeatConditionsSummary = {
+  avgTtfaMinutes: number | null;
+  ttfaDealCount: number;
+  formlessStartRatePct: number | null;
+  formlessStartDealCount: number;
+  dealsWithRepeatAsks: number;
+  avgDocRequestRounds: number | null;
+  avgLenderFollowupCount: number | null;
+};
+
 export type BrokerageOwnerCommandCenterViewModel = {
   headline: string;
   summary: string;
@@ -132,6 +148,8 @@ export type BrokerageOwnerCommandCenterViewModel = {
   submissionPipeline: SubmissionPipelineStateSummary[];
   activity: BrokerageActivityEvent[];
   dailyBrief: string[];
+  /** Present only when the adapter supplied raw beat-metrics input. */
+  beatConditions?: BeatConditionsSummary;
 };
 
 // ---------------------------------------------------------------------------
@@ -156,11 +174,28 @@ export type BrokerageTeamMember = {
   role: "banker" | "processor" | "admin";
 };
 
+/**
+ * SPEC-M2 BEAT-METRICS-1 — raw shape of a v_beat_summary row (one row,
+ * bank-wide). All numeric fields are nullable — a metric with no data yet
+ * (pre-M3/M5) reports null, not 0.
+ */
+export type BeatMetricsInput = {
+  avgTtfaMinutes: number | null;
+  ttfaDealCount: number | null;
+  formlessStartRatePct: number | null;
+  formlessStartDealCount: number | null;
+  dealsWithRepeatAsks: number | null;
+  avgDocRequestRounds: number | null;
+  avgLenderFollowupCount: number | null;
+};
+
 export type BrokerageOwnerCommandCenterInput = {
   /** Optional banker command-center VM, used for top-level pipeline totals */
   commandCenter?: BankerCommandCenterViewModel | null;
   /** Per-deal records used for everything beyond top-level totals */
   deals: BrokerageDealRecord[];
+  /** SPEC-M2 BEAT-METRICS-1 — omitted entirely means no beatConditions panel. */
+  beatMetrics?: BeatMetricsInput | null;
   /** Team members (banker / processor / admin) for workload aggregation */
   team?: BrokerageTeamMember[];
   /** Real activity events, with optional timestamps */
@@ -765,6 +800,26 @@ function buildSummary(
 }
 
 // ---------------------------------------------------------------------------
+// Beat conditions (SPEC-M2 BEAT-METRICS-1)
+// ---------------------------------------------------------------------------
+
+function buildBeatConditions(
+  input: BrokerageOwnerCommandCenterInput,
+): BeatConditionsSummary | undefined {
+  const m = input.beatMetrics;
+  if (!m) return undefined;
+  return {
+    avgTtfaMinutes: m.avgTtfaMinutes ?? null,
+    ttfaDealCount: m.ttfaDealCount ?? 0,
+    formlessStartRatePct: m.formlessStartRatePct ?? null,
+    formlessStartDealCount: m.formlessStartDealCount ?? 0,
+    dealsWithRepeatAsks: m.dealsWithRepeatAsks ?? 0,
+    avgDocRequestRounds: m.avgDocRequestRounds ?? null,
+    avgLenderFollowupCount: m.avgLenderFollowupCount ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main builder
 // ---------------------------------------------------------------------------
 
@@ -794,6 +849,7 @@ export function buildBrokerageOwnerCommandCenterViewModel(
   const dailyBrief = buildDailyBrief(pipelineSummary, submissionPipeline, bottlenecks);
   const headline = buildHeadline(pipelineSummary);
   const summary = buildSummary(pipelineSummary, submissionPipeline);
+  const beatConditions = buildBeatConditions(sortedInput);
 
   return {
     headline,
@@ -805,6 +861,7 @@ export function buildBrokerageOwnerCommandCenterViewModel(
     submissionPipeline,
     activity,
     dailyBrief,
+    ...(beatConditions ? { beatConditions } : {}),
   };
 }
 

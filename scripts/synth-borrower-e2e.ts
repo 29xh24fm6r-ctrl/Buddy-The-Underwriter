@@ -27,6 +27,7 @@
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { detectRepeatAsks } from "./synth-borrower-e2e/detectRepeatAsks";
 
 type Fixture = { fixture_id: string; transcript: string[] };
 type FixtureResult = {
@@ -36,6 +37,10 @@ type FixtureResult = {
   elapsed_ms: number;
   last_event: { scope: string; action: string; created_at: string } | null;
   error: string | null;
+  // SPEC-M2 BEAT-METRICS-1: repeat_ask_count regression — fields the
+  // concierge asked for again after they'd already been satisfied earlier
+  // in the same transcript. Non-empty means a covenant violation.
+  repeat_asked_fields: string[];
 };
 
 const REQUIRED_PASS_NUMERATOR = 13;
@@ -82,6 +87,7 @@ async function runFixture(
   let cookieJar = "";
   let dealId: string | null = null;
   let nextRequired: string[] = [];
+  const nextRequiredSnapshots: string[][] = [];
 
   // Turn-by-turn concierge until either:
   //   - nextRequiredFields == []
@@ -103,6 +109,7 @@ async function runFixture(
         elapsed_ms: Date.now() - started,
         last_event: null,
         error: `concierge_${res.status}`,
+        repeat_asked_fields: detectRepeatAsks(nextRequiredSnapshots),
       };
     }
     const cookieAddendum = captureSetCookieJar(res.headers);
@@ -113,8 +120,14 @@ async function runFixture(
     };
     if (body.dealId) dealId = body.dealId;
     nextRequired = body.nextRequiredFields ?? nextRequired;
+    nextRequiredSnapshots.push(nextRequired);
     if (nextRequired.length === 0) break;
   }
+
+  // SPEC-M2 BEAT-METRICS-1: check the repeat-ask covenant across the whole
+  // transcript before anything else — a violation fails the fixture even
+  // if the deal otherwise seals cleanly.
+  const repeatAskedFields = detectRepeatAsks(nextRequiredSnapshots);
 
   if (!dealId) {
     return {
@@ -124,6 +137,7 @@ async function runFixture(
       elapsed_ms: Date.now() - started,
       last_event: null,
       error: "no_deal_id_after_concierge",
+      repeat_asked_fields: repeatAskedFields,
     };
   }
 
@@ -143,6 +157,7 @@ async function runFixture(
       elapsed_ms: Date.now() - started,
       last_event: null,
       error: `upload_prepare_${prep.status}`,
+      repeat_asked_fields: repeatAskedFields,
     };
   }
 
@@ -168,10 +183,11 @@ async function runFixture(
   return {
     fixture_id: fixture.fixture_id,
     deal_id: dealId,
-    sealed,
+    sealed: sealed && repeatAskedFields.length === 0,
     elapsed_ms: Date.now() - started,
     last_event: null,
-    error: sealed ? null : "seal_timeout",
+    error: !sealed ? "seal_timeout" : repeatAskedFields.length > 0 ? "repeat_ask_violation" : null,
+    repeat_asked_fields: repeatAskedFields,
   };
 }
 
@@ -192,12 +208,16 @@ async function main(): Promise<void> {
     const r = await runFixture(baseUrl, f);
     results.push(r);
     console.log(
-      `    sealed=${r.sealed} elapsed=${r.elapsed_ms}ms error=${r.error ?? "—"}`,
+      `    sealed=${r.sealed} elapsed=${r.elapsed_ms}ms error=${r.error ?? "—"}` +
+        (r.repeat_asked_fields.length
+          ? ` REPEAT_ASK_VIOLATION=[${r.repeat_asked_fields.join(",")}]`
+          : ""),
     );
   }
 
   const passed = results.filter((r) => r.sealed).length;
   const passRate = passed / results.length;
+  const repeatAskViolations = results.filter((r) => r.repeat_asked_fields.length > 0);
 
   const report = {
     ran_at: new Date().toISOString(),
@@ -207,6 +227,7 @@ async function main(): Promise<void> {
     total: results.length,
     pass_rate: passRate,
     threshold: `${REQUIRED_PASS_NUMERATOR}/${REQUIRED_PASS_DENOMINATOR}`,
+    repeat_ask_violation_count: repeatAskViolations.length,
     fixtures: results,
   };
 
@@ -216,6 +237,18 @@ async function main(): Promise<void> {
   writeFileSync(outPath, JSON.stringify(report, null, 2));
   console.log(`[synth-borrower-e2e] report → ${outPath}`);
   console.log(`[synth-borrower-e2e] pass_rate=${passed}/${results.length}`);
+
+  // SPEC-M2 BEAT-METRICS-1: the repeat-ask covenant is a hard gate,
+  // independent of the pass-rate threshold — even one violation fails the
+  // run, since this is the one enforcement mechanism the whole program's
+  // "never repeat a question" promise rests on.
+  if (repeatAskViolations.length > 0) {
+    console.error(
+      `[synth-borrower-e2e] FAIL — repeat-ask covenant violated in ${repeatAskViolations.length} fixture(s): ` +
+        repeatAskViolations.map((r) => `${r.fixture_id}=[${r.repeat_asked_fields.join(",")}]`).join("; "),
+    );
+    process.exit(1);
+  }
 
   const minPass = REQUIRED_PASS_NUMERATOR / REQUIRED_PASS_DENOMINATOR;
   if (passRate < minPass) {
