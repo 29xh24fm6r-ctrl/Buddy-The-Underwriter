@@ -110,3 +110,40 @@ export async function loadLatestSnapshot(
     outputsHash: data.outputs_hash ?? null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Load latest snapshot metrics (SPEC-M3 GLASS-BOX-1)
+// ---------------------------------------------------------------------------
+
+export type LatestSnapshotMetrics = {
+  computedMetrics: Record<string, number | null>;
+  riskFlags: Array<{ key: string; value: number; threshold: number; severity: string }>;
+  calculatedAt: string;
+};
+
+/**
+ * Load just the computed_metrics/risk_flags columns of a deal's latest
+ * snapshot — the immutable numeric facts SPEC-M3's Glass Box narrates.
+ * Kept separate from loadLatestSnapshot() (whose existing callers depend
+ * on its current return shape) rather than widening that function.
+ */
+export async function loadLatestSnapshotMetrics(
+  supabase: any,
+  dealId: string,
+): Promise<LatestSnapshotMetrics | null> {
+  const { data, error } = await supabase
+    .from("deal_model_snapshots")
+    .select("computed_metrics, risk_flags, calculated_at")
+    .eq("deal_id", dealId)
+    .order("calculated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    computedMetrics: data.computed_metrics ?? {},
+    riskFlags: data.risk_flags ?? [],
+    calculatedAt: data.calculated_at,
+  };
+}

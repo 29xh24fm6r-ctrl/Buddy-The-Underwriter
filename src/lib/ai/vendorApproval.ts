@@ -24,3 +24,23 @@ export const VENDOR_NPI_APPROVAL: Record<GatewayProvider, VendorApprovalStatus> 
   anthropic: "PENDING",
   openai: "PENDING",
 };
+
+/**
+ * Test-only: temporarily flip a provider's approval status so a test can
+ * exercise the "approved" path of an npiTagged call without touching real
+ * vendor docs. Always pair with __resetVendorApprovalForTests() in an
+ * afterEach — production code never calls this.
+ */
+export function __setVendorApprovalForTests(
+  provider: GatewayProvider,
+  status: VendorApprovalStatus,
+): void {
+  VENDOR_NPI_APPROVAL[provider] = status;
+}
+
+/** Test-only: restore all providers to their real default (PENDING). */
+export function __resetVendorApprovalForTests(): void {
+  VENDOR_NPI_APPROVAL.google = "PENDING";
+  VENDOR_NPI_APPROVAL.anthropic = "PENDING";
+  VENDOR_NPI_APPROVAL.openai = "PENDING";
+}

@@ -9,6 +9,14 @@
  *                 verifier per artifact; no failover to a second opinion)
  *   structurer  — OpenAI, JSON-schema mode
  *   interviewer — Gemini
+ *   translator  — Claude (SPEC-M3 GLASS-BOX-1: the generator for a
+ *                 readiness-read artifact — narrates deal_model_snapshots
+ *                 numbers in plain English. Deliberately Claude, not
+ *                 Gemini/generator's default, for careful instruction-
+ *                 following on a borrower-facing surface. verifier still
+ *                 independently fact-checks its output — Invariant #4 is
+ *                 satisfied because translator IS the generator for this
+ *                 artifact, not a second opinion alongside verifier.)
  *
  * Each role's chain/budget can be overridden per-environment via
  * AI_GATEWAY_CHAIN_<ROLE> ("provider:model,provider:model") and
@@ -18,7 +26,7 @@
 
 import { GEMINI_FLASH, OPENAI_CHAT, ANTHROPIC_VERIFIER } from "./models";
 
-export type GatewayRole = "generator" | "verifier" | "structurer" | "interviewer";
+export type GatewayRole = "generator" | "verifier" | "structurer" | "interviewer" | "translator";
 export type GatewayProvider = "google" | "anthropic" | "openai";
 
 export type RoleStep = { provider: GatewayProvider; model: string };
@@ -41,6 +49,7 @@ const DEFAULT_CHAINS: Record<GatewayRole, RoleStep[]> = {
   verifier: [{ provider: "anthropic", model: ANTHROPIC_VERIFIER }],
   structurer: [{ provider: "openai", model: OPENAI_CHAT }],
   interviewer: [{ provider: "google", model: GEMINI_FLASH }],
+  translator: [{ provider: "anthropic", model: ANTHROPIC_VERIFIER }],
 };
 
 const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
@@ -48,6 +57,7 @@ const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
   verifier: 500_000,
   structurer: 500_000,
   interviewer: 1_000_000,
+  translator: 500_000,
 };
 
 function isGatewayProvider(v: string): v is GatewayProvider {

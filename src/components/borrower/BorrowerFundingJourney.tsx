@@ -17,6 +17,7 @@ import { BorrowerActivityFeed } from "./readiness/BorrowerActivityFeed";
 import { BorrowerDocumentCompletionChart } from "./readiness/BorrowerDocumentCompletionChart";
 import { BorrowerDealHealthDashboard } from "./deal-health/BorrowerDealHealthDashboard";
 import { BorrowerGuidancePanel } from "./guidance/BorrowerGuidancePanel";
+import { GlassBoxPanel } from "./glass-box/GlassBoxPanel";
 
 function JourneyHeader({
   dealName,
@@ -131,12 +132,15 @@ export function BorrowerFundingJourney({
   dealHealthViewModel,
   guidanceViewModel,
   dealName,
+  portalToken,
 }: {
   viewModel: BorrowerJourneyViewModel;
   readinessViewModel?: BorrowerReadinessViewModel;
   dealHealthViewModel?: BorrowerDealHealthViewModel;
   guidanceViewModel?: BorrowerGuidanceViewModel;
   dealName?: string | null;
+  /** SPEC-M3 GLASS-BOX-1 — when supplied, renders the readiness-read panel. */
+  portalToken?: string;
 }) {
   return (
     <div className="space-y-5">
@@ -179,6 +183,9 @@ export function BorrowerFundingJourney({
       {dealHealthViewModel && (
         <BorrowerDealHealthDashboard viewModel={dealHealthViewModel} />
       )}
+
+      {/* Glass Box readiness read (SPEC-M3) */}
+      {portalToken && <GlassBoxPanel token={portalToken} />}
 
       <BorrowerJourneyMilestones milestones={viewModel.milestones} />
 

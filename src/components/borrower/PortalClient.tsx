@@ -1312,6 +1312,7 @@ export function PortalClient({ token }: { token: string }) {
           dealHealthViewModel={dealHealthViewModel}
           guidanceViewModel={guidanceViewModel}
           dealName={deal?.name}
+          portalToken={token}
         />
 
         <BorrowerCommunicationCenter viewModel={communicationViewModel} />
