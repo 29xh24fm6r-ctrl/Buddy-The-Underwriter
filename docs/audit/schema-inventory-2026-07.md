@@ -686,5 +686,5 @@ Matt reviewed the corrected classification (above) and approved all 32 `DROP` ro
 
 | C2 batch | Doc line range | Tables | Status |
 |---|---|---:|---|
-| Batch 1 | 103–160 | 25 | ✅ Approved — migration authored |
-| Batch 2 | 161–184 | 7 | ✅ Approved — migration not yet authored (per spec sequencing: authored only after Batch 1 confirmed applied clean in production) |
+| Batch 1 | 103–160 | 25 | ✅ Applied clean in production 2026-07-29 (`20260729030000_schema_reap_batch_1.sql`) |
+| Batch 2 | 161–184 | 7 | ✅ Approved — migration authored (`20260729040000_schema_reap_batch_2.sql`), not yet applied |
