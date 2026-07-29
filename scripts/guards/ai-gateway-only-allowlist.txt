@@ -1,0 +1,44 @@
+# SPEC-M1.1 migration worklist — entries may only be REMOVED, never added.
+# Each path is a pre-existing (pre-gateway) call site that talks to an LLM
+# provider endpoint/SDK directly, found by scripts/guards/guard-ai-gateway-
+# only.mjs at SPEC-M1 AI-GATEWAY-1 implementation time (2026-07-29). One
+# call site (src/app/api/deals/[dealId]/recovery/naics-suggest/route.ts)
+# was migrated onto the gateway as SPEC-M1's proof-of-concept and is
+# deliberately NOT on this list — the guard now protects it. SPEC-M1.1
+# burns the rest of this list down, mechanically, one call site at a time.
+# A stale entry (no longer matching the guard's check) FAILS the guard, so
+# this list can only shrink.
+src/ai/orchestrator/run.ts
+src/app/api/deals/[dealId]/quick-look/questions/route.ts
+src/app/api/deals/[dealId]/voice/token/route.ts
+src/buddy/brain/geminiAdapter.ts
+src/components/deals/VoiceInterviewButton.tsx
+src/core/omega/omegaGeminiClient.ts
+src/lib/ai/creditMemoGenerator.ts
+src/lib/ai/gemini25Provider.ts
+src/lib/ai/gemini3FlashProvider.ts
+src/lib/ai/geminiClient.ts
+src/lib/ai/models.ts
+src/lib/ai/openai.ts
+src/lib/ai/openaiClient.ts
+src/lib/ai/orchestrator.ts
+src/lib/ai/vertexLocation.ts
+src/lib/artifacts/classifyDocument.ts
+src/lib/classicSpread/narrativeEngine.ts
+src/lib/classification/tier3LLM.ts
+src/lib/extraction/geminiFlashStructuredAssist.ts
+src/lib/extraction/sdkResponseGuard.ts
+src/lib/financialSpreads/extractors/gemini/geminiClient.ts
+src/lib/gatekeeper/geminiClassifier.ts
+src/lib/gcpAdcBootstrap.ts
+src/lib/interview/qa.ts
+src/lib/interview/suggestFacts.ts
+src/lib/ocr/runGeminiOcrJob.ts
+src/lib/rates/indexRates.ts
+src/lib/research/buddyIntelligenceEngine.ts
+src/lib/retrieval/retrievalCore.ts
+src/lib/sba/sbaActionableRoadmap.ts
+src/lib/sba/sbaPackageNarrative.ts
+src/lib/sba/sbaResearchProjectionGenerator.ts
+src/lib/voice/mintRealtimeClientSecret.ts
+src/lib/voice/useBuddyVoice.ts

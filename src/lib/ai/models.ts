@@ -181,6 +181,22 @@ export const MODEL_CONCIERGE_EXTRACTION = GEMINI_FLASH;
 /** @deprecated Use MODEL_CONCIERGE_REASONING / MODEL_CONCIERGE_EXTRACTION. Retained until all callers migrate. */
 export const MODEL_CONCIERGE      = OPENAI_CHAT;   // legacy alias — CI guard rejects new uses
 
+// ── ANTHROPIC — verifier stack (SPEC-M1 AI-GATEWAY-1) ──────────────────────
+
+/**
+ * Claude model used for the gateway's `verifier` role — cross-vendor
+ * fact-checking of Gemini/OpenAI-generated narratives against deterministic
+ * facts (src/lib/ai/verify.ts). Net-new vendor as of SPEC-M1: no NPI-tagged
+ * payload may reach this model until docs/vendors/anthropic.md is marked
+ * APPROVED (enforced in src/lib/ai/gateway.ts, not just documented here).
+ *
+ * Not yet pinned to a dated snapshot — swap for a dated model id once
+ * Anthropic API access is provisioned and a specific snapshot is chosen.
+ */
+export const ANTHROPIC_VERIFIER = "claude-sonnet-5";
+
+export const MODEL_VERIFIER = ANTHROPIC_VERIFIER;
+
 // ── Model family predicates ───────────────────────────────────────────────
 // Kept here so call sites never need to hardcode model-prefix strings.
 // Gemini 3.x (3-flash-preview, 3.1-pro-preview, …) warn that sub-1.0
