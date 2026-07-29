@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { writeDealEvent } from "@/lib/events/dealEvents";
-import { emitSmsIntent } from "@/lib/notify/smsIntent";
+import { emitSmsIntent } from "@/lib/notifications/smsIntent";
 import { verifyDealIdMatch } from "@/lib/integrity/dealIdGuard";
 
 type Ctx = { params: Promise<{ dealId: string; snapshotId: string }> };
