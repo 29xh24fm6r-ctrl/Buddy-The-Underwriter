@@ -653,3 +653,16 @@ Per spec: **Matt reviews this doc and marks approvals via a review commit — th
 2. Confirm the `pulse_*` default-KEEP stance still holds (already confirmed 2026-07-29 — no change expected).
 3. Anything you want re-checked against a specific named future spec before dropping, note it inline — `KEEP-PENDING` entries with a bare code reference and no spec name are candidates for you to either confirm-drop or attach a spec citation to.
 4. Once approved, C2 (PR 4+) will batch the approved `DROP` rows into groups of ≤25, `DROP TABLE ... RESTRICT` only, each batch citing the line numbers here that authorize it, gated on your sign-off per batch.
+
+### ✅ Approved 2026-07-29 — all 82 `DROP` rows, all 4 batches
+
+Matt reviewed the batch breakdown (below) and approved all four batches for C2, with no reclassifications. Two names were explicitly flagged for a second look before approval — `tenants` and `user_identities` (lines 158, 161) — both sound structurally foundational despite showing zero FK/view/function/code references and zero real rows across every check in this doc; Matt confirmed drop anyway. This section is the review commit required by the spec — **this doc is now the sole authority for C2**, per the rule above.
+
+| C2 batch | Doc line range | Tables | Status |
+|---|---|---:|---|
+| Batch 1 | 83–107 | 25 | ✅ Approved |
+| Batch 2 | 108–132 | 25 | ✅ Approved |
+| Batch 3 | 133–157 | 25 | ✅ Approved |
+| Batch 4 | 158–164 | 7 | ✅ Approved (incl. `tenants`, `user_identities` — flagged, confirmed) |
+
+Per spec sequencing, C2 still authors and applies **one batch at a time** — Batch 2's migration is not authored until Matt confirms Batch 1 applied clean in production, and so on through Batch 4. Approval-in-advance covers all four; the apply-and-confirm gate between batches still applies.
