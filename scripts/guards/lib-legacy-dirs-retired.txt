@@ -1,0 +1,5 @@
+# SPEC-SYSTEM-DEBLOAT-1 Phase D — retired @/lib paths.
+# Append-only as pairs are merged; never remove an entry once a path is retired.
+# Path is relative to @/lib, without extension (matches both "@/lib/<path>" and
+# a trailing "/" for directory imports).
+ai-events
