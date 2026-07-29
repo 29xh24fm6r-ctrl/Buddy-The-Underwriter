@@ -18,6 +18,16 @@
 -- franchise_sba_directory_snapshots at 32,433). Section 2 below re-checks
 -- every candidate with an actual count(*) — always run it before acting on
 -- section 1 alone.
+--
+-- CORRECTED 2026-07-29 — fk_inbound/fk_outbound previously joined on
+-- `c.confrelid::regclass::text = 'public.' || table_name`. When `public` is
+-- on search_path (the normal case), regclass::text renders an unqualified
+-- name (e.g. `ai_run_events`, not `public.ai_run_events`), so that equality
+-- never matched and every table showed fk_inbound=0, fk_outbound=0 —
+-- including tables with real inbound FKs. Fixed by joining on oid instead
+-- of a regclass-to-text string comparison. See docs/audit/
+-- schema-inventory-2026-07.md's "CORRECTION" section for the full incident
+-- writeup and reclassification impact.
 
 -- ============================================================
 -- 1. Structural signals: FK edges, view/matview deps, function refs, RLS.
@@ -28,13 +38,13 @@ WITH empty_tables AS (
   WHERE schemaname = 'public' AND n_live_tup = 0
 ),
 fk_inbound AS (
-  SELECT c.confrelid::regclass::text AS full_name, count(*) AS n
+  SELECT c.confrelid AS rel_oid, count(*) AS n
   FROM pg_constraint c
   WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
   GROUP BY c.confrelid
 ),
 fk_outbound AS (
-  SELECT c.conrelid::regclass::text AS full_name, count(*) AS n
+  SELECT c.conrelid AS rel_oid, count(*) AS n
   FROM pg_constraint c
   WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
   GROUP BY c.conrelid
@@ -72,8 +82,8 @@ SELECT et.table_name,
        coalesce(fr.n,0) AS fn_refs,
        coalesce(rl.n,0) AS rls_policies
 FROM empty_tables et
-LEFT JOIN fk_inbound fi ON fi.full_name = 'public.' || et.table_name
-LEFT JOIN fk_outbound fo ON fo.full_name = 'public.' || et.table_name
+LEFT JOIN fk_inbound fi ON fi.rel_oid = (SELECT oid FROM pg_class WHERE relname = et.table_name AND relnamespace = 'public'::regnamespace)
+LEFT JOIN fk_outbound fo ON fo.rel_oid = (SELECT oid FROM pg_class WHERE relname = et.table_name AND relnamespace = 'public'::regnamespace)
 LEFT JOIN view_refs vr ON vr.table_name = et.table_name
 LEFT JOIN fn_refs fr ON fr.table_name = et.table_name
 LEFT JOIN rls_counts rl ON rl.table_name = et.table_name
