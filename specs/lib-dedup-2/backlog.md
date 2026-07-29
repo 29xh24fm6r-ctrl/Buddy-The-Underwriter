@@ -48,3 +48,40 @@ should be two distinctly-named types instead of a directory merge), plus a
 review of every one of `entity/`'s and `entities/`'s ~7+ importers against
 `src/lib/finance/combined/aggregate.ts` and the spreads/financialIntelligence
 boundary before any file moves — not a mechanical import-count-wins call.
+
+---
+
+## `extract` / `extraction` — skipped 2026-07-29
+
+**Scale mismatch is itself a signal here:** `extraction/` is ~24 files —
+the actively-developed, heavily-tested canonical document-extraction system
+(Gemini structured-assist prompts, re-extraction orchestration, shadow mode,
+`goldenCorpusRegression.test.ts`, `extractionInvariantGuard.test.ts`,
+`institutionalGuard.test.ts`). `extract/` is 6 files, and every one of them
+computes or routes financial values directly:
+
+- `extract/financials.ts::extractFinancialsFromPdf` — parses a PDF into
+  evidence + tables + confidence-scored **financial values**.
+- `extract/financialsHybrid.ts::extractFinancialsHybrid`
+- `extract/pipelines/financialsFromTokens.ts::buildFinancialsTablesFromTokens`
+- `extract/router/extractByDocType.ts::extractFinancialsLegacy` — the
+  "Legacy" naming here is exactly the shape of the financial/underwriting
+  entanglement the spec's own non-goals section calls out (`financial*`
+  dir families → future SPEC-LIB-DEDUP-2, "too entangled with
+  Finengine/spreads boundary") — it just doesn't happen to have "financial"
+  as its literal top-level directory name.
+
+`extraction/`'s test suite (`goldenCorpusRegression`,
+`extractionInvariantGuard`, `validationGateGuard`) directly references the
+spreads/financialIntelligence boundary. Consolidating `extract/`'s financial-
+value-producing functions into (or against) that system is precisely the
+kind of change the hard rule exists to keep out of a mechanical de-bloat
+phase — a wrong pick here could alter a computed financial value used in
+underwriting.
+
+**Recommendation for a future SPEC-LIB-DEDUP-2 pass:** treat `extract/`'s
+6 files as part of the same financial/underwriting family review the spec
+already deferred (`financial*` ×10, `underwriting*` ×5), not as a plain
+directory-naming pair. Needs someone who owns the Finengine/spreads cutover
+to confirm none of `extract/`'s functions are still live producers before
+any consolidation.
