@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { HeroBar } from "@/components/nav/HeroBar";
 import { ProfileCompletionBanner } from "@/components/nav/ProfileCompletionBanner";
-import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
+import { isPublicBorrowerRoute } from "@/lib/navigation/isPublicBorrowerRoute";
 
 export function ConditionalHeroBar() {
   const pathname = usePathname();

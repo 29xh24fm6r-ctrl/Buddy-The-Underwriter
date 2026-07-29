@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ClerkProvider } from "@clerk/nextjs";
 import { isValidClerkPublishableKey } from "@/lib/auth/isValidClerkKey";
-import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
+import { isPublicBorrowerRoute } from "@/lib/navigation/isPublicBorrowerRoute";
 
 // This single deployment serves several custom domains (see the Vercel
 // project's domain list), but Clerk's production instance is registered to

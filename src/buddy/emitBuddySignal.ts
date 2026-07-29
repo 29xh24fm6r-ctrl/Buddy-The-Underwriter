@@ -1,6 +1,6 @@
 // src/buddy/emitBuddySignal.ts
 import type { BuddySignalBase } from "./signals";
-import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
+import { isPublicBorrowerRoute } from "@/lib/navigation/isPublicBorrowerRoute";
 
 const EVENT_NAME = "buddy:signal";
 
