@@ -9,6 +9,7 @@ import { enqueueBorrowerNudges } from "@/lib/brokerage/borrowerNudges";
 import { enqueueBankerAlerts, type BankerAlertPurpose } from "@/lib/brokerage/bankerAlerts";
 import { processDueCommsOutbox } from "@/lib/brokerage/commsOutbox";
 import { buildOutboxAdapterFactory } from "@/lib/brokerage/commsAdapters";
+import { logCommsModeResolvedOnce } from "@/lib/brokerage/commsMode";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ export async function runBrokerageCommsForDeal(
   opts?: OrchestrationOptions,
 ): Promise<OrchestrationResult> {
   const warnings: string[] = [];
+  await logCommsModeResolvedOnce(sb); // throws on unrecognized BROKERAGE_COMMS_MODE
   const plan = await buildBrokerageCommsPlan(dealId, opts);
 
   // Ledger: started
