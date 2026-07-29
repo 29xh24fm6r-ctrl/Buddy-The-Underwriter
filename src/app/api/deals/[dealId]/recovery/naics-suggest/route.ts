@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { GEMINI_FLASH } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,11 +21,33 @@ type NaicsSuggestion = {
   rationale: string;
 };
 
-const GEMINI_MODEL = GEMINI_FLASH;
-
-function geminiUrl(apiKey: string): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-}
+// SPEC-M1 AI-GATEWAY-1 proof-of-concept migration: this route is the first
+// call site moved onto the gateway (chosen in §0 as the lowest-risk
+// candidate — single call, strict JSON in/out, non-critical recovery
+// flow, no downstream dependents). The other 17 direct Gemini call sites
+// found in §0 are unaffected and tracked on the guard-ai-gateway-only
+// allowlist as M1.1 follow-up debt.
+const SUGGESTIONS_SCHEMA = {
+  type: "object",
+  properties: {
+    suggestions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          naics_code: { type: "string" },
+          naics_description: { type: "string" },
+          confidence: { type: "number" },
+          rationale: { type: "string" },
+        },
+        required: ["naics_code", "naics_description", "confidence", "rationale"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["suggestions"],
+  additionalProperties: false,
+} as const;
 
 type Ctx = { params: Promise<{ dealId: string }> };
 
@@ -44,65 +66,41 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ ok: false, error: "no_api_key" }, { status: 500 });
-    }
-
     const prompt = `You are a commercial bank underwriter. Return the 3 most likely 6-digit NAICS codes for the following business. Use only real codes from the 2022 NAICS manual.
 
 Company: ${body.company_name ?? "Not specified"}
 Description: ${body.business_description}
-
-Return ONLY a valid JSON object — no markdown, no backticks, no preamble:
-{
-  "suggestions": [
-    {
-      "naics_code": "531311",
-      "naics_description": "Residential Property Managers",
-      "confidence": 0.90,
-      "rationale": "One sentence explaining the fit"
-    }
-  ]
-}
 
 Rules:
 - Exactly 3 suggestions ordered best-first
 - confidence is 0.0-1.0 decimal
 - rationale is one plain-English sentence`;
 
-    const response = await fetch(geminiUrl(apiKey), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          maxOutputTokens: 600,
-          thinkingConfig: { thinkingLevel: "minimal" },
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      console.error(`[naics-suggest] Gemini error ${response.status}:`, errText.slice(0, 300));
+    let text: string;
+    try {
+      const result = await runRole("generator", {
+        prompt,
+        maxOutputTokens: 600,
+        responseSchema: SUGGESTIONS_SCHEMA,
+        purpose: "naics_suggest",
+        dealId,
+        // Company name + business description are business facts a broker
+        // would post publicly, not borrower personal NPI (SSN/income/tax
+        // data) — no NPI gate applies here.
+        npiTagged: false,
+      });
+      text = result.text;
+    } catch (e) {
+      console.error(
+        "[naics-suggest] gateway error:",
+        e instanceof Error ? e.message : String(e),
+      );
       return NextResponse.json({ ok: false, error: "ai_error" }, { status: 500 });
     }
 
-    const data = await response.json();
-
-    // thinkingConfig produces thought + answer parts — filter thought parts out
-    const text: string =
-      data?.candidates?.[0]?.content?.parts
-        ?.filter((p: { thought?: boolean }) => !p.thought)
-        ?.map((p: { text?: string }) => p.text ?? "")
-        ?.join("") ?? "";
-
     let suggestions: NaicsSuggestion[] = [];
     try {
-      const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-      suggestions = JSON.parse(clean).suggestions ?? [];
+      suggestions = JSON.parse(text).suggestions ?? [];
     } catch {
       console.error("[naics-suggest] JSON parse error. Raw text:", text.slice(0, 300));
       return NextResponse.json({ ok: false, error: "parse_error" }, { status: 500 });
