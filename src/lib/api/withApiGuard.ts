@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { clerkAuth, isClerkConfigured } from "@/lib/auth/clerkServer";
-import { getRequestId } from "@/lib/obs/requestId";
+import { getRequestId } from "@/lib/observability/requestId";
 import { rateLimit } from "@/lib/api/rateLimit";
 
 type Handler<T = unknown> = (req: NextRequest) => Promise<NextResponse<T>>;
