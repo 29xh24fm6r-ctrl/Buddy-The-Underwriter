@@ -22,7 +22,7 @@ test("TRIPWIRE: session.ts calls emitFirstInteraction and emitFormlessStart afte
   const src = readFile("src/lib/brokerage/session.ts");
   assert.match(src, /import\s*\{[^}]*emitFirstInteraction[^}]*\}\s*from\s*["']\.\/beatMetrics["']/);
   assert.match(src, /await emitFirstInteraction\(dealId, sb\)/);
-  assert.match(src, /await emitFormlessStart\(dealId, false, sb\)/);
+  assert.match(src, /await emitFormlessStart\(dealId, true, sb\)/);
 });
 
 test("TRIPWIRE: session.ts wraps the metrics emit in try/catch (must not block session creation)", () => {

@@ -12,6 +12,9 @@ import "server-only";
  * segment ("link-token"/"exchange") those directories occupied.
  */
 
+import * as crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSessionFromRequest } from "@/lib/brokerage/session";
@@ -24,6 +27,23 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ action: string }> };
+
+// SPEC-M5 CONVERSATIONAL-INTAKE-1 — same convention as
+// src/app/api/deals/[dealId]/screening/[check]/route.ts's CONSENT_VERSION/
+// consentTextHash: consent is computed server-side from a static template
+// file, never trusted from the client. Before this spec there was no real
+// UI caller of this action (see ConnectAccountsPanel.tsx's doc comment —
+// it's orphaned and targets different, dead tables), so requiring the
+// client to supply consent_version/consent_text_hash directly was never
+// exercised in production; tightening it now to match the established
+// pattern is a safe, non-breaking change.
+const CONSENT_VERSION = "v1.0";
+
+async function plaidConsentTextHash(): Promise<string> {
+  const filePath = path.join(process.cwd(), "public", "consent-templates", "plaid-consent-v1.md");
+  const text = await readFile(filePath, "utf8");
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
 
 export async function POST(req: Request, ctx: Ctx) {
   try {
@@ -60,15 +80,14 @@ export async function POST(req: Request, ctx: Ctx) {
         metadata,
         deal_id: bodyDealId,
         ownership_entity_id: ownershipEntityId,
-        consent_version: consentVersion,
-        consent_text_hash: consentTextHash,
+        consent_acknowledged: consentAcknowledged,
       } = body as Record<string, unknown>;
 
       if (typeof publicToken !== "string" || !publicToken) {
         return NextResponse.json({ ok: false, error: "missing_public_token" }, { status: 400 });
       }
-      if (typeof consentVersion !== "string" || typeof consentTextHash !== "string") {
-        return NextResponse.json({ ok: false, error: "missing_consent_capture" }, { status: 400 });
+      if (consentAcknowledged !== true) {
+        return NextResponse.json({ ok: false, error: "consent_not_acknowledged" }, { status: 400 });
       }
       if (typeof bodyDealId === "string" && bodyDealId !== session.deal_id) {
         return NextResponse.json({ ok: false, error: "deal_id_mismatch" }, { status: 403 });
@@ -86,8 +105,8 @@ export async function POST(req: Request, ctx: Ctx) {
         institutionId: institution?.institution_id ?? null,
         institutionName: institution?.name ?? null,
         consent: {
-          consentVersion,
-          consentTextHash,
+          consentVersion: CONSENT_VERSION,
+          consentTextHash: await plaidConsentTextHash(),
           consentIp: req.headers.get("x-forwarded-for"),
           consentUserAgent: req.headers.get("user-agent"),
         },

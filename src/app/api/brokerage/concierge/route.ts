@@ -26,6 +26,7 @@ import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
 import { MODEL_CONCIERGE_REASONING } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import {
   detectTridentIntent,
@@ -43,7 +44,11 @@ import {
   buildCombinedConciergeTurnPromptJSON,
   mergeExtractedFacts,
   deepMerge,
+  computeNextRequiredFields,
+  computeNextCriticalField,
 } from "@/lib/brokerage/borrowerConversation";
+import { loadAnsweredBorrowerFieldKeys } from "@/lib/brokerage/answeredBorrowerFields";
+import { recordFactRequest } from "@/lib/brokerage/beatMetrics";
 import { redactSsnPatterns } from "@/lib/brokerage/redactSensitive";
 import { correctableFieldFor } from "@/lib/brokerage/correctableFacts";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
@@ -51,6 +56,15 @@ import {
   ensureAssumptionsForPreview,
   persistAssumptionsDraft,
 } from "@/lib/sba/sbaAssumptionsBootstrap";
+
+// SPEC-M5 CONVERSATIONAL-INTAKE-1 — off by default. Flipping this on routes
+// the concierge's turn call through the AI gateway's `interviewer` role
+// (runRole) instead of calling Gemini directly. Left OFF until Matt approves
+// a provider in docs/vendors/<provider>.md (VENDOR_NPI_APPROVAL) — turning
+// this on while every provider is still PENDING would make the gateway's
+// NPI gate refuse every single borrower turn in production, since this
+// route's payload is npiTagged. See gateway.ts / vendorApproval.ts.
+const AI_GATEWAY_CONCIERGE_ENABLED = process.env.AI_GATEWAY_CONCIERGE_ENABLED === "true";
 
 export const runtime = "nodejs";
 // Trident preview generation runs synchronously on intent match (PDF
@@ -187,6 +201,15 @@ export async function POST(req: NextRequest): Promise<Response> {
       );
     }
 
+    // SPEC-M5 CONVERSATIONAL-INTAKE-1 — canonical source-of-truth answered
+    // fields, read once per request and threaded through every
+    // computeNextRequiredFields call below. Non-fatal: a read failure just
+    // means this turn temporarily falls back to conversation-facts-only
+    // truth (a possible re-ask), never a blocked turn.
+    const canonicallyAnswered = await loadAnsweredBorrowerFieldKeys(session.deal_id, sb).catch(
+      () => new Set<string>(),
+    );
+
     // ── Trident preview short-circuit ──
     // MUST run BEFORE any LLM call (extraction or response). If the borrower
     // is asking for the business plan / feasibility / projections /
@@ -268,7 +291,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           },
           sessionId: session.deal_id,
           assistantMessage: blockerMessage,
-          nextRequiredFields: computeNextRequiredFields(blockedFacts),
+          nextRequiredFields: computeNextRequiredFields(blockedFacts, canonicallyAnswered),
           readinessHint: readinessHintFromProgress(blockedProgress),
         });
       }
@@ -351,7 +374,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         },
         sessionId: session.deal_id,
         assistantMessage: TRIDENT_PREVIEW_RESPONSE,
-        nextRequiredFields: computeNextRequiredFields(existingFacts),
+        nextRequiredFields: computeNextRequiredFields(existingFacts, canonicallyAnswered),
         readinessHint: readinessHintFromProgress(progressPct),
       });
     }
@@ -442,7 +465,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           : { ok: false, blockers: ensure.blockers },
         sessionId: session.deal_id,
         assistantMessage: buddyMessage,
-        nextRequiredFields: computeNextRequiredFields(existingFacts),
+        nextRequiredFields: computeNextRequiredFields(existingFacts, canonicallyAnswered),
         readinessHint: readinessHintFromProgress(progressPct),
       });
     }
@@ -470,17 +493,14 @@ export async function POST(req: NextRequest): Promise<Response> {
     const priorTurnCount =
       ((conciergeRow.conversation_history as unknown[]) ?? []).length / 2;
 
-    const turnResult = await callGeminiJSON<{
-      message: string;
-      next_question: string | null;
-      extracted_facts: Record<string, unknown>;
-    }>({
-      model: MODEL_CONCIERGE_REASONING,
-      prompt,
-      logTag: "brokerage-concierge-turn",
-      timeoutMs: 15_000,
-      maxRetries: 0,
-    });
+    // SPEC-M5 CONVERSATIONAL-INTAKE-1 — the specific registry field this
+    // turn's prompt told the model to ask about (step 8 of the priorities
+    // list), computed from facts BEFORE this turn's extraction. Used below
+    // to record a repeat-ask ledger entry only when it's a genuinely new
+    // field vs. the one already recorded as last asked.
+    const nextCriticalBeforeTurn = computeNextCriticalField(existingFacts);
+
+    const turnResult = await callConciergeTurnModel(prompt, session.deal_id);
 
     if (!turnResult.ok) {
       console.warn(
@@ -578,6 +598,24 @@ export async function POST(req: NextRequest): Promise<Response> {
     ];
     const progressPct = computeProgress(mergedFacts);
 
+    // SPEC-M5 CONVERSATIONAL-INTAKE-1 — record a repeat-ask ledger entry
+    // only when the field this turn asked about differs from the one
+    // recorded last turn (last_asked_fact_key), so a field re-prompted
+    // across several turns while still unanswered produces exactly one
+    // ledger row per genuinely new question, not one per turn. Fire-and-
+    // forget, non-fatal — never gates the borrower's reply.
+    if (
+      nextCriticalBeforeTurn &&
+      nextCriticalBeforeTurn.factPath !== conciergeRow.last_asked_fact_key
+    ) {
+      recordFactRequest(session.deal_id, nextCriticalBeforeTurn.factPath, "concierge", sb).catch((e) => {
+        console.warn(
+          "[brokerage-concierge] recordFactRequest failed (non-fatal):",
+          e instanceof Error ? e.message : String(e),
+        );
+      });
+    }
+
     await sb
       .from("borrower_concierge_sessions")
       .update({
@@ -585,6 +623,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         extracted_facts: mergedFacts,
         progress_pct: progressPct,
         last_question: nextQuestion,
+        last_asked_fact_key: nextCriticalBeforeTurn?.factPath ?? null,
         last_response: body.userMessage,
         updated_at: new Date().toISOString(),
       })
@@ -642,7 +681,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // keep working while new code can target the documented contract.
       sessionId: session.deal_id,
       assistantMessage: messageText,
-      nextRequiredFields: computeNextRequiredFields(mergedFacts),
+      nextRequiredFields: computeNextRequiredFields(mergedFacts, canonicallyAnswered),
       readinessHint: readinessHintFromProgress(progressPct),
     });
   } catch (e) {
@@ -662,19 +701,64 @@ export type BrokerageConciergeResponse = {
   readinessHint?: string;
 };
 
-function computeNextRequiredFields(facts: Record<string, any>): string[] {
-  const missing: string[] = [];
-  if (!facts?.borrower?.first_name) missing.push("borrower.first_name");
-  if (!facts?.borrower?.email) missing.push("borrower.email");
-  if (!facts?.business?.legal_name && !facts?.business?.industry_description) {
-    missing.push("business.legal_name_or_industry");
+/**
+ * SPEC-M5 CONVERSATIONAL-INTAKE-1 — routes the combined-turn call through
+ * either the AI gateway's `interviewer` role (behind AI_GATEWAY_CONCIERGE_ENABLED)
+ * or the pre-existing direct callGeminiJSON path. Both branches return the
+ * same shape so every call site downstream is unaffected by the flag.
+ *
+ * The gateway's google provider only enables Gemini's native JSON response
+ * mode when a responseSchema is supplied (see providers/google.ts); this
+ * route doesn't pass one (the extracted_facts shape is registry-driven and
+ * open-ended — a strict schema would need to enumerate every one of
+ * BORROWER_FIELD_REGISTRY's ~170 entries to avoid silently dropping fields).
+ * Instead this mirrors geminiClient.ts's own fence-stripping fallback
+ * (`callOnce`'s "Gemini occasionally wraps JSON in \`\`\`json fences" comment)
+ * — the prompt already asks for pure JSON; this just tolerates the model
+ * not always complying.
+ */
+async function callConciergeTurnModel(
+  prompt: string,
+  dealId: string,
+): Promise<{
+  ok: boolean;
+  result: { message: string; next_question: string | null; extracted_facts: Record<string, unknown> } | null;
+  error?: string;
+}> {
+  if (AI_GATEWAY_CONCIERGE_ENABLED) {
+    try {
+      const gatewayResult = await runRole("interviewer", {
+        prompt,
+        purpose: "brokerage-concierge-turn",
+        dealId,
+        npiTagged: true,
+      });
+      const clean = gatewayResult.text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+      const parsed = JSON.parse(clean) as {
+        message: string;
+        next_question: string | null;
+        extracted_facts: Record<string, unknown>;
+      };
+      return { ok: true, result: parsed };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[brokerage-concierge] gateway interviewer call failed (non-fatal):", msg);
+      return { ok: false, result: null, error: msg };
+    }
   }
-  if (!facts?.loan?.amount_requested) missing.push("loan.amount_requested");
-  if (!facts?.loan?.use_of_proceeds) missing.push("loan.use_of_proceeds");
-  if (typeof facts?.business?.is_franchise !== "boolean") {
-    missing.push("business.is_franchise");
-  }
-  return missing;
+
+  const legacy = await callGeminiJSON<{
+    message: string;
+    next_question: string | null;
+    extracted_facts: Record<string, unknown>;
+  }>({
+    model: MODEL_CONCIERGE_REASONING,
+    prompt,
+    logTag: "brokerage-concierge-turn",
+    timeoutMs: 15_000,
+    maxRetries: 0,
+  });
+  return { ok: legacy.ok, result: legacy.result, error: legacy.error };
 }
 
 function readinessHintFromProgress(progressPct: number): string {
