@@ -85,3 +85,44 @@ already deferred (`financial*` ×10, `underwriting*` ×5), not as a plain
 directory-naming pair. Needs someone who owns the Finengine/spreads cutover
 to confirm none of `extract/`'s functions are still live producers before
 any consolidation.
+
+---
+
+## `score` / `scoring` — skipped 2026-07-29
+
+**Both sides are underwriting-scoring-adjacent, not just one:**
+
+- `score/` — the Buddy SBA Score pipeline (`buddySbaScore.ts`): loads
+  inputs, evaluates SBA eligibility, runs five component scorers
+  (`borrowerStrength`, `businessStrength`, `dealStructure`,
+  `franchiseQuality`, `repaymentCapacity`), computes a weighted 0-100
+  composite, and inserts via a `supersede`+insert RPC.
+  `repaymentCapacity.ts`, `scoringCurves.ts`, and `inputs.ts` all reference
+  DSCR directly.
+- `scoring/` — 7 files of operational/meta scores (`actionabilityScore`,
+  `bankerDominanceScore`, `borrowerUpliftScore`, `readinessScore`,
+  `systemEfficiencyScore`, `trustWeightedScenarioScore`) that read as a
+  different concept (deal/banker/system health, not credit risk) — **except**
+  `dealScoringEngine.ts`, which computes a `DealScoreGrade` (`A`–`D`) from a
+  `DealStressPayload` and is consumed by
+  `src/app/api/deals/[dealId]/underwriting/score/recompute/route.ts` — i.e.
+  it's also underwriting-scoring surface, not purely operational telemetry.
+
+The two directories have zero cross-imports (verified — neither references
+the other), so a "move `scoring/`'s files into `score/` untouched, don't
+edit anything in `score/`" approach was considered as a lower-risk middle
+ground. Rejected anyway: both directories sit inside the underwriting/
+credit-scoring surface closely enough (SBA score composite on one side, an
+underwriting-score-recompute-consumed grade on the other) that even a
+no-edit file relocation carries more re-review risk than this phase's
+"one concept per PR, mechanical rename" scope is meant to absorb. Skipping
+is the conservative call, matching how `entity`/`entities` and
+`extract`/`extraction` were handled above.
+
+**Recommendation for a future SPEC-LIB-DEDUP-2 pass:** get sign-off from
+whoever owns the Buddy SBA Score spec (`specs/brokerage/sprint-00-buddy-sba-score.md`,
+referenced in `score/buddySbaScore.ts`'s header) before touching either
+directory. `dealScoringEngine.ts` in particular needs a decision on whether
+it belongs conceptually with `score/`'s credit-risk scorers or stays with
+`scoring/`'s operational scores — that's a naming/ownership call, not a
+mechanical merge.
