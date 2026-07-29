@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { writeAiEvent } from "@/lib/ai-events";
-import { arbitrateClaims } from "@/lib/arbitration";
+import { writeAiEvent } from "@/lib/aiEvents";
+import { arbitrateClaims } from "@/lib/arbitration/arbitrateClaims";
 import { applyBankOverlay } from "@/lib/bank-overlays";
 
 export async function POST(
