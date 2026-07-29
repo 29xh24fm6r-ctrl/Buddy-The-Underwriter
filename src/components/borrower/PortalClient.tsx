@@ -620,6 +620,11 @@ export function PortalClient({ token }: { token: string }) {
   const [fields, setFields] = React.useState<Field[]>([]);
   const [checklist, setChecklist] = React.useState<PortalChecklistItem[]>([]);
   const [checklistStats, setChecklistStats] = React.useState<ChecklistStats | null>(null);
+  // SPEC-M4 FIX-CARDS-1: bumped whenever a checklist-affecting action
+  // completes, so GlassBoxPanel/FixCardsPanel (which otherwise only fetch
+  // once on mount) refetch and visibly reflect the change.
+  const [refreshKey, setRefreshKey] = React.useState(0);
+  const bumpRefreshKey = React.useCallback(() => setRefreshKey((k) => k + 1), []);
   const [portalStatus, setPortalStatus] = React.useState<PortalStatus | null>(null);
   const [activity, setActivity] = React.useState<BorrowerActivity[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -775,12 +780,13 @@ export function PortalClient({ token }: { token: string }) {
           });
       }
       await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity()]);
+      bumpRefreshKey();
     } catch (error) {
       setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
       setLoading(false);
     }
-  }, [refreshActivity, refreshChecklist, refreshDocs, refreshStatus, token]);
+  }, [bumpRefreshKey, refreshActivity, refreshChecklist, refreshDocs, refreshStatus, token]);
 
   React.useEffect(() => {
     loadPortal();
@@ -837,6 +843,7 @@ export function PortalClient({ token }: { token: string }) {
       }
       setActionMessage("Buddy received that document and added it to your package.");
       await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity(), refreshFields(activeUploadId)]);
+      bumpRefreshKey();
     } catch (error) {
       setActionMessage(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
@@ -1313,6 +1320,7 @@ export function PortalClient({ token }: { token: string }) {
           guidanceViewModel={guidanceViewModel}
           dealName={deal?.name}
           portalToken={token}
+          refreshKey={refreshKey}
         />
 
         <BorrowerCommunicationCenter viewModel={communicationViewModel} />
@@ -1425,11 +1433,13 @@ export function PortalClient({ token }: { token: string }) {
               type="button"
               onClick={() => {
                 setActionMessage(null);
-                void Promise.all([refreshChecklist(), refreshStatus(), refreshActivity()]).catch((error) => {
-                  setActionMessage(
-                    sanitizeBorrowerError(error instanceof Error ? error.message : error),
-                  );
-                });
+                void Promise.all([refreshChecklist(), refreshStatus(), refreshActivity()])
+                  .then(() => bumpRefreshKey())
+                  .catch((error) => {
+                    setActionMessage(
+                      sanitizeBorrowerError(error instanceof Error ? error.message : error),
+                    );
+                  });
               }}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 focus:ring-offset-2"
             >

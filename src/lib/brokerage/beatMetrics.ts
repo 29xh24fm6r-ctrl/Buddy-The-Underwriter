@@ -75,14 +75,22 @@ export async function recordFactRequest(
 
 /**
  * doc_request_rounds — one call per distinct request batch dispatched to
- * a borrower pre-submission. Wired today into generateMissingItemsFollowup:
+ * a borrower pre-submission. Wired into generateMissingItemsFollowup:
  * proxy signal is "a batch of borrower-request drafts was created," not
  * "a batch was sent" — see that module's doc comment for the known
- * over-count risk (a banker can regenerate drafts without sending).
+ * over-count risk (a banker can regenerate drafts without sending). Also
+ * wired into SPEC-M4 FIX-CARDS-1's fix-cards route, which passes
+ * `extraMetadata: { gapKeys }` so it can dedupe against the same gap set
+ * on a later call (see that route's own dedup logic).
  */
-export async function emitDocRequestRound(dealId: string, itemCount: number, sb: SB): Promise<void> {
+export async function emitDocRequestRound(
+  dealId: string,
+  itemCount: number,
+  sb: SB,
+  extraMetadata?: Record<string, unknown>,
+): Promise<void> {
   await logConversionEvent(
-    { dealId, eventType: "doc_request_round", metadata: { itemCount } },
+    { dealId, eventType: "doc_request_round", metadata: { itemCount, ...extraMetadata } },
     sb,
   );
 }

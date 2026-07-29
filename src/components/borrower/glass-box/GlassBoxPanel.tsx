@@ -109,8 +109,13 @@ type FetchState =
   | { phase: "error" }
   | { phase: "loaded"; read: GlassBoxReadinessRead };
 
-/** Fetching wrapper — resolves the token-scoped route, then delegates to GlassBoxPanelBody. */
-export function GlassBoxPanel({ token }: { token: string }) {
+/**
+ * Fetching wrapper — resolves the token-scoped route, then delegates to
+ * GlassBoxPanelBody. Re-fetches whenever `refreshKey` changes (SPEC-M4
+ * FIX-CARDS-1 — bumped by PortalClient.tsx after a checklist-affecting
+ * action, so completing a fix card visibly updates this panel).
+ */
+export function GlassBoxPanel({ token, refreshKey }: { token: string; refreshKey?: number }) {
   const [state, setState] = useState<FetchState>({ phase: "loading" });
 
   useEffect(() => {
@@ -132,7 +137,7 @@ export function GlassBoxPanel({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, refreshKey]);
 
   if (state.phase === "error") {
     // Silent on transient failure — the rest of the portal still works;

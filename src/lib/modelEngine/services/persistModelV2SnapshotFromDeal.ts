@@ -52,6 +52,13 @@ export async function persistModelV2SnapshotFromDeal(opts: {
     // 4. Risk engine
     const riskResult = evaluateRisk(computedMetrics);
 
+    // 4b. SPEC-M4 FIX-CARDS-1: latest period's data-quality diagnostics,
+    // same "latest" convention as extractBaseValues (periods sorted
+    // ascending by periodEnd in buildFinancialModel.ts).
+    const qualityFlags = model.periods.length > 0
+      ? model.periods[model.periods.length - 1].qualityFlags
+      : [];
+
     // 5. Hashes
     const metricRegistryHash = deterministicHash(metricDefs);
     const financialModelHash = deterministicHash(model);
@@ -85,6 +92,7 @@ export async function persistModelV2SnapshotFromDeal(opts: {
       },
       computedMetrics,
       riskResult.flags,
+      qualityFlags,
     );
 
     return {

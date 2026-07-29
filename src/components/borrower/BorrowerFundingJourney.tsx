@@ -18,6 +18,7 @@ import { BorrowerDocumentCompletionChart } from "./readiness/BorrowerDocumentCom
 import { BorrowerDealHealthDashboard } from "./deal-health/BorrowerDealHealthDashboard";
 import { BorrowerGuidancePanel } from "./guidance/BorrowerGuidancePanel";
 import { GlassBoxPanel } from "./glass-box/GlassBoxPanel";
+import { FixCardsPanel } from "./fix-cards/FixCardsPanel";
 
 function JourneyHeader({
   dealName,
@@ -133,6 +134,7 @@ export function BorrowerFundingJourney({
   guidanceViewModel,
   dealName,
   portalToken,
+  refreshKey,
 }: {
   viewModel: BorrowerJourneyViewModel;
   readinessViewModel?: BorrowerReadinessViewModel;
@@ -141,6 +143,8 @@ export function BorrowerFundingJourney({
   dealName?: string | null;
   /** SPEC-M3 GLASS-BOX-1 — when supplied, renders the readiness-read panel. */
   portalToken?: string;
+  /** SPEC-M4 FIX-CARDS-1 — bump to force GlassBoxPanel/FixCardsPanel to refetch. */
+  refreshKey?: number;
 }) {
   return (
     <div className="space-y-5">
@@ -185,7 +189,10 @@ export function BorrowerFundingJourney({
       )}
 
       {/* Glass Box readiness read (SPEC-M3) */}
-      {portalToken && <GlassBoxPanel token={portalToken} />}
+      {portalToken && <GlassBoxPanel token={portalToken} refreshKey={refreshKey} />}
+
+      {/* Fix Cards (SPEC-M4) */}
+      {portalToken && <FixCardsPanel token={portalToken} refreshKey={refreshKey} />}
 
       <BorrowerJourneyMilestones milestones={viewModel.milestones} />
 
