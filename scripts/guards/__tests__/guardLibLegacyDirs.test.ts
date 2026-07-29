@@ -75,4 +75,17 @@ describe("guard-lib-legacy-dirs", () => {
     const r = run([]);
     assert.equal(r.status, 0, r.stdout + r.stderr);
   });
+
+  it("bare-path-only ($ suffix): fails on the exact bare import", () => {
+    write("src/a.ts", `import { arbitrateClaims } from "@/lib/arbitration";`);
+    const r = run(["arbitration$"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /@\/lib\/arbitration/);
+  });
+
+  it("bare-path-only ($ suffix): does NOT block the same-named surviving directory", () => {
+    write("src/a.ts", `import { ingestClaimsForDeal } from "@/lib/arbitration/ingestClaims";`);
+    const r = run(["arbitration$"]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
 });

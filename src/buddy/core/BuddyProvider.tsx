@@ -12,7 +12,7 @@ import { decideNextBestAction } from "@/buddy/nba/decideNextBestAction";
 import { calcReadiness } from "@/buddy/readiness/calcReadiness";
 import { calcOutcome } from "@/buddy/outcomes/calcOutcome";
 import { BuddyPanel } from "@/buddy/ui/BuddyPanel";
-import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
+import { isPublicBorrowerRoute } from "@/lib/navigation/isPublicBorrowerRoute";
 import { narrateLedgerEvent } from "@/buddy/ledgerNarration";
 import {
   addFinding,

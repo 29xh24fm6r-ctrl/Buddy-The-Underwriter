@@ -12,6 +12,13 @@
  * Matches both static `from "@/lib/<retired>"` and dynamic `import("@/lib/<retired>")`,
  * for both a bare-file retirement ("@/lib/ai-events") and a directory retirement
  * ("@/lib/checklist" retiring the whole dir, including "@/lib/checklist/foo").
+ *
+ * A retired entry ending in `$` is bare-path-only: it blocks exactly
+ * "@/lib/<name>" but NOT "@/lib/<name>/anything". Needed when a pair's
+ * loser and winner share the identical name save for file-vs-directory
+ * (e.g. src/lib/arbitration.ts retired in favor of src/lib/arbitration/ —
+ * a plain (non-anchored) "arbitration" entry would also block the
+ * surviving directory's own imports).
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -48,13 +55,18 @@ function collect(dir, acc = []) {
 // Matches `from "@/lib/<retired>"`, `from "@/lib/<retired>/..."`, and the
 // dynamic-import equivalent. Word-boundaried on the retired segment so
 // "@/lib/ai-events" doesn't also match "@/lib/ai-events-v2" (a different,
-// non-retired module).
-const patterns = retired.map((r) => ({
-  name: r,
-  re: new RegExp(
-    String.raw`(?:from\s+|import\()\s*["']@/lib/${r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/[^"']*)?["']`,
-  ),
-}));
+// non-retired module). A trailing "$" on the retired entry drops the
+// subpath group entirely — see the bare-path-only note above.
+const patterns = retired.map((r) => {
+  const bareOnly = r.endsWith("$");
+  const name = bareOnly ? r.slice(0, -1) : r;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const subpath = bareOnly ? "" : String.raw`(?:/[^"']*)?`;
+  return {
+    name: bareOnly ? `${name} (bare path only)` : name,
+    re: new RegExp(String.raw`(?:from\s+|import\()\s*["']@/lib/${escaped}${subpath}["']`),
+  };
+});
 
 const offenders = [];
 for (const dir of SCAN_DIRS) {

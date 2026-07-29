@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
 import { assertDealReady } from "@/lib/deals/assertDealReady";
-import { generateLenderPackage } from "@/lib/lender/packageDeal";
+import { generateLenderPackage } from "@/lib/lenders/packageDeal";
 
 export const dynamic = "force-dynamic";
 
