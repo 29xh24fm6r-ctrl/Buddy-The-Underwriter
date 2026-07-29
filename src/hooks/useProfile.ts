@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
-import { isPublicBorrowerRoute } from "@/lib/nav/isPublicBorrowerRoute";
+import { isPublicBorrowerRoute } from "@/lib/navigation/isPublicBorrowerRoute";
 
 export type ProfileData = {
   id: string;
