@@ -3,3 +3,9 @@
 # Path is relative to @/lib, without extension (matches both "@/lib/<path>" and
 # a trailing "/" for directory imports).
 ai-events
+checklists
+lender
+notify
+obs
+nav
+arbitration$
