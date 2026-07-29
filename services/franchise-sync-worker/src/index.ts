@@ -2,6 +2,7 @@ import 'dotenv/config';
 import http from 'node:http';
 import { getPool, shutdown } from './db.js';
 import { syncSbaDirectory } from './syncSbaDirectory.js';
+import { checkCadence } from './cadenceGuard.js';
 import { scrapeWiFddBatch } from './scrapeWiFdd.js';
 import { scrapeMnFddBatch } from './scrapeMnFdd.js';
 import { scrapeNasaaEfdBatch } from './scrapeNasaaEfd.js';
@@ -39,8 +40,26 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && path === '/') {
     if (!checkAuth(req, res)) return;
     try {
-      console.log('[franchise-sync-worker] SBA sync triggered');
       const pool = getPool();
+
+      // Self-throttle: intended cadence is weekly (Cloud Scheduler-owned).
+      // If something upstream is invoking this far more often, skip the
+      // sync (idempotent, no data change) rather than compounding the
+      // misconfiguration. See docs/runbooks/franchise-sync.md.
+      const cadence = await checkCadence(pool);
+      if (cadence.throttled) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            throttled: true,
+            runsTrailing24h: cadence.runsTrailing24h,
+          })
+        );
+        return;
+      }
+
+      console.log('[franchise-sync-worker] SBA sync triggered');
       const stats = await syncSbaDirectory(pool);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, stats }));
