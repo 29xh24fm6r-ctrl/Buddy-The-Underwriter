@@ -687,4 +687,6 @@ Matt reviewed the corrected classification (above) and approved all 32 `DROP` ro
 | C2 batch | Doc line range | Tables | Status |
 |---|---|---:|---|
 | Batch 1 | 103–160 | 25 | ✅ Applied clean in production 2026-07-29 (`20260729030000_schema_reap_batch_1.sql`) |
-| Batch 2 | 161–184 | 7 | ✅ Approved — migration authored (`20260729040000_schema_reap_batch_2.sql`), not yet applied |
+| Batch 2 | 161–184 | 7 | ✅ Applied clean in production 2026-07-29 (`20260729040000_schema_reap_batch_2.sql`) |
+
+**C2 complete as of 2026-07-29.** All 32 tables in the corrected `DROP` list have been dropped from production across both batches — 25 in batch 1, 7 in batch 2 — with zero data loss (every table had zero real rows) and zero unexpected FK failures (all 9 tables with real inbound FKs from the original, broken classification were correctly excluded from this corrected list; see the CORRECTION section above). Schema-only DDL backups for all 32 remain committed at `docs/audit/dropped-ddl/` for structural restore if ever needed.
