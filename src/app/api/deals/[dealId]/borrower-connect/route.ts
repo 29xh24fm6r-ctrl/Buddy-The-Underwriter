@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { writeAiEvent } from "@/lib/ai-events";
+import { writeAiEvent } from "@/lib/aiEvents";
 
 export async function POST(
   _req: Request,

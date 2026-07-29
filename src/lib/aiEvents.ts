@@ -8,6 +8,7 @@ export async function writeAiEvent(event: {
   input_json?: any;
   output_json?: any;
   confidence?: number;
+  requires_human_review?: boolean;
 }) {
   const supabase = getSupabaseServerClient();
 
@@ -18,8 +19,9 @@ export async function writeAiEvent(event: {
     action: event.action,
     input_json: event.input_json ?? {},
     output_json: event.output_json ?? {},
-    confidence: event.confidence ?? null
+    confidence: event.confidence ?? null,
+    requires_human_review: event.requires_human_review ?? false
   });
 
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 }
