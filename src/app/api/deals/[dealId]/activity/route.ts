@@ -1,9 +1,12 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireUser } from "@/lib/server/authz";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { writeDealEvent } from "@/lib/events/dealEvents";
+import { emitLenderFollowup } from "@/lib/brokerage/beatMetrics";
 
 export const runtime = "nodejs";
 // Spec D5: cockpit-supporting GET routes must allow headroom beyond the
@@ -28,7 +31,12 @@ const ACTION_LABELS: Record<string, string> = {
   "spread.completed": "Spread completed",
   "snapshot.generated": "Snapshot generated",
   "lifecycle.stage.changed": "Stage changed",
+  "lender.followup.logged": "Lender follow-up logged",
 };
+
+const LenderFollowupBodySchema = z.object({
+  note: z.string().max(2000).optional(),
+});
 
 export async function GET(
   req: Request,
@@ -90,6 +98,60 @@ export async function GET(
     });
   } catch (err) {
     console.error("[GET /api/deals/[dealId]/activity] error:", err);
+    return NextResponse.json({ ok: false, error: "internal" }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/deals/[dealId]/activity — log a manual lender follow-up.
+ *
+ * SPEC-M2 BEAT-METRICS-1: lender_followup_count has no automated signal —
+ * nothing in this system observes a lender's own follow-up questions on a
+ * submitted package — so a banker logs it here. Writes to both deal_events
+ * (this deal's own activity timeline, immediately visible above) and
+ * brokerage_conversion_events (the cross-deal beat-metric rollup, see
+ * v_beat_lender_followup_by_deal).
+ */
+export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ dealId: string }> },
+) {
+  try {
+    let userId: string;
+    try {
+      ({ userId } = await requireUser());
+    } catch {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+
+    const { dealId } = await ctx.params;
+    const access = await ensureDealBankAccess(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
+
+    let body: z.infer<typeof LenderFollowupBodySchema>;
+    try {
+      body = LenderFollowupBodySchema.parse(await req.json().catch(() => ({})));
+    } catch {
+      return NextResponse.json({ ok: false, error: "invalid_body" }, { status: 400 });
+    }
+
+    const sb = supabaseAdmin();
+
+    await writeDealEvent({
+      dealId,
+      bankId: access.bankId,
+      kind: "lender.followup.logged",
+      actorUserId: userId,
+      detail: body.note,
+    });
+
+    await emitLenderFollowup(dealId, body.note, sb);
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[POST /api/deals/[dealId]/activity] error:", err);
     return NextResponse.json({ ok: false, error: "internal" }, { status: 500 });
   }
 }
