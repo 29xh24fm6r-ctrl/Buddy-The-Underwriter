@@ -110,3 +110,23 @@ export async function emitLenderFollowup(
     sb,
   );
 }
+
+/**
+ * SPEC-M6 ANTICIPATED-INTERROGATION-1 — the AI-predicted baseline for
+ * lender_followup_count, deliberately a DISTINCT event type from
+ * emitLenderFollowup above (real, human-logged lender questions). Called
+ * once per hostile-interrogation run (src/lib/brokerage/hostileInterrogation.ts)
+ * with the count of questions the verifier generated for that deal — lets
+ * the dashboard track the predicted count trending against the real one
+ * without corrupting either metric's meaning.
+ */
+export async function emitAnticipatedLenderFollowup(
+  dealId: string,
+  questionCount: number,
+  sb: SB,
+): Promise<void> {
+  await logConversionEvent(
+    { dealId, eventType: "anticipated_lender_followup", metadata: { questionCount } },
+    sb,
+  );
+}

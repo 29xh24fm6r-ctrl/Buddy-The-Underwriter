@@ -19,9 +19,23 @@ function fakeDb(opts: {
   snapshot?: Row | null;
   checklistRows?: Row[];
   reconRow?: Row | null;
+  hostileRows?: Row[];
 }) {
   return {
     from(table: string) {
+      if (table === "deal_hostile_interrogations") {
+        return {
+          select() {
+            return this;
+          },
+          eq() {
+            return this;
+          },
+          then(onFulfilled: any, onRejected: any) {
+            return Promise.resolve({ data: opts.hostileRows ?? [], error: null }).then(onFulfilled, onRejected);
+          },
+        };
+      }
       if (table === "deal_model_snapshots") {
         return {
           select() {
@@ -184,5 +198,45 @@ describe("buildFixCards", () => {
     );
 
     assert.equal(cards.length, 4);
+  });
+
+  it("SPEC-M6: builds a card from an unanswered, borrower-resolvable hostile-committee question", async () => {
+    const cards = await buildFixCards(
+      "deal-6",
+      fakeDb({
+        snapshot: null,
+        checklistRows: [],
+        reconRow: null,
+        hostileRows: [
+          {
+            code: "dscr_thin_margin",
+            question: "How does the deal survive a revenue decline?",
+            severity: "critical",
+            rationale: "DSCR is thin relative to the covenant floor.",
+            resolving_action: "Document a stress scenario and any supporting add-backs.",
+          },
+        ],
+      }),
+    );
+
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].issueType, "hostile_qna:dscr_thin_margin");
+    assert.equal(cards[0].severity, "critical");
+    assert.equal(cards[0].what, "How does the deal survive a revenue decline?");
+    assert.equal(cards[0].whyItMatters, "DSCR is thin relative to the covenant floor.");
+    assert.equal(cards[0].resolvingAction, "Document a stress scenario and any supporting add-backs.");
+  });
+
+  it("SPEC-M6: the fix-cards route never sees answered or non-borrower-resolvable hostile questions (filtered server-side)", async () => {
+    // The DB query itself filters on already_answered=false AND
+    // borrower_resolvable=true — this test documents that buildFixCards
+    // trusts that filter (maps every row it gets back) rather than
+    // re-filtering client-side, so an empty result set from the query
+    // correctly produces zero cards.
+    const cards = await buildFixCards(
+      "deal-7",
+      fakeDb({ snapshot: null, checklistRows: [], reconRow: null, hostileRows: [] }),
+    );
+    assert.deepEqual(cards, []);
   });
 });

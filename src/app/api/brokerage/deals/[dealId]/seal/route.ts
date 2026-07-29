@@ -19,6 +19,7 @@ import { matchLendersToDeal } from "@/lib/brokerage/matchLenders";
 import { buildKFS } from "@/lib/brokerage/buildKFS";
 import { computeListingCadence } from "@/lib/brokerage/cadence";
 import { buildSealedSnapshot, SealSnapshotError } from "@/lib/brokerage/buildSealedSnapshot";
+import { runHostileInterrogationForDeal } from "@/lib/brokerage/hostileInterrogation";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -170,6 +171,21 @@ export async function POST(
     console.warn("[seal] lender preview notify failed (non-fatal)", {
       dealId,
       listingId: listingRow.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // SPEC-M6 ANTICIPATED-INTERROGATION-1 — best-effort, non-fatal. Awaited
+  // (not truly fire-and-forget) because a serverless function isn't
+  // guaranteed to keep running after the response is sent; wrapped so the
+  // verifier role's single-provider, no-failover call (Invariant #4) can
+  // never fail a seal that has already fully succeeded. Also re-runnable
+  // on demand via POST /api/brokerage/deals/[dealId]/committee-interrogation.
+  try {
+    await runHostileInterrogationForDeal(dealId, session.bank_id, sb);
+  } catch (err) {
+    console.warn("[seal] hostile interrogation failed (non-fatal)", {
+      dealId,
       error: err instanceof Error ? err.message : String(err),
     });
   }

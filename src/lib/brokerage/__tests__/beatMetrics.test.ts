@@ -112,3 +112,13 @@ test("emitLenderFollowup with no note stores empty metadata", async () => {
   await m.emitLenderFollowup("deal-9", undefined, db as any);
   assert.deepEqual(db.tables.brokerage_conversion_events[0].metadata, {});
 });
+
+test("SPEC-M6: emitAnticipatedLenderFollowup writes a distinct event_type from the real lender_followup metric", async () => {
+  const db = new S();
+  await m.emitAnticipatedLenderFollowup("deal-10", 6, db as any);
+  const row = db.tables.brokerage_conversion_events[0];
+  assert.equal(row.event_type, "anticipated_lender_followup");
+  assert.notEqual(row.event_type, "lender_followup");
+  assert.equal(row.metadata.questionCount, 6);
+  assert.equal(row.deal_id, "deal-10");
+});
