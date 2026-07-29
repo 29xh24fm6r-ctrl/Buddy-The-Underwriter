@@ -19,6 +19,7 @@ import { BorrowerDealHealthDashboard } from "./deal-health/BorrowerDealHealthDas
 import { BorrowerGuidancePanel } from "./guidance/BorrowerGuidancePanel";
 import { GlassBoxPanel } from "./glass-box/GlassBoxPanel";
 import { FixCardsPanel } from "./fix-cards/FixCardsPanel";
+import { SbaFormReviewCard } from "./sba-forms/SbaFormReviewCard";
 
 function JourneyHeader({
   dealName,
@@ -193,6 +194,9 @@ export function BorrowerFundingJourney({
 
       {/* Fix Cards (SPEC-M4) */}
       {portalToken && <FixCardsPanel token={portalToken} refreshKey={refreshKey} />}
+
+      {/* SBA form review + covenant counter (SPEC-M7) */}
+      {portalToken && <SbaFormReviewCard token={portalToken} refreshKey={refreshKey} />}
 
       <BorrowerJourneyMilestones milestones={viewModel.milestones} />
 

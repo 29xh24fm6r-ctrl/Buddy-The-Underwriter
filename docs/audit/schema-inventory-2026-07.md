@@ -81,7 +81,7 @@ _Columns: real row count · inbound/outbound FK edges · dependent views/matview
 | Table | Real rows | FK in | FK out | Views | Fns | RLS | Migration file | Refs (src) | Refs (all) | Classification | Note |
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|---|---|
 | `aegis_recording_sessions` | 0 | 0 | 0 | 0 | 0 | 1 | *(none found)* | 0 | 0 | **DROP** | zero code refs (src/, services/, scripts/), zero FK, zero view/function refs, zero real rows |
-| `ai_gateway_calls` | 0 | 0 | 0 | 0 | 0 | 0 | *(none found)* | 0 | 0 | **DROP** | zero code refs (src/, services/, scripts/), zero FK, zero view/function refs, zero real rows |
+| `ai_gateway_calls` | 0 | 0 | 0 | 0 | 0 | 0 | 20260802000002_recreate_ai_gateway_calls.sql | 4 | 4 | **KEEP** | Originally classified DROP (zero refs on `main` at audit time) and dropped in batch 1 — but SPEC-M1 AI-GATEWAY-1's ledger (src/lib/ai/ledger.ts, gateway.ts) was mid-flight on an unmerged branch when the audit ran, and depends on this table. Recreated by 20260802000002 once the conflict surfaced via guard:dropped-tables; docs/audit/dropped-ddl/ai_gateway_calls.sql removed accordingly (no longer an accurate "this table is gone" record). |
 | `ai_run_events` | 0 | 0 | 0 | 0 | 0 | 0 | 20251227000015_wow_factor_traceability.sql | 0 | 0 | **DROP** | zero code refs (src/, services/, scripts/), zero FK, zero view/function refs, zero real rows |
 | `attention_artifacts` | 0 | 0 | 0 | 0 | 0 | 2 | *(none found)* | 0 | 0 | **DROP** | zero code refs (src/, services/, scripts/), zero FK, zero view/function refs, zero real rows |
 | `autonomy_scores` | 0 | 0 | 0 | 0 | 0 | 1 | *(none found)* | 0 | 0 | **DROP** | zero code refs (src/, services/, scripts/), zero FK, zero view/function refs, zero real rows |

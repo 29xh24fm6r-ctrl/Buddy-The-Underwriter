@@ -126,10 +126,25 @@ export async function renderForm1919Pdf(args: {
   setText1("existing_employees", s1.applicant_employee_count);
   setText1("jobs_retained", s1.jobs_retained);
   setText1("jobs_created", s1.jobs_created);
-  // Loan-purpose amount breakdown routes through the generic "Other"
-  // slot — see the comment in inputBuilder.ts on why it isn't split into
-  // the form's more specific purpose categories yet.
-  if (s1.use_of_proceeds_summary || s1.loan_amount != null) {
+
+  // SPEC-M7 ZERO-REPEAT-PREFILL-1 — loan-purpose amount breakdown. When a
+  // borrower/banker has confirmed a use-of-proceeds classification
+  // (inputBuilder.ts populates these fields ONLY in that case), split
+  // amounts land in their real per-category fields instead of the
+  // generic "Other" bucket. Unconfirmed/no classification — byte-
+  // identical to pre-M7 behavior: everything through "Other".
+  if (s1.has_confirmed_use_of_proceeds_categories) {
+    setText1("debt_refinance_amount", s1.debt_refinance_amount);
+    setText1("purchase_or_construction_amount", s1.purchase_or_construction_amount);
+    setText1("equipment_amount", s1.equipment_amount);
+    setText1("working_capital_amount", s1.working_capital_amount);
+    setText1("business_acquisition_amount", s1.business_acquisition_amount);
+    setText1("inventory_amount", s1.inventory_amount);
+    if (s1.other_purpose_1_amount != null) {
+      setText1("other_purpose_1_description", s1.other_purpose_1_description ?? s1.use_of_proceeds_summary);
+      setText1("other_purpose_1_amount", s1.other_purpose_1_amount);
+    }
+  } else if (s1.use_of_proceeds_summary || s1.loan_amount != null) {
     setText1("other_purpose_1_description", s1.use_of_proceeds_summary ?? s1.loan_program);
     setText1("other_purpose_1_amount", s1.loan_amount);
   }
@@ -162,7 +177,22 @@ export async function renderForm1919Pdf(args: {
     const field = SPECIAL_OWNERSHIP_CHECKBOX[String(s1.special_ownership_type)];
     if (field) checkboxValues[field] = true;
   }
-  if (s1.use_of_proceeds_summary || s1.loan_amount != null) {
+  if (s1.has_confirmed_use_of_proceeds_categories) {
+    const PURPOSE_CHECKBOX_BY_AMOUNT_FIELD: Record<string, string> = {
+      debt_refinance_amount: FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_debt_refinance,
+      purchase_or_construction_amount: FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_purchase_or_construction,
+      equipment_amount: FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_equipment,
+      working_capital_amount: FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_working_capital,
+      business_acquisition_amount: FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_business_acquisition,
+      inventory_amount: FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_inventory,
+    };
+    for (const [amountField, checkboxField] of Object.entries(PURPOSE_CHECKBOX_BY_AMOUNT_FIELD)) {
+      if (s1[amountField] != null) checkboxValues[checkboxField] = true;
+    }
+    if (s1.other_purpose_1_amount != null) {
+      checkboxValues[FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_other_1] = true;
+    }
+  } else if (s1.use_of_proceeds_summary || s1.loan_amount != null) {
     checkboxValues[FORM_1919_SECTION_I_CHECKBOX_FIELDS.purpose_other_1] = true;
   }
 
