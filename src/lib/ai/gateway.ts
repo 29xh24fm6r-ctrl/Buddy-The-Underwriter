@@ -190,6 +190,18 @@ export async function runRole(
   const primaryProvider = config.chain[0]?.provider;
 
   for (const step of config.chain) {
+    // SPEC-M1.1: inlineData is Google-only (providers/openai.ts and
+    // providers/anthropic.ts both throw immediately if given one). Skip a
+    // non-google step entirely rather than attempting it and having its
+    // generic "inlineData is not supported" rejection become the LAST
+    // (and therefore surfaced) chain error, masking the real google
+    // failure a caller's own error-classification logic may depend on
+    // (e.g. runGeminiOcrJob.ts's 404/timeout detection). Not ledgered —
+    // this is a capability mismatch, not an attempted-and-refused call.
+    if (request.inlineData?.length && step.provider !== "google") {
+      continue;
+    }
+
     attempts++;
 
     if (npiTagged && VENDOR_NPI_APPROVAL[step.provider] !== "APPROVED") {

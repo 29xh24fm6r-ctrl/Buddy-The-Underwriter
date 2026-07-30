@@ -32,7 +32,6 @@ const ROOT = process.cwd();
 // dynamic import for auth resolution.
 const PROD_CALL_SITES = [
   "src/lib/financialSpreads/extractors/gemini/geminiClient.ts",
-  "src/lib/ocr/runGeminiOcrJob.ts",
 ];
 
 test("[sdk-1] @google-cloud/vertexai is NOT in package.json", () => {

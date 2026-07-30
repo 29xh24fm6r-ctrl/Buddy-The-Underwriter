@@ -153,9 +153,14 @@ test("Gemini OCR has per-model timeout protection", () => {
     src.includes("OCR_TIMEOUT_MS"),
     "Must define OCR_TIMEOUT_MS constant",
   );
-  assert.ok(
-    src.includes("Promise.race"),
-    "Must use Promise.race for timeout",
+  // SPEC-M1.1: the hard per-model timeout is now enforced by the AI gateway
+  // (runRole's own AbortController-based timeoutMs) rather than a local
+  // Promise.race — OCR_TIMEOUT_MS must still be threaded into the gateway
+  // call as timeoutMs.
+  assert.match(
+    src,
+    /timeoutMs:\s*OCR_TIMEOUT_MS/,
+    "Must pass OCR_TIMEOUT_MS as the gateway call's timeoutMs",
   );
 
   // Timeout should try next model, not immediately throw

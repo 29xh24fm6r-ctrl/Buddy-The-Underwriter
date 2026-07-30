@@ -168,6 +168,29 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     assert.equal(captured.useSearchGrounding, true);
   });
 
+  it("SPEC-M1.1: skips a non-google fallback step entirely when inlineData is present, surfacing google's real error", async () => {
+    let openaiCalled = false;
+    __setProviderImplForTests("google", async () => {
+      throw new Error('{"code":404,"status":"NOT_FOUND"}');
+    });
+    __setProviderImplForTests("openai", async () => {
+      openaiCalled = true;
+      throw new Error("should never be called — inlineData is google-only");
+    });
+
+    await assert.rejects(
+      () =>
+        runRole("generator", {
+          prompt: "hi",
+          purpose: "test",
+          inlineData: [{ mimeType: "application/pdf", data: "base64==" }],
+        }),
+      /"code":404/,
+    );
+    assert.equal(openaiCalled, false, "openai must not be attempted for an inlineData request");
+    assert.equal(ledgerEntries.length, 1, "the skipped openai step must not be ledgered");
+  });
+
   it("passes a chain step's authMode into the provider call", async () => {
     process.env.AI_GATEWAY_CHAIN_GENERATOR = "google:gemini-3.1-flash-lite";
     let captured: any = null;

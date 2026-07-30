@@ -20,11 +20,12 @@
  * their own try/catch-returns-null contract — callers pattern-match on
  * `!result`, not on a thrown exception.
  *
- * classifyWithGeminiVision's inlineData is Google-only — if google fails,
- * generator's openai fallback step will itself throw immediately
- * ("inlineData is not supported"), which is caught here and still yields
- * null, same external contract as before this migration (just one extra
- * ledgered attempt on the way).
+ * classifyWithGeminiVision's inlineData is Google-only — the gateway skips
+ * generator's openai fallback step entirely for an inlineData request
+ * (SPEC-M1.1 fix to runRole()), so a google failure surfaces directly here
+ * rather than being masked by openai's generic "unsupported" rejection.
+ * Either way this file's own try/catch still yields null on any failure,
+ * same external contract as before this migration.
  */
 import "server-only";
 

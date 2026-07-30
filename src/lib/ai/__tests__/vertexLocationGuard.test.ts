@@ -25,7 +25,6 @@ const HELPER_FILE = resolve(ROOT, "src/lib/ai/vertexLocation.ts");
 // auth plumbing (getVertexAccessToken/getProjectId), not migration debt.
 const CALLER_FILES = [
   "src/lib/financialSpreads/extractors/gemini/geminiClient.ts",
-  "src/lib/ocr/runGeminiOcrJob.ts",
   "src/lib/gcpAdcBootstrap.ts",
 ];
 
