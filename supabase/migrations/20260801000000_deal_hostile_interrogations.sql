@@ -12,8 +12,6 @@
 -- marketplace_listings.kfs. Visible to bank staff via deal_conditions
 -- (banker tasks, generated from unanswered rows) and, for borrower-resolvable
 -- gaps, via the existing borrower fix-cards surface (buildFixCards.ts).
-begin;
-
 create table if not exists public.deal_hostile_interrogations (
   id uuid primary key default gen_random_uuid(),
   deal_id uuid not null references public.deals(id) on delete cascade,
@@ -38,9 +36,6 @@ alter table public.deal_hostile_interrogations enable row level security;
 
 -- Same bank-membership pattern as deal_conditions (bank staff only — this
 -- is a banker/underwriting-prep artifact, not borrower- or lender-facing).
--- drop-then-create so a partial-apply retry doesn't fail with "policy
--- already exists" (CREATE POLICY has no IF NOT EXISTS form).
-drop policy if exists deal_hostile_interrogations_bank_access on public.deal_hostile_interrogations;
 create policy deal_hostile_interrogations_bank_access
   on public.deal_hostile_interrogations
   for all
@@ -60,5 +55,3 @@ create policy deal_hostile_interrogations_bank_access
         and bm.role in ('owner', 'admin', 'member')
     )
   );
-
-commit;

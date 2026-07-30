@@ -14,8 +14,6 @@
 -- CONFIRMED row to override its existing "everything routes to the Other
 -- bucket" fallback. An unconfirmed or missing row changes nothing about
 -- what a real, downloadable/signable form renders.
-begin;
-
 create table if not exists public.deal_structured_field_confirmations (
   id uuid primary key default gen_random_uuid(),
   deal_id uuid not null references public.deals(id) on delete cascade,
@@ -38,9 +36,6 @@ create index if not exists deal_structured_field_confirmations_deal_id_idx
 alter table public.deal_structured_field_confirmations enable row level security;
 
 -- Bank-staff access, same shape as deal_conditions/deal_hostile_interrogations.
--- drop-then-create so a partial-apply retry doesn't fail with "policy
--- already exists" (CREATE POLICY has no IF NOT EXISTS form).
-drop policy if exists deal_structured_field_confirmations_bank_access on public.deal_structured_field_confirmations;
 create policy deal_structured_field_confirmations_bank_access
   on public.deal_structured_field_confirmations
   for all
@@ -60,5 +55,3 @@ create policy deal_structured_field_confirmations_bank_access
         and bm.role in ('owner', 'admin', 'member')
     )
   );
-
-commit;
