@@ -24,5 +24,6 @@
   { "name": "buddy_sba_packages.verification_verdict", "type": "column", "migration": "20260803000002_business_plan_package_verification.sql" },
   { "name": "buddy_sba_packages.verification_flagged_claims", "type": "column", "migration": "20260803000002_business_plan_package_verification.sql" },
   { "name": "buddy_column_exists", "type": "function", "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql" },
-  { "name": "buddy_view_exists", "type": "function", "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql" }
+  { "name": "buddy_view_exists", "type": "function", "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql" },
+  { "name": "can_access_deal", "type": "function", "migration": "20260730020000_fix_can_access_deal_membership_table.sql" }
 ]
