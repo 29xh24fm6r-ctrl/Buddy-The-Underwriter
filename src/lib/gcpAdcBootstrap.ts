@@ -9,7 +9,7 @@ import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { resolveAudience, resolveServiceAccountEmail } from "@/lib/gcp/wif";
 
 const WIF_CREDENTIALS_PATH = "/tmp/gcp-wif.json";
-function getProjectId(): string | null {
+export function getProjectId(): string | null {
   return (
     process.env.GOOGLE_CLOUD_PROJECT ||
     process.env.GOOGLE_PROJECT_ID ||
@@ -93,6 +93,57 @@ export async function ensureGcpAdcBootstrap(): Promise<void> {
       process.env.GOOGLE_CLOUD_PROJECT = projectId;
     }
   }
+}
+
+/**
+ * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §1 — mints a bearer access token for
+ * a raw, SDK-free authenticated fetch() against a Vertex REST endpoint
+ * (Gateway Invariant #3: no @google/genai or @google-cloud/vertexai import
+ * inside src/lib/ai/providers/). Reuses the same WIF auth client every
+ * other Vertex-calling file in this repo already goes through
+ * (getVertexAuthOptions() above) rather than re-deriving auth.
+ *
+ * On Vercel, getVertexAuthOptions() returns a WIF-backed authClient. Off
+ * Vercel (local/CI), it returns undefined, so this falls back to
+ * google-auth-library's standard ADC resolution (GOOGLE_APPLICATION_CREDENTIALS,
+ * gcloud default credentials, etc.) — same two-path shape
+ * ensureGcpAdcBootstrap() already establishes for the rest of this file.
+ */
+// Test-only seam for the WIF-authClient branch — the no-authClient fallback
+// below delegates entirely to google-auth-library's own ADC resolution
+// (file/metadata-server probing), which this repo doesn't unit-test any
+// more than it unit-tests other third-party SDK internals elsewhere.
+let getVertexAuthOptionsImpl: () => Promise<GoogleAuthOptions | undefined> = getVertexAuthOptions;
+
+export function __setVertexAuthOptionsForTests(
+  impl: () => Promise<GoogleAuthOptions | undefined>,
+): void {
+  getVertexAuthOptionsImpl = impl;
+}
+
+export function __resetVertexAuthOptionsForTests(): void {
+  getVertexAuthOptionsImpl = getVertexAuthOptions;
+}
+
+export async function getVertexAccessToken(): Promise<string> {
+  await ensureGcpAdcBootstrap();
+
+  const authOptions = await getVertexAuthOptionsImpl();
+  if (authOptions?.authClient) {
+    const tokenResponse = await authOptions.authClient.getAccessToken();
+    const token =
+      typeof tokenResponse === "string" ? tokenResponse : tokenResponse?.token;
+    if (!token) throw new Error("getVertexAccessToken: WIF authClient returned no token");
+    return token;
+  }
+
+  const { GoogleAuth } = await import("google-auth-library");
+  const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] });
+  const client = await auth.getClient();
+  const tokenResponse = await client.getAccessToken();
+  const token = typeof tokenResponse === "string" ? tokenResponse : tokenResponse?.token;
+  if (!token) throw new Error("getVertexAccessToken: default ADC returned no token");
+  return token;
 }
 
 export async function runVertexAdcSmokeTest(): Promise<{ ok: true; model: string }> {

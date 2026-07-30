@@ -21,6 +21,13 @@ export async function callAnthropic(req: ProviderCallRequest): Promise<ProviderC
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY missing");
 
+  // SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §2: this adapter doesn't implement
+  // multimodal input — throw loudly rather than silently sending a
+  // text-only request and dropping the caller's image/PDF.
+  if (req.inlineData?.length) {
+    throw new Error("callAnthropic: inlineData is not supported by this provider adapter");
+  }
+
   const body: Record<string, unknown> = {
     model: req.model,
     max_tokens: req.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,

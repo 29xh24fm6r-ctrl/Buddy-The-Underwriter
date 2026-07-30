@@ -21,6 +21,13 @@ export async function callOpenAI(req: ProviderCallRequest): Promise<ProviderCall
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY missing");
 
+  // SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §2: this adapter doesn't implement
+  // multimodal input — throw loudly rather than silently sending a
+  // text-only request and dropping the caller's image/PDF.
+  if (req.inlineData?.length) {
+    throw new Error("callOpenAI: inlineData is not supported by this provider adapter");
+  }
+
   const messages: Array<{ role: string; content: string }> = [];
   if (req.systemInstruction) {
     messages.push({ role: "system", content: req.systemInstruction });
@@ -80,5 +87,69 @@ export async function callOpenAI(req: ProviderCallRequest): Promise<ProviderCall
     text,
     tokensIn: Number(usage.prompt_tokens ?? 0),
     tokensOut: Number(usage.completion_tokens ?? 0),
+  };
+}
+
+export type EmbedProviderRequest = {
+  model: string;
+  input: string;
+  dimensions?: number;
+  timeoutMs: number;
+};
+
+export type EmbedProviderResult = {
+  vector: number[];
+  tokensIn: number;
+};
+
+/**
+ * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §4 — fetch-only OpenAI embeddings
+ * call (no SDK, same Gateway Invariant #3 as callOpenAI above). Mirrors
+ * src/lib/retrieval/retrievalCore.ts's existing embedQuery() request shape
+ * (model/input/dimensions), scoped to this provider's own adapter contract.
+ * Consumed by src/lib/ai/embed.ts, never called directly outside this
+ * providers/ directory.
+ */
+export async function embedOpenAI(req: EmbedProviderRequest): Promise<EmbedProviderResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY missing");
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), req.timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: req.model,
+        input: req.input,
+        ...(req.dimensions ? { dimensions: req.dimensions } : {}),
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const vector = data?.data?.[0]?.embedding;
+  if (!Array.isArray(vector) || vector.length === 0) {
+    throw new Error("empty embedding response");
+  }
+
+  const usage = data?.usage ?? {};
+  return {
+    vector,
+    tokensIn: Number(usage.prompt_tokens ?? usage.total_tokens ?? 0),
   };
 }

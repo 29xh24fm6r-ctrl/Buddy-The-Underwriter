@@ -8,11 +8,14 @@
 # burns the rest of this list down, mechanically, one call site at a time.
 # A stale entry (no longer matching the guard's check) FAILS the guard, so
 # this list can only shrink.
+#
+# The 4 voice/realtime files that were originally on this list have moved
+# to the PERMANENT EXEMPTION section below (SPEC-GATEWAY-CAPABILITY-
+# EXPANSION-1 §5) — they were never real migration debt, see that
+# section's header for why.
 src/ai/orchestrator/run.ts
 src/app/api/deals/[dealId]/quick-look/questions/route.ts
-src/app/api/deals/[dealId]/voice/token/route.ts
 src/buddy/brain/geminiAdapter.ts
-src/components/deals/VoiceInterviewButton.tsx
 src/core/omega/omegaGeminiClient.ts
 src/lib/ai/creditMemoGenerator.ts
 src/lib/ai/gemini25Provider.ts
@@ -40,5 +43,21 @@ src/lib/retrieval/retrievalCore.ts
 src/lib/sba/sbaActionableRoadmap.ts
 src/lib/sba/sbaPackageNarrative.ts
 src/lib/sba/sbaResearchProjectionGenerator.ts
+
+# PERMANENT EXEMPTION (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §5) — NOT
+# migration debt, do not attempt to "finish" migrating these.
+#
+# These 4 files mint/hold a live OpenAI Realtime WebRTC voice session
+# (src/app/api/deals/[dealId]/voice/token/route.ts mints the client_secret;
+# VoiceInterviewButton.tsx and useBuddyVoice.ts each hold the client-side
+# WebRTC session directly against api.openai.com/v1/realtime/calls;
+# mintRealtimeClientSecret.ts is the shared token-minting helper both voice
+# routes call). A live bidirectional realtime session is architecturally
+# not a single request/response completion — there is nothing for
+# runRole()/runRoleStream() to wrap. Mechanically these are on the same
+# list as the migration worklist above (the guard doesn't distinguish
+# sections), but conceptually they are permanent, not a shrinking backlog.
+src/app/api/deals/[dealId]/voice/token/route.ts
+src/components/deals/VoiceInterviewButton.tsx
 src/lib/voice/mintRealtimeClientSecret.ts
 src/lib/voice/useBuddyVoice.ts

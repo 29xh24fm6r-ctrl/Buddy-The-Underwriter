@@ -42,6 +42,16 @@ export type RunRoleRequest = {
   dealId?: string | null;
   /** True if the payload contains borrower/customer NPI — gates provider eligibility. */
   npiTagged?: boolean;
+  /**
+   * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §2 — inline binary content
+   * (image/PDF). Google-only; other providers throw if given one.
+   */
+  inlineData?: { mimeType: string; data: string }[];
+  /**
+   * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §3 — enables Gemini's google_search
+   * grounding tool. Google-only; ignored by other providers.
+   */
+  useSearchGrounding?: boolean;
 };
 
 export type RunRoleResult = {
@@ -53,6 +63,8 @@ export type RunRoleResult = {
   latencyMs: number;
   /** Number of chain steps attempted, including refused/failed ones, before success. */
   attempts: number;
+  /** SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §3 — present only when useSearchGrounding was honored. */
+  groundingMetadata?: unknown;
 };
 
 // Test-only seams. Production code always goes through the real provider
@@ -186,6 +198,9 @@ export async function runRole(
         maxOutputTokens: request.maxOutputTokens,
         timeoutMs: config.timeoutMs,
         responseSchema: request.responseSchema,
+        authMode: step.authMode,
+        inlineData: request.inlineData,
+        useSearchGrounding: request.useSearchGrounding,
       });
       const latencyMs = Date.now() - start;
       recordBudgetUsage(role, result.tokensIn + result.tokensOut);
@@ -209,6 +224,9 @@ export async function runRole(
         tokensOut: result.tokensOut,
         latencyMs,
         attempts,
+        ...(result.groundingMetadata !== undefined
+          ? { groundingMetadata: result.groundingMetadata }
+          : {}),
       };
     } catch (e) {
       const latencyMs = Date.now() - start;
