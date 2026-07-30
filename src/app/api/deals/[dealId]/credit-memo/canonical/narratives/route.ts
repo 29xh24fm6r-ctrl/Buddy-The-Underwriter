@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
 import { assembleNarratives, overlayNarratives } from "@/lib/creditMemo/canonical/narrativeAssembly";
+import { verifyMemoNarratives } from "@/lib/creditMemo/canonical/verifyMemoNarratives";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -37,11 +39,29 @@ export async function POST(
     // Overlay onto memo
     const enrichedMemo = overlayNarratives(memoResult.memo, narratives);
 
+    // SPEC-M8 ARTIFACT-PIPELINE-1: independent fact-check of the narrative
+    // bundle against the same deterministic memo fields the generator saw.
+    // Best-effort — a verifier outage must not block the memo from
+    // rendering (the generator's output already succeeded or fell back).
+    let verification = null;
+    try {
+      verification = await verifyMemoNarratives({
+        dealId,
+        bankId,
+        memo: memoResult.memo,
+        narratives,
+        sb: supabaseAdmin(),
+      });
+    } catch (err) {
+      console.error("[credit-memo/canonical/narratives] verification failed (non-fatal):", err);
+    }
+
     return NextResponse.json({
       ok: true,
       narratives,
       memo: enrichedMemo,
       aiError,
+      verification,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);

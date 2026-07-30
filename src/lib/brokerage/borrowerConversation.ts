@@ -318,10 +318,15 @@ ${renderRegistryFields("entity", "        ")}
  * route) off the full field registry instead of a small policy-rule set.
  * Only considers the first owner in facts.owners[] so a response doesn't
  * interleave multiple people's questions in one turn.
+ *
+ * `factPath` is returned (SPEC-M5 CONVERSATIONAL-INTAKE-1) so a caller can
+ * key a repeat-ask ledger entry (recordFactRequest) to the exact registry
+ * field this turn's prompt told the model to ask about — `label` alone
+ * isn't a stable identifier.
  */
 export function computeNextCriticalField(
   facts: Record<string, any>,
-): { label: string; formsUnlocked: number } | null {
+): { label: string; factPath: string; formsUnlocked: number } | null {
   const owners = Array.isArray(facts?.owners) ? (facts.owners as Record<string, unknown>[]) : [];
   const applicable = computeApplicableForms({
     program: "7a",
@@ -332,13 +337,17 @@ export function computeNextCriticalField(
   });
 
   const isPresent = (v: unknown) => v != null && v !== "";
-  const impact = new Map<string, { count: number; label: string }>();
+  const impact = new Map<string, { count: number; label: string; factPath: string }>();
 
   function consider(entry: (typeof BORROWER_FIELD_REGISTRY)[number], bag: Record<string, unknown>) {
     const relevantForms = entry.requiredForForms.filter((f) => applicable.includes(f));
     if (relevantForms.length === 0 || isPresent(bag[factKey(entry)])) return;
     const existing = impact.get(entry.key);
-    impact.set(entry.key, { count: (existing?.count ?? 0) + relevantForms.length, label: entry.label });
+    impact.set(entry.key, {
+      count: (existing?.count ?? 0) + relevantForms.length,
+      label: entry.label,
+      factPath: entry.factPath,
+    });
   }
 
   for (const entry of fieldsForScope("business")) consider(entry, facts?.business ?? {});
@@ -349,11 +358,107 @@ export function computeNextCriticalField(
     for (const entry of fieldsForScope("pfs")) consider(entry, (firstOwner["pfs"] as Record<string, unknown>) ?? {});
   }
 
-  let best: { count: number; label: string } | null = null;
+  let best: { count: number; label: string; factPath: string } | null = null;
   for (const v of impact.values()) {
     if (!best || v.count > best.count) best = v;
   }
-  return best ? { label: best.label, formsUnlocked: best.count } : null;
+  return best ? { label: best.label, factPath: best.factPath, formsUnlocked: best.count } : null;
+}
+
+// ── Registry-driven required-fields ranker (SPEC-M5 CONVERSATIONAL-INTAKE-1) ─
+//
+// Replaces the old hardcoded 6-field computeNextRequiredFields that used to
+// live inline in the concierge route. Two phases:
+//
+//   1. Bootstrap — the 6 basic facts (name/email/business identity/loan
+//      amount/use of proceeds/franchise y-or-n) needed before form
+//      applicability can even be computed. These aren't BORROWER_FIELD_REGISTRY
+//      entries (borrower.first_name/email have no SBA-form column; is_franchise
+//      is a routing flag, not a form field) — unchanged from the pre-M5 route.
+//   2. Registry — once bootstrap is fully satisfied, the full registry (see
+//      program doc's approved scope: expand past the original 6-field funnel)
+//      comes into play, filtered to whatever forms computeApplicableForms
+//      says are actually in play for this deal so a brand-new borrower never
+//      sees "170 things left."
+//
+// A field counts as answered if EITHER this conversation's own facts bag has
+// it OR `canonicallyAnswered` (from answeredBorrowerFields.ts) does — the
+// latter covers a field a prior session, a document upload, or a Plaid sync
+// already established in canonical state that this conversation's local
+// facts bag doesn't know about. Skipping that check is exactly the
+// repeat-ask failure mode this spec exists to close.
+const BOOTSTRAP_CHECKS: Array<{ key: string; present: (facts: Record<string, any>) => boolean }> = [
+  { key: "borrower.first_name", present: (f) => !!f?.borrower?.first_name },
+  { key: "borrower.email", present: (f) => !!f?.borrower?.email },
+  {
+    key: "business.legal_name_or_industry",
+    present: (f) => !!f?.business?.legal_name || !!f?.business?.industry_description,
+  },
+  { key: "loan.amount_requested", present: (f) => !!f?.loan?.amount_requested },
+  { key: "loan.use_of_proceeds", present: (f) => !!f?.loan?.use_of_proceeds },
+  { key: "business.is_franchise", present: (f) => typeof f?.business?.is_franchise === "boolean" },
+];
+
+function isPresentValue(v: unknown): boolean {
+  return v != null && v !== "";
+}
+
+/**
+ * Registry-required fields still missing, applicability-filtered. Only
+ * reached once every BOOTSTRAP_CHECKS entry is satisfied — see module doc
+ * comment above for why the two phases aren't blended into one flat list.
+ */
+function computeMissingRegistryFields(
+  facts: Record<string, any>,
+  canonicallyAnswered: ReadonlySet<string>,
+): string[] {
+  const owners = Array.isArray(facts?.owners) ? (facts.owners as Record<string, unknown>[]) : [];
+  const entities = Array.isArray(facts?.entities) ? (facts.entities as Record<string, unknown>[]) : [];
+  const applicable = computeApplicableForms({
+    program: "7a",
+    hasIndividualOwner: owners.length > 0,
+    hasEquityOwningEntity: entities.length > 0,
+    sellerNoteEquityPortion: null,
+    constructionAmount: null,
+  });
+
+  const missing: string[] = [];
+
+  function check(entry: BorrowerFieldEntry, bag: Record<string, unknown>) {
+    const relevant = entry.requiredForForms.some((f) => applicable.includes(f));
+    if (!relevant) return;
+    const answered = isPresentValue(bag[factKey(entry)]) || canonicallyAnswered.has(entry.factPath);
+    if (!answered) missing.push(entry.factPath);
+  }
+
+  for (const entry of fieldsForScope("business")) check(entry, facts?.business ?? {});
+  for (const entry of fieldsForScope("loan")) check(entry, facts?.loan ?? {});
+  if (owners.length > 0) {
+    const firstOwner = owners[0];
+    for (const entry of fieldsForScope("owner")) check(entry, firstOwner);
+    for (const entry of fieldsForScope("pfs")) check(entry, (firstOwner["pfs"] as Record<string, unknown>) ?? {});
+  }
+  if (entities.length > 0) {
+    for (const entry of fieldsForScope("entity")) check(entry, entities[0]);
+  }
+
+  return missing;
+}
+
+/**
+ * Registry-driven replacement for the concierge route's old hardcoded
+ * 6-field computeNextRequiredFields. `canonicallyAnswered` defaults to an
+ * empty set for callers with no DB access (e.g. the pure contract test) —
+ * production call sites pass the result of
+ * answeredBorrowerFields.ts:loadAnsweredBorrowerFieldKeys.
+ */
+export function computeNextRequiredFields(
+  facts: Record<string, any>,
+  canonicallyAnswered: ReadonlySet<string> = new Set(),
+): string[] {
+  const bootstrapMissing = BOOTSTRAP_CHECKS.filter((c) => !c.present(facts)).map((c) => c.key);
+  if (bootstrapMissing.length > 0) return bootstrapMissing;
+  return computeMissingRegistryFields(facts, canonicallyAnswered);
 }
 
 export function deepMerge(

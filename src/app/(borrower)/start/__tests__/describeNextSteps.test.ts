@@ -20,3 +20,13 @@ test("plain-language joins multiple fields with an Oxford-free 'and'", () => {
 test("falls back to the raw field key for anything unmapped", () => {
   assert.equal(describeNextSteps(["some.unmapped_field"]), "One thing left: some.unmapped_field.");
 });
+
+test("SPEC-M5: uses the registry's own label for a factPath past the bootstrap phase", () => {
+  // business.ein is a real BORROWER_FIELD_REGISTRY entry (label "Employer
+  // Identification Number (EIN)") — not one of the 6 hardcoded bootstrap
+  // keys, so this only passes if the registry-driven fallback is wired up.
+  assert.equal(
+    describeNextSteps(["business.ein"]),
+    "One thing left: Employer Identification Number (EIN).",
+  );
+});

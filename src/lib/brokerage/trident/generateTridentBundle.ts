@@ -19,6 +19,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
+import { hashPackageNarratives, getBusinessPlanAttestationStatus } from "@/lib/sba/businessPlanAttestation";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
 import { renderFeasibilityPDF } from "@/lib/feasibility/feasibilityRenderer";
 import { renderProjectionsXlsx } from "./projectionsXlsx";
@@ -41,6 +42,15 @@ export type GenerateResult =
         projectionsXlsx: string | null;
         feasibilityPdf: string | null;
       };
+      /**
+       * SPEC-M8 ARTIFACT-PIPELINE-1 — informational only, never blocks
+       * generation. Whether the borrower has attested to the EXACT
+       * narrative snapshot included in businessPlanPdf. false whenever the
+       * lookup itself fails (fail-closed on the metadata, never on the
+       * bundle) — a lender consuming this bundle should not conflate
+       * "unknown" with "attested."
+       */
+      businessPlanAttested: boolean;
     }
   | { ok: false; bundleId: string | null; error: string };
 
@@ -101,6 +111,32 @@ export async function generateTridentBundle(args: {
       artifact: "business_plan",
       ext: "pdf",
     });
+
+    // SPEC-M8 ARTIFACT-PIPELINE-1 — read-only attestation lookup. Never
+    // blocks bundle generation (see GenerateResult's businessPlanAttested
+    // doc comment) — this repo has multiple live, fully-automated callers
+    // of this function (marketplace-pick final-mode generation in
+    // particular) with zero borrower interaction, and hard-gating on
+    // attestation here would regress them.
+    let businessPlanAttested = false;
+    try {
+      const { data: narrativeCols } = await sb
+        .from("buddy_sba_packages")
+        .select(
+          "business_overview_narrative, executive_summary, industry_analysis, marketing_strategy, " +
+            "operations_plan, swot_strengths, swot_weaknesses, swot_opportunities, swot_threats, " +
+            "sensitivity_narrative, plan_thesis",
+        )
+        .eq("id", sbaResult.packageId)
+        .maybeSingle();
+      if (narrativeCols) {
+        const snapshotHash = hashPackageNarratives(narrativeCols as unknown as Record<string, unknown>);
+        const status = await getBusinessPlanAttestationStatus(dealId, snapshotHash, sb);
+        businessPlanAttested = status.attested && status.snapshotMatchesCurrent;
+      }
+    } catch (e) {
+      console.warn("[trident] business-plan attestation lookup failed (non-fatal):", e);
+    }
 
     // 2. Projections XLSX — final mode only.
     let projectionsXlsxPath: string | null = null;
@@ -233,6 +269,8 @@ export async function generateTridentBundle(args: {
         feasibility_pdf_path: feasibilityPdfPath,
         source_sba_package_id: sbaResult.packageId,
         source_feasibility_id: sourceFeasibilityId,
+        business_plan_attested: businessPlanAttested,
+        business_plan_attested_at: businessPlanAttested ? new Date().toISOString() : null,
       })
       .eq("id", bundleId);
 
@@ -246,6 +284,7 @@ export async function generateTridentBundle(args: {
         projectionsXlsx: projectionsXlsxPath,
         feasibilityPdf: feasibilityPdfPath,
       },
+      businessPlanAttested,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

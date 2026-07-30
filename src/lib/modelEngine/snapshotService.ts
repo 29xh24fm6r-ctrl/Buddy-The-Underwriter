@@ -18,6 +18,9 @@ import type { ModelSnapshot } from "./types";
  * @param snapshot - Snapshot data to persist
  * @param computedMetrics - Full metric values map
  * @param riskFlags - Risk flags from evaluation
+ * @param qualityFlags - SPEC-M4 FIX-CARDS-1: latest period's data-quality
+ *   diagnostics (FinancialPeriod.qualityFlags) — optional, defaults to `[]`
+ *   so this stays additive for any caller not yet passing it.
  * @returns The inserted snapshot ID, or null on failure
  */
 export async function saveModelSnapshot(
@@ -25,6 +28,7 @@ export async function saveModelSnapshot(
   snapshot: ModelSnapshot,
   computedMetrics: Record<string, number | null>,
   riskFlags: Array<{ key: string; value: number; threshold: number; severity: string }>,
+  qualityFlags: string[] = [],
 ): Promise<{ ok: boolean; id?: string; deduped?: boolean; error?: string }> {
   // Phase 12: Immutability guard — skip write if identical outputs_hash exists for deal
   if (snapshot.outputsHash) {
@@ -51,6 +55,7 @@ export async function saveModelSnapshot(
       financial_model_hash: snapshot.financialModelHash,
       computed_metrics: computedMetrics,
       risk_flags: riskFlags,
+      quality_flags: qualityFlags,
       calculated_at: snapshot.calculatedAt,
       triggered_by: snapshot.triggeredBy ?? null,
       // Phase 12: registry version binding
@@ -108,5 +113,46 @@ export async function loadLatestSnapshot(
     engineVersion: data.engine_version ?? null,
     computeTraceId: data.compute_trace_id ?? null,
     outputsHash: data.outputs_hash ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Load latest snapshot metrics (SPEC-M3 GLASS-BOX-1)
+// ---------------------------------------------------------------------------
+
+export type LatestSnapshotMetrics = {
+  computedMetrics: Record<string, number | null>;
+  riskFlags: Array<{ key: string; value: number; threshold: number; severity: string }>;
+  /** SPEC-M4 FIX-CARDS-1 — data-quality diagnostics, distinct from riskFlags. */
+  qualityFlags: string[];
+  calculatedAt: string;
+};
+
+/**
+ * Load just the computed_metrics/risk_flags/quality_flags columns of a
+ * deal's latest snapshot — the immutable numeric facts SPEC-M3's Glass Box
+ * narrates, plus the data-quality diagnostics SPEC-M4's fix cards detect
+ * from. Kept separate from loadLatestSnapshot() (whose existing callers
+ * depend on its current return shape) rather than widening that function.
+ */
+export async function loadLatestSnapshotMetrics(
+  supabase: any,
+  dealId: string,
+): Promise<LatestSnapshotMetrics | null> {
+  const { data, error } = await supabase
+    .from("deal_model_snapshots")
+    .select("computed_metrics, risk_flags, quality_flags, calculated_at")
+    .eq("deal_id", dealId)
+    .order("calculated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    computedMetrics: data.computed_metrics ?? {},
+    riskFlags: data.risk_flags ?? [],
+    qualityFlags: data.quality_flags ?? [],
+    calculatedAt: data.calculated_at,
   };
 }

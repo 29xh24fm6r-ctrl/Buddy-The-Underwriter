@@ -8,6 +8,7 @@ import { ExecutiveAttentionQueue } from "@/components/admin/ExecutiveAttentionQu
 import { SubmissionPipelineOverview } from "@/components/admin/SubmissionPipelineOverview";
 import { BrokerageActivityFeed } from "@/components/admin/BrokerageActivityFeed";
 import { OwnerDailyBrief } from "@/components/admin/OwnerDailyBrief";
+import { BeatConditionsPanel } from "@/components/admin/BeatConditionsPanel";
 
 export function BrokerageOwnerCommandCenter({
   viewModel,
@@ -34,6 +35,8 @@ export function BrokerageOwnerCommandCenter({
       </header>
 
       <BrokeragePipelineSummaryCards pipeline={viewModel.pipeline} />
+
+      <BeatConditionsPanel beatConditions={viewModel.beatConditions} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <OwnerDailyBrief bullets={viewModel.dailyBrief} />

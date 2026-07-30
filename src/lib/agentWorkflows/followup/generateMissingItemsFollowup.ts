@@ -14,6 +14,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBuddyCanonicalState } from "@/core/state/BuddyCanonicalStateAdapter";
 import { validateBorrowerDraft } from "@/lib/agentWorkflows/contracts/borrowerDraft.contract";
+import { emitDocRequestRound } from "@/lib/brokerage/beatMetrics";
 
 export type FollowupResult = {
   ok: boolean;
@@ -155,6 +156,19 @@ export async function generateMissingItemsFollowup(
         draftsSkipped++;
       } else {
         draftsCreated++;
+      }
+    }
+
+    // SPEC-M2 BEAT-METRICS-1: one call here = one "round" of borrower
+    // document requests. Proxy signal — fires at draft creation, not at
+    // borrower-facing send (see beatMetrics.ts's doc comment on
+    // emitDocRequestRound for the known over-count risk). Best-effort:
+    // a metrics-write failure must not block the actual followup drafts.
+    if (draftsCreated > 0) {
+      try {
+        await emitDocRequestRound(dealId, draftsCreated, sb);
+      } catch (metricsErr) {
+        console.error("[beatMetrics] failed to emit doc_request_round", metricsErr);
       }
     }
 

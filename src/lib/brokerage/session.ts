@@ -33,6 +33,7 @@ import {
 } from "./sessionToken";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { emitFirstInteraction, emitFormlessStart } from "./beatMetrics";
 
 export type BrokerageBorrowerSession = BorrowerSession;
 
@@ -85,6 +86,25 @@ export async function getOrCreateBorrowerSession(): Promise<BrokerageBorrowerSes
     maxAge: COOKIE_MAX_AGE_SECONDS,
     path: "/",
   });
+
+  // SPEC-M2 BEAT-METRICS-1 / SPEC-M5 CONVERSATIONAL-INTAKE-1: this branch
+  // runs exactly once per new deal (the `if (existing) return existing;`
+  // above short-circuits every subsequent request for the same borrower) —
+  // the correct single point to mark t0 for ttfa_minutes and record
+  // formless_start. Always true: getOrCreateBorrowerSession's only real
+  // caller that mints a brand-new deal is the conversational concierge
+  // entry point (see /api/brokerage/concierge/route.ts's own doc comment —
+  // "the only path in the codebase that inserts a brokerage_anonymous deal
+  // row"); there is no separate form-first deal-creation flow in this
+  // codebase today, so every new session is, in fact, formless. Best-effort
+  // — a metrics-write failure must not block session creation for the
+  // borrower.
+  try {
+    await emitFirstInteraction(dealId, sb);
+    await emitFormlessStart(dealId, true, sb);
+  } catch (err) {
+    console.error("[beatMetrics] failed to emit session-creation metrics", err);
+  }
 
   return {
     rawToken,

@@ -88,10 +88,34 @@ export async function buildBrokerageOwnerCommandCenterFromOperationalState(): Pr
   const deals: BrokerageDealRecord[] = dealRows.map(mapDealRowToRecord);
   const activity: BrokerageActivityEvent[] = eventRows.map(mapEventToActivity);
 
+  // SPEC-M2 BEAT-METRICS-1 — v_beat_summary is a single bank-wide row (no
+  // tenant filter: the underlying event/ledger tables aren't yet scoped
+  // per-bank, matching the rest of this adapter's brokerage-only usage).
+  // Best-effort: a metrics-read failure must not take down the whole
+  // command center.
+  let beatMetrics: BrokerageOwnerCommandCenterInput["beatMetrics"] = null;
+  try {
+    const { data: beatRow } = await sb.from("v_beat_summary").select("*").maybeSingle();
+    if (beatRow) {
+      beatMetrics = {
+        avgTtfaMinutes: beatRow.avg_ttfa_minutes ?? null,
+        ttfaDealCount: beatRow.ttfa_deal_count ?? null,
+        formlessStartRatePct: beatRow.formless_start_rate_pct ?? null,
+        formlessStartDealCount: beatRow.formless_start_deal_count ?? null,
+        dealsWithRepeatAsks: beatRow.deals_with_repeat_asks ?? null,
+        avgDocRequestRounds: beatRow.avg_doc_request_rounds ?? null,
+        avgLenderFollowupCount: beatRow.avg_lender_followup_count ?? null,
+      };
+    }
+  } catch (err) {
+    console.error("[brokerage-owner-command-center] v_beat_summary read failed:", err);
+  }
+
   const input: BrokerageOwnerCommandCenterInput = {
     deals,
     activity,
     evaluatedAt,
+    beatMetrics,
     // team, commandCenter, submittedDeals, fundedDeals left undefined —
     // populated when those subsystems provide real data
   };

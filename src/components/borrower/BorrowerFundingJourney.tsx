@@ -17,6 +17,10 @@ import { BorrowerActivityFeed } from "./readiness/BorrowerActivityFeed";
 import { BorrowerDocumentCompletionChart } from "./readiness/BorrowerDocumentCompletionChart";
 import { BorrowerDealHealthDashboard } from "./deal-health/BorrowerDealHealthDashboard";
 import { BorrowerGuidancePanel } from "./guidance/BorrowerGuidancePanel";
+import { GlassBoxPanel } from "./glass-box/GlassBoxPanel";
+import { FixCardsPanel } from "./fix-cards/FixCardsPanel";
+import { SbaFormReviewCard } from "./sba-forms/SbaFormReviewCard";
+import { BusinessPlanAttestationCard } from "./BusinessPlanAttestationCard";
 
 function JourneyHeader({
   dealName,
@@ -131,12 +135,18 @@ export function BorrowerFundingJourney({
   dealHealthViewModel,
   guidanceViewModel,
   dealName,
+  portalToken,
+  refreshKey,
 }: {
   viewModel: BorrowerJourneyViewModel;
   readinessViewModel?: BorrowerReadinessViewModel;
   dealHealthViewModel?: BorrowerDealHealthViewModel;
   guidanceViewModel?: BorrowerGuidanceViewModel;
   dealName?: string | null;
+  /** SPEC-M3 GLASS-BOX-1 — when supplied, renders the readiness-read panel. */
+  portalToken?: string;
+  /** SPEC-M4 FIX-CARDS-1 — bump to force GlassBoxPanel/FixCardsPanel to refetch. */
+  refreshKey?: number;
 }) {
   return (
     <div className="space-y-5">
@@ -179,6 +189,18 @@ export function BorrowerFundingJourney({
       {dealHealthViewModel && (
         <BorrowerDealHealthDashboard viewModel={dealHealthViewModel} />
       )}
+
+      {/* Glass Box readiness read (SPEC-M3) */}
+      {portalToken && <GlassBoxPanel token={portalToken} refreshKey={refreshKey} />}
+
+      {/* Fix Cards (SPEC-M4) */}
+      {portalToken && <FixCardsPanel token={portalToken} refreshKey={refreshKey} />}
+
+      {/* SBA form review + covenant counter (SPEC-M7) */}
+      {portalToken && <SbaFormReviewCard token={portalToken} refreshKey={refreshKey} />}
+
+      {/* Business plan review + attestation (SPEC-M8) */}
+      {portalToken && <BusinessPlanAttestationCard token={portalToken} refreshKey={refreshKey} />}
 
       <BorrowerJourneyMilestones milestones={viewModel.milestones} />
 

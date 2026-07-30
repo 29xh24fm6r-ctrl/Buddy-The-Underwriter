@@ -79,17 +79,36 @@ export async function buildForm1919Input(
   // Loan-purpose amount breakdown (Section I: equipment/working capital/
   // business acquisition/inventory/debt refinance/construction) needs a
   // confirmed category taxonomy on use_of_proceeds line items to split
-  // correctly — not confirmed in this pass, so the whole use-of-proceeds
-  // description routes through the form's generic "Other" purpose slot
-  // rather than guessing which specific category each line item belongs
-  // to. Revisit once use_of_proceeds's real category vocabulary is
-  // confirmed.
+  // correctly. SPEC-M7 ZERO-REPEAT-PREFILL-1 resolves this: when a
+  // borrower/banker has explicitly CONFIRMED a structurer-generated
+  // classification (deal_structured_field_confirmations, form_code="1919",
+  // field_key="use_of_proceeds_categories"), the real per-category amount
+  // fields below are populated instead. Unconfirmed or missing — the
+  // exact pre-M7 fallback: everything routes through the form's generic
+  // "Other" purpose slot, byte-identical to before this spec.
   const useOfProceedsSummary = Array.isArray(useOfProceeds)
     ? useOfProceeds
         .map((l: any) => l?.description ?? l?.category)
         .filter(Boolean)
         .join("; ") || null
     : null;
+
+  const { data: confirmedUseOfProceeds } = await sb
+    .from("deal_structured_field_confirmations")
+    .select("value")
+    .eq("deal_id", dealId)
+    .eq("form_code", "1919")
+    .eq("field_key", "use_of_proceeds_categories")
+    .eq("confirmed", true)
+    .maybeSingle();
+
+  const categorizedUseOfProceeds = (
+    (confirmedUseOfProceeds as { value?: { categorized?: unknown[] } } | null)?.value?.categorized ?? []
+  ) as Array<{ category: string; amount: number; description: string | null }>;
+
+  const categoryAmount = (category: string): number | null =>
+    categorizedUseOfProceeds.find((c) => c.category === category)?.amount ?? null;
+  const otherEntry = categorizedUseOfProceeds.find((c) => c.category === "other");
 
   const b = borrower as Record<string, any> | null;
 
@@ -123,6 +142,18 @@ export async function buildForm1919Input(
     jobs_retained: (loanRequest as { jobs_retained_count?: number } | null)?.jobs_retained_count ?? null,
     jobs_created: (loanRequest as { jobs_created_count?: number } | null)?.jobs_created_count ?? null,
     use_of_proceeds_summary: useOfProceedsSummary,
+    // SPEC-M7 — populated ONLY when a confirmed classification exists;
+    // otherwise every one of these stays null and render.ts's existing
+    // fallback (everything into the Other bucket) is unaffected.
+    debt_refinance_amount: categoryAmount("debt_refinance"),
+    purchase_or_construction_amount: categoryAmount("purchase_or_construction"),
+    equipment_amount: categoryAmount("equipment"),
+    working_capital_amount: categoryAmount("working_capital"),
+    business_acquisition_amount: categoryAmount("business_acquisition"),
+    inventory_amount: categoryAmount("inventory"),
+    other_purpose_1_amount: otherEntry?.amount ?? null,
+    other_purpose_1_description: otherEntry?.description ?? null,
+    has_confirmed_use_of_proceeds_categories: categorizedUseOfProceeds.length > 0,
     is_franchise_deal: Boolean(franchiseBrandId),
     franchise_identifier_code: (franchiseBrand as { sba_directory_id?: string } | null)?.sba_directory_id ?? null,
     franchise_brand_name: (franchiseBrand as { brand_name?: string } | null)?.brand_name ?? null,

@@ -16,7 +16,9 @@ import { CapturedFactsPanel } from "@/components/brokerage/CapturedFactsPanel";
 import { ExistingDebtCard } from "@/components/brokerage/ExistingDebtCard";
 import { IdentityVerificationCard } from "@/components/brokerage/IdentityVerificationCard";
 import { SigningPanel } from "@/components/brokerage/SigningPanel";
+import { PlaidConnectCard } from "@/components/borrower/PlaidConnectCard";
 import { consumeConciergeStream } from "@/lib/brokerage/consumeConciergeStream";
+import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
 
 type Msg = { role: "user" | "assistant"; content: string; streaming?: boolean };
 type Mode = "chat" | "voice";
@@ -29,10 +31,11 @@ const MODE_KEY = "buddy.start.mode";
 // don't happen from a borrower action on this page.
 const JOURNEY_POLL_MS = 20_000;
 
-// Plain-language labels for the field keys computeNextRequiredFields()
-// returns (src/app/api/brokerage/concierge/route.ts) — that list was already
-// computed and sent on every turn, just never rendered anywhere.
-const NEXT_STEP_LABELS: Record<string, string> = {
+// Plain-language labels for the bootstrap field keys computeNextRequiredFields()
+// returns before it expands into the full registry (see
+// borrowerConversation.ts) — those 6 aren't BORROWER_FIELD_REGISTRY entries
+// (no SBA-form column), so they need their own copy here.
+const BOOTSTRAP_STEP_LABELS: Record<string, string> = {
   "borrower.first_name": "your name",
   "borrower.email": "your email",
   "business.legal_name_or_industry": "your business",
@@ -41,9 +44,21 @@ const NEXT_STEP_LABELS: Record<string, string> = {
   "business.is_franchise": "whether you're financing a franchise",
 };
 
+// SPEC-M5 CONVERSATIONAL-INTAKE-1 — once nextRequiredFields expands past the
+// bootstrap 6 into the full registry, its entries are keyed by factPath
+// (e.g. "business.ein"); look up the human label straight from the
+// registry instead of hardcoding a second copy of ~170 labels here.
+const REGISTRY_LABEL_BY_FACT_PATH: Record<string, string> = Object.fromEntries(
+  BORROWER_FIELD_REGISTRY.map((entry) => [entry.factPath, entry.label]),
+);
+
+function labelForNextStep(field: string): string {
+  return BOOTSTRAP_STEP_LABELS[field] ?? REGISTRY_LABEL_BY_FACT_PATH[field] ?? field;
+}
+
 export function describeNextSteps(fields: string[]): string | null {
   if (fields.length === 0) return null;
-  const labels = fields.map((f) => NEXT_STEP_LABELS[f] ?? f);
+  const labels = fields.map(labelForNextStep);
   if (labels.length === 1) return `One thing left: ${labels[0]}.`;
   const last = labels[labels.length - 1];
   const rest = labels.slice(0, -1).join(", ");
@@ -223,6 +238,7 @@ export function StartConciergeClient({
 
       <div className="mb-4 space-y-3">
         <CapturedFactsPanel facts={facts} onCorrected={setFacts} />
+        <PlaidConnectCard dealId={session.dealId} onConnected={journeyStatus.refreshSoon} />
         <ExistingDebtCard dealId={session.dealId} />
       </div>
 

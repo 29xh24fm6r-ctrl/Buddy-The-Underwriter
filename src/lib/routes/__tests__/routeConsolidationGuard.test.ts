@@ -35,7 +35,16 @@ const ROOT = resolve(__dirname, "../../../..");
 // unrelated main-branch commit before this merged, so the route was
 // dropped rather than landing dead. Actual measured total: 793 route.ts *
 // 2 + 192 page.tsx * 2 = 1970. Still 78 slots under the 2048 hard cap.
-const MERGED_WARNING_THRESHOLD = 1980;
+//
+// Bumped 1980 -> 1990 on 2026-07-29: SPEC-M8 ARTIFACT-PIPELINE-1 added one
+// new route, /api/portal/[token]/business-plan/attestation (borrower
+// review + attestation of the AI-generated SBA business plan — a genuinely
+// new resource, not foldable into the existing sba-forms route's
+// different auth/data shape). The other 4 route.ts files behind this
+// bump's headroom landed via unrelated parallel main-branch merges between
+// 07-24 and 07-29. Actual measured total: 798 route.ts * 2 + 192 page.tsx *
+// 2 = 1980. Still 58 slots under the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 1990;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
