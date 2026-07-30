@@ -12,33 +12,14 @@
  */
 
 import "server-only";
-import { GoogleGenAI } from "@google/genai";
-import {
-  ensureGcpAdcBootstrap,
-  getVertexAuthOptions,
-} from "@/lib/gcpAdcBootstrap";
 import type { NormalizedDocument, Tier3Result, EvidenceItem } from "./types";
 import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
-import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
+import { runRole } from "@/lib/ai/gateway";
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-
-function getGoogleProjectId(): string {
-  const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT ||
-    process.env.GOOGLE_PROJECT_ID ||
-    process.env.GCS_PROJECT_ID ||
-    process.env.GCP_PROJECT_ID;
-  if (!projectId) {
-    throw new Error(
-      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT (recommended) or GOOGLE_PROJECT_ID.",
-    );
-  }
-  return projectId;
-}
 
 function getClassifierModel(): string {
   return (
@@ -239,47 +220,20 @@ Classify this document and extract key information. Respond with JSON only.`;
   const fullPrompt = SYSTEM_PROMPT + confusionExamples;
 
   try {
-    await ensureGcpAdcBootstrap();
-    const googleAuthOptions = await getVertexAuthOptions();
-
-    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
-    const ai = new GoogleGenAI({
-      vertexai: true,
-      project: getGoogleProjectId(),
-      location: getVertexLocation(),
-      ...(googleAuthOptions
-        ? { googleAuthOptions: googleAuthOptions as any }
-        : {}),
+    // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+    // authMode: "vertex" — this caller specifically needs Vertex/WIF auth).
+    // No responseSchema is set, matching the original's config — the manual
+    // regex JSON extraction below is unchanged. timeoutMs replaces the
+    // manual Promise.race (the gateway's own AbortController-based timeout).
+    const result = await runRole("generator", {
+      purpose: "tier3_llm_classify",
+      prompt: fullPrompt + "\n\n" + userMessage,
+      modelOverride: modelName,
+      authMode: "vertex",
+      timeoutMs: TIER3_LLM_TIMEOUT_MS,
     });
 
-    const generatePromise = ai.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: fullPrompt + "\n\n" + userMessage }],
-        },
-      ],
-    });
-
-    const resp = await Promise.race([
-      generatePromise,
-      new Promise<never>((_resolve, reject) =>
-        setTimeout(
-          () => reject(new Error(`Tier 3 LLM timeout after ${TIER3_LLM_TIMEOUT_MS / 1000}s (model: ${modelName})`)),
-          TIER3_LLM_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-
-    // SPEC-VERTEX-SDK-MIGRATION-1: response shape — no `.response` wrapper
-    const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
-    const textRaw =
-      (resp as any)?.text ??
-      parts
-        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-        .join("") ??
-      "";
+    const textRaw = result.text;
 
     if (!textRaw) {
       throw new Error("No text response from Gemini");

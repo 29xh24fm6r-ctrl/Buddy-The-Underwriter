@@ -53,6 +53,16 @@ export type RunRoleRequest = {
    */
   useSearchGrounding?: boolean;
   /**
+   * SPEC-M1.1 — per-call override of the chain step's authMode (e.g. a
+   * caller that specifically needs Vertex/WIF auth rather than whatever
+   * the role's chain step is configured with). Unlike modelOverride, this
+   * is safe to apply regardless of which chain step ends up running: only
+   * providers/google.ts's callGoogle/streamGoogle ever read authMode —
+   * openai/anthropic ignore it entirely, so it's a harmless no-op on a
+   * fallback step to a different provider.
+   */
+  authMode?: "api-key" | "vertex";
+  /**
    * SPEC-M1.1 — overrides the model for the chain's PRIMARY step only
    * (e.g. a caller-driven "deep reasoning" toggle between two models on
    * the same provider). Absent by default — the chain step's configured
@@ -223,7 +233,7 @@ export async function runRole(
         maxOutputTokens: request.maxOutputTokens,
         timeoutMs: request.timeoutMs ?? config.timeoutMs,
         responseSchema: request.responseSchema,
-        authMode: step.authMode,
+        authMode: request.authMode ?? step.authMode,
         inlineData: request.inlineData,
         useSearchGrounding: request.useSearchGrounding,
         temperature: request.temperature,
@@ -331,6 +341,7 @@ export async function* runRoleStream(
       prompt: request.prompt,
       systemInstruction: request.systemInstruction,
       maxOutputTokens: request.maxOutputTokens,
+      authMode: request.authMode ?? step.authMode,
       timeoutMs: request.timeoutMs ?? config.timeoutMs,
       temperature: request.temperature,
       thinkingLevel: request.thinkingLevel,

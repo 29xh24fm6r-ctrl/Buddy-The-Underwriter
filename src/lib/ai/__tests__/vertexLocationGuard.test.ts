@@ -15,9 +15,16 @@ import { resolve } from "node:path";
 const ROOT = process.cwd();
 const HELPER_FILE = resolve(ROOT, "src/lib/ai/vertexLocation.ts");
 
+// SPEC-M1.1: as each of these callers is migrated onto the AI gateway
+// (runRole with authMode: "vertex"), it stops constructing its own Vertex
+// endpoint/location and is removed from this list — src/lib/ai/providers/
+// google.ts (the gateway's Google provider adapter) becomes the sole
+// remaining caller of getVertexLocation() for that migrated path. Remove-
+// only, same convention as scripts/guards/ai-gateway-only-allowlist.txt.
+// gcpAdcBootstrap.ts stays permanently — it's the gateway's OWN Vertex/WIF
+// auth plumbing (getVertexAccessToken/getProjectId), not migration debt.
 const CALLER_FILES = [
   "src/lib/financialSpreads/extractors/gemini/geminiClient.ts",
-  "src/lib/extraction/geminiFlashStructuredAssist.ts",
   "src/lib/ocr/runGeminiOcrJob.ts",
   "src/lib/gcpAdcBootstrap.ts",
 ];

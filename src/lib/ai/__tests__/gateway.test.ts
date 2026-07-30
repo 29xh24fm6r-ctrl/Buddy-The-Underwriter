@@ -185,6 +185,18 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     delete process.env.AI_GATEWAY_CHAIN_GENERATOR;
   });
 
+  it("SPEC-M1.1: a request-level authMode override wins over the chain step's default", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("google", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    await runRole("generator", { prompt: "hi", purpose: "test", authMode: "vertex" });
+
+    assert.equal(captured.authMode, "vertex");
+  });
+
   it("surfaces groundingMetadata from the provider result on the RunRoleResult", async () => {
     __setProviderImplForTests("google", async () => ({
       text: "grounded",
