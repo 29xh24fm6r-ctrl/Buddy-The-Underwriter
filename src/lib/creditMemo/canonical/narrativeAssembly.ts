@@ -42,7 +42,11 @@ const NARRATIVES_SCHEMA = `{
   "guarantor_strength": "1 paragraph: guarantor net worth vs loan amount, liquid assets, monthly income vs proposed debt service, secondary repayment adequacy."
 }`;
 
-const FALLBACK_NARRATIVES: MemoNarratives = {
+// SPEC-M8 ARTIFACT-PIPELINE-1: exported so the credit-memo verifier pass
+// can build its `facts` payload from the exact same deterministic memo
+// fields the generator itself read, and skip verification when generation
+// fell back to this literal string (nothing real to fact-check).
+export const FALLBACK_NARRATIVES: MemoNarratives = {
   executive_summary: "Narrative generation unavailable.",
   income_analysis: "Narrative generation unavailable.",
   repayment_analysis: "Narrative generation unavailable.",
@@ -84,7 +88,7 @@ type TranscriptExcerpt = {
   key_facts: any[];
 };
 
-function buildNarrativeInput(
+export function buildNarrativeInput(
   memo: CanonicalCreditMemoV1,
   transcripts?: TranscriptExcerpt[],
 ): Record<string, any> {

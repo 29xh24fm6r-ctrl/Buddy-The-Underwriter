@@ -9,7 +9,29 @@ import "server-only";
 import { NextRequest } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
+import { enrichFeasibilityStudy } from "@/lib/feasibility/enrichFeasibilityStudy";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { FeasibilityResult } from "@/lib/feasibility/types";
+
+/**
+ * SPEC-M8 ARTIFACT-PIPELINE-1 — citation attribution + verifier pass,
+ * best-effort. The study itself already generated and persisted
+ * successfully by the time this runs — a failure here must never turn a
+ * successful generation into an error response.
+ */
+async function runEnrichment(
+  dealId: string,
+  bankId: string,
+  result: FeasibilityResult,
+  sb: ReturnType<typeof supabaseAdmin>,
+): Promise<void> {
+  if (!result.ok || !result.studyId || !result.composite) return;
+  try {
+    await enrichFeasibilityStudy({ dealId, bankId, studyId: result.studyId, composite: result.composite, sb });
+  } catch (err) {
+    console.error("[feasibility/generate] enrichment failed (non-fatal):", err);
+  }
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -50,6 +72,7 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
   if (!wantsStream) {
     try {
       const result = await generateFeasibilityStudy({ dealId, bankId });
+      await runEnrichment(dealId, bankId, result, sb);
       return new Response(JSON.stringify(result), {
         status: result.ok ? 200 : 500,
         headers: { "Content-Type": "application/json" },
@@ -91,6 +114,7 @@ export async function POST(req: NextRequest, ctx: { params: Params }) {
           bankId,
           onProgress: (step, pct) => send(step, pct),
         });
+        await runEnrichment(dealId, bankId, result, sb);
 
         if (result.ok) {
           send("Complete!", 100, {

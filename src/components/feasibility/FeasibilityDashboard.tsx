@@ -66,6 +66,11 @@ interface StudyRow {
   narratives?: {
     executiveSummary?: string;
   };
+  /** SPEC-M8 ARTIFACT-PIPELINE-1 — per-field grounded-search source URLs. */
+  narrative_citations?: Record<string, string[]> | null;
+  /** SPEC-M8 ARTIFACT-PIPELINE-1 — verifier pass over the narrative bundle. */
+  verification_verdict?: "pass" | "flagged" | null;
+  verification_flagged_claims?: Array<{ claim: string; reason: string; severity: string }> | null;
 }
 
 interface Props {
@@ -305,6 +310,26 @@ export default function FeasibilityDashboard({ dealId }: Props) {
               {study.narratives.executiveSummary}
             </p>
           )}
+          {/* SPEC-M8 ARTIFACT-PIPELINE-1 — citation + verifier surfacing */}
+          {study.narrative_citations && (
+            <p className="mt-2 text-xs text-white/50">
+              Sources cited:{" "}
+              {Object.values(study.narrative_citations).reduce((n, urls) => n + urls.length, 0)}
+            </p>
+          )}
+          {study.verification_verdict === "flagged" &&
+            (study.verification_flagged_claims?.length ?? 0) > 0 && (
+              <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                <p className="text-xs font-semibold text-amber-300">
+                  Buddy flagged {study.verification_flagged_claims!.length} claim(s) for review
+                </p>
+                <ul className="mt-1 space-y-0.5 text-xs text-amber-200/80">
+                  {study.verification_flagged_claims!.slice(0, 3).map((f, i) => (
+                    <li key={i}>"{f.claim}" — {f.reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
         </div>
       </div>
 

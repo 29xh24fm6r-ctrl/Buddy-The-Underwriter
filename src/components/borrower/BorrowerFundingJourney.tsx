@@ -20,6 +20,7 @@ import { BorrowerGuidancePanel } from "./guidance/BorrowerGuidancePanel";
 import { GlassBoxPanel } from "./glass-box/GlassBoxPanel";
 import { FixCardsPanel } from "./fix-cards/FixCardsPanel";
 import { SbaFormReviewCard } from "./sba-forms/SbaFormReviewCard";
+import { BusinessPlanAttestationCard } from "./BusinessPlanAttestationCard";
 
 function JourneyHeader({
   dealName,
@@ -197,6 +198,9 @@ export function BorrowerFundingJourney({
 
       {/* SBA form review + covenant counter (SPEC-M7) */}
       {portalToken && <SbaFormReviewCard token={portalToken} refreshKey={refreshKey} />}
+
+      {/* Business plan review + attestation (SPEC-M8) */}
+      {portalToken && <BusinessPlanAttestationCard token={portalToken} refreshKey={refreshKey} />}
 
       <BorrowerJourneyMilestones milestones={viewModel.milestones} />
 
