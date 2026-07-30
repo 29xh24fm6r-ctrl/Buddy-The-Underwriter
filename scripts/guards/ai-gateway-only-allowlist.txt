@@ -29,7 +29,10 @@
 # section below for the opposite reason — they DO contain real code that
 # trips the guard, but that code has nothing to do with the 30 files this
 # worklist is migrating; see that section for why.
-src/lib/retrieval/retrievalCore.ts
+#
+# SPEC-M1.1 complete (2026-07-30): all 25 real migration targets are now
+# routed through the gateway — this worklist section is intentionally
+# empty. Only the PERMANENT EXEMPTION entries below remain.
 
 # PERMANENT EXEMPTION (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §5, extended by
 # SPEC-M1.1) — NOT migration debt, do not attempt to "finish" migrating
