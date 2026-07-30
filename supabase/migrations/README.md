@@ -74,3 +74,29 @@ Only do this after confirming the DDL is already live in production.
 `seed_policy_defaults.sql`, `seed_policy_mitigants.sql`, `seed_policy_rules.sql` have no
 timestamp prefix and are not tracked by `schema_migrations`. This is intentional.
 They are reference seeds, not migration files.
+
+---
+
+## Full-Timestamp Uniqueness (SPEC-DRIFT-HARDENING-1 D2, 2026-07-30)
+
+The 2026-07-30 reconciliation incident found **two** pairs of migration files sharing
+the exact same full 14-digit (`YYYYMMDDHHMMSS`) Workflow B timestamp:
+
+- `20260729000000_ai_gateway_calls.sql` / `20260729000000_telemetry_retention.sql`
+- `20260717050000_crm_intelligence_revenue_command_center.sql` / `20260717050000_signing_requests_and_bank_fk_fix.sql`
+
+Under Workflow B, that timestamp string IS the version key `schema_migrations` records —
+a collision means only one file's DDL can ever be the applied version of record for that
+version; the other silently has no recorded row of its own. `telemetry_retention` and
+`signing_requests_and_bank_fk_fix` were each renamed (filename only — DDL content
+untouched, per this repo's convention that already-merged migration files are never
+edited in place) to `20260729000010_telemetry_retention.sql` and
+`20260717050010_signing_requests_and_bank_fk_fix.sql` respectively to resolve the
+collisions.
+
+**New rule:** every migration's full 14-digit timestamp prefix must be unique across the
+repo. `pnpm guard:migration-versions` (`scripts/guards/guard-migration-versions.mjs`,
+wired into `guard:all`) enforces this in CI going forward — it is scoped to 14-digit
+prefixes only and does not flag the pre-2026-03-25 Workflow A files, which legitimately
+share bare 8-digit date prefixes across many files (see "Before 2026-03-25 — Clean"
+above).

@@ -81,4 +81,35 @@ describe("guard-dropped-tables", () => {
     const r = run(["tenants"]);
     assert.equal(r.status, 0, r.stdout + r.stderr);
   });
+
+  // SPEC-DRIFT-HARDENING-1 D1 — the 2026-07-30 incident: this exact cast
+  // evaded the original regex (which required the closing paren immediately
+  // after the closing quote) and let a resurrected reference to a dropped
+  // table slip through CI.
+  it("fails on the aegis_recording_sessions cast-evasion string", () => {
+    write("src/probe.ts", `await sb.from("aegis_recording_sessions" as any).select("*");`);
+    const r = run(["aegis_recording_sessions"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /aegis_recording_sessions/);
+  });
+
+  it("fails on a cast with extra whitespace before the closing paren", () => {
+    write("src/probe.ts", `await sb.from( "xp_logs"   as   const ).select("*");`);
+    const r = run(["xp_logs"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /xp_logs/);
+  });
+
+  it("fails on the template-literal form", () => {
+    write("src/probe.ts", "await sb.from(`xp_logs`).select(\"*\");");
+    const r = run(["xp_logs"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /xp_logs/);
+  });
+
+  it("still does not false-positive on a similarly-named table when casts are present", () => {
+    write("src/probe.ts", `await sb.from("tenants_v2" as any).select("*");`);
+    const r = run(["tenants"]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
 });

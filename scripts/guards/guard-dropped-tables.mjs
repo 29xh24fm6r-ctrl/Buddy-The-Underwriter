@@ -4,10 +4,11 @@
  *
  * Once a table is dropped (its DDL backed up under docs/audit/dropped-ddl/),
  * this guard fails CI if a `.from("<dropped-table>")` / `.from('<dropped-table>')`
- * string reappears anywhere in the app — a resurrected reference to a table
- * that no longer exists in production is exactly the kind of break the
- * schema-inventory review (docs/audit/schema-inventory-2026-07.md) was
- * supposed to rule out before drop.
+ * / `` .from(`<dropped-table>`) `` string reappears anywhere in the app — a
+ * resurrected reference to a table that no longer exists in production is
+ * exactly the kind of break the schema-inventory review
+ * (docs/audit/schema-inventory-2026-07.md) was supposed to rule out before
+ * drop.
  *
  * Dropped-table list is derived from docs/audit/dropped-ddl/*.sql — every
  * file there is a table that has actually been through the C2 drop-batch
@@ -15,6 +16,15 @@
  * and scripts/ — not just src/ — per the Phase C1 finding that this repo's
  * standalone services (franchise-sync-worker, pulse-mcp, etc.) reference
  * tables outside src/ entirely, via raw SQL as well as `.from()`.
+ *
+ * SPEC-DRIFT-HARDENING-1 D1: the original match required the closing paren
+ * immediately after the closing quote (`.from("table")`), so appending an
+ * inline TypeScript type cast after the quoted table name (e.g. "as any")
+ * silently evaded it — that's exactly how a reference to a dropped table
+ * (aegis_recording_sessions) escaped this guard on 2026-07-30. The pattern
+ * below tolerates any non-`)` content (casts, whitespace, `as const`)
+ * between the closing quote and the closing paren, and accepts backtick
+ * template-literal form as well as single/double quotes.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -57,11 +67,16 @@ if (droppedTables.length === 0) {
   process.exit(0);
 }
 
-// Matches `.from("table")` / `.from('table')` for any dropped table name.
-const patterns = droppedTables.map((t) => ({
-  name: t,
-  re: new RegExp(String.raw`\.from\((["'])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\1\)`),
-}));
+// Matches `.from("table")` / `.from('table')` / `` .from(`table`) `` for any
+// dropped table name, tolerant of casts or whitespace before the closing
+// paren (e.g. `.from("table" as any)`, `.from( "table" )`).
+const patterns = droppedTables.map((t) => {
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return {
+    name: t,
+    re: new RegExp(`\\.from\\(\\s*(["'\`])${escaped}\\1[^)]*\\)`),
+  };
+});
 
 const offenders = [];
 for (const dir of SCAN_DIRS) {

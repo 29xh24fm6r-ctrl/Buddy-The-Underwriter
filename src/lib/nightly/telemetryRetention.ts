@@ -2,8 +2,11 @@
  * SPEC-SYSTEM-DEBLOAT-1 Phase B — Telemetry retention (B2 fallback path).
  *
  * pg_cron is not installed on this project, so the three purge RPCs
- * authored in supabase/migrations/20260729000000_telemetry_retention.sql
- * are invoked here, from the nightly cron job, instead of via pg_cron.
+ * authored in supabase/migrations/20260729000010_telemetry_retention.sql
+ * (renamed from ...000000 in SPEC-DRIFT-HARDENING-1 D2 to resolve a
+ * duplicate-timestamp collision with 20260729000000_ai_gateway_calls.sql —
+ * filename only, DDL untouched) are invoked here, from the nightly cron
+ * job, instead of via pg_cron.
  *
  * RPC existence in prod is Matt-verified at migration-apply time, not
  * assumed by this code — a missing RPC is a loud failure (throws), not a

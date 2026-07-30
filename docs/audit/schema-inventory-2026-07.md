@@ -6,6 +6,17 @@
 
 ---
 
+## 📝 NOTE 2026-07-30 (SPEC-DRIFT-HARDENING-1 D2) — `signing_requests` source-migration filename renamed
+
+The `signing_requests` row below cites `20260717050000_signing_requests_and_bank_fk_fix.sql` as its source
+migration. That file was renamed (filename only — DDL content untouched) to
+`20260717050010_signing_requests_and_bank_fk_fix.sql` to resolve a duplicate full-timestamp collision with
+`20260717050000_crm_intelligence_revenue_command_center.sql`, caught by the new `guard-migration-versions.mjs`
+CI guard. This document's table below is left as originally generated (point-in-time audit snapshot); the
+current filename is `20260717050010_signing_requests_and_bank_fk_fix.sql`.
+
+---
+
 ## 🔴 CORRECTION 2026-07-29 (same day, after Batch 1 apply attempt) — FK-detection was broken for the entire audit
 
 **The `fk_inbound` / `fk_outbound` columns below were wrong for all 564 tables in the original version of this document, including every one of the 82 originally-classified `DROP` rows.** This was caught before any data loss — see incident detail below — but it means the original `DROP` list, and Matt's approval of it, are **void**. The corrected classification (32 `DROP` rows, down from 82) is what's authoritative from this point forward.
