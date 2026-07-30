@@ -98,7 +98,7 @@ test("loadDealGroundingSegments reshapes evidence rows into GroundingSegments", 
   assert.deepEqual(new Set(result.allUrls), new Set(["https://a.example", "https://b.example"]));
 });
 
-test("attributeFeasibilityCitations matches overlapping text and falls back to allUrls otherwise", () => {
+test("attributeFeasibilityCitations marks a real textual match precise, and a fallback non-precise", () => {
   const narratives = {
     executiveSummary: "executiveSummary not available.",
     marketDemandNarrative: "Median household income is $78,400 supports strong demand.",
@@ -113,19 +113,39 @@ test("attributeFeasibilityCitations matches overlapping text and falls back to a
   const segments = [{ text: "Median household income is $78,400", urls: ["https://a.example"], confidences: [0.9] }];
   const result = attributeFeasibilityCitations(narratives, segments, ["https://fallback.example"]);
 
-  assert.deepEqual(result.marketDemandNarrative, ["https://a.example"]);
-  // executiveSummary is the placeholder text but still non-empty, so falls back
-  assert.deepEqual(result.locationSuitabilityNarrative, ["https://fallback.example"]);
+  assert.deepEqual(result.marketDemandNarrative, { urls: ["https://a.example"], precise: true });
+  // executiveSummary/locationSuitabilityNarrative are placeholder text (non-empty) with no
+  // real segment overlap — must fall back to allUrls AND be marked non-precise, so a
+  // completeness gate doesn't mistake the fallback for a real citation.
+  assert.deepEqual(result.locationSuitabilityNarrative, { urls: ["https://fallback.example"], precise: false });
+  assert.deepEqual(result.executiveSummary, { urls: ["https://fallback.example"], precise: false });
 });
 
-test("flagUncitedFeasibilityFields opens a task only for fields with zero citations, idempotently", async () => {
+test("attributeFeasibilityCitations reports precise:false with empty urls when no research exists at all", () => {
+  const narratives = {
+    executiveSummary: "Some real text.",
+    marketDemandNarrative: null,
+    financialViabilityNarrative: "DSCR is 1.35x.",
+    operationalReadinessNarrative: null,
+    locationSuitabilityNarrative: null,
+    riskAssessment: null,
+    recommendation: null,
+    franchiseComparisonNarrative: null,
+  } as any;
+
+  const result = attributeFeasibilityCitations(narratives, [], []);
+  assert.deepEqual(result.executiveSummary, { urls: [], precise: false });
+});
+
+test("flagUncitedFeasibilityFields opens a task for any non-precise field, idempotently — including a non-empty fallback", async () => {
   const tables: Record<string, Row[]> = {};
   const db = makeDb(tables);
 
   const citations = {
-    executiveSummary: ["https://a.example"],
-    marketDemandNarrative: [],
-    locationSuitabilityNarrative: [],
+    executiveSummary: { urls: ["https://a.example"], precise: true },
+    // Non-empty urls but NOT a real match — must still be flagged (the misattribution fix).
+    marketDemandNarrative: { urls: ["https://fallback.example"], precise: false },
+    locationSuitabilityNarrative: { urls: [], precise: false },
   };
 
   const first = await flagUncitedFeasibilityFields({
@@ -136,6 +156,10 @@ test("flagUncitedFeasibilityFields opens a task only for fields with zero citati
     sb: db,
   });
   assert.equal(first.conditionsCreated, 2);
+  assert.ok(
+    tables.deal_conditions?.some((c) => c.source_key.includes("marketDemandNarrative")),
+    "the non-precise-but-non-empty field must still open a task",
+  );
 
   const second = await flagUncitedFeasibilityFields({
     dealId: "deal-1",

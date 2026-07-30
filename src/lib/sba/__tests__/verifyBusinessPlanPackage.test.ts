@@ -132,6 +132,43 @@ test("verifies whatever narrative sections are present and passes when nothing f
   assert.equal(result?.verdict, "pass");
 });
 
+test("returns null when the only present sections are their own per-section fallback strings", async () => {
+  const db = makeDb({});
+  const result = await verifyBusinessPlanPackage({
+    dealId: "deal-1",
+    bankId: "bank-1",
+    pkg: basePkg({
+      executive_summary: "Executive summary not available.",
+      swot_strengths: "Strengths not available.",
+    }),
+    sb: db,
+  });
+  assert.equal(result, null, "per-section 'not available' fallbacks must never be fact-checked as real content");
+});
+
+test("excludes a per-section fallback from the draft while still verifying a real sibling section", async () => {
+  setVerifierResponse([]);
+  let capturedPrompt = "";
+  const originalImpl = __setProviderImplForTests;
+  originalImpl("anthropic", async (req: any) => {
+    capturedPrompt = req.prompt;
+    return { text: JSON.stringify({ flaggedClaims: [] }), tokensIn: 40, tokensOut: 20 };
+  });
+
+  await verifyBusinessPlanPackage({
+    dealId: "deal-1",
+    bankId: "bank-1",
+    pkg: basePkg({
+      executive_summary: "DSCR is 1.35x, above the 1.25x policy floor.",
+      swot_weaknesses: "Weaknesses not available.",
+    }),
+    sb: makeDb({}),
+  });
+
+  assert.match(capturedPrompt, /DSCR is 1\.35x/);
+  assert.doesNotMatch(capturedPrompt, /Weaknesses not available\./);
+});
+
 test("opens a banker task when a critical claim is flagged", async () => {
   setVerifierResponse([
     { claim: "Break-even revenue is $50,000", reason: "Facts show $500,000.", severity: "critical" },

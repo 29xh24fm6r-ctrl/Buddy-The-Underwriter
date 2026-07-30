@@ -9,8 +9,10 @@
  * PortalClient.tsx after any checklist-affecting action, so completing a
  * card's resolving action visibly updates this panel (and GlassBoxPanel).
  */
+// ai-disclaimer-surface: fix_card — enforced by scripts/guards/guard-ai-disclaimer.mjs
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { getDisclaimer } from "@/lib/ai/disclaimers";
 
 export type FixCard = {
   issueType: string;
@@ -73,6 +75,7 @@ export function FixCardsPanelBody({ cards }: { cards: FixCard[] | null }) {
           );
         })}
       </div>
+      <p className="mt-3 text-[11px] text-slate-400">{getDisclaimer("fix_card")}</p>
     </section>
   );
 }

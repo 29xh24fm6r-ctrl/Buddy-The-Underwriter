@@ -33,6 +33,34 @@ CREATE TABLE IF NOT EXISTS public.deal_business_plan_attestations (
 CREATE INDEX IF NOT EXISTS deal_business_plan_attestations_deal_idx
   ON public.deal_business_plan_attestations (deal_id, attested_at DESC);
 
+ALTER TABLE public.deal_business_plan_attestations ENABLE ROW LEVEL SECURITY;
+
+-- Bank-staff access, same shape as deal_hostile_interrogations/
+-- deal_structured_field_confirmations. The borrower-portal route that reads/
+-- writes this table uses supabaseAdmin() (service-role, bypasses RLS) per
+-- this program's established portal-route convention, so this policy is
+-- defense-in-depth for any future authenticated/anon-role access path, not
+-- the primary access gate.
+CREATE POLICY deal_business_plan_attestations_bank_access
+  ON public.deal_business_plan_attestations
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.bank_memberships bm
+      WHERE bm.bank_id = deal_business_plan_attestations.bank_id
+        AND bm.user_id = auth.uid()
+        AND bm.role IN ('owner', 'admin', 'member')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.bank_memberships bm
+      WHERE bm.bank_id = deal_business_plan_attestations.bank_id
+        AND bm.user_id = auth.uid()
+        AND bm.role IN ('owner', 'admin', 'member')
+    )
+  );
+
 ALTER TABLE public.buddy_trident_bundles
   ADD COLUMN IF NOT EXISTS business_plan_attested boolean,
   ADD COLUMN IF NOT EXISTS business_plan_attested_at timestamptz;

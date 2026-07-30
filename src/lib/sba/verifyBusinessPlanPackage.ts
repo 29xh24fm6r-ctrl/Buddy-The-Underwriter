@@ -31,6 +31,32 @@ const NARRATIVE_SECTION_LABELS: Record<string, string> = {
   plan_thesis: "Plan Thesis",
 };
 
+/**
+ * Per-section "not available" fallback literals sbaPackageNarrative.ts
+ * returns on a per-section generation failure (each section is generated
+ * via an independent `Promise.allSettled` slot or its own try/catch, so
+ * partial failure across the ~10 sections is realistic — unlike the
+ * credit-memo generator, which is one all-or-nothing call). A section
+ * matching its fallback exactly must be excluded from the draft text the
+ * same way credit-memo's FALLBACK_NARRATIVES exact-match does — otherwise
+ * a placeholder like "Strengths not available." gets fact-checked as if it
+ * were real generated content, which is meaningless and can produce a
+ * spurious flag. plan_thesis has no fallback string (its failure mode is a
+ * `null` return, already excluded by the `typeof text === "string"` check).
+ */
+const SECTION_FALLBACKS: Record<string, string> = {
+  business_overview_narrative: "Business overview not available.",
+  executive_summary: "Executive summary not available.",
+  industry_analysis: "Industry analysis not available.",
+  marketing_strategy: "Marketing strategy not available.",
+  operations_plan: "Operations plan not available.",
+  swot_strengths: "Strengths not available.",
+  swot_weaknesses: "Weaknesses not available.",
+  swot_opportunities: "Opportunities not available.",
+  swot_threats: "Threats not available.",
+  sensitivity_narrative: "Sensitivity analysis not available.",
+};
+
 export type BusinessPlanPackageForVerify = {
   dscr_year1_base: number | null;
   dscr_year2_base: number | null;
@@ -46,9 +72,9 @@ function buildDraftText(pkg: BusinessPlanPackageForVerify): string {
   return Object.keys(NARRATIVE_SECTION_LABELS)
     .map((key) => {
       const text = pkg[key];
-      return typeof text === "string" && text.trim().length > 0
-        ? `${NARRATIVE_SECTION_LABELS[key]}:\n${text}`
-        : null;
+      if (typeof text !== "string" || text.trim().length === 0) return null;
+      if (text === SECTION_FALLBACKS[key]) return null;
+      return `${NARRATIVE_SECTION_LABELS[key]}:\n${text}`;
     })
     .filter((s): s is string => Boolean(s))
     .join("\n\n");

@@ -152,5 +152,43 @@ test("writes citations and verification verdict back onto the study row", async 
 
   const updated = tables.buddy_feasibility_studies[0];
   assert.equal(updated.verification_verdict, "pass");
-  assert.deepEqual(updated.narrative_citations.marketDemandNarrative, ["https://a.example"]);
+  assert.deepEqual(updated.narrative_citations.marketDemandNarrative, {
+    urls: ["https://a.example"],
+    precise: true,
+  });
+});
+
+test("still persists citations/verification and opens a banker task when no research mission exists at all", async () => {
+  __setProviderImplForTests("anthropic", async () => ({
+    text: JSON.stringify({ flaggedClaims: [] }),
+    tokensIn: 20,
+    tokensOut: 10,
+  }));
+
+  const narratives = {
+    executiveSummary: "Overall score is 72/100, Recommended.",
+    marketDemandNarrative: "Median household income is $78,400 supports demand.",
+    financialViabilityNarrative: "financialViabilityNarrative not available.",
+    operationalReadinessNarrative: "operationalReadinessNarrative not available.",
+    locationSuitabilityNarrative: "locationSuitabilityNarrative not available.",
+    riskAssessment: "riskAssessment not available.",
+    recommendation: "recommendation not available.",
+    franchiseComparisonNarrative: null,
+  };
+
+  const tables: Record<string, Row[]> = {
+    buddy_feasibility_studies: [{ id: "study-1", narratives }],
+    buddy_research_missions: [],
+  };
+  const db = makeDb(tables);
+
+  await enrichFeasibilityStudy({ dealId: "deal-1", bankId: "bank-1", studyId: "study-1", composite: baseComposite(), sb: db });
+
+  const updated = tables.buddy_feasibility_studies[0];
+  assert.equal(updated.verification_verdict, "pass");
+  assert.deepEqual(updated.narrative_citations.marketDemandNarrative, { urls: [], precise: false });
+  assert.deepEqual(updated.narrative_citations.executiveSummary, { urls: [], precise: false });
+  // No mission at all → zero citations for every research-backed field (all 3
+  // CITED_NARRATIVE_FIELDS have non-empty narrative text here) → each opens a task.
+  assert.equal(tables.deal_conditions?.length, 3);
 });

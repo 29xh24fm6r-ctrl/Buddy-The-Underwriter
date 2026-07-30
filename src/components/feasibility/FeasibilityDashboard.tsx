@@ -66,8 +66,13 @@ interface StudyRow {
   narratives?: {
     executiveSummary?: string;
   };
-  /** SPEC-M8 ARTIFACT-PIPELINE-1 — per-field grounded-search source URLs. */
-  narrative_citations?: Record<string, string[]> | null;
+  /**
+   * SPEC-M8 ARTIFACT-PIPELINE-1 — per-field grounded-search source URLs.
+   * `precise: true` means a source's text actually overlaps this field;
+   * `precise: false` means `urls` (if non-empty) is only the mission's
+   * general source list, not a claim any of them specifically support it.
+   */
+  narrative_citations?: Record<string, { urls: string[]; precise: boolean }> | null;
   /** SPEC-M8 ARTIFACT-PIPELINE-1 — verifier pass over the narrative bundle. */
   verification_verdict?: "pass" | "flagged" | null;
   verification_flagged_claims?: Array<{ claim: string; reason: string; severity: string }> | null;
@@ -313,8 +318,9 @@ export default function FeasibilityDashboard({ dealId }: Props) {
           {/* SPEC-M8 ARTIFACT-PIPELINE-1 — citation + verifier surfacing */}
           {study.narrative_citations && (
             <p className="mt-2 text-xs text-white/50">
-              Sources cited:{" "}
-              {Object.values(study.narrative_citations).reduce((n, urls) => n + urls.length, 0)}
+              {Object.values(study.narrative_citations).filter((c) => c.precise).length} section(s) precisely
+              sourced · {Object.values(study.narrative_citations).filter((c) => !c.precise && c.urls.length > 0).length}{" "}
+              backed only by the mission's general sources
             </p>
           )}
           {study.verification_verdict === "flagged" &&

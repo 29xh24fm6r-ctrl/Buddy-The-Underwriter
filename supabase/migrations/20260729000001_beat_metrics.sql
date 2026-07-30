@@ -31,7 +31,7 @@ ALTER TABLE public.brokerage_conversion_events
 -- Step 2: repeat_ask_count ledger — one row per (deal, fact) request.
 CREATE TABLE IF NOT EXISTS public.borrower_fact_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  deal_id uuid NOT NULL REFERENCES public.deals(id),
+  deal_id uuid NOT NULL REFERENCES public.deals(id) ON DELETE CASCADE,
   fact_key text NOT NULL,
   source text,
   requested_at timestamptz NOT NULL DEFAULT now()

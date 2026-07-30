@@ -29,6 +29,7 @@ import { calculateDifficultyScore, formatDifficultyScore } from "@/lib/sba/diffi
 import { draftAssumptionsFromContext } from "@/lib/sba/sbaAssumptionDrafter";
 import { loadSBAAssumptionsPrefill } from "@/lib/sba/sbaAssumptionsPrefill";
 import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
+import { enrichBusinessPlanPackage } from "@/lib/sba/enrichBusinessPlanPackage";
 import { callGeminiJSON } from "@/lib/sba/sbaPackageNarrative";
 import { extractResearchForBusinessPlan } from "@/lib/sba/sbaResearchExtractor";
 import { buildSBARiskProfile } from "@/lib/sba/sbaRiskProfile";
@@ -979,6 +980,25 @@ async function generatePackageAction(dealId: string): Promise<Response> {
           send({ step: "error", pct: 0, error: result.error });
           controller.close();
           return;
+        }
+
+        // SPEC-M8 ARTIFACT-PIPELINE-1 (audit fix) — verifier pass over the
+        // narrative bundle, best-effort. The package itself already
+        // generated successfully by this point; a failure here must never
+        // turn that into an error response.
+        try {
+          const sb = supabaseAdmin();
+          const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
+          if (deal?.bank_id) {
+            await enrichBusinessPlanPackage({
+              dealId,
+              bankId: deal.bank_id,
+              packageId: result.packageId,
+              sb,
+            });
+          }
+        } catch (enrichErr) {
+          console.error("[sba/generate-package] business-plan verification failed (non-fatal):", enrichErr);
         }
 
         send({

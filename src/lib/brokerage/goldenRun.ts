@@ -193,7 +193,7 @@ export async function cleanupGoldenRun(sb: any, dealId: string): Promise<void> {
   if (listingIds.length > 0) {
     await sb.from("marketplace_claims").delete().in("listing_id", listingIds);
   }
-  for (const t of ["marketplace_package_access", "marketplace_audit_log", "marketplace_picks", "marketplace_listings", "buddy_sealed_packages", "buddy_trident_bundles", "buddy_sba_scores", "deal_financial_facts", "deal_documents", "deal_borrower_story", "borrower_applications", "borrower_concierge_sessions"]) {
+  for (const t of ["marketplace_package_access", "marketplace_audit_log", "marketplace_picks", "marketplace_listings", "buddy_sealed_packages", "buddy_trident_bundles", "buddy_sba_scores", "deal_financial_facts", "deal_documents", "deal_borrower_story", "borrower_applications", "borrower_concierge_sessions", "borrower_fact_requests"]) {
     await sb.from(t).delete().eq("deal_id", dealId);
   }
   await sb.from("deals").delete().eq("id", dealId);
