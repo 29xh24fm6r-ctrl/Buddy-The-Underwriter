@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MODEL_RATES } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 
 export type IndexCode = "UST_5Y" | "SOFR" | "PRIME";
 
@@ -19,20 +19,14 @@ let cache: CacheEntry | null = null;
 const TTL_MS = 15 * 60 * 1000; // 15 min cache
 
 async function fetchRatesViaGemini(): Promise<Record<IndexCode, IndexRate>> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
-
   const today = new Date().toISOString().split("T")[0];
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_RATES}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `Today is ${today}. Please look up the current values for these three US interest rate benchmarks and return ONLY a JSON object, no markdown, no explanation:
+  // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+  // useSearchGrounding — Gemini's google_search tool, needed to look up
+  // live rate benchmarks rather than rely on training data).
+  const result = await runRole("generator", {
+    purpose: "index_rates_lookup",
+    prompt: `Today is ${today}. Please look up the current values for these three US interest rate benchmarks and return ONLY a JSON object, no markdown, no explanation:
 {
   "SOFR": { "rate": <number>, "asOf": "<YYYY-MM-DD>" },
   "UST_5Y": { "rate": <number>, "asOf": "<YYYY-MM-DD>" },
@@ -41,20 +35,13 @@ async function fetchRatesViaGemini(): Promise<Record<IndexCode, IndexRate>> {
 SOFR = Secured Overnight Financing Rate (NY Fed)
 UST_5Y = 5-Year US Treasury yield (daily, from Treasury.gov)
 PRIME = Bank Prime Loan Rate (from Federal Reserve / FRED DPRIME)
-All rates should be in percent (e.g. 5.33 not 0.0533).`
-          }]
-        }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0 }
-      }),
-      signal: AbortSignal.timeout(20000),
-    }
-  );
+All rates should be in percent (e.g. 5.33 not 0.0533).`,
+    temperature: 0,
+    useSearchGrounding: true,
+    timeoutMs: 20_000,
+  });
 
-  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  const clean = text.replace(/```json|```/g, "").trim();
+  const clean = result.text.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
 
   const now = new Date().toISOString().split("T")[0];
@@ -91,4 +78,9 @@ export async function getLatestIndexRates(): Promise<Record<IndexCode, IndexRate
   const value = await fetchRatesViaGemini();
   cache = { expiresAt: t + TTL_MS, value };
   return value;
+}
+
+/** Test-only: clears the in-process rate cache between test cases. */
+export function __resetIndexRatesCacheForTests(): void {
+  cache = null;
 }

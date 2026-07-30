@@ -1,5 +1,5 @@
 import test from "node:test";
-import { describe, it, afterEach } from "node:test";
+import { describe, it, afterEach, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -11,6 +11,17 @@ import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
 /**
  * SPEC-BIE-PRIVATE-COMPANY-RESEARCH-ENGINE-MEGA-1 — Phase 1 diagnostics.
  * Every BIE thread failure mode must be captured (never a silent null).
+ *
+ * SPEC-M1.1: callGeminiGrounded now routes through the AI gateway
+ * (runRole("generator", { disableFailover: true, ... })), which calls the
+ * real providers/google.ts (still a raw fetch() call, no SDK) using
+ * process.env.GEMINI_API_KEY rather than the per-call `apiKey` argument
+ * this test's `call()` helper passes — that argument is now vestigial (see
+ * buddyIntelligenceEngine.ts's own top-level GEMINI_API_KEY gate, which
+ * still uses it to skip BIE entirely when unset). Mocking global fetch
+ * still works transparently since callGoogle's request/response shape is
+ * unchanged; disableFailover means these tests never need to also mock an
+ * openai fallback.
  */
 
 mockServerOnly();
@@ -24,6 +35,14 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
+
+let originalApiKey: string | undefined;
+before(() => { originalApiKey = process.env.GEMINI_API_KEY; });
+beforeEach(() => { process.env.GEMINI_API_KEY = "test-key"; });
+after(() => {
+  if (originalApiKey === undefined) delete process.env.GEMINI_API_KEY;
+  else process.env.GEMINI_API_KEY = originalApiKey;
+});
 
 function mockFetch(impl: () => any) {
   globalThis.fetch = (async () => impl()) as any;

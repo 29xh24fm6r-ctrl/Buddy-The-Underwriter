@@ -144,6 +144,15 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
 
   const data = await res.json();
   const candidate = data?.candidates?.[0];
+  // SPEC-M1.1: a prompt-safety block is a distinct, actionable failure mode
+  // from "empty response" — promoted here from streamGoogle (which already
+  // had this check) so non-streaming callers (e.g.
+  // buddyIntelligenceEngine.ts) can also distinguish it via the thrown
+  // message rather than have it collapse into a generic empty-response.
+  const blockReason = data?.promptFeedback?.blockReason;
+  if (blockReason) {
+    throw new Error(`Gemini blocked the prompt: ${blockReason}`);
+  }
   const text = extractText(candidate?.content?.parts);
   if (!text) {
     const finishReason = candidate?.finishReason;

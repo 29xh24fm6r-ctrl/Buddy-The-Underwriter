@@ -191,6 +191,55 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     assert.equal(ledgerEntries.length, 1, "the skipped openai step must not be ledgered");
   });
 
+  it("SPEC-M1.1: skips a non-google fallback step entirely when useSearchGrounding is requested, never silently returning an ungrounded result", async () => {
+    let openaiCalled = false;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("HTTP 500: boom");
+    });
+    __setProviderImplForTests("openai", async () => {
+      openaiCalled = true;
+      return okResult("a plausible-looking but ungrounded answer");
+    });
+
+    await assert.rejects(
+      () =>
+        runRole("generator", {
+          prompt: "hi",
+          purpose: "test",
+          useSearchGrounding: true,
+        }),
+      /HTTP 500/,
+    );
+    assert.equal(
+      openaiCalled,
+      false,
+      "openai must never silently serve a grounding-required request ungrounded",
+    );
+  });
+
+  it("SPEC-M1.1: disableFailover only attempts the chain's primary step, throwing its error as-is", async () => {
+    let openaiCalled = false;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("empty response (finishReason: SAFETY)");
+    });
+    __setProviderImplForTests("openai", async () => {
+      openaiCalled = true;
+      return okResult("ok");
+    });
+
+    await assert.rejects(
+      () =>
+        runRole("generator", {
+          prompt: "hi",
+          purpose: "test",
+          disableFailover: true,
+        }),
+      /empty response \(finishReason: SAFETY\)/,
+    );
+    assert.equal(openaiCalled, false);
+    assert.equal(ledgerEntries.length, 1);
+  });
+
   it("passes a chain step's authMode into the provider call", async () => {
     process.env.AI_GATEWAY_CHAIN_GENERATOR = "google:gemini-3.1-flash-lite";
     let captured: any = null;

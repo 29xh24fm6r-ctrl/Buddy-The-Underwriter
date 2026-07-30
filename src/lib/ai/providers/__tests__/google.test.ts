@@ -258,3 +258,19 @@ describe("callGoogle: §3 search grounding", () => {
     }
   });
 });
+
+describe("callGoogle: prompt-safety block (non-streaming)", () => {
+  it("SPEC-M1.1: throws a distinct error when promptFeedback.blockReason is present, even with no candidates", async () => {
+    const { restore } = installFetch(async () =>
+      okResponse({ promptFeedback: { blockReason: "SAFETY" } }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /Gemini blocked the prompt: SAFETY/,
+      );
+    } finally {
+      restore();
+    }
+  });
+});
