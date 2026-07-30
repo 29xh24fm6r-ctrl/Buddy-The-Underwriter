@@ -10,10 +10,23 @@ import "server-only";
  * Reuses isGemini3Model (../models) and splitSSEEvents (@/lib/sse) rather
  * than redefining either — both have hard-won incident history documented
  * at their source (see geminiClient.ts and parseSSEBuffer.ts).
+ *
+ * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 additions (all opt-in via request
+ * fields, default path unchanged):
+ *   §1 authMode: "vertex" — routes through the Vertex REST endpoint using a
+ *      bearer token from getVertexAccessToken() (gcpAdcBootstrap.ts) instead
+ *      of GEMINI_API_KEY. Still no SDK import here.
+ *   §2 inlineData — appends image/PDF content parts (mirrors
+ *      runGeminiOcrJob.ts's part construction).
+ *   §3 useSearchGrounding — sets tools: [{ google_search: {} }] and threads
+ *      candidate.groundingMetadata into the result (mirrors
+ *      buddyIntelligenceEngine.ts's existing citation-threading parse).
  */
 
 import { isGemini3Model } from "../models";
 import { splitSSEEvents } from "@/lib/sse/parseSSEBuffer";
+import { getVertexAccessToken, getProjectId } from "@/lib/gcpAdcBootstrap";
+import { getVertexLocation } from "../vertexLocation";
 import type { ProviderCallRequest, ProviderCallResult } from "./types";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
@@ -36,14 +49,68 @@ function buildGenerationConfig(req: ProviderCallRequest): Record<string, unknown
 }
 
 function buildRequestBody(req: ProviderCallRequest): Record<string, unknown> {
+  const parts: Record<string, unknown>[] = [{ text: req.prompt }];
+  for (const inline of req.inlineData ?? []) {
+    parts.push({ inlineData: { mimeType: inline.mimeType, data: inline.data } });
+  }
   const body: Record<string, unknown> = {
-    contents: [{ role: "user", parts: [{ text: req.prompt }] }],
+    contents: [{ role: "user", parts }],
     generationConfig: buildGenerationConfig(req),
   };
   if (req.systemInstruction) {
     body.systemInstruction = { parts: [{ text: req.systemInstruction }] };
   }
+  if (req.useSearchGrounding) {
+    body.tools = [{ google_search: {} }];
+  }
   return body;
+}
+
+// Test-only seam: substitute the Vertex token resolver so tests never hit
+// real GCP auth resolution (google-auth-library's default ADC lookup
+// throws outside a real GCP/Vercel environment). Same escape-hatch
+// pattern as gateway.ts's providerImpl/logCallImpl.
+let vertexAccessTokenImpl: () => Promise<string> = getVertexAccessToken;
+
+export function __setVertexAccessTokenForTests(impl: () => Promise<string>): void {
+  vertexAccessTokenImpl = impl;
+}
+
+export function __resetVertexAccessTokenForTests(): void {
+  vertexAccessTokenImpl = getVertexAccessToken;
+}
+
+async function resolveEndpointAndAuth(
+  req: ProviderCallRequest,
+  streaming: boolean,
+): Promise<{ url: string; headers: Record<string, string> }> {
+  if (req.authMode === "vertex") {
+    const project = getProjectId();
+    if (!project) {
+      throw new Error(
+        "Vertex authMode requires a Google Cloud project id (GOOGLE_CLOUD_PROJECT / GOOGLE_PROJECT_ID / GCS_PROJECT_ID / GCP_PROJECT_ID)",
+      );
+    }
+    const location = getVertexLocation();
+    const token = await vertexAccessTokenImpl();
+    const method = streaming ? "streamGenerateContent" : "generateContent";
+    const query = streaming ? "?alt=sse" : "";
+    return {
+      url:
+        `https://${location}-aiplatform.googleapis.com/v1/projects/${project}` +
+        `/locations/${location}/publishers/google/models/${req.model}:${method}${query}`,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    };
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
+  const method = streaming ? "streamGenerateContent" : "generateContent";
+  const query = streaming ? "?alt=sse" : "";
+  return {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${req.model}:${method}${query}`,
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+  };
 }
 
 function extractText(parts: Array<{ text?: string; thought?: boolean }> | undefined): string {
@@ -51,10 +118,7 @@ function extractText(parts: Array<{ text?: string; thought?: boolean }> | undefi
 }
 
 export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCallResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${req.model}:generateContent`;
+  const { url, headers } = await resolveEndpointAndAuth(req, false);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), req.timeoutMs);
 
@@ -62,7 +126,7 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      headers,
       body: JSON.stringify(buildRequestBody(req)),
       signal: controller.signal,
     });
@@ -76,9 +140,10 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
   }
 
   const data = await res.json();
-  const text = extractText(data?.candidates?.[0]?.content?.parts);
+  const candidate = data?.candidates?.[0];
+  const text = extractText(candidate?.content?.parts);
   if (!text) {
-    const finishReason = data?.candidates?.[0]?.finishReason;
+    const finishReason = candidate?.finishReason;
     throw new Error(
       finishReason ? `empty response (finishReason: ${finishReason})` : "empty response",
     );
@@ -89,6 +154,9 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
     text,
     tokensIn: Number(usage.promptTokenCount ?? 0),
     tokensOut: Number(usage.candidatesTokenCount ?? 0),
+    ...(req.useSearchGrounding && candidate?.groundingMetadata
+      ? { groundingMetadata: candidate.groundingMetadata }
+      : {}),
   };
 }
 
@@ -100,17 +168,14 @@ export async function callGoogle(req: ProviderCallRequest): Promise<ProviderCall
  * the chain's first step is used for streaming calls.
  */
 export async function* streamGoogle(req: ProviderCallRequest): AsyncGenerator<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${req.model}:streamGenerateContent?alt=sse`;
+  const { url, headers } = await resolveEndpointAndAuth(req, true);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), req.timeoutMs);
 
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      headers,
       body: JSON.stringify(buildRequestBody(req)),
       signal: controller.signal,
     });

@@ -29,7 +29,16 @@ import { GEMINI_FLASH, OPENAI_CHAT, ANTHROPIC_VERIFIER } from "./models";
 export type GatewayRole = "generator" | "verifier" | "structurer" | "interviewer" | "translator";
 export type GatewayProvider = "google" | "anthropic" | "openai";
 
-export type RoleStep = { provider: GatewayProvider; model: string };
+export type RoleStep = {
+  provider: GatewayProvider;
+  model: string;
+  /**
+   * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §1 — Google-only. Lets a role's
+   * chain step request Vertex/WIF auth instead of the default
+   * GEMINI_API_KEY REST path. Ignored for non-google steps.
+   */
+  authMode?: "api-key" | "vertex";
+};
 
 export type RoleConfig = {
   /** First entry is primary; later entries are tried in order on failure. */

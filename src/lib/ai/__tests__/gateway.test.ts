@@ -149,6 +149,67 @@ describe("runRole: daily token budget hard stop", () => {
   });
 });
 
+describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () => {
+  it("passes inlineData and useSearchGrounding from the request into the provider call", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("google", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    await runRole("generator", {
+      prompt: "hi",
+      purpose: "test",
+      inlineData: [{ mimeType: "application/pdf", data: "base64==" }],
+      useSearchGrounding: true,
+    });
+
+    assert.deepEqual(captured.inlineData, [{ mimeType: "application/pdf", data: "base64==" }]);
+    assert.equal(captured.useSearchGrounding, true);
+  });
+
+  it("passes a chain step's authMode into the provider call", async () => {
+    process.env.AI_GATEWAY_CHAIN_GENERATOR = "google:gemini-3.1-flash-lite";
+    let captured: any = null;
+    __setProviderImplForTests("google", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    await runRole("generator", { prompt: "hi", purpose: "test" });
+
+    // roleConfig's env-override parser doesn't set authMode (no ":authMode"
+    // segment in the env string) — confirms the default (api-key) path is
+    // what threads through absent an explicit chain-step override.
+    assert.equal(captured.authMode, undefined);
+    delete process.env.AI_GATEWAY_CHAIN_GENERATOR;
+  });
+
+  it("surfaces groundingMetadata from the provider result on the RunRoleResult", async () => {
+    __setProviderImplForTests("google", async () => ({
+      text: "grounded",
+      tokensIn: 1,
+      tokensOut: 1,
+      groundingMetadata: { groundingChunks: [{ web: { uri: "https://example.com" } }] },
+    }));
+
+    const result = await runRole("generator", {
+      prompt: "hi",
+      purpose: "test",
+      useSearchGrounding: true,
+    });
+    assert.deepEqual((result.groundingMetadata as any).groundingChunks, [
+      { web: { uri: "https://example.com" } },
+    ]);
+  });
+
+  it("does not add a groundingMetadata key when the provider result has none", async () => {
+    __setProviderImplForTests("google", async () => okResult("plain"));
+    const result = await runRole("generator", { prompt: "hi", purpose: "test" });
+    assert.equal("groundingMetadata" in result, false);
+  });
+});
+
 describe("runRoleStream", () => {
   it("throws for a non-google provider (out of scope for SPEC-M1)", async () => {
     process.env.AI_GATEWAY_CHAIN_INTERVIEWER = "openai:gpt-4o-mini";

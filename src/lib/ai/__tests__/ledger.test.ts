@@ -117,6 +117,26 @@ describe("logGatewayCall", () => {
     );
   });
 
+  it("accepts role='embedder' (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §4 — not a GatewayRole, still ledgerable)", async () => {
+    const { client, calls } = makeFakeClient({ error: null });
+    await logGatewayCall(
+      {
+        role: "embedder",
+        provider: "openai",
+        model: "text-embedding-3-small",
+        tokensIn: 7,
+        tokensOut: 0,
+        latencyMs: 50,
+        dealId: null,
+        purpose: "retrieval_query",
+        npiTagged: false,
+        outcome: "success",
+      },
+      client,
+    );
+    assert.equal(calls[0].row.role, "embedder");
+  });
+
   it("never throws when the client itself throws synchronously", async () => {
     const throwingClient = {
       from() {

@@ -17,8 +17,17 @@ import type { GatewayProvider, GatewayRole } from "./roleConfig";
 
 export type LedgerOutcome = "success" | "failure";
 
+/**
+ * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §4 — "embedder" is deliberately NOT a
+ * GatewayRole (see roleConfig.ts/gateway.ts): an embedding isn't role
+ * output text and has no failover chain, so it doesn't belong in the
+ * runRole() role taxonomy. It IS still one row in this same ledger table,
+ * hence the widened (not reused) type here.
+ */
+export type LedgerRole = GatewayRole | "embedder";
+
 export type LedgerEntry = {
-  role: GatewayRole;
+  role: LedgerRole;
   provider: GatewayProvider;
   model: string;
   tokensIn: number;
