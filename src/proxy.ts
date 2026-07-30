@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { logDemoPageviewIfApplicable } from "@/lib/tenant/demoTelemetry";
 import { isPublicBorrowerPortalRoute } from "@/lib/portal/isPublicBorrowerPortalRoute";
+import { isMarketingHost, APP_ORIGIN } from "@/lib/navigation/clerkHosts";
 
 /**
  * HARD RULE:
@@ -155,6 +156,21 @@ export default clerkMiddleware(async (auth, req) => {
       }).catch(() => {})
     );
     return withBuildHeader();
+  }
+
+  // 3b) Auth-requiring route reached on a marketing/borrower host → send it
+  // to the app origin. This deployment serves several marketing domains, but
+  // Clerk's production instance is domain-locked to app.buddytheunderwriter.com,
+  // so clerk-js can't initialize on those hosts. A protected page rendered
+  // there white-screens the moment a component calls a Clerk hook (e.g.
+  // HeroBar's useClerk → "useClerk can only be used within <ClerkProvider>").
+  // Redirecting to the app origin lands the visitor where Clerk works — and,
+  // if they're signed out, where /sign-in can actually run. Public routes
+  // returned above, so anything reaching here needs auth. API routes are
+  // excluded: they return JSON and must never redirect (see HARD RULE).
+  if (!isApiRoute && isMarketingHost(req.headers.get("host") ?? req.nextUrl.hostname)) {
+    const target = new URL(req.nextUrl.pathname + req.nextUrl.search, APP_ORIGIN);
+    return NextResponse.redirect(target, 307);
   }
 
   // 4) auth() for ALL non-public routes (pages AND API).

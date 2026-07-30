@@ -6,25 +6,12 @@ import { usePathname } from "next/navigation";
 import { ClerkProvider } from "@clerk/nextjs";
 import { isValidClerkPublishableKey } from "@/lib/auth/isValidClerkKey";
 import { isPublicBorrowerRoute } from "@/lib/navigation/isPublicBorrowerRoute";
+import { isClerkHost } from "@/lib/navigation/clerkHosts";
 
-// This single deployment serves several custom domains (see the Vercel
-// project's domain list), but Clerk's production instance is registered to
-// app.buddytheunderwriter.com only. The others are pure marketing/borrower
-// surfaces that never call auth() (see the public route list in
-// src/proxy.ts) — mounting ClerkProvider there just trips Clerk's own
-// domain-mismatch rejection in the browser console.
-const CLERK_MARKETING_HOSTS = new Set([
-  "buddysba.com",
-  "www.buddysba.com",
-  "buddybrokerage.com",
-  "www.buddybrokerage.com",
-  "buddytheunderwriter.com",
-  "www.buddytheunderwriter.com",
-]);
-
-function isClerkHost(hostname: string): boolean {
-  return !CLERK_MARKETING_HOSTS.has(hostname.toLowerCase());
-}
+// Host gating (marketing domains where clerk-js can't initialize) lives in
+// @/lib/navigation/clerkHosts so ClerkGate and the edge middleware share one
+// source of truth: the middleware redirects auth-requiring routes off these
+// hosts, and ClerkGate declines to mount <ClerkProvider> on them.
 
 export default function ClerkGate({ children }: { children: React.ReactNode }) {
   const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
