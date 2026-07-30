@@ -8,6 +8,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FixCardsPanelBody, type FixCard } from "@/components/borrower/fix-cards/FixCardsPanel";
 import { FORBIDDEN_BORROWER_TERMS } from "@/lib/portal/borrowerSafeCopy";
+import { FIX_CARD_DISCLAIMER } from "@/lib/ai/disclaimers";
 
 const APPROVAL_LANGUAGE_TERMS = [
   "you are approved",
@@ -66,4 +67,19 @@ test("renders every card's what/whyItMatters/resolvingAction", () => {
   assert.ok(html.includes("Debt Service Coverage Ratio"));
   assert.ok(html.includes("add-backs"));
   assertNoForbiddenLanguage(html);
+});
+
+test("surfaces the fix_card disclaimer when there are cards to show (audit fix)", () => {
+  const cards: FixCard[] = [
+    {
+      issueType: "checklist_gap:tax_return_2024",
+      severity: "info",
+      what: "We still need: 2024 Business Tax Return.",
+      whyItMatters: "Lenders need your most recent filing to verify income.",
+      resolvingAction: "Upload your 2024 Business Tax Return.",
+      checklistKey: "tax_return_2024",
+    },
+  ];
+  const html = renderToStaticMarkup(React.createElement(FixCardsPanelBody, { cards }));
+  assert.ok(html.includes(FIX_CARD_DISCLAIMER));
 });
