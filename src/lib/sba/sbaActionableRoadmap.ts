@@ -5,10 +5,14 @@ import "server-only";
 // Single-purpose Gemini call that turns projection outputs into a plain-English
 // set of milestones the borrower can actually use. Falls back to a deterministic
 // summary if the model call fails or GEMINI_API_KEY is unavailable.
+//
+// SPEC-M1.1 — migrated onto the AI gateway (generator role, modelOverride
+// preserves the deliberate GEMINI_PRO upgrade over the role's default
+// GEMINI_FLASH — "Pro for deal-specific prose", per MODEL_SBA_NARRATIVE's
+// own comment in models.ts).
 
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+import { runRole } from "@/lib/ai/gateway";
 
 export interface RoadmapInput {
   businessName: string;
@@ -34,8 +38,6 @@ export interface RoadmapInput {
 export async function generateActionableRoadmap(
   input: RoadmapInput,
 ): Promise<string> {
-  if (!GEMINI_API_KEY) return buildFallbackRoadmap(input);
-
   let model: string;
   try {
     const mod = await import("@/lib/ai/models");
@@ -82,37 +84,14 @@ RULES:
 Return ONLY the roadmap text. No JSON. No markdown headers.`;
 
   try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 1024,
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
-      },
-    );
+    const result = await runRole("generator", {
+      modelOverride: model,
+      purpose: "sba_actionable_roadmap",
+      maxOutputTokens: 1024,
+      prompt,
+    });
 
-    if (!resp.ok) return buildFallbackRoadmap(input);
-
-    const json = (await resp.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{ text?: string; thought?: boolean }>;
-        };
-      }>;
-    };
-    const text =
-      json?.candidates?.[0]?.content?.parts
-        ?.filter((p) => !p.thought)
-        ?.map((p) => p.text ?? "")
-        ?.join("") ?? "";
-
-    const trimmed = text.trim();
+    const trimmed = result.text.trim();
     return trimmed || buildFallbackRoadmap(input);
   } catch {
     return buildFallbackRoadmap(input);

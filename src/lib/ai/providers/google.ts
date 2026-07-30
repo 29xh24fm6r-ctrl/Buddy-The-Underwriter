@@ -41,9 +41,9 @@ function buildGenerationConfig(req: ProviderCallRequest): Record<string, unknown
   }
   if (isGemini3Model(req.model)) {
     // Gemini 3.x rejects sub-1.0 temperatures — omit entirely, use thinkingConfig instead.
-    config.thinkingConfig = { thinkingLevel: "low" };
+    config.thinkingConfig = { thinkingLevel: req.thinkingLevel ?? "low" };
   } else {
-    config.temperature = 0.1;
+    config.temperature = req.temperature ?? 0.1;
   }
   return config;
 }
@@ -197,13 +197,26 @@ export async function* streamGoogle(req: ProviderCallRequest): AsyncGenerator<st
       const { events, rest } = splitSSEEvents(buf);
       buf = rest;
       for (const evt of events) {
+        let parsed: any;
         try {
-          const parsed = JSON.parse(evt.data);
-          const text = extractText(parsed?.candidates?.[0]?.content?.parts);
-          if (text) yield text;
+          parsed = JSON.parse(evt.data);
         } catch {
           // Malformed/partial SSE chunk — skip it, the model keeps streaming.
+          continue;
         }
+        // SPEC-M1.1: a prompt-safety block is a distinct, actionable failure
+        // mode from "empty response" (e.g. MAX_TOKENS) — surface it as a
+        // thrown error (outside the malformed-JSON catch above) so callers
+        // can log/handle it separately rather than folding it into a
+        // generic "no reply text" fallback path. Promoted from
+        // geminiClient.ts's streamGeminiText, which originally detected
+        // this itself; now every gateway streaming caller gets it.
+        const blockReason = parsed?.promptFeedback?.blockReason;
+        if (blockReason) {
+          throw new Error(`Gemini blocked the prompt: ${blockReason}`);
+        }
+        const text = extractText(parsed?.candidates?.[0]?.content?.parts);
+        if (text) yield text;
       }
     }
   } finally {

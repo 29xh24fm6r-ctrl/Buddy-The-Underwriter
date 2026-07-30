@@ -17,14 +17,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadSBAAssumptionsPrefill } from "./sbaAssumptionsPrefill";
 import { findBenchmarkByNaics } from "./sbaAssumptionBenchmarks";
 import { MODEL_SBA_NARRATIVE } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 import type {
   SBAAssumptions,
   RevenueStream,
   FixedCostCategory,
   ManagementMember,
 } from "./sbaReadinessTypes";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 export interface ResearchContext {
   // From BIE research facts
@@ -386,20 +385,18 @@ export async function generateProjectionsFromResearch(
 
   // 9. Narrative — Gemini briefing if available, else factual fallback
   let researchNarrative = "";
-  if (GEMINI_API_KEY) {
-    try {
-      researchNarrative = await generateResearchBriefing({
-        businessName,
-        naicsLabel: researchContext.naicsLabel ?? industryDesc ?? "your industry",
-        geography: geography ?? "your market",
-        researchContext,
-        hasFinancialDocs: (prefill.revenueStreams?.length ?? 0) > 0,
-        loanAmount,
-        loanPurpose,
-      });
-    } catch {
-      // Non-fatal — fall through to factual narrative.
-    }
+  try {
+    researchNarrative = await generateResearchBriefing({
+      businessName,
+      naicsLabel: researchContext.naicsLabel ?? industryDesc ?? "your industry",
+      geography: geography ?? "your market",
+      researchContext,
+      hasFinancialDocs: (prefill.revenueStreams?.length ?? 0) > 0,
+      loanAmount,
+      loanPurpose,
+    });
+  } catch {
+    // Non-fatal — fall through to factual narrative.
   }
   if (!researchNarrative) {
     researchNarrative = buildFactualNarrative(researchContext, naicsCode);
@@ -503,30 +500,19 @@ RULES:
 
 Return ONLY the narrative text. No JSON. No markdown headers.`;
 
-  const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_SBA_NARRATIVE}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: 1024,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    },
-  );
-
-  if (!resp.ok) return "";
-  const json = (await resp.json()) as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string; thought?: boolean }> };
-    }>;
-  };
-  const parts = json.candidates?.[0]?.content?.parts ?? [];
-  return parts
-    .filter((p) => !p.thought)
-    .map((p) => p.text ?? "")
-    .join("");
+  // SPEC-M1.1: migrated onto the AI gateway (generator role). modelOverride
+  // is required since MODEL_SBA_NARRATIVE (GEMINI_PRO) differs from
+  // generator's default chain model. thinkingBudget: 0 (the original's
+  // "don't think, just write the briefing" tuning) maps to thinkingLevel
+  // "minimal" — the closest equivalent the gateway's Gemini 3.x branch
+  // exposes. The caller's existing try/catch already treats any thrown
+  // error as non-fatal, falling back to buildFactualNarrative.
+  const result = await runRole("generator", {
+    modelOverride: MODEL_SBA_NARRATIVE,
+    purpose: "sba_research_briefing",
+    maxOutputTokens: 1024,
+    thinkingLevel: "minimal",
+    prompt,
+  });
+  return result.text;
 }

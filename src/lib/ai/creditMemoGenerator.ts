@@ -1,34 +1,26 @@
 import { z } from "zod";
-import { GEMINI_FLASH, isGemini3Model } from "./models";
+import { runRole } from "./gateway";
 
 // ---------------------------------------------------------------------------
-// Gemini HTTP helper
+// Gateway helper
 // ---------------------------------------------------------------------------
-
-const GEMINI_MODEL = GEMINI_FLASH;
+//
+// SPEC-M1.1 — migrated onto the AI gateway (generator role). A permissive
+// object responseSchema is passed (rather than the full MemoJsonSchema
+// zod schema hand-translated to JSON Schema) to preserve the existing
+// "ask for JSON via prompt, zod-validate, repair-retry on failure" contract
+// exactly — this function's whole job is producing raw text for the
+// caller's own generate+repair loop, not enforcing a schema itself.
 
 async function geminiGenerate(system: string, userContent: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY!;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        role: "user",
-        parts: [{ text: `${system}\n\n${userContent}` }],
-      }],
-      // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
-      generationConfig: isGemini3Model(GEMINI_MODEL)
-        ? { responseMimeType: "application/json", maxOutputTokens: 8192 }
-        : { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 8192 },
-    }),
+  const result = await runRole("generator", {
+    purpose: "credit_memo",
+    temperature: 0.2,
+    maxOutputTokens: 8192,
+    responseSchema: { type: "object" },
+    prompt: `${system}\n\n${userContent}`,
   });
-
-  if (!r.ok) throw new Error(`gemini_error_${r.status}`);
-  const json = await r.json();
-  return json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return result.text;
 }
 
 // ---------------------------------------------------------------------------

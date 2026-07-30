@@ -1,7 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mockServerOnly } from "../../../test/utils/mockServerOnly";
 
-import { maskEin, inferEntityTypeFromText } from "@/lib/borrower/extractBorrowerFromDocs";
+// SPEC-M1.1: extractBorrowerFromDocs.ts now transitively imports
+// src/lib/ai/gateway.ts (via aiJson -> ./gateway), which has a hard
+// `import "server-only"` — same CJS-resolver-patch + require() pattern as
+// every other test that loads gateway-touching code (see geminiClient.test.ts).
+mockServerOnly();
+const require = createRequire(import.meta.url);
+
+const { maskEin, inferEntityTypeFromText } =
+  require("@/lib/borrower/extractBorrowerFromDocs") as typeof import("@/lib/borrower/extractBorrowerFromDocs");
 import { sumOwnershipPercentage, ownershipCoverageStatus } from "@/lib/principals/extractPrincipalsFromDocs";
 
 test("maskEin masks to last4", () => {

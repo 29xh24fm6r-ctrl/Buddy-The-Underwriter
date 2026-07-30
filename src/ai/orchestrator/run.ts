@@ -1,9 +1,14 @@
 // TODO Phase 23: evaluate Gemini 2.5 Pro for reasoning workloads
-import OpenAI from "openai";
+//
+// SPEC-M1.1 — migrated onto the AI gateway (src/lib/ai/gateway.ts). Same
+// OpenAI models (OPENAI_MINI / OPENAI_REASONING), same strict json_schema
+// structured-output contract, same "deep_reasoning" runtime toggle — now
+// via runRole("structurer", { modelOverride }) instead of a direct OpenAI
+// SDK call, so this call is ledgered and NPI-gated like every other
+// gateway caller.
 import { z } from "zod";
 import { OPENAI_MINI, OPENAI_REASONING } from "@/lib/ai/models";
-
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+import { runRole } from "@/lib/ai/gateway";
 
 // ---- 1) Contract: the structured output schema (start small)
 export const UnderwritingDecisionSchema = z.object({
@@ -40,58 +45,39 @@ export async function runUnderwritingDecision(args: {
   try {
     // NOTE: Structured outputs via json_schema with strict: true
     // ensures the model returns JSON that matches schema
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are Buddy The Underwriter. Be concise, evidence-first, and practical. " +
-            "Return only valid JSON matching the schema.",
-        },
-        {
-          role: "user",
-          content:
-            `Deal context:\n` +
-            `dealId: ${args.input.dealId ?? "n/a"}\n` +
-            `borrower: ${args.input.borrowerName ?? "n/a"}\n\n` +
-            `Narrative:\n${args.input.narrative}`,
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "underwriting_decision",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              decision: {
-                type: "string",
-                enum: ["approve", "approve_with_conditions", "decline", "needs_more_info"],
-              },
-              summary: { type: "string" },
-              key_risks: { type: "array", items: { type: "string" } },
-              conditions: { type: "array", items: { type: "string" } },
-              missing_info: { type: "array", items: { type: "string" } },
-              confidence: { type: "number", minimum: 0, maximum: 1 },
-            },
-            required: ["decision", "summary", "confidence"],
+    const result = await runRole("structurer", {
+      modelOverride: model,
+      purpose: "underwriting_decision",
+      dealId: args.input.dealId ?? null,
+      systemInstruction:
+        "You are Buddy The Underwriter. Be concise, evidence-first, and practical. " +
+        "Return only valid JSON matching the schema.",
+      prompt:
+        `Deal context:\n` +
+        `dealId: ${args.input.dealId ?? "n/a"}\n` +
+        `borrower: ${args.input.borrowerName ?? "n/a"}\n\n` +
+        `Narrative:\n${args.input.narrative}`,
+      responseSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          decision: {
+            type: "string",
+            enum: ["approve", "approve_with_conditions", "decline", "needs_more_info"],
           },
+          summary: { type: "string" },
+          key_risks: { type: "array", items: { type: "string" } },
+          conditions: { type: "array", items: { type: "string" } },
+          missing_info: { type: "array", items: { type: "string" } },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
         },
+        required: ["decision", "summary", "confidence"],
       },
     });
 
     const latency = Date.now() - startTime;
 
-    // Extract JSON from response
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error("No content in response");
-    }
-
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(result.text);
     const validated = UnderwritingDecisionSchema.parse(parsed);
 
     // Log the run (Phase 1 minimal logging)

@@ -13,51 +13,66 @@
 # to the PERMANENT EXEMPTION section below (SPEC-GATEWAY-CAPABILITY-
 # EXPANSION-1 §5) — they were never real migration debt, see that
 # section's header for why.
-src/ai/orchestrator/run.ts
-src/app/api/deals/[dealId]/quick-look/questions/route.ts
+#
+# models.ts / vertexLocation.ts / sdkResponseGuard.ts were removed from
+# this list entirely (SPEC-M1.1) — they never had a real call site; they
+# were only here because guard-ai-gateway-only.mjs is a literal text scan
+# (its own doc comment says so) and each file's doc comments happened to
+# quote a banned pattern string verbatim (a URL, an SDK package name) while
+# describing real incident history. Reworded those specific phrases
+# (meaning preserved, e.g. "the public Gemini REST endpoint" instead of the
+# literal domain) rather than either silently keeping them allowlisted
+# forever or deleting real incident-history documentation to dodge a
+# regex.
+#
+# openaiClient.ts / gcpAdcBootstrap.ts moved to the PERMANENT EXEMPTION
+# section below for the opposite reason — they DO contain real code that
+# trips the guard, but that code has nothing to do with the 30 files this
+# worklist is migrating; see that section for why.
 src/buddy/brain/geminiAdapter.ts
-src/core/omega/omegaGeminiClient.ts
-src/lib/ai/creditMemoGenerator.ts
-src/lib/ai/gemini25Provider.ts
-src/lib/ai/gemini3FlashProvider.ts
-src/lib/ai/geminiClient.ts
-src/lib/ai/models.ts
-src/lib/ai/openai.ts
-src/lib/ai/openaiClient.ts
-src/lib/ai/orchestrator.ts
-src/lib/ai/vertexLocation.ts
 src/lib/artifacts/classifyDocument.ts
-src/lib/classicSpread/narrativeEngine.ts
 src/lib/classification/tier3LLM.ts
 src/lib/extraction/geminiFlashStructuredAssist.ts
-src/lib/extraction/sdkResponseGuard.ts
 src/lib/financialSpreads/extractors/gemini/geminiClient.ts
-src/lib/gatekeeper/geminiClassifier.ts
-src/lib/gcpAdcBootstrap.ts
-src/lib/interview/qa.ts
-src/lib/interview/suggestFacts.ts
 src/lib/ocr/runGeminiOcrJob.ts
 src/lib/rates/indexRates.ts
 src/lib/research/buddyIntelligenceEngine.ts
 src/lib/retrieval/retrievalCore.ts
-src/lib/sba/sbaActionableRoadmap.ts
-src/lib/sba/sbaPackageNarrative.ts
-src/lib/sba/sbaResearchProjectionGenerator.ts
 
-# PERMANENT EXEMPTION (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §5) — NOT
-# migration debt, do not attempt to "finish" migrating these.
+# PERMANENT EXEMPTION (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §5, extended by
+# SPEC-M1.1) — NOT migration debt, do not attempt to "finish" migrating
+# these.
 #
-# These 4 files mint/hold a live OpenAI Realtime WebRTC voice session
+# Voice/realtime (SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §5): these 4 files
+# mint/hold a live OpenAI Realtime WebRTC voice session
 # (src/app/api/deals/[dealId]/voice/token/route.ts mints the client_secret;
 # VoiceInterviewButton.tsx and useBuddyVoice.ts each hold the client-side
 # WebRTC session directly against api.openai.com/v1/realtime/calls;
 # mintRealtimeClientSecret.ts is the shared token-minting helper both voice
 # routes call). A live bidirectional realtime session is architecturally
 # not a single request/response completion — there is nothing for
-# runRole()/runRoleStream() to wrap. Mechanically these are on the same
-# list as the migration worklist above (the guard doesn't distinguish
-# sections), but conceptually they are permanent, not a shrinking backlog.
+# runRole()/runRoleStream() to wrap.
 src/app/api/deals/[dealId]/voice/token/route.ts
 src/components/deals/VoiceInterviewButton.tsx
 src/lib/voice/mintRealtimeClientSecret.ts
 src/lib/voice/useBuddyVoice.ts
+#
+# Gateway's own auth/SDK plumbing (SPEC-M1.1): unlike every other entry in
+# this file, these 2 are used BY the gateway itself, not by a pre-gateway
+# call site awaiting migration.
+#   - src/lib/ai/openaiClient.ts: `import OpenAI from "openai"` serves ~37
+#     pre-gateway callers that never directly matched the guard's banned
+#     patterns themselves (they only import getOpenAI() from here) — most
+#     of those callers are outside SPEC-M1.1's 30-file worklist entirely.
+#     This file can only leave the allowlist once every one of those ~37
+#     callers stops using it and it's deleted — a separate, much larger
+#     project than migrating this worklist's 30 files.
+#   - src/lib/gcpAdcBootstrap.ts: its runVertexAdcSmokeTest() ops function
+#     (gated non-production, or an explicit GCP_ADC_SMOKE_TEST=true flag)
+#     does a real `await import("@google/genai")` for a manual auth smoke
+#     test — unrelated to any of the 30 files this worklist migrates.
+#     src/lib/ai/providers/google.ts's Vertex auth path (SPEC-GATEWAY-
+#     CAPABILITY-EXPANSION-1 §1) already reuses this file's WIF plumbing
+#     via getVertexAccessToken(), not the SDK smoke test.
+src/lib/ai/openaiClient.ts
+src/lib/gcpAdcBootstrap.ts

@@ -1,8 +1,8 @@
 import "server-only";
 
 import type { ClassicSpreadInput } from "./types";
-import { MODEL_CLASSIC_SPREAD, isGemini3Model } from "@/lib/ai/models";
 import { spreadAuditGuardrailLines, withAuditCaveat, clampBlockerConclusions } from "./narrativeGuardrail";
+import { runRole } from "@/lib/ai/gateway";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,23 +90,18 @@ const SYSTEM_INSTRUCTION =
   "Flag any concerning trends. Do NOT use bullet points — use flowing prose.";
 
 // ---------------------------------------------------------------------------
-// API Call — Gemini 2.0 Flash
+// API Call — AI gateway (generator role — Gemini default)
 // ---------------------------------------------------------------------------
-
-const GEMINI_MODEL = MODEL_CLASSIC_SPREAD;
-
-const GEMINI_API_URL = (apiKey: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+//
+// SPEC-M1.1: migrated onto the gateway. Temperature 0.3 is still requested
+// unconditionally — providers/google.ts's own gemini-3.x branch already
+// ignores a temperature override for gemini-3.x models (uses thinkingConfig
+// instead), so this reproduces the original isGemini3Model conditional
+// without duplicating that logic here.
 
 export async function generateSpreadNarrative(
   input: ClassicSpreadInput,
 ): Promise<SpreadNarrative | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn("[narrativeEngine] GEMINI_API_KEY not set — skipping narrative");
-    return null;
-  }
-
   // Skip if insufficient data
   if (input.incomeStatement.length === 0 && input.balanceSheet.length === 0) {
     return null;
@@ -115,32 +110,14 @@ export async function generateSpreadNarrative(
   const financialData = buildNarrativePrompt(input);
 
   try {
-    const resp = await fetch(GEMINI_API_URL(apiKey), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{
-            text: `${SYSTEM_INSTRUCTION}\n\nAnalyze the following financial spread data and write a narrative analysis:\n\n${financialData}`,
-          }],
-        }],
-        // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
-        generationConfig: isGemini3Model(GEMINI_MODEL)
-          ? { maxOutputTokens: 1500 }
-          : { maxOutputTokens: 1500, temperature: 0.3 },
-      }),
+    const result = await runRole("generator", {
+      purpose: "classic_spread_narrative",
+      maxOutputTokens: 1500,
+      temperature: 0.3,
+      prompt: `${SYSTEM_INSTRUCTION}\n\nAnalyze the following financial spread data and write a narrative analysis:\n\n${financialData}`,
     });
 
-    if (!resp.ok) {
-      console.error(`[narrativeEngine] Gemini error ${resp.status}: ${await resp.text()}`);
-      return null;
-    }
-
-    const json = await resp.json() as {
-      candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
-    };
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const text = result.text;
 
     // Parse sections from markdown headers
     const sections: NarrativeSection[] = [];
@@ -169,7 +146,7 @@ export async function generateSpreadNarrative(
 
     return {
       sections: finalSections,
-      model: GEMINI_MODEL,
+      model: result.model,
       generatedAt: new Date().toISOString(),
     };
   } catch (err) {

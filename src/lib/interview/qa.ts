@@ -1,12 +1,13 @@
 // src/lib/interview/qa.ts
+//
+// SPEC-M1.1 — migrated onto the AI gateway. Uses the "structurer" role
+// purely for its OpenAI-only chain (no Google fallback — this call site
+// must stay on OpenAI, matching its original provider-exclusive behavior);
+// no responseSchema is passed, so the result is plain prose, same as
+// before this migration.
 import { LOAN_KNOWLEDGE, type KnowledgeChunk } from "@/lib/interview/loanKnowledge";
 import { OPENAI_MINI } from "@/lib/ai/models";
-
-function mustEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
-  return v;
-}
+import { runRole } from "@/lib/ai/gateway";
 
 function scoreChunk(chunk: KnowledgeChunk, q: string) {
   const t = (q || "").toLowerCase();
@@ -41,7 +42,6 @@ export type QaAnswer = {
 };
 
 export async function answerBorrowerQuestion(question: string): Promise<QaAnswer> {
-  const apiKey = mustEnv("OPENAI_API_KEY");
   const model = process.env.OPENAI_QA_MODEL || OPENAI_MINI;
 
   const chunks = selectTopChunks(question, 4);
@@ -50,45 +50,24 @@ export async function answerBorrowerQuestion(question: string): Promise<QaAnswer
     .map((c) => `### [${c.id}] ${c.title}\n${c.content}`)
     .join("\n\n");
 
-  const body = {
-    model,
-    messages: [
-      {
-        role: "system",
-        content: [
-          "You are Buddy, a friendly lending assistant.",
-          "You answer borrower questions using ONLY the provided knowledge context.",
-          "If the question asks for something not in context, say what you can and recommend speaking with a banker for specifics.",
-          "Do NOT promise approval, rates, terms, or timelines.",
-          "Keep answers short and clear (max ~10 sentences).",
-          "End with the compliance disclaimer sentiment from context.",
-        ].join("\n"),
-      },
-      { role: "user", content: `Question:\n${question}\n\nKnowledge Context:\n${context}` },
-    ],
-    max_tokens: 450,
+  const result = await runRole("structurer", {
+    modelOverride: model,
     temperature: 0.2,
-  };
-
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+    maxOutputTokens: 450,
+    purpose: "borrower_qa",
+    systemInstruction: [
+      "You are Buddy, a friendly lending assistant.",
+      "You answer borrower questions using ONLY the provided knowledge context.",
+      "If the question asks for something not in context, say what you can and recommend speaking with a banker for specifics.",
+      "Do NOT promise approval, rates, terms, or timelines.",
+      "Keep answers short and clear (max ~10 sentences).",
+      "End with the compliance disclaimer sentiment from context.",
+    ].join("\n"),
+    prompt: `Question:\n${question}\n\nKnowledge Context:\n${context}`,
   });
 
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`openai_qa_failed:${r.status}:${t}`);
-  }
-
-  const data: any = await r.json();
-  const answer = data?.choices?.[0]?.message?.content || "";
-
   return {
-    answer: String(answer || "").trim(),
+    answer: result.text.trim(),
     citations: chunks.map((c) => ({ id: c.id, title: c.title })),
   };
 }

@@ -208,6 +208,60 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     const result = await runRole("generator", { prompt: "hi", purpose: "test" });
     assert.equal("groundingMetadata" in result, false);
   });
+
+  it("modelOverride replaces the chain step's model for the call and the ledger/result", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("openai", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    const result = await runRole("structurer", {
+      prompt: "hi",
+      purpose: "test",
+      modelOverride: "o1-preview",
+    });
+
+    assert.equal(captured.model, "o1-preview");
+    assert.equal(result.model, "o1-preview");
+    assert.equal(ledgerEntries[0].model, "o1-preview");
+  });
+
+  it("uses the chain step's configured model when modelOverride is absent", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("openai", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    await runRole("structurer", { prompt: "hi", purpose: "test" });
+    assert.equal(captured.model, "gpt-4o-2024-08-06");
+  });
+
+  it("does NOT apply modelOverride to a fallback step on a different provider", async () => {
+    // SPEC-M1.1 regression: a Gemini-specific modelOverride on the
+    // "generator" role (google-primary, openai-fallback) must not leak
+    // into the openai fallback call when google fails over — that would
+    // hand an OpenAI adapter a Gemini model string.
+    let capturedOpenai: any = null;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("google down");
+    });
+    __setProviderImplForTests("openai", async (req) => {
+      capturedOpenai = req;
+      return okResult("recovered via openai");
+    });
+
+    const result = await runRole("generator", {
+      prompt: "hi",
+      purpose: "test",
+      modelOverride: "gemini-2.5-pro",
+    });
+
+    assert.equal(result.provider, "openai");
+    assert.equal(capturedOpenai.model, "gpt-4o-2024-08-06");
+    assert.notEqual(capturedOpenai.model, "gemini-2.5-pro");
+  });
 });
 
 describe("runRoleStream", () => {

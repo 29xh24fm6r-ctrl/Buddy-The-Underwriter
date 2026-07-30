@@ -52,6 +52,26 @@ export type RunRoleRequest = {
    * grounding tool. Google-only; ignored by other providers.
    */
   useSearchGrounding?: boolean;
+  /**
+   * SPEC-M1.1 — overrides the model for the chain's PRIMARY step only
+   * (e.g. a caller-driven "deep reasoning" toggle between two models on
+   * the same provider). Absent by default — the chain step's configured
+   * model is used, exactly as before this field existed.
+   *
+   * Deliberately NOT applied to fallback steps: a multi-provider chain
+   * (e.g. generator's google→openai failover) can fail over to a
+   * different provider than the one the override's model string belongs
+   * to, and blindly reusing the override there would hand e.g. a Gemini
+   * model name to the OpenAI adapter. Fallback steps always use their own
+   * configured model.
+   */
+  modelOverride?: string;
+  /** SPEC-M1.1 — per-call temperature override; see ProviderCallRequest's doc comment. */
+  temperature?: number;
+  /** SPEC-M1.1 — per-call Gemini-3.x thinking-level override; see ProviderCallRequest's doc comment. */
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /** SPEC-M1.1 — overrides the role config's default timeout for this call only. */
+  timeoutMs?: number;
 };
 
 export type RunRoleResult = {
@@ -157,6 +177,7 @@ export async function runRole(
 
   let lastError: Error | null = null;
   let attempts = 0;
+  const primaryProvider = config.chain[0]?.provider;
 
   for (const step of config.chain) {
     attempts++;
@@ -190,24 +211,30 @@ export async function runRole(
     }
 
     const start = Date.now();
+    const model =
+      request.modelOverride !== undefined && step.provider === primaryProvider
+        ? request.modelOverride
+        : step.model;
     try {
       const result = await callProvider(step.provider, {
-        model: step.model,
+        model,
         prompt: request.prompt,
         systemInstruction: request.systemInstruction,
         maxOutputTokens: request.maxOutputTokens,
-        timeoutMs: config.timeoutMs,
+        timeoutMs: request.timeoutMs ?? config.timeoutMs,
         responseSchema: request.responseSchema,
         authMode: step.authMode,
         inlineData: request.inlineData,
         useSearchGrounding: request.useSearchGrounding,
+        temperature: request.temperature,
+        thinkingLevel: request.thinkingLevel,
       });
       const latencyMs = Date.now() - start;
       recordBudgetUsage(role, result.tokensIn + result.tokensOut);
       await logCallImpl({
         role,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         latencyMs,
@@ -219,7 +246,7 @@ export async function runRole(
       return {
         text: result.text,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         latencyMs,
@@ -234,7 +261,7 @@ export async function runRole(
       await logCallImpl({
         role,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: 0,
         tokensOut: 0,
         latencyMs,
@@ -297,13 +324,16 @@ export async function* runRoleStream(
   }
 
   const start = Date.now();
+  const model = request.modelOverride ?? step.model;
   try {
     for await (const chunk of streamGoogle({
-      model: step.model,
+      model,
       prompt: request.prompt,
       systemInstruction: request.systemInstruction,
       maxOutputTokens: request.maxOutputTokens,
-      timeoutMs: config.timeoutMs,
+      timeoutMs: request.timeoutMs ?? config.timeoutMs,
+      temperature: request.temperature,
+      thinkingLevel: request.thinkingLevel,
     })) {
       yield chunk;
     }
@@ -315,7 +345,7 @@ export async function* runRoleStream(
     await logCallImpl({
       role,
       provider: step.provider,
-      model: step.model,
+      model,
       tokensIn: 0,
       tokensOut: 0,
       latencyMs,
@@ -330,7 +360,7 @@ export async function* runRoleStream(
     await logCallImpl({
       role,
       provider: step.provider,
-      model: step.model,
+      model,
       tokensIn: 0,
       tokensOut: 0,
       latencyMs,

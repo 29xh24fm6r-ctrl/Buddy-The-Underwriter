@@ -13,6 +13,18 @@
  * normalizeEntityName, version constants) live in geminiClassifierPure.ts
  * so they can be unit tested without pulling in "server-only". This file
  * only holds the HTTP side.
+ *
+ * SPEC-M1.1: routed through the AI gateway (runRole, "generator" role).
+ * GEMINI_MODEL (MODEL_CLASSIFICATION) already equals the generator role's
+ * default chain model, so no modelOverride is needed. Both call sites keep
+ * their own try/catch-returns-null contract — callers pattern-match on
+ * `!result`, not on a thrown exception.
+ *
+ * classifyWithGeminiVision's inlineData is Google-only — if google fails,
+ * generator's openai fallback step will itself throw immediately
+ * ("inlineData is not supported"), which is caught here and still yields
+ * null, same external contract as before this migration (just one extra
+ * ledgered attempt on the way).
  */
 import "server-only";
 
@@ -22,6 +34,7 @@ import {
   parseGeminiResult,
   type GeminiClassifyResult,
 } from "./geminiClassifierPure";
+import { runRole } from "@/lib/ai/gateway";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -51,19 +64,12 @@ function truncateText(text: string): string {
   return head + "\n\n[... truncated ...]\n\n" + tail;
 }
 
-// ─── Gemini HTTP ────────────────────────────────────────────────────────────
-
-function geminiUrl(apiKey: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-}
-
 // ─── Text Path ──────────────────────────────────────────────────────────────
 
 export async function classifyWithGeminiText(
   ocrText: string,
 ): Promise<GeminiClassifyResult | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY) {
     console.warn("[GeminiClassifier][text] GEMINI_API_KEY missing");
     return null;
   }
@@ -71,61 +77,29 @@ export async function classifyWithGeminiText(
   const truncated = truncateText(ocrText);
 
   try {
-    const resp = await fetch(geminiUrl(apiKey), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{
-            text: `${SYSTEM_PROMPT}\n\nClassify this document:\n\n${truncated}`,
-          }],
-        }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.0,
-          maxOutputTokens: 2048,
-          thinkingConfig: {
-            thinkingLevel: "low",
-          },
-        },
-      }),
+    const result = await runRole("generator", {
+      purpose: "gatekeeper_classify_text",
+      prompt: `${SYSTEM_PROMPT}\n\nClassify this document:\n\n${truncated}`,
+      temperature: 0.0,
+      maxOutputTokens: 2048,
+      thinkingLevel: "low",
+      responseSchema: { type: "object" },
     });
 
-    if (!resp.ok) {
-      const bodyPreview = await resp.text().catch(() => "<unreadable>");
-      console.warn("[GeminiClassifier][text] non-ok HTTP response", {
-        status: resp.status,
-        statusText: resp.statusText,
-        bodyPreview: bodyPreview.slice(0, 500),
-        model: GEMINI_MODEL,
-      });
-      return null;
-    }
-
-    const json = await resp.json();
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    const finishReason = json.candidates?.[0]?.finishReason;
-    if (finishReason && finishReason !== "STOP") {
-      console.warn("[GeminiClassifier][text] unexpected finishReason on success path", {
-        finishReason,
-        ocrTextLength: ocrText.length,
-      });
-    }
-    const result = parseGeminiResult(text);
-    if (!result) {
+    const parsed = parseGeminiResult(result.text);
+    if (!parsed) {
       console.warn("[GeminiClassifier][text] parseGeminiResult returned null", {
-        finishReason,
-        rawTextPreview: String(text).slice(0, 500),
+        rawTextPreview: result.text.slice(0, 500),
         ocrTextLength: ocrText.length,
       });
     }
-    return result;
+    return parsed;
   } catch (err) {
-    console.warn("[GeminiClassifier][text] fetch or parse threw", {
+    console.warn("[GeminiClassifier][text] gateway call threw", {
       error: err instanceof Error ? err.message : String(err),
       errorName: err instanceof Error ? err.name : "unknown",
       ocrTextLength: ocrText.length,
+      model: GEMINI_MODEL,
     });
     return null;
   }
@@ -137,70 +111,36 @@ export async function classifyWithGeminiVision(
   imageBase64: string,
   mimeType: string,
 ): Promise<GeminiClassifyResult | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY) {
     console.warn("[GeminiClassifier][vision] GEMINI_API_KEY missing");
     return null;
   }
 
   try {
-    const resp = await fetch(geminiUrl(apiKey), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [
-            { text: `${SYSTEM_PROMPT}\n\nClassify this document:` },
-            { inlineData: { mimeType, data: imageBase64 } },
-          ],
-        }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.0,
-          maxOutputTokens: 2048,
-          thinkingConfig: {
-            thinkingLevel: "low",
-          },
-        },
-      }),
+    const result = await runRole("generator", {
+      purpose: "gatekeeper_classify_vision",
+      prompt: `${SYSTEM_PROMPT}\n\nClassify this document:`,
+      inlineData: [{ mimeType, data: imageBase64 }],
+      temperature: 0.0,
+      maxOutputTokens: 2048,
+      thinkingLevel: "low",
+      responseSchema: { type: "object" },
     });
 
-    if (!resp.ok) {
-      const bodyPreview = await resp.text().catch(() => "<unreadable>");
-      console.warn("[GeminiClassifier][vision] non-ok HTTP response", {
-        status: resp.status,
-        statusText: resp.statusText,
-        bodyPreview: bodyPreview.slice(0, 500),
-        model: GEMINI_MODEL,
-        mimeType,
-      });
-      return null;
-    }
-
-    const json = await resp.json();
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    const finishReason = json.candidates?.[0]?.finishReason;
-    if (finishReason && finishReason !== "STOP") {
-      console.warn("[GeminiClassifier][vision] unexpected finishReason on success path", {
-        finishReason,
-        mimeType,
-      });
-    }
-    const result = parseGeminiResult(text);
-    if (!result) {
+    const parsed = parseGeminiResult(result.text);
+    if (!parsed) {
       console.warn("[GeminiClassifier][vision] parseGeminiResult returned null", {
-        finishReason,
-        rawTextPreview: String(text).slice(0, 500),
+        rawTextPreview: result.text.slice(0, 500),
         mimeType,
       });
     }
-    return result;
+    return parsed;
   } catch (err) {
-    console.warn("[GeminiClassifier][vision] fetch or parse threw", {
+    console.warn("[GeminiClassifier][vision] gateway call threw", {
       error: err instanceof Error ? err.message : String(err),
       errorName: err instanceof Error ? err.name : "unknown",
       mimeType,
+      model: GEMINI_MODEL,
     });
     return null;
   }
