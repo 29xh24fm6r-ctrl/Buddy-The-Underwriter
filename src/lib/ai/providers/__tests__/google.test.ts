@@ -109,6 +109,36 @@ describe("callGoogle: generationConfig temperature/thinkingConfig branching", ()
     }
   });
 
+  it("SPEC-M1.1: sets mediaResolution for a Gemini 3.x model when provided", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({
+        ...BASE_REQ,
+        model: "gemini-3.1-flash-lite",
+        mediaResolution: "MEDIA_RESOLUTION_HIGH",
+      });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.generationConfig.mediaResolution, "MEDIA_RESOLUTION_HIGH");
+    } finally {
+      restore();
+    }
+  });
+
+  it("SPEC-M1.1: omits mediaResolution when not provided", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, model: "gemini-3.1-flash-lite" });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal("mediaResolution" in body.generationConfig, false);
+    } finally {
+      restore();
+    }
+  });
+
   it("sets temperature 0.1 by default for a non-Gemini-3.x model", async () => {
     const { restore, calls } = installFetch(async () =>
       okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),

@@ -12,14 +12,9 @@ import "server-only";
  * NEVER THROWS — returns { ok: false, failureReason } on any failure.
  */
 
-import { GoogleGenAI } from "@google/genai";
-import {
-  ensureGcpAdcBootstrap,
-  getVertexAuthOptions,
-} from "@/lib/gcpAdcBootstrap";
 import { MODEL_EXTRACTION, isGemini3Model } from "@/lib/ai/models";
-import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
+import { runRole } from "@/lib/ai/gateway";
 import type { GeminiExtractionPrompt } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -30,25 +25,6 @@ const GEMINI_MODEL = MODEL_EXTRACTION;
 const GEMINI_TEMPERATURE = 0.0; // deterministic — lower than advisory's 0.1
 const GEMINI_PRIMARY_TIMEOUT_MS = 45_000; // 45s hard timeout (native PDF processing is heavier)
 const MAX_RETRIES = 1;
-
-
-// ---------------------------------------------------------------------------
-// GCP helpers (same pattern as geminiFlashStructuredAssist.ts)
-// ---------------------------------------------------------------------------
-
-function getGoogleProjectId(): string {
-  const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT ||
-    process.env.GOOGLE_PROJECT_ID ||
-    process.env.GCS_PROJECT_ID ||
-    process.env.GCP_PROJECT_ID;
-  if (!projectId) {
-    throw new Error(
-      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT.",
-    );
-  }
-  return projectId;
-}
 
 // ---------------------------------------------------------------------------
 // Strict retry instruction
@@ -100,19 +76,6 @@ export async function callGeminiForExtraction(args: {
   const started = Date.now();
 
   try {
-    await ensureGcpAdcBootstrap();
-    const googleAuthOptions = await getVertexAuthOptions();
-    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true uses
-    // Vertex backend + WIF auth, same as the old @google-cloud/vertexai SDK.
-    const ai = new GoogleGenAI({
-      vertexai: true,
-      project: getGoogleProjectId(),
-      location: getVertexLocation(),
-      ...(googleAuthOptions
-        ? { googleAuthOptions: googleAuthOptions as any }
-        : {}),
-    });
-
     let lastFailureReason: string | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -121,120 +84,64 @@ export async function callGeminiForExtraction(args: {
         ? STRICT_RETRY_INSTRUCTION
         : args.prompt.systemInstruction;
 
-      // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
-      // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: explicit thinkingLevel + maxOutputTokens
-      // + mediaResolution. Without maxOutputTokens, Gemini 3 Flash's dynamic
-      // thinking can consume the SDK's default output budget through reasoning
-      // alone, returning candidates with no text part. Without mediaResolution,
-      // small print on tax-return detail schedules (Form 1125-A COGS, Schedule L)
-      // downsamples below readable resolution.
-      const generationConfig: Record<string, unknown> = {
-        responseMimeType: "application/json",
-        // SPEC-GEMINI-FLASH-LITE-MIGRATION-1: bumped from 8192 to 16384.
-        // gemini-3.1-flash-lite supports up to 65535 output tokens. Tax-return
-        // JSON output (Form 1120 with Schedule L, M-1, M-2, Form 1125-A) plus
-        // model reasoning can exceed 8K. 16K leaves headroom without inviting
-        // runaway thinking budget consumption.
-        maxOutputTokens: 16384,
-      };
-      if (isGemini3Model(GEMINI_MODEL)) {
-        // Gemini 3 Flash supports minimal | low | medium | high.
-        // "low" is the right balance for extraction: enough reasoning to handle
-        // multi-page tax returns, not so much that latency budget burns through.
-        generationConfig.thinkingConfig = { thinkingLevel: "low" };
-        // PDF tax-return detail schedules need high resolution to read line items.
-        // Only applies when args.pdfBase64 is present.
-        if (args.pdfBase64) {
-          generationConfig.mediaResolution = "MEDIA_RESOLUTION_HIGH";
-        }
-      } else {
-        generationConfig.temperature = isRetry ? 0.0 : GEMINI_TEMPERATURE;
-      }
-      // Native PDF path: send the actual document as inlineData + instructions
-      // OCR text path: prompt already contains embedded OCR text
-      const userParts = args.pdfBase64
-        ? [
-            {
-              inlineData: {
-                mimeType: args.mimeType ?? "application/pdf",
-                data: args.pdfBase64,
-              },
-            },
-            { text: args.prompt.userPrompt },
-          ]
-        : [{ text: args.prompt.userPrompt }];
-
-      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai folds model + config +
-      // systemInstruction into a single ai.models.generateContent call.
-      // systemInstruction moves into `config`.
-      const generatePromise = ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: userParts as any,
-          },
-        ],
-        config: {
-          ...generationConfig,
+      // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+      // authMode: "vertex"). maxOutputTokens/thinkingLevel/mediaResolution
+      // preserve the incident-driven tuning documented above (16K output
+      // budget for reasoning + JSON; "low" thinking; MEDIA_RESOLUTION_HIGH
+      // for native-PDF small print) — temperature omission and
+      // thinkingConfig/mediaResolution construction for Gemini 3.x models
+      // are already handled inside providers/google.ts (mediaResolution
+      // support added here as a SPEC-M1.1 gateway capability, this file
+      // being its first real caller).
+      let rawText: string;
+      let finishReasonFromError: string | undefined;
+      try {
+        const result = await runRole("generator", {
+          purpose: "financial_spread_extraction",
+          prompt: args.prompt.userPrompt,
           systemInstruction,
-        },
-      });
-
-      // Hard timeout
-      const resp = await Promise.race([
-        generatePromise,
-        new Promise<never>((_resolve, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `gemini_primary_timeout_${GEMINI_PRIMARY_TIMEOUT_MS}ms`,
-                ),
-              ),
-            GEMINI_PRIMARY_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-
-      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai exposes `candidates` at
-      // top level (no `.response` wrapper) and a top-level `.text` accessor.
-      // Defense-in-depth: try both.
-      const candidate = (resp as any)?.candidates?.[0];
-      const parts = candidate?.content?.parts ?? [];
-      const rawText = (
-        (resp as any)?.text ??
-        parts
-          .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-          .join("")
-      )
-        .toString()
-        .trim();
+          modelOverride: GEMINI_MODEL,
+          authMode: "vertex",
+          maxOutputTokens: 16384,
+          thinkingLevel: "low",
+          mediaResolution:
+            isGemini3Model(GEMINI_MODEL) && args.pdfBase64
+              ? "MEDIA_RESOLUTION_HIGH"
+              : undefined,
+          temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
+          timeoutMs: GEMINI_PRIMARY_TIMEOUT_MS,
+          responseSchema: { type: "object" },
+          // Native PDF path: send the actual document as inlineData.
+          // OCR text path: prompt already contains embedded OCR text.
+          inlineData: args.pdfBase64
+            ? [{ mimeType: args.mimeType ?? "application/pdf", data: args.pdfBase64 }]
+            : undefined,
+        });
+        rawText = result.text.trim();
+      } catch (attemptErr: any) {
+        // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: providers/google.ts throws
+        // "empty response" (optionally suffixed "(finishReason: X)") for a
+        // blank candidate — extract that finishReason here so the failure
+        // mode is still visible in deal_extraction_runs.failure_detail
+        // instead of collapsing into UNKNOWN_FATAL. safetyRatings/
+        // promptFeedback are no longer available at this layer (disclosed,
+        // not silent — the gateway's ProviderCallResult doesn't carry them).
+        const msg = attemptErr?.message ? String(attemptErr.message) : "";
+        const emptyMatch = /^empty response(?: \(finishReason: (.+)\))?$/.exec(msg);
+        if (!emptyMatch) throw attemptErr;
+        finishReasonFromError = emptyMatch[1];
+        rawText = "";
+      }
 
       if (!rawText) {
-        // SPEC-GEMINI-EXTRACTION-CONFIG-FIX-1: capture finishReason + safetyRatings
-        // so the failure mode is visible in deal_extraction_runs.failure_detail
-        // instead of collapsing into UNKNOWN_FATAL with null detail.
-        const finishReason: string | undefined = candidate?.finishReason;
-        const safetyRatings: unknown = candidate?.safetyRatings;
-        const promptFeedback: unknown =
-          (resp as any)?.promptFeedback ?? (resp as any)?.response?.promptFeedback;
-
-        // Tag the failure reason so the orchestrator's mapFailureReasonToCode
-        // can route this to STRUCTURED_EMPTY_RESPONSE instead of UNKNOWN_FATAL.
-        // Suffix with finishReason when present so the detail reaches the ledger.
-        lastFailureReason = finishReason
-          ? `empty_response:${finishReason}`
+        lastFailureReason = finishReasonFromError
+          ? `empty_response:${finishReasonFromError}`
           : "empty_response";
 
         console.warn("[GeminiClient] Empty response", {
           documentId: args.documentId,
           attempt,
-          finishReason,
-          safetyRatings,
-          promptFeedback,
-          hasCandidate: !!candidate,
-          partsCount: parts.length,
+          finishReason: finishReasonFromError,
         });
         continue;
       }

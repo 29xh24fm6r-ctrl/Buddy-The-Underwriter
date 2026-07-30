@@ -46,6 +46,14 @@ export type ProviderCallRequest = {
    * before this field existed.
    */
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /**
+   * SPEC-M1.1 — Gemini's mediaResolution generationConfig field, controlling
+   * how finely inline image/PDF content is sampled (e.g. "MEDIA_RESOLUTION_
+   * HIGH" for reading small print on multi-page tax-return detail
+   * schedules). Google-only, Gemini-3.x-only; ignored otherwise. Absent by
+   * default — no mediaResolution is set, same as before this field existed.
+   */
+  mediaResolution?: string;
 };
 
 export type ProviderCallResult = {

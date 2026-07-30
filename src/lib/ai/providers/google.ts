@@ -42,6 +42,9 @@ function buildGenerationConfig(req: ProviderCallRequest): Record<string, unknown
   if (isGemini3Model(req.model)) {
     // Gemini 3.x rejects sub-1.0 temperatures — omit entirely, use thinkingConfig instead.
     config.thinkingConfig = { thinkingLevel: req.thinkingLevel ?? "low" };
+    if (req.mediaResolution) {
+      config.mediaResolution = req.mediaResolution;
+    }
   } else {
     config.temperature = req.temperature ?? 0.1;
   }

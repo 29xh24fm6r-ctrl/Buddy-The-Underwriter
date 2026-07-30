@@ -29,7 +29,6 @@
 # section below for the opposite reason — they DO contain real code that
 # trips the guard, but that code has nothing to do with the 30 files this
 # worklist is migrating; see that section for why.
-src/lib/financialSpreads/extractors/gemini/geminiClient.ts
 src/lib/rates/indexRates.ts
 src/lib/research/buddyIntelligenceEngine.ts
 src/lib/retrieval/retrievalCore.ts

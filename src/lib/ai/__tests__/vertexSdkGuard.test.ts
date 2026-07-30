@@ -30,9 +30,7 @@ const ROOT = process.cwd();
 // [sdk-1]/[sdk-2]/[sdk-7] still hold because gcpAdcBootstrap.ts's WIF auth
 // helper (used by providers/google.ts) keeps its own real @google/genai
 // dynamic import for auth resolution.
-const PROD_CALL_SITES = [
-  "src/lib/financialSpreads/extractors/gemini/geminiClient.ts",
-];
+const PROD_CALL_SITES: string[] = [];
 
 test("[sdk-1] @google-cloud/vertexai is NOT in package.json", () => {
   const pkg = readFileSync(resolve(ROOT, "package.json"), "utf8");

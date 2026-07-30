@@ -23,10 +23,7 @@ const HELPER_FILE = resolve(ROOT, "src/lib/ai/vertexLocation.ts");
 // only, same convention as scripts/guards/ai-gateway-only-allowlist.txt.
 // gcpAdcBootstrap.ts stays permanently — it's the gateway's OWN Vertex/WIF
 // auth plumbing (getVertexAccessToken/getProjectId), not migration debt.
-const CALLER_FILES = [
-  "src/lib/financialSpreads/extractors/gemini/geminiClient.ts",
-  "src/lib/gcpAdcBootstrap.ts",
-];
+const CALLER_FILES = ["src/lib/gcpAdcBootstrap.ts"];
 
 test("[vertex-loc-1] helper file exists at src/lib/ai/vertexLocation.ts", () => {
   assert.ok(existsSync(HELPER_FILE), "src/lib/ai/vertexLocation.ts must exist");

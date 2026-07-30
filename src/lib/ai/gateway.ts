@@ -82,6 +82,8 @@ export type RunRoleRequest = {
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
   /** SPEC-M1.1 — overrides the role config's default timeout for this call only. */
   timeoutMs?: number;
+  /** SPEC-M1.1 — Gemini mediaResolution override; see ProviderCallRequest's doc comment. */
+  mediaResolution?: string;
 };
 
 export type RunRoleResult = {
@@ -250,6 +252,7 @@ export async function runRole(
         useSearchGrounding: request.useSearchGrounding,
         temperature: request.temperature,
         thinkingLevel: request.thinkingLevel,
+        mediaResolution: request.mediaResolution,
       });
       const latencyMs = Date.now() - start;
       recordBudgetUsage(role, result.tokensIn + result.tokensOut);
