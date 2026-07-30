@@ -6,6 +6,10 @@ import { join } from "node:path";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
+import {
+  checkSchemaParity as runSchemaParityCheck,
+  type SchemaManifestEntry,
+} from "@/lib/admin/schemaParityCheck";
 
 export const dynamic = "force-dynamic";
 
@@ -185,6 +189,39 @@ async function checkSyntheticBorrowerReport(): Promise<Check> {
   }
 }
 
+/**
+ * SPEC-DRIFT-HARDENING-1 D3 — Schema Parity panel.
+ *
+ * Reads scripts/audit/schema-manifest.json (every table/column/view/function
+ * a migration >= its CUTOFF_VERSION claims to create — enforced statically
+ * against migration files by `pnpm guard:schema-manifest`) and confirms
+ * each entry actually exists in the LIVE schema via
+ * src/lib/admin/schemaParityCheck.ts (the buddy_table_exists /
+ * buddy_column_exists / buddy_view_exists RPCs). This is the runtime half
+ * of D3: the guard catches "migration author forgot to update the
+ * manifest" at commit time; this panel catches "the manifest says this
+ * should exist live but it doesn't" (e.g. a migration was authored but
+ * never actually applied — the exact 2026-07-30 incident this spec exists
+ * to prevent). The RPC-calling logic lives in schemaParityCheck.ts, not
+ * here, because this page.tsx imports "server-only" and so — like every
+ * other page.tsx in this repo — cannot be unit-tested directly.
+ */
+async function checkSchemaParity(): Promise<Check> {
+  const manifestPath = join(process.cwd(), "scripts/audit/schema-manifest.json");
+  let manifest: SchemaManifestEntry[];
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SchemaManifestEntry[];
+  } catch (e) {
+    return {
+      id: "schema_parity",
+      label: "Schema parity (manifest vs. live)",
+      status: "fail",
+      value: `manifest unreadable: ${(e as Error).message}`,
+    };
+  }
+  return runSchemaParityCheck(supabaseAdmin() as never, manifest);
+}
+
 async function checkLastCleanupCron(): Promise<Check> {
   // Best-effort: read the most recent ai_events row tagged
   // brokerage_session_cleanup. Falls back gracefully if the scope is
@@ -223,6 +260,7 @@ export default async function LaunchReadinessPage() {
     portalCol,
     synth,
     cron,
+    schemaParity,
   ] = await Promise.all([
     checkBrokerageSingleton(),
     checkRlsEnabled(),
@@ -231,6 +269,7 @@ export default async function LaunchReadinessPage() {
     checkPortalLinkRevokedColumn(),
     checkSyntheticBorrowerReport(),
     checkLastCleanupCron(),
+    checkSchemaParity(),
   ]);
 
   const checks: Check[] = [
@@ -241,6 +280,7 @@ export default async function LaunchReadinessPage() {
     pendingOcr,
     cron,
     synth,
+    schemaParity,
   ];
 
   const failCount = checks.filter((c) => c.status === "fail").length;
