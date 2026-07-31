@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { IdentityVerificationPanel } from "./IdentityVerificationPanel";
 import { ApprovalScoreCard } from "./ApprovalScoreCard";
+import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 
 type Milestone = {
   key: string;
@@ -148,6 +149,9 @@ export function PostSubmitHub({ token }: { token: string }) {
         <h2 className="text-sm font-semibold text-slate-800">Identity Verification</h2>
         <IdentityVerificationPanel token={token} />
       </div>
+
+      {/* Buddy Package — Trident bundle */}
+      <TridentPreviewCard token={token} />
 
       {/* Approval Score */}
       <ApprovalScoreCard token={token} />

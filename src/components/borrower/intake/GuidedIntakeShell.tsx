@@ -1,0 +1,136 @@
+"use client";
+
+import { type ReactNode } from "react";
+import {
+  BrokerageStageStrip,
+  deriveBrokerageStage,
+  type JourneyStatusInput,
+} from "@/components/brokerage/BrokerageStageStrip";
+
+const CHAPTER_LABELS = [
+  "Financing",
+  "Business",
+  "Ownership",
+  "Financials",
+  "Review",
+] as const;
+
+const CHAPTER_TIME_REMAINING = [27, 22, 17, 12, 4] as const;
+
+export function GuidedIntakeShell({
+  currentChapter,
+  dealId,
+  onChapterChange,
+  totalAmount,
+  journeyStatus,
+  children,
+}: {
+  currentChapter: 1 | 2 | 3 | 4 | 5;
+  dealId: string;
+  onChapterChange: (n: number) => void;
+  totalAmount: number;
+  journeyStatus: JourneyStatusInput;
+  children: ReactNode;
+}) {
+  const timeLeft = CHAPTER_TIME_REMAINING[currentChapter - 1];
+
+  return (
+    <div className="space-y-5">
+      {/* Sticky top bar */}
+      <div className="sticky top-0 z-40 -mx-4 bg-white/95 px-4 pb-3 pt-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
+        <div className="mb-3">
+          <BrokerageStageStrip
+            activeStage={deriveBrokerageStage({
+              hasDealId: true,
+              progressPct: journeyStatus.progressPct,
+              sealed: journeyStatus.sealed,
+              listed: journeyStatus.listingStatus === "claiming",
+              claimWindowClosed:
+                journeyStatus.listingStatus === "awaiting_borrower_pick" ||
+                journeyStatus.listingStatus === "picked",
+            })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-700">
+              Chapter {currentChapter}: {CHAPTER_LABELS[currentChapter - 1]}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 rounded-full bg-brand-blue-500/10 px-3 py-1">
+            <svg className="h-3.5 w-3.5 text-brand-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-xs font-medium text-brand-blue-500">~{timeLeft} min left</span>
+          </div>
+        </div>
+
+        {/* Momentum rail */}
+        <div className="mt-3 flex gap-1.5">
+          {CHAPTER_LABELS.map((label, i) => {
+            const chapterNum = i + 1;
+            const isCompleted = chapterNum < currentChapter;
+            const isActive = chapterNum === currentChapter;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  if (chapterNum <= currentChapter) onChapterChange(chapterNum);
+                }}
+                disabled={chapterNum > currentChapter}
+                className={`h-2 flex-1 rounded-full transition-all duration-500 ${
+                  isCompleted
+                    ? "bg-gradient-to-r from-emerald-400 to-emerald-500"
+                    : isActive
+                      ? "bg-gradient-to-r from-[#1c8de0] to-[#4db8f0]"
+                      : "bg-slate-200"
+                } ${chapterNum <= currentChapter ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+                aria-label={`${label} — ${isCompleted ? "completed" : isActive ? "current" : "upcoming"}`}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-1.5 flex gap-1.5">
+          {CHAPTER_LABELS.map((label, i) => (
+            <span
+              key={label}
+              className={`flex-1 text-center text-[10px] ${
+                i + 1 <= currentChapter ? "font-medium text-slate-600" : "text-slate-400"
+              }`}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Active chapter content */}
+      <div className="min-h-[400px]">{children}</div>
+
+      {/* Sticky bottom summary bar */}
+      {totalAmount > 0 && (
+        <div className="sticky bottom-0 z-40 -mx-4 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-slate-500">Total financing</span>
+              <p className="text-lg font-bold text-slate-900">
+                ${totalAmount.toLocaleString()}
+              </p>
+            </div>
+            {currentChapter < 5 && (
+              <button
+                type="button"
+                onClick={() => onChapterChange(currentChapter + 1)}
+                className="brand-gradient-cta rounded-2xl px-6 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110"
+              >
+                Continue
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
