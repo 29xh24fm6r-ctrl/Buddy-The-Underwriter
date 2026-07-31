@@ -32,26 +32,28 @@ test("non-SBA: all data steps complete resumes at Documents (step 5)", () => {
   assert.equal(deriveInitialStep(sections, false), 5);
 });
 
-test("SBA: resumes at compliance step (5) once loan is done", () => {
+test("SBA: resumes at pfs step (4) once first three are done", () => {
   const sections = [
     section("business", true),
     section("address", true),
     section("owners", true),
     section("loan", true),
   ];
-  assert.equal(deriveInitialStep(sections, true), 5);
+  assert.equal(deriveInitialStep(sections, true), 4);
 });
 
-test("SBA: all data steps complete resumes at Documents (step 7)", () => {
+test("SBA: all data steps complete resumes at Documents (step 9)", () => {
   const sections = [
     section("business", true),
     section("address", true),
     section("owners", true),
+    section("pfs", true),
     section("loan", true),
+    section("debt", true),
     section("compliance", true),
     section("projections", true),
   ];
-  assert.equal(deriveInitialStep(sections, true), 7);
+  assert.equal(deriveInitialStep(sections, true), 9);
 });
 
 test("owners section present but not completed (0 owners) stops resume there", () => {
