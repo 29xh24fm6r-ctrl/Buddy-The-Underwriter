@@ -178,8 +178,14 @@ Return ONLY a JSON array of scores: [score0, score1, ...]`;
     // — OpenAI-only, matching this call's OpenAI-specific model choice).
     // modelOverride is required since MODEL_RETRIEVAL (OPENAI_MINI) differs
     // from structurer's default chain model.
+    //
+    // Audit fix (Borrower Intake Program review): allChunks is built from
+    // deal_doc_chunks — real uploaded borrower documents (tax returns, PFS,
+    // bank statements) — so this must be npiTagged like every other
+    // borrower-data gateway call, not left to the false default.
     const result = await runRole("structurer", {
       purpose: "retrieval_rerank",
+      npiTagged: true,
       prompt,
       modelOverride: OPENAI_MINI,
       temperature: 0,

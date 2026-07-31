@@ -169,6 +169,34 @@ test("excludes a per-section fallback from the draft while still verifying a rea
   assert.doesNotMatch(capturedPrompt, /Weaknesses not available\./);
 });
 
+test("franchise_section participates in the draft and its fallback is excluded (audit fix regression)", async () => {
+  let capturedPrompt = "";
+  __setProviderImplForTests("anthropic", async (req: any) => {
+    capturedPrompt = req.prompt;
+    return { text: JSON.stringify({ flaggedClaims: [] }), tokensIn: 40, tokensOut: 20 };
+  });
+
+  const result = await verifyBusinessPlanPackage({
+    dealId: "deal-1",
+    bankId: "bank-1",
+    pkg: basePkg({
+      franchise_section: "Item 19 shows median unit revenue of $850,000.",
+    }),
+    sb: makeDb({}),
+  });
+
+  assert.ok(result, "franchise_section alone must be enough to trigger a verification pass");
+  assert.match(capturedPrompt, /Item 19 shows median unit revenue/);
+
+  const skipped = await verifyBusinessPlanPackage({
+    dealId: "deal-1",
+    bankId: "bank-1",
+    pkg: basePkg({ franchise_section: "Franchise section not available." }),
+    sb: makeDb({}),
+  });
+  assert.equal(skipped, null, "franchise_section's own fallback string must never be fact-checked as real content");
+});
+
 test("opens a banker task when a critical claim is flagged", async () => {
   setVerifierResponse([
     { claim: "Break-even revenue is $50,000", reason: "Facts show $500,000.", severity: "critical" },

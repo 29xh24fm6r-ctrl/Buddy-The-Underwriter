@@ -20,7 +20,10 @@ const { __setProviderImplForTests, __setLogGatewayCallForTests, __resetGatewayTe
 const { __setVendorApprovalForTests, __resetVendorApprovalForTests } =
   require("../../../ai/vendorApproval") as typeof import("../../../ai/vendorApproval");
 
-function fakeSnapshotClient(computedMetrics: Record<string, number | null> | null) {
+function fakeSnapshotClient(
+  computedMetrics: Record<string, number | null> | null,
+  loggedEvents?: Array<{ event_type: string; metadata: any }>,
+) {
   return {
     from(table: string) {
       if (table === "deal_model_snapshots") {
@@ -48,9 +51,10 @@ function fakeSnapshotClient(computedMetrics: Record<string, number | null> | nul
           },
         };
       }
-      // brokerage_conversion_events (emitReadinessReadRendered)
+      // brokerage_conversion_events (emitReadinessReadRendered / emitReadinessReadDegraded)
       return {
-        insert() {
+        insert(row: { event_type: string; metadata: any }) {
+          loggedEvents?.push(row);
           return Promise.resolve({ data: [{}], error: null });
         },
       };
@@ -73,15 +77,19 @@ describe("buildGlassBoxReadinessRead", () => {
     assert.equal(result.status, "unavailable");
   });
 
-  it("returns 'degraded' when a snapshot exists but has no numeric metrics", async () => {
+  it("returns 'degraded' when a snapshot exists but has no numeric metrics, and emits readiness_read_degraded:no_computed_metrics", async () => {
+    const logged: Array<{ event_type: string; metadata: any }> = [];
     const result = await buildGlassBoxReadinessRead(
       "deal-2",
-      fakeSnapshotClient({ DSCR: null, EBITDA: null }),
+      fakeSnapshotClient({ DSCR: null, EBITDA: null }, logged),
     );
     assert.equal(result.status, "degraded");
     if (result.status === "degraded") {
       assert.deepEqual(result.missingMetrics.sort(), ["DSCR", "EBITDA"]);
     }
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].event_type, "readiness_read_degraded");
+    assert.equal(logged[0].metadata.reason, "no_computed_metrics");
   });
 
   it("returns 'ready' with narrated sections when translator+verifier both succeed", async () => {
@@ -132,8 +140,12 @@ describe("buildGlassBoxReadinessRead", () => {
       };
     });
 
-    const result = await buildGlassBoxReadinessRead("deal-4", fakeSnapshotClient({ DSCR: 1.35 }));
+    const logged: Array<{ event_type: string; metadata: any }> = [];
+    const result = await buildGlassBoxReadinessRead("deal-4", fakeSnapshotClient({ DSCR: 1.35 }, logged));
     assert.equal(result.status, "degraded");
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].event_type, "readiness_read_degraded");
+    assert.equal(logged[0].metadata.reason, "verifier_flagged");
   });
 
   it("does not degrade on a non-critical (warning) flag", async () => {
@@ -168,8 +180,15 @@ describe("buildGlassBoxReadinessRead", () => {
     // the real, un-mocked gate (anthropic defaults to PENDING), proving
     // this is what actually happens today against a real deal, not just a
     // simulated failure.
-    const result = await buildGlassBoxReadinessRead("deal-6", fakeSnapshotClient({ DSCR: 1.35 }));
+    const logged: Array<{ event_type: string; metadata: any }> = [];
+    const result = await buildGlassBoxReadinessRead("deal-6", fakeSnapshotClient({ DSCR: 1.35 }, logged));
     assert.equal(result.status, "degraded");
+    // Audit fix regression guard: this is the actual production path today
+    // (all vendors PENDING) — it must be observable as a distinct metric,
+    // not just a console.error, since it's the only path most deals hit.
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].event_type, "readiness_read_degraded");
+    assert.equal(logged[0].metadata.reason, "call_failed");
   });
 
   it("returns 'degraded' (not a throw) when the translator call fails for a reason other than the NPI gate", async () => {
@@ -179,7 +198,9 @@ describe("buildGlassBoxReadinessRead", () => {
       throw new Error("simulated provider outage");
     });
 
-    const result = await buildGlassBoxReadinessRead("deal-7", fakeSnapshotClient({ DSCR: 1.35 }));
+    const logged: Array<{ event_type: string; metadata: any }> = [];
+    const result = await buildGlassBoxReadinessRead("deal-7", fakeSnapshotClient({ DSCR: 1.35 }, logged));
     assert.equal(result.status, "degraded");
+    assert.equal(logged[0]?.metadata.reason, "call_failed");
   });
 });

@@ -29,6 +29,11 @@ const NARRATIVE_SECTION_LABELS: Record<string, string> = {
   swot_threats: "SWOT — Threats",
   sensitivity_narrative: "Sensitivity Analysis",
   plan_thesis: "Plan Thesis",
+  // Audit fix (Borrower Intake Program review): franchise_section
+  // (sbaPackageOrchestrator.ts, generateFranchiseSection) was persisted
+  // but never included here, so franchise investment/Item 19 performance
+  // claims went unverified for every franchise deal.
+  franchise_section: "Franchise Section",
 };
 
 /**
@@ -55,6 +60,7 @@ const SECTION_FALLBACKS: Record<string, string> = {
   swot_opportunities: "Opportunities not available.",
   swot_threats: "Threats not available.",
   sensitivity_narrative: "Sensitivity analysis not available.",
+  franchise_section: "Franchise section not available.",
 };
 
 export type BusinessPlanPackageForVerify = {

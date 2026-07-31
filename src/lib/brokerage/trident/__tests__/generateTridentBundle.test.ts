@@ -20,6 +20,7 @@ const state: {
   sbaResult: any;
   feasResult: any;
   sbaPackageRowForXlsx: Row | null;
+  enrichBusinessPlanPackageCalls: Array<{ dealId: string; bankId: string; packageId: string }>;
 } = {
   bundles: [],
   deals: [{ id: "deal-1", bank_id: "bank-1" }],
@@ -32,12 +33,14 @@ const state: {
   sbaResult: null,
   feasResult: null,
   sbaPackageRowForXlsx: null,
+  enrichBusinessPlanPackageCalls: [],
 };
 
 function resetState() {
   state.bundles = [];
   state.sbaPackages = [];
   state.feasibilityStudies = [];
+  state.enrichBusinessPlanPackageCalls = [];
   let n = 0;
   state.nextBundleId = () => `bundle-${++n}`;
   state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1 };
@@ -223,6 +226,21 @@ require.cache[require.resolve("@/lib/sba/sbaPackageOrchestrator")] = {
   },
 } as any;
 
+// Audit fix regression: enrichBusinessPlanPackage (SPEC-M8's verifier pass)
+// is now called from generateTridentBundle.ts — stub it like the other
+// downstream generators and record calls so the wiring itself is asserted,
+// not just that the bundle still succeeds.
+require.cache[require.resolve("@/lib/sba/enrichBusinessPlanPackage")] = {
+  id: "enrich-business-plan-stub",
+  filename: "enrich-business-plan-stub",
+  loaded: true,
+  exports: {
+    enrichBusinessPlanPackage: async (args: { dealId: string; bankId: string; packageId: string; sb: unknown }) => {
+      state.enrichBusinessPlanPackageCalls.push({ dealId: args.dealId, bankId: args.bankId, packageId: args.packageId });
+    },
+  },
+} as any;
+
 require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
   id: "feas-eng-stub",
   filename: "feas-eng-stub",
@@ -261,6 +279,7 @@ test("preview happy path: pending → running → succeeded with redactor_versio
   assert.equal(row.redactor_version, "1.0.0");
   assert.ok(row.business_plan_pdf_path);
   assert.equal(row.projections_xlsx_path, null); // preview = no XLSX
+  assert.equal(state.enrichBusinessPlanPackageCalls.length, 1, "verification must run on preview generation too");
 });
 
 test("final happy path: redactor_version null, projections XLSX populated", async () => {
@@ -275,6 +294,14 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
   assert.equal(row.redactor_version, null);
   assert.ok(row.projections_xlsx_path);
   assert.ok(row.projections_xlsx_path.endsWith("_projections.xlsx"));
+
+  // Audit fix regression: business-plan verification must run on this path
+  // (marketplace-pick final-mode generation) — previously it never did.
+  assert.equal(state.enrichBusinessPlanPackageCalls.length, 1);
+  const call = state.enrichBusinessPlanPackageCalls[0];
+  assert.equal(call.dealId, "deal-1");
+  assert.equal(call.bankId, "bank-1");
+  assert.equal(call.packageId, "pkg-1");
 });
 
 test("SBA package failure: bundle marked failed with generation_error", async () => {
@@ -286,6 +313,7 @@ test("SBA package failure: bundle marked failed with generation_error", async ()
   assert.equal(row.status, "failed");
   assert.ok(row.generation_error?.includes("assumptions not confirmed"));
   assert.ok(row.generation_completed_at);
+  assert.equal(state.enrichBusinessPlanPackageCalls.length, 0, "must not run when the SBA package itself failed");
 });
 
 test("feasibility failure is non-fatal; bundle still succeeded, feasibility path null", async () => {

@@ -86,13 +86,21 @@ function detectQualityFlagIssues(qualityFlags: QualityFlagInput[]): FixCardIssue
 const DSCR_RISK_KEYS = new Set(["DSCR"]);
 
 function detectRiskFlagIssues(riskFlags: RiskFlagInput[]): FixCardIssue[] {
+  // Audit fix (Borrower Intake Program review): RiskSeverity
+  // (src/lib/modelEngine/types.ts) is uppercase ("LOW"|"MEDIUM"|"HIGH"),
+  // matching what's actually persisted to deal_model_snapshots.risk_flags
+  // and read back verbatim by loadLatestSnapshotMetrics. Comparing against
+  // lowercase literals here meant a HIGH-severity breach (e.g. DSCR below
+  // minimum) was silently never mapped to "critical" — always downgraded
+  // to "warning". Normalize before comparing so this doesn't depend on the
+  // caller's exact casing.
   return riskFlags
-    .filter((f) => f.severity !== "low")
+    .filter((f) => f.severity.toUpperCase() !== "LOW")
     .map((flag) => {
       const isDscr = DSCR_RISK_KEYS.has(flag.key);
       return {
         issueType: `risk_flag:${flag.key}`,
-        severity: flag.severity === "high" ? "critical" : "warning",
+        severity: flag.severity.toUpperCase() === "HIGH" ? "critical" : "warning",
         summary: `Your ${humanizeCode(flag.key)} of ${flag.value} is below the typical minimum of ${flag.threshold}.`,
         resolvingAction: isDscr
           ? "Upload documentation for any add-backs (bonus depreciation, one-time expenses, officer compensation adjustments) that support your cash flow calculation."
