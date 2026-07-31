@@ -9,6 +9,10 @@ import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sanitizeEntityName } from "@/lib/ownership/sanitizeEntityName";
 import { validateIntakeSubmission } from "@/lib/borrower/validateIntakeSubmission";
+import {
+  insertExistingDebtScheduleEntry,
+  syncExistingDebtScheduleToDownstream,
+} from "@/lib/financialFacts/existingDebtScheduleWriter";
 import type { IntakeSaveRequest, IntakeSaveResponse } from "@/types/intake";
 
 export const runtime = "nodejs";
@@ -388,6 +392,183 @@ export async function POST(
           { ok: false, error: "Failed to save compliance answers" },
           { status: 500 }
         );
+      }
+
+      return NextResponse.json<IntakeSaveResponse>({ ok: true });
+    }
+
+    // ─── STEP: debt ───
+    if (step === "debt") {
+      const d = data as {
+        no_existing_debt?: boolean;
+        rows?: Array<Record<string, unknown>>;
+      };
+
+      if (d.no_existing_debt) {
+        await syncExistingDebtScheduleToDownstream(
+          { dealId: ctx.dealId, bankId: ctx.bankId, confirmNoDebt: true },
+          sb,
+        );
+      } else if (Array.isArray(d.rows)) {
+        for (const row of d.rows) {
+          const monthlyPayment = row.monthly_payment
+            ? parseFloat(String(row.monthly_payment).replace(/[^0-9.]/g, ""))
+            : null;
+          const currentBalance = row.current_balance
+            ? parseFloat(String(row.current_balance).replace(/[^0-9.]/g, ""))
+            : null;
+
+          await insertExistingDebtScheduleEntry(
+            {
+              dealId: ctx.dealId,
+              bankId: ctx.bankId,
+              lenderName: String(row.lender_name || "").trim(),
+              loanType: (row.loan_type as string) || null,
+              currentBalance: Number.isFinite(currentBalance) ? currentBalance : null,
+              monthlyPayment: Number.isFinite(monthlyPayment) ? monthlyPayment : null,
+              annualDebtService:
+                Number.isFinite(monthlyPayment) ? monthlyPayment! * 12 : null,
+              maturityDate: (row.maturity_date as string) || null,
+              isBeingRefinanced: row.is_being_refinanced === true,
+              source: "manual_borrower",
+            },
+            sb,
+          );
+        }
+
+        await syncExistingDebtScheduleToDownstream(
+          { dealId: ctx.dealId, bankId: ctx.bankId },
+          sb,
+        );
+      }
+
+      const { error: secErr } = await sb
+        .from("deal_builder_sections")
+        .upsert(
+          {
+            deal_id: ctx.dealId,
+            section_key: "debt",
+            data: d,
+            completed: true,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "deal_id,section_key" },
+        );
+      if (secErr) {
+        console.error("[intake/debt] upsert deal_builder_sections:", secErr.code, secErr.details, secErr.hint);
+      }
+
+      return NextResponse.json<IntakeSaveResponse>({ ok: true });
+    }
+
+    // ─── STEP: pfs ───
+    if (step === "pfs") {
+      const d = data as {
+        entries?: Array<{
+          owner_entity_id?: string;
+          owner_name?: string;
+          real_estate?: Array<Record<string, unknown>>;
+          securities?: Array<Record<string, unknown>>;
+          notes_payable?: Array<Record<string, unknown>>;
+          total_assets?: string;
+          total_liabilities?: string;
+        }>;
+      };
+
+      if (Array.isArray(d.entries)) {
+        for (const entry of d.entries) {
+          const applicantId = entry.owner_entity_id;
+          if (!applicantId) continue;
+
+          if (Array.isArray(entry.real_estate)) {
+            for (const row of entry.real_estate) {
+              const { error } = await sb
+                .from("borrower_pfs_real_estate")
+                .upsert(
+                  {
+                    deal_id: ctx.dealId,
+                    applicant_id: applicantId,
+                    property_label: row.property_label || null,
+                    property_type: row.property_type || null,
+                    present_market_value: row.present_market_value
+                      ? parseFloat(String(row.present_market_value).replace(/[^0-9.]/g, ""))
+                      : null,
+                    mortgage_balance: row.mortgage_balance
+                      ? parseFloat(String(row.mortgage_balance).replace(/[^0-9.]/g, ""))
+                      : null,
+                    mortgage_payment_per_month_year: row.mortgage_payment
+                      ? parseFloat(String(row.mortgage_payment).replace(/[^0-9.]/g, ""))
+                      : null,
+                  },
+                  { onConflict: "id" },
+                );
+              if (error) {
+                console.error("[intake/pfs] real_estate upsert:", error.code, error.details);
+              }
+            }
+          }
+
+          if (Array.isArray(entry.securities)) {
+            for (const row of entry.securities) {
+              const { error } = await sb
+                .from("borrower_pfs_securities")
+                .insert({
+                  deal_id: ctx.dealId,
+                  applicant_id: applicantId,
+                  name_of_securities: row.name_of_securities || null,
+                  number_of_shares: row.number_of_shares
+                    ? parseInt(String(row.number_of_shares), 10)
+                    : null,
+                  market_value_quotation_exchange: row.market_value
+                    ? parseFloat(String(row.market_value).replace(/[^0-9.]/g, ""))
+                    : null,
+                });
+              if (error) {
+                console.error("[intake/pfs] securities insert:", error.code, error.details);
+              }
+            }
+          }
+
+          if (Array.isArray(entry.notes_payable)) {
+            for (const row of entry.notes_payable) {
+              const { error } = await sb
+                .from("borrower_pfs_notes_payable")
+                .insert({
+                  deal_id: ctx.dealId,
+                  applicant_id: applicantId,
+                  noteholder_name_address: row.noteholder_name || null,
+                  original_balance: row.original_balance
+                    ? parseFloat(String(row.original_balance).replace(/[^0-9.]/g, ""))
+                    : null,
+                  current_balance: row.current_balance
+                    ? parseFloat(String(row.current_balance).replace(/[^0-9.]/g, ""))
+                    : null,
+                  payment_amount: row.payment_amount
+                    ? parseFloat(String(row.payment_amount).replace(/[^0-9.]/g, ""))
+                    : null,
+                });
+              if (error) {
+                console.error("[intake/pfs] notes_payable insert:", error.code, error.details);
+              }
+            }
+          }
+        }
+      }
+
+      const { error: secErr } = await sb
+        .from("deal_builder_sections")
+        .upsert(
+          {
+            deal_id: ctx.dealId,
+            section_key: "pfs",
+            data: d,
+            completed: true,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "deal_id,section_key" },
+        );
+      if (secErr) {
+        console.error("[intake/pfs] upsert deal_builder_sections:", secErr.code, secErr.details, secErr.hint);
       }
 
       return NextResponse.json<IntakeSaveResponse>({ ok: true });

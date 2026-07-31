@@ -1,6 +1,7 @@
 // src/types/intake.ts
 // Phase 85A — Shared types for borrower intake flow
 // Phase 85A.2 — Extended from 4-step to 5-step (added Owners as step 3)
+// SBA-COMPLETION — Extended with PFS (Item 4) and Existing Debt (Item 1) steps
 
 export const ENTITY_TYPES = [
   "LLC",
@@ -75,13 +76,64 @@ export type IntakeComplianceData = {
   has_affiliates: IntakeComplianceAnswer;
 };
 
-export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type IntakeDebtRowData = {
+  id: string;
+  lender_name: string;
+  loan_type: string;
+  current_balance: string;
+  monthly_payment: string;
+  maturity_date: string;
+  is_being_refinanced: boolean;
+};
+
+export type IntakeDebtData = {
+  no_existing_debt: boolean;
+  rows: IntakeDebtRowData[];
+};
+
+export type IntakePFSRealEstateRow = {
+  id: string;
+  property_label: string;
+  property_type: string;
+  present_market_value: string;
+  mortgage_balance: string;
+  mortgage_payment: string;
+};
+
+export type IntakePFSSecurityRow = {
+  id: string;
+  name_of_securities: string;
+  number_of_shares: string;
+  market_value: string;
+};
+
+export type IntakePFSNotePayableRow = {
+  id: string;
+  noteholder_name: string;
+  original_balance: string;
+  current_balance: string;
+  payment_amount: string;
+};
+
+export type IntakePFSData = {
+  owner_entity_id: string;
+  owner_name: string;
+  real_estate: IntakePFSRealEstateRow[];
+  securities: IntakePFSSecurityRow[];
+  notes_payable: IntakePFSNotePayableRow[];
+  total_assets: string;
+  total_liabilities: string;
+};
+
+export type IntakeStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export type IntakeStepKey =
   | "business"
   | "address"
   | "owners"
+  | "pfs"
   | "loan"
+  | "debt"
   | "compliance"
   | "projections"
   | "submit";
@@ -90,7 +142,9 @@ export type IntakeStepContent =
   | "business"
   | "address"
   | "owners"
+  | "pfs"
   | "loan"
+  | "debt"
   | "compliance"
   | "projections"
   | "documents"

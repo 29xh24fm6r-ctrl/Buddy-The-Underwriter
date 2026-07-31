@@ -21,7 +21,8 @@ export type ComputationContext =
   | "concierge_fact_change"
   | "document_upload"
   | "package_seal"
-  | "marketplace_relist";
+  | "marketplace_relist"
+  | "assumption_confirm";
 
 export type SubFactorScore = {
   name: string;

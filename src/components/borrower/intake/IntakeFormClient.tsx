@@ -17,6 +17,11 @@ import type {
   IntakeLoanData,
   IntakeComplianceData,
   IntakeComplianceAnswer,
+  IntakeDebtRowData,
+  IntakeDebtData,
+  IntakePFSRealEstateRow,
+  IntakePFSSecurityRow,
+  IntakePFSNotePayableRow,
   IntakeStep,
   IntakeStepKey,
   IntakeStepContent,
@@ -24,6 +29,9 @@ import type {
 } from "@/types/intake";
 import { PortalUploadDropzone } from "./PortalUploadDropzone";
 import { AssumptionInterview } from "./AssumptionInterview";
+import { ApprovalScoreCard } from "./ApprovalScoreCard";
+import { IdentityVerificationPanel } from "./IdentityVerificationPanel";
+import { PostSubmitHub } from "./PostSubmitHub";
 
 const SBA_LOAN_TYPES = ["SBA", "sba_7a", "sba_504", "sba_express"];
 
@@ -69,24 +77,38 @@ const STEP_LABELS_SBA = [
   "Business Info",
   "Business Address",
   "Owners",
+  "Personal Finances",
   "Loan Request",
+  "Existing Debt",
   "SBA Compliance",
   "Financial Projections",
   "Documents",
   "Review & Submit",
 ];
 
+const DEBT_LOAN_TYPE_OPTIONS = [
+  { value: "mortgage", label: "Mortgage" },
+  { value: "auto", label: "Auto Loan" },
+  { value: "equipment", label: "Equipment Loan" },
+  { value: "line_of_credit", label: "Line of Credit" },
+  { value: "sba_loan", label: "SBA Loan" },
+  { value: "other", label: "Other" },
+];
+
 function contentAt(s: number, isSba: boolean): IntakeStepContent {
   if (s === 1) return "business";
   if (s === 2) return "address";
   if (s === 3) return "owners";
-  if (s === 4) return "loan";
   if (isSba) {
-    if (s === 5) return "compliance";
-    if (s === 6) return "projections";
-    if (s === 7) return "documents";
+    if (s === 4) return "pfs";
+    if (s === 5) return "loan";
+    if (s === 6) return "debt";
+    if (s === 7) return "compliance";
+    if (s === 8) return "projections";
+    if (s === 9) return "documents";
     return "review";
   }
+  if (s === 4) return "loan";
   if (s === 5) return "documents";
   return "review";
 }
@@ -178,7 +200,7 @@ function sectionData(sections: ExistingSection[], key: string): Record<string, u
  */
 export function deriveInitialStep(sections: ExistingSection[], isSba: boolean): IntakeStep {
   const dataSteps: IntakeStepContent[] = isSba
-    ? ["business", "address", "owners", "loan", "compliance", "projections"]
+    ? ["business", "address", "owners", "pfs", "loan", "debt", "compliance", "projections"]
     : ["business", "address", "owners", "loan"];
   for (let i = 0; i < dataSteps.length; i++) {
     const section = sections.find((s) => s.section_key === dataSteps[i]);
@@ -268,9 +290,54 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     has_affiliates: boolToAnswer(complianceSection?.has_affiliates),
   });
 
+  // --- Debt schedule state (Item 1) ---
+  const debtSection = sectionData(existingSections, "debt");
+  const [debt, setDebt] = useState<IntakeDebtData>({
+    no_existing_debt: (debtSection?.no_existing_debt as boolean) ?? false,
+    rows: (() => {
+      const list = debtSection?.rows;
+      if (!Array.isArray(list)) return [];
+      return (list as Partial<IntakeDebtRowData>[]).map((r) => ({
+        id: r.id ?? "",
+        lender_name: r.lender_name ?? "",
+        loan_type: r.loan_type ?? "",
+        current_balance: r.current_balance ?? "",
+        monthly_payment: r.monthly_payment ?? "",
+        maturity_date: r.maturity_date ?? "",
+        is_being_refinanced: r.is_being_refinanced ?? false,
+      }));
+    })(),
+  });
+
+  // --- PFS state (Item 4) ---
+  const pfsSection = sectionData(existingSections, "pfs");
+  const [pfsEntries, setPfsEntries] = useState<
+    Array<{
+      owner_entity_id: string;
+      owner_name: string;
+      real_estate: IntakePFSRealEstateRow[];
+      securities: IntakePFSSecurityRow[];
+      notes_payable: IntakePFSNotePayableRow[];
+      total_assets: string;
+      total_liabilities: string;
+    }>
+  >(() => {
+    const entries = (pfsSection?.entries as unknown[]) ?? [];
+    if (!Array.isArray(entries)) return [];
+    return entries.map((e: any) => ({
+      owner_entity_id: e.owner_entity_id ?? "",
+      owner_name: e.owner_name ?? "",
+      real_estate: Array.isArray(e.real_estate) ? e.real_estate : [],
+      securities: Array.isArray(e.securities) ? e.securities : [],
+      notes_payable: Array.isArray(e.notes_payable) ? e.notes_payable : [],
+      total_assets: e.total_assets ?? "",
+      total_liabilities: e.total_liabilities ?? "",
+    }));
+  });
+
   const isSba = SBA_LOAN_TYPES.includes(loan.type);
   const STEP_LABELS = isSba ? STEP_LABELS_SBA : STEP_LABELS_NON_SBA;
-  const TOTAL_STEPS = STEP_LABELS.length as 6 | 7 | 8;
+  const TOTAL_STEPS = STEP_LABELS.length as 6 | 8 | 10;
   const currentContent = contentAt(step, isSba);
 
   // Phase 85A.3 — track uploaded document count for Step 5 + review
@@ -360,6 +427,36 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
     if (currentContent === "compliance") debouncedSave("compliance", compliance as unknown as Record<string, unknown>);
   }, [compliance, currentContent, debouncedSave]);
 
+  useEffect(() => {
+    if (currentContent === "debt") debouncedSave("debt", debt as unknown as Record<string, unknown>);
+  }, [debt, currentContent, debouncedSave]);
+
+  useEffect(() => {
+    if (currentContent === "pfs") debouncedSave("pfs", { entries: pfsEntries } as unknown as Record<string, unknown>);
+  }, [pfsEntries, currentContent, debouncedSave]);
+
+  // Auto-populate PFS entries from owners when arriving at the PFS step for
+  // the first time (no saved pfs section, owners already entered).
+  const pfsInitRef = useRef(false);
+  useEffect(() => {
+    if (currentContent !== "pfs" || pfsInitRef.current) return;
+    pfsInitRef.current = true;
+    if (pfsEntries.length > 0) return;
+    const qualifying = owners.filter((o) => o.full_name.trim());
+    if (qualifying.length === 0) return;
+    setPfsEntries(
+      qualifying.map((o) => ({
+        owner_entity_id: o.id,
+        owner_name: o.full_name,
+        real_estate: [],
+        securities: [],
+        notes_payable: [],
+        total_assets: "",
+        total_liabilities: "",
+      })),
+    );
+  }, [currentContent, owners, pfsEntries.length]);
+
   // --- Navigation ---
   const goNext = useCallback(async () => {
     if (step === 1 && !business.legal_name.trim()) {
@@ -419,26 +516,7 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
 
   // --- Submitted state ---
   if (submitted) {
-    return (
-      <div className="max-w-lg mx-auto py-12 text-center space-y-4">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 border border-emerald-200">
-          <svg className="h-8 w-8 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <h1 className="text-2xl font-bold text-slate-900">Application Submitted</h1>
-        <p className="text-sm text-slate-600">
-          Your loan application has been submitted successfully. Your banker will review
-          it and reach out with next steps.
-        </p>
-        <a
-          href={`/portal/${token}`}
-          className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          Track your application status
-        </a>
-      </div>
-    );
+    return <PostSubmitHub token={token} />;
   }
 
   // --- Render ---
@@ -793,6 +871,215 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
           </>
         )}
 
+        {currentContent === "pfs" && (
+          <>
+            <h2 className="text-lg font-semibold text-slate-900">Personal Financial Statement</h2>
+            <p className="text-sm text-slate-500">
+              SBA requires a personal financial statement from each owner with 20% or more
+              equity. We&apos;ve pre-populated an entry for each owner you listed.
+            </p>
+
+            {pfsEntries.map((entry, eIdx) => (
+              <div key={entry.owner_entity_id || eIdx} className="border border-slate-200 rounded-lg p-4 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-800">{entry.owner_name || `Owner ${eIdx + 1}`}</h3>
+
+                {/* Real Estate */}
+                <details className="group">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700 select-none">
+                    Real Estate ({entry.real_estate.length})
+                  </summary>
+                  <div className="mt-2 space-y-3">
+                    {entry.real_estate.map((re, rIdx) => (
+                      <div key={re.id} className="grid grid-cols-2 gap-2 border border-slate-100 rounded p-3 relative">
+                        <button type="button" onClick={() => setPfsEntries((prev) => prev.map((e, i) => i === eIdx ? { ...e, real_estate: e.real_estate.filter((_, j) => j !== rIdx) } : e))} className="absolute top-1 right-2 text-xs text-rose-400 hover:text-rose-600">x</button>
+                        <div className="col-span-2">
+                          <label className={labelCls}>Property Label</label>
+                          <input className={inputCls} value={re.property_label} onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, real_estate: en.real_estate.map((r, j) => j === rIdx ? { ...r, property_label: e.target.value } : r) } : en))} placeholder="Primary residence" />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Type</label>
+                          <select className={selectCls} value={re.property_type} onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, real_estate: en.real_estate.map((r, j) => j === rIdx ? { ...r, property_type: e.target.value } : r) } : en))}>
+                            <option value="">Select...</option>
+                            <option value="residential">Residential</option>
+                            <option value="commercial">Commercial</option>
+                            <option value="land">Land</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelCls}>Market Value ($)</label>
+                          <input className={inputCls} value={re.present_market_value} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, real_estate: en.real_estate.map((r, j) => j === rIdx ? { ...r, present_market_value: e.target.value } : r) } : en))} placeholder="350,000" />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Mortgage Balance ($)</label>
+                          <input className={inputCls} value={re.mortgage_balance} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, real_estate: en.real_estate.map((r, j) => j === rIdx ? { ...r, mortgage_balance: e.target.value } : r) } : en))} placeholder="200,000" />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Monthly Payment ($)</label>
+                          <input className={inputCls} value={re.mortgage_payment} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, real_estate: en.real_estate.map((r, j) => j === rIdx ? { ...r, mortgage_payment: e.target.value } : r) } : en))} placeholder="1,500" />
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, real_estate: [...en.real_estate, { id: crypto.randomUUID(), property_label: "", property_type: "", present_market_value: "", mortgage_balance: "", mortgage_payment: "" }] } : en))} className="w-full py-2 rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs hover:border-slate-400">+ Add Property</button>
+                  </div>
+                </details>
+
+                {/* Securities */}
+                <details className="group">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700 select-none">
+                    Stocks &amp; Bonds ({entry.securities.length})
+                  </summary>
+                  <div className="mt-2 space-y-3">
+                    {entry.securities.map((sec, sIdx) => (
+                      <div key={sec.id} className="grid grid-cols-3 gap-2 border border-slate-100 rounded p-3 relative">
+                        <button type="button" onClick={() => setPfsEntries((prev) => prev.map((e, i) => i === eIdx ? { ...e, securities: e.securities.filter((_, j) => j !== sIdx) } : e))} className="absolute top-1 right-2 text-xs text-rose-400 hover:text-rose-600">x</button>
+                        <div className="col-span-3">
+                          <label className={labelCls}>Name of Securities</label>
+                          <input className={inputCls} value={sec.name_of_securities} onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, securities: en.securities.map((s, j) => j === sIdx ? { ...s, name_of_securities: e.target.value } : s) } : en))} placeholder="Apple Inc (AAPL)" />
+                        </div>
+                        <div>
+                          <label className={labelCls}># Shares</label>
+                          <input className={inputCls} value={sec.number_of_shares} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, securities: en.securities.map((s, j) => j === sIdx ? { ...s, number_of_shares: e.target.value } : s) } : en))} placeholder="100" />
+                        </div>
+                        <div className="col-span-2">
+                          <label className={labelCls}>Market Value ($)</label>
+                          <input className={inputCls} value={sec.market_value} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, securities: en.securities.map((s, j) => j === sIdx ? { ...s, market_value: e.target.value } : s) } : en))} placeholder="15,000" />
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, securities: [...en.securities, { id: crypto.randomUUID(), name_of_securities: "", number_of_shares: "", market_value: "" }] } : en))} className="w-full py-2 rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs hover:border-slate-400">+ Add Security</button>
+                  </div>
+                </details>
+
+                {/* Notes Payable */}
+                <details className="group">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700 select-none">
+                    Notes Payable ({entry.notes_payable.length})
+                  </summary>
+                  <div className="mt-2 space-y-3">
+                    {entry.notes_payable.map((np, nIdx) => (
+                      <div key={np.id} className="grid grid-cols-2 gap-2 border border-slate-100 rounded p-3 relative">
+                        <button type="button" onClick={() => setPfsEntries((prev) => prev.map((e, i) => i === eIdx ? { ...e, notes_payable: e.notes_payable.filter((_, j) => j !== nIdx) } : e))} className="absolute top-1 right-2 text-xs text-rose-400 hover:text-rose-600">x</button>
+                        <div className="col-span-2">
+                          <label className={labelCls}>Noteholder Name</label>
+                          <input className={inputCls} value={np.noteholder_name} onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, notes_payable: en.notes_payable.map((n, j) => j === nIdx ? { ...n, noteholder_name: e.target.value } : n) } : en))} placeholder="Wells Fargo" />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Original Balance ($)</label>
+                          <input className={inputCls} value={np.original_balance} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, notes_payable: en.notes_payable.map((n, j) => j === nIdx ? { ...n, original_balance: e.target.value } : n) } : en))} placeholder="50,000" />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Current Balance ($)</label>
+                          <input className={inputCls} value={np.current_balance} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, notes_payable: en.notes_payable.map((n, j) => j === nIdx ? { ...n, current_balance: e.target.value } : n) } : en))} placeholder="35,000" />
+                        </div>
+                        <div className="col-span-2">
+                          <label className={labelCls}>Monthly Payment ($)</label>
+                          <input className={inputCls} value={np.payment_amount} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, notes_payable: en.notes_payable.map((n, j) => j === nIdx ? { ...n, payment_amount: e.target.value } : n) } : en))} placeholder="500" />
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, notes_payable: [...en.notes_payable, { id: crypto.randomUUID(), noteholder_name: "", original_balance: "", current_balance: "", payment_amount: "" }] } : en))} className="w-full py-2 rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs hover:border-slate-400">+ Add Note Payable</button>
+                  </div>
+                </details>
+
+                {/* Totals */}
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                  <div>
+                    <label className={labelCls}>Total Assets ($)</label>
+                    <input className={inputCls} value={entry.total_assets} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, total_assets: e.target.value } : en))} placeholder="500,000" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Total Liabilities ($)</label>
+                    <input className={inputCls} value={entry.total_liabilities} inputMode="numeric" onChange={(e) => setPfsEntries((prev) => prev.map((en, i) => i === eIdx ? { ...en, total_liabilities: e.target.value } : en))} placeholder="200,000" />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {pfsEntries.length === 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
+                Go back to the Owners step and add at least one owner to generate personal financial statements.
+              </div>
+            )}
+          </>
+        )}
+
+        {currentContent === "debt" && (
+          <>
+            <h2 className="text-lg font-semibold text-slate-900">Existing Debt Schedule</h2>
+            <p className="text-sm text-slate-500">
+              List all outstanding business debts. If the business has no existing debt, check
+              the box below.
+            </p>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={debt.no_existing_debt}
+                onChange={(e) => setDebt((d) => ({ ...d, no_existing_debt: e.target.checked, rows: e.target.checked ? [] : d.rows }))}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-slate-700">This business has no existing debt</span>
+            </label>
+
+            {!debt.no_existing_debt && (
+              <>
+                {debt.rows.map((row, rIdx) => (
+                  <div key={row.id} className="border border-slate-200 rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-slate-600">Debt {rIdx + 1}</span>
+                      <button type="button" onClick={() => setDebt((d) => ({ ...d, rows: d.rows.filter((_, j) => j !== rIdx) }))} className="text-xs text-rose-500 hover:text-rose-600">Remove</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className={labelCls}>Lender Name</label>
+                        <input className={inputCls} value={row.lender_name} onChange={(e) => setDebt((d) => ({ ...d, rows: d.rows.map((r, j) => j === rIdx ? { ...r, lender_name: e.target.value } : r) }))} placeholder="Bank of America" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Loan Type</label>
+                        <select className={selectCls} value={row.loan_type} onChange={(e) => setDebt((d) => ({ ...d, rows: d.rows.map((r, j) => j === rIdx ? { ...r, loan_type: e.target.value } : r) }))}>
+                          <option value="">Select...</option>
+                          {DEBT_LOAN_TYPE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Current Balance ($)</label>
+                        <input className={inputCls} value={row.current_balance} inputMode="numeric" onChange={(e) => setDebt((d) => ({ ...d, rows: d.rows.map((r, j) => j === rIdx ? { ...r, current_balance: e.target.value } : r) }))} placeholder="150,000" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Monthly Payment ($)</label>
+                        <input className={inputCls} value={row.monthly_payment} inputMode="numeric" onChange={(e) => setDebt((d) => ({ ...d, rows: d.rows.map((r, j) => j === rIdx ? { ...r, monthly_payment: e.target.value } : r) }))} placeholder="2,500" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Maturity Date</label>
+                        <input className={inputCls} type="date" value={row.maturity_date} onChange={(e) => setDebt((d) => ({ ...d, rows: d.rows.map((r, j) => j === rIdx ? { ...r, maturity_date: e.target.value } : r) }))} />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={row.is_being_refinanced}
+                        onChange={(e) => setDebt((d) => ({ ...d, rows: d.rows.map((r, j) => j === rIdx ? { ...r, is_being_refinanced: e.target.checked } : r) }))}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700">This debt will be refinanced by the new loan</span>
+                    </label>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setDebt((d) => ({ ...d, rows: [...d.rows, { id: crypto.randomUUID(), lender_name: "", loan_type: "", current_balance: "", monthly_payment: "", maturity_date: "", is_being_refinanced: false }] }))}
+                  className="w-full py-3 rounded-lg border border-dashed border-slate-300 text-slate-500 text-sm hover:border-slate-400 hover:text-slate-600 transition min-h-[44px]"
+                >
+                  + Add Debt
+                </button>
+              </>
+            )}
+          </>
+        )}
+
         {currentContent === "compliance" && (
           <>
             <h2 className="text-lg font-semibold text-slate-900">SBA Compliance Questions</h2>
@@ -914,6 +1201,49 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
               </div>
               {isSba && (
                 <div className="border-t border-slate-200 pt-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Personal Financial Statements</h3>
+                  {pfsEntries.length === 0 ? (
+                    <p className="text-slate-500 text-sm">No PFS entries added</p>
+                  ) : (
+                    <div className="space-y-1 text-slate-700">
+                      {pfsEntries.map((e) => (
+                        <p key={e.owner_entity_id}>
+                          <span className="text-slate-500">{e.owner_name || "Unknown"}:</span>{" "}
+                          {e.real_estate.length} properties, {e.securities.length} securities, {e.notes_payable.length} notes
+                          {(e.total_assets || e.total_liabilities) && (
+                            <span className="text-slate-400">
+                              {" "}({e.total_assets ? `Assets: $${Number(e.total_assets.replace(/[^0-9.]/g, "")).toLocaleString()}` : ""}{e.total_assets && e.total_liabilities ? " / " : ""}{e.total_liabilities ? `Liabilities: $${Number(e.total_liabilities.replace(/[^0-9.]/g, "")).toLocaleString()}` : ""})
+                            </span>
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {isSba && (
+                <div className="border-t border-slate-200 pt-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Existing Debt</h3>
+                  {debt.no_existing_debt ? (
+                    <p className="text-slate-700 text-sm">No existing debt</p>
+                  ) : debt.rows.length === 0 ? (
+                    <p className="text-slate-500 text-sm">No debt entries added</p>
+                  ) : (
+                    <div className="space-y-1 text-slate-700">
+                      {debt.rows.map((r) => (
+                        <p key={r.id}>
+                          <span className="text-slate-500">{r.lender_name || "—"}</span>
+                          {r.current_balance && ` — $${Number(r.current_balance.replace(/[^0-9.]/g, "")).toLocaleString()}`}
+                          {r.monthly_payment && ` ($${Number(r.monthly_payment.replace(/[^0-9.]/g, "")).toLocaleString()}/mo)`}
+                          {r.is_being_refinanced && <span className="text-blue-600 text-xs ml-1">(refinancing)</span>}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {isSba && (
+                <div className="border-t border-slate-200 pt-3">
                   <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                     SBA Compliance
                   </h3>
@@ -941,6 +1271,22 @@ export function IntakeFormClient({ token, dealId, deal, borrower, existingSectio
                     : "No documents uploaded yet"}
                 </p>
               </div>
+              {isSba && (
+                <div className="border-t border-slate-200 pt-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Identity Verification
+                  </h3>
+                  <IdentityVerificationPanel token={token} />
+                </div>
+              )}
+              {isSba && (
+                <div className="border-t border-slate-200 pt-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Approval Score
+                  </h3>
+                  <ApprovalScoreCard token={token} />
+                </div>
+              )}
               {isSba && (
                 <div className="border-t border-slate-200 pt-3">
                   <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">

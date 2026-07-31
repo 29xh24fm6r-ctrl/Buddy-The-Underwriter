@@ -11,6 +11,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadSBAAssumptionsPrefill } from "@/lib/sba/sbaAssumptionsPrefill";
 import { logSbaAssumptionsEvent } from "@/lib/sba/logSbaAssumptionsEvent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
+import { supabaseAdmin as supabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — bumped from 30s. Confirming now
@@ -256,6 +258,18 @@ export async function PATCH(
         },
         sb,
       );
+    }
+  }
+
+  if (patch.status === "confirmed") {
+    try {
+      await computeBuddySBAScore({
+        dealId: ctx.dealId,
+        sb: supabaseAdminClient(),
+        context: "assumption_confirm",
+      });
+    } catch (err) {
+      console.error("[sba-assumptions] computeBuddySBAScore failed (non-fatal):", err instanceof Error ? err.message : err);
     }
   }
 
