@@ -99,6 +99,18 @@ export async function generateAdvancedCreditMemo(params: {
   memoJson: MemoJson;
   warnings: string[];
   missingDocRequests: Array<{ docType: string; note: string }>;
+  /**
+   * SPEC-TRIDENT-FIX-VERIFY-AND-REDO-V1 — true only for the hard-fallback
+   * placeholder memo (both generate attempts failed to produce a valid,
+   * schema-parsed memo, for any reason — NPI refusal, provider outage, or
+   * bad JSON). Deliberately NOT derived from
+   * `memoJson.meta.recommendedDecision === "PENDING - MISSING INFO"`: a
+   * successful generation can legitimately reach that same decision when
+   * the LLM has real but incomplete data. Callers (GenerateCreditMemoPanel.tsx)
+   * must surface this — a stub must never be visually indistinguishable
+   * from a real AI-generated memo.
+   */
+  isFallbackStub: boolean;
 }> {
   const { dealId, userOverrides, context } = params;
 
@@ -155,7 +167,7 @@ Sections required (use these titles in order):
     const p1 = safeJsonParse(r1.text);
     if (p1.ok) {
       const v = MemoJsonSchema.safeParse(p1.value);
-      if (v.success) return postProcess(v.data);
+      if (v.success) return postProcess(v.data, false);
     }
   }
 
@@ -171,7 +183,7 @@ Sections required (use these titles in order):
       const p2 = safeJsonParse(r2.text);
       if (p2.ok) {
         const v = MemoJsonSchema.safeParse(p2.value);
-        if (v.success) return postProcess(v.data);
+        if (v.success) return postProcess(v.data, false);
       }
     }
   }
@@ -213,9 +225,9 @@ Sections required (use these titles in order):
     ],
   };
 
-  return postProcess(fallback);
+  return postProcess(fallback, true);
 
-  function postProcess(memoJson: MemoJson) {
+  function postProcess(memoJson: MemoJson, isFallbackStub: boolean) {
     // ensure required meta fields
     memoJson.meta.dealId = dealId;
     memoJson.meta.generatedAt = memoJson.meta.generatedAt || new Date().toISOString();
@@ -233,6 +245,7 @@ Sections required (use these titles in order):
       memoJson,
       warnings: memoJson.warnings ?? [],
       missingDocRequests,
+      isFallbackStub,
     };
   }
 }

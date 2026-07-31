@@ -57,7 +57,7 @@ test("returns the real memo when the generator call succeeds and is properly npi
     tokensOut: 50,
   }));
 
-  const { memoJson, warnings } = await generateAdvancedCreditMemo({
+  const { memoJson, warnings, isFallbackStub } = await generateAdvancedCreditMemo({
     dealId: "deal-1",
     context: { borrower: { name: "Acme Co" } },
   });
@@ -70,11 +70,12 @@ test("returns the real memo when the generator call succeeds and is properly npi
   );
   assert.equal(memoJson.meta.recommendedDecision, "APPROVE");
   assert.deepEqual(warnings, []);
+  assert.equal(isFallbackStub, false, "a real, successfully-generated memo must not be marked as a fallback stub");
 });
 
 test("degrades to the hard-fallback stub memo (not a throw) on the real NPI gate — all vendors PENDING by default", async () => {
   // Deliberately NOT approving any vendor — exercises the real gate.
-  const { memoJson, warnings } = await generateAdvancedCreditMemo({
+  const { memoJson, warnings, isFallbackStub } = await generateAdvancedCreditMemo({
     dealId: "deal-2",
     context: { borrower: { name: "Acme Co" } },
   });
@@ -82,6 +83,10 @@ test("degrades to the hard-fallback stub memo (not a throw) on the real NPI gate
   assert.equal(memoJson.meta.recommendedDecision, "PENDING - MISSING INFO");
   assert.equal(memoJson.meta.dealId, "deal-2");
   assert.match(warnings[0], /Generator call failed/);
+  // SPEC-TRIDENT-FIX-VERIFY-AND-REDO-V1 — this is the flag callers (the
+  // banker-facing credit-memo panel) must surface so a stub is never
+  // visually indistinguishable from a real AI-generated memo.
+  assert.equal(isFallbackStub, true);
 });
 
 test("degrades to the hard-fallback stub memo when the generator call fails for a reason other than the NPI gate", async () => {
@@ -94,13 +99,14 @@ test("degrades to the hard-fallback stub memo when the generator call fails for 
     throw new Error("simulated provider outage");
   });
 
-  const { memoJson, warnings } = await generateAdvancedCreditMemo({
+  const { memoJson, warnings, isFallbackStub } = await generateAdvancedCreditMemo({
     dealId: "deal-3",
     context: {},
   });
 
   assert.equal(memoJson.meta.recommendedDecision, "PENDING - MISSING INFO");
   assert.match(warnings[0], /Generator call failed/);
+  assert.equal(isFallbackStub, true);
 });
 
 test("falls back to the stub memo (schema-validation message, not the call-failure message) when both attempts return unparseable JSON", async () => {
@@ -111,13 +117,14 @@ test("falls back to the stub memo (schema-validation message, not the call-failu
     tokensOut: 10,
   }));
 
-  const { memoJson, warnings } = await generateAdvancedCreditMemo({
+  const { memoJson, warnings, isFallbackStub } = await generateAdvancedCreditMemo({
     dealId: "deal-4",
     context: {},
   });
 
   assert.equal(memoJson.meta.recommendedDecision, "PENDING - MISSING INFO");
   assert.match(warnings[0], /schema validation twice/);
+  assert.equal(isFallbackStub, true, "a schema-validation-failure fallback is still a stub, not real content");
 });
 
 test("attempt 2 (repair) recovers when attempt 1 returns malformed JSON but attempt 2 returns valid JSON", async () => {
@@ -129,7 +136,8 @@ test("attempt 2 (repair) recovers when attempt 1 returns malformed JSON but atte
     return { text: validMemoText({ meta: { dealId: "deal-5", memoVersion: "v1", generatedAt: "2026-07-31T00:00:00.000Z", recommendedDecision: "DECLINE", confidence: 0.6 } }), tokensIn: 10, tokensOut: 10 };
   });
 
-  const { memoJson } = await generateAdvancedCreditMemo({ dealId: "deal-5", context: {} });
+  const { memoJson, isFallbackStub } = await generateAdvancedCreditMemo({ dealId: "deal-5", context: {} });
   assert.equal(callCount, 2);
   assert.equal(memoJson.meta.recommendedDecision, "DECLINE");
+  assert.equal(isFallbackStub, false, "a repair-recovered real memo must not be marked as a fallback stub");
 });
