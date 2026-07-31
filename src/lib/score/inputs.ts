@@ -156,7 +156,7 @@ export async function loadScoreInputs(params: {
   const { data: application } = await sb
     .from("borrower_applications")
     .select(
-      "id, naics, industry, business_entity_type, sba7a_eligible, sba7a_ineligibility_reasons",
+      "id, naics, industry, business_entity_type, sba7a_eligible, sba7a_ineligibility_reasons, loan_purpose",
     )
     .eq("deal_id", dealId)
     .maybeSingle();
@@ -428,7 +428,9 @@ export async function loadScoreInputs(params: {
     sourcesAndUses: pkg?.sources_and_uses ?? null,
     useOfProceeds: Array.isArray(pkg?.use_of_proceeds)
       ? (pkg!.use_of_proceeds as unknown[])
-      : null,
+      : application?.loan_purpose
+        ? [{ category: application.loan_purpose, description: application.loan_purpose }]
+        : null,
     projectionsAnnual: pkg?.projections_annual ?? null,
     collateralNetLendableTotal: collateralNetLendableTotal === 0 ? null : collateralNetLendableTotal,
     equityInjectionAmount,
