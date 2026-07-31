@@ -27,7 +27,7 @@ export const POST = withApiGuard({ tag: "ai:credit-memo", requireAuth: true, rat
     // Build real deal context from DB
     const context = await buildDealContext(dealId);
 
-    const { memoJson, missingDocRequests } = await generateAdvancedCreditMemo({
+    const { memoJson, missingDocRequests, isFallbackStub } = await generateAdvancedCreditMemo({
       dealId,
       userOverrides: overrides,
       context,
@@ -39,6 +39,10 @@ export const POST = withApiGuard({ tag: "ai:credit-memo", requireAuth: true, rat
     return NextResponse.json({
       memoJson,
       memoHtml,
+      // SPEC-TRIDENT-FIX-VERIFY-AND-REDO-V1 — must be surfaced by the
+      // caller; a fallback placeholder memo must never be visually
+      // indistinguishable from a real AI-generated one.
+      isFallbackStub,
       actions: [
         {
           type: "GENERATE_PDF",

@@ -22,6 +22,8 @@ const {
   __resetGatewayTestOverrides,
   __resetGatewayBudgetForTests,
 } = require("../../ai/gateway") as typeof import("../../ai/gateway");
+const { __setVendorApprovalForTests, __resetVendorApprovalForTests } =
+  require("../../ai/vendorApproval") as typeof import("../../ai/vendorApproval");
 
 function okResult(text: string) {
   return { text, tokensIn: 1, tokensOut: 1 };
@@ -31,6 +33,10 @@ beforeEach(() => {
   __setProviderImplForTests("anthropic", async () => {
     throw new Error("anthropic not configured in this test");
   });
+  // rerankChunks is npiTagged (audit fix: deal_doc_chunks is real borrower
+  // document content) — approve openai here so these tests exercise the
+  // rerank logic itself rather than the NPI-refusal gate.
+  __setVendorApprovalForTests("openai", "APPROVED");
 });
 
 after(() => {
@@ -38,6 +44,7 @@ after(() => {
   __resetEmbedBudgetForTests();
   __resetGatewayTestOverrides();
   __resetGatewayBudgetForTests();
+  __resetVendorApprovalForTests();
 });
 
 test("__rerankChunksForTests: scores via the gateway's structurer role and sorts by score desc", async () => {

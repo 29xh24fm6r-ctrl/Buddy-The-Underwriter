@@ -20,6 +20,12 @@ export default function ConditionsToCloseCard({ dealId }: { dealId: string }) {
   const [items, setItems] = useState<Condition[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Audit fix (Borrower Intake Program review, M2/M6): both backend routes
+  // below already existed with zero UI entry point anywhere in the app.
+  const [followupNote, setFollowupNote] = useState("");
+  const [followupOpen, setFollowupOpen] = useState(false);
+  const [followupBusy, setFollowupBusy] = useState(false);
+  const [interrogationBusy, setInterrogationBusy] = useState(false);
 
   async function refresh() {
     setErr(null);
@@ -79,6 +85,57 @@ export default function ConditionsToCloseCard({ dealId }: { dealId: string }) {
     }
   }
 
+  // M2 BEAT-METRICS-1 — logs a real, human-entered lender follow-up
+  // question, distinct from M6's AI-anticipated count (emitLenderFollowup
+  // vs emitAnticipatedLenderFollowup — conflating the two would corrupt
+  // both metrics' meaning).
+  async function logLenderFollowup() {
+    setFollowupBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}/activity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: followupNote.trim() || undefined }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setErr(json?.error ? `${json.error}${json.detail ? `: ${json.detail}` : ""}` : `http_${res.status}`);
+        return;
+      }
+      setFollowupNote("");
+      setFollowupOpen(false);
+    } catch (e: any) {
+      setErr(e?.message || "log_followup_failed");
+    } finally {
+      setFollowupBusy(false);
+    }
+  }
+
+  // SPEC-M6 ANTICIPATED-INTERROGATION-1 — manual re-run. Idempotent
+  // (upserts on deal_id+code, skips duplicate deal_conditions inserts), so
+  // safe to trigger repeatedly; new/updated hostile_qna: conditions appear
+  // via the same refresh() the other actions on this card already use.
+  async function rerunHostileInterrogation() {
+    setInterrogationBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/brokerage/deals/${encodeURIComponent(dealId)}/committee-interrogation`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setErr(json?.error ? `${json.error}${json.detail ? `: ${json.detail}` : ""}` : `http_${res.status}`);
+        return;
+      }
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.message || "rerun_interrogation_failed");
+    } finally {
+      setInterrogationBusy(false);
+    }
+  }
+
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -98,14 +155,62 @@ export default function ConditionsToCloseCard({ dealId }: { dealId: string }) {
           </div>
         </div>
 
-        <button
-          onClick={generate}
-          disabled={busy}
-          className="rounded-xl border px-3 py-2 text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-50"
-        >
-          {busy ? "Generating…" : "Generate from Mitigants"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFollowupOpen((v) => !v)}
+            disabled={followupBusy}
+            className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+          >
+            Log lender follow-up
+          </button>
+          <button
+            onClick={rerunHostileInterrogation}
+            disabled={interrogationBusy}
+            className="rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+          >
+            {interrogationBusy ? "Re-running…" : "Re-run hostile committee review"}
+          </button>
+          <button
+            onClick={generate}
+            disabled={busy}
+            className="rounded-xl border px-3 py-2 text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-50"
+          >
+            {busy ? "Generating…" : "Generate from Mitigants"}
+          </button>
+        </div>
       </div>
+
+      {followupOpen ? (
+        <div className="rounded-xl border p-3 space-y-2">
+          <div className="text-xs font-semibold text-muted-foreground">
+            Log a lender follow-up question (what a lender asked or is likely to ask)
+          </div>
+          <textarea
+            value={followupNote}
+            onChange={(e) => setFollowupNote(e.target.value)}
+            maxLength={2000}
+            rows={2}
+            className="w-full rounded-lg border p-2 text-sm"
+            placeholder="Optional note…"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={logLenderFollowup}
+              disabled={followupBusy}
+              className="rounded-lg border px-3 py-2 text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {followupBusy ? "Logging…" : "Log follow-up"}
+            </button>
+            <button
+              onClick={() => setFollowupOpen(false)}
+              disabled={followupBusy}
+              className="rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {err ? (
         <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">

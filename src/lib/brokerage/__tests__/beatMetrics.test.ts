@@ -56,6 +56,14 @@ test("emitReadinessReadRendered writes a readiness_read_rendered event", async (
   assert.equal(db.tables.brokerage_conversion_events[0].event_type, "readiness_read_rendered");
 });
 
+test("emitReadinessReadDegraded writes a readiness_read_degraded event carrying the reason", async () => {
+  const db = new S();
+  await m.emitReadinessReadDegraded("deal-2b", "call_failed", db as any);
+  const row = db.tables.brokerage_conversion_events[0];
+  assert.equal(row.event_type, "readiness_read_degraded");
+  assert.equal(row.metadata.reason, "call_failed");
+});
+
 test("emitFormlessStart carries the formless flag in metadata", async () => {
   const db = new S();
   await m.emitFormlessStart("deal-3", false, db as any);

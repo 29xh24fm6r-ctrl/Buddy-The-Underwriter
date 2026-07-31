@@ -19,6 +19,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
+import { enrichBusinessPlanPackage } from "@/lib/sba/enrichBusinessPlanPackage";
 import { hashPackageNarratives, getBusinessPlanAttestationStatus } from "@/lib/sba/businessPlanAttestation";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
 import { renderFeasibilityPDF } from "@/lib/feasibility/feasibilityRenderer";
@@ -101,6 +102,26 @@ export async function generateTridentBundle(args: {
     const sbaResult = await generateSBAPackage(dealId, { mode });
     if (!sbaResult.ok) {
       throw new Error(`SBA package generation failed: ${sbaResult.error}`);
+    }
+
+    // Audit fix (Borrower Intake Program review) — enrichBusinessPlanPackage
+    // (SPEC-M8 ARTIFACT-PIPELINE-1's verifier pass) was wired into the SBA
+    // generate-package route but not into this function, even though this
+    // is the actual path used by borrower preview, admin/staff trigger, and
+    // marketplace-pick final-mode generation (per this file's mode param).
+    // Every business plan produced through the trident bundle was shipping
+    // with zero AI fact-checking. Best-effort, non-fatal — matches the
+    // sba/route.ts call site exactly: the package itself already generated
+    // successfully by this point.
+    try {
+      await enrichBusinessPlanPackage({
+        dealId,
+        bankId: deal.bank_id,
+        packageId: sbaResult.packageId,
+        sb,
+      });
+    } catch (enrichErr) {
+      console.error("[generateTridentBundle] business-plan verification failed (non-fatal):", enrichErr);
     }
 
     const businessPlanPath = await copyToTridentBucket(sb, {

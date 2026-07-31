@@ -29,6 +29,8 @@ export type HostileInterrogationResult = {
   questions: HostileQuestion[];
   conditionsCreated: number;
   conditionsSkipped: number;
+  /** Question codes whose deal_hostile_interrogations upsert failed — see runHostileInterrogationForDeal's doc comment. */
+  persistFailures: string[];
 };
 
 /**
@@ -87,8 +89,9 @@ export async function runHostileInterrogationForDeal(
   const facts = await loadDealWeaknessFacts(dealId, sb);
   const questions = await generateHostileInterrogation({ dealId, facts, npiTagged: false });
 
+  const persistFailures: string[] = [];
   for (const q of questions) {
-    await sb.from("deal_hostile_interrogations").upsert(
+    const persisted = await sb.from("deal_hostile_interrogations").upsert(
       {
         deal_id: dealId,
         bank_id: bankId,
@@ -104,6 +107,21 @@ export async function runHostileInterrogationForDeal(
       },
       { onConflict: "deal_id,code" },
     );
+
+    // Audit fix (Borrower Intake Program review): this result was
+    // previously discarded unchecked (unlike the deal_conditions insert
+    // below, which does check .error). A failed upsert here means
+    // buildFixCards.ts's hostile-QnA source silently loses this question
+    // from the borrower-facing fix cards even though the banker-facing
+    // deal_conditions task and emitAnticipatedLenderFollowup count below
+    // still reflect it — a real drift with zero prior observability.
+    if (persisted.error) {
+      persistFailures.push(q.code);
+      console.error(
+        "[hostileInterrogation] deal_hostile_interrogations upsert failed:",
+        { dealId, code: q.code, error: persisted.error.message },
+      );
+    }
   }
 
   let conditionsCreated = 0;
@@ -150,5 +168,5 @@ export async function runHostileInterrogationForDeal(
     );
   });
 
-  return { questions, conditionsCreated, conditionsSkipped };
+  return { questions, conditionsCreated, conditionsSkipped, persistFailures };
 }

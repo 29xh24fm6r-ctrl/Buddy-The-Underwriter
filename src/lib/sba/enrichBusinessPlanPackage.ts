@@ -23,7 +23,11 @@ const PACKAGE_COLUMNS =
   "dscr_year1_base, dscr_year2_base, dscr_year3_base, dscr_year1_downside, dscr_below_threshold, " +
   "break_even_revenue, margin_of_safety_pct, use_of_proceeds, business_overview_narrative, " +
   "executive_summary, industry_analysis, marketing_strategy, operations_plan, swot_strengths, " +
-  "swot_weaknesses, swot_opportunities, swot_threats, sensitivity_narrative, plan_thesis";
+  "swot_weaknesses, swot_opportunities, swot_threats, sensitivity_narrative, plan_thesis, " +
+  // Audit fix (Borrower Intake Program review): franchise_section was
+  // persisted by sbaPackageOrchestrator.ts but missing here, so it was
+  // silently excluded from verifyBusinessPlanPackage.ts's fact-check.
+  "franchise_section";
 
 export async function enrichBusinessPlanPackage(args: {
   dealId: string;

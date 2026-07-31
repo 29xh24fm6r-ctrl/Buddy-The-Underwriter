@@ -26,7 +26,7 @@ import "server-only";
 import { runRole } from "@/lib/ai/gateway";
 import { verifyClaims } from "@/lib/ai/verify";
 import { getDisclaimer } from "@/lib/ai/disclaimers";
-import { emitReadinessReadRendered } from "@/lib/brokerage/beatMetrics";
+import { emitReadinessReadRendered, emitReadinessReadDegraded } from "@/lib/brokerage/beatMetrics";
 import { loadLatestSnapshotMetrics } from "@/lib/modelEngine/snapshotService";
 
 export type GlassBoxSection = {
@@ -92,6 +92,19 @@ function labelFor(metricKey: string): string {
     .join(" ");
 }
 
+/** Best-effort — a metrics-write failure must not block the borrower's render. */
+async function emitDegraded(
+  dealId: string,
+  reason: "no_computed_metrics" | "verifier_flagged" | "call_failed",
+  sb: SB,
+): Promise<void> {
+  try {
+    await emitReadinessReadDegraded(dealId, reason, sb);
+  } catch (err) {
+    console.error("[beatMetrics] failed to emit readiness_read_degraded", err);
+  }
+}
+
 function buildPrompt(facts: Record<string, number>): string {
   return [
     "FACTS (immutable, already computed — do not question or recompute these):",
@@ -128,6 +141,7 @@ export async function buildGlassBoxReadinessRead(
   }
 
   if (Object.keys(facts).length === 0) {
+    await emitDegraded(dealId, "no_computed_metrics", sb);
     return {
       status: "degraded",
       message:
@@ -165,6 +179,7 @@ export async function buildGlassBoxReadinessRead(
 
     const hasCriticalFlag = verification.flaggedClaims.some((f) => f.severity === "critical");
     if (verification.verdict === "flagged" && hasCriticalFlag) {
+      await emitDegraded(dealId, "verifier_flagged", sb);
       return {
         status: "degraded",
         message:
@@ -180,6 +195,7 @@ export async function buildGlassBoxReadinessRead(
       .map((s) => ({ metricKey: s.metricKey, label: labelFor(s.metricKey), narrative: s.narrative }));
   } catch (err) {
     console.error("[glass-box] translator/verifier call failed:", err);
+    await emitDegraded(dealId, "call_failed", sb);
     return {
       status: "degraded",
       message:

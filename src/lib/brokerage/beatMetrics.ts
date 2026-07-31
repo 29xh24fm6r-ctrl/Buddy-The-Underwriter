@@ -48,6 +48,23 @@ export async function emitReadinessReadRendered(dealId: string, sb: SB): Promise
 }
 
 /**
+ * Audit fix (Borrower Intake Program review) — buildGlassBoxReadinessRead.ts
+ * previously only ever emitted a beat metric on its "ready" branch, so a
+ * degraded read (missing metrics, verifier-flagged, or an outright
+ * translator/verifier failure — including the expected NPI-refusal while
+ * vendor approval is PENDING) left zero aggregate signal, only a
+ * console.error. `reason` distinguishes the three degraded causes so the
+ * dashboard can tell "no data yet" apart from "AI call refused/failed."
+ */
+export async function emitReadinessReadDegraded(
+  dealId: string,
+  reason: "no_computed_metrics" | "verifier_flagged" | "call_failed",
+  sb: SB,
+): Promise<void> {
+  await logConversionEvent({ dealId, eventType: "readiness_read_degraded", metadata: { reason } }, sb);
+}
+
+/**
  * formless_start — did this deal begin without a form field? Always false
  * today (no conversational intake exists); SPEC-M5 CONVERSATIONAL-INTAKE-1
  * will pass true from its entry point.

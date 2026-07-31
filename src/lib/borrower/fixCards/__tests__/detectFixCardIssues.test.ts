@@ -26,9 +26,11 @@ test("quality flag becomes a warning-severity issue, strips parameter suffix fro
 });
 
 test("low-severity risk flags are excluded", () => {
+  // Audit fix: RiskSeverity (modelEngine/types.ts) is uppercase — this is
+  // the real shape persisted to deal_model_snapshots.risk_flags.
   const issues = detectFixCardIssues({
     ...emptyInput(),
-    riskFlags: [{ key: "DSCR", value: 1.3, threshold: 1.25, severity: "low" }],
+    riskFlags: [{ key: "DSCR", value: 1.3, threshold: 1.25, severity: "LOW" }],
   });
   assert.deepEqual(issues, []);
 });
@@ -36,7 +38,7 @@ test("low-severity risk flags are excluded", () => {
 test("DSCR risk flag gets the add-back documentation resolving action", () => {
   const issues = detectFixCardIssues({
     ...emptyInput(),
-    riskFlags: [{ key: "DSCR", value: 1.1, threshold: 1.25, severity: "high" }],
+    riskFlags: [{ key: "DSCR", value: 1.1, threshold: 1.25, severity: "HIGH" }],
   });
   assert.equal(issues.length, 1);
   assert.equal(issues[0].issueType, "risk_flag:DSCR");
@@ -47,11 +49,25 @@ test("DSCR risk flag gets the add-back documentation resolving action", () => {
 test("non-DSCR risk flag gets the generic banker-review action", () => {
   const issues = detectFixCardIssues({
     ...emptyInput(),
-    riskFlags: [{ key: "CURRENT_RATIO", value: 0.5, threshold: 1.0, severity: "medium" }],
+    riskFlags: [{ key: "CURRENT_RATIO", value: 0.5, threshold: 1.0, severity: "MEDIUM" }],
   });
   assert.equal(issues.length, 1);
   assert.equal(issues[0].severity, "warning");
   assert.match(issues[0].resolvingAction, /Review this figure with your banker/);
+});
+
+test("risk flag severity comparison is case-insensitive (regression: real data is uppercase)", () => {
+  const lower = detectFixCardIssues({
+    ...emptyInput(),
+    riskFlags: [{ key: "DSCR", value: 1.1, threshold: 1.25, severity: "high" }],
+  });
+  assert.equal(lower[0]?.severity, "critical");
+
+  const upper = detectFixCardIssues({
+    ...emptyInput(),
+    riskFlags: [{ key: "DSCR", value: 1.1, threshold: 1.25, severity: "HIGH" }],
+  });
+  assert.equal(upper[0]?.severity, "critical");
 });
 
 test("checklist gap becomes an info-severity issue carrying the checklistKey", () => {
@@ -83,7 +99,7 @@ test("HARD reconciliation failure is critical, SOFT is warning", () => {
 test("combines all four sources in one pass", () => {
   const issues = detectFixCardIssues({
     qualityFlags: ["MISSING_REVENUE"],
-    riskFlags: [{ key: "DSCR", value: 1.1, threshold: 1.25, severity: "high" }],
+    riskFlags: [{ key: "DSCR", value: 1.1, threshold: 1.25, severity: "HIGH" }],
     checklistGaps: [{ checklistKey: "bank_statements", label: "Bank Statements" }],
     reconciliationFailures: [
       { checkId: "OWNERSHIP_INTEGRITY", description: "desc", severity: "SOFT", notes: "" },

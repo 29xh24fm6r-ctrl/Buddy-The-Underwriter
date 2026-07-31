@@ -7,6 +7,7 @@ export default function GenerateCreditMemoPanel(props: { dealId?: string }) {
 
   const [loading, setLoading] = useState(false);
   const [memoHtml, setMemoHtml] = useState<string | null>(null);
+  const [isFallbackStub, setIsFallbackStub] = useState(false);
   const [action, setAction] = useState<any>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -15,6 +16,7 @@ export default function GenerateCreditMemoPanel(props: { dealId?: string }) {
     setLoading(true);
     setErr(null);
     setPdfUrl(null);
+    setIsFallbackStub(false);
     try {
       const r = await fetch("/api/ai/credit-memo", {
         method: "POST",
@@ -32,6 +34,7 @@ export default function GenerateCreditMemoPanel(props: { dealId?: string }) {
       if (!r.ok) throw new Error(j?.error ?? "Generation failed");
 
       setMemoHtml(j.memoHtml);
+      setIsFallbackStub(Boolean(j.isFallbackStub));
       const gen = (j.actions ?? []).find((a: any) => a.type === "GENERATE_PDF");
       setAction(gen);
     } catch (e: any) {
@@ -107,18 +110,54 @@ export default function GenerateCreditMemoPanel(props: { dealId?: string }) {
         </div>
       )}
 
-      {memoHtml && (
-        <div className="mt-4 rounded-xl border overflow-hidden">
-          <div className="px-3 py-2 text-xs text-gray-600 border-b bg-gray-50">
-            Preview (HTML)
-          </div>
-          <iframe
-            title="memo-preview"
-            className="w-full h-[520px]"
-            srcDoc={memoHtml}
-          />
+      <MemoPreview memoHtml={memoHtml} isFallbackStub={isFallbackStub} />
+    </div>
+  );
+}
+
+/**
+ * SPEC-TRIDENT-FIX-VERIFY-AND-REDO-V1 — extracted as a pure presentational
+ * component (mirrors FixCardsPanel.tsx's FixCardsPanelBody convention) so
+ * it can be render-tested directly with explicit props, since this file's
+ * top-level component manages state via hooks with no way to inject a
+ * post-fetch state from a static-markup test.
+ */
+export function MemoPreview({
+  memoHtml,
+  isFallbackStub,
+}: {
+  memoHtml: string | null;
+  isFallbackStub: boolean;
+}) {
+  if (!memoHtml) return null;
+  return (
+    <>
+      {isFallbackStub && (
+        <div
+          role="alert"
+          className="mt-4 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-sm font-semibold text-amber-800"
+        >
+          ⚠ Placeholder memo — the AI generator could not produce real
+          content for this deal (see server logs). This is NOT a real
+          underwriting analysis and must not be used for a credit decision.
+          Retry generation once the underlying issue is resolved.
         </div>
       )}
-    </div>
+
+      <div className="mt-4 rounded-xl border overflow-hidden">
+        <div
+          className={`px-3 py-2 text-xs border-b ${
+            isFallbackStub ? "text-amber-800 bg-amber-100 font-semibold" : "text-gray-600 bg-gray-50"
+          }`}
+        >
+          {isFallbackStub ? "Preview (HTML) — PLACEHOLDER, not AI-generated" : "Preview (HTML)"}
+        </div>
+        <iframe
+          title="memo-preview"
+          className="w-full h-[520px]"
+          srcDoc={memoHtml}
+        />
+      </div>
+    </>
   );
 }

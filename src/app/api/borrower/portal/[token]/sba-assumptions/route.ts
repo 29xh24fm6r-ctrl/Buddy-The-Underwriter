@@ -9,9 +9,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadSBAAssumptionsPrefill } from "@/lib/sba/sbaAssumptionsPrefill";
+import { logSbaAssumptionsEvent } from "@/lib/sba/logSbaAssumptionsEvent";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — bumped from 30s. Confirming now
+// synchronously triggers generateTridentBundle (SBA package + business-plan
+// verification + feasibility study), matching the 120s precedent already
+// established by src/app/api/deals/[dealId]/sba/route.ts's own
+// generate-package action for the same class of work. A fire-and-forget
+// call from inside a serverless function handler is unreliable — the
+// function can be torn down once the response is sent (same reasoning as
+// the seal route's hostile-interrogation call) — so this is awaited.
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ token: string }>;
@@ -198,5 +208,56 @@ export async function PATCH(
     );
   }
 
-  return NextResponse.json({ ok: true });
+  // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — this is the confirm action's
+  // actual downstream trigger. Prior to this fix nothing ever called
+  // generateTridentBundle() from the confirm path at all: confirmAndContinue()
+  // separately fired /generate-pdf, which only renders a narrower borrower
+  // roadmap PDF and never touches buddy_sba_packages/buddy_trident_bundles.
+  // Every one of those tables sat at 0 rows in production because of this —
+  // not because confirming itself failed, but because nothing was ever
+  // wired to react to it. Best-effort: a bundle-generation failure must
+  // never undo or mask the assumptions confirmation itself (the borrower's
+  // status IS confirmed regardless), but it must be visible from data.
+  let bundleGeneration: { ok: boolean; bundleId: string | null; error?: string } | undefined;
+  if (patch.status === "confirmed") {
+    await logSbaAssumptionsEvent(
+      { dealId: ctx.dealId, bankId: ctx.bankId, eventType: "confirmed" },
+      sb,
+    );
+    try {
+      const bundleResult = await generateTridentBundle({
+        dealId: ctx.dealId,
+        mode: "preview",
+      });
+      bundleGeneration = bundleResult.ok
+        ? { ok: true, bundleId: bundleResult.bundleId }
+        : { ok: false, bundleId: null, error: bundleResult.error };
+      await logSbaAssumptionsEvent(
+        {
+          dealId: ctx.dealId,
+          bankId: ctx.bankId,
+          eventType: bundleResult.ok ? "bundle_generation_succeeded" : "bundle_generation_failed",
+          detail: bundleResult.ok
+            ? { bundleId: bundleResult.bundleId }
+            : { error: bundleResult.error },
+        },
+        sb,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[sba-assumptions] generateTridentBundle failed (non-fatal to confirm):", message);
+      bundleGeneration = { ok: false, bundleId: null, error: message };
+      await logSbaAssumptionsEvent(
+        {
+          dealId: ctx.dealId,
+          bankId: ctx.bankId,
+          eventType: "bundle_generation_failed",
+          detail: { error: message },
+        },
+        sb,
+      );
+    }
+  }
+
+  return NextResponse.json({ ok: true, bundleGeneration });
 }
