@@ -8,6 +8,7 @@ import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateProjectionsFromResearch } from "@/lib/sba/sbaResearchProjectionGenerator";
 import { rateLimit } from "@/lib/api/rateLimit";
+import { logSbaAssumptionsEvent } from "@/lib/sba/logSbaAssumptionsEvent";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -82,6 +83,19 @@ export async function POST(
         error.details,
         error.hint,
       );
+      // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — this is Path 1/2 from the
+      // spec: research generation succeeded but persisting it failed, so
+      // the client falls straight to "editing" with no briefing. Now
+      // queryable from data instead of requiring a log search.
+      void logSbaAssumptionsEvent(
+        {
+          dealId: ctx.dealId,
+          bankId: ctx.bankId,
+          eventType: "research_persist_failed",
+          detail: { code: error.code, message: error.message },
+        },
+        sb,
+      );
       return NextResponse.json(
         { ok: false, error: "Failed to persist generated assumptions" },
         { status: 500 },
@@ -101,6 +115,20 @@ export async function POST(
     const message =
       err instanceof Error ? err.message : "Failed to generate projections";
     console.error("[research-projections] error:", err);
+    // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — Path 1 from the spec: the
+    // research call itself threw/failed. This is the single most common
+    // real-world way a borrower lands directly in "editing" with no
+    // briefing (client's init() treats this as non-fatal and falls
+    // through silently) — log it so the next stuck deal is diagnosable.
+    void logSbaAssumptionsEvent(
+      {
+        dealId: ctx.dealId,
+        bankId: ctx.bankId,
+        eventType: "research_generation_failed",
+        detail: { message },
+      },
+      sb,
+    );
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -120,6 +120,13 @@ export function AssumptionInterview({
   const [researchBriefing, setResearchBriefing] =
     useState<ResearchBriefing | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — soft, non-alarming visibility
+  // into the "research call failed/returned nothing, dropped straight to
+  // the manual form" path. Distinct from `error` (which reads as a real
+  // problem needing a retry): this is expected, handled, and the form
+  // below already has sensible prefilled defaults — the borrower just
+  // didn't get the auto-generated dashboard first.
+  const [researchNote, setResearchNote] = useState<string | null>(null);
   const [baseYearFacts, setBaseYearFacts] = useState<BaseYearFactsLike | null>(
     null,
   );
@@ -147,6 +154,14 @@ export function AssumptionInterview({
       let briefing: ResearchBriefing | null = null;
       // 1. Trigger research-powered auto-generation. Non-fatal on failure;
       //    we still fall through to the regular load + form below.
+      //
+      // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — this is Path 1 from the
+      // spec (the actual failure mode live data shows happening): a failed/
+      // empty research call previously left the borrower with zero
+      // visibility that anything had gone differently than expected. The
+      // server route already logs this to buddy_sba_assumptions_events;
+      // this sets a soft, non-alarming note for the borrower (shown once
+      // they land on the manual form) rather than staying fully silent.
       try {
         const resRes = await fetch(
           `/api/borrower/portal/${token}/research-projections`,
@@ -162,9 +177,18 @@ export function AssumptionInterview({
               ? resJson.dataSources.map(String)
               : [],
           };
+        } else if (!cancelled) {
+          setResearchNote(
+            "We couldn't auto-research your industry this time — no problem, just fill in the details below.",
+          );
         }
       } catch {
         // Non-fatal — fall through to existing form.
+        if (!cancelled) {
+          setResearchNote(
+            "We couldn't auto-research your industry this time — no problem, just fill in the details below.",
+          );
+        }
       }
       if (cancelled) return;
 
@@ -270,29 +294,6 @@ export function AssumptionInterview({
     };
   }, [token]);
 
-  // Confirm the auto-generated assumptions and (optionally) advance.
-  const confirmAndContinue = useCallback(async () => {
-    setConfirming(true);
-    try {
-      await fetch(`/api/borrower/portal/${token}/sba-assumptions`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patch: { status: "confirmed" } }),
-      });
-      // Fire-and-forget: kick off the borrower PDF in the background. The
-      // Review step polls the same endpoint until the PDF is ready.
-      fetch(`/api/borrower/portal/${token}/generate-pdf`, {
-        method: "POST",
-      }).catch(() => {});
-      onConfirmAndContinue?.();
-    } catch {
-      // If the network fails we leave the user on the presenting screen with
-      // the dashboard intact — they can retry by clicking Continue again.
-    } finally {
-      setConfirming(false);
-    }
-  }, [token, onConfirmAndContinue]);
-
   // ── Debounced save ─────────────────────────────────────────────────────
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -362,6 +363,50 @@ export function AssumptionInterview({
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(save, 800);
   }, [save]);
+
+  // Confirm the assumptions and (optionally) advance. Reachable from both
+  // "presenting" (auto-generated dashboard) and "editing" (manual form).
+  //
+  // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — save() and this were
+  // previously entirely separate call paths with no ordering guarantee: a
+  // borrower who edited the form and confirmed within the 800ms debounce
+  // window (or before any autosave had ever fired at all, e.g. immediately
+  // reaching "editing" via a failed research call) could have their PATCH
+  // status:"confirmed" upsert land BEFORE their edits did, or their edits
+  // never persist at all if confirm succeeded and the debounce timer was
+  // cleared by unmount. Cancel any pending debounce and await a real save
+  // first so the confirmed row always reflects current form state.
+  const confirmAndContinue = useCallback(async () => {
+    setConfirming(true);
+    try {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      await save();
+      const res = await fetch(`/api/borrower/portal/${token}/sba-assumptions`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patch: { status: "confirmed" } }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        setError(json?.error ?? "Failed to confirm — please try again");
+        return;
+      }
+      // Fire-and-forget: kick off the borrower's own roadmap PDF in the
+      // background (distinct from the trident bundle the PATCH above just
+      // triggered synchronously). The Review step polls the same endpoint
+      // until the PDF is ready.
+      fetch(`/api/borrower/portal/${token}/generate-pdf`, {
+        method: "POST",
+      }).catch(() => {});
+      onConfirmAndContinue?.();
+    } catch {
+      setError("Failed to confirm — please try again");
+      // If the network fails we leave the user on the current screen with
+      // the dashboard/form intact — they can retry by confirming again.
+    } finally {
+      setConfirming(false);
+    }
+  }, [token, onConfirmAndContinue, save]);
 
   useEffect(() => {
     if (!loading) debouncedSave();
@@ -470,6 +515,7 @@ export function AssumptionInterview({
   if (loading || phase === "researching") {
     return (
       <div className="space-y-4 py-12 text-center">
+        <ErrorAndNoteBanner error={error} researchNote={researchNote} />
         <div
           className="inline-block w-8 h-8 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin"
           aria-hidden
@@ -492,6 +538,8 @@ export function AssumptionInterview({
         <h2 className="text-lg font-semibold text-slate-900">
           Here&apos;s what I found
         </h2>
+
+        <ErrorAndNoteBanner error={error} researchNote={researchNote} />
 
         <div className="bg-gradient-to-b from-blue-50 to-white border border-blue-100 rounded-xl p-5 space-y-4">
           <div className="flex items-center gap-2 text-xs text-brand-blue-500 font-medium">
@@ -549,11 +597,28 @@ export function AssumptionInterview({
   // ── Phase: editing (original 5-section form) ───────────────────────────
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-semibold text-slate-900">Financial Projections</h2>
-      <p className="text-sm text-slate-500">
-        We&apos;ll build 3-year projections for your SBA application. Most
-        fields are pre-filled from your documents — just review and adjust.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Financial Projections</h2>
+          <p className="text-sm text-slate-500">
+            We&apos;ll build 3-year projections for your SBA application. Most
+            fields are pre-filled from your documents — just review and adjust.
+          </p>
+        </div>
+        {/* SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — editing and presenting
+            were previously a one-way trip ("I want to adjust" only went
+            forward). Only shown when a briefing actually exists to go back
+            to. */}
+        {researchBriefing && (
+          <button
+            type="button"
+            onClick={() => setPhase("presenting")}
+            className="shrink-0 px-3 py-2 rounded-lg border border-slate-300 text-slate-600 text-xs font-medium hover:bg-slate-50 transition whitespace-nowrap"
+          >
+            View research summary
+          </button>
+        )}
+      </div>
 
       {/* Sub-step indicator */}
       <div className="flex gap-1">
@@ -574,11 +639,7 @@ export function AssumptionInterview({
         ))}
       </div>
 
-      {error && (
-        <div className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600">
-          {error}
-        </div>
-      )}
+      <ErrorAndNoteBanner error={error} researchNote={researchNote} />
 
       {/* ── Revenue ───────────────────────────────────────────────── */}
       {subStep === "revenue" && (
@@ -1261,6 +1322,15 @@ export function AssumptionInterview({
       <ProjectionDashboard token={token} assumptions={assembledAssumptions} />
 
       {/* Sub-step navigation */}
+      {/* SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — "editing" previously had
+          no confirm control anywhere. On the last sub-step, canGoForward is
+          false and there was nothing else to click — a hard dead end (the
+          exact bug this fixes: 8/8 buddy_sba_assumptions rows in
+          production sit at status='draft' forever). "Confirm & continue"
+          replaces "Next" on the final sub-step, and a secondary
+          "Confirm now" affordance is available from any sub-step — a
+          borrower comfortable confirming after 3 of 5 sub-steps shouldn't
+          be forced through the rest. */}
       <div className="flex gap-3 pt-2">
         {canGoBack && (
           <button
@@ -1271,7 +1341,7 @@ export function AssumptionInterview({
             Back
           </button>
         )}
-        {canGoForward && (
+        {canGoForward ? (
           <button
             type="button"
             onClick={() => setSubStep(SUB_STEPS[subStepIdx + 1].key)}
@@ -1279,8 +1349,28 @@ export function AssumptionInterview({
           >
             Next: {SUB_STEPS[subStepIdx + 1].label}
           </button>
+        ) : (
+          <button
+            type="button"
+            onClick={confirmAndContinue}
+            disabled={confirming}
+            className="brand-gradient-cta flex-1 px-4 py-2.5 rounded-lg text-white text-sm font-medium hover:brightness-110 transition disabled:opacity-60 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+          >
+            {confirming ? "Confirming…" : "Confirm & continue"}
+          </button>
         )}
       </div>
+
+      {canGoForward && (
+        <button
+          type="button"
+          onClick={confirmAndContinue}
+          disabled={confirming}
+          className="w-full text-center text-xs text-slate-500 hover:text-slate-700 underline underline-offset-2 disabled:opacity-60"
+        >
+          {confirming ? "Confirming…" : "Confirm now instead — I don't need to review the rest"}
+        </button>
+      )}
 
       {saving && (
         <p className="text-center text-xs text-slate-400">
@@ -1288,6 +1378,36 @@ export function AssumptionInterview({
         </p>
       )}
     </div>
+  );
+}
+
+// ─── ErrorAndNoteBanner — SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 ───────────
+// Renders across all three phases (previously `error` only ever rendered
+// inside "editing", and `researchNote` didn't exist at all — a borrower
+// stuck on "presenting" after a failed confirm attempt, or dropped into
+// "editing" after a failed research call, saw nothing explaining why).
+
+function ErrorAndNoteBanner({
+  error,
+  researchNote,
+}: {
+  error: string | null;
+  researchNote: string | null;
+}) {
+  if (!error && !researchNote) return null;
+  return (
+    <>
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-600">
+          {error}
+        </div>
+      )}
+      {!error && researchNote && (
+        <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-600">
+          {researchNote}
+        </div>
+      )}
+    </>
   );
 }
 
