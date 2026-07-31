@@ -15,12 +15,32 @@ import { runRole } from "./gateway";
 async function geminiGenerate(system: string, userContent: string): Promise<string> {
   const result = await runRole("generator", {
     purpose: "credit_memo",
+    // Audit fix (Borrower Intake Program review): userContent embeds
+    // context.borrower/context.financials/etc — real borrower PII — this
+    // was never tagged, so the gateway's NPI-refusal gate silently never
+    // fired regardless of vendor-approval status. Tagging it correctly
+    // means this call now throws while all vendors remain PENDING
+    // (docs/vendors/*.md) — generateAdvancedCreditMemo's caller below
+    // treats that identically to any other generator failure, degrading
+    // to the existing hard-fallback stub memo rather than propagating,
+    // since this function has no fallback of its own.
+    npiTagged: true,
     temperature: 0.2,
     maxOutputTokens: 8192,
     responseSchema: { type: "object" },
     prompt: `${system}\n\n${userContent}`,
   });
   return result.text;
+}
+
+/** safeJsonParse's shape, but for a call that may throw before returning text at all. */
+async function tryGeminiGenerate(system: string, userContent: string): Promise<{ ok: true; text: string } | { ok: false }> {
+  try {
+    return { ok: true, text: await geminiGenerate(system, userContent) };
+  } catch (err) {
+    console.error("[creditMemoGenerator] generator call failed:", err instanceof Error ? err.message : String(err));
+    return { ok: false };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -129,22 +149,31 @@ Sections required (use these titles in order):
   };
 
   // Attempt 1
-  const t1 = await geminiGenerate(system.trim(), JSON.stringify(userPayload));
-  const p1 = safeJsonParse(t1);
-  if (p1.ok) {
-    const v = MemoJsonSchema.safeParse(p1.value);
-    if (v.success) return postProcess(v.data);
+  const r1 = await tryGeminiGenerate(system.trim(), JSON.stringify(userPayload));
+  let generatorCallFailed = !r1.ok;
+  if (r1.ok) {
+    const p1 = safeJsonParse(r1.text);
+    if (p1.ok) {
+      const v = MemoJsonSchema.safeParse(p1.value);
+      if (v.success) return postProcess(v.data);
+    }
   }
 
-  // Attempt 2 (repair)
-  const t2 = await geminiGenerate(
-    system.trim(),
-    `Fix into valid JSON matching schema. Output JSON only:\n${t1}`,
-  );
-  const p2 = safeJsonParse(t2);
-  if (p2.ok) {
-    const v = MemoJsonSchema.safeParse(p2.value);
-    if (v.success) return postProcess(v.data);
+  // Attempt 2 (repair) — skipped entirely if attempt 1 didn't even produce
+  // text to repair (a thrown generator call, not a schema-validation miss).
+  if (r1.ok) {
+    const r2 = await tryGeminiGenerate(
+      system.trim(),
+      `Fix into valid JSON matching schema. Output JSON only:\n${r1.text}`,
+    );
+    generatorCallFailed = generatorCallFailed || !r2.ok;
+    if (r2.ok) {
+      const p2 = safeJsonParse(r2.text);
+      if (p2.ok) {
+        const v = MemoJsonSchema.safeParse(p2.value);
+        if (v.success) return postProcess(v.data);
+      }
+    }
   }
 
   // hard fallback
@@ -177,7 +206,11 @@ Sections required (use these titles in order):
       { id: "rec", title: "Recommendation & Approval Rationale", body: "Cannot conclude without inputs." },
     ],
     evidence: [],
-    warnings: ["Generator failed schema validation twice."],
+    warnings: [
+      generatorCallFailed
+        ? "Generator call failed (see server logs) — falling back to a placeholder memo."
+        : "Generator failed schema validation twice.",
+    ],
   };
 
   return postProcess(fallback);

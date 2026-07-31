@@ -47,6 +47,7 @@ import { validateAgainstBenchmarks } from "./sbaAssumptionBenchmarks";
 import { crossFillSBAForms } from "./sbaFormCrossFill";
 import { extractResearchForBusinessPlan } from "./sbaResearchExtractor";
 import type { SBAAssumptions } from "./sbaReadinessTypes";
+import { generateProjectionsAssumptionsNarrative } from "@/lib/methodology/projectionsAssumptionsNarrative";
 
 /**
  * Sprint 3: optional `mode` parameter. Default "final" preserves the
@@ -230,7 +231,7 @@ export async function generateSBAPackage(
   // resolve the correct finengine productId) can use it too.
   const { data: deal } = await sb
     .from("deals")
-    .select("name, deal_type, loan_amount, city, state")
+    .select("name, deal_type, loan_amount, city, state, bank_id")
     .eq("id", dealId)
     .single();
 
@@ -739,6 +740,42 @@ export async function generateSBAPackage(
     );
   }
 
+  // Audit fix (Borrower Intake Program review) — SPEC-M8 ARTIFACT-PIPELINE-1's
+  // net-new projections-assumptions narrative (generateProjectionsAssumptionsNarrative)
+  // was built with its own gateway generator+verifier pass but was never
+  // actually called from anywhere in the real package assembly. It's
+  // self-contained (loads its own methodology-slate inputs given
+  // dealId/bankId/sb) and its generator/verifier calls already degrade to
+  // a non-throwing {status:"degraded"} result on any failure — including
+  // the real NPI gate while all vendors remain PENDING. Its own upstream
+  // input loader (loadProjectionInputsForDeal) isn't inside that same
+  // try/catch, though, so this call is wrapped here too — same "a bonus
+  // section must never fail the whole package" convention as the
+  // franchise-section lookup directly above.
+  //
+  // Deliberately NOT added to verifyBusinessPlanPackage.ts's narrative
+  // section list: that verifier checks narrative text against THIS
+  // package's dscr_year1_base/dscr_year2_base (sbaForwardModelBuilder's
+  // figures), whereas this narrative describes the methodology-slate DSCR
+  // from src/lib/methodology/projectDscrForVariant.ts — a distinct model.
+  // Cross-checking against the wrong set of facts would manufacture false
+  // "mismatch" flags; this narrative already gets its own correct verifier
+  // pass internally, against its own facts.
+  let projectionsAssumptionsNarrative: string | null = null;
+  try {
+    if (deal?.bank_id) {
+      const projectionsResult = await generateProjectionsAssumptionsNarrative(dealId, deal.bank_id, sb);
+      if (projectionsResult.status === "ready") {
+        projectionsAssumptionsNarrative = projectionsResult.narrative;
+      }
+    }
+  } catch (e) {
+    console.warn(
+      "[sbaPackageOrchestrator] projections-assumptions narrative failed (non-fatal):",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
   // Render PDF.
   // Sprint 3: for mode='preview' we redact at the data layer *before* calling
   // renderSBAPackagePDF, then ask the renderer to stamp a cosmetic watermark
@@ -915,6 +952,7 @@ export async function generateSBAPackage(
       version_number: nextVersionNumber,
       parent_package_id: parentPackageId,
       franchise_section: franchiseSection,
+      projections_assumptions_narrative: projectionsAssumptionsNarrative,
       package_warnings: [],
       benchmark_warnings: benchmarkWarnings,
       global_cash_flow: globalCashFlow,
