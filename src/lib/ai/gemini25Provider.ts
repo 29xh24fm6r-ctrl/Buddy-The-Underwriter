@@ -15,12 +15,7 @@ import { z } from "zod";
 import { RiskOutputSchema, MemoOutputSchema, CommitteeAnswerSchema } from "./schemas";
 import type { AIProvider, RiskInput, RiskOutput, MemoInput, MemoOutput, CommitteeAnswer } from "./provider";
 import { GEMINI_PRO } from "./models";
-
-const GEMINI_25_PRO_MODEL = GEMINI_PRO;
-
-function gemini25Url(apiKey: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_25_PRO_MODEL}:generateContent?key=${apiKey}`;
-}
+import { runRole } from "./gateway";
 
 function evidenceRulesBlock() {
   return [
@@ -37,35 +32,25 @@ async function geminiStructured<T>(args: {
   schema: z.ZodType<T>;
   schemaName: string;
 }): Promise<T> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
-
   const prompt =
     `${args.system}\n\n` +
     `Return ONLY valid JSON. No markdown. No backticks.\n` +
     `Match this schema name: ${args.schemaName}\n\n` +
     `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
 
-  const resp = await fetch(gemini25Url(apiKey), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 8192,
-        // Note: Gemini 2.5 Pro thinking models do not support temperature < 1
-      },
-    }),
+  // SPEC-M1.1: migrated onto the AI gateway. modelOverride preserves
+  // GEMINI_PRO (a gemini-3.x thinking model per isGemini3Model — no
+  // temperature field needed here, providers/google.ts's own gemini-3.x
+  // branch already omits temperature unconditionally for this model,
+  // matching the "thinking models do not support temperature" note this
+  // comment used to carry).
+  const result = await runRole("generator", {
+    modelOverride: GEMINI_PRO,
+    purpose: "gemini25_structured",
+    maxOutputTokens: 8192,
+    prompt,
   });
-
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    throw new Error(`gemini25_error_${resp.status}: ${errText.slice(0, 200)}`);
-  }
-
-  const json = await resp.json();
-  const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const text = result.text;
 
   // Parse + validate
   let parsed: unknown;

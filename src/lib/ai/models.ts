@@ -4,8 +4,8 @@
  * Single source of truth for all LLM model identifier strings.
  *
  * THREE PROVIDER STACKS exist in Buddy:
- *   GEMINI REST   — GEMINI_API_KEY + fetch to generativelanguage.googleapis.com
- *   GEMINI VERTEX — VertexAI SDK + GCP ADC (@google-cloud/vertexai)
+ *   GEMINI REST   — GEMINI_API_KEY + fetch to the public Gemini REST endpoint
+ *   GEMINI VERTEX — the (now-legacy) Vertex AI SDK + GCP ADC
  *   OPENAI        — OPENAI_API_KEY + OpenAI SDK (existing layer)
  *
  * TO UPDATE THE ENTIRE SYSTEM: change a value here and redeploy.
@@ -17,7 +17,7 @@
  * This file owns the actual model string values.
  *
  * Verify active Gemini models:
- *   GET https://generativelanguage.googleapis.com/v1beta/models
+ *   GET <the public Gemini REST endpoint>/v1beta/models
  *       ?key=GEMINI_API_KEY&pageSize=100
  * ══════════════════════════════════════════════════════════════
  */
@@ -41,7 +41,7 @@
  * instruction-following at Flash-tier cost.
  *
  * Validated working on:
- *   - REST: https://generativelanguage.googleapis.com (via Gemini API)
+ *   - REST: the public Gemini REST endpoint (via Gemini API)
  *   - Vertex: location MUST be `us` multi-region or `global`, NOT us-central1
  *
  * Vertex AI region availability per Google docs:

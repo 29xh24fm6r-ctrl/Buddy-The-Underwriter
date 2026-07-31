@@ -31,6 +31,29 @@ export type ProviderCallRequest = {
    * grounding tool. Google-only; ignored by OpenAI/Anthropic.
    */
   useSearchGrounding?: boolean;
+  /**
+   * SPEC-M1.1 — per-call temperature override. Each provider adapter keeps
+   * its own existing default when this is absent (OpenAI/Anthropic: no
+   * override, provider default; Google: 0.1 for non-Gemini-3 models,
+   * ignored for Gemini 3.x models which reject sub-1.0 temperatures and
+   * use thinkingConfig instead — same as before this field existed).
+   */
+  temperature?: number;
+  /**
+   * SPEC-M1.1 — overrides the thinking level used for Gemini 3.x models
+   * (Google-only; ignored by other providers and by non-Gemini-3 models,
+   * which use `temperature` instead). Default "low" when absent, same as
+   * before this field existed.
+   */
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /**
+   * SPEC-M1.1 — Gemini's mediaResolution generationConfig field, controlling
+   * how finely inline image/PDF content is sampled (e.g. "MEDIA_RESOLUTION_
+   * HIGH" for reading small print on multi-page tax-return detail
+   * schedules). Google-only, Gemini-3.x-only; ignored otherwise. Absent by
+   * default — no mediaResolution is set, same as before this field existed.
+   */
+  mediaResolution?: string;
 };
 
 export type ProviderCallResult = {

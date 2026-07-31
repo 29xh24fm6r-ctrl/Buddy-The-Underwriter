@@ -168,6 +168,78 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     assert.equal(captured.useSearchGrounding, true);
   });
 
+  it("SPEC-M1.1: skips a non-google fallback step entirely when inlineData is present, surfacing google's real error", async () => {
+    let openaiCalled = false;
+    __setProviderImplForTests("google", async () => {
+      throw new Error('{"code":404,"status":"NOT_FOUND"}');
+    });
+    __setProviderImplForTests("openai", async () => {
+      openaiCalled = true;
+      throw new Error("should never be called — inlineData is google-only");
+    });
+
+    await assert.rejects(
+      () =>
+        runRole("generator", {
+          prompt: "hi",
+          purpose: "test",
+          inlineData: [{ mimeType: "application/pdf", data: "base64==" }],
+        }),
+      /"code":404/,
+    );
+    assert.equal(openaiCalled, false, "openai must not be attempted for an inlineData request");
+    assert.equal(ledgerEntries.length, 1, "the skipped openai step must not be ledgered");
+  });
+
+  it("SPEC-M1.1: skips a non-google fallback step entirely when useSearchGrounding is requested, never silently returning an ungrounded result", async () => {
+    let openaiCalled = false;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("HTTP 500: boom");
+    });
+    __setProviderImplForTests("openai", async () => {
+      openaiCalled = true;
+      return okResult("a plausible-looking but ungrounded answer");
+    });
+
+    await assert.rejects(
+      () =>
+        runRole("generator", {
+          prompt: "hi",
+          purpose: "test",
+          useSearchGrounding: true,
+        }),
+      /HTTP 500/,
+    );
+    assert.equal(
+      openaiCalled,
+      false,
+      "openai must never silently serve a grounding-required request ungrounded",
+    );
+  });
+
+  it("SPEC-M1.1: disableFailover only attempts the chain's primary step, throwing its error as-is", async () => {
+    let openaiCalled = false;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("empty response (finishReason: SAFETY)");
+    });
+    __setProviderImplForTests("openai", async () => {
+      openaiCalled = true;
+      return okResult("ok");
+    });
+
+    await assert.rejects(
+      () =>
+        runRole("generator", {
+          prompt: "hi",
+          purpose: "test",
+          disableFailover: true,
+        }),
+      /empty response \(finishReason: SAFETY\)/,
+    );
+    assert.equal(openaiCalled, false);
+    assert.equal(ledgerEntries.length, 1);
+  });
+
   it("passes a chain step's authMode into the provider call", async () => {
     process.env.AI_GATEWAY_CHAIN_GENERATOR = "google:gemini-3.1-flash-lite";
     let captured: any = null;
@@ -183,6 +255,18 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     // what threads through absent an explicit chain-step override.
     assert.equal(captured.authMode, undefined);
     delete process.env.AI_GATEWAY_CHAIN_GENERATOR;
+  });
+
+  it("SPEC-M1.1: a request-level authMode override wins over the chain step's default", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("google", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    await runRole("generator", { prompt: "hi", purpose: "test", authMode: "vertex" });
+
+    assert.equal(captured.authMode, "vertex");
   });
 
   it("surfaces groundingMetadata from the provider result on the RunRoleResult", async () => {
@@ -207,6 +291,60 @@ describe("runRole: SPEC-GATEWAY-CAPABILITY-EXPANSION-1 field passthrough", () =>
     __setProviderImplForTests("google", async () => okResult("plain"));
     const result = await runRole("generator", { prompt: "hi", purpose: "test" });
     assert.equal("groundingMetadata" in result, false);
+  });
+
+  it("modelOverride replaces the chain step's model for the call and the ledger/result", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("openai", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    const result = await runRole("structurer", {
+      prompt: "hi",
+      purpose: "test",
+      modelOverride: "o1-preview",
+    });
+
+    assert.equal(captured.model, "o1-preview");
+    assert.equal(result.model, "o1-preview");
+    assert.equal(ledgerEntries[0].model, "o1-preview");
+  });
+
+  it("uses the chain step's configured model when modelOverride is absent", async () => {
+    let captured: any = null;
+    __setProviderImplForTests("openai", async (req) => {
+      captured = req;
+      return okResult("ok");
+    });
+
+    await runRole("structurer", { prompt: "hi", purpose: "test" });
+    assert.equal(captured.model, "gpt-4o-2024-08-06");
+  });
+
+  it("does NOT apply modelOverride to a fallback step on a different provider", async () => {
+    // SPEC-M1.1 regression: a Gemini-specific modelOverride on the
+    // "generator" role (google-primary, openai-fallback) must not leak
+    // into the openai fallback call when google fails over — that would
+    // hand an OpenAI adapter a Gemini model string.
+    let capturedOpenai: any = null;
+    __setProviderImplForTests("google", async () => {
+      throw new Error("google down");
+    });
+    __setProviderImplForTests("openai", async (req) => {
+      capturedOpenai = req;
+      return okResult("recovered via openai");
+    });
+
+    const result = await runRole("generator", {
+      prompt: "hi",
+      purpose: "test",
+      modelOverride: "gemini-2.5-pro",
+    });
+
+    assert.equal(result.provider, "openai");
+    assert.equal(capturedOpenai.model, "gpt-4o-2024-08-06");
+    assert.notEqual(capturedOpenai.model, "gemini-2.5-pro");
   });
 });
 

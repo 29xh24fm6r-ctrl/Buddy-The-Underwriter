@@ -1,6 +1,14 @@
 // Migrated to Gemini — filename retained for import stability
 // src/lib/ai/openai.ts
+//
+// SPEC-M1.1: routed through the AI gateway (runRole, "generator" role)
+// instead of raw fetch. The JSON-repair retry loop below is a genuinely
+// different reliability strategy than the gateway's own cross-provider
+// failover chain (parse/repair retries on the SAME response vs. failing
+// over to a different provider on a network/HTTP error) — kept here
+// rather than folded into runRole().
 import { assertServerOnly } from "@/lib/serverOnly";
+import { runRole } from "./gateway";
 
 assertServerOnly();
 
@@ -33,19 +41,6 @@ function envInt(name: string, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number) {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`AI_TIMEOUT_${ms}MS`)), ms);
-    p.then((x) => {
-      clearTimeout(t);
-      resolve(x);
-    }).catch((e) => {
-      clearTimeout(t);
-      reject(e);
-    });
-  });
-}
-
 function extractFirstJsonObject(text: string): string | null {
   // Finds the first balanced {...} object in a string.
   const start = text.indexOf("{");
@@ -64,53 +59,13 @@ function extractFirstJsonObject(text: string): string | null {
 }
 
 // Phase 93: model strings are centralised in src/lib/ai/models.ts.
-import { GEMINI_FLASH, isGemini3Model } from "./models";
+import { GEMINI_FLASH } from "./models";
 const GEMINI_MODEL = GEMINI_FLASH;
 
-function geminiUrl(apiKey: string, model: string = GEMINI_MODEL) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-}
-
-/**
- * Gemini 3.x models (3-flash, 3.1-pro) warn that temperatures below 1.0
- * cause looping and degraded output. Google's published guidance is to
- * omit temperature entirely for gemini-3.* so the model uses its default.
- * For prior families (1.5, 2.0, 2.5) we keep the explicit low-temperature
- * behaviour the app relies on for deterministic JSON output.
- *
- * The Gemini-3 family check lives in src/lib/ai/models.ts so call sites
- * never need to hardcode a model-prefix string (CI gate-safe).
- */
-function buildGenerationConfig(args: {
-  model: string;
-  temperature: number;
-  maxOutputTokens: number;
-}): Record<string, unknown> {
-  const cfg: Record<string, unknown> = {
-    responseMimeType: "application/json",
-    maxOutputTokens: args.maxOutputTokens,
-  };
-  if (!isGemini3Model(args.model)) {
-    cfg.temperature = args.temperature;
-  }
-  return cfg;
-}
-
-/**
- * Extract text from a Gemini generateContent response.
- * Filters out parts where `thought === true` (thinking-mode reasoning traces)
- * and concatenates the remaining text parts. Safe for models with thinking
- * enabled (gemini-2.5-pro-preview) AND disabled (gemini-3-flash-preview).
- */
-function extractResponseText(json: any): string {
-  const parts = json?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts) || parts.length === 0) return "";
-  const joined = parts
-    .filter((p: { thought?: boolean }) => !p?.thought)
-    .map((p: { text?: string }) => p?.text ?? "")
-    .join("");
-  return joined;
-}
+// SPEC-M1.1: temperature omission for Gemini 3.x models (they warn that
+// sub-1.0 temperatures cause looping/degraded output) and thought-part
+// filtering are both already handled inside providers/google.ts's
+// buildGenerationConfig/extractText — not reimplemented here.
 
 async function geminiChatJson(args: {
   system: string;
@@ -118,45 +73,25 @@ async function geminiChatJson(args: {
   jsonSchemaHint: string;
   model?: string;
   maxOutputTokens?: number;
+  timeoutMs?: number;
 }) {
   const model = args.model ?? GEMINI_MODEL;
-  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!, model), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        role: "user",
-        parts: [{
-          text:
-            `${args.system}\n\n` +
-            `${args.user}\n\n` +
-            `Return ONLY valid JSON. No markdown. No backticks.\n` +
-            `Match this JSON shape example exactly (keys + nesting). Use null when unknown:\n` +
-            `${args.jsonSchemaHint}`,
-        }],
-      }],
-      generationConfig: buildGenerationConfig({
-        model,
-        temperature: 0.1,
-        maxOutputTokens: args.maxOutputTokens ?? 4096,
-      }),
-    }),
+  const result = await runRole("generator", {
+    modelOverride: model,
+    purpose: "ai_json",
+    temperature: 0.1,
+    maxOutputTokens: args.maxOutputTokens ?? 4096,
+    timeoutMs: args.timeoutMs,
+    responseSchema: { type: "object" },
+    prompt:
+      `${args.system}\n\n` +
+      `${args.user}\n\n` +
+      `Return ONLY valid JSON. No markdown. No backticks.\n` +
+      `Match this JSON shape example exactly (keys + nesting). Use null when unknown:\n` +
+      `${args.jsonSchemaHint}`,
   });
 
-  const json = await r.json().catch(() => null);
-  if (!r.ok) {
-    // Phase 92 diagnostic: surface the raw Gemini error body to Vercel logs
-    // so we can see the actual HTTP status and Google error payload when a
-    // call fails (quota, key, region, safety filter, invalid model, etc.).
-    console.error(
-      "[geminiChatJson] status:", r.status,
-      "body:", JSON.stringify(json)?.slice(0, 500),
-    );
-    const msg = json?.error?.message || `gemini_error_status_${r.status}`;
-    throw new Error(msg);
-  }
-
-  return { raw: json, text: extractResponseText(json) };
+  return { text: result.text };
 }
 
 async function repairToJson(args: {
@@ -165,42 +100,25 @@ async function repairToJson(args: {
   jsonSchemaHint: string;
   model?: string;
   maxOutputTokens?: number;
+  timeoutMs?: number;
 }) {
   const model = args.model ?? GEMINI_MODEL;
-  const r = await fetch(geminiUrl(process.env.GEMINI_API_KEY!, model), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        role: "user",
-        parts: [{
-          text:
-            `${args.system}\n\n` +
-            `The following text was supposed to be JSON but is invalid.\n` +
-            `Fix it into STRICT valid JSON ONLY (no markdown), matching this example shape:\n` +
-            `${args.jsonSchemaHint}\n\n` +
-            `BAD_TEXT:\n${args.badText}`,
-        }],
-      }],
-      generationConfig: buildGenerationConfig({
-        model,
-        temperature: 0,
-        maxOutputTokens: args.maxOutputTokens ?? 4096,
-      }),
-    }),
+  const result = await runRole("generator", {
+    modelOverride: model,
+    purpose: "ai_json_repair",
+    temperature: 0,
+    maxOutputTokens: args.maxOutputTokens ?? 4096,
+    timeoutMs: args.timeoutMs,
+    responseSchema: { type: "object" },
+    prompt:
+      `${args.system}\n\n` +
+      `The following text was supposed to be JSON but is invalid.\n` +
+      `Fix it into STRICT valid JSON ONLY (no markdown), matching this example shape:\n` +
+      `${args.jsonSchemaHint}\n\n` +
+      `BAD_TEXT:\n${args.badText}`,
   });
 
-  const json = await r.json().catch(() => null);
-  if (!r.ok) {
-    console.error(
-      "[repairToJson] status:", r.status,
-      "body:", JSON.stringify(json)?.slice(0, 500),
-    );
-    const msg = json?.error?.message || `gemini_repair_error_status_${r.status}`;
-    throw new Error(msg);
-  }
-
-  return extractResponseText(json);
+  return result.text;
 }
 
 /**
@@ -261,16 +179,14 @@ export async function aiJson<T = Json>(args: {
     while (attempt <= maxRetries) {
       attempt++;
 
-      const resp = await withTimeout(
-        geminiChatJson({
-          system: args.system,
-          user: args.user,
-          jsonSchemaHint: args.jsonSchemaHint,
-          model,
-          maxOutputTokens: args.maxOutputTokens,
-        }),
-        timeoutMs
-      );
+      const resp = await geminiChatJson({
+        system: args.system,
+        user: args.user,
+        jsonSchemaHint: args.jsonSchemaHint,
+        model,
+        maxOutputTokens: args.maxOutputTokens,
+        timeoutMs,
+      });
 
       lastRawText = resp.text;
 
@@ -320,16 +236,14 @@ export async function aiJson<T = Json>(args: {
         }
 
         // Repair attempt (1x per loop)
-        const repaired = await withTimeout(
-          repairToJson({
-            system: args.system,
-            badText: resp.text.slice(0, 12000),
-            jsonSchemaHint: args.jsonSchemaHint,
-            model,
-            maxOutputTokens: args.maxOutputTokens,
-          }),
-          timeoutMs
-        );
+        const repaired = await repairToJson({
+          system: args.system,
+          badText: resp.text.slice(0, 12000),
+          jsonSchemaHint: args.jsonSchemaHint,
+          model,
+          maxOutputTokens: args.maxOutputTokens,
+          timeoutMs,
+        });
 
         lastRawText = repaired;
 

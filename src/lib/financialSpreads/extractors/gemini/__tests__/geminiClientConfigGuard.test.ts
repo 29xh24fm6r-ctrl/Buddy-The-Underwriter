@@ -3,8 +3,16 @@
  *
  * Verifies geminiClient.ts configures Gemini 3 Flash with the explicit
  * controls needed to avoid silent empty-response failures on multi-page
- * tax-return PDFs: maxOutputTokens, thinkingConfig.thinkingLevel,
- * mediaResolution (PDF-gated), and finishReason capture on empty responses.
+ * tax-return PDFs: maxOutputTokens, thinkingLevel, mediaResolution
+ * (PDF-gated), and finishReason capture on empty responses.
+ *
+ * SPEC-M1.1: geminiClient.ts now routes through the AI gateway
+ * (runRole("generator", ...)) instead of constructing its own Vertex SDK
+ * client — these fields are passed as flat RunRoleRequest properties
+ * rather than nested inside a locally-built generationConfig object.
+ * providers/google.ts (the gateway's Google provider adapter) is what
+ * actually assembles thinkingConfig/mediaResolution into the real Gemini
+ * request body now (see google.test.ts's own coverage of that).
  */
 
 import { test } from "node:test";
@@ -22,41 +30,32 @@ test("[gemini-3] geminiClient sets maxOutputTokens", () => {
   assert.match(SRC, /maxOutputTokens:\s*\d+/);
 });
 
-test("[gemini-4] geminiClient sets thinkingConfig.thinkingLevel for Gemini 3 models", () => {
-  // Accept both object-literal (`thinkingConfig: { ... }`) and
-  // property-assignment (`generationConfig.thinkingConfig = { ... }`) syntax —
-  // the spec's §2.2 reference impl uses property assignment.
-  assert.match(
-    SRC,
-    /thinkingConfig\s*[:=]\s*\{\s*thinkingLevel:\s*"(?:minimal|low|medium|high)"/,
-  );
+test("[gemini-4] geminiClient sets thinkingLevel for Gemini 3 models", () => {
+  assert.match(SRC, /thinkingLevel:\s*"(?:minimal|low|medium|high)"/);
 });
 
-test("[gemini-5] geminiClient sets mediaResolution for PDF input", () => {
-  // The mediaResolution assignment must be gated on args.pdfBase64.
-  // Accept both object-literal colon (`mediaResolution: "..."`) and
-  // property-assignment (`generationConfig.mediaResolution = "..."`) syntax —
-  // the spec's risk register noted that source-grep tests must not reject
-  // valid implementations that use a different but semantically equivalent
-  // pattern. The spec's §2.2 reference impl uses property assignment.
+test("[gemini-5] geminiClient sets mediaResolution for PDF input, gated on isGemini3Model + pdfBase64", () => {
   const region = SRC.slice(
-    SRC.indexOf("isGemini3Model(GEMINI_MODEL)"),
-    SRC.indexOf("isGemini3Model(GEMINI_MODEL)") + 800,
+    SRC.indexOf("mediaResolution:"),
+    SRC.indexOf("mediaResolution:") + 200,
   );
-  assert.match(region, /pdfBase64/);
-  assert.match(region, /mediaResolution\s*[:=]\s*"MEDIA_RESOLUTION_HIGH"/);
+  assert.match(region, /isGemini3Model\(GEMINI_MODEL\)/);
+  assert.match(region, /args\.pdfBase64/);
+  assert.match(region, /"MEDIA_RESOLUTION_HIGH"/);
 });
 
 test("[gemini-6] geminiClient captures finishReason on empty response", () => {
-  // finishReason should be read from the candidate object
-  assert.match(SRC, /finishReason[\s\S]{0,80}candidate\?\.finishReason/);
+  // finishReason is now extracted from providers/google.ts's thrown
+  // "empty response (finishReason: X)" error text, not read directly off
+  // a candidate object.
+  assert.match(SRC, /empty response\(\?: \\\(finishReason: /);
+  assert.match(SRC, /finishReasonFromError\s*=\s*emptyMatch\[1\]/);
 });
 
 test("[gemini-7] geminiClient tags empty_response failureReason with finishReason suffix when present", () => {
-  // The failureReason string should be `empty_response:${finishReason}` when finishReason exists
   assert.match(
     SRC,
-    /finishReason[\s\S]{0,100}`empty_response:\$\{finishReason\}`/,
+    /finishReasonFromError[\s\S]{0,100}`empty_response:\$\{finishReasonFromError\}`/,
   );
 });
 
@@ -69,10 +68,11 @@ test("[gemini-8] geminiClient does NOT change the model string", () => {
 
 // SPEC-GEMINI-FLASH-LITE-MIGRATION-1 additions ──────────────────────────────
 
-test("[gemini-9] geminiClient location default is `us` multi-region", () => {
-  // getGoogleLocation was replaced by getVertexLocation from @/lib/ai/vertexLocation
-  assert.match(SRC, /from "@\/lib\/ai\/vertexLocation"/);
-  assert.match(SRC, /getVertexLocation\(\)/);
+test("[gemini-9] geminiClient routes Vertex calls through the AI gateway with authMode: vertex", () => {
+  // SPEC-M1.1: location resolution moved to providers/google.ts (the
+  // gateway's own Google provider adapter) — this file no longer imports
+  // getVertexLocation directly, it just requests Vertex auth per-call.
+  assert.match(SRC, /authMode:\s*"vertex"/);
 });
 
 test("[gemini-10] geminiClient maxOutputTokens bumped to 16384", () => {

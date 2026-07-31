@@ -36,6 +36,9 @@ export async function callAnthropic(req: ProviderCallRequest): Promise<ProviderC
   if (req.systemInstruction) {
     body.system = req.systemInstruction;
   }
+  if (req.temperature !== undefined) {
+    body.temperature = req.temperature;
+  }
   if (req.responseSchema) {
     body.tools = [
       {

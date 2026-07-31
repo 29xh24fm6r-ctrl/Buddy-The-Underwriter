@@ -2,49 +2,30 @@ import "server-only";
 
 /**
  * Shared Gemini client for Omega advisory generation.
- * Same REST pattern as narrativeEngine.ts and sbaPackageNarrative.ts.
+ * SPEC-M1.1 — migrated onto the AI gateway (generator role). The 5
+ * downstream generators (Communication/Explanation/Recommendations/
+ * RiskNarrative/Scenarios) each define their own prompt + expected JSON
+ * shape and parse the returned text themselves via safeParseJSON below —
+ * this shared client stays schema-agnostic (a permissive object schema,
+ * same "ask for JSON via prompt, parse leniently" contract as before).
  * Never writes to canonical tables.
  */
 
-import { MODEL_OMEGA } from "@/lib/ai/models";
-
-const GEMINI_MODEL = MODEL_OMEGA;
-
-const GEMINI_API_URL = (apiKey: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+import { runRole } from "@/lib/ai/gateway";
 
 export async function callOmegaGemini(prompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn("[omegaGeminiClient] GEMINI_API_KEY not set");
+  try {
+    const result = await runRole("generator", {
+      purpose: "omega_advisory",
+      prompt,
+      maxOutputTokens: 4096,
+      responseSchema: { type: "object" },
+    });
+    return result.text;
+  } catch (e) {
+    console.warn("[omegaGeminiClient] gateway call failed", e instanceof Error ? e.message : e);
     return "";
   }
-
-  const resp = await fetch(GEMINI_API_URL(apiKey), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 4096,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    }),
-  });
-
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    throw new Error(`omega_gemini_${resp.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const json = await resp.json();
-  return (
-    json?.candidates?.[0]?.content?.parts
-      ?.filter((p: { thought?: boolean }) => !p.thought)
-      ?.map((p: { text?: string }) => p.text ?? "")
-      ?.join("") ?? ""
-  );
 }
 
 export function safeParseJSON<T>(text: string, fallback: T): T {

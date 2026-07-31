@@ -1,8 +1,6 @@
-import OpenAI from "openai";
 import { AIPilotResponse, type AIPilotResponseT } from "./schemas";
 import { OPENAI_MINI } from "./models";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { runRole } from "./gateway";
 
 function safeJsonParse(text: string) {
   try {
@@ -43,16 +41,16 @@ Return JSON with keys: summary, plan, actions, confidence, evidence, warnings
   };
 
   // Attempt 1: normal
-  const r1 = await openai.chat.completions.create({
-    model: OPENAI_MINI,
+  const r1 = await runRole("structurer", {
+    modelOverride: OPENAI_MINI,
     temperature: 0.2,
-    messages: [
-      { role: "system", content: system.trim() },
-      { role: "user", content: JSON.stringify(user) },
-    ],
+    purpose: "ai_pilot",
+    dealId: dealId ?? null,
+    systemInstruction: system.trim(),
+    prompt: JSON.stringify(user),
   });
 
-  const text1 = r1.choices?.[0]?.message?.content?.trim() ?? "";
+  const text1 = r1.text.trim();
   const p1 = safeJsonParse(text1);
 
   if (p1.ok) {
@@ -61,21 +59,18 @@ Return JSON with keys: summary, plan, actions, confidence, evidence, warnings
   }
 
   // Attempt 2: "fix to schema"
-  const r2 = await openai.chat.completions.create({
-    model: OPENAI_MINI,
+  const r2 = await runRole("structurer", {
+    modelOverride: OPENAI_MINI,
     temperature: 0,
-    messages: [
-      { role: "system", content: system.trim() },
-      {
-        role: "user",
-        content:
-          "Fix the following into valid JSON that matches the required schema. Output JSON only:\n" +
-          text1,
-      },
-    ],
+    purpose: "ai_pilot_repair",
+    dealId: dealId ?? null,
+    systemInstruction: system.trim(),
+    prompt:
+      "Fix the following into valid JSON that matches the required schema. Output JSON only:\n" +
+      text1,
   });
 
-  const text2 = r2.choices?.[0]?.message?.content?.trim() ?? "";
+  const text2 = r2.text.trim();
   const p2 = safeJsonParse(text2);
 
   if (p2.ok) {

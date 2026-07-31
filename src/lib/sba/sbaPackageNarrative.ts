@@ -6,7 +6,8 @@ import type {
   RevenueStream,
 } from "./sbaReadinessTypes";
 import type { BorrowerStory } from "./sbaBorrowerStory";
-import { MODEL_SBA_NARRATIVE, isGemini3Model } from "@/lib/ai/models";
+import { MODEL_SBA_NARRATIVE } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 
 /**
  * Per-stream summary used in narrative prompts. When 2+ summaries are
@@ -89,9 +90,6 @@ function formatStoryForPrompt(story: BorrowerStory | null | undefined): string {
   return lines.join("\n\n") + "\n";
 }
 
-const GEMINI_API_URL = (apiKey: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-
 function safeParseField(text: string, field: string, fallback: string): string {
   try {
     const parsed = JSON.parse(text);
@@ -102,51 +100,37 @@ function safeParseField(text: string, field: string, fallback: string): string {
 }
 
 // Phase 3 — exported so sbaAssumptionDrafter and other narrative callers can
-// reuse the Gemini 3.x-aware config (no temperature, thinkingBudget=1024) and
-// JSON response handling without duplicating it.
+// reuse the Gemini 3.x-aware config and JSON response handling without
+// duplicating it.
+//
+// SPEC-M1.1: routed through the AI gateway (runRole, "generator" role).
+// modelOverride is required since GEMINI_MODEL (MODEL_SBA_NARRATIVE =
+// GEMINI_PRO, a Gemini 3.x model) differs from generator's default chain
+// model. GEMINI_PRO being 3.x means the original's `isGemini3` branch always
+// won in production (this function has no model parameter to vary it) — the
+// non-3.x branch (temperature 0.7) was dead code, not reproduced here.
+// thinkingBudget: 1024 (a numeric token allocation — the older Gemini
+// mechanism) has no gateway equivalent; thinkingLevel "low" (the qualitative
+// successor mechanism, and the gateway's own default for 3.x models) is the
+// closest available mapping for "needs some — not zero — reasoning budget."
+// Temperature omission and thought-part filtering for 3.x models are already
+// handled inside providers/google.ts.
 export async function callGeminiJSON(prompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY) {
     console.warn("[sbaPackageNarrative] GEMINI_API_KEY not set");
     return "";
   }
 
-  // Phase 2 — Gemini 3.x family (e.g. gemini-3.1-pro-preview) needs a non-zero
-  // thinkingBudget to produce quality output and MUST NOT carry a temperature
-  // field (the server warns and can loop below 1.0). Non-3.x models keep the
-  // previous fast-path config.
-  const isGemini3 = isGemini3Model(GEMINI_MODEL);
-  const generationConfig: Record<string, unknown> = {
-    responseMimeType: "application/json",
+  const result = await runRole("generator", {
+    modelOverride: GEMINI_MODEL,
+    purpose: "sba_package_narrative",
     maxOutputTokens: 8192,
-    thinkingConfig: { thinkingBudget: isGemini3 ? 1024 : 0 },
-  };
-  if (!isGemini3) {
-    generationConfig.temperature = 0.7;
-  }
-
-  const resp = await fetch(GEMINI_API_URL(apiKey), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig,
-    }),
+    thinkingLevel: "low",
+    responseSchema: { type: "object" },
+    prompt,
   });
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    throw new Error(`gemini_sba_narrative_${resp.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const json = await resp.json();
-  const text: string =
-    json?.candidates?.[0]?.content?.parts
-      ?.filter((p: { thought?: boolean }) => !p.thought)
-      ?.map((p: { text?: string }) => p.text ?? "")
-      ?.join("") ?? "";
-
-  return text;
+  return result.text;
 }
 
 /** Call 1: Section 1 — Business Overview (Phase 2 — richer context). */

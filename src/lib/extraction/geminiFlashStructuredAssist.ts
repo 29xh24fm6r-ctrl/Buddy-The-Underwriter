@@ -1,12 +1,10 @@
 import "server-only";
 
-import { GoogleGenAI } from "@google/genai";
-import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
-import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
 import { buildStructuredAssistPrompt, PROMPT_VERSION } from "./geminiFlashPrompts";
 import { validateStructuredOutput } from "./schemas/structuredOutput";
 import { computeStructuredOutputHash } from "./outputCanonicalization";
+import { runRole } from "@/lib/ai/gateway";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,7 +53,7 @@ export type StructuredAssistResult = {
 // SPEC-EXTRACTION-MODEL-UPGRADE-1: resolve the document-extraction model via the
 // MODEL_EXTRACTION intent-alias (not GEMINI_FLASH directly), so the extraction
 // lane is governed from the single registry alias.
-import { MODEL_EXTRACTION, isGemini3Model } from "@/lib/ai/models";
+import { MODEL_EXTRACTION } from "@/lib/ai/models";
 
 const STRUCTURED_ASSIST_TIMEOUT_MS = 15_000; // 15s hard timeout (institutional)
 const GEMINI_MODEL = MODEL_EXTRACTION;
@@ -63,24 +61,6 @@ const GEMINI_TEMPERATURE = 0.1;
 const MAX_OCR_TEXT_LENGTH = 50_000;  // Truncate to avoid token limits
 const MAX_RETRIES = 1;              // At most 1 retry (C2)
 const MAX_INPUT_PAGES = 50;         // Skip structured assist for very long docs
-
-// ---------------------------------------------------------------------------
-// GCP helpers (reuse from Gemini OCR patterns)
-// ---------------------------------------------------------------------------
-
-function getGoogleProjectId(): string {
-  const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT ||
-    process.env.GOOGLE_PROJECT_ID ||
-    process.env.GCS_PROJECT_ID ||
-    process.env.GCP_PROJECT_ID;
-  if (!projectId) {
-    throw new Error(
-      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT.",
-    );
-  }
-  return projectId;
-}
 
 // ---------------------------------------------------------------------------
 // Main function
@@ -128,16 +108,6 @@ export async function extractStructuredAssist(args: {
       return null;
     }
 
-    await ensureGcpAdcBootstrap();
-    const googleAuthOptions = await getVertexAuthOptions();
-    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
-    const ai = new GoogleGenAI({
-      vertexai: true,
-      project: getGoogleProjectId(),
-      location: getVertexLocation(),
-      ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
-    });
-
     // Attempt extraction with retry (C2)
     let lastFailureReason: string | null = null;
 
@@ -147,53 +117,31 @@ export async function extractStructuredAssist(args: {
         ? STRICT_RETRY_SYSTEM_INSTRUCTION
         : prompt.systemInstruction;
 
-      // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures with
-      // looping/degraded output. Omit temperature for 3.x; keep explicit
-      // low-temp for 2.x families.
-      const generationConfig: Record<string, unknown> = {
-        responseMimeType: "application/json",
-      };
-      if (!isGemini3Model(GEMINI_MODEL)) {
-        generationConfig.temperature = isRetry ? 0.0 : GEMINI_TEMPERATURE;
-      }
-      // SPEC-VERTEX-SDK-MIGRATION-1: ai.models.generateContent unified call
-      const generatePromise = ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt.userPrompt }],
-          },
-        ],
-        config: {
-          ...generationConfig,
+      // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+      // authMode: "vertex"). Temperature omission for Gemini 3.x models is
+      // already handled inside providers/google.ts — pass it unconditionally.
+      // providers/google.ts's callGoogle throws "empty response" for a blank
+      // candidate (rather than this file's old empty-string check) — caught
+      // below and folded into the SAME inner-retry path the original empty-
+      // response check used, so the retry-on-content-quality-issue contract
+      // (as opposed to retry-on-network-failure, which still exits to the
+      // outer catch) is preserved.
+      let rawText: string;
+      try {
+        const result = await runRole("generator", {
+          purpose: "structured_assist",
+          prompt: prompt.userPrompt,
           systemInstruction,
-        },
-      });
-
-      // Enforce hard timeout
-      const resp = await Promise.race([
-        generatePromise,
-        new Promise<never>((_resolve, reject) =>
-          setTimeout(
-            () => reject(new Error(`structured_assist_timeout_${STRUCTURED_ASSIST_TIMEOUT_MS}ms`)),
-            STRUCTURED_ASSIST_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-
-      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai response shape (no `.response` wrapper)
-      const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
-      const rawText = (
-        (resp as any)?.text ??
-        parts
-          .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-          .join("")
-      )
-        .toString()
-        .trim();
-
-      if (!rawText) {
+          authMode: "vertex",
+          modelOverride: GEMINI_MODEL,
+          temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
+          timeoutMs: STRUCTURED_ASSIST_TIMEOUT_MS,
+          responseSchema: { type: "object" },
+        });
+        rawText = result.text.trim();
+      } catch (attemptErr: any) {
+        const msg = attemptErr?.message ? String(attemptErr.message) : "";
+        if (!/^empty response/.test(msg)) throw attemptErr;
         console.warn("[StructuredAssist] Empty response from Gemini Flash", {
           documentId: args.documentId,
           canonicalType: args.canonicalType,

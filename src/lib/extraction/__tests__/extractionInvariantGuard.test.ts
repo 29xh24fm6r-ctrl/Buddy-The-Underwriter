@@ -211,20 +211,18 @@ describe("Extraction Invariant Guards", () => {
       "src/lib/extraction/geminiFlashStructuredAssist.ts",
     );
 
-    // Must have a timeout mechanism
-    const hasTimeout =
-      source.includes("STRUCTURED_ASSIST_TIMEOUT_MS") ||
-      source.includes("setTimeout") ||
-      source.includes("Promise.race");
+    // SPEC-M1.1: the hard timeout is now enforced by the AI gateway
+    // (runRole's own AbortController-based timeoutMs, providers/google.ts)
+    // rather than a local Promise.race — STRUCTURED_ASSIST_TIMEOUT_MS must
+    // still be threaded into the gateway call as timeoutMs.
     assert.ok(
-      hasTimeout,
-      "geminiFlashStructuredAssist.ts must have a timeout mechanism (STRUCTURED_ASSIST_TIMEOUT_MS / Promise.race / setTimeout)",
+      source.includes("STRUCTURED_ASSIST_TIMEOUT_MS"),
+      "geminiFlashStructuredAssist.ts must define a hard timeout constant",
     );
-
-    // Must have Promise.race for enforcing the timeout
-    assert.ok(
-      source.includes("Promise.race"),
-      "geminiFlashStructuredAssist.ts must use Promise.race to enforce hard timeout",
+    assert.match(
+      source,
+      /timeoutMs:\s*STRUCTURED_ASSIST_TIMEOUT_MS/,
+      "geminiFlashStructuredAssist.ts must pass STRUCTURED_ASSIST_TIMEOUT_MS as the gateway call's timeoutMs",
     );
 
     // Must have a catch clause that returns null (never throws)

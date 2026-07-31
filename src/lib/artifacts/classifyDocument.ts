@@ -14,12 +14,10 @@
  */
 
 import "server-only";
-import { GoogleGenAI } from "@google/genai";
-import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { classifyByRules, type RulesClassificationResult } from "./classifyByRules";
 import { MODEL_CLASSIFICATION } from "@/lib/ai/models";
-import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
+import { runRole } from "@/lib/ai/gateway";
 
 // Tier-A (rules-based) acceptance bar — distinct from the intake confirmation
 // gate's CONFIDENCE_THRESHOLDS (src/lib/intake/confirmation/types.ts), which
@@ -158,22 +156,8 @@ Rules:
 Be precise. If unsure, lower the confidence. For tax documents, always try to extract the tax year and form numbers.`;
 
 // ---------------------------------------------------------------------------
-// Gemini Vertex AI helpers (mirrors runGeminiOcrJob.ts pattern)
+// Gemini model selection
 // ---------------------------------------------------------------------------
-
-function getGoogleProjectId(): string {
-  const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT ||
-    process.env.GOOGLE_PROJECT_ID ||
-    process.env.GCS_PROJECT_ID ||
-    process.env.GCP_PROJECT_ID;
-  if (!projectId) {
-    throw new Error(
-      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT (recommended) or GOOGLE_PROJECT_ID.",
-    );
-  }
-  return projectId;
-}
 
 function getClassifierModel(): string {
   return process.env.GEMINI_CLASSIFIER_MODEL || process.env.GEMINI_MODEL || MODEL_CLASSIFICATION;
@@ -252,37 +236,20 @@ ${truncatedText}
 Classify this document and extract key information. Respond with JSON only.`;
 
   try {
-    await ensureGcpAdcBootstrap();
-    const googleAuthOptions = await getVertexAuthOptions();
-
-    // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
-    const ai = new GoogleGenAI({
-      vertexai: true,
-      project: getGoogleProjectId(),
-      location: getVertexLocation(),
-      ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
-    });
-
     const modelName = getClassifierModel();
 
-    const resp = await ai.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: CLASSIFICATION_PROMPT + "\n\n" + userMessage }],
-        },
-      ],
+    // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+    // authMode: "vertex" — this caller specifically needs Vertex/WIF auth).
+    // No responseSchema is set, matching the original's config — the manual
+    // regex JSON extraction below is unchanged.
+    const result = await runRole("generator", {
+      purpose: "classify_document",
+      prompt: CLASSIFICATION_PROMPT + "\n\n" + userMessage,
+      modelOverride: modelName,
+      authMode: "vertex",
     });
 
-    // SPEC-VERTEX-SDK-MIGRATION-1: response shape — no `.response` wrapper
-    const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
-    const textRaw =
-      (resp as any)?.text ??
-      parts
-        .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-        .join("") ??
-      "";
+    const textRaw = result.text;
 
     if (!textRaw) {
       throw new Error("No text response from Gemini");

@@ -76,6 +76,97 @@ describe("callGoogle: existing API-key REST path (regression)", () => {
   });
 });
 
+describe("callGoogle: generationConfig temperature/thinkingConfig branching", () => {
+  // SPEC-M1.1: relocated from geminiClient.test.ts, which used to test this
+  // indirectly via a raw fetch mock before that file was migrated onto the
+  // gateway — this is the layer that actually owns the isGemini3Model
+  // branching now (buildGenerationConfig, below), so the coverage belongs
+  // here going forward.
+  it("omits temperature and sets thinkingConfig for a Gemini 3.x model", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, model: "gemini-3.1-flash-lite" });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal("temperature" in body.generationConfig, false);
+      assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: "low" });
+    } finally {
+      restore();
+    }
+  });
+
+  it("honors a thinkingLevel override for a Gemini 3.x model", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, model: "gemini-3.1-flash-lite", thinkingLevel: "minimal" });
+      const body = JSON.parse(calls[0].init.body);
+      assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: "minimal" });
+    } finally {
+      restore();
+    }
+  });
+
+  it("SPEC-M1.1: sets mediaResolution for a Gemini 3.x model when provided", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({
+        ...BASE_REQ,
+        model: "gemini-3.1-flash-lite",
+        mediaResolution: "MEDIA_RESOLUTION_HIGH",
+      });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.generationConfig.mediaResolution, "MEDIA_RESOLUTION_HIGH");
+    } finally {
+      restore();
+    }
+  });
+
+  it("SPEC-M1.1: omits mediaResolution when not provided", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, model: "gemini-3.1-flash-lite" });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal("mediaResolution" in body.generationConfig, false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("sets temperature 0.1 by default for a non-Gemini-3.x model", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, model: "gemini-2.5-flash" });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.generationConfig.temperature, 0.1);
+      assert.equal("thinkingConfig" in body.generationConfig, false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("honors a temperature override for a non-Gemini-3.x model", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }),
+    );
+    try {
+      await callGoogle({ ...BASE_REQ, model: "gemini-2.5-flash", temperature: 0.7 });
+      const body = JSON.parse(calls[0].init.body);
+      assert.equal(body.generationConfig.temperature, 0.7);
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("callGoogle: §1 Vertex/WIF auth path", () => {
   it("calls the Vertex REST endpoint with a bearer token when authMode is vertex", async () => {
     process.env.GOOGLE_CLOUD_PROJECT = "test-project";
@@ -162,6 +253,22 @@ describe("callGoogle: §3 search grounding", () => {
     try {
       const result = await callGoogle(BASE_REQ);
       assert.equal(result.groundingMetadata, undefined);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("callGoogle: prompt-safety block (non-streaming)", () => {
+  it("SPEC-M1.1: throws a distinct error when promptFeedback.blockReason is present, even with no candidates", async () => {
+    const { restore } = installFetch(async () =>
+      okResponse({ promptFeedback: { blockReason: "SAFETY" } }),
+    );
+    try {
+      await assert.rejects(
+        () => callGoogle(BASE_REQ),
+        /Gemini blocked the prompt: SAFETY/,
+      );
     } finally {
       restore();
     }

@@ -39,6 +39,9 @@ export async function callOpenAI(req: ProviderCallRequest): Promise<ProviderCall
     messages,
     max_tokens: req.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
   };
+  if (req.temperature !== undefined) {
+    body.temperature = req.temperature;
+  }
   if (req.responseSchema) {
     body.response_format = {
       type: "json_schema",

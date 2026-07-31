@@ -14,10 +14,9 @@
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import OpenAI from "openai";
-import { OPENAI_EMBEDDINGS, OPENAI_MINI } from "@/lib/ai/models";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { OPENAI_MINI } from "@/lib/ai/models";
+import { embedText } from "@/lib/ai/embed";
+import { runRole } from "@/lib/ai/gateway";
 
 // ============================================================================
 // Types
@@ -64,12 +63,11 @@ export interface RetrievalResult {
 // ============================================================================
 
 async function embedQuery(text: string): Promise<number[]> {
-  const response = await openai.embeddings.create({
-    model: OPENAI_EMBEDDINGS,
-    input: text,
-    dimensions: 1536,
-  });
-  return response.data[0].embedding;
+  // SPEC-M1.1: routed through the AI gateway's dedicated embeddings
+  // capability (embedText, SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §4 — this
+  // file was that capability's intended first caller).
+  const result = await embedText({ text, dimensions: 1536, purpose: "retrieval_query" });
+  return result.vector;
 }
 
 // ============================================================================
@@ -176,13 +174,18 @@ ${allChunks.map((c, i) => `[${i}] ${c.content.slice(0, 200)}...`).join("\n\n")}
 
 Return ONLY a JSON array of scores: [score0, score1, ...]`;
 
-    const response = await openai.chat.completions.create({
-      model: OPENAI_MINI,
-      messages: [{ role: "user", content: prompt }],
+    // SPEC-M1.1: routed through the AI gateway (runRole, "structurer" role
+    // — OpenAI-only, matching this call's OpenAI-specific model choice).
+    // modelOverride is required since MODEL_RETRIEVAL (OPENAI_MINI) differs
+    // from structurer's default chain model.
+    const result = await runRole("structurer", {
+      purpose: "retrieval_rerank",
+      prompt,
+      modelOverride: OPENAI_MINI,
       temperature: 0,
     });
 
-    const scoresText = response.choices[0].message.content || "[]";
+    const scoresText = result.text || "[]";
     const scores = JSON.parse(scoresText.match(/\[[\d,.\s]+\]/)?.[0] || "[]");
 
     const ranked = allChunks
@@ -197,6 +200,9 @@ Return ONLY a JSON array of scores: [score0, score1, ...]`;
     return allChunks.slice(0, topN).map((c) => ({ source: c.source, score: 0.5 }));
   }
 }
+
+/** Test-only: rerankChunks isn't otherwise exported (retrieveEvidence is the public surface). */
+export const __rerankChunksForTests = rerankChunks;
 
 // ============================================================================
 // Main: Unified Retrieval

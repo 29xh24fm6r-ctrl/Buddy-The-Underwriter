@@ -1,9 +1,7 @@
 import "server-only";
-import { GoogleGenAI } from "@google/genai";
-import { ensureGcpAdcBootstrap, getVertexAuthOptions } from "@/lib/gcpAdcBootstrap";
 import { MODEL_OCR } from "@/lib/ai/models";
-import { getVertexLocation } from "@/lib/ai/vertexLocation";
 import { classifySdkError } from "@/lib/extraction/sdkResponseGuard";
+import { runRole } from "@/lib/ai/gateway";
 
 type GeminiOcrArgs = {
   fileBytes: Buffer;
@@ -35,20 +33,6 @@ function normalizeMimeType(mimeType: string): string {
   if (normalized === "image/jpg") return "image/jpeg";
 
   return normalized;
-}
-
-function getGoogleProjectId(): string {
-  const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT ||
-    process.env.GOOGLE_PROJECT_ID ||
-    process.env.GCS_PROJECT_ID ||
-    process.env.GCP_PROJECT_ID;
-  if (!projectId) {
-    throw new Error(
-      "Missing Google Cloud project id. Set GOOGLE_CLOUD_PROJECT (recommended) or GOOGLE_PROJECT_ID.",
-    );
-  }
-  return projectId;
 }
 
 function getGeminiModelFromEnv(): string | null {
@@ -95,16 +79,6 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     modelCandidates,
   });
 
-  await ensureGcpAdcBootstrap();
-  const googleAuthOptions = await getVertexAuthOptions();
-  // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai with vertexai:true
-  const ai = new GoogleGenAI({
-    vertexai: true,
-    project: getGoogleProjectId(),
-    location: getVertexLocation(),
-    ...(googleAuthOptions ? { googleAuthOptions: googleAuthOptions as any } : {}),
-  });
-
   const normalizedMimeType = normalizeMimeType(mimeType);
   const base64 = fileBytes.toString("base64");
 
@@ -124,43 +98,22 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
     tried.push(modelName);
 
     try {
-      // SPEC-VERTEX-SDK-MIGRATION-1: ai.models.generateContent unified call.
-      // Model is selected per-attempt inside the fallback loop.
-      const generatePromise = ai.models.generateContent({
-        model: modelName,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: normalizedMimeType,
-                  data: base64,
-                },
-              },
-            ],
-          },
-        ],
+      // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role,
+      // authMode: "vertex", inlineData for the file bytes). Model is
+      // selected per-attempt inside this file's own same-provider fallback
+      // loop — a genuinely different reliability strategy than the
+      // gateway's own cross-provider failover chain, kept here rather than
+      // folded into runRole(). timeoutMs replaces the manual Promise.race.
+      const result = await runRole("generator", {
+        purpose: "gemini_ocr",
+        prompt,
+        modelOverride: modelName,
+        authMode: "vertex",
+        inlineData: [{ mimeType: normalizedMimeType, data: base64 }],
+        timeoutMs: OCR_TIMEOUT_MS,
       });
 
-      const resp = await Promise.race([
-        generatePromise,
-        new Promise<never>((_resolve, reject) =>
-          setTimeout(
-            () => reject(new Error(`OCR timeout after ${OCR_TIMEOUT_MS / 1000}s (model: ${modelName})`)),
-            OCR_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-
-      // SPEC-VERTEX-SDK-MIGRATION-1: @google/genai response shape — no `.response` wrapper
-      const parts = (resp as any)?.candidates?.[0]?.content?.parts ?? [];
-      const textRaw =
-        (resp as any)?.text ??
-        parts.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("") ??
-        "";
-      const text = String(textRaw).trim();
+      const text = result.text.trim();
 
       const finalText = text.match(/\[Page\s+\d+\]/i)
         ? text
@@ -194,7 +147,13 @@ export async function runGeminiOcrJob(args: GeminiOcrArgs): Promise<GeminiOcrRes
         throw new Error(`SDK_HTML_RESPONSE: ${classification.rawSnippet.slice(0, 120)}`, { cause: e });
       }
 
-      const isTimeout = e?.message?.includes("OCR timeout");
+      // SPEC-M1.1: the gateway's own AbortController-based timeout (fetch's
+      // abort signal) throws a DOMException named "AbortError", not this
+      // file's old literal "OCR timeout" message — detect both so a
+      // gateway-level timeout still falls into the same "try next model"
+      // branch as before.
+      const isTimeout =
+        e?.name === "AbortError" || /timeout/i.test(String(e?.message || ""));
       if (isVertexModelNotFoundError(e) || isTimeout) {
         console.warn(`[GeminiOCR] ${isTimeout ? "Timeout" : "Model unavailable"}, trying next`, {
           fileName,

@@ -1,7 +1,7 @@
 import "server-only";
 
 /**
- * Gemini JSON client — REST path to generativelanguage.googleapis.com.
+ * Gemini JSON client — now routed through the AI gateway (SPEC-M1.1).
  *
  * Matches the pattern established by
  * src/lib/financialSpreads/extractors/gemini/geminiClient.ts: hard timeout,
@@ -10,11 +10,17 @@ import "server-only";
  * Used by the borrower concierge route and (in Sprint 1) the brokerage
  * concierge route. Two callers, one helper.
  *
- * Reuses `isGemini3Model` from the registry — do not redefine.
+ * The retry-with-backoff loop below is a genuinely different reliability
+ * strategy than the gateway's own provider-failover chain (same model/
+ * provider, retried, vs failing over to a different provider) — kept here
+ * rather than folded into runRole(), which only tries each chain step
+ * once. All the incident-driven config (maxOutputTokens, thinkingLevel,
+ * temperature-omission for Gemini 3.x) is preserved via runRole()'s
+ * per-call override fields (modelOverride/maxOutputTokens/thinkingLevel/
+ * temperature) rather than lost.
  */
 
-import { isGemini3Model } from "./models";
-import { splitSSEEvents } from "@/lib/sse/parseSSEBuffer";
+import { runRole, runRoleStream } from "./gateway";
 
 const DEFAULT_TIMEOUT_MS = 25_000;
 const DEFAULT_MAX_RETRIES = 1;
@@ -51,8 +57,7 @@ export type GeminiCallResult<T> = {
 export async function callGeminiJSON<T>(
   opts: GeminiCallOptions,
 ): Promise<GeminiCallResult<T>> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY) {
     return {
       ok: false,
       result: null,
@@ -71,7 +76,6 @@ export async function callGeminiJSON<T>(
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
       const result = await callOnce<T>({
-        apiKey,
         model: opts.model,
         prompt: opts.prompt,
         logTag: opts.logTag,
@@ -152,183 +156,52 @@ export type GeminiStreamOptions = {
  * was never applied to this shared client, which is what the borrower
  * concierge (text + voice) and the bank-side concierge all actually call.
  * Fixed here so every caller gets it at once.
+ *
+ * SPEC-M1.1: migrated onto the AI gateway (runRoleStream, interviewer
+ * role — the role roleConfig.ts's own doc comment already designates for
+ * this exact concierge use case). maxOutputTokens/thinkingLevel defaults
+ * are preserved via per-call overrides; the blockReason-detection-throws-
+ * distinctly behavior (#730's fix) is now a permanent, built-in gateway
+ * feature (providers/google.ts's streamGoogle), not reimplemented here.
+ *
+ * TRADE-OFF (disclosed, not silent): the verbose zero-text DIAGNOSTIC log
+ * (#730's raw event/chunk/byte counters) is not reproduced — runRoleStream
+ * yields clean text only, not the raw parsed SSE event, so per-event
+ * introspection at this level of detail isn't available without a larger
+ * gateway interface change. The correctness-relevant behavior (config
+ * defaults, thought-part filtering, blockReason→throw) is fully preserved;
+ * only the extra debug-log granularity for the zero-text edge case is
+ * reduced.
  */
 export async function* streamGeminiText(
   opts: GeminiStreamOptions,
 ): AsyncGenerator<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
-
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  // Per current Gemini API reference (ai.google.dev/api): "All requests to
-  // the Gemini API must include a x-goog-api-key header with your API key."
-  // The ?key= query-param form is legacy — verified via docs on 2026-07-21
-  // while investigating the concierge zero-text incident. Not confirmed to
-  // be the cause (a rejected key would 401/403 loudly, and zero such
-  // failures have appeared in production gemini-stream logs), but it's the
-  // documented method now and costs nothing to align on.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:streamGenerateContent?alt=sse`;
-
-  const generationConfig: Record<string, unknown> = {
-    // INCIDENT (2026-07-21, live audit continuation): 4096 was still too low
-    // even after the thinkingLevel fix above. The concierge's combined-turn
-    // prompt asks Gemini to emit a conversational reply AND a structured
-    // facts JSON blob covering the full BORROWER_FIELD_REGISTRY (173 fields
-    // across business/loan/owner/pfs/entity scopes) in one completion.
-    // Thinking (even at "low") plus that JSON payload routinely exceeded
-    // 4096 output tokens, so the model hit finishReason MAX_TOKENS before
-    // emitting a single visible reply token on effectively every turn —
-    // reproducing 100% of the time regardless of the thinkingConfig field
-    // name. Matches the budget already proven correct for the same model
-    // family in the extraction client (financialSpreads/extractors/gemini/
-    // geminiClient.ts), which emits a comparably large JSON payload.
-    maxOutputTokens: opts.maxOutputTokens ?? 16384,
-  };
-  if (isGemini3Model(opts.model)) {
-    // "low" mirrors the extraction client's choice: enough reasoning to
-    // track multi-turn borrower context, not so much it eats the budget.
-    generationConfig.thinkingConfig = {
-      thinkingLevel: opts.thinkingLevel ?? "low",
-    };
-  } else {
-    generationConfig.temperature = 0.1;
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
+  let sawVisibleText = false;
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: opts.prompt }] }],
-        generationConfig,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok || !res.body) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
+    for await (const chunk of runRoleStream("interviewer", {
+      purpose: opts.logTag,
+      prompt: opts.prompt,
+      modelOverride: opts.model,
+      maxOutputTokens: opts.maxOutputTokens ?? 16384,
+      thinkingLevel: opts.thinkingLevel ?? "low",
+      timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    })) {
+      sawVisibleText = true;
+      yield chunk;
     }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-
-    // DIAGNOSTIC (2026-07-21): three consecutive fixes (#727 thinkingBudget,
-    // #728 thinkingLevel, #729 maxOutputTokens 4096->16384) have all guessed
-    // at this failure from the OUTSIDE — none of them ever inspected what
-    // Gemini's raw response actually contains, because this function only
-    // ever surfaced "zero text" with no further detail, and the caller's
-    // fallback swallows that silently. #729 is confirmed live in production
-    // and the exact same zero-text failure still reproduces, which rules out
-    // the token-budget theory entirely. Capture the real signals here so the
-    // NEXT reproduction tells us the actual cause instead of us inferring it
-    // again: promptFeedback.blockReason (prompt safety-blocked before any
-    // generation happened — a live possibility given this prompt asks the
-    // model to extract SSN/income/PII into structured JSON), finishReason
-    // per candidate, and whether every part that did arrive was thought-only.
-    let sawVisibleText = false;
-    let eventCount = 0;
-    let thoughtPartCount = 0;
-    let textPartCount = 0;
-    let lastFinishReason: string | undefined;
-    let blockReason: string | undefined;
-
-    // DIAGNOSTIC (2026-07-22): the first real reproduction under PR #730's
-    // instrumentation came back events=0 — not "the model replied with no
-    // text" (the assumption every prior fix made), but zero SSE frames ever
-    // parsed at all. That's a layer beneath anything #727-#729 could have
-    // fixed. Capture the raw byte count and chunk count actually read off
-    // the wire, plus the response status/headers, so the next reproduction
-    // tells us whether Google is returning a genuinely empty 200 body
-    // (infra/auth/caching issue) versus bytes arriving that never form a
-    // complete "\n\n"-terminated SSE frame (parser/framing issue).
-    let rawByteCount = 0;
-    let rawChunkCount = 0;
-    const resStatus = res.status;
-    const resContentType = res.headers.get("content-type") ?? "none";
-    const resContentLength = res.headers.get("content-length") ?? "none";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        rawChunkCount++;
-        rawByteCount += value.byteLength;
-      }
-      buf += decoder.decode(value, { stream: true });
-
-      const { events, rest } = splitSSEEvents(buf);
-      buf = rest;
-      for (const evt of events) {
-        try {
-          const parsed = JSON.parse(evt.data);
-          eventCount++;
-          if (parsed?.promptFeedback?.blockReason) {
-            blockReason = String(parsed.promptFeedback.blockReason);
-          }
-          if (parsed?.candidates?.[0]?.finishReason) {
-            lastFinishReason = String(parsed.candidates[0].finishReason);
-          }
-          // thinkingConfig can still surface thought-marked parts even
-          // without include_thoughts requested — filter them out so
-          // reasoning text never leaks into the borrower's chat. See
-          // naics-suggest/route.ts for the same guard on the non-streaming
-          // path.
-          const parts = parsed?.candidates?.[0]?.content?.parts as
-            | Array<{ text?: string; thought?: boolean }>
-            | undefined;
-          for (const p of parts ?? []) {
-            if (p.thought) thoughtPartCount++;
-            else if (p.text) textPartCount++;
-          }
-          const text = parts
-            ?.filter((p) => !p.thought)
-            ?.map((p) => p.text ?? "")
-            ?.join("");
-          if (typeof text === "string" && text) {
-            sawVisibleText = true;
-            yield text;
-          }
-        } catch {
-          // Malformed/partial SSE chunk — skip it, the model keeps streaming.
-        }
-      }
-    }
-
     if (!sawVisibleText) {
       console.warn(
-        `[gemini-stream:${opts.logTag}] DIAGNOSTIC: stream completed with zero visible text — ` +
-          `events=${eventCount} finishReason=${lastFinishReason ?? "none"} ` +
-          `blockReason=${blockReason ?? "none"} thoughtParts=${thoughtPartCount} textParts=${textPartCount} ` +
-          `status=${resStatus} contentType=${resContentType} contentLength=${resContentLength} ` +
-          `rawChunks=${rawChunkCount} rawBytes=${rawByteCount}`,
+        `[gemini-stream:${opts.logTag}] stream completed with zero visible text`,
       );
-      if (blockReason) {
-        // A hard block is a distinct, actionable failure mode from
-        // MAX_TOKENS — surface it as a thrown error so it's caught and
-        // logged separately by the caller ("stream failed"), not folded
-        // into the generic "no reply text" fallback path.
-        throw new Error(`Gemini blocked the prompt: ${blockReason}`);
-      }
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[gemini-stream:${opts.logTag}] failed: ${msg}`);
     throw e;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
 async function callOnce<T>(args: {
-  apiKey: string;
   model: string;
   prompt: string;
   logTag: string;
@@ -337,79 +210,28 @@ async function callOnce<T>(args: {
   maxOutputTokens?: number;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
-  // Per current Gemini API reference — see streamGeminiText's matching note.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${args.model}:generateContent`;
-
-  const generationConfig: Record<string, unknown> = {
-    responseMimeType: "application/json",
-    // See streamGeminiText's doc comment: without this, Gemini 3.x's
-    // default thinking budget can consume the entire output allowance
-    // before any answer text is emitted (HTTP 200, finishReason MAX_TOKENS,
-    // zero text — no exception thrown anywhere in this path). 16384 matches
-    // the budget already proven correct for large structured-JSON payloads
-    // on this model family (see streamGeminiText's incident note above).
+  // SPEC-M1.1: migrated onto the AI gateway (generator role). All
+  // callers observed to use object-shaped T (Record<string, any> / inline
+  // object types), so a permissive object responseSchema is passed to
+  // preserve the original responseMimeType: "application/json" request
+  // (only set by the provider adapter when a schema is present) without
+  // over-constraining the shape. maxOutputTokens/thinkingLevel defaults
+  // match this file's own incident-driven tuning (see streamGeminiText's
+  // doc comment above); temperature omission for Gemini 3.x models and
+  // empty-response detection are both already handled inside
+  // providers/google.ts's callGoogle.
+  const result = await runRole("generator", {
+    modelOverride: args.model,
+    purpose: args.logTag,
+    prompt: args.prompt,
+    systemInstruction: args.systemInstruction,
     maxOutputTokens: args.maxOutputTokens ?? 16384,
-  };
-  if (isGemini3Model(args.model)) {
-    generationConfig.thinkingConfig = {
-      thinkingLevel: args.thinkingLevel ?? "low",
-    };
-  } else {
-    // Gemini 3.x rejects sub-1.0 temperatures — omit entirely for that family.
-    generationConfig.temperature = 0.1;
-  }
-
-  const body: Record<string, unknown> = {
-    contents: [{ role: "user", parts: [{ text: args.prompt }] }],
-    generationConfig,
-  };
-  if (args.systemInstruction) {
-    body.systemInstruction = { parts: [{ text: args.systemInstruction }] };
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs);
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": args.apiKey,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const data = await res.json();
-  // Filter out thought-marked parts (see streamGeminiText's doc comment) —
-  // otherwise a thought part landing at parts[0] would be mistaken for the
-  // answer.
-  const parts = data?.candidates?.[0]?.content?.parts as
-    | Array<{ text?: string; thought?: boolean }>
-    | undefined;
-  const text: string =
-    parts
-      ?.filter((p) => !p.thought)
-      ?.map((p) => p.text ?? "")
-      ?.join("") ?? "";
-  if (!text) {
-    const finishReason = data?.candidates?.[0]?.finishReason;
-    throw new Error(
-      finishReason ? `empty response (finishReason: ${finishReason})` : "empty response",
-    );
-  }
+    thinkingLevel: args.thinkingLevel ?? "low",
+    timeoutMs: args.timeoutMs,
+    responseSchema: { type: "object" },
+  });
 
   // Gemini occasionally wraps JSON in ```json fences even with responseMimeType.
-  const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+  const clean = result.text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
   return JSON.parse(clean) as T;
 }

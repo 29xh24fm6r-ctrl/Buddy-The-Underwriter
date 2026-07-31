@@ -27,12 +27,9 @@ import type {
   CommitteeAnswer,
 } from "./provider";
 import { GEMINI_FLASH } from "./models";
+import { runRole } from "./gateway";
 
 export const GEMINI_3_FLASH_MODEL = GEMINI_FLASH;
-
-function gemini3FlashUrl(apiKey: string): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_3_FLASH_MODEL}:generateContent?key=${apiKey}`;
-}
 
 function evidenceRulesBlock(): string {
   return [
@@ -51,9 +48,6 @@ async function gemini3Structured<T>(args: {
   structureHint: string;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY missing");
-
   const thinkingLevel = args.thinkingLevel ?? "minimal";
 
   const prompt =
@@ -62,29 +56,17 @@ async function gemini3Structured<T>(args: {
     `${args.structureHint}\n\n` +
     `INPUT:\n${JSON.stringify(args.payload, null, 2)}`;
 
-  const resp = await fetch(gemini3FlashUrl(apiKey), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 8192,
-        thinkingConfig: { thinkingLevel },
-      },
-    }),
+  // SPEC-M1.1: migrated onto the AI gateway. GEMINI_3_FLASH_MODEL already
+  // equals the generator role's default chain model, so no modelOverride
+  // is needed — only the thinkingLevel override (this call site wants
+  // "minimal", the gateway's own default is "low").
+  const result = await runRole("generator", {
+    purpose: "gemini3flash_structured",
+    maxOutputTokens: 8192,
+    thinkingLevel,
+    prompt,
   });
-
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    throw new Error(`gemini3flash_error_${resp.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const json = await resp.json();
-  const text: string = json?.candidates?.[0]?.content?.parts
-    ?.filter((p: { thought?: boolean }) => !p.thought)
-    ?.map((p: { text?: string }) => p.text ?? "")
-    ?.join("") ?? "";
+  const text = result.text;
 
   let parsed: unknown;
   try {

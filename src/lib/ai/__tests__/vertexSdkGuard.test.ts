@@ -13,17 +13,24 @@ import { execSync } from "node:child_process";
 
 const ROOT = process.cwd();
 
-// All 6 production callers in src/ that previously imported @google-cloud/vertexai.
-// Scope was expanded beyond the spec's 3-file list at implementation time —
-// grep found these additional callers; user approved the expansion.
-const PROD_CALL_SITES = [
-  "src/lib/financialSpreads/extractors/gemini/geminiClient.ts",
-  "src/lib/extraction/geminiFlashStructuredAssist.ts",
-  "src/lib/ocr/runGeminiOcrJob.ts",
-  "src/buddy/brain/geminiAdapter.ts",
-  "src/lib/artifacts/classifyDocument.ts",
-  "src/lib/classification/tier3LLM.ts",
-];
+// Originally 6 production callers in src/ that previously imported
+// @google-cloud/vertexai (scope was expanded beyond the spec's 3-file list
+// at implementation time — grep found these additional callers; user
+// approved the expansion).
+//
+// SPEC-M1.1: these 6 files are exactly SPEC-M1.1's remaining Vertex-auth
+// migration targets — each is being routed onto the AI gateway
+// (runRole/runRoleStream with authMode: "vertex"), which owns the Vertex
+// REST call itself (src/lib/ai/providers/google.ts — raw fetch, no SDK
+// import at all; SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §1) rather than each
+// caller constructing its own GoogleGenAI client. Entries are removed from
+// this list as each call site migrates — remove-only, same convention as
+// scripts/guards/ai-gateway-only-allowlist.txt. Once this list is empty,
+// [sdk-4]/[sdk-5] are vacuously true (no remaining direct-SDK callers);
+// [sdk-1]/[sdk-2]/[sdk-7] still hold because gcpAdcBootstrap.ts's WIF auth
+// helper (used by providers/google.ts) keeps its own real @google/genai
+// dynamic import for auth resolution.
+const PROD_CALL_SITES: string[] = [];
 
 test("[sdk-1] @google-cloud/vertexai is NOT in package.json", () => {
   const pkg = readFileSync(resolve(ROOT, "package.json"), "utf8");
@@ -61,7 +68,7 @@ test("[sdk-3] no file in src/ imports from the deprecated SDK", () => {
   );
 });
 
-test("[sdk-4] all 6 production call sites import GoogleGenAI", () => {
+test("[sdk-4] all remaining production call sites import GoogleGenAI", () => {
   for (const rel of PROD_CALL_SITES) {
     const src = readFileSync(resolve(ROOT, rel), "utf8");
     assert.match(
@@ -72,7 +79,7 @@ test("[sdk-4] all 6 production call sites import GoogleGenAI", () => {
   }
 });
 
-test("[sdk-5] all 6 production call sites construct the client with vertexai:true", () => {
+test("[sdk-5] all remaining production call sites construct the client with vertexai:true", () => {
   for (const rel of PROD_CALL_SITES) {
     const src = readFileSync(resolve(ROOT, rel), "utf8");
     assert.match(

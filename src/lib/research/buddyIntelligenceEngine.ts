@@ -25,7 +25,8 @@
 import "server-only";
 
 import type { NarrativeSection } from "./types";
-import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK, isGemini3Model } from "@/lib/ai/models";
+import { MODEL_RESEARCH, MODEL_RESEARCH_FALLBACK } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 import {
   repairManagementJson,
   buildManagementFallback,
@@ -245,95 +246,43 @@ async function callGeminiGroundedWithModel<T>(
     segments: [],
     diagnostic,
   });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${args.apiKey}`;
-
-  // Phase 93 follow-up: Gemini 3.x rejects sub-1.0 temperatures.
-  const generationConfig: Record<string, unknown> = {};
-  if (!isGemini3Model(model)) {
-    generationConfig.temperature = 0.1;
-  }
-  if (!args.useGrounding) {
-    generationConfig.responseMimeType = "application/json";
-  }
-  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): no maxOutputTokens
-  // was ever set. A verbose entity (exactly the newsworthy/high-litigation-
-  // content case) that hit the model's default output ceiling produced
-  // truncated-but-nonempty JSON that was previously indistinguishable from
-  // any other malformed-JSON failure — see the MAX_TOKENS handling below.
-  generationConfig.maxOutputTokens = 8192;
-
-  const body: Record<string, unknown> = {
-    contents: [{ role: "user", parts: [{ text: args.prompt }] }],
-    generationConfig,
-  };
-  if (args.useGrounding) {
-    body.tools = [{ google_search: {} }];
-  }
-
-  // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): no timeout on the
-  // raw fetch() to Gemini — a single slow/hung call could block the whole
-  // BIE pass with no bound of its own (the only backstop was the calling
-  // route's maxDuration, which just kills the whole mission with no
-  // per-thread diagnostic). 60s per call — generous for a single grounded
-  // generation, well under the 300s mission-level route budget.
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60_000);
-
+  // SPEC-M1.1: routed through the AI gateway (runRole, "generator" role).
+  // disableFailover: true — this file's own retry/error-classification
+  // logic (isRetryableBIEDiagnostic, the 404-model-retirement fallback
+  // below) depends on the PRIMARY provider's exact http-status/
+  // finishReason/blockReason signal; a silent cross-provider fallover to
+  // openai would either mask that signal behind a generic rejection or
+  // (since this call is often grounded) risk a plausible-looking but
+  // ungrounded/fabricated result — see gateway.ts's disableFailover doc
+  // comment for the general rationale. Temperature omission for Gemini 3.x
+  // models is already handled inside providers/google.ts.
+  //
+  // DISCLOSED trade-off: providers/google.ts's callGoogle collapses several
+  // of this function's originally-distinct failure branches into fewer
+  // thrown-error shapes (HTTP status, blockReason, and finishReason are all
+  // still recoverable via the regexes below — the distinction that
+  // isRetryableBIEDiagnostic actually branches on is preserved), but
+  // `safety_ratings` and the "truncated by maxOutputTokens" JSON-parse hint
+  // are not reconstructable from a thrown error string and are omitted
+  // (both are informational fields, not read anywhere for control flow).
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
+    const result = await runRole("generator", {
+      purpose: `bie_${args.thread}`,
+      prompt: args.prompt,
+      modelOverride: model,
+      temperature: 0.1,
+      maxOutputTokens: 8192,
+      useSearchGrounding: args.useGrounding,
+      responseSchema: args.useGrounding ? undefined : { type: "object" },
+      timeoutMs: 60_000,
+      disableFailover: true,
     });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a 404 from this
-      // endpoint most often means the pinned model id has been retired/
-      // renamed by Google — this codebase has already been burned by exactly
-      // this once (see models.ts's history comment: a preview model 404'd on
-      // Vertex and was silently masked by an unrelated fallback for weeks).
-      // Tag it distinctly and loudly so it doesn't read as a generic/
-      // transient HTTP failure indistinguishable from a rate limit or outage.
-      const likelyModelRetirement = res.status === 404;
-      if (likelyModelRetirement) {
-        console.error(
-          `[BIE:${args.logTag}] Gemini 404 for model "${model}" — likely RETIRED/RENAMED, ` +
-          `not a transient failure. Check @/lib/ai/models.ts. Response: ${errText.slice(0, 300)}`,
-        );
-      } else {
-        console.warn(`[BIE:${args.logTag}] Gemini ${res.status}: ${errText.slice(0, 300)}`);
-      }
-      return emptyWith(baseDiag({
-        ok: false,
-        error_type: "http_error",
-        http_status: res.status,
-        raw_text_preview: (likelyModelRetirement ? `[likely model retirement — model="${model}"] ` : "") + (errText.slice(0, 300) || ""),
-      }));
-    }
-
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    const groundingMeta = candidate?.groundingMetadata ?? {};
-    const promptBlockReason: string | null = data?.promptFeedback?.blockReason ?? null;
-    const finishReason: string | null = candidate?.finishReason ?? null;
-    const safetyRatings = candidate?.safetyRatings ?? data?.promptFeedback?.safetyRatings ?? null;
-
-    // No candidate at all (e.g., prompt blocked).
-    if (!candidate) {
-      const blocked = !!promptBlockReason;
-      return emptyWith(baseDiag({
-        ok: false,
-        error_type: blocked ? "safety_block" : "empty_candidate",
-        prompt_block_reason: promptBlockReason,
-        safety_ratings: safetyRatings,
-      }));
-    }
+    const groundingMeta = (result.groundingMetadata as Record<string, unknown>) ?? {};
 
     // Extract all grounding chunk URLs
     const chunks: Array<{ web?: { uri?: string; title?: string } }> =
-      groundingMeta.groundingChunks ?? [];
+      (groundingMeta.groundingChunks as any) ?? [];
     const chunkUrls = chunks.map((c) => c?.web?.uri ?? "").filter(Boolean);
     for (const u of chunkUrls) args.sources.push(u);
 
@@ -342,7 +291,7 @@ async function callGeminiGroundedWithModel<T>(
       segment?: { startIndex?: number; endIndex?: number; text?: string };
       groundingChunkIndices?: number[];
       confidenceScores?: number[];
-    }> = groundingMeta.groundingSupports ?? [];
+    }> = (groundingMeta.groundingSupports as any) ?? [];
 
     const segments: GroundingSegment[] = rawSupports
       .filter((s) => s.segment?.text)
@@ -354,35 +303,14 @@ async function callGeminiGroundedWithModel<T>(
         confidences: s.confidenceScores ?? [],
       }));
 
-    const text: string = candidate?.content?.parts?.map((p: { text?: string }) => p?.text ?? "").join("") ?? "";
-    if (!text) {
-      // Distinguish a safety/early-stop empty text from a benign empty.
-      const stopped = !!finishReason && finishReason !== "STOP";
-      return emptyWith(baseDiag({
-        ok: false,
-        error_type: stopped ? (finishReason === "SAFETY" ? "safety_block" : "finish_reason") : "empty_text",
-        http_status: res.status,
-        finish_reason: finishReason,
-        prompt_block_reason: promptBlockReason,
-        safety_ratings: safetyRatings,
-        source_count: chunkUrls.length,
-        response_chars: 0,
-      }));
-    }
-
+    const text = result.text;
     const clean = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-    let result: T;
+    let parsed: T;
     try {
-      result = JSON.parse(clean) as T;
+      parsed = JSON.parse(clean) as T;
     } catch (pe: any) {
-      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a verbose entity
-      // hitting maxOutputTokens produces truncated-but-nonempty JSON that
-      // fails to parse — previously reported identically to any other
-      // malformed-JSON failure, losing the actionable "raise the token
-      // limit" signal. Tag it explicitly when finishReason confirms it.
-      const truncated = finishReason === "MAX_TOKENS";
-      const parseErrorMsg = (truncated ? "[likely truncated by maxOutputTokens] " : "") + String(pe?.message ?? pe);
-      console.warn(`[BIE:${args.logTag}] JSON parse error${truncated ? " (MAX_TOKENS truncation)" : ""}:`, pe?.message);
+      const parseErrorMsg = String(pe?.message ?? pe);
+      console.warn(`[BIE:${args.logTag}] JSON parse error:`, pe?.message);
       // SPEC-BIE-SAFE-PRIVATE-COMPANY-RESEARCH-HARDENING-1 Phase 1: one safe
       // repair attempt. On success the ORIGINAL parse diagnostic is preserved
       // (error_type=json_parse_error, raw_text_preview, json_parse_error) and
@@ -403,8 +331,6 @@ async function callGeminiGroundedWithModel<T>(
             diagnostic: baseDiag({
               ok: true,
               error_type: "json_parse_error",
-              http_status: res.status,
-              finish_reason: finishReason,
               json_parse_error: parseErrorMsg.slice(0, 200),
               raw_text_preview: clean.slice(0, 300),
               response_chars: text.length,
@@ -418,8 +344,6 @@ async function callGeminiGroundedWithModel<T>(
       return emptyWith(baseDiag({
         ok: false,
         error_type: "json_parse_error",
-        http_status: res.status,
-        finish_reason: finishReason,
         json_parse_error: parseErrorMsg.slice(0, 200),
         raw_text_preview: clean.slice(0, 300),
         response_chars: text.length,
@@ -428,28 +352,82 @@ async function callGeminiGroundedWithModel<T>(
     }
 
     return {
-      result,
+      result: parsed,
       sourceUrls: chunkUrls,
       segments,
       diagnostic: baseDiag({
         ok: true,
         error_type: "none",
-        http_status: res.status,
-        finish_reason: finishReason,
         response_chars: text.length,
         source_count: chunkUrls.length,
       }),
     };
   } catch (e: any) {
+    const msg = e?.message ? String(e.message) : String(e);
+
+    const httpMatch = /^HTTP (\d+): ?([\s\S]*)$/.exec(msg);
+    if (httpMatch) {
+      const httpStatus = Number(httpMatch[1]);
+      const bodyPreview = httpMatch[2] ?? "";
+      // FIX (specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1): a 404 from this
+      // endpoint most often means the pinned model id has been retired/
+      // renamed by Google — this codebase has already been burned by exactly
+      // this once (see models.ts's history comment: a preview model 404'd on
+      // Vertex and was silently masked by an unrelated fallback for weeks).
+      // Tag it distinctly and loudly so it doesn't read as a generic/
+      // transient HTTP failure indistinguishable from a rate limit or outage.
+      const likelyModelRetirement = httpStatus === 404;
+      if (likelyModelRetirement) {
+        console.error(
+          `[BIE:${args.logTag}] Gemini 404 for model "${model}" — likely RETIRED/RENAMED, ` +
+          `not a transient failure. Check @/lib/ai/models.ts. Response: ${bodyPreview.slice(0, 300)}`,
+        );
+      } else {
+        console.warn(`[BIE:${args.logTag}] Gemini ${httpStatus}: ${bodyPreview.slice(0, 300)}`);
+      }
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "http_error",
+        http_status: httpStatus,
+        raw_text_preview: (likelyModelRetirement ? `[likely model retirement — model="${model}"] ` : "") + (bodyPreview.slice(0, 300) || ""),
+      }));
+    }
+
+    const blockMatch = /^Gemini blocked the prompt: (.+)$/.exec(msg);
+    if (blockMatch) {
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: "safety_block",
+        prompt_block_reason: blockMatch[1],
+      }));
+    }
+
+    const emptyMatch = /^empty response(?: \(finishReason: (.+)\))?$/.exec(msg);
+    if (emptyMatch) {
+      const finishReason = emptyMatch[1];
+      // Distinguish a safety/early-stop empty text from a benign empty —
+      // same categories as before migration, reconstructed from the
+      // finishReason the gateway's thrown message still carries.
+      let errorType: BIEThreadErrorType;
+      if (!finishReason) errorType = "empty_candidate";
+      else if (finishReason === "SAFETY") errorType = "safety_block";
+      else if (finishReason === "STOP") errorType = "empty_text";
+      else errorType = "finish_reason";
+      return emptyWith(baseDiag({
+        ok: false,
+        error_type: errorType,
+        finish_reason: finishReason ?? null,
+        response_chars: 0,
+      }));
+    }
+
     const timedOut = e?.name === "AbortError";
-    console.warn(`[BIE:${args.logTag}] failed${timedOut ? " (timeout)" : ""}:`, e?.message);
+    console.warn(`[BIE:${args.logTag}] failed${timedOut ? " (timeout)" : ""}:`, msg);
     return emptyWith(baseDiag({
       ok: false,
       error_type: "network_error",
-      json_parse_error: timedOut ? "gemini_call_timeout_60s" : String(e?.message ?? e).slice(0, 200),
+      json_parse_error: timedOut ? "gemini_call_timeout_60s" : msg.slice(0, 200),
     }));
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 

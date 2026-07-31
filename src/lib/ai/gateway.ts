@@ -52,6 +52,52 @@ export type RunRoleRequest = {
    * grounding tool. Google-only; ignored by other providers.
    */
   useSearchGrounding?: boolean;
+  /**
+   * SPEC-M1.1 — per-call override of the chain step's authMode (e.g. a
+   * caller that specifically needs Vertex/WIF auth rather than whatever
+   * the role's chain step is configured with). Unlike modelOverride, this
+   * is safe to apply regardless of which chain step ends up running: only
+   * providers/google.ts's callGoogle/streamGoogle ever read authMode —
+   * openai/anthropic ignore it entirely, so it's a harmless no-op on a
+   * fallback step to a different provider.
+   */
+  authMode?: "api-key" | "vertex";
+  /**
+   * SPEC-M1.1 — overrides the model for the chain's PRIMARY step only
+   * (e.g. a caller-driven "deep reasoning" toggle between two models on
+   * the same provider). Absent by default — the chain step's configured
+   * model is used, exactly as before this field existed.
+   *
+   * Deliberately NOT applied to fallback steps: a multi-provider chain
+   * (e.g. generator's google→openai failover) can fail over to a
+   * different provider than the one the override's model string belongs
+   * to, and blindly reusing the override there would hand e.g. a Gemini
+   * model name to the OpenAI adapter. Fallback steps always use their own
+   * configured model.
+   */
+  modelOverride?: string;
+  /** SPEC-M1.1 — per-call temperature override; see ProviderCallRequest's doc comment. */
+  temperature?: number;
+  /** SPEC-M1.1 — per-call Gemini-3.x thinking-level override; see ProviderCallRequest's doc comment. */
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /** SPEC-M1.1 — overrides the role config's default timeout for this call only. */
+  timeoutMs?: number;
+  /** SPEC-M1.1 — Gemini mediaResolution override; see ProviderCallRequest's doc comment. */
+  mediaResolution?: string;
+  /**
+   * SPEC-M1.1 — when true, runRole only attempts the chain's PRIMARY step;
+   * a failure there is thrown as-is, never failed over to a later chain
+   * step. For a caller whose own error-classification/retry logic depends
+   * on preserving the primary provider's exact failure signal (e.g.
+   * buddyIntelligenceEngine.ts's rich http-status/finishReason/blockReason
+   * diagnostics, which drive its own retryability decision) — a silent
+   * fallover to a different provider would either mask that signal behind
+   * a generic rejection, or (worse, for a search-grounded call) return a
+   * plausible-looking but ungrounded/fabricated result with no error at
+   * all. False by default — every other caller keeps the existing
+   * cross-provider failover behavior unchanged.
+   */
+  disableFailover?: boolean;
 };
 
 export type RunRoleResult = {
@@ -157,8 +203,34 @@ export async function runRole(
 
   let lastError: Error | null = null;
   let attempts = 0;
+  const primaryProvider = config.chain[0]?.provider;
+  const chainToTry = request.disableFailover ? config.chain.slice(0, 1) : config.chain;
 
-  for (const step of config.chain) {
+  for (const step of chainToTry) {
+    // SPEC-M1.1: inlineData is Google-only (providers/openai.ts and
+    // providers/anthropic.ts both throw immediately if given one). Skip a
+    // non-google step entirely rather than attempting it and having its
+    // generic "inlineData is not supported" rejection become the LAST
+    // (and therefore surfaced) chain error, masking the real google
+    // failure a caller's own error-classification logic may depend on
+    // (e.g. runGeminiOcrJob.ts's 404/timeout detection). Not ledgered —
+    // this is a capability mismatch, not an attempted-and-refused call.
+    if (request.inlineData?.length && step.provider !== "google") {
+      continue;
+    }
+
+    // SPEC-M1.1: useSearchGrounding is Google-only, but unlike inlineData,
+    // openai/anthropic don't throw when given it — they silently IGNORE it
+    // and return an ungrounded completion. For a caller whose whole point
+    // is fact-checked, source-grounded output (e.g.
+    // buddyIntelligenceEngine.ts's research threads), a silent fallback to
+    // an ungrounded model is a correctness risk, not just a diagnostic one
+    // — it could return a plausible-looking but fabricated result with no
+    // error at all. Skip non-google steps entirely rather than risk that.
+    if (request.useSearchGrounding && step.provider !== "google") {
+      continue;
+    }
+
     attempts++;
 
     if (npiTagged && VENDOR_NPI_APPROVAL[step.provider] !== "APPROVED") {
@@ -190,24 +262,31 @@ export async function runRole(
     }
 
     const start = Date.now();
+    const model =
+      request.modelOverride !== undefined && step.provider === primaryProvider
+        ? request.modelOverride
+        : step.model;
     try {
       const result = await callProvider(step.provider, {
-        model: step.model,
+        model,
         prompt: request.prompt,
         systemInstruction: request.systemInstruction,
         maxOutputTokens: request.maxOutputTokens,
-        timeoutMs: config.timeoutMs,
+        timeoutMs: request.timeoutMs ?? config.timeoutMs,
         responseSchema: request.responseSchema,
-        authMode: step.authMode,
+        authMode: request.authMode ?? step.authMode,
         inlineData: request.inlineData,
         useSearchGrounding: request.useSearchGrounding,
+        temperature: request.temperature,
+        thinkingLevel: request.thinkingLevel,
+        mediaResolution: request.mediaResolution,
       });
       const latencyMs = Date.now() - start;
       recordBudgetUsage(role, result.tokensIn + result.tokensOut);
       await logCallImpl({
         role,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         latencyMs,
@@ -219,7 +298,7 @@ export async function runRole(
       return {
         text: result.text,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         latencyMs,
@@ -234,7 +313,7 @@ export async function runRole(
       await logCallImpl({
         role,
         provider: step.provider,
-        model: step.model,
+        model,
         tokensIn: 0,
         tokensOut: 0,
         latencyMs,
@@ -297,13 +376,17 @@ export async function* runRoleStream(
   }
 
   const start = Date.now();
+  const model = request.modelOverride ?? step.model;
   try {
     for await (const chunk of streamGoogle({
-      model: step.model,
+      model,
       prompt: request.prompt,
       systemInstruction: request.systemInstruction,
       maxOutputTokens: request.maxOutputTokens,
-      timeoutMs: config.timeoutMs,
+      authMode: request.authMode ?? step.authMode,
+      timeoutMs: request.timeoutMs ?? config.timeoutMs,
+      temperature: request.temperature,
+      thinkingLevel: request.thinkingLevel,
     })) {
       yield chunk;
     }
@@ -315,7 +398,7 @@ export async function* runRoleStream(
     await logCallImpl({
       role,
       provider: step.provider,
-      model: step.model,
+      model,
       tokensIn: 0,
       tokensOut: 0,
       latencyMs,
@@ -330,7 +413,7 @@ export async function* runRoleStream(
     await logCallImpl({
       role,
       provider: step.provider,
-      model: step.model,
+      model,
       tokensIn: 0,
       tokensOut: 0,
       latencyMs,

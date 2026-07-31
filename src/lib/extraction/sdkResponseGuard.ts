@@ -3,14 +3,14 @@
  *
  * Pure module — no server-only, safe for CI guard imports.
  *
- * Classifies errors thrown by the Vertex AI / @google/genai SDK call chain
- * to detect the "Vertex returned HTML where JSON expected" failure mode
- * (and any future variant).
+ * Classifies errors thrown by the Vertex AI / current-generation Google
+ * GenAI SDK call chain to detect the "Vertex returned HTML where JSON
+ * expected" failure mode (and any future variant).
  *
- * The 2026-05-14 production incident: the deprecated @google-cloud/vertexai
+ * The 2026-05-14 production incident: the deprecated (now-legacy) Vertex AI
  * SDK got HTML error pages back from Vertex AI's edge for Gemini 3.x calls
- * and crashed on internal response.json(). The migration to @google/genai
- * eliminates the root cause, but this guard remains as a permanent
+ * and crashed on internal response.json(). The migration to the current-
+ * generation SDK eliminates the root cause, but this guard remains as a permanent
  * regression detector — if HTML-instead-of-JSON ever happens again (from
  * the new SDK, a different code path, a Vercel edge layer, anything),
  * the error string will be classified as SDK_HTML_RESPONSE and surface

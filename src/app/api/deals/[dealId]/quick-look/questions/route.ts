@@ -3,17 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { computeGatekeeperDocReadiness } from "@/lib/gatekeeper/readinessServer";
-import { GEMINI_FLASH } from "@/lib/ai/models";
+import { runRole } from "@/lib/ai/gateway";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 type Params = Promise<{ dealId: string }>;
-
-const GEMINI_MODEL = GEMINI_FLASH;
-
-function geminiUrl(apiKey: string): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-}
 
 export type QuickLookQuestion = {
   category: "financial_clarity" | "data_gaps" | "risk_factors";
@@ -96,35 +90,31 @@ Respond ONLY with valid JSON array. Schema:
   let questions: QuickLookQuestion[] = [];
   let generationStatus: "success" | "failed" | "empty" = "empty";
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY not set");
-
-    const resp = await fetch(geminiUrl(apiKey), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          maxOutputTokens: 2000,
-          thinkingConfig: { thinkingBudget: 0 },
+    const result = await runRole("generator", {
+      purpose: "quick_look_questions",
+      dealId,
+      prompt,
+      maxOutputTokens: 2000,
+      responseSchema: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            category: {
+              type: "string",
+              enum: ["financial_clarity", "data_gaps", "risk_factors"],
+            },
+            question: { type: "string" },
+            context: { type: "string" },
+            priority: { type: "string", enum: ["high", "medium"] },
+          },
+          required: ["category", "question", "context", "priority"],
         },
-      }),
+      },
     });
 
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      throw new Error(`gemini_quick_look_${resp.status}: ${errText.slice(0, 300)}`);
-    }
-
-    const json = await resp.json();
-    const raw: string =
-      json?.candidates?.[0]?.content?.parts
-        ?.filter((p: { thought?: boolean }) => !p.thought)
-        ?.map((p: { text?: string }) => p.text ?? "")
-        ?.join("") ?? "";
-
-    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const cleaned = result.text.replace(/```json|```/g, "").trim();
     if (cleaned.startsWith("[")) {
       questions = JSON.parse(cleaned);
       generationStatus = questions.length > 0 ? "success" : "empty";
