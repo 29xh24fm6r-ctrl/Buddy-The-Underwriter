@@ -1,6 +1,5 @@
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
 import type { SbaEligibilityResult } from "@/lib/sba/eligibilityEngine";
-import { SBA_1919_FIELDS, buildMissing } from "@/lib/sba/forms/sbaFieldMap";
 
 export function buildSbaForm1919(args: {
   snapshot: DealFinancialSnapshotV1;
@@ -21,6 +20,8 @@ export function buildSbaForm1919(args: {
   return {
     form: "1919" as const,
     fields,
-    missing: buildMissing(SBA_1919_FIELDS, fields),
+    missing: Object.entries(fields)
+      .filter(([, v]) => v == null || v === "")
+      .map(([k]) => k),
   };
 }
