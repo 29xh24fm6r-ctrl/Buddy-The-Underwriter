@@ -85,7 +85,7 @@ export const FORM_1244_APPLICANT_OWNER_ROSTER_FIELDS = Array.from({ length: 10 }
   };
 });
 
-export const FORM_1244_OC_OWNER_ROSTER_FIELDS = Array.from({ length: 10 }, (_, i) => {
+export const FORM_1244_OC_OWNER_ROSTER_FIELDS = Array.from({ length: 9 }, (_, i) => {
   const n = i + 1;
   return {
     name: `OwnerEntity NameRow${n}_2`,

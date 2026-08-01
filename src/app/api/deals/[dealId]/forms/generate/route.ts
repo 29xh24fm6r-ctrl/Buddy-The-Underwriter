@@ -83,11 +83,11 @@ export async function POST(
 
     const templateBytes = Buffer.from(await fileData.arrayBuffer());
 
-    // Fill PDF
+    // Fill PDF — bank-uploaded templates may have unmatched fields
     const fillResult = await fillPdfTemplate(
       templateBytes,
       fillRun.field_values,
-      { flatten },
+      { flatten, allowUnmatched: true },
     );
 
     if (!fillResult.ok) {

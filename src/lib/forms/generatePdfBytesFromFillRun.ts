@@ -86,17 +86,15 @@ export async function generatePdfBytesFromFillRun(opts: {
 
   const templateBytes = Buffer.from(await fileData.arrayBuffer());
 
-  // 6) Fill PDF
+  // 6) Fill PDF — bank-uploaded templates may have fields the engine doesn't
+  // know about, so allow unmatched here (the admin field-map UI shows them).
   const fillResult = await fillPdfTemplate(templateBytes, engineResult.field_values, {
     flatten: true,
+    allowUnmatched: true,
   });
 
   if (!fillResult.ok) {
     throw new Error(`pdf_fill_failed(${templateCode}): ${fillResult.error}`);
-  }
-
-  if (!fillResult.pdfBytes) {
-    throw new Error(`pdf_fill_returned_no_bytes(${templateCode})`);
   }
 
   const fileName = `${templateCode}.pdf`;

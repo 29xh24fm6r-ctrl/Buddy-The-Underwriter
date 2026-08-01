@@ -69,7 +69,7 @@ export async function renderForm159Pdf(args: {
     return { ok: false, reason: "template_download_failed", detail: err?.message ?? String(err) };
   }
   const fillResult = await fillPdfTemplate(templateBytes, toFieldValues(fields), { flatten: true });
-  if (!fillResult.ok || !fillResult.pdfBytes) {
+  if (!fillResult.ok) {
     return { ok: false, reason: "fill_failed", detail: fillResult.error };
   }
 
