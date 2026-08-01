@@ -3,6 +3,33 @@ import { resolvePackageItems } from "./resolvePackage";
 import { buildSbaPackageContext } from "./context";
 import { isPerOwnerTemplateCode, expandPerOwnerItems } from "./perOwnerExpansion";
 
+/**
+ * Creates an `sba_package_runs` row plus its `sba_package_run_items`,
+ * expanding per-owner forms (413, 912, 4506-C, 148, 148L) into one item
+ * per (template_code, owner) via expandPerOwnerItems.
+ *
+ * `fill_run_id` is intentionally left null (audit 2026-08-01).
+ *
+ * This function previously inserted a row into `public.fill_runs` per
+ * item and stored the returned id on the run item. That table has never
+ * existed in this database: 20251218000013_sba_package_builder.sql
+ * created `sba_package_run_items.fill_run_id` as a bare `uuid null` with
+ * NO foreign key and never created the referenced table, no later
+ * migration did either, and it appears in neither schema-reap batch
+ * (20260729030000 / 20260729040000) — it was never dropped because it was
+ * never created.
+ *
+ * Every call therefore threw `relation "public.fill_runs" does not exist`
+ * on the first item, before reaching any renderer, which is why
+ * prepareSbaPackage has never successfully run in production.
+ *
+ * Nothing consumes fill_run_id — assembleTenTabPackage.ts selects
+ * `output_storage_path`, and renderSbaPackageItem (sbaFormDispatch.ts) is
+ * the live render path, superseding the legacy generic fill-engine the
+ * column was designed for. So the phantom insert is removed rather than
+ * the table manufactured. The column itself is left in place (nullable)
+ * for schema compatibility.
+ */
 export async function prepareSbaPackage(opts: {
   supabase: SupabaseClient;
   dealId: string;
@@ -48,74 +75,44 @@ export async function prepareSbaPackage(opts: {
   }
 
   const runItems: any[] = [];
-  let totalItems = 0;
 
   for (const item of items) {
     const owners = perOwnerByCode.get(item.template_code);
 
     if (owners && owners.length > 0) {
+      // One run item per qualifying owner — a 3-owner deal gets 3 PFSs.
       for (const owner of owners) {
-        const { data: fr, error: frErr } = await supabase
-          .from("fill_runs")
-          .insert([
-            {
-              deal_id: dealId,
-              template_code: item.template_code,
-              ownership_entity_id: owner.ownershipEntityId,
-              status: "prepared",
-              context: ctx,
-            },
-          ])
-          .select("id")
-          .limit(1);
-
-        if (frErr) throw new Error(`fill_run_insert_failed(${item.template_code}/${owner.ownerName}): ${frErr.message}`);
-        const fillRunId = fr?.[0]?.id as string | undefined;
-
         runItems.push({
           package_run_id: packageRunId,
           template_code: item.template_code,
           title: `${item.title} — ${owner.ownerName}`,
           sort_order: item.sort_order,
           required: item.required,
-          fill_run_id: fillRunId ?? null,
+          fill_run_id: null,
           ownership_entity_id: owner.ownershipEntityId,
           status: "prepared",
         });
-        totalItems++;
       }
     } else if (!isPerOwnerTemplateCode(item.template_code)) {
-      const { data: fr, error: frErr } = await supabase
-        .from("fill_runs")
-        .insert([
-          {
-            deal_id: dealId,
-            template_code: item.template_code,
-            status: "prepared",
-            context: ctx,
-          },
-        ])
-        .select("id")
-        .limit(1);
-
-      if (frErr) throw new Error(`fill_run_insert_failed(${item.template_code}): ${frErr.message}`);
-      const fillRunId = fr?.[0]?.id as string | undefined;
-
       runItems.push({
         package_run_id: packageRunId,
         template_code: item.template_code,
         title: item.title,
         sort_order: item.sort_order,
         required: item.required,
-        fill_run_id: fillRunId ?? null,
+        fill_run_id: null,
+        ownership_entity_id: null,
         status: "prepared",
       });
-      totalItems++;
     }
+    // else: a per-owner template with zero qualifying owners (e.g. SBA_912
+    // where no owner's answers trigger it, or SBA_148L with no limited
+    // guarantors) produces no run item — the form genuinely doesn't apply
+    // to this deal. expandPerOwnerItems owns that determination.
   }
 
   const { error: riErr } = await supabase.from("sba_package_run_items").insert(runItems);
   if (riErr) throw new Error(`package_run_items_insert_failed: ${riErr.message}`);
 
-  return { ok: true, packageRunId, itemCount: totalItems };
+  return { ok: true, packageRunId, itemCount: runItems.length };
 }
