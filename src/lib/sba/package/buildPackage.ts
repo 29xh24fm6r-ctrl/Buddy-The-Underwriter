@@ -8,27 +8,22 @@ import { isPerOwnerTemplateCode, expandPerOwnerItems } from "./perOwnerExpansion
  * expanding per-owner forms (413, 912, 4506-C, 148, 148L) into one item
  * per (template_code, owner) via expandPerOwnerItems.
  *
- * `fill_run_id` is intentionally left null (audit 2026-08-01).
+ * Each item gets a `fill_runs` row carrying its template_code and
+ * ownership_entity_id. That row is the carrier the generate step reads
+ * back: generateBrokerageForms takes fill_run_id off the run item and
+ * hands it to generatePdfForFillRun, which selects
+ * (template_code, ownership_entity_id) from fill_runs and calls
+ * renderSbaPackageItem with the right form for the right signer. Without
+ * the fill_runs row there is no route from the per-owner expansion to
+ * the dispatcher, and the item fails with "Missing fill_run_id".
  *
- * This function previously inserted a row into `public.fill_runs` per
- * item and stored the returned id on the run item. That table has never
- * existed in this database: 20251218000013_sba_package_builder.sql
- * created `sba_package_run_items.fill_run_id` as a bare `uuid null` with
- * NO foreign key and never created the referenced table, no later
- * migration did either, and it appears in neither schema-reap batch
- * (20260729030000 / 20260729040000) — it was never dropped because it was
- * never created.
- *
- * Every call therefore threw `relation "public.fill_runs" does not exist`
- * on the first item, before reaching any renderer, which is why
- * prepareSbaPackage has never successfully run in production.
- *
- * Nothing consumes fill_run_id — assembleTenTabPackage.ts selects
- * `output_storage_path`, and renderSbaPackageItem (sbaFormDispatch.ts) is
- * the live render path, superseding the legacy generic fill-engine the
- * column was designed for. So the phantom insert is removed rather than
- * the table manufactured. The column itself is left in place (nullable)
- * for schema compatibility.
+ * NOTE: public.fill_runs did not exist until 2026-08-01. It was
+ * referenced here since 20251218000013_sba_package_builder.sql, which
+ * created sba_package_run_items.fill_run_id as a bare `uuid null` with no
+ * foreign key and never created the target table — so every call threw
+ * `relation "public.fill_runs" does not exist` on the first item and
+ * prepareSbaPackage never once completed. The table is now created in
+ * 20260807100000_multi_signer_package.sql.
  */
 export async function prepareSbaPackage(opts: {
   supabase: SupabaseClient;
@@ -80,27 +75,62 @@ export async function prepareSbaPackage(opts: {
     const owners = perOwnerByCode.get(item.template_code);
 
     if (owners && owners.length > 0) {
-      // One run item per qualifying owner — a 3-owner deal gets 3 PFSs.
+      // One fill run + one run item per qualifying owner — a 3-owner deal
+      // gets 3 PFSs, each carrying its own ownership_entity_id through to
+      // renderSbaPackageItem.
       for (const owner of owners) {
+        const { data: fr, error: frErr } = await supabase
+          .from("fill_runs")
+          .insert([
+            {
+              deal_id: dealId,
+              template_code: item.template_code,
+              ownership_entity_id: owner.ownershipEntityId,
+              status: "prepared",
+              context: ctx,
+            },
+          ])
+          .select("id")
+          .limit(1);
+
+        if (frErr) throw new Error(`fill_run_insert_failed(${item.template_code}/${owner.ownerName}): ${frErr.message}`);
+        const fillRunId = fr?.[0]?.id as string | undefined;
+
         runItems.push({
           package_run_id: packageRunId,
           template_code: item.template_code,
           title: `${item.title} — ${owner.ownerName}`,
           sort_order: item.sort_order,
           required: item.required,
-          fill_run_id: null,
+          fill_run_id: fillRunId ?? null,
           ownership_entity_id: owner.ownershipEntityId,
           status: "prepared",
         });
       }
     } else if (!isPerOwnerTemplateCode(item.template_code)) {
+      const { data: fr, error: frErr } = await supabase
+        .from("fill_runs")
+        .insert([
+          {
+            deal_id: dealId,
+            template_code: item.template_code,
+            status: "prepared",
+            context: ctx,
+          },
+        ])
+        .select("id")
+        .limit(1);
+
+      if (frErr) throw new Error(`fill_run_insert_failed(${item.template_code}): ${frErr.message}`);
+      const fillRunId = fr?.[0]?.id as string | undefined;
+
       runItems.push({
         package_run_id: packageRunId,
         template_code: item.template_code,
         title: item.title,
         sort_order: item.sort_order,
         required: item.required,
-        fill_run_id: null,
+        fill_run_id: fillRunId ?? null,
         ownership_entity_id: null,
         status: "prepared",
       });
