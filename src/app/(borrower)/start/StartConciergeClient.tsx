@@ -47,12 +47,15 @@ export function describeNextSteps(fields: string[]): string | null {
   return `${labels.length} things left: ${rest} and ${last}.`;
 }
 
-function deriveVerifications(gateReasons: string[], documentsUploadedCount: number): DealVerificationState {
-  const hasIdentityGate = gateReasons.some((r) => r.toLowerCase().includes("identity verification"));
+function deriveVerifications(counts: {
+  identityVerificationCount: number;
+  ownershipEntityCount: number;
+  documentsUploadedCount: number;
+}): DealVerificationState {
   return {
-    entityResolved: !gateReasons.some((r) => r.toLowerCase().includes("eligibility")),
-    identityVerified: !hasIdentityGate,
-    financialsExtracted: documentsUploadedCount > 0,
+    entityResolved: counts.ownershipEntityCount >= 1,
+    identityVerified: counts.identityVerificationCount >= 1,
+    financialsExtracted: counts.documentsUploadedCount > 0,
   };
 }
 
@@ -73,11 +76,13 @@ function chapterFromFieldProgress(
 type ExtendedJourneyStatus = JourneyStatusInput & {
   fieldProgress: FieldProgress | null;
   gateReasons: string[];
+  identityVerificationCount: number;
+  ownershipEntityCount: number;
   refreshSoon: () => void;
 };
 
 function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
-  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[] }>({
+  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; ownershipEntityCount: number }>({
     hasDealId: false,
     progressPct: 0,
     documentsUploadedCount: 0,
@@ -87,6 +92,8 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
     claimsCount: 0,
     fieldProgress: null,
     gateReasons: [],
+    identityVerificationCount: 0,
+    ownershipEntityCount: 0,
   });
 
   const refresh = useCallback(
@@ -105,6 +112,8 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
           claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
           fieldProgress: json.fieldProgress ?? null,
           gateReasons: Array.isArray(json.gateReasons) ? json.gateReasons : [],
+          identityVerificationCount: typeof json.identityVerificationCount === "number" ? json.identityVerificationCount : 0,
+          ownershipEntityCount: typeof json.ownershipEntityCount === "number" ? json.ownershipEntityCount : 0,
         });
       } catch {
         // non-fatal
@@ -237,7 +246,11 @@ export function StartConciergeClient({
           <IntakeReviewStep
             dealId={session.dealId}
             purposes={purposes}
-            verifications={deriveVerifications(journeyStatus.gateReasons, journeyStatus.documentsUploadedCount)}
+            verifications={deriveVerifications({
+              identityVerificationCount: journeyStatus.identityVerificationCount,
+              ownershipEntityCount: journeyStatus.ownershipEntityCount,
+              documentsUploadedCount: journeyStatus.documentsUploadedCount,
+            })}
             onNavigateChapter={(n) => setChapter(n as 1 | 2 | 3 | 4 | 5)}
             token={session.dealId}
           />
