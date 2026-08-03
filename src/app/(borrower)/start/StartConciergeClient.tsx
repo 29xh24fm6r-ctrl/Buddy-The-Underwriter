@@ -15,6 +15,8 @@ import { IntakeReviewStep } from "@/components/borrower/intake/IntakeReviewStep"
 import { FloatingConcierge } from "@/components/borrower/intake/FloatingConcierge";
 import { PostSubmitHub } from "@/components/borrower/intake/PostSubmitHub";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
+import type { FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
+import type { DealVerificationState } from "@/components/borrower/intake/IntakeReviewStep";
 
 const JOURNEY_POLL_MS = 20_000;
 const VOICE_TURN_REFRESH_DELAY_MS = 2_500;
@@ -45,19 +47,37 @@ export function describeNextSteps(fields: string[]): string | null {
   return `${labels.length} things left: ${rest} and ${last}.`;
 }
 
-function chapterFromProgress(pct: number, sealed: boolean): 1 | 2 | 3 | 4 | 5 {
-  if (sealed) return 5;
-  if (pct >= 81) return 5;
-  if (pct >= 61) return 4;
-  if (pct >= 41) return 3;
-  if (pct >= 21) return 2;
-  return 1;
+function deriveVerifications(gateReasons: string[], documentsUploadedCount: number): DealVerificationState {
+  const hasIdentityGate = gateReasons.some((r) => r.toLowerCase().includes("identity verification"));
+  return {
+    entityResolved: !gateReasons.some((r) => r.toLowerCase().includes("eligibility")),
+    identityVerified: !hasIdentityGate,
+    financialsExtracted: documentsUploadedCount > 0,
+  };
 }
 
-function useJourneyStatus(
-  dealId: string | null,
-): JourneyStatusInput & { refreshSoon: () => void } {
-  const [status, setStatus] = useState<JourneyStatusInput>({
+function chapterFromFieldProgress(
+  fieldProgress: FieldProgress | null,
+  sealed: boolean,
+): 1 | 2 | 3 | 4 | 5 {
+  if (sealed) return 5;
+  if (!fieldProgress || !fieldProgress.determinable) return 1;
+  const bc = fieldProgress.byChapter;
+  for (const ch of [1, 2, 3, 4, 5] as const) {
+    const c = bc[ch];
+    if (c.total > 0 && c.complete < c.total) return ch;
+  }
+  return 5;
+}
+
+type ExtendedJourneyStatus = JourneyStatusInput & {
+  fieldProgress: FieldProgress | null;
+  gateReasons: string[];
+  refreshSoon: () => void;
+};
+
+function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
+  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[] }>({
     hasDealId: false,
     progressPct: 0,
     documentsUploadedCount: 0,
@@ -65,6 +85,8 @@ function useJourneyStatus(
     listingStatus: null,
     matchedLenderCount: 0,
     claimsCount: 0,
+    fieldProgress: null,
+    gateReasons: [],
   });
 
   const refresh = useCallback(
@@ -81,6 +103,8 @@ function useJourneyStatus(
           listingStatus: (json.listing?.status as MarketplaceListingStatus | undefined) ?? null,
           matchedLenderCount: json.listing?.matchedLenderCount ?? 0,
           claimsCount: Array.isArray(json.claims) ? json.claims.length : 0,
+          fieldProgress: json.fieldProgress ?? null,
+          gateReasons: Array.isArray(json.gateReasons) ? json.gateReasons : [],
         });
       } catch {
         // non-fatal
@@ -126,13 +150,13 @@ export function StartConciergeClient({
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (initialized) return;
-    if (journeyStatus.hasDealId && journeyStatus.progressPct > 0) {
-      setChapter(chapterFromProgress(journeyStatus.progressPct, journeyStatus.sealed));
+    if (journeyStatus.hasDealId && journeyStatus.fieldProgress) {
+      setChapter(chapterFromFieldProgress(journeyStatus.fieldProgress, journeyStatus.sealed));
       setInitialized(true);
     } else if (journeyStatus.hasDealId) {
       setInitialized(true);
     }
-  }, [journeyStatus.hasDealId, journeyStatus.progressPct, journeyStatus.sealed, initialized]);
+  }, [journeyStatus.hasDealId, journeyStatus.fieldProgress, journeyStatus.sealed, initialized]);
 
   if (!session) {
     return <BorrowerWorkspaceGate onVerified={setSession} />;
@@ -180,6 +204,8 @@ export function StartConciergeClient({
         onChapterChange={(n) => setChapter(n as 1 | 2 | 3 | 4 | 5)}
         totalAmount={totalAmount}
         journeyStatus={journeyStatus}
+        fieldProgress={journeyStatus.fieldProgress}
+        nextStepsSummary={describeNextSteps(journeyStatus.fieldProgress?.remainingFactPaths ?? [])}
       >
         {chapter === 1 && (
           <IntakePurposeStep
@@ -211,6 +237,7 @@ export function StartConciergeClient({
           <IntakeReviewStep
             dealId={session.dealId}
             purposes={purposes}
+            verifications={deriveVerifications(journeyStatus.gateReasons, journeyStatus.documentsUploadedCount)}
             onNavigateChapter={(n) => setChapter(n as 1 | 2 | 3 | 4 | 5)}
             token={session.dealId}
           />

@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 import { SigningPanel } from "@/components/brokerage/SigningPanel";
 import { ApprovalScoreCard } from "@/components/borrower/intake/ApprovalScoreCard";
@@ -10,68 +9,90 @@ type ReviewItem = {
   label: string;
   detail: string;
   status: "complete" | "pending" | "flagged";
+  source: string;
   resolveChapter?: number;
 };
+
+export type DealVerificationState = {
+  entityResolved?: boolean;
+  identityVerified?: boolean;
+  financialsExtracted?: boolean;
+  franchiseMatched?: boolean;
+};
+
+function buildReviewItems(
+  purposes: string[],
+  verifications: DealVerificationState,
+): ReviewItem[] {
+  const isFranchise = purposes.includes("franchise");
+  const items: ReviewItem[] = [
+    {
+      key: "financing",
+      label: "Financing scope",
+      detail: purposes.length > 0 ? "Use of funds defined and totaled" : "No purposes selected",
+      status: purposes.length > 0 ? "complete" : "flagged",
+      source: "purposes",
+      resolveChapter: 1,
+    },
+    {
+      key: "business",
+      label: "Business verification",
+      detail: verifications.entityResolved
+        ? "Entity matched"
+        : "Not started",
+      status: verifications.entityResolved ? "complete" : "pending",
+      source: "entity_resolution",
+      resolveChapter: 2,
+    },
+    {
+      key: "ownership",
+      label: "Ownership",
+      detail: verifications.identityVerified
+        ? "Identity verified"
+        : "Not started",
+      status: verifications.identityVerified ? "complete" : "pending",
+      source: "borrower_identity_verifications",
+      resolveChapter: 3,
+    },
+    {
+      key: "financials",
+      label: "Financials",
+      detail: verifications.financialsExtracted
+        ? "Documents received"
+        : "Not started",
+      status: verifications.financialsExtracted ? "complete" : "pending",
+      source: "deal_documents",
+      resolveChapter: 4,
+    },
+  ];
+  if (isFranchise) {
+    items.push({
+      key: "franchise",
+      label: "Franchise Directory match",
+      detail: verifications.franchiseMatched
+        ? "Brand confirmed SBA-eligible"
+        : "Not started",
+      status: verifications.franchiseMatched ? "complete" : "pending",
+      source: "franchise_directory_match",
+    });
+  }
+  return items;
+}
 
 export function IntakeReviewStep({
   dealId,
   purposes,
+  verifications = {},
   onNavigateChapter,
   token,
 }: {
   dealId: string;
   purposes: string[];
+  verifications?: DealVerificationState;
   onNavigateChapter?: (chapter: number) => void;
   token?: string;
 }) {
-  const [items, setItems] = useState<ReviewItem[]>([]);
-
-  const buildReviewItems = useCallback(() => {
-    const isFranchise = purposes.includes("franchise");
-    const reviewItems: ReviewItem[] = [
-      {
-        key: "financing",
-        label: "Financing scope",
-        detail: purposes.length > 0 ? "Use of funds defined and totaled" : "No purposes selected",
-        status: purposes.length > 0 ? "complete" : "flagged",
-        resolveChapter: 1,
-      },
-      {
-        key: "business",
-        label: "Business verified",
-        detail: "Matched to Secretary of State records",
-        status: "complete",
-        resolveChapter: 2,
-      },
-      {
-        key: "ownership",
-        label: "Ownership",
-        detail: "Identity verification in progress",
-        status: "pending",
-        resolveChapter: 3,
-      },
-      {
-        key: "financials",
-        label: "Financials",
-        detail: "Retrieval running in background",
-        status: "pending",
-        resolveChapter: 4,
-      },
-    ];
-    if (isFranchise) {
-      reviewItems.push({
-        key: "franchise",
-        label: "Franchise Directory match",
-        detail: "Brand confirmed SBA-eligible",
-        status: "complete",
-      });
-    }
-    setItems(reviewItems);
-  }, [purposes]);
-
-  useEffect(() => {
-    buildReviewItems();
-  }, [buildReviewItems]);
+  const items = buildReviewItems(purposes, verifications);
 
   return (
     <div className="space-y-6">
@@ -100,7 +121,7 @@ export function IntakeReviewStep({
         <div className="relative z-10">
           <p className="text-sm font-medium text-white">Ready for review</p>
           <p className="mt-1 text-xs text-slate-300">
-            Once sealed, your package goes to matched SBA lenders within 24 hours.
+            Once sealed, your package is submitted for lender matching. We&apos;ll keep you posted on next steps.
           </p>
         </div>
       </div>
