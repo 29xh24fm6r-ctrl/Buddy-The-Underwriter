@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 import { SigningPanel } from "@/components/brokerage/SigningPanel";
 import { ApprovalScoreCard } from "@/components/borrower/intake/ApprovalScoreCard";
@@ -93,11 +92,7 @@ export function IntakeReviewStep({
   onNavigateChapter?: (chapter: number) => void;
   token?: string;
 }) {
-  const [items, setItems] = useState<ReviewItem[]>([]);
-
-  useEffect(() => {
-    setItems(buildReviewItems(purposes, verifications));
-  }, [purposes, verifications]);
+  const items = buildReviewItems(purposes, verifications);
 
   return (
     <div className="space-y-6">
