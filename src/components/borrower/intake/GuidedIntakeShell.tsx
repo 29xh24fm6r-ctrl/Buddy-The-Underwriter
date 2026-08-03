@@ -15,8 +15,6 @@ const CHAPTER_LABELS = [
   "Review",
 ] as const;
 
-const CHAPTER_TIME_REMAINING = [27, 22, 17, 12, 4] as const;
-
 export function GuidedIntakeShell({
   currentChapter,
   dealId,
@@ -32,8 +30,6 @@ export function GuidedIntakeShell({
   journeyStatus: JourneyStatusInput;
   children: ReactNode;
 }) {
-  const timeLeft = CHAPTER_TIME_REMAINING[currentChapter - 1];
-
   return (
     <div className="space-y-5">
       {/* Sticky top bar */}
@@ -58,12 +54,9 @@ export function GuidedIntakeShell({
               Chapter {currentChapter}: {CHAPTER_LABELS[currentChapter - 1]}
             </span>
           </div>
-          <div className="flex items-center gap-2 rounded-full bg-brand-blue-500/10 px-3 py-1">
-            <svg className="h-3.5 w-3.5 text-brand-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-xs font-medium text-brand-blue-500">~{timeLeft} min left</span>
-          </div>
+          {currentChapter === 1 && (
+            <span className="text-xs text-slate-500">Most people finish in about 30 minutes</span>
+          )}
         </div>
 
         {/* Momentum rail */}

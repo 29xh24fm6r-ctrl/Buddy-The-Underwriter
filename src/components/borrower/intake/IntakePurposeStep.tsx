@@ -100,37 +100,6 @@ export function IntakePurposeStep({
         </div>
       </div>
 
-      {/* Photo panel — pure CSS duotone scene */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0A1F44] to-[#1a3a6a] px-6 py-5">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.04]"
-          style={{
-            backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.6) 1px, transparent 1px)",
-            backgroundSize: "16px 16px",
-          }}
-        />
-        {/* swap for licensed borrower photography in production */}
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="flex -space-x-2">
-            {[
-              "bg-blue-400",
-              "bg-emerald-400",
-              "bg-amber-400",
-            ].map((bg, i) => (
-              <div
-                key={i}
-                className={`h-8 w-8 rounded-full ${bg} border-2 border-[#0A1F44] flex items-center justify-center text-[10px] font-bold text-white`}
-              >
-                {["F", "R", "W"][i]}
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-slate-300">
-            Recently funded through Buddy — 3 franchise openings, 2 real estate purchases, 4 working capital lines closed this month.
-          </p>
-        </div>
-      </div>
-
       {/* Chip grid */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {PURPOSES.map((p) => {
