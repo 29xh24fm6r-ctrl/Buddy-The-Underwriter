@@ -43,7 +43,9 @@ export function GuidedIntakeShell({
           <BrokerageStageStrip
             activeStage={deriveBrokerageStage({
               hasDealId: true,
-              progressPct: journeyStatus.progressPct,
+              progressPct: fieldProgress?.determinable && fieldProgress.requiredTotal > 0
+                ? Math.round((fieldProgress.completedCount / fieldProgress.requiredTotal) * 100)
+                : 0,
               sealed: journeyStatus.sealed,
               listed: journeyStatus.listingStatus === "claiming",
               claimWindowClosed:

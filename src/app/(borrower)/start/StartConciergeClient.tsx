@@ -163,7 +163,7 @@ export function StartConciergeClient({
   }
 
   // Sealed deal → PostSubmitHub
-  if (journeyStatus.sealed && journeyStatus.progressPct >= 100) {
+  if (journeyStatus.sealed) {
     return <PostSubmitHub token={session.dealId} />;
   }
 
