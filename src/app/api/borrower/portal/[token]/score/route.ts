@@ -61,10 +61,15 @@ export async function GET(
 }
 
 function toBorrowerView(row: Record<string, unknown>) {
+  const failures = Array.isArray(row.eligibility_failures) ? row.eligibility_failures : [];
   return {
     score: row.score,
     band: row.band,
     eligibilityPassed: row.eligibility_passed,
+    eligibilityFailures: failures.map((f: Record<string, unknown>) => ({
+      check: f.check,
+      reason: f.reason,
+    })),
     topStrengths: row.top_strengths ?? [],
     topWeaknesses: row.top_weaknesses ?? [],
     narrative: row.narrative ?? "",
