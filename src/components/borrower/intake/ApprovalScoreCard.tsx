@@ -2,15 +2,29 @@
 
 import { useEffect, useState } from "react";
 
+type EligibilityFailureSlim = {
+  check: string;
+  reason: string;
+};
+
 type BorrowerScore = {
   score: number;
   band: string;
   eligibilityPassed: boolean;
+  eligibilityFailures?: EligibilityFailureSlim[];
   topStrengths: string[];
   topWeaknesses: string[];
   narrative: string;
   computedAt: string | null;
 };
+
+function hasIncompleteInputs(failures: EligibilityFailureSlim[]): boolean {
+  return failures.some(
+    (f) =>
+      f.check.endsWith("_unknown") ||
+      f.reason.toLowerCase().includes("manual review required"),
+  );
+}
 
 const BAND_LABELS: Record<string, { label: string; color: string }> = {
   institutional_prime: { label: "Institutional Prime", color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
@@ -55,7 +69,7 @@ export function ApprovalScoreCard({ token }: { token: string }) {
     );
   }
 
-  if (!score) {
+  if (!score || hasIncompleteInputs(score.eligibilityFailures ?? [])) {
     return (
       <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm">
         <p className="text-sm text-slate-500">
