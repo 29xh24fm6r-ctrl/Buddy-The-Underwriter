@@ -6,6 +6,7 @@ import {
   deriveBrokerageStage,
   type JourneyStatusInput,
 } from "@/components/brokerage/BrokerageStageStrip";
+import type { FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 
 const CHAPTER_LABELS = [
   "Financing",
@@ -21,6 +22,8 @@ export function GuidedIntakeShell({
   onChapterChange,
   totalAmount,
   journeyStatus,
+  fieldProgress,
+  nextStepsSummary,
   children,
 }: {
   currentChapter: 1 | 2 | 3 | 4 | 5;
@@ -28,6 +31,8 @@ export function GuidedIntakeShell({
   onChapterChange: (n: number) => void;
   totalAmount: number;
   journeyStatus: JourneyStatusInput;
+  fieldProgress?: FieldProgress | null;
+  nextStepsSummary?: string | null;
   children: ReactNode;
 }) {
   return (
@@ -53,11 +58,22 @@ export function GuidedIntakeShell({
             <span className="text-sm font-medium text-slate-700">
               Chapter {currentChapter}: {CHAPTER_LABELS[currentChapter - 1]}
             </span>
+            {fieldProgress?.determinable && (() => {
+              const ch = fieldProgress.byChapter[currentChapter as 1 | 2 | 3 | 4 | 5];
+              return ch.total > 0 ? (
+                <span className="text-xs text-slate-500">
+                  {ch.complete} of {ch.total} done
+                </span>
+              ) : null;
+            })()}
           </div>
-          {currentChapter === 1 && (
+          {currentChapter === 1 && !fieldProgress?.determinable && (
             <span className="text-xs text-slate-500">Most people finish in about 30 minutes</span>
           )}
         </div>
+        {nextStepsSummary && (
+          <p className="mt-1 text-xs text-slate-500">{nextStepsSummary}</p>
+        )}
 
         {/* Momentum rail */}
         <div className="mt-3 flex gap-1.5">

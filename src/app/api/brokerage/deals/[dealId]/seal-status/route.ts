@@ -26,6 +26,8 @@ import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { deepMerge } from "@/lib/brokerage/borrowerConversation";
 import { buildPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
+import { computeApplicableForms } from "@/lib/sba/forms/applicability";
+import { computeFieldProgress, type FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -70,6 +72,24 @@ export async function GET(
       | Record<string, unknown>
       | undefined) ?? {},
   );
+
+  // Field progress (§B.3 — registry-derived completion).
+  const { data: deal } = await sb
+    .from("deals")
+    .select("sba_program")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  const owners = (facts.owners ?? []) as Array<Record<string, unknown>>;
+  const entities = (facts.entities ?? []) as Array<Record<string, unknown>>;
+  const formCodes = computeApplicableForms({
+    program: ((deal as any)?.sba_program as "7a" | "504") ?? "7a",
+    hasIndividualOwner: owners.length > 0,
+    hasEquityOwningEntity: entities.length > 0,
+    sellerNoteEquityPortion: null,
+    constructionAmount: null,
+  });
+  const fieldProgress: FieldProgress = computeFieldProgress(facts, formCodes);
 
   // Document count (stage 2 — "upload documents").
   const { count: documentsUploadedCount } = await sb
@@ -141,6 +161,7 @@ export async function GET(
       progressPct,
       documentsUploadedCount: documentsUploadedCount ?? 0,
       facts,
+      fieldProgress,
       sealed: true,
       listing: {
         id: row.id,
@@ -167,6 +188,7 @@ export async function GET(
     progressPct,
     documentsUploadedCount: documentsUploadedCount ?? 0,
     facts,
+    fieldProgress,
     sealed: false,
     canSeal: gate.ok,
     gateReasons: gate.ok ? [] : gate.reasons,
