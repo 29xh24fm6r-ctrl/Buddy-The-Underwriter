@@ -104,7 +104,9 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
         if (!json?.ok) return;
         setStatus({
           hasDealId: true,
-          progressPct: typeof json.progressPct === "number" ? json.progressPct : 0,
+          progressPct: json.fieldProgress?.determinable && json.fieldProgress.requiredTotal > 0
+            ? Math.round((json.fieldProgress.completedCount / json.fieldProgress.requiredTotal) * 100)
+            : 0,
           documentsUploadedCount: typeof json.documentsUploadedCount === "number" ? json.documentsUploadedCount : 0,
           sealed: Boolean(json.sealed),
           listingStatus: (json.listing?.status as MarketplaceListingStatus | undefined) ?? null,
