@@ -78,8 +78,8 @@ jobs:
       - name: Count routes on PR branch
         id: pr
         run: |
-          node scripts/count-routes.mjs --json > /tmp/pr-count.json
-          echo "total=$(jq -r '.total' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
+          node scripts/count-routes.mjs --json > /tmp/pr-count.json || true
+          echo "total=$(jq -r '.total // 0' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
           echo "status=$(jq -r '.status' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
           echo "headroom=$(jq -r '.headroom' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
           echo "error_threshold=$(jq -r '.thresholds.errorThreshold' /tmp/pr-count.json)" >> "$GITHUB_OUTPUT"
