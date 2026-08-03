@@ -26,19 +26,25 @@ import { renderSbaNotePdf } from "@/lib/sba/forms/sbaNote/render";
 import { buildLoanAuthorizationWithSignature } from "@/lib/sba/forms/loanAuthorization/buildWithSignature";
 import { renderLoanAuthorizationPdf } from "@/lib/sba/forms/loanAuthorization/render";
 
+import { buildForm1244Input } from "@/lib/sba/forms/form1244/inputBuilder";
+import { buildForm1244 } from "@/lib/sba/forms/form1244/build";
+import { renderForm1244Pdf } from "@/lib/sba/forms/form1244/render";
+
+import { buildForm148Input } from "@/lib/sba/forms/form148/inputBuilder";
+import { buildForm148 } from "@/lib/sba/forms/form148/build";
+import { renderForm148Pdf } from "@/lib/sba/forms/form148/render";
+
+import { buildForm601Input } from "@/lib/sba/forms/form601/inputBuilder";
+import { renderForm601Pdf } from "@/lib/sba/forms/form601/render";
+
+import { getForm722Status } from "@/lib/sba/forms/form722/service";
+
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 /**
- * SPEC-SBA-DOC-FILL-ESIGN-KYC-V2 §4/§5 — the resolver SignWell signing
- * actually needs: given an esign formCode + deal + signer, produce the
- * already-filled PDF bytes so SignWell only ever adds a signature, never
- * loan data. Reuses the same build*Input -> build* -> render*Pdf pipeline
- * /api/deals/[dealId]/sba/forms/[formId]/render already exercises
- * (src/lib/sba/forms/*​/{inputBuilder,build,render}.ts) — this is not a new
- * fill engine, just a formCode -> form-module dispatch for the forms the
- * signing panel tracks: FORM_1919/FORM_413/FORM_912/FORM_4506C per-signer
- * (TRACKED_FORMS in SbaSigningPanel.tsx) plus FORM_155, deal-level
- * (dealLevelForms in the same component — SbaSigningPanel already showed
- * a "Send" button for it before this case existed, which would have hit
- * UNSUPPORTED_FORM_CODE).
+ * Given a formCode + deal + signer, produce already-filled PDF bytes for
+ * e-signing. Dispatches all 13 SBA form codes to their form modules.
  */
 export type ResolveFilledPdfResult =
   | { ok: true; pdfBytes: Buffer }
@@ -59,6 +65,15 @@ export async function resolveFilledPdfForSigning(args: {
       const input = await buildForm1919Input(dealId, sb);
       const buildResult = buildForm1919(input);
       const rendered = await renderForm1919Pdf({ supabase, buildResult, ownershipEntityId, dealId });
+      return rendered.ok
+        ? { ok: true, pdfBytes: rendered.pdfBytes }
+        : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_1244": {
+      const input = await buildForm1244Input(dealId, sb);
+      const buildResult = buildForm1244(input);
+      const rendered = await renderForm1244Pdf({ supabase, buildResult, ownershipEntityId, dealId });
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
@@ -115,6 +130,36 @@ export async function resolveFilledPdfForSigning(args: {
       return rendered.ok
         ? { ok: true, pdfBytes: rendered.pdfBytes }
         : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_148":
+    case "FORM_148L": {
+      const input = await buildForm148Input(dealId, bankId, sb);
+      const buildResult = buildForm148(input);
+      const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId });
+      return rendered.ok
+        ? { ok: true, pdfBytes: rendered.pdfBytes }
+        : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_601": {
+      const buildResult = await buildForm601Input(dealId, bankId, sb);
+      if (!buildResult.applicable) return { ok: false, reason: "not_applicable" };
+      const rendered = await renderForm601Pdf({ supabase, buildResult });
+      return rendered.ok
+        ? { ok: true, pdfBytes: rendered.pdfBytes }
+        : { ok: false, reason: rendered.reason, detail: rendered.detail };
+    }
+
+    case "FORM_722": {
+      const status = await getForm722Status(dealId, sb);
+      if (!status.posterAvailable || !status.posterStoragePath) return { ok: false, reason: "template_not_available" };
+      try {
+        const pdfBytes = await readFile(path.join(process.cwd(), "public", status.posterStoragePath));
+        return { ok: true, pdfBytes };
+      } catch {
+        return { ok: false, reason: "template_not_available" };
+      }
     }
 
     default:

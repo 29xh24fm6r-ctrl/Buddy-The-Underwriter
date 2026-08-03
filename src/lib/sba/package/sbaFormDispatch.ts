@@ -27,24 +27,10 @@ import { buildLoanAuthorizationWithSignature } from "@/lib/sba/forms/loanAuthori
 import { renderLoanAuthorizationPdf } from "@/lib/sba/forms/loanAuthorization/render";
 
 /**
- * SPEC S4 H-1 — dispatches an SBA package item's `template_code` to the
- * real, fully-fielded form module built across ARC-00 Phases 0-3, instead
- * of the legacy generic `fillEngine` path (generatePdfBytesFromFillRun.ts),
- * which only knows a handful of hardcoded dealData fields
- * (borrower_name/business_name/business_ein/loan_amount/loan_purpose) and
- * has no awareness of any form built in this arc.
- *
- * ARC-00 finding (logged in the Drift Log, Gate 3 write-up): the
- * pre-existing `sba_package_runs`/`fill_runs`/`sba_package_run_items`
- * schema models exactly one output PDF per template_code per package run.
- * Forms 413/912/4506-C are legitimately one-PDF-per-signer (each 20%+
- * owner has their own PFS/912/4506-C). Until that schema gains a signer
- * dimension (or the run-item model becomes one-row-per-signer), this
- * dispatcher renders the *first* applicable signer only, so Gate 3's
- * "package run generates all items" claim is real but only
- * single-signer-complete for those three forms — a genuine simplification,
- * not a fabrication (the rendered PDF is correctly and completely fielded
- * for that one signer).
+ * Dispatches an SBA package item's `template_code` to the real,
+ * fully-fielded form module. When `ownershipEntityId` is provided,
+ * per-owner forms (413, 912, 4506-C, 148, 148L) render for that specific
+ * owner; otherwise they fall back to the first qualifying signer.
  */
 
 export type SbaFormDispatchResult =
@@ -63,9 +49,9 @@ export function isDispatchedSbaTemplateCode(templateCode: string): boolean {
 
 export async function renderSbaPackageItem(
   templateCode: string,
-  args: { dealId: string; bankId: string; supabase: SupabaseClient },
+  args: { dealId: string; bankId: string; supabase: SupabaseClient; ownershipEntityId?: string },
 ): Promise<SbaFormDispatchResult> {
-  const { dealId, bankId, supabase } = args;
+  const { dealId, bankId, supabase, ownershipEntityId } = args;
   const sb = supabase as unknown as { from: (t: string) => any };
 
   switch (templateCode) {
@@ -97,7 +83,9 @@ export async function renderSbaPackageItem(
 
     case "SBA_413": {
       const buildResult = await buildForm413WithSignature(dealId, sb);
-      const signer = buildResult.input.signers[0];
+      const signer = ownershipEntityId
+        ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId)
+        : buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
       const rendered = await renderForm413Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
@@ -106,7 +94,9 @@ export async function renderSbaPackageItem(
     case "SBA_912": {
       const buildResult = await buildForm912WithSignature(dealId, sb);
       if (!buildResult.applicable) return { ok: false, reason: "not_applicable" };
-      const person = buildResult.input.persons[0];
+      const person = ownershipEntityId
+        ? buildResult.input.persons.find((p) => p.ownership_entity_id === ownershipEntityId)
+        : buildResult.input.persons[0];
       if (!person) return { ok: false, reason: "no_triggering_persons" };
       const rendered = await renderForm912Pdf({ supabase, buildResult, ownershipEntityId: person.ownership_entity_id, dealId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
@@ -114,7 +104,9 @@ export async function renderSbaPackageItem(
 
     case "IRS_4506C": {
       const buildResult = await buildForm4506cWithSignature(dealId, bankId, sb);
-      const signer = buildResult.input.signers[0];
+      const signer = ownershipEntityId
+        ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId)
+        : buildResult.input.signers[0];
       if (!signer) return { ok: false, reason: "no_signers" };
       const rendered = await renderForm4506cPdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id, dealId, bankId });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
@@ -145,7 +137,9 @@ export async function renderSbaPackageItem(
 
     case "SBA_148": {
       const buildResult = await buildForm148WithSignature(dealId, bankId, sb);
-      const signer = buildResult.input.signers.find((s) => s.guaranteeType === "unconditional");
+      const signer = ownershipEntityId
+        ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId && s.guaranteeType === "unconditional")
+        : buildResult.input.signers.find((s) => s.guaranteeType === "unconditional");
       if (!signer) return { ok: false, reason: "not_applicable" };
       const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };
@@ -153,7 +147,9 @@ export async function renderSbaPackageItem(
 
     case "SBA_148L": {
       const buildResult = await buildForm148WithSignature(dealId, bankId, sb);
-      const signer = buildResult.input.signers.find((s) => s.guaranteeType === "limited");
+      const signer = ownershipEntityId
+        ? buildResult.input.signers.find((s) => s.ownership_entity_id === ownershipEntityId && s.guaranteeType === "limited")
+        : buildResult.input.signers.find((s) => s.guaranteeType === "limited");
       if (!signer) return { ok: false, reason: "not_applicable" };
       const rendered = await renderForm148Pdf({ supabase, buildResult, ownershipEntityId: signer.ownership_entity_id });
       return rendered.ok ? { ok: true, pdfBytes: rendered.pdfBytes } : { ok: false, reason: rendered.reason };

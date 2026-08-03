@@ -20,8 +20,9 @@ export async function generatePdfForFillRun(opts: {
 }): Promise<{ storagePath: string; fileName: string }> {
   const { supabase, dealId, fillRunId } = opts;
 
-  const { data: fillRun } = await supabase.from("fill_runs").select("template_code").eq("id", fillRunId).maybeSingle();
+  const { data: fillRun } = await supabase.from("fill_runs").select("template_code, ownership_entity_id").eq("id", fillRunId).maybeSingle();
   const templateCode = (fillRun as { template_code?: string } | null)?.template_code ?? null;
+  const ownershipEntityId = (fillRun as { ownership_entity_id?: string } | null)?.ownership_entity_id ?? undefined;
 
   let fileName: string;
   let pdfBytes: Buffer | null = null;
@@ -37,11 +38,11 @@ export async function generatePdfForFillRun(opts: {
     // resolveEffectiveLenderBankId.ts for why.
     const bankId = await resolveEffectiveLenderBankId(dealId, dealBankId, supabase);
 
-    const dispatched = await renderSbaPackageItem(templateCode, { dealId, bankId, supabase });
+    const dispatched = await renderSbaPackageItem(templateCode, { dealId, bankId, supabase, ownershipEntityId });
     if (!dispatched.ok) {
       throw new Error(`sba_form_dispatch_failed(${templateCode}): ${dispatched.reason}`);
     }
-    fileName = `${templateCode}.pdf`;
+    fileName = ownershipEntityId ? `${templateCode}_${ownershipEntityId}.pdf` : `${templateCode}.pdf`;
     if ("storagePath" in dispatched) {
       // Form 159's renderer already uploads to its own bucket/path.
       storagePath = dispatched.storagePath;

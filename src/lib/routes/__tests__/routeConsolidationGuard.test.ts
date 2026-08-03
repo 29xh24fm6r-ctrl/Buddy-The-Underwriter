@@ -44,7 +44,16 @@ const ROOT = resolve(__dirname, "../../../..");
 // bump's headroom landed via unrelated parallel main-branch merges between
 // 07-24 and 07-29. Actual measured total: 798 route.ts * 2 + 192 page.tsx *
 // 2 = 1980. Still 58 slots under the 2048 hard cap.
-const MERGED_WARNING_THRESHOLD = 1990;
+//
+// Bumped 1990 -> 2000 on 2026-08-03: SPEC-SBA-FORM-COMPLETION-V1 added 3
+// new routes under /deals/[dealId]/sba/ — character-questions (§3.C
+// explicit confirmation of criminal-history answers), completeness-gate
+// (§7 per-form completeness check), and intake-completeness (§3 intake
+// data gap closure). Each serves a distinct resource that cannot fold into
+// existing SBA routes. 2 additional route.ts files arrived from upstream
+// merges since the last bump. Actual measured total: 803 route.ts * 2 +
+// 192 page.tsx * 2 = 1990. Still 48 slots under the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 2000;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
