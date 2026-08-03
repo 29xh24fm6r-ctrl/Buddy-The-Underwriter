@@ -67,6 +67,12 @@ import {
   FORM_148L_CHECKBOX_FIELDS,
 } from "@/lib/sba/forms/form148/pdfFieldMap";
 
+// Form 159
+import {
+  FORM_159_TEXT_FIELDS,
+  FORM_159_CHECKBOX_FIELDS,
+} from "@/lib/sba/forms/form159/pdfFieldMap";
+
 type FieldSpec = { name: string; type: string };
 
 function loadFieldsJson(formName: string): { fieldCount: number; fields: FieldSpec[] } {
@@ -252,28 +258,20 @@ describe("Fill contract: every renderer field name exists in its form's fields.j
     assertAllExist("148L checkbox", checkboxNames, "PDFCheckBox", pdf);
   });
 
-  test("Form 159 — current guessed field names are wrong (documents the gap)", () => {
+  test("Form 159", () => {
     const json = loadFieldsJson("159");
-    const pdfFieldNames = new Set(json.fields.map((f: FieldSpec) => f.name));
+    const pdf = fieldNameMap(json);
 
-    // These are the guessed names in render159.ts's toFieldValues().
-    const guessedNames = [
-      "Applicant Name",
-      "Loan Amount",
-      "Agent Name",
-      "Agent Type",
-      "Agent Address",
-      "Services Performed",
-      "Total Compensation",
-    ];
+    const textNames = valuesOf(FORM_159_TEXT_FIELDS);
+    assertAllExist("159 text", textNames, "PDFTextField", pdf);
 
-    const matched = guessedNames.filter((n) => pdfFieldNames.has(n));
-    const unmatched = guessedNames.filter((n) => !pdfFieldNames.has(n));
+    const checkboxNames = valuesOf(FORM_159_CHECKBOX_FIELDS);
+    assertAllExist("159 checkbox", checkboxNames, "PDFCheckBox", pdf);
 
-    // Only "Agent Address" matches the real form
-    assert.ok(matched.length <= 1, `159: expected at most 1 match (got ${matched.length}: ${matched.join(", ")})`);
-    assert.ok(unmatched.length >= 6, `159: expected >=6 unmatched guessed names (got ${unmatched.length})`);
-    assert.strictEqual(json.fieldCount, 47, "159: expected 47 fields in the real form");
+    assert.ok(
+      textNames.length + checkboxNames.length > 30,
+      `159: expected >30 mapped fields, got ${textNames.length + checkboxNames.length}`,
+    );
   });
 
   test("SBA_NOTE, SBA_AUTHORIZATION, SBA_722 are not AcroForm-filled (no contract needed)", () => {
