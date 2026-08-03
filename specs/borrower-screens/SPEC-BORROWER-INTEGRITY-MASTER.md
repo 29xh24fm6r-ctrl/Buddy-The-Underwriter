@@ -69,6 +69,85 @@ fieldProgress derivation.
 | V-M1b | `verificationTruth.test.tsx`: deriveVerifications(0 counts) → all false → "Not started" | 4/4 pass |
 | V-M2 | `v-m2-bridge.test.ts`: null entity → for_profit_unknown; LLC → passes | 6/6 pass |
 | V-M3 | `verificationTruth.test.tsx`: absent eligibilityFailures → fail closed | 3/3 pass |
+| V-F1 | `F1-renderVerification.test.tsx`: renderToString produces "Not started" 3x | 3/3 pass |
+| V-F2 | `F2-scoringBridge.test.ts`: production-equivalent inputs pass eligibility; all 3 July-23 failures fixed | 7/7 pass |
+
+## SPEC-BORROWER-FINISH tracker
+
+| ID | Finding | Status | Commit | Verification |
+|----|---------|--------|--------|-------------|
+| F-1 | Land screen-integrity PR + render verify | DONE | `f0c5972e` | V-F1 (renderToString) |
+| F-2 | Scoring input bridge | DONE | `68105a2a` | V-F2 (7/7 pass) |
+| F-2.5 | NAICS triage | DONE | `68105a2a` | Reference-data gap — see AAR below |
+| F-3 | Drive one deal to sealed | BLOCKED | — | See F-3 blockers below |
+| F-4a | Owner-empty progress | DEFERRED | — | Product decision (M4 accepted) |
+| F-4b | SOP citation revision | DONE | `db1b7ff4` | M7-SOP-REVISION-REPORT.md |
+| F-4c | Spec landing | DONE | `db1b7ff4` | This file |
+| F-4d | Pulse deletion | DONE | — | Separate branch fix/remove-borrower-surface |
+| F-5 | Close workstream | PENDING | — | After F-3 resolution |
+
+### F-2 AAR
+
+**1. Column map (loadScoreInputs reads → writer):**
+
+| Column | Table | Writer |
+|--------|-------|--------|
+| loan_amount | deals | propagateBorrowerFacts §1 |
+| loan_type | deals | propagateBorrowerFacts §1 (defaults "7a") |
+| state | deals | propagateBorrowerFacts §1 |
+| naics | borrower_applications | propagateBorrowerFacts §2 |
+| business_entity_type | borrower_applications | propagateBorrowerFacts §2 |
+| loan_purpose (→ useOfProceeds fallback) | borrower_applications | propagateBorrowerFacts §2 |
+| industry | borrower_applications | propagateBorrowerFacts §2 |
+| YEARS_IN_BUSINESS | deal_financial_facts | propagateBorrowerFacts §3 |
+| ANNUAL_REVENUE | deal_financial_facts | propagateBorrowerFacts §3 |
+| EMPLOYEE_COUNT | deal_financial_facts | propagateBorrowerFacts §3 |
+| federalDebtDelinquent | deal_builder_sections (compliance) | intake wizard (null = pending pass) |
+| taxDelinquent | deal_builder_sections (compliance) | intake wizard (null = pending pass) |
+| samDebarred | deal_builder_sections (compliance) | intake wizard (null = pending pass) |
+| felonyConviction | ownership_entities (character flags) | intake wizard (null = pending pass) |
+| DSCR, sources_and_uses | buddy_sba_packages | trident pipeline |
+| franchise data | deal_franchises + franchise_brands | franchise matcher |
+
+All eligibility-critical inputs (entity_type, naics, use_of_proceeds)
+are covered by propagateBorrowerFacts. Compliance fields (null = pending
+pass) don't block eligibility.
+
+**2. Before/after entity_type trace:**
+
+- Before (July 23 scores): `input_snapshot.businessEntityType = null`,
+  eligibility failures: `for_profit_unknown`, `size_standard`, `use_of_proceeds_unknown`
+- After (current borrower_applications): `business_entity_type = "LLC"`,
+  `naics = "513210"`, `loan_purpose = "trademark the brand and launch it"`
+- Concierge facts contain: `business.entity_type = "LLC"` (extracted by LLM)
+- Propagation code maps: `businessFacts["entity_type"]` → `app.business_entity_type`
+- C-0.2 ordering: `propagationDone.then(() => computeBuddySBAScore(...))`
+  chains scoring after propagation (concierge/route.ts lines 656-669)
+
+**3. NAICS triage: reference-data gap (not missing input).**
+
+NAICS 513210 (Software Publishers) was correctly extracted by the concierge
+and propagated to `borrower_applications.naics`. The size-standard check
+failed because `sbaSizeStandards.ts` uses a placeholder top-50 table that
+did not include sector 513 (Information/Technology). Fix: added 513210 with
+$47M threshold per 13 CFR §121.201. The full 2,061-entry JSON at
+`data/industry-intelligence/sba-size-standards.json` also has corrupted
+data for this code (`[object Object]` title, null value) — a separate
+ingestion-script fix for future work.
+
+### F-3 blockers
+
+Driving deal `0d989d1f` to a sealed package requires:
+1. Re-triggering scoring (need concierge turn or manual compute API call)
+2. Locking the score (`locked_at` must be set)
+3. Confirmed assumptions (`buddy_sba_assumptions` with confirmed=true)
+4. Trident bundle (SBA forms package)
+5. Validation report
+6. Identity verification (0 records in production)
+
+Items 3-6 require lender-side actions or the full packaging pipeline,
+which is outside the scope of code-only changes. F-3 is a product
+milestone, not a code fix.
 
 ## Production evidence
 
@@ -76,5 +155,7 @@ fieldProgress derivation.
 - 0 `borrower_identity_verifications` records
 - 0 sealed packages
 - 8 concierge sessions (6 with owners: [])
-- Deal `0d989d1f`: `business_entity_type = LLC` in `borrower_applications`
-  (manually propagated to prove M2 chain)
+- Deal `0d989d1f`: `business_entity_type = LLC`, `naics = 513210`,
+  `loan_purpose` set in `borrower_applications`; concierge facts have
+  matching `business.entity_type = LLC` and `loan.use_of_proceeds`
+- Score rows from July 23 all have `snap_entity_type: null` (pre-fix state)
