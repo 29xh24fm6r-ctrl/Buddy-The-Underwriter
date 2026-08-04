@@ -122,6 +122,7 @@ export default async function DealCockpitPage({ params }: Props) {
 
   let bankName: string | null = null;
   let dataLoadError: string | null = null;
+  let isTestDeal = false;
   try {
     const sb = supabaseAdmin();
 
@@ -158,7 +159,7 @@ export default async function DealCockpitPage({ params }: Props) {
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
-    const isTestDeal = Boolean((deal as any)?.is_test);
+    isTestDeal = Boolean((deal as any)?.is_test);
 
     dealName = {
       displayName: (deal as any)?.display_name ?? null,
