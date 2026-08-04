@@ -9,16 +9,20 @@ type PurposeChip = {
   label: string;
   featured?: boolean;
   featureTag?: string;
+  amountOptional?: boolean;
 };
 
 const PURPOSES: PurposeChip[] = [
-  { id: "franchise", emoji: "🤝", label: "Open a franchise", featured: true, featureTag: "We specialize" },
+  { id: "start_business", emoji: "🌱", label: "Start a new business", featured: true, featureTag: "First-timers welcome", amountOptional: true },
+  { id: "franchise", emoji: "🤝", label: "Open a franchise", featured: true, featureTag: "We specialize", amountOptional: true },
   { id: "buy_business", emoji: "🏬", label: "Buy a business" },
   { id: "commercial_re", emoji: "🏢", label: "Commercial real estate" },
   { id: "equipment", emoji: "🛠️", label: "Equipment" },
   { id: "working_capital", emoji: "💵", label: "Working capital" },
   { id: "refinance", emoji: "🔁", label: "Refinance debt" },
 ];
+
+const STARTUP_PURPOSES = new Set(["start_business", "franchise"]);
 
 export function IntakePurposeStep({
   dealId,
@@ -33,8 +37,11 @@ export function IntakePurposeStep({
     () => new Set(initialSelections ?? []),
   );
   const [amounts, setAmounts] = useState<Record<string, number>>({});
+  const [amountUnknown, setAmountUnknown] = useState<Record<string, boolean>>({});
   const [noExistingDebt, setNoExistingDebt] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const isStartup = Array.from(selected).some((id) => STARTUP_PURPOSES.has(id));
 
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
@@ -46,7 +53,7 @@ export function IntakePurposeStep({
   }, []);
 
   const total = Object.entries(amounts)
-    .filter(([k]) => selected.has(k))
+    .filter(([k]) => selected.has(k) && !amountUnknown[k])
     .reduce((sum, [, v]) => sum + (v || 0), 0);
 
   const handleContinue = async () => {
@@ -59,6 +66,7 @@ export function IntakePurposeStep({
         { factPath: "loan.use_of_proceeds", value: purposes.join(", ") },
         ...(total ? [{ factPath: "loan.amount_requested", value: String(total) }] : []),
         { factPath: "business.is_franchise", value: String(purposes.includes("franchise")) },
+        { factPath: "business.is_startup", value: String(isStartup) },
       ];
       for (const { factPath, value } of factsToSave) {
         await fetch("/api/brokerage/concierge", {
@@ -95,7 +103,7 @@ export function IntakePurposeStep({
             What are you financing?
           </h2>
           <p className="mt-2 text-sm text-slate-300 sm:text-base">
-            Tap everything that applies. If it&apos;s a franchise, tell me the brand.
+            Tap everything that applies. Just starting out is fine — plenty of SBA loans go to brand-new businesses.
           </p>
         </div>
       </div>
@@ -157,27 +165,48 @@ export function IntakePurposeStep({
 
               {/* Amount row — inline expansion */}
               {isSelected && (
-                <div className="animate-in slide-in-from-top-2 fade-in duration-300 mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
-                    {p.label} amount
-                  </label>
-                  <div className="relative flex-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={1000}
-                      value={amounts[p.id] || ""}
-                      onChange={(e) =>
-                        setAmounts((prev) => ({
-                          ...prev,
-                          [p.id]: Number(e.target.value) || 0,
-                        }))
-                      }
-                      placeholder="0"
-                      className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-7 pr-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
-                    />
+                <div className="animate-in slide-in-from-top-2 fade-in duration-300 mt-2 space-y-2">
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
+                      {p.label} amount
+                    </label>
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1000}
+                        value={amountUnknown[p.id] ? "" : (amounts[p.id] || "")}
+                        onChange={(e) =>
+                          setAmounts((prev) => ({
+                            ...prev,
+                            [p.id]: Number(e.target.value) || 0,
+                          }))
+                        }
+                        placeholder="0"
+                        disabled={amountUnknown[p.id]}
+                        className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-7 pr-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                    </div>
                   </div>
+                  {p.amountOptional && (
+                    <label className="flex items-center gap-2 px-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!amountUnknown[p.id]}
+                        onChange={(e) =>
+                          setAmountUnknown((prev) => ({
+                            ...prev,
+                            [p.id]: e.target.checked,
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-brand-blue-500 focus:ring-brand-blue-500"
+                      />
+                      <span className="text-xs text-slate-500">
+                        I&apos;m not sure yet — help me figure out how much I need.
+                      </span>
+                    </label>
+                  )}
                 </div>
               )}
             </div>
@@ -187,8 +216,21 @@ export function IntakePurposeStep({
 
       {/* Franchise brand picker — inline when franchise is selected */}
       {selected.has("franchise") && (
-        <div className="animate-in slide-in-from-top-2 fade-in duration-300">
+        <div className="animate-in slide-in-from-top-2 fade-in duration-300 space-y-2">
           <BorrowerFranchiseBrandPicker startInSearchMode />
+          <p className="text-xs text-slate-500 px-1">
+            Pick your brand and we&apos;ll show the typical investment range from the SBA franchise directory — you don&apos;t need the exact number yet.
+          </p>
+        </div>
+      )}
+
+      {/* Startup reassurance block */}
+      {isStartup && (
+        <div className="animate-in slide-in-from-top-2 fade-in duration-300 rounded-xl border border-emerald-100 bg-emerald-50/50 px-5 py-4">
+          <p className="text-sm font-medium text-emerald-800">New businesses are welcome here.</p>
+          <p className="mt-1 text-xs text-emerald-700">
+            No EIN or business tax returns needed to get started. We&apos;ll build projections from your plan instead of historical financials.
+          </p>
         </div>
       )}
 

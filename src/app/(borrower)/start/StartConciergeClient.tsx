@@ -156,6 +156,8 @@ export function StartConciergeClient({
   );
   const [totalAmount, setTotalAmount] = useState(0);
   const isFranchise = purposes.includes("franchise");
+  const isStartup =
+    purposes.includes("start_business") || purposes.includes("franchise");
 
   // Resume at the right chapter when a returning borrower loads the page
   const [initialized, setInitialized] = useState(false);
@@ -228,6 +230,7 @@ export function StartConciergeClient({
         {chapter === 2 && (
           <IntakeBusinessStep
             dealId={session.dealId}
+            isStartup={isStartup}
             onContinue={() => setChapter(3)}
           />
         )}
