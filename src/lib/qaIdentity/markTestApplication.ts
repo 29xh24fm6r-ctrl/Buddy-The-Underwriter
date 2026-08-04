@@ -1,6 +1,5 @@
 import "server-only";
 
-import crypto from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateTestRunId } from "@/lib/qaIdentity/testRunId";
 import { QA_BORROWER_NAME } from "@/lib/qaIdentity/config";
@@ -62,13 +61,14 @@ export async function markDealAsTestApplication(dealId: string): Promise<void> {
  * Creates a new QA test application atomically via the
  * `create_qa_test_application` RPC (P0-4).
  *
- * The RPC inserts deal + session token + test metadata in a single
- * transaction. On any failure, no partial record remains.
+ * The RPC inserts deal + test metadata in a single transaction.
+ * Session token creation is handled separately by the canonical
+ * `createBorrowerSession()` — the RPC does NOT insert session rows.
+ * This avoids orphan session tokens and duplicate rows.
  */
 export async function createQATestApplication(args: {
   bankId: string;
   email: string;
-  tokenHash: string;
 }): Promise<{ dealId: string; testRunId: string }> {
   const sb = supabaseAdmin();
   const testRunId = generateTestRunId();
@@ -77,7 +77,6 @@ export async function createQATestApplication(args: {
     p_bank_id: args.bankId,
     p_borrower_email: args.email.toLowerCase().trim(),
     p_borrower_name: QA_BORROWER_NAME,
-    p_token_hash: args.tokenHash,
     p_test_run_id: testRunId,
     p_test_suite: "borrower_e2e",
     p_test_identity: "borrower_qa",

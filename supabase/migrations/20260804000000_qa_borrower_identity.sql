@@ -83,13 +83,13 @@ begin
 end $$;
 
 -- 3. Atomic QA test application creation RPC
--- Creates deal + session token + test metadata in a single transaction.
--- P0-4: Deal creation, borrower session, and test markup are atomic.
+-- Creates deal + test metadata in a single transaction.
+-- P0-4: Deal and test metadata are atomic. Session is created separately
+--        by the canonical createBorrowerSession() to avoid duplicate rows.
 create or replace function public.create_qa_test_application(
   p_bank_id              uuid,
   p_borrower_email       text,
   p_borrower_name        text,
-  p_token_hash           text,
   p_test_run_id          text,
   p_test_suite           text default 'borrower_e2e',
   p_test_identity        text default 'borrower_qa'
@@ -102,14 +102,12 @@ as $$
 declare
   v_deal_id    uuid := gen_random_uuid();
   v_now        timestamptz := now();
-  v_expires_at timestamptz := v_now + interval '90 days';
 begin
-  -- 1. Insert deal with test metadata
+  -- Insert deal with test metadata (session created separately by caller)
   insert into public.deals (
     id, bank_id, deal_type, origin,
     display_name, borrower_name, borrower_email,
     status,
-    brokerage_session_token_hash,
     is_test, test_suite, test_run_id,
     test_created_at, test_identity,
     created_at, updated_at
@@ -117,21 +115,9 @@ begin
     v_deal_id, p_bank_id, 'SBA', 'brokerage_anonymous',
     p_borrower_name, p_borrower_name, p_borrower_email,
     'active',
-    p_token_hash,
     true, p_test_suite, p_test_run_id,
     v_now, p_test_identity,
     v_now, v_now
-  );
-
-  -- 2. Insert session token
-  insert into public.borrower_session_tokens (
-    token_hash, deal_id, bank_id,
-    claimed_email, claimed_at,
-    created_at, expires_at
-  ) values (
-    p_token_hash, v_deal_id, p_bank_id,
-    p_borrower_email, v_now,
-    v_now, v_expires_at
   );
 
   return jsonb_build_object(

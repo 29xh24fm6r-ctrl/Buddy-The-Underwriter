@@ -140,17 +140,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (body.action === "create") {
-    // P0-4: Atomic creation via RPC
-    const nodeCrypto = await import("node:crypto");
-    const rawToken = nodeCrypto.randomBytes(32).toString("hex");
-    const tokenHash = nodeCrypto.createHash("sha256").update(rawToken).digest("hex");
-
+    // P0-4: Atomic deal creation via RPC.
+    // Session is created by the canonical createBorrowerSession below.
+    // ONE session row — no orphan, no duplicate.
     let dealId: string;
     try {
       const result = await createQATestApplication({
         bankId,
         email: ctx.email,
-        tokenHash,
       });
       dealId = result.dealId;
     } catch (e) {
@@ -161,7 +158,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // P0-2: Set session cookie via canonical helper — no raw token in JSON
+    // Single canonical session — no raw token in JSON
     await createBorrowerSession({
       dealId,
       bankId,

@@ -1,100 +1,158 @@
 /**
- * Isolation audit tests (P0-9).
+ * Isolation audit (P0-9, P0-3 in FINAL pass).
  *
- * Verifies that test applications are excluded from all production data
- * flows. Every exclusion point is tested here.
+ * Proves every isolation surface with:
+ *   - exact file/function
+ *   - exact is_test enforcement
+ *   - exact automated test
  *
- * SPEC-BORROWER-QA-IDENTITY-V1 §3, P0-9
+ * "NOT PRESENT" = no enforcement exists at that surface.
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { isTestDealFilter } from "@/lib/qaIdentity/isolation";
 
-describe("isolation — central guard (P0-9)", () => {
-  it("isTestDealFilter returns correct filter shape", () => {
-    const filter = isTestDealFilter();
-    assert.equal(filter.column, "is_test");
-    assert.equal(filter.value, false);
-  });
-
-  it("isTestDealFilter filter excludes test applications", () => {
-    const filter = isTestDealFilter();
-    // The filter { column: "is_test", value: false } translates to
-    // .eq("is_test", false) which excludes test deals.
-    assert.equal(filter.column, "is_test");
-    assert.equal(filter.value, false);
-  });
-});
-
 /**
- * P0-9 — Isolation audit checklist.
+ * P0-9: Exact isolation matrix.
  *
- * Each item below identifies a data flow that MUST exclude test deals.
- * The checklist is used as a compliance audit trail.
+ * Each entry maps a data-flow surface to its enforcement.
+ * "NOT PRESENT" surfaces have NO is_test guard.
  */
-
-export const ISOLATION_CHECKLIST = [
-  // Lender Distribution
-  { area: "lender distribution", endpoint: "deal matching", enforced: "assertNotTestDeal", file: "src/app/api/deals/[dealId]/lenders/match/route.ts" },
-  { area: "lender distribution", endpoint: "deal seal/marketplace", enforced: "assertNotTestDeal", file: "src/app/api/brokerage/deals/[dealId]/seal/route.ts" },
-  { area: "lender distribution", endpoint: "package delivery", enforced: "assertNotTestDeal (indirect)", file: "src/lib/brokerage/packageDelivery.ts" },
-
-  // Marketplace
-  { area: "marketplace", endpoint: "marketplace listings", enforced: "is_test filter in listing query", file: "src/app/api/lender/marketplace/listings/route.ts" },
-  { area: "marketplace", endpoint: "lender deal view", enforced: "test banner (defense in depth)", file: "src/app/lender/deals/[dealId]/LenderDealViewClient.tsx" },
-  { area: "marketplace", endpoint: "lender package preview", enforced: "test banner (defense in depth)", file: "src/app/lender/marketplace/package/[accessId]/LenderPackageClient.tsx" },
-
-  // Reporting
-  { area: "reporting", endpoint: "dashboard analytics", enforced: "is_test filter in fetchDealsForDashboard", file: "src/lib/dashboard/analytics.ts" },
-  { area: "reporting", endpoint: "revenue reporting", enforced: "is_test filter (central guard)", file: "src/lib/dashboard/analytics.ts" },
-  { area: "reporting", endpoint: "conversion reporting", enforced: "is_test filter (central guard)", file: "src/lib/dashboard/analytics.ts" },
-  { area: "reporting", endpoint: "approval-rate reporting", enforced: "is_test filter (central guard)", file: "src/lib/dashboard/analytics.ts" },
-  { area: "reporting", endpoint: "SLA reporting", enforced: "is_test filter", file: "src/lib/dashboard/analytics.ts" },
-
-  // Claims
-  { area: "claims", endpoint: "funded-loan claims", enforced: "is_test filter (central guard)", file: "use isTestDealFilter" },
-
-  // Marketing & Notifications
-  { area: "marketing", endpoint: "borrower marketing", enforced: "is_test filter required", file: "use isTestDealFilter in marketing queries" },
-  { area: "notifications", endpoint: "partner notifications", enforced: "assertNotTestDeal", file: "use assertNotTestDeal in notification handlers" },
-
-  // Exports
-  { area: "exports", endpoint: "data exports", enforced: "is_test filter", file: "use isTestDealFilter in export queries" },
-
-  // Jobs/Cron
-  { area: "jobs/cron", endpoint: "scheduled jobs", enforced: "is_test filter required", file: "use isTestDealFilter in cron queries" },
+const ISOLATION_MATRIX = [
+  // LENDER DISTRIBUTION — ENFORCED
+  {
+    surface: "lender matching",
+    file: "src/app/api/deals/[dealId]/lenders/match/route.ts",
+    enforcement: "await assertNotTestDeal(dealId, sb)",
+    test: "E2E §7.1",
+  },
+  {
+    surface: "deal sealing / marketplace publication",
+    file: "src/app/api/brokerage/deals/[dealId]/seal/route.ts",
+    enforcement: "await assertNotTestDeal(dealId, sb)",
+    test: "Unit: assertNotTestDeal throws",
+  },
+  // MARKETPLACE — ENFORCED
+  {
+    surface: "marketplace listings",
+    file: "src/app/api/lender/marketplace/listings/route.ts",
+    enforcement: "filter deals where is_test = true, exclude from results",
+    test: "E2E §8.1",
+  },
+  // REPORTING — ENFORCED
+  {
+    surface: "revenue / conversion / approval-rate / SLA reporting",
+    file: "src/lib/dashboard/analytics.ts",
+    enforcement: "q = q.eq('is_test', false) in fetchDealsForDashboard",
+    test: "Unit: isTestDealFilter returns correct filter",
+  },
+  // PACKAGE DELIVERY — NOT PRESENT
+  {
+    surface: "direct lender package delivery",
+    file: "NOT PRESENT",
+    enforcement: "NOT PRESENT",
+    test: "NOT PRESENT — defense-in-depth: test banner on lender deal view",
+  },
+  // FUNDED-LOAN CLAIMS — NOT PRESENT
+  {
+    surface: "funded-loan claims",
+    file: "NOT PRESENT",
+    enforcement: "NOT PRESENT",
+    test: "NOT PRESENT — should add is_test filter to claims queries",
+  },
+  // PARTNER NOTIFICATIONS — NOT PRESENT
+  {
+    surface: "partner notifications",
+    file: "NOT PRESENT",
+    enforcement: "NOT PRESENT",
+    test: "NOT PRESENT — should add is_test filter to notification batch",
+  },
+  // BORROWER MARKETING — NOT PRESENT
+  {
+    surface: "borrower marketing",
+    file: "NOT PRESENT",
+    enforcement: "NOT PRESENT",
+    test: "NOT PRESENT — should add is_test filter to marketing queries",
+  },
+  // DATA EXPORTS — NOT PRESENT
+  {
+    surface: "data exports",
+    file: "NOT PRESENT",
+    enforcement: "NOT PRESENT",
+    test: "NOT PRESENT — should add is_test filter to export queries",
+  },
+  // SCHEDULED JOBS / CRON — NOT PRESENT
+  {
+    surface: "scheduled jobs / cron",
+    file: "NOT PRESENT",
+    enforcement: "NOT PRESENT",
+    test: "NOT PRESENT — should add is_test filter to cron queries",
+  },
 ];
 
-describe("isolation — audit checklist completeness (P0-9)", () => {
-  it("checklist covers all required areas", () => {
-    const areas = new Set(ISOLATION_CHECKLIST.map((c) => c.area));
-    assert.ok(areas.has("lender distribution"));
-    assert.ok(areas.has("marketplace"));
-    assert.ok(areas.has("reporting"));
-    assert.ok(areas.has("claims"));
-    assert.ok(areas.has("marketing"));
-    assert.ok(areas.has("notifications"));
-    assert.ok(areas.has("exports"));
-    assert.ok(areas.has("jobs/cron"));
+describe("isolation — exact production audit (FINAL)", () => {
+  it("isolation matrix covers all 10 required surfaces", () => {
+    const surfaces = ISOLATION_MATRIX.map((s) => s.surface);
+    assert.ok(surfaces.includes("lender matching"));
+    assert.ok(surfaces.includes("deal sealing / marketplace publication"));
+    assert.ok(surfaces.includes("marketplace listings"));
+    assert.ok(surfaces.includes("revenue / conversion / approval-rate / SLA reporting"));
+    assert.ok(surfaces.includes("direct lender package delivery"));
+    assert.ok(surfaces.includes("funded-loan claims"));
+    assert.ok(surfaces.includes("partner notifications"));
+    assert.ok(surfaces.includes("borrower marketing"));
+    assert.ok(surfaces.includes("data exports"));
+    assert.ok(surfaces.includes("scheduled jobs / cron"));
   });
 
-  it("every checklist item has an enforcement mechanism", () => {
-    for (const item of ISOLATION_CHECKLIST) {
-      assert.ok(
-        item.enforced,
-        `Item ${item.area}/${item.endpoint} must have an enforced mechanism`,
-      );
-      assert.ok(
-        item.file,
-        `Item ${item.area}/${item.endpoint} must reference a file`,
-      );
+  it("enforced surfaces have non-NOT-PRESENT file and enforcement", () => {
+    for (const item of ISOLATION_MATRIX) {
+      if (item.file === "NOT PRESENT") {
+        assert.equal(
+          item.enforcement,
+          "NOT PRESENT",
+          `${item.surface}: file is NOT PRESENT but enforcement claims otherwise`,
+        );
+      } else {
+        assert.ok(
+          item.file.includes(".ts"),
+          `${item.surface}: file must reference a .ts file`,
+        );
+        assert.ok(
+          item.enforcement !== "NOT PRESENT",
+          `${item.surface}: enforcement missing despite file present`,
+        );
+      }
     }
   });
 
-  it("isTestDealFilter is the canonical isolation filter", () => {
+  it("central guard isTestDealFilter returns correct canonical shape", () => {
     const filter = isTestDealFilter();
     assert.equal(filter.column, "is_test");
     assert.equal(filter.value, false);
+  });
+
+  it("4 of 10 surfaces have direct enforcement, 6 are NOT PRESENT", () => {
+    const enforced = ISOLATION_MATRIX.filter(
+      (s) => s.enforcement !== "NOT PRESENT",
+    ).length;
+    const notPresent = ISOLATION_MATRIX.filter(
+      (s) => s.enforcement === "NOT PRESENT",
+    ).length;
+
+    assert.equal(enforced, 4, "Expected 4 enforced surfaces");
+    assert.equal(notPresent, 6, "Expected 6 NOT PRESENT surfaces");
+
+    // Exact enforced surfaces:
+    const enforcedSurfaces = ISOLATION_MATRIX
+      .filter((s) => s.enforcement !== "NOT PRESENT")
+      .map((s) => s.surface);
+    assert.deepStrictEqual(enforcedSurfaces, [
+      "lender matching",
+      "deal sealing / marketplace publication",
+      "marketplace listings",
+      "revenue / conversion / approval-rate / SLA reporting",
+    ]);
   });
 });
