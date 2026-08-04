@@ -8,6 +8,7 @@ import { FeasibilityScoreCapsule } from "@/components/feasibility/FeasibilitySco
 import { resolveDealLabel, dealLabel as buildDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
 import { JourneyRail } from "@/components/journey/JourneyRail";
+import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import DealShellMemoCta from "@/components/deals/DealShellMemoCta";
 
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
@@ -171,6 +172,7 @@ type DealShellDeal = {
   stage: string | null;
   risk_score: number | null;
   deal_type?: string | null;
+  is_test?: boolean | null;
 };
 
 type CanonicalMemoHeaderStatus = {
@@ -220,6 +222,9 @@ export default function DealShell({
     nickname: string | null;
   } | null>(null);
   const [copyToast, setCopyToast] = useState<string | null>(null);
+  // P0-7: Banner visibility from persisted deal.is_test prop.
+  // Parent pages (cockpit, documents, financials, etc.) must include
+  // is_test in their deal select query to enable the banner here.
 
   const displayName = nameOverride?.displayName ?? deal?.display_name ?? null;
   const nickname = nameOverride?.nickname ?? deal?.nickname ?? null;
@@ -292,6 +297,8 @@ export default function DealShell({
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-white flex">
+      {/* P0-7: Test application banner for all internal deal sub-pages */}
+      <TestApplicationBanner isTest={deal?.is_test === true} />
       {/* Journey Rail (desktop persistent left) */}
       <JourneyRail
         dealId={dealId}

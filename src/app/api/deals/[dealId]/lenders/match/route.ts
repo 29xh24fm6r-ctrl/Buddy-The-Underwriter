@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { matchLenders } from "@/lib/lenders/lenderMatchingEngine";
+import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 import { computeDealScore } from "@/lib/scoring/dealScoringEngine";
 import { logLedgerEvent } from "@/lib/pipeline/logLedgerEvent";
 import type { DealFinancialSnapshotV1 } from "@/lib/deals/financialSnapshotCore";
@@ -28,6 +29,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     }
 
     const sb = supabaseAdmin();
+
+    // SPEC-BORROWER-QA-IDENTITY-V1 §3 — test deals are never matched to real lenders
+    await assertNotTestDeal(dealId, sb);
 
     const [{ data: snapshotRow }, { data: decisionRow }, { data: scoreRow }, { data: programs }, { data: deal }] =
       await Promise.all([

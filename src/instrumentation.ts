@@ -9,6 +9,21 @@ function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // SPEC-BORROWER-QA-IDENTITY-V1 §7 — refuse to start if test-auth bypass
+    // is enabled in production or a test OTP is configured in production.
+    // This runs synchronously at startup to fail fast before any requests
+    // are served.
+    try {
+      const { assertQATestAuthSafety } = await import(
+        "@/lib/qaIdentity/config"
+      );
+      assertQATestAuthSafety();
+    } catch (e) {
+      // Log and rethrow — the process must not start in this unsafe state.
+      console.error("[qa-identity] Startup safety check FAILED:", e);
+      throw e;
+    }
+
     const enableOtel = process.env.BUDDY_ENABLE_OTEL === "1";
     const enableSentry = Boolean(
       process.env.SENTRY_DSN ||

@@ -14,6 +14,7 @@ import { IntakeFinancialsStep } from "@/components/borrower/intake/IntakeFinanci
 import { IntakeReviewStep } from "@/components/borrower/intake/IntakeReviewStep";
 import { FloatingConcierge } from "@/components/borrower/intake/FloatingConcierge";
 import { PostSubmitHub } from "@/components/borrower/intake/PostSubmitHub";
+import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
 import type { FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 import type { DealVerificationState } from "@/components/borrower/intake/IntakeReviewStep";
@@ -139,12 +140,118 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
   return { ...status, refreshSoon };
 }
 
+/** P0-6: QA session data from server */
+type QASessionData = {
+  isQA: boolean;
+  dealId: string;
+  name: string | null;
+  isTest: boolean;
+};
+
+/** P0-6: QA application list entry */
+type QAApplication = {
+  id: string;
+  test_run_id: string;
+  test_created_at: string;
+  display_name: string;
+  stage: string;
+  status: string;
+};
+
+function QAApplicationPanel({
+  onResume,
+  onCreateNew,
+  onClose,
+}: {
+  onResume: (dealId: string) => void;
+  onCreateNew: () => void;
+  onClose: () => void;
+}) {
+  const [applications, setApplications] = useState<QAApplication[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/qa/borrower/applications", { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.ok) setApplications(json.applications ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-amber-900">
+          QA Test Applications
+        </h3>
+        <button
+          onClick={onClose}
+          className="text-xs text-amber-600 underline hover:text-amber-800"
+        >
+          Hide
+        </button>
+      </div>
+
+      {loading && <p className="text-xs text-slate-500">Loading applications...</p>}
+
+      {!loading && applications.length === 0 && (
+        <p className="text-xs text-slate-500">No existing QA applications found.</p>
+      )}
+
+      {!loading && applications.length > 0 && (
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {applications.map((app) => (
+            <div
+              key={app.id}
+              className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-700 truncate">
+                  {app.display_name ?? "QA Application"}
+                </p>
+                <p className="text-[10px] text-slate-400 truncate">
+                  {app.test_run_id} &middot; {app.stage ?? "draft"} &middot;{" "}
+                  {app.test_created_at
+                    ? new Date(app.test_created_at).toLocaleDateString()
+                    : "—"}
+                </p>
+              </div>
+              <button
+                onClick={() => onResume(app.id)}
+                className="ml-2 shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 transition-colors"
+              >
+                Resume
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={() => {
+          setCreating(true);
+          onCreateNew();
+        }}
+        disabled={creating}
+        className="w-full rounded-lg border border-dashed border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50"
+      >
+        {creating ? "Creating..." : "Start new QA application"}
+      </button>
+    </div>
+  );
+}
+
 export function StartConciergeClient({
   initialPath,
   initialSession = null,
+  qaSession = null,
 }: {
   initialPath?: "franchise" | "standard";
   initialSession?: VerifiedSession | null;
+  qaSession?: QASessionData | null;
 }) {
   const [session, setSession] = useState<VerifiedSession | null>(initialSession);
   const dealId = session?.dealId ?? null;
@@ -159,6 +266,9 @@ export function StartConciergeClient({
   const isStartup =
     purposes.includes("start_business") || purposes.includes("franchise");
 
+  // P0-6: QA panel state
+  const [showQAPanel, setShowQAPanel] = useState(false);
+
   // Resume at the right chapter when a returning borrower loads the page
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
@@ -171,13 +281,59 @@ export function StartConciergeClient({
     }
   }, [journeyStatus.hasDealId, journeyStatus.fieldProgress, journeyStatus.sealed, initialized]);
 
+  // P0-6: QA borrower — handle resume from QA application list
+  const handleQAResume = async (resumedDealId: string) => {
+    try {
+      const res = await fetch("/api/qa/borrower/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "resume", dealId: resumedDealId }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setShowQAPanel(false);
+        setSession({ dealId: json.dealId, name: qaSession?.name ?? null });
+      }
+    } catch {
+      // non-fatal
+    }
+  };
+
+  // P0-6: QA borrower — create new application
+  const handleQACreate = async () => {
+    try {
+      const res = await fetch("/api/qa/borrower/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "create" }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setShowQAPanel(false);
+        setSession({ dealId: json.dealId, name: qaSession?.name ?? null });
+      }
+    } catch {
+      // non-fatal
+    }
+  };
+
   if (!session) {
     return <BorrowerWorkspaceGate onVerified={setSession} />;
   }
 
+  // P0-6: Is this the QA borrower with test deals?
+  const isQAWithTestDeal = qaSession?.isQA === true && qaSession.isTest;
+
   // Sealed deal → PostSubmitHub
   if (journeyStatus.sealed) {
-    return <PostSubmitHub token={session.dealId} />;
+    return (
+      <div>
+        {isQAWithTestDeal && <TestApplicationBanner isTest={true} />}
+        <PostSubmitHub token={session.dealId} />
+      </div>
+    );
   }
 
   const handlePurposeContinue = (selectedPurposes: string[], total: number) => {
@@ -210,6 +366,26 @@ export function StartConciergeClient({
           </button>
         </p>
       </div>
+
+      {/* P0-6: QA borrower action panel */}
+      {qaSession?.isQA && (
+        <div className="mb-4">
+          {showQAPanel ? (
+            <QAApplicationPanel
+              onResume={handleQAResume}
+              onCreateNew={handleQACreate}
+              onClose={() => setShowQAPanel(false)}
+            />
+          ) : (
+            <button
+              onClick={() => setShowQAPanel(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50/80 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 transition-colors"
+            >
+              Browse QA applications
+            </button>
+          )}
+        </div>
+      )}
 
       <GuidedIntakeShell
         currentChapter={chapter}

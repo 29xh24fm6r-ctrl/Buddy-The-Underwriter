@@ -4,6 +4,7 @@ import { clerkAuth } from "@/lib/auth/clerkServer";
 import DealCockpitClient from "@/components/deals/DealCockpitClient";
 import { DealCockpitLoadingBar } from "@/components/deals/DealCockpitLoadingBar";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { verifyUnderwrite } from "@/lib/deals/verifyUnderwrite";
 import { deriveLifecycleState } from "@/buddy/lifecycle";
@@ -121,6 +122,7 @@ export default async function DealCockpitPage({ params }: Props) {
 
   let bankName: string | null = null;
   let dataLoadError: string | null = null;
+  let isTestDeal = false;
   try {
     const sb = supabaseAdmin();
 
@@ -150,13 +152,14 @@ export default async function DealCockpitPage({ params }: Props) {
       lifecycleAvailable = false;
     }
 
-    // Fetch deal metadata (name, borrower info)
+    // Fetch deal metadata (name, borrower info, test status for P0-7 banner)
     const { data: deal } = await sb
       .from("deals")
-      .select("display_name, nickname, borrower_name, borrower_id, stage, name, intake_phase")
+      .select("display_name, nickname, borrower_name, borrower_id, stage, name, intake_phase, is_test")
       .eq("id", dealId)
       .eq("bank_id", access.bankId)
       .maybeSingle();
+    isTestDeal = Boolean((deal as any)?.is_test);
 
     dealName = {
       displayName: (deal as any)?.display_name ?? null,
@@ -284,6 +287,8 @@ export default async function DealCockpitPage({ params }: Props) {
 
   return (
     <div data-testid="deal-cockpit">
+      {/* P0-7: Test application banner for internal deal screens */}
+      <TestApplicationBanner isTest={isTestDeal} />
       <Suspense fallback={
         <div className="min-h-screen text-white flex items-center justify-center">
           <div className="animate-pulse text-white/30 text-sm">Loading cockpit...</div>

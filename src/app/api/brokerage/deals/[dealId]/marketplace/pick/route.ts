@@ -29,6 +29,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +53,16 @@ export async function POST(
   }
 
   const sb = supabaseAdmin();
+
+  // P0-9: Test applications cannot be distributed to real lenders.
+  try {
+    await assertNotTestDeal(dealId, sb);
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "test_application_distribution_blocked" },
+      { status: 403 },
+    );
+  }
 
   // The deal's listing must be open for a pick (a lender has claimed).
   const { data: listing } = await sb

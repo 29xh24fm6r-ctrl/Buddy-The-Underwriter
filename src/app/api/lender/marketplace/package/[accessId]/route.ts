@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
 import { getLenderPackageAccess } from "@/lib/brokerage/packageDelivery";
+import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,16 @@ export async function GET(
   const result = await getLenderPackageAccess(accessId, lender.lenderBankId, supabaseAdmin() as any);
   if (!result.ok) {
     return NextResponse.json({ ok: false }, { status: 404 });
+  }
+
+  // P0-9: Test applications cannot be distributed to real lenders.
+  try {
+    await assertNotTestDeal(result.access.dealId, supabaseAdmin() as any);
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "test_application_distribution_blocked" },
+      { status: 403 },
+    );
   }
 
   return NextResponse.json({
