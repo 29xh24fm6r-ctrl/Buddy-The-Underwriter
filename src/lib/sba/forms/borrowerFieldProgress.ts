@@ -4,16 +4,9 @@ import {
   type BorrowerFieldEntry,
   type BorrowerFieldEntityScope,
 } from "./borrowerFieldRegistry";
+import { OC_REQUIRED_WHEN_EPC_KEYS } from "./form1244/build";
 
-const OC_KEYS = new Set([
-  "oc_legal_name",
-  "oc_address",
-  "oc_legal_structure",
-  "oc_tax_id",
-  "oc_contact_name",
-  "oc_email",
-  "oc_phone",
-]);
+const OC_KEYS = new Set(OC_REQUIRED_WHEN_EPC_KEYS);
 
 const CONDITIONAL_GATES: Array<{
   keys: Set<string>;
@@ -202,6 +195,26 @@ export function computeFieldProgress(
     }
     return false;
   });
+
+  const needsOwners = requiredEntries.some((e) => e.entityScope === "owner" || e.entityScope === "pfs");
+  const owners = facts.owners as Array<unknown> | undefined;
+  if (needsOwners && (!owners || owners.length === 0)) {
+    excluded.push("owners_empty");
+    return {
+      requiredTotal: 0,
+      completedCount: 0,
+      remainingFactPaths: [],
+      byChapter: {
+        1: { total: 0, complete: 0 },
+        2: { total: 0, complete: 0 },
+        3: { total: 0, complete: 0 },
+        4: { total: 0, complete: 0 },
+        5: { total: 0, complete: 0 },
+      },
+      excluded,
+      determinable: false,
+    };
+  }
 
   const byChapter: Record<1 | 2 | 3 | 4 | 5, { total: number; complete: number }> = {
     1: { total: 0, complete: 0 },

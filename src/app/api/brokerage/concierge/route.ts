@@ -570,7 +570,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     // Write-through: push extracted facts to the canonical tables the
     // score engine and packaging pipeline actually read. Non-fatal —
     // the conversation never breaks because a propagation write failed.
-    propagateBorrowerFacts({
+    // Captured so scoring can chain after propagation completes (C-0.2).
+    const propagationDone = propagateBorrowerFacts({
       dealId: session.deal_id,
       bankId: brokerageBankId,
       facts: mergedFacts as BorrowerFacts,
@@ -649,19 +650,22 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
       });
 
-    // S1-5: score trigger is fire-and-forget for v1. Non-fatal on failure.
+    // S1-5: score trigger — chained after propagation so scorer reads
+    // the just-written columns instead of stale nulls (C-0.2 race fix).
     const turnCount = priorTurnCount + 1;
     if (turnCount >= 5 || sessionClaimed) {
-      computeBuddySBAScore({
-        dealId: session.deal_id,
-        sb,
-        context: "concierge_fact_change",
-      }).catch((e) => {
-        console.warn(
-          "[brokerage-concierge] score compute failed (non-fatal):",
-          e?.message ?? String(e),
-        );
-      });
+      propagationDone.then(() =>
+        computeBuddySBAScore({
+          dealId: session.deal_id,
+          sb,
+          context: "concierge_fact_change",
+        }).catch((e) => {
+          console.warn(
+            "[brokerage-concierge] score compute failed (non-fatal):",
+            e?.message ?? String(e),
+          );
+        }),
+      );
     }
 
     // Plain JSON — no streaming. The frontend's existing short-circuit path

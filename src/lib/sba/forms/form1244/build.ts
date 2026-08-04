@@ -49,7 +49,7 @@ export type Form1244BuildResult = {
 // required for the Operating Company too — dba/duns/website stay
 // optional in both cases (matches FORM_1244_SECTION_I_FIELDS' own
 // required flags for the Applicant/EPC equivalents).
-const OC_REQUIRED_WHEN_EPC_KEYS = ["oc_legal_name", "oc_address", "oc_legal_structure", "oc_tax_id", "oc_contact_name", "oc_email", "oc_phone"];
+export const OC_REQUIRED_WHEN_EPC_KEYS = ["oc_legal_name", "oc_address", "oc_legal_structure", "oc_tax_id", "oc_contact_name", "oc_email", "oc_phone"];
 
 function personTriggers912(fields: Record<string, unknown>): boolean {
   return FORM_912_TRIGGER_FIELDS.some((key) => fields[key] === true);

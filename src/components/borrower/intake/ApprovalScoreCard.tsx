@@ -69,7 +69,7 @@ export function ApprovalScoreCard({ token }: { token: string }) {
     );
   }
 
-  if (!score || hasIncompleteInputs(score.eligibilityFailures ?? [])) {
+  if (!score || !score.eligibilityFailures || hasIncompleteInputs(score.eligibilityFailures)) {
     return (
       <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm">
         <p className="text-sm text-slate-500">

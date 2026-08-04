@@ -64,6 +64,9 @@ export const SIZE_STANDARDS_TOP_50: readonly SizeStandardEntry[] = [
   { naics: "541810", description: "Advertising agencies",                           unit: "annual_receipts_usd", threshold: 25_000_000 },
   { naics: "541990", description: "All other professional, scientific, technical",  unit: "annual_receipts_usd", threshold: 19_500_000 },
 
+  // Information / Technology
+  { naics: "513210", description: "Software publishers",                            unit: "annual_receipts_usd", threshold: 47_000_000 },
+
   // Construction
   { naics: "236115", description: "New single-family housing construction",         unit: "annual_receipts_usd", threshold: 45_000_000 },
   { naics: "236116", description: "New multifamily housing construction",           unit: "annual_receipts_usd", threshold: 45_000_000 },

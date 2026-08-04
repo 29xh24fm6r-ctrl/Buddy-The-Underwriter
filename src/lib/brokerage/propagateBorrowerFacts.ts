@@ -116,6 +116,7 @@ export async function propagateBorrowerFacts(params: {
   const naics = str(businessFacts["naics"]);
   const industry = str(businessFacts["industry_description"]);
   const state = str(businessFacts["state"]);
+  const entityType = str(businessFacts["entity_type"]);
 
   // ── 1. deals — loan_amount / loan_type / state ───────────────────────
   let dealBorrowerId: string | null = null;
@@ -152,6 +153,7 @@ export async function propagateBorrowerFacts(params: {
     if (legalName) app.business_legal_name = legalName;
     if (naics) app.naics = naics;
     if (industry) app.industry = industry;
+    if (entityType) app.business_entity_type = entityType;
     if (loanAmount != null) app.loan_amount = loanAmount;
     if (useOfProceeds) app.loan_purpose = useOfProceeds;
     app.loan_type = "7a";

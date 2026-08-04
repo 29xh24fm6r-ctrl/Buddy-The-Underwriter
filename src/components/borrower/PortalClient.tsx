@@ -763,9 +763,14 @@ export function PortalClient({ token }: { token: string }) {
           .then((r) => (r.ok ? r.json() : null))
           .then((sealJson) => {
             if (!sealJson?.ok) return;
+            const fp = sealJson.fieldProgress;
+            const realProgressPct =
+              fp?.determinable && fp.requiredTotal > 0
+                ? Math.round((fp.completedCount / fp.requiredTotal) * 100)
+                : 0;
             setJourneyStatus({
               hasDealId: true,
-              progressPct: typeof sealJson.progressPct === "number" ? sealJson.progressPct : 0,
+              progressPct: realProgressPct,
               documentsUploadedCount:
                 typeof sealJson.documentsUploadedCount === "number" ? sealJson.documentsUploadedCount : 0,
               sealed: Boolean(sealJson.sealed),

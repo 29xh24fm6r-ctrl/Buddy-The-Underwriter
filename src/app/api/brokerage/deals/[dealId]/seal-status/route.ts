@@ -91,6 +91,18 @@ export async function GET(
   });
   const fieldProgress: FieldProgress = computeFieldProgress(facts, formCodes);
 
+  // Verification counts — positive evidence for the borrower review checklist.
+  // D-0: deriveVerifications must use counted records, not gate-string inversions.
+  const { count: identityVerificationCount } = await sb
+    .from("borrower_identity_verifications")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId);
+
+  const { count: ownershipEntityCount } = await sb
+    .from("ownership_entities")
+    .select("id", { count: "exact", head: true })
+    .eq("deal_id", dealId);
+
   // Document count (stage 2 — "upload documents").
   const { count: documentsUploadedCount } = await sb
     .from("deal_documents")
@@ -160,6 +172,8 @@ export async function GET(
       ok: true,
       progressPct,
       documentsUploadedCount: documentsUploadedCount ?? 0,
+      identityVerificationCount: identityVerificationCount ?? 0,
+      ownershipEntityCount: ownershipEntityCount ?? 0,
       facts,
       fieldProgress,
       sealed: true,
@@ -187,6 +201,8 @@ export async function GET(
     ok: true,
     progressPct,
     documentsUploadedCount: documentsUploadedCount ?? 0,
+    identityVerificationCount: identityVerificationCount ?? 0,
+    ownershipEntityCount: ownershipEntityCount ?? 0,
     facts,
     fieldProgress,
     sealed: false,
