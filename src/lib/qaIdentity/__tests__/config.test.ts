@@ -26,7 +26,13 @@ const {
   validateDeterministicOtp,
 } = require("../config") as typeof import("../config");
 
-// Save and restore env for each test
+// Save and restore env for each test.
+// process.env.NODE_ENV is typed as readonly in @types/node, but can be mutated
+// at runtime in tests. We use a variable-key helper to bypass the literal type.
+function setEnv(key: string, value: string) {
+  (process.env as Record<string, string | undefined>)[key] = value;
+}
+
 let savedEnv: Record<string, string | undefined> = {};
 
 function saveEnv(...keys: string[]) {
@@ -40,7 +46,7 @@ function restoreEnv(...keys: string[]) {
     if (savedEnv[k] === undefined) {
       delete process.env[k];
     } else {
-      process.env[k] = savedEnv[k];
+      (process.env as Record<string, string | undefined>)[k] = savedEnv[k] as string;
     }
   }
 }
@@ -79,7 +85,7 @@ test("getQABorrowerEmail returns null when not configured", () => {
 
 test("assertQATestAuthSafety throws when BORROWER_TEST_AUTH_ENABLED=true in production", () => {
   saveEnv("NODE_ENV", "BORROWER_TEST_AUTH_ENABLED");
-  process.env["NODE_ENV"] = "production";
+  setEnv("NODE_ENV", "production");
   process.env.BORROWER_TEST_AUTH_ENABLED = "true";
 
   assert.throws(
@@ -92,7 +98,7 @@ test("assertQATestAuthSafety throws when BORROWER_TEST_AUTH_ENABLED=true in prod
 
 test("assertQATestAuthSafety throws when BORROWER_TEST_OTP is set in production", () => {
   saveEnv("NODE_ENV", "BORROWER_TEST_OTP", "BORROWER_TEST_AUTH_ENABLED");
-  process.env["NODE_ENV"] = "production";
+  setEnv("NODE_ENV", "production");
   process.env.BORROWER_TEST_AUTH_ENABLED = "false";
   process.env.BORROWER_TEST_OTP = "123456";
 
@@ -106,7 +112,7 @@ test("assertQATestAuthSafety throws when BORROWER_TEST_OTP is set in production"
 
 test("assertQATestAuthSafety does not throw in production without test bypass", () => {
   saveEnv("NODE_ENV", "BORROWER_TEST_AUTH_ENABLED", "BORROWER_TEST_OTP");
-  process.env["NODE_ENV"] = "production";
+  setEnv("NODE_ENV", "production");
   process.env.BORROWER_TEST_AUTH_ENABLED = "false";
   delete process.env.BORROWER_TEST_OTP;
 
@@ -119,17 +125,17 @@ test("canUseDeterministicOtp returns true only when all conditions are met", () 
   saveEnv("NODE_ENV", "BORROWER_TEST_AUTH_ENABLED", "BORROWER_TEST_OTP");
 
   // NOT production, enabled, OTP present
-  process.env["NODE_ENV"] = "development";
+  setEnv("NODE_ENV", "development");
   process.env.BORROWER_TEST_AUTH_ENABLED = "true";
   process.env.BORROWER_TEST_OTP = "123456";
   assert.equal(canUseDeterministicOtp(), true);
 
   // production → false
-  process.env["NODE_ENV"] = "production";
+  setEnv("NODE_ENV", "production");
   assert.equal(canUseDeterministicOtp(), false);
 
   // development but not enabled → false
-  process.env["NODE_ENV"] = "development";
+  setEnv("NODE_ENV", "development");
   process.env.BORROWER_TEST_AUTH_ENABLED = "false";
   assert.equal(canUseDeterministicOtp(), false);
 
@@ -144,7 +150,7 @@ test("canUseDeterministicOtp returns true only when all conditions are met", () 
 test("validateDeterministicOtp only matches when all conditions hold and code matches", () => {
   saveEnv("NODE_ENV", "BORROWER_TEST_AUTH_ENABLED", "BORROWER_TEST_OTP");
 
-  process.env["NODE_ENV"] = "development";
+  setEnv("NODE_ENV", "development");
   process.env.BORROWER_TEST_AUTH_ENABLED = "true";
   process.env.BORROWER_TEST_OTP = "999999";
 
@@ -153,7 +159,7 @@ test("validateDeterministicOtp only matches when all conditions hold and code ma
   assert.equal(validateDeterministicOtp(""), false);
 
   // In production, deterministic OTP never validates
-  process.env["NODE_ENV"] = "production";
+  setEnv("NODE_ENV", "production");
   assert.equal(validateDeterministicOtp("999999"), false);
 
   restoreEnv("NODE_ENV", "BORROWER_TEST_AUTH_ENABLED", "BORROWER_TEST_OTP");
@@ -162,7 +168,7 @@ test("validateDeterministicOtp only matches when all conditions hold and code ma
 test("universal code does not work (no magic number, no bypass)", () => {
   saveEnv("NODE_ENV", "BORROWER_TEST_AUTH_ENABLED", "BORROWER_TEST_OTP");
 
-  process.env["NODE_ENV"] = "development";
+  setEnv("NODE_ENV", "development");
   process.env.BORROWER_TEST_AUTH_ENABLED = "true";
   process.env.BORROWER_TEST_OTP = "999999";
 
