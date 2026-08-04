@@ -4,12 +4,15 @@ import "server-only";
  * QA borrower authentication — wraps the existing brokerage OTP
  * infrastructure with QA-specific logic.
  *
- * SPEC-BORROWER-QA-IDENTITY-V1 §1, §6
+ * SPEC-BORROWER-QA-IDENTITY-V1 §1, §6 (remediated)
+ *
+ * P0-2: Never returns raw session tokens. Uses canonical
+ *       `createBorrowerSession` from sessionToken.ts which sets
+ *       the raw token only as an HttpOnly cookie.
  *
  * Production path: uses the same real OTP send/verify as a real borrower.
  * Staging path (deterministic): uses BORROWER_TEST_OTP when all safety
- * conditions are met — NODE_ENV !== "production", BORROWER_TEST_AUTH_ENABLED=true,
- * email matches BORROWER_QA_EMAIL, BORROWER_TEST_OTP is present.
+ * conditions are met.
  */
 
 import crypto from "node:crypto";
@@ -17,13 +20,14 @@ import {
   sendVerificationCode,
   verifyCodeAndCreateSession,
 } from "@/lib/brokerage/emailVerification";
+import { createBorrowerSession } from "@/lib/brokerage/sessionToken";
 import {
   isQABorrowerEmail,
   validateDeterministicOtp,
   canUseDeterministicOtp,
   QA_BORROWER_NAME,
 } from "@/lib/qaIdentity/config";
-import { markDealAsTestApplication } from "@/lib/qaIdentity/markTestApplication";
+import { markDealAsTestApplication, createQATestApplication } from "@/lib/qaIdentity/markTestApplication";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type QASendCodeResult =
@@ -78,12 +82,8 @@ export async function sendQAVerificationCode(args: {
 /**
  * Verify a code for the QA borrower.
  *
- * Two paths:
- *   1. Deterministic OTP (staging only) — matches BORROWER_TEST_OTP directly.
- *      Creates a session without DB code verification.
- *   2. Real OTP (production) — uses the standard verifyCodeAndCreateSession.
- *
- * After successful verification, marks the deal as a test application.
+ * P0-2: Session cookie is set via createBorrowerSession (HttpOnly).
+ *       No raw token is ever returned in the JSON response.
  */
 export async function verifyQACode(args: {
   email: string;
@@ -105,13 +105,10 @@ async function verifyWithDeterministicOtp(args: {
   email: string;
   bankId: string;
 }): Promise<QAVerifyCodeResult> {
-  // Deterministic OTP: code is correct. Look for an existing session
-  // for this email, or create a new one.
-
   const sb = supabaseAdmin();
   const email = args.email.toLowerCase().trim();
 
-  // Check for an existing unconverted lead
+  // Check for an existing converted lead
   const { data: existingLead } = await sb
     .from("brokerage_leads")
     .select("converted_deal_id")
@@ -121,16 +118,16 @@ async function verifyWithDeterministicOtp(args: {
     .maybeSingle();
 
   if (existingLead?.converted_deal_id) {
-    // Reattach to existing deal
     const dealId = existingLead.converted_deal_id;
     await markIfNewDeal(dealId);
+    await createBorrowerSession({ dealId, bankId: args.bankId, claimedEmail: email });
     return { ok: true, dealId, isNewDeal: false };
   }
 
-  // Check for existing test deals for this email
+  // Check for existing test deals
   const { data: existingTestDeal } = await sb
     .from("deals")
-    .select("id")
+    .select("id, bank_id")
     .eq("bank_id", args.bankId)
     .eq("borrower_email", email)
     .eq("is_test", true)
@@ -140,11 +137,31 @@ async function verifyWithDeterministicOtp(args: {
 
   if (existingTestDeal) {
     await markIfNewDeal(existingTestDeal.id);
+    await createBorrowerSession({
+      dealId: existingTestDeal.id,
+      bankId: existingTestDeal.bank_id ?? args.bankId,
+      claimedEmail: email,
+    });
     return { ok: true, dealId: existingTestDeal.id, isNewDeal: false };
   }
 
-  // No existing deal — create a new one
-  return createDirectSession(args);
+  // No existing deal — create a new one atomically
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const newDeal = await createQATestApplication({
+    bankId: args.bankId,
+    email,
+    tokenHash,
+  });
+
+  // Set the cookie via canonical helper (HttpOnly, Secure, SameSite)
+  await createBorrowerSession({
+    dealId: newDeal.dealId,
+    bankId: args.bankId,
+    claimedEmail: email,
+  });
+
+  return { ok: true, dealId: newDeal.dealId, isNewDeal: true };
 }
 
 async function verifyWithRealOtp(args: {
@@ -164,76 +181,34 @@ async function verifyWithRealOtp(args: {
   }
 
   const isNew = await markIfNewDeal(result.dealId);
+
+  // Ensure session cookie is set via canonical helper
+  await createBorrowerSession({
+    dealId: result.dealId,
+    bankId: args.bankId,
+    claimedEmail: args.email.toLowerCase().trim(),
+  });
+
   return { ok: true, dealId: result.dealId, isNewDeal: isNew };
 }
 
-async function createDirectSession(args: {
-  email: string;
-  bankId: string;
-}): Promise<QAVerifyCodeResult> {
-  const sb = supabaseAdmin();
-  const dealId = crypto.randomUUID();
-  const rawToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  const hashBuf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(rawToken),
-  );
-  const tokenHash = Array.from(new Uint8Array(hashBuf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  const { error: dealErr } = await sb.from("deals").insert({
-    id: dealId,
-    bank_id: args.bankId,
-    deal_type: "SBA",
-    origin: "brokerage_anonymous",
-    display_name: QA_BORROWER_NAME,
-    borrower_name: QA_BORROWER_NAME,
-    borrower_email: args.email.toLowerCase().trim(),
-    status: "active",
-    brokerage_session_token_hash: tokenHash,
-    is_test: true,
-    test_suite: "borrower_e2e",
-    test_created_at: new Date().toISOString(),
-    test_identity: "borrower_qa",
-  });
-
-  if (dealErr) {
-    return { ok: false, error: `deal_creation_failed: ${dealErr.message}` };
-  }
-
-  await sb.from("borrower_session_tokens").insert({
-    token_hash: tokenHash,
-    deal_id: dealId,
-    bank_id: args.bankId,
-    claimed_email: args.email.toLowerCase().trim(),
-    claimed_at: new Date().toISOString(),
-    expires_at: new Date(
-      Date.now() + 90 * 24 * 60 * 60 * 1000,
-    ).toISOString(),
-  });
-
-  // Mark with test_run_id
-  await markDealAsTestApplication(dealId);
-
-  return { ok: true, dealId, isNewDeal: true };
-}
-
+/**
+ * Marks a deal as test if not already. Returns true if newly marked.
+ * IDEMPOTENT (P0-5): test_run_id and test_created_at preserved on resume.
+ */
 async function markIfNewDeal(dealId: string): Promise<boolean> {
   const sb = supabaseAdmin();
 
   const { data } = await sb
     .from("deals")
-    .select("is_test")
+    .select("is_test, test_run_id")
     .eq("id", dealId)
     .maybeSingle();
 
   const deal = data as any;
 
-  if (deal?.is_test === true) {
-    return false;
+  if (deal?.is_test === true && deal?.test_run_id) {
+    return false; // Already fully marked — idempotent (P0-5)
   }
 
   await markDealAsTestApplication(dealId);

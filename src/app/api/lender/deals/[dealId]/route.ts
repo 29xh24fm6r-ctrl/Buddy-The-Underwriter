@@ -53,7 +53,7 @@ export async function GET(
     // Fetch deal
     const { data: deal, error: dealError } = await sb
       .from("deals")
-      .select("id, borrower_name, amount, ready_at, ready_reason, submitted_at, created_at")
+      .select("id, borrower_name, amount, ready_at, ready_reason, submitted_at, created_at, is_test")
       .eq("id", dealId)
       .single();
 
@@ -98,6 +98,7 @@ export async function GET(
         ready_reason: deal.ready_reason,
         submitted_at: deal.submitted_at,
         created_at: deal.created_at,
+        is_test: (deal as any).is_test === true,
       },
       checklist_summary: {
         required,

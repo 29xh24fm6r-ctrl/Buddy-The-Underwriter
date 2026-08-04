@@ -6,31 +6,50 @@ import { generateTestRunId } from "@/lib/qaIdentity/testRunId";
 import { QA_BORROWER_NAME } from "@/lib/qaIdentity/config";
 
 /**
- * Marks a deal as a QA test application.
+ * Marks a pre-existing deal as a QA test application.
  *
- * Sets:
- *   is_test = true
- *   test_suite = "borrower_e2e"
- *   test_run_id = E2E-YYYYMMDD-HHMMSS-<random>
- *   test_created_at = now
- *   test_identity = "borrower_qa"
- *   display_name = "Buddy QA Borrower" (if not already set)
- *
- * SPEC-BORROWER-QA-IDENTITY-V1 §2
+ * IDEMPOTENT (P0-5): assigns test_run_id and test_created_at only once.
+ * If the deal already has test_run_id set, no update is performed.
+ * Resume must preserve existing metadata.
  */
 export async function markDealAsTestApplication(dealId: string): Promise<void> {
   const sb = supabaseAdmin();
+
+  // Check if already marked (idempotent – P0-5)
+  const { data: existing } = await sb
+    .from("deals")
+    .select("id, is_test, test_run_id, test_suite, test_identity, test_created_at")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  const d = existing as any;
+  if (d?.is_test && d?.test_run_id) {
+    // Already marked — no-op
+    return;
+  }
+
   const testRunId = generateTestRunId();
+
+  // Only set test_run_id and test_created_at when they are null/absent
+  const update: Record<string, any> = {
+    is_test: true,
+    test_suite: "borrower_e2e",
+    test_identity: "borrower_qa",
+  };
+
+  // Set test_run_id only if not already present (P0-5)
+  if (!d?.test_run_id) {
+    update.test_run_id = testRunId;
+  }
+
+  // Set test_created_at only if not already present (P0-5)
+  if (!d?.test_created_at) {
+    update.test_created_at = new Date().toISOString();
+  }
 
   const { error } = await sb
     .from("deals")
-    .update({
-      is_test: true,
-      test_suite: "borrower_e2e",
-      test_run_id: testRunId,
-      test_created_at: new Date().toISOString(),
-      test_identity: "borrower_qa",
-    })
+    .update(update)
     .eq("id", dealId);
 
   if (error) {
@@ -40,68 +59,46 @@ export async function markDealAsTestApplication(dealId: string): Promise<void> {
 }
 
 /**
- * Creates a new QA test application deal.
+ * Creates a new QA test application atomically via the
+ * `create_qa_test_application` RPC (P0-4).
  *
- * Returns the new deal ID.
- *
- * SPEC-BORROWER-QA-IDENTITY-V1 §5
+ * The RPC inserts deal + session token + test metadata in a single
+ * transaction. On any failure, no partial record remains.
  */
 export async function createQATestApplication(args: {
   bankId: string;
   email: string;
   tokenHash: string;
-}): Promise<string> {
+}): Promise<{ dealId: string; testRunId: string }> {
   const sb = supabaseAdmin();
-  const dealId = crypto.randomUUID();
   const testRunId = generateTestRunId();
 
-  const { error } = await sb.from("deals").insert({
-    id: dealId,
-    bank_id: args.bankId,
-    deal_type: "SBA",
-    origin: "brokerage_anonymous",
-    display_name: QA_BORROWER_NAME,
-    borrower_name: QA_BORROWER_NAME,
-    borrower_email: args.email,
-    status: "active",
-    brokerage_session_token_hash: args.tokenHash,
-    is_test: true,
-    test_suite: "borrower_e2e",
-    test_run_id: testRunId,
-    test_created_at: new Date().toISOString(),
-    test_identity: "borrower_qa",
+  const { data, error } = await sb.rpc("create_qa_test_application", {
+    p_bank_id: args.bankId,
+    p_borrower_email: args.email.toLowerCase().trim(),
+    p_borrower_name: QA_BORROWER_NAME,
+    p_token_hash: args.tokenHash,
+    p_test_run_id: testRunId,
+    p_test_suite: "borrower_e2e",
+    p_test_identity: "borrower_qa",
   });
 
   if (error) {
-    throw new Error(`Failed to create QA test deal: ${error.message}`);
+    throw new Error(`create_qa_test_application RPC failed: ${error.message}`);
   }
 
-  const { error: tokenErr } = await sb.from("borrower_session_tokens").insert({
-    token_hash: args.tokenHash,
-    deal_id: dealId,
-    bank_id: args.bankId,
-    claimed_email: args.email,
-    claimed_at: new Date().toISOString(),
-    expires_at: new Date(
-      Date.now() + 90 * 24 * 60 * 60 * 1000,
-    ).toISOString(),
-  });
-
-  if (tokenErr) {
-    console.error(
-      "[qaIdentity] Failed to create session token for test deal:",
-      tokenErr.message,
+  const result = data as any;
+  if (!result?.ok) {
+    throw new Error(
+      `create_qa_test_application RPC failed: ${result?.error ?? "unknown error"}`,
     );
-    throw new Error(`Failed to create session token: ${tokenErr.message}`);
   }
 
-  return dealId;
+  return { dealId: result.deal_id, testRunId: result.test_run_id };
 }
 
 /**
  * Lists QA test applications for a given email.
- *
- * Returns deals ordered by test_created_at descending.
  */
 export async function listQATestApplications(args: {
   email: string;

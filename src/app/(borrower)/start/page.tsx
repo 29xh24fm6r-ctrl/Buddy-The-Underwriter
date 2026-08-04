@@ -1,6 +1,8 @@
 import { StartConciergeClient } from "./StartConciergeClient";
 import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
+import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
+import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
 
 export const metadata = {
   title: "Get your SBA loan - Buddy",
@@ -15,6 +17,13 @@ function normalizePath(value: string | string[] | undefined): StartPathParam {
   return v === "franchise" || v === "standard" ? v : undefined;
 }
 
+type QASessionData = {
+  isQA: boolean;
+  dealId: string;
+  name: string | null;
+  isTest: boolean;
+};
+
 export default async function StartPage({
   searchParams,
 }: {
@@ -24,16 +33,54 @@ export default async function StartPage({
   const path = normalizePath(params.path);
   const isFranchisePath = path === "franchise";
 
-  // Resolve any existing verified session server-side so a returning
-  // borrower on the same device skips the email-verification gate
-  // entirely — no extra client round trip needed to find out.
   const session = await getBorrowerSession();
+
+  // P0-6: Detect QA borrower session server-side
+  let qaSession: QASessionData | null = null;
+  const sessionEmail = session?.claimed_email?.toLowerCase().trim();
+  if (session && sessionEmail && isQABorrowerEmail(sessionEmail)) {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const sb = supabaseAdmin();
+    const { data: deal } = await sb
+      .from("deals")
+      .select("is_test, borrower_name, test_run_id")
+      .eq("id", session.deal_id)
+      .maybeSingle();
+    const d = deal as any;
+    qaSession = {
+      isQA: true,
+      dealId: session.deal_id,
+      name: d?.borrower_name?.split(" ")[0] ?? await resolveBorrowerName(session.deal_id),
+      isTest: d?.is_test === true,
+    };
+  }
+
   const initialSession = session
     ? { dealId: session.deal_id, name: await resolveBorrowerName(session.deal_id) }
     : null;
 
+  // P0-7: Check if current deal is a test deal for banner
+  let testBannerDeal: { is_test?: boolean | null } | null = null;
+  if (session?.deal_id) {
+    try {
+      const { supabaseAdmin } = await import("@/lib/supabase/admin");
+      const sb = supabaseAdmin();
+      const { data: bannerDeal } = await sb
+        .from("deals")
+        .select("is_test")
+        .eq("id", session.deal_id)
+        .maybeSingle();
+      testBannerDeal = bannerDeal as any;
+    } catch {}
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f8fb]">
+      {/* P0-7: Test application banner for /start borrower shell */}
+      {testBannerDeal?.is_test === true && (
+        <TestApplicationBanner isTest={true} />
+      )}
+
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
         <section className="brand-hero-bg relative overflow-hidden rounded-[2rem] p-6 shadow-[0_24px_70px_rgba(14,35,64,0.35)] sm:p-8 lg:p-10">
           <div
@@ -128,7 +175,11 @@ export default async function StartPage({
           </div>
 
           <div className="relative mt-8 rounded-[1.75rem] bg-white p-4 shadow-[0_18px_50px_rgba(0,0,0,0.25)] sm:p-6">
-            <StartConciergeClient initialPath={path} initialSession={initialSession} />
+            <StartConciergeClient
+              initialPath={path}
+              initialSession={initialSession}
+              qaSession={qaSession}
+            />
           </div>
         </section>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 
 type LenderDealData = {
   deal: {
@@ -11,6 +12,7 @@ type LenderDealData = {
     ready_reason: string | null;
     submitted_at: string | null;
     created_at: string;
+    is_test?: boolean | null;
   };
   checklist_summary: {
     required: number;
@@ -97,6 +99,8 @@ export default function LenderDealViewClient({ dealId }: { dealId: string }) {
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
+      {/* P0-7: Test application banner for lender deal view */}
+      <TestApplicationBanner isTest={deal.is_test === true} />
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div>

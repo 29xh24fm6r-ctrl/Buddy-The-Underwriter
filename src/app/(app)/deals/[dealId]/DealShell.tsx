@@ -8,6 +8,7 @@ import { FeasibilityScoreCapsule } from "@/components/feasibility/FeasibilitySco
 import { resolveDealLabel, dealLabel as buildDealLabel } from "@/lib/deals/dealLabel";
 import { Icon } from "@/components/ui/Icon";
 import { JourneyRail } from "@/components/journey/JourneyRail";
+import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import DealShellMemoCta from "@/components/deals/DealShellMemoCta";
 
 import { useFinancialSnapshot } from "@/hooks/useFinancialSnapshot";
@@ -171,6 +172,7 @@ type DealShellDeal = {
   stage: string | null;
   risk_score: number | null;
   deal_type?: string | null;
+  is_test?: boolean | null;
 };
 
 type CanonicalMemoHeaderStatus = {
@@ -220,6 +222,9 @@ export default function DealShell({
     nickname: string | null;
   } | null>(null);
   const [copyToast, setCopyToast] = useState<string | null>(null);
+  // P0-7: Self-source is_test flag directly from dealId.
+  // Avoids requiring every parent page to pass is_test in the deal prop.
+  const [isTestDeal, setIsTestDeal] = useState(false);
 
   const displayName = nameOverride?.displayName ?? deal?.display_name ?? null;
   const nickname = nameOverride?.nickname ?? deal?.nickname ?? null;
@@ -245,6 +250,17 @@ export default function DealShell({
       console.warn("[DealShell] Failed to store last active deal", e);
     }
   }, [dealId, deal?.name, displayName, nickname, borrowerName]);
+
+  // P0-7: Fetch is_test flag directly for banner display.
+  useEffect(() => {
+    if (!dealId) return;
+    fetch(`/api/deals/${dealId}/test-status`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json?.isTest === true) setIsTestDeal(true);
+      })
+      .catch(() => {});
+  }, [dealId]);
 
   function handleCopyDealId() {
     if (!dealId) return;
@@ -292,6 +308,8 @@ export default function DealShell({
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-white flex">
+      {/* P0-7: Test application banner for all internal deal sub-pages */}
+      <TestApplicationBanner isTest={isTestDeal} />
       {/* Journey Rail (desktop persistent left) */}
       <JourneyRail
         dealId={dealId}

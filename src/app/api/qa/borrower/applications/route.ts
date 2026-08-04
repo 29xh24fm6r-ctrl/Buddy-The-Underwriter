@@ -3,21 +3,29 @@ import "server-only";
 /**
  * GET /api/qa/borrower/applications
  *
- * Lists QA test applications for the configured QA borrower.
- * Requires the ?email= query parameter to match BORROWER_QA_EMAIL.
+ * Lists QA test applications. Resolves the QA borrower identity from the
+ * canonical verified borrower session cookie.
  *
  * POST /api/qa/borrower/applications
  *
  * Creates a new QA test application or resumes an existing one.
+ * Resolves identity from session cookie — email is never a direct
+ * authorization parameter.
  *
- * Body shapes:
- *   { action: "create"; email: string }
- *   { action: "resume"; email: string; dealId: string }
+ * P0-1: Auth via session cookie, not email query/body.
+ *       A caller who only knows BORROWER_QA_EMAIL cannot list, create,
+ *       resume, or obtain a session token.
  *
- * SPEC-BORROWER-QA-IDENTITY-V1 §5
+ * P0-2: Never returns raw session tokens in JSON. Session cookies are
+ *       set via the canonical `createBorrowerSession` utility.
+ *
+ * Body shapes (POST):
+ *   { action: "create" }
+ *   { action: "resume"; dealId: string }
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { getBorrowerSession, createBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import {
   isQABorrowerEmail,
@@ -27,63 +35,97 @@ import {
 } from "@/lib/qaIdentity";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const email = req.nextUrl.searchParams.get("email")?.trim().toLowerCase();
-
-  if (!email || !EMAIL_RE.test(email)) {
-    return NextResponse.json(
-      { ok: false, error: "valid_email_required" },
-      { status: 400 },
-    );
+/**
+ * P0-1: Resolve the QA borrower from the verified session cookie.
+ * Only succeeds when:
+ *   1. A valid session cookie is present
+ *   2. The session's claimed_email matches BORROWER_QA_EMAIL
+ *
+ * A caller who only knows BORROWER_QA_EMAIL cannot pass this check.
+ */
+async function requireQABorrowerSession(): Promise<{
+  email: string;
+  dealId: string;
+  bankId: string;
+}> {
+  const session = await getBorrowerSession();
+  if (!session) {
+    throw new NoSessionError("no_session_cookie");
   }
 
-  if (!isQABorrowerEmail(email)) {
+  const claimedEmail = session.claimed_email?.toLowerCase().trim();
+  if (!claimedEmail || !isQABorrowerEmail(claimedEmail)) {
+    throw new NoSessionError("not_qa_session");
+  }
+
+  // P0-1: session MUST be claimed/verified — unclaimed sessions are rejected
+  if (!session.claimed_at) {
+    throw new NoSessionError("session_not_verified");
+  }
+
+  return {
+    email: claimedEmail,
+    dealId: session.deal_id,
+    bankId: session.bank_id,
+  };
+}
+
+class NoSessionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NoSessionError";
+  }
+}
+
+export async function GET(_req: NextRequest): Promise<NextResponse> {
+  let ctx: { email: string; bankId: string };
+  try {
+    ctx = await requireQABorrowerSession();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
-      { ok: false, error: "not_qa_email" },
-      { status: 403 },
+      { ok: false, error: msg },
+      { status: 401 },
     );
   }
 
   let bankId: string;
   try {
     bankId = await getBrokerageBankId();
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { ok: false, error: "brokerage_tenant_missing" },
       { status: 500 },
     );
   }
 
-  const applications = await listQATestApplications({ email, bankId });
+  const applications = await listQATestApplications({
+    email: ctx.email,
+    bankId,
+  });
 
   return NextResponse.json({ ok: true, applications });
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: { action: string; email: string; dealId?: string };
+  let ctx: { email: string; dealId: string; bankId: string };
+  try {
+    ctx = await requireQABorrowerSession();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      { ok: false, error: msg },
+      { status: 401 },
+    );
+  }
+
+  let body: { action: string; dealId?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json(
       { ok: false, error: "invalid_json" },
       { status: 400 },
-    );
-  }
-
-  const email = body.email?.trim().toLowerCase();
-  if (!email || !EMAIL_RE.test(email)) {
-    return NextResponse.json(
-      { ok: false, error: "valid_email_required" },
-      { status: 400 },
-    );
-  }
-
-  if (!isQABorrowerEmail(email)) {
-    return NextResponse.json(
-      { ok: false, error: "not_qa_email" },
-      { status: 403 },
     );
   }
 
@@ -98,24 +140,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (body.action === "create") {
-    const rawToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    const hashBuf = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(rawToken),
-    );
-    const tokenHash = Array.from(new Uint8Array(hashBuf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    // P0-4: Atomic creation via RPC
+    const nodeCrypto = await import("node:crypto");
+    const rawToken = nodeCrypto.randomBytes(32).toString("hex");
+    const tokenHash = nodeCrypto.createHash("sha256").update(rawToken).digest("hex");
 
     let dealId: string;
     try {
-      dealId = await createQATestApplication({
+      const result = await createQATestApplication({
         bankId,
-        email,
+        email: ctx.email,
         tokenHash,
       });
+      dealId = result.dealId;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return NextResponse.json(
@@ -123,6 +160,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 500 },
       );
     }
+
+    // P0-2: Set session cookie via canonical helper — no raw token in JSON
+    await createBorrowerSession({
+      dealId,
+      bankId,
+      claimedEmail: ctx.email,
+    });
 
     return NextResponse.json({ ok: true, dealId, isNew: true });
   }
@@ -137,10 +181,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const sb = supabaseAdmin();
 
-    // Verify the deal belongs to the QA borrower
+    // Verify the deal is a QA test application
     const { data: deal, error } = await sb
       .from("deals")
-      .select("id, is_test, test_identity, borrower_email, bank_id")
+      .select("id, is_test, test_identity, test_run_id, test_created_at, borrower_email, bank_id")
       .eq("id", body.dealId)
       .maybeSingle();
 
@@ -159,43 +203,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (d.borrower_email?.toLowerCase() !== email) {
+    // Verify this deal belongs to the QA borrower
+    if (d.borrower_email?.toLowerCase() !== ctx.email) {
       return NextResponse.json(
         { ok: false, error: "email_mismatch" },
         { status: 403 },
       );
     }
 
-    // Ensure it's marked as test (idempotent)
+    // P0-5: mark is idempotent — preserves existing test_run_id & test_created_at
     await markDealAsTestApplication(body.dealId);
 
-    // Create a new session token for this device
-    const rawToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    const hashBuf = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(rawToken),
-    );
-    const tokenHash = Array.from(new Uint8Array(hashBuf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    // Re-fetch to return preserved metadata (P0-5 proof)
+    const { data: refreshed } = await sb
+      .from("deals")
+      .select("test_run_id, test_created_at, test_suite, test_identity")
+      .eq("id", body.dealId)
+      .maybeSingle();
 
-    await sb.from("borrower_session_tokens").insert({
-      token_hash: tokenHash,
-      deal_id: body.dealId,
-      bank_id: d.bank_id,
-      claimed_email: email,
-      claimed_at: new Date().toISOString(),
-      expires_at: new Date(
-        Date.now() + 90 * 24 * 60 * 60 * 1000,
-      ).toISOString(),
+    const preserved = refreshed as any;
+
+    // P0-2: Set new session cookie — no raw token in JSON
+    await createBorrowerSession({
+      dealId: body.dealId,
+      bankId: d.bank_id,
+      claimedEmail: ctx.email,
     });
 
     return NextResponse.json({
       ok: true,
       dealId: body.dealId,
-      sessionToken: rawToken,
+      testRunId: preserved?.test_run_id,
+      testCreatedAt: preserved?.test_created_at,
+      testSuite: preserved?.test_suite,
+      testIdentity: preserved?.test_identity,
     });
   }
 
