@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveLenderIdentity } from "@/lib/brokerage/lenderAuth";
+import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,16 @@ export async function GET(
 
   if (!grant) {
     return NextResponse.json({ ok: false, error: "Deal not found" }, { status: 404 });
+  }
+
+  // P0-9: Test applications cannot be accessed by lenders.
+  try {
+    await assertNotTestDeal(dealId, sb);
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "test_application_distribution_blocked" },
+      { status: 403 },
+    );
   }
 
   try {
