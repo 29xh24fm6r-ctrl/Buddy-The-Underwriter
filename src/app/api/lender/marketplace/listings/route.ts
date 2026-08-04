@@ -24,6 +24,14 @@ export async function GET(): Promise<NextResponse> {
   const sb = supabaseAdmin();
   const nowIso = new Date().toISOString();
 
+  // SPEC-BORROWER-QA-IDENTITY-V1 §3 — exclude test applications from marketplace
+  const { data: testDealIds } = await sb
+    .from("deals")
+    .select("id")
+    .eq("is_test", true);
+
+  const testDealIdSet = new Set((testDealIds ?? []).map((d: any) => d.id));
+
   const { data: listings, error } = await sb
     .from("marketplace_listings")
     .select(
@@ -53,7 +61,9 @@ export async function GET(): Promise<NextResponse> {
 
   return NextResponse.json({
     ok: true,
-    listings: (listings ?? []).map((l: any) => ({
+    listings: (listings ?? [])
+      .filter((l: any) => !testDealIdSet.has(l.deal_id))
+      .map((l: any) => ({
       ...l,
       claimedByYou: claimedByYou.has(l.id),
     })),

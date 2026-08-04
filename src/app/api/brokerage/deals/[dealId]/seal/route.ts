@@ -16,6 +16,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { canSeal } from "@/lib/brokerage/sealingGate";
 import { matchLendersToDeal } from "@/lib/brokerage/matchLenders";
+import { assertNotTestDeal } from "@/lib/qaIdentity/isolation";
 import { buildKFS } from "@/lib/brokerage/buildKFS";
 import { computeListingCadence } from "@/lib/brokerage/cadence";
 import { buildSealedSnapshot, SealSnapshotError } from "@/lib/brokerage/buildSealedSnapshot";
@@ -36,6 +37,9 @@ export async function POST(
   }
 
   const sb = supabaseAdmin();
+
+  // SPEC-BORROWER-QA-IDENTITY-V1 §3 — test applications cannot be sealed/sent to marketplace
+  await assertNotTestDeal(dealId, sb);
 
   const gate = await canSeal(dealId, sb);
   if (!gate.ok) {

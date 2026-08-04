@@ -53,6 +53,9 @@ export async function fetchDealsForDashboard(filters: {
   if (filters.stage) q = q.eq("stage", filters.stage);
   if (filters.dealType) q = q.eq("deal_type", filters.dealType);
 
+  // SPEC-BORROWER-QA-IDENTITY-V1 §3 — exclude test applications from production reporting
+  q = q.eq("is_test", false);
+
   const res = await q.limit(2000);
   if (res.error) throw res.error;
 
