@@ -246,7 +246,7 @@ describe("Test F: lookup failure → fail-closed, no polling", () => {
   });
 
   it("classification_failure blocks all deal-scoped requests", () => {
-    const state = "classification_failure" as const;
+    const state: string = "classification_failure";
     const authorizedDealId = state === "confirmed_test" ? "some-deal" : null;
     assert.equal(authorizedDealId, null, "authorizedDealId must be null for classification_failure");
   });
