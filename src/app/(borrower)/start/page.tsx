@@ -3,6 +3,8 @@ import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
+import { resolveAuthorizedDealState } from "@/lib/qaIdentity/authorization";
+import type { DealAuthorizationState } from "@/lib/qaIdentity/authorization";
 
 import { cache } from "react";
 
@@ -21,13 +23,6 @@ function normalizePath(value: string | string[] | undefined): StartPathParam {
   return v === "franchise" || v === "standard" ? v : undefined;
 }
 
-type QASessionData = {
-  isQA: boolean;
-  dealId: string;
-  name: string | null;
-  isTest: boolean;
-};
-
 export default async function StartPage({
   searchParams,
 }: {
@@ -39,7 +34,7 @@ export default async function StartPage({
 
   const session = await getBorrowerSession();
 
-  // Single cached deal lookup — shared between QA session detection and banner
+  // Single cached deal lookup — reused between QA session detection and banner
   const loadDeal = cache(async (id: string) => {
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
     const sb = supabaseAdmin();
@@ -51,20 +46,20 @@ export default async function StartPage({
     return (data as any) ?? null;
   });
 
-  // P0-6: Detect QA borrower session server-side
-  let qaSession: QASessionData | null = null;
+  // ── P0 SECURITY: Authorize session before passing to client ──
   const sessionEmail = session?.claimed_email?.toLowerCase().trim();
-  if (session && sessionEmail && isQABorrowerEmail(sessionEmail)) {
-    const deal = await loadDeal(session.deal_id).catch(() => null);
-    qaSession = {
-      isQA: true,
-      dealId: session.deal_id,
-      name: deal?.borrower_name?.split(" ")[0] ?? await resolveBorrowerName(session.deal_id),
-      isTest: deal?.is_test === true,
-    };
-  }
+  const isQA = Boolean(sessionEmail && isQABorrowerEmail(sessionEmail));
 
-  const initialSession = session
+  const authResult = await resolveAuthorizedDealState({
+    dealId: session?.deal_id ?? null,
+    isQA,
+  });
+
+  // P0 SECURITY: QA identity must never inherit a non-test production deal.
+  // initialSession is null for confirmed_non_test, no_selected_deal, and
+  // classification_failure — forcing BorrowerWorkspaceGate + QA chooser.
+  const isQABlocked = isQA && authResult.authorizedDealId === null;
+  const initialSession = session && !isQABlocked
     ? { dealId: session.deal_id, name: await resolveBorrowerName(session.deal_id) }
     : null;
 
@@ -175,7 +170,10 @@ export default async function StartPage({
             <StartConciergeClient
               initialPath={path}
               initialSession={initialSession}
-              qaSession={qaSession}
+              qaAuthState={isQA ? authResult.state : null}
+              qaAuthName={authResult.name}
+              qaIsTest={authResult.isTest}
+              qaDealId={authResult.dealId}
             />
           </div>
         </section>

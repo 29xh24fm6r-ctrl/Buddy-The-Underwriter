@@ -33,3 +33,12 @@ export {
   assertNotTestDeal,
   assertIsTestDeal,
 } from "./isolation";
+
+export {
+  resolveAuthorizedDealState,
+} from "./authorization";
+
+export type {
+  DealAuthorizationState,
+  AuthorizedDealResult,
+} from "./authorization";

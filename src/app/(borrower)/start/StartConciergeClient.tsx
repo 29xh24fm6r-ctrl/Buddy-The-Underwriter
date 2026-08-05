@@ -140,14 +140,6 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
   return { ...status, refreshSoon };
 }
 
-/** P0-6: QA session data from server */
-type QASessionData = {
-  isQA: boolean;
-  dealId: string;
-  name: string | null;
-  isTest: boolean;
-};
-
 /** P0-6: QA application list entry */
 type QAApplication = {
   id: string;
@@ -244,18 +236,107 @@ function QAApplicationPanel({
   );
 }
 
+/**
+ * P0 SECURITY: QA blocker component with distinct UI per authorization state.
+ * Renders NO chapters, NO progress hydration, NO seal-status polling.
+ */
+function QABlockedState({
+  state,
+  authName,
+  dealId,
+  onResume,
+  onCreateNew,
+}: {
+  state: "confirmed_non_test" | "no_selected_deal" | "classification_failure";
+  authName: string | null;
+  dealId: string | null;
+  onResume: (dealId: string) => void;
+  onCreateNew: () => void;
+}) {
+  const stateLabels: Record<string, { title: string; description: string; showChooser: boolean }> = {
+    confirmed_non_test: {
+      title: "QA workspace requires a test application",
+      description: `Your session is bound to a non-test production deal${dealId ? ` (${dealId})` : ""}. Create or resume a QA test application.`,
+      showChooser: true,
+    },
+    no_selected_deal: {
+      title: "QA workspace — select a test application",
+      description: "No application is selected. Create a new QA test application or resume an existing one.",
+      showChooser: true,
+    },
+    classification_failure: {
+      title: "Unable to verify application status",
+      description: "We could not confirm whether your session is bound to a test application. This is a safety block — no deal data is loaded.",
+      showChooser: false,
+    },
+  };
+
+  const info = stateLabels[state] ?? stateLabels.classification_failure;
+
+  return (
+    <div>
+      <TestApplicationBanner isTest={false} />
+      <div className="space-y-4 py-8 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+          <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-slate-800">{info.title}</h3>
+        <p className="text-sm text-slate-500 max-w-md mx-auto">{info.description}</p>
+        <p className="text-xs text-slate-400">Authorization state: <code className="bg-slate-100 px-1 rounded">{state}</code></p>
+        {info.showChooser && (
+          <div className="max-w-sm mx-auto">
+            <QAApplicationPanel
+              onResume={onResume}
+              onCreateNew={onCreateNew}
+              onClose={() => {}}
+            />
+          </div>
+        )}
+        {!info.showChooser && (
+          <button
+            onClick={() => window.location.reload()}
+            className="mx-auto mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StartConciergeClient({
   initialPath,
   initialSession = null,
-  qaSession = null,
+  qaAuthState = null,
+  qaAuthName = null,
+  qaIsTest = false,
+  qaDealId = null,
 }: {
   initialPath?: "franchise" | "standard";
   initialSession?: VerifiedSession | null;
-  qaSession?: QASessionData | null;
+  /** P0 SECURITY: QA authorization state from server. Non-null only when isQA=true. */
+  qaAuthState?: "confirmed_test" | "confirmed_non_test" | "no_selected_deal" | "classification_failure" | null;
+  qaAuthName?: string | null;
+  qaIsTest?: boolean;
+  qaDealId?: string | null;
 }) {
   const [session, setSession] = useState<VerifiedSession | null>(initialSession);
   const dealId = session?.dealId ?? null;
-  const journeyStatus = useJourneyStatus(dealId);
+
+  // ── P0 SECURITY: Compute authorizedDealId BEFORE any hooks or requests ──
+  // For non-QA: session dealId is always authorized.
+  // For QA: null initially (unless confirmed_test from server), then enabled
+  // after explicit user Create/Resume via qaExplicitlySelected flag.
+  const isQA = qaAuthState !== null;
+  const [qaExplicitlySelected, setQAExplicitlySelected] = useState(false);
+  const authorizedDealId: string | null = isQA
+    ? ((qaAuthState === "confirmed_test" || qaExplicitlySelected) ? (session?.dealId ?? null) : null)
+    : (session?.dealId ?? null);
+
+  const journeyStatus = useJourneyStatus(authorizedDealId);
 
   const [chapter, setChapter] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [purposes, setPurposes] = useState<string[]>(
@@ -263,8 +344,8 @@ export function StartConciergeClient({
   );
   const [totalAmount, setTotalAmount] = useState(0);
   const isFranchise = purposes.includes("franchise");
-  const isStartup =
-    purposes.includes("start_business") || purposes.includes("franchise");
+  // P0 FIX: franchise must not imply startup. isStartup derives ONLY from start_business.
+  const isStartup = purposes.includes("start_business");
 
   // P0-6: QA panel state
   const [showQAPanel, setShowQAPanel] = useState(false);
@@ -400,7 +481,8 @@ export function StartConciergeClient({
         setChapter(1);
         setPurposes([]);
         setTotalAmount(0);
-        setSession({ dealId: json.dealId, name: qaSession?.name ?? null });
+        setSession({ dealId: json.dealId, name: qaAuthName ?? null });
+        setQAExplicitlySelected(true);
       }
     } catch {
       // non-fatal
@@ -424,7 +506,8 @@ export function StartConciergeClient({
         setChapter(1);
         setPurposes([]);
         setTotalAmount(0);
-        setSession({ dealId: json.dealId, name: qaSession?.name ?? null });
+        setSession({ dealId: json.dealId, name: qaAuthName ?? null });
+        setQAExplicitlySelected(true);
       }
     } catch {
       // non-fatal
@@ -435,8 +518,21 @@ export function StartConciergeClient({
     return <BorrowerWorkspaceGate onVerified={setSession} />;
   }
 
-  // P0-6: Is this the QA borrower with test deals?
-  const isQAWithTestDeal = qaSession?.isQA === true && qaSession.isTest;
+  // ── P0 SECURITY: Fail-closed guard for QA identities ──
+  // QA identities must never render chapters, poll seal-status, or hydrate progress
+  // when the authorization state is anything other than confirmed_test AND the user
+  // has not explicitly selected a test deal.
+  if (isQA && qaAuthState !== "confirmed_test" && !qaExplicitlySelected) {
+    return <QABlockedState
+      state={qaAuthState!}
+      authName={qaAuthName}
+      dealId={qaDealId}
+      onResume={handleQAResume}
+      onCreateNew={handleQACreate}
+    />;
+  }
+
+  const isQAWithTestDeal = isQA && qaAuthState === "confirmed_test" && qaIsTest;
 
   // Sealed deal → PostSubmitHub
   if (journeyStatus.sealed) {
@@ -452,7 +548,7 @@ export function StartConciergeClient({
     setPurposes(selectedPurposes);
     setTotalAmount(total);
     const isFranchise = selectedPurposes.includes("franchise");
-    const isStartup = selectedPurposes.some((id) => id === "start_business" || id === "franchise");
+    const isStartup = selectedPurposes.includes("start_business");
     await navigateToChapter(2, {
       purposes: selectedPurposes,
       totalAmount: total,
@@ -488,7 +584,7 @@ export function StartConciergeClient({
       </div>
 
       {/* QA action panel */}
-      {qaSession?.isQA && (
+      {isQA && (
         <div className="mb-4">
           {showQAPanel ? (
             <QAApplicationPanel
