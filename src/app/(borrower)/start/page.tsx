@@ -4,6 +4,10 @@ import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
 
+import { cache } from "react";
+
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Get your SBA loan - Buddy",
   description:
@@ -35,23 +39,28 @@ export default async function StartPage({
 
   const session = await getBorrowerSession();
 
+  // Single cached deal lookup — shared between QA session detection and banner
+  const loadDeal = cache(async (id: string) => {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const sb = supabaseAdmin();
+    const { data } = await sb
+      .from("deals")
+      .select("is_test, borrower_name, test_run_id")
+      .eq("id", id)
+      .maybeSingle();
+    return (data as any) ?? null;
+  });
+
   // P0-6: Detect QA borrower session server-side
   let qaSession: QASessionData | null = null;
   const sessionEmail = session?.claimed_email?.toLowerCase().trim();
   if (session && sessionEmail && isQABorrowerEmail(sessionEmail)) {
-    const { supabaseAdmin } = await import("@/lib/supabase/admin");
-    const sb = supabaseAdmin();
-    const { data: deal } = await sb
-      .from("deals")
-      .select("is_test, borrower_name, test_run_id")
-      .eq("id", session.deal_id)
-      .maybeSingle();
-    const d = deal as any;
+    const deal = await loadDeal(session.deal_id).catch(() => null);
     qaSession = {
       isQA: true,
       dealId: session.deal_id,
-      name: d?.borrower_name?.split(" ")[0] ?? await resolveBorrowerName(session.deal_id),
-      isTest: d?.is_test === true,
+      name: deal?.borrower_name?.split(" ")[0] ?? await resolveBorrowerName(session.deal_id),
+      isTest: deal?.is_test === true,
     };
   }
 
@@ -59,25 +68,13 @@ export default async function StartPage({
     ? { dealId: session.deal_id, name: await resolveBorrowerName(session.deal_id) }
     : null;
 
-  // P0-7: Check if current deal is a test deal for banner
-  let testBannerDeal: { is_test?: boolean | null } | null = null;
-  if (session?.deal_id) {
-    try {
-      const { supabaseAdmin } = await import("@/lib/supabase/admin");
-      const sb = supabaseAdmin();
-      const { data: bannerDeal } = await sb
-        .from("deals")
-        .select("is_test")
-        .eq("id", session.deal_id)
-        .maybeSingle();
-      testBannerDeal = bannerDeal as any;
-    } catch {}
-  }
+  // P0-7: Banner — reuse the same cached lookup
+  const dealLookup = session?.deal_id ? await loadDeal(session.deal_id).catch(() => null) : null;
 
   return (
     <main className="min-h-screen bg-[#f6f8fb]">
       {/* P0-7: Test application banner for /start borrower shell */}
-      {testBannerDeal?.is_test === true && (
+      {dealLookup?.is_test === true && (
         <TestApplicationBanner isTest={true} />
       )}
 
