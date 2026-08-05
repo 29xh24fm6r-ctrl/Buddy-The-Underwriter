@@ -438,6 +438,35 @@ export function StartConciergeClient({
   // P0-6: Is this the QA borrower with test deals?
   const isQAWithTestDeal = qaSession?.isQA === true && qaSession.isTest;
 
+  // P0 SECURITY: QA identity must never render chapters against a non-test deal.
+  // This is defense-in-depth — the server should block this in page.tsx, but if a
+  // stale cookie or client-side manipulation bypasses that, fail closed here.
+  if (qaSession?.isQA === true && !qaSession.isTest) {
+    return (
+      <div>
+        <TestApplicationBanner isTest={false} />
+        <div className="space-y-4 py-8 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+            <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-slate-800">
+            QA workspace requires a test application
+          </h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            Your session is bound to a non-test production deal. Create or resume a QA test application below.
+          </p>
+          <QAApplicationPanel
+            onResume={handleQAResume}
+            onCreateNew={handleQACreate}
+            onClose={() => {}}
+          />
+        </div>
+      </div>
+    );
+  }
+
   // Sealed deal → PostSubmitHub
   if (journeyStatus.sealed) {
     return (

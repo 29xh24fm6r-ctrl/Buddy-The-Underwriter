@@ -64,7 +64,12 @@ export default async function StartPage({
     };
   }
 
-  const initialSession = session
+  // P0 SECURITY: QA identity must never inherit a non-test production deal.
+  // When the QA borrower's session cookie points to a deal with is_test=false,
+  // clear initialSession so the client shows BorrowerWorkspaceGate + QA chooser
+  // instead of rendering chapters against real production data.
+  const isQAWithNonTestDeal = qaSession?.isQA === true && qaSession?.isTest === false;
+  const initialSession = session && !isQAWithNonTestDeal
     ? { dealId: session.deal_id, name: await resolveBorrowerName(session.deal_id) }
     : null;
 
