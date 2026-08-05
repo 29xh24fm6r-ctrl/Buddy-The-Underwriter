@@ -18,21 +18,17 @@ const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const IS_STAGING =
   process.env.BORROWER_TEST_AUTH_ENABLED === "true" && Boolean(TEST_OTP);
 
-const SKIP_QA_TESTS = !QA_EMAIL;
-
 test.describe("QA Borrower Identity — FINAL remediation", () => {
   // =========================================================================
-  // 1. Configuration validation — FAIL not SKIP when configured, skip otherwise
+  // 1. Configuration validation — FAIL not SKIP
   // =========================================================================
 
   test("1.1 — QA email is configured", () => {
-    if (!QA_EMAIL) test.skip();
     expect(QA_EMAIL, "BORROWER_QA_EMAIL must be set").toBeTruthy();
     expect(QA_EMAIL).toContain("@");
   });
 
   test("1.2 — staging has deterministic OTP configured", () => {
-    if (!QA_EMAIL) test.skip();
     const inStaging =
       process.env.NODE_ENV !== "production" || !process.env.NODE_ENV;
     if (inStaging) {
@@ -48,7 +44,6 @@ test.describe("QA Borrower Identity — FINAL remediation", () => {
   // =========================================================================
 
   test("2.1 — normal borrower cannot send auth code", async ({ request }) => {
-    if (!QA_EMAIL) test.skip();
     const resp = await request.post(`${BASE_URL}/api/qa/borrower/auth`, {
       data: { action: "send", email: "normal-borrower@example.com" },
     });
@@ -61,7 +56,6 @@ test.describe("QA Borrower Identity — FINAL remediation", () => {
   test("2.2 — without session cookie, cannot list applications", async ({
     request,
   }) => {
-    if (!QA_EMAIL) test.skip();
     const resp = await request.get(
       `${BASE_URL}/api/qa/borrower/applications`,
     );
@@ -73,7 +67,6 @@ test.describe("QA Borrower Identity — FINAL remediation", () => {
   test("2.3 — without session cookie, cannot create application", async ({
     request,
   }) => {
-    if (!QA_EMAIL) test.skip();
     const resp = await request.post(
       `${BASE_URL}/api/qa/borrower/applications`,
       { data: { action: "create" } },
