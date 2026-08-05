@@ -148,7 +148,7 @@ describe("P0 SESSION REBIND GUARD — Test D: QA email + explicit non-test deal 
     assert.strictEqual(result.qaNeedsChooser, true);
   });
 
-  it("No borrower_session_tokens row created when qaNeedsChooser is returned", () => {
+  it("No session token row created when qaNeedsChooser is returned", () => {
     // When resolveOrCreateVerifiedBorrowerSession returns null, no
     // createBorrowerSession is called — confirmed by source analysis.
     const source = readSource("src/lib/brokerage/emailVerification.ts");
