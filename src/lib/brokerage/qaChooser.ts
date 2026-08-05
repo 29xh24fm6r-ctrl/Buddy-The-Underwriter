@@ -6,7 +6,7 @@ import "server-only";
  * When a QA borrower verifies their OTP but cannot be bound to a test deal
  * (because no existing test deal exists, or the lead lookup would return a
  * non-test deal), a signed, short-lived QA identity cookie is set instead of
- * a deal-bound borrower_session_tokens row. This cookie proves "this browser
+ * a deal-bound session-token row. This cookie proves "this browser
  * just successfully verified the QA email" and authorizes listing and
  * creating QA test applications — without requiring a pre-existing deal.
  *
