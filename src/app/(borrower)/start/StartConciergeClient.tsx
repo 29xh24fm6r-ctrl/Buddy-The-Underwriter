@@ -156,20 +156,34 @@ function QAApplicationPanel({
   onClose,
 }: {
   onResume: (dealId: string) => void;
-  onCreateNew: () => void;
+  onCreateNew: () => Promise<void>;
   onClose: () => void;
 }) {
   const [applications, setApplications] = useState<QAApplication[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/qa/borrower/applications", { credentials: "include" })
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.ok) setApplications(json.applications ?? []);
+      .then((r) => {
+        if (!r.ok) {
+          if (r.status === 401) {
+            setLoadError("Not authorized — verify your QA email first.");
+          } else {
+            setLoadError("Could not load applications. Please try again.");
+          }
+          return { ok: false };
+        }
+        return r.json();
       })
-      .catch(() => {})
+      .then((json) => {
+        if (json?.ok) setApplications(json.applications ?? []);
+      })
+      .catch(() => {
+        setLoadError("Connection lost while loading applications.");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -189,11 +203,17 @@ function QAApplicationPanel({
 
       {loading && <p className="text-xs text-slate-500">Loading applications...</p>}
 
-      {!loading && applications.length === 0 && (
+      {!loading && loadError && (
+        <p role="alert" className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
+          {loadError}
+        </p>
+      )}
+
+      {!loading && !loadError && applications.length === 0 && (
         <p className="text-xs text-slate-500">No existing QA applications found.</p>
       )}
 
-      {!loading && applications.length > 0 && (
+      {!loading && !loadError && applications.length > 0 && (
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {applications.map((app) => (
             <div
@@ -222,10 +242,23 @@ function QAApplicationPanel({
         </div>
       )}
 
+      {createError && (
+        <p role="alert" className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
+          {createError}
+        </p>
+      )}
+
       <button
-        onClick={() => {
+        onClick={async () => {
           setCreating(true);
-          onCreateNew();
+          setCreateError(null);
+          try {
+            await onCreateNew();
+          } catch (e: any) {
+            setCreateError(e?.message ?? "Could not create a new test application. Please try again.");
+          } finally {
+            setCreating(false);
+          }
         }}
         disabled={creating}
         className="w-full rounded-lg border border-dashed border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50"
@@ -251,7 +284,7 @@ function QABlockedState({
   authName: string | null;
   dealId: string | null;
   onResume: (dealId: string) => void;
-  onCreateNew: () => void;
+  onCreateNew: () => Promise<void>;
 }) {
   const stateLabels: Record<string, { title: string; description: string; showChooser: boolean }> = {
     confirmed_non_test: {
@@ -468,53 +501,49 @@ export function StartConciergeClient({
   );
   // ── END V3 ──
 
-  // P0-6: QA borrower — handle resume from QA application list
+  // P0-6: QA borrower — resume from QA application list
   const handleQAResume = async (resumedDealId: string) => {
-    try {
-      const res = await fetch("/api/qa/borrower/applications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "resume", dealId: resumedDealId }),
-      });
-      const json = await res.json();
-      if (json.ok) {
-        setShowQAPanel(false);
-        setProgressHydrated(false);
-        setSaveError(null);
-        setChapter(1);
-        setPurposes([]);
-        setTotalAmount(0);
-        setSession({ dealId: json.dealId, name: qaAuthName ?? null });
-        setQAExplicitlySelected(true);
-      }
-    } catch {
-      // non-fatal
+    const res = await fetch("/api/qa/borrower/applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "resume", dealId: resumedDealId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (json.ok) {
+      setShowQAPanel(false);
+      setProgressHydrated(false);
+      setSaveError(null);
+      setChapter(1);
+      setPurposes([]);
+      setTotalAmount(0);
+      setSession({ dealId: json.dealId, name: qaAuthName ?? null });
+      setQAExplicitlySelected(true);
+    } else {
+      throw new Error(json?.error ?? "Could not resume that application. Please try again.");
     }
   };
 
   // P0-6: QA borrower — create new application
   const handleQACreate = async () => {
-    try {
-      const res = await fetch("/api/qa/borrower/applications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "create" }),
-      });
-      const json = await res.json();
-      if (json.ok) {
-        setShowQAPanel(false);
-        setProgressHydrated(false);
-        setSaveError(null);
-        setChapter(1);
-        setPurposes([]);
-        setTotalAmount(0);
-        setSession({ dealId: json.dealId, name: qaAuthName ?? null });
-        setQAExplicitlySelected(true);
-      }
-    } catch {
-      // non-fatal
+    const res = await fetch("/api/qa/borrower/applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "create" }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (json.ok) {
+      setShowQAPanel(false);
+      setProgressHydrated(false);
+      setSaveError(null);
+      setChapter(1);
+      setPurposes([]);
+      setTotalAmount(0);
+      setSession({ dealId: json.dealId, name: qaAuthName ?? null });
+      setQAExplicitlySelected(true);
+    } else {
+      throw new Error(json?.error ?? "Could not create a new test application. Please try again.");
     }
   };
 
