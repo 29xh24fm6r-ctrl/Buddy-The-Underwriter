@@ -3,20 +3,10 @@ import { BorrowerTrustFooter } from "@/components/borrower/BorrowerTrustFooter";
 import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
+
 import { cache } from "react";
 
 export const dynamic = "force-dynamic";
-
-const loadDealFacts = cache(async (dealId: string) => {
-  const { supabaseAdmin } = await import("@/lib/supabase/admin");
-  const sb = supabaseAdmin();
-  const { data } = await sb
-    .from("deals")
-    .select("is_test, borrower_name, test_run_id, display_name, loan_amount, stage")
-    .eq("id", dealId)
-    .maybeSingle();
-  return (data as any) ?? null;
-});
 
 export const metadata = {
   title: "Get your SBA loan - Buddy",
@@ -49,18 +39,28 @@ export default async function StartPage({
 
   const session = await getBorrowerSession();
 
-  // Use cached lookup — single DB call shared between QA session and banner
-  const dealFacts = session?.deal_id ? await loadDealFacts(session.deal_id).catch(() => null) : null;
+  // Single cached deal lookup — shared between QA session detection and banner
+  const loadDeal = cache(async (id: string) => {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const sb = supabaseAdmin();
+    const { data } = await sb
+      .from("deals")
+      .select("is_test, borrower_name, test_run_id")
+      .eq("id", id)
+      .maybeSingle();
+    return (data as any) ?? null;
+  });
 
   // P0-6: Detect QA borrower session server-side
   let qaSession: QASessionData | null = null;
   const sessionEmail = session?.claimed_email?.toLowerCase().trim();
   if (session && sessionEmail && isQABorrowerEmail(sessionEmail)) {
+    const deal = await loadDeal(session.deal_id).catch(() => null);
     qaSession = {
       isQA: true,
       dealId: session.deal_id,
-      name: dealFacts?.borrower_name?.split(" ")[0] ?? await resolveBorrowerName(session.deal_id),
-      isTest: dealFacts?.is_test === true,
+      name: deal?.borrower_name?.split(" ")[0] ?? await resolveBorrowerName(session.deal_id),
+      isTest: deal?.is_test === true,
     };
   }
 
@@ -68,13 +68,13 @@ export default async function StartPage({
     ? { dealId: session.deal_id, name: await resolveBorrowerName(session.deal_id) }
     : null;
 
-  // P0-7: Banner — derived from the same cached deal lookup
-  const isTestDeal = dealFacts?.is_test === true;
+  // P0-7: Banner — reuse the same cached lookup
+  const dealLookup = session?.deal_id ? await loadDeal(session.deal_id).catch(() => null) : null;
 
   return (
     <main className="min-h-screen bg-[#f6f8fb]">
       {/* P0-7: Test application banner for /start borrower shell */}
-      {isTestDeal && (
+      {dealLookup?.is_test === true && (
         <TestApplicationBanner isTest={true} />
       )}
 

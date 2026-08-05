@@ -35,14 +35,12 @@ describe("borrower_intake_progress — schema", () => {
     assert.ok(sql.includes("create table if not exists public.borrower_intake_progress"));
     assert.ok(sql.includes("deal_id"));
     assert.ok(sql.includes("current_chapter"));
-    assert.ok(sql.includes("purposes"));
-    assert.ok(sql.includes("total_amount"));
-    assert.ok(sql.includes("completed_chapters"));
-    assert.ok(sql.includes("last_completed_chapter"));
+    assert.ok(sql.includes("last_valid_chapter"));
     assert.ok(sql.includes("progress_version"));
     assert.ok(sql.includes("last_saved_at"));
     assert.ok(sql.includes("primary key"));
     assert.ok(sql.includes("on delete cascade"));
+    // V3: position-only — no fact storage columns (purposes, total_amount, completed_chapters)
   });
 
   it("migration has RLS policy for service_role", () => {

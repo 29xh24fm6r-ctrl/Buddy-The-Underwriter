@@ -263,44 +263,50 @@ export function StartConciergeClient({
   );
   const [totalAmount, setTotalAmount] = useState(0);
   const isFranchise = purposes.includes("franchise");
+  const isStartup =
+    purposes.includes("start_business") || purposes.includes("franchise");
 
   // P0-6: QA panel state
   const [showQAPanel, setShowQAPanel] = useState(false);
 
-  // ── SPEC-BORROWER-RESUME-PERSISTENCE-V1 ──
-  // Hydrate intake progress from the database on mount / deal change.
-  // Falls back to chapterFromFieldProgress only if no progress row exists.
+  // ── SPEC-BORROWER-RESUME-PERSISTENCE-V3 ──
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [progressHydrated, setProgressHydrated] = useState(false);
 
+  // Hydrate progress + chapter facts from server on mount / deal change
   const hydrateProgress = useCallback(async (id: string) => {
     try {
-      const res = await fetch("/api/borrower/intake/progress", {
-        credentials: "include",
-      });
+      const res = await fetch("/api/borrower/intake/progress", { credentials: "include" });
       const json = await res.json();
       if (json?.ok && json.progress) {
         const p = json.progress;
         console.log(
-          "[start] hydrated progress deal=" + id + " ch=" + p.currentChapter +
-          " purposes=" + (p.purposes ?? []).join(",") +
-          " total=" + p.totalAmount +
-          " completed=" + (p.completedChapters ?? []).join(","),
+          "[start] hydrated deal=" + id +
+          " ch=" + p.currentChapter +
+          " completed=" + (p.completedChapters ?? []).join(",") +
+          " lastValid=" + (p.lastValidChapter ?? "none") +
+          " v=" + p.progressVersion,
         );
-        setChapter(p.currentChapter);
-        setPurposes(p.purposes ?? []);
-        setTotalAmount(p.totalAmount ?? 0);
+        // Resolve chapter: use persisted, but don't exceed what facts justify
+        const validatedChapter = Math.min(
+          p.currentChapter ?? 1,
+          (p.completedChapters ?? []).length + 1,
+        ) as 1 | 2 | 3 | 4 | 5;
+        setChapter(Math.max(1, Math.min(5, validatedChapter)) as 1 | 2 | 3 | 4 | 5);
+        // Hydrate facts into local state
+        if (p.facts) {
+          setPurposes(p.facts.purposes ?? []);
+          setTotalAmount(p.facts.totalAmount ?? 0);
+        }
       } else {
-        // No persisted progress — fall back to fieldProgress.
-        if (journeyStatus.hasDealId && journeyStatus.fieldProgress) {
+        // No progress row — start fresh, but don't overwrite with blanks
+        // if the user is on a deal with existing facts
+        if (journeyStatus.hasDealId && journeyStatus.fieldProgress?.determinable) {
           const fallbackChapter = chapterFromFieldProgress(
             journeyStatus.fieldProgress,
             journeyStatus.sealed,
           );
-          console.log(
-            "[start] no progress row — fallback fieldProgress deal=" + id +
-            " determinable=" + journeyStatus.fieldProgress.determinable +
-            " ch=" + fallbackChapter,
-          );
+          console.log("[start] fieldProgress fallback deal=" + id + " ch=" + fallbackChapter);
           setChapter(fallbackChapter);
         }
       }
@@ -308,6 +314,7 @@ export function StartConciergeClient({
       console.warn("[start] hydrateProgress failed", err);
     } finally {
       setProgressHydrated(true);
+      setSaveError(null);
     }
   }, [journeyStatus.hasDealId, journeyStatus.fieldProgress, journeyStatus.sealed]);
 
@@ -316,19 +323,65 @@ export function StartConciergeClient({
     hydrateProgress(dealId);
   }, [dealId, progressHydrated, hydrateProgress]);
 
-  // Re-hydrate when deal changes (e.g., QA resume switches deals).
+  // Re-hydrate when deal changes (QA resume / new deal)
   const prevDealIdRef = useRef(dealId);
   useEffect(() => {
     if (dealId && dealId !== prevDealIdRef.current) {
       prevDealIdRef.current = dealId;
       setProgressHydrated(false);
+      setSaveError(null);
       setChapter(1);
       setPurposes([]);
       setTotalAmount(0);
     }
   }, [dealId]);
 
-  // ── SPEC-BORROWER-RESUME-PERSISTENCE-V1 (end) ──
+  // ── SPEC-BORROWER-RESUME-PERSISTENCE-V3: fail-closed save ──
+  const saveProgress = useCallback(
+    async (nextChapter: 1 | 2 | 3 | 4 | 5, data?: Record<string, unknown>): Promise<boolean> => {
+      if (!dealId) return false;
+      setSaveError(null);
+      try {
+        const res = await fetch("/api/borrower/intake/progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ chapter: nextChapter, data: data ?? {} }),
+        });
+        const json = await res.json();
+        if (!json?.ok) {
+          setSaveError(json.error === "chapter_save_failed"
+            ? "Could not save your answers. Please try again."
+            : json.error === "progress_save_failed"
+              ? "Could not save your progress. Please try again."
+              : "Something went wrong saving your progress. Please try again.");
+          return false;
+        }
+        console.log(
+          "[start] saved ch=" + nextChapter +
+          " completed=" + (json.progress?.completedChapters ?? []).join(",") +
+          " v=" + json.progress?.progressVersion,
+        );
+        return true;
+      } catch {
+        setSaveError("Connection lost while saving. Check your network and try again.");
+        return false;
+      }
+    },
+    [dealId],
+  );
+
+  // Navigate only after confirmed save
+  const navigateToChapter = useCallback(
+    async (nextChapter: 1 | 2 | 3 | 4 | 5, data?: Record<string, unknown>) => {
+      const ok = await saveProgress(nextChapter, data);
+      if (!ok) return; // Stay on current chapter — error already set
+      setChapter(nextChapter);
+      setSaveError(null);
+    },
+    [saveProgress],
+  );
+  // ── END V3 ──
 
   // P0-6: QA borrower — handle resume from QA application list
   const handleQAResume = async (resumedDealId: string) => {
@@ -343,6 +396,7 @@ export function StartConciergeClient({
       if (json.ok) {
         setShowQAPanel(false);
         setProgressHydrated(false);
+        setSaveError(null);
         setChapter(1);
         setPurposes([]);
         setTotalAmount(0);
@@ -366,6 +420,7 @@ export function StartConciergeClient({
       if (json.ok) {
         setShowQAPanel(false);
         setProgressHydrated(false);
+        setSaveError(null);
         setChapter(1);
         setPurposes([]);
         setTotalAmount(0);
@@ -376,61 +431,12 @@ export function StartConciergeClient({
     }
   };
 
-  // ── SPEC-BORROWER-RESUME-PERSISTENCE-V1 — save on chapter transition ──
-  const saveProgress = useCallback(
-    async (
-      nextChapter: 1 | 2 | 3 | 4 | 5,
-      newPurposes?: string[],
-      newTotal?: number,
-      newCompletedChapters?: number[],
-    ) => {
-      if (!dealId) return;
-      const actualPurposes = newPurposes ?? purposes;
-      const actualTotal = newTotal ?? totalAmount;
-      const leavingChapter = chapter;
-      const completed = newCompletedChapters ?? [];
-      const merged = Array.from(
-        new Set([...completed, leavingChapter]),
-      ).filter((c) => c < nextChapter);
-      try {
-        await fetch("/api/borrower/intake/progress", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            chapter: nextChapter,
-            purposes: actualPurposes,
-            totalAmount: actualTotal,
-            completedChapters: merged,
-          }),
-        });
-      } catch (err) {
-        console.warn("[start] saveProgress failed", err);
-      }
-    },
-    [dealId, chapter, purposes, totalAmount],
-  );
-  // ── END save on transition ──
-
-  // ── SPEC-BORROWER-RESUME-PERSISTENCE-V1 — save before navigating ──
-  const navigateToChapter = useCallback(
-    (nextChapter: 1 | 2 | 3 | 4 | 5) => {
-      saveProgress(nextChapter);
-      setChapter(nextChapter);
-    },
-    [saveProgress],
-  );
-
   if (!session) {
     return <BorrowerWorkspaceGate onVerified={setSession} />;
   }
 
   // P0-6: Is this the QA borrower with test deals?
   const isQAWithTestDeal = qaSession?.isQA === true && qaSession.isTest;
-
-  // Phase 5: Don't render chapter content until progress is hydrated
-  // Prevents the stale-defaults flash (Chapter 1 with blank data).
-  const contentReady = progressHydrated;
 
   // Sealed deal → PostSubmitHub
   if (journeyStatus.sealed) {
@@ -442,12 +448,18 @@ export function StartConciergeClient({
     );
   }
 
-  const handlePurposeContinue = (selectedPurposes: string[], total: number) => {
+  const handlePurposeContinue = async (selectedPurposes: string[], total: number) => {
     setPurposes(selectedPurposes);
     setTotalAmount(total);
-    // Persist chapter 1→2 with purpose data before navigating
-    saveProgress(2, selectedPurposes, total);
-    setChapter(2);
+    const isFranchise = selectedPurposes.includes("franchise");
+    const isStartup = selectedPurposes.some((id) => id === "start_business" || id === "franchise");
+    await navigateToChapter(2, {
+      purposes: selectedPurposes,
+      totalAmount: total,
+      isFranchise,
+      isStartup,
+      amountUnknown: selectedPurposes.length > 0 && total === 0,
+    });
   };
 
   return (
@@ -475,7 +487,7 @@ export function StartConciergeClient({
         </p>
       </div>
 
-      {/* P0-6: QA borrower action panel */}
+      {/* QA action panel */}
       {qaSession?.isQA && (
         <div className="mb-4">
           {showQAPanel ? (
@@ -495,16 +507,28 @@ export function StartConciergeClient({
         </div>
       )}
 
+      {/* Durable save error banner */}
+      {saveError && (
+        <div className="mb-4 animate-in fade-in rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <span>{saveError}</span>
+          </div>
+        </div>
+      )}
+
       <GuidedIntakeShell
         currentChapter={chapter}
         dealId={session.dealId}
-        onChapterChange={(n) => navigateToChapter(n as 1 | 2 | 3 | 4 | 5)}
+        onChapterChange={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
         totalAmount={totalAmount}
         journeyStatus={journeyStatus}
         fieldProgress={journeyStatus.fieldProgress}
         nextStepsSummary={describeNextSteps(journeyStatus.fieldProgress?.remainingFactPaths ?? [])}
       >
-        {!contentReady ? (
+        {!progressHydrated ? (
           <div className="flex items-center justify-center py-20">
             <div className="space-y-4 text-center">
               <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-brand-blue-200 border-t-brand-blue-600" />
@@ -523,20 +547,21 @@ export function StartConciergeClient({
             {chapter === 2 && (
               <IntakeBusinessStep
                 dealId={session.dealId}
-                onContinue={() => navigateToChapter(3)}
+                isStartup={isStartup}
+                onContinue={() => { void navigateToChapter(3); }}
               />
             )}
             {chapter === 3 && (
               <IntakeOwnershipStep
                 dealId={session.dealId}
-                onContinue={() => navigateToChapter(4)}
+                onContinue={() => { void navigateToChapter(4); }}
               />
             )}
             {chapter === 4 && (
               <IntakeFinancialsStep
                 dealId={session.dealId}
                 isFranchise={isFranchise}
-                onContinue={() => navigateToChapter(5)}
+                onContinue={() => { void navigateToChapter(5); }}
               />
             )}
             {chapter === 5 && (
@@ -548,7 +573,7 @@ export function StartConciergeClient({
                   ownershipEntityCount: journeyStatus.ownershipEntityCount,
                   documentsUploadedCount: journeyStatus.documentsUploadedCount,
                 })}
-                onNavigateChapter={(n) => navigateToChapter(n as 1 | 2 | 3 | 4 | 5)}
+                onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
                 token={session.dealId}
               />
             )}
