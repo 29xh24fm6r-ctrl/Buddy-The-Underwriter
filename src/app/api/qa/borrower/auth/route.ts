@@ -112,10 +112,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // P0 SECURITY: QA identity verified but no test deal — client must show QA chooser.
+    if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
+      return NextResponse.json({
+        ok: true,
+        dealId: null,
+        qaNeedsChooser: true,
+      });
+    }
+
+    const typedResult = result as Extract<typeof result, { ok: true; dealId: string }>;
     return NextResponse.json({
       ok: true,
-      dealId: result.dealId,
-      isNewDeal: result.isNewDeal,
+      dealId: typedResult.dealId,
+      isNewDeal: typedResult.isNewDeal,
     });
   }
 

@@ -326,11 +326,18 @@ export function StartConciergeClient({
   const [session, setSession] = useState<VerifiedSession | null>(initialSession);
   const dealId = session?.dealId ?? null;
 
+  // P0-6: QA panel state
+  const [showQAPanel, setShowQAPanel] = useState(false);
+  // P0 SECURITY: QA identitity detected on client (via qaNeedsChooser response).
+  // Distinct from qaAuthState which comes from page.tsx server props.
+  const [clientQADetected, setClientQADetected] = useState(false);
+
   // ── P0 SECURITY: Compute authorizedDealId BEFORE any hooks or requests ──
   // For non-QA: session dealId is always authorized.
   // For QA: null initially (unless confirmed_test from server), then enabled
   // after explicit user Create/Resume via qaExplicitlySelected flag.
-  const isQA = qaAuthState !== null;
+  const serverQA = qaAuthState !== null;
+  const isQA = serverQA || clientQADetected;
   const [qaExplicitlySelected, setQAExplicitlySelected] = useState(false);
   const authorizedDealId: string | null = isQA
     ? ((qaAuthState === "confirmed_test" || qaExplicitlySelected) ? (session?.dealId ?? null) : null)
@@ -346,9 +353,6 @@ export function StartConciergeClient({
   const isFranchise = purposes.includes("franchise");
   // P0 FIX: franchise must not imply startup. isStartup derives ONLY from start_business.
   const isStartup = purposes.includes("start_business");
-
-  // P0-6: QA panel state
-  const [showQAPanel, setShowQAPanel] = useState(false);
 
   // ── SPEC-BORROWER-RESUME-PERSISTENCE-V3 ──
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -514,8 +518,16 @@ export function StartConciergeClient({
     }
   };
 
+  // P0 SECURITY: Wrapper around setSession that detects QA identity from client OTP response.
+  const handleVerified = useCallback((vs: VerifiedSession) => {
+    if (vs.qaNeedsChooser) {
+      setClientQADetected(true);
+    }
+    setSession(vs);
+  }, []);
+
   if (!session) {
-    return <BorrowerWorkspaceGate onVerified={setSession} />;
+    return <BorrowerWorkspaceGate onVerified={handleVerified} />;
   }
 
   // ── P0 SECURITY: Fail-closed guard for QA identities ──
@@ -524,7 +536,7 @@ export function StartConciergeClient({
   // has not explicitly selected a test deal.
   if (isQA && qaAuthState !== "confirmed_test" && !qaExplicitlySelected) {
     return <QABlockedState
-      state={qaAuthState!}
+      state={qaAuthState ?? "no_selected_deal"}
       authName={qaAuthName}
       dealId={qaDealId}
       onResume={handleQAResume}
@@ -534,12 +546,16 @@ export function StartConciergeClient({
 
   const isQAWithTestDeal = isQA && qaAuthState === "confirmed_test" && qaIsTest;
 
+  // After all fail-closed guards, session.dealId must be non-null.
+  // Narrowed here to avoid repeating null checks through every child component.
+  const nonNullDealId: string = session.dealId!;
+
   // Sealed deal → PostSubmitHub
   if (journeyStatus.sealed) {
     return (
       <div>
         {isQAWithTestDeal && <TestApplicationBanner isTest={true} />}
-        <PostSubmitHub token={session.dealId} />
+        <PostSubmitHub token={nonNullDealId} />
       </div>
     );
   }
@@ -617,7 +633,7 @@ export function StartConciergeClient({
 
       <GuidedIntakeShell
         currentChapter={chapter}
-        dealId={session.dealId}
+        dealId={nonNullDealId}
         onChapterChange={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
         totalAmount={totalAmount}
         journeyStatus={journeyStatus}
@@ -635,34 +651,34 @@ export function StartConciergeClient({
           <>
             {chapter === 1 && (
               <IntakePurposeStep
-                dealId={session.dealId}
+                dealId={nonNullDealId}
                 initialSelections={initialPath === "franchise" ? ["franchise"] : undefined}
                 onContinue={handlePurposeContinue}
               />
             )}
             {chapter === 2 && (
               <IntakeBusinessStep
-                dealId={session.dealId}
+                dealId={nonNullDealId}
                 isStartup={isStartup}
                 onContinue={() => { void navigateToChapter(3); }}
               />
             )}
             {chapter === 3 && (
               <IntakeOwnershipStep
-                dealId={session.dealId}
+                dealId={nonNullDealId}
                 onContinue={() => { void navigateToChapter(4); }}
               />
             )}
             {chapter === 4 && (
               <IntakeFinancialsStep
-                dealId={session.dealId}
+                dealId={nonNullDealId}
                 isFranchise={isFranchise}
                 onContinue={() => { void navigateToChapter(5); }}
               />
             )}
             {chapter === 5 && (
               <IntakeReviewStep
-                dealId={session.dealId}
+                dealId={nonNullDealId}
                 purposes={purposes}
                 verifications={deriveVerifications({
                   identityVerificationCount: journeyStatus.identityVerificationCount,
@@ -670,14 +686,14 @@ export function StartConciergeClient({
                   documentsUploadedCount: journeyStatus.documentsUploadedCount,
                 })}
                 onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
-                token={session.dealId}
+                token={nonNullDealId}
               />
             )}
           </>
         )}
       </GuidedIntakeShell>
 
-      <FloatingConcierge dealId={session.dealId} borrowerName={session.name} />
+      <FloatingConcierge dealId={nonNullDealId} borrowerName={session.name} />
     </div>
   );
 }

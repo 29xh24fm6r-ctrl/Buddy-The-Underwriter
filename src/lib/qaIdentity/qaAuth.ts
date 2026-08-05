@@ -39,6 +39,7 @@ export type QASendCodeResult =
 
 export type QAVerifyCodeResult =
   | { ok: true; dealId: string; isNewDeal: boolean }
+  | { ok: true; dealId: null; qaNeedsChooser: true }
   | {
       ok: false;
       error:
@@ -230,6 +231,12 @@ async function verifyWithRealOtp(args: {
     return result;
   }
 
+  // P0 SECURITY: QA identity verified but blocked from non-test deal.
+  // Signal the caller to show QA chooser — no session token was created.
+  if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
+    return { ok: true, dealId: null, qaNeedsChooser: true };
+  }
+
   // P0-2 (fail-closed): After session is created/resolved, verify the deal
   // is not a pre-existing non-test deal.
   const { data: resolvedDeal } = await sb
@@ -242,9 +249,10 @@ async function verifyWithRealOtp(args: {
     return { ok: false, error: "qa_email_linked_to_non_test_deal" };
   }
 
-  const isNew = await markIfNewDeal(result.dealId);
+  const dealId = result.dealId as string;
+  const isNew = await markIfNewDeal(dealId);
 
-  return { ok: true, dealId: result.dealId, isNewDeal: isNew };
+  return { ok: true, dealId, isNewDeal: isNew };
 }
 
 /**
