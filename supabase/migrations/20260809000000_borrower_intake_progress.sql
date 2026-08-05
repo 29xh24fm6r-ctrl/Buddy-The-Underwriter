@@ -17,13 +17,16 @@
 -- 1. Borrower intake progress table
 -- One row per deal, upserted on every chapter transition.
 create table if not exists public.borrower_intake_progress (
-  deal_id          uuid primary key references public.deals(id) on delete cascade,
-  current_chapter  smallint not null default 1
-                   check (current_chapter between 1 and 5),
-  purposes         text[]  not null default '{}',
-  total_amount     numeric not null default 0,
-  completed_chapters smallint[] not null default '{}',
-  updated_at       timestamptz not null default now()
+  deal_id              uuid primary key references public.deals(id) on delete cascade,
+  current_chapter      smallint not null default 1
+                       check (current_chapter between 1 and 5),
+  purposes             text[]  not null default '{}',
+  total_amount         numeric not null default 0,
+  completed_chapters   smallint[] not null default '{}',
+  last_completed_chapter smallint
+                       check (last_completed_chapter between 1 and 5),
+  progress_version     integer not null default 0,
+  last_saved_at        timestamptz not null default now()
 );
 
 comment on table public.borrower_intake_progress is
@@ -43,6 +46,15 @@ comment on column public.borrower_intake_progress.total_amount is
 
 comment on column public.borrower_intake_progress.completed_chapters is
   'Chapters the borrower has completed (navigated past). Used to reconstruct review state.';
+
+comment on column public.borrower_intake_progress.last_completed_chapter is
+  'Highest chapter the borrower has ever completed. Forward progress only — never decrements. Used as a floor when computing current_chapter.';
+
+comment on column public.borrower_intake_progress.progress_version is
+  'Monotonic counter incremented on every save. Used to detect stale vs fresh writes and for observability.';
+
+comment on column public.borrower_intake_progress.last_saved_at is
+  'Timestamp of the most recent progress save. Distinct from updated_at to survive schema-level refreshes.';
 
 -- 2. Indexes
 create index if not exists idx_intake_progress_deal

@@ -27,7 +27,7 @@ export async function GET() {
     const sb = supabaseAdmin();
     const { data, error } = await sb
       .from("borrower_intake_progress")
-      .select("current_chapter, purposes, total_amount, completed_chapters, updated_at")
+      .select("current_chapter, purposes, total_amount, completed_chapters, last_completed_chapter, progress_version, last_saved_at")
       .eq("deal_id", session.deal_id)
       .maybeSingle();
 
@@ -40,7 +40,7 @@ export async function GET() {
     }
 
     console.log(
-      `${LOG_PREFIX} loaded deal=${session.deal_id} chapter=${data?.current_chapter ?? "none"} purposes=${(data?.purposes ?? []).join(",") || "none"} total=${data?.total_amount ?? 0}`,
+      `${LOG_PREFIX} loaded deal=${session.deal_id} chapter=${data?.current_chapter ?? "none"} purposes=${(data?.purposes ?? []).join(",") || "none"} total=${data?.total_amount ?? 0} version=${data?.progress_version ?? 0}`,
     );
 
     return NextResponse.json({
@@ -51,7 +51,9 @@ export async function GET() {
             purposes: data.purposes,
             totalAmount: data.total_amount,
             completedChapters: data.completed_chapters,
-            updatedAt: data.updated_at,
+            lastCompletedChapter: data.last_completed_chapter,
+            progressVersion: data.progress_version,
+            lastSavedAt: data.last_saved_at,
           }
         : null,
     });
@@ -105,7 +107,7 @@ export async function POST(request: Request) {
     // Use upsert to handle both insert and update atomically
     const { data: existing } = await sb
       .from("borrower_intake_progress")
-      .select("completed_chapters, purposes, total_amount")
+      .select("completed_chapters, purposes, total_amount, progress_version, last_completed_chapter")
       .eq("deal_id", dealId)
       .maybeSingle();
 
@@ -120,7 +122,15 @@ export async function POST(request: Request) {
     // A chapter is "completed" when the user navigates past it
     const mergedCompleted = Array.from(
       new Set([...newCompletedChapters, ...priorChapters]),
+    ).sort((a, b) => a - b);
+
+    // last_completed_chapter = highest chapter fully completed (never decrements)
+    const lastCompleted = Math.max(
+      existing?.last_completed_chapter ?? 0,
+      ...mergedCompleted,
     );
+    const nextVersion = (existing?.progress_version ?? 0) + 1;
+    const now = new Date().toISOString();
 
     const { error } = await sb.from("borrower_intake_progress").upsert(
       {
@@ -129,7 +139,9 @@ export async function POST(request: Request) {
         purposes: finalPurposes,
         total_amount: finalTotal,
         completed_chapters: mergedCompleted,
-        updated_at: new Date().toISOString(),
+        last_completed_chapter: lastCompleted > 0 ? lastCompleted : null,
+        progress_version: nextVersion,
+        last_saved_at: now,
       },
       { onConflict: "deal_id" },
     );
@@ -143,7 +155,7 @@ export async function POST(request: Request) {
     }
 
     console.log(
-      `${LOG_PREFIX} saved deal=${dealId} ch=${chapter} purposes=${finalPurposes.join(",") || "none"} total=${finalTotal} completed=${mergedCompleted.join(",") || "none"}`,
+      `${LOG_PREFIX} saved deal=${dealId} ch=${chapter} purposes=${finalPurposes.join(",") || "none"} total=${finalTotal} completed=${mergedCompleted.join(",") || "none"} lastCompleted=${lastCompleted} version=${nextVersion}`,
     );
 
     return NextResponse.json({
@@ -153,6 +165,9 @@ export async function POST(request: Request) {
         purposes: finalPurposes,
         totalAmount: finalTotal,
         completedChapters: mergedCompleted,
+        lastCompletedChapter: lastCompleted > 0 ? lastCompleted : null,
+        progressVersion: nextVersion,
+        lastSavedAt: now,
       },
     });
   } catch (err) {

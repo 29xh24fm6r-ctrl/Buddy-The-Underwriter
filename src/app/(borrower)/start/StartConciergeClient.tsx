@@ -428,6 +428,10 @@ export function StartConciergeClient({
   // P0-6: Is this the QA borrower with test deals?
   const isQAWithTestDeal = qaSession?.isQA === true && qaSession.isTest;
 
+  // Phase 5: Don't render chapter content until progress is hydrated
+  // Prevents the stale-defaults flash (Chapter 1 with blank data).
+  const contentReady = progressHydrated;
+
   // Sealed deal → PostSubmitHub
   if (journeyStatus.sealed) {
     return (
@@ -500,44 +504,55 @@ export function StartConciergeClient({
         fieldProgress={journeyStatus.fieldProgress}
         nextStepsSummary={describeNextSteps(journeyStatus.fieldProgress?.remainingFactPaths ?? [])}
       >
-        {chapter === 1 && (
-          <IntakePurposeStep
-            dealId={session.dealId}
-            initialSelections={initialPath === "franchise" ? ["franchise"] : undefined}
-            onContinue={handlePurposeContinue}
-          />
-        )}
-        {chapter === 2 && (
-          <IntakeBusinessStep
-            dealId={session.dealId}
-            onContinue={() => navigateToChapter(3)}
-          />
-        )}
-        {chapter === 3 && (
-          <IntakeOwnershipStep
-            dealId={session.dealId}
-            onContinue={() => navigateToChapter(4)}
-          />
-        )}
-        {chapter === 4 && (
-          <IntakeFinancialsStep
-            dealId={session.dealId}
-            isFranchise={isFranchise}
-            onContinue={() => navigateToChapter(5)}
-          />
-        )}
-        {chapter === 5 && (
-          <IntakeReviewStep
-            dealId={session.dealId}
-            purposes={purposes}
-            verifications={deriveVerifications({
-              identityVerificationCount: journeyStatus.identityVerificationCount,
-              ownershipEntityCount: journeyStatus.ownershipEntityCount,
-              documentsUploadedCount: journeyStatus.documentsUploadedCount,
-            })}
-            onNavigateChapter={(n) => navigateToChapter(n as 1 | 2 | 3 | 4 | 5)}
-            token={session.dealId}
-          />
+        {!contentReady ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="space-y-4 text-center">
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-brand-blue-200 border-t-brand-blue-600" />
+              <p className="text-sm text-slate-400">Loading your application…</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {chapter === 1 && (
+              <IntakePurposeStep
+                dealId={session.dealId}
+                initialSelections={initialPath === "franchise" ? ["franchise"] : undefined}
+                onContinue={handlePurposeContinue}
+              />
+            )}
+            {chapter === 2 && (
+              <IntakeBusinessStep
+                dealId={session.dealId}
+                onContinue={() => navigateToChapter(3)}
+              />
+            )}
+            {chapter === 3 && (
+              <IntakeOwnershipStep
+                dealId={session.dealId}
+                onContinue={() => navigateToChapter(4)}
+              />
+            )}
+            {chapter === 4 && (
+              <IntakeFinancialsStep
+                dealId={session.dealId}
+                isFranchise={isFranchise}
+                onContinue={() => navigateToChapter(5)}
+              />
+            )}
+            {chapter === 5 && (
+              <IntakeReviewStep
+                dealId={session.dealId}
+                purposes={purposes}
+                verifications={deriveVerifications({
+                  identityVerificationCount: journeyStatus.identityVerificationCount,
+                  ownershipEntityCount: journeyStatus.ownershipEntityCount,
+                  documentsUploadedCount: journeyStatus.documentsUploadedCount,
+                })}
+                onNavigateChapter={(n) => navigateToChapter(n as 1 | 2 | 3 | 4 | 5)}
+                token={session.dealId}
+              />
+            )}
+          </>
         )}
       </GuidedIntakeShell>
 
