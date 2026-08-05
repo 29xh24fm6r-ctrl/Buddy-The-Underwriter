@@ -34,40 +34,55 @@ import {
   markDealAsTestApplication,
 } from "@/lib/qaIdentity";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getQAChooserEmail, clearQAChooserCookie } from "@/lib/brokerage/qaChooser";
 
 /**
- * P0-1: Resolve the QA borrower from the verified session cookie.
- * Only succeeds when:
- *   1. A valid session cookie is present
- *   2. The session's claimed_email matches BORROWER_QA_EMAIL
+ * P0-1: Resolve the QA borrower from the verified session cookie OR the
+ * QA chooser identity cookie (post-OTP, pre-deal-selection).
  *
+ * Two paths:
+ *   1. Canonical borrower session — deal-bound, claimed_email set
+ *   2. QA chooser cookie — HMAC-signed proof that QA email was just
+ *      verified via OTP, without binding to any deal.
+ *
+ * Only succeeds when the caller proves QA identity via one of these paths.
  * A caller who only knows BORROWER_QA_EMAIL cannot pass this check.
  */
 async function requireQABorrowerSession(): Promise<{
   email: string;
-  dealId: string;
+  dealId: string | null;
   bankId: string;
 }> {
+  // Path 1: Canonical deal-bound borrower session
   const session = await getBorrowerSession();
+  if (session) {
+    const claimedEmail = session.claimed_email?.toLowerCase().trim();
+    if (claimedEmail && isQABorrowerEmail(claimedEmail) && session.claimed_at) {
+      return {
+        email: claimedEmail,
+        dealId: session.deal_id,
+        bankId: session.bank_id,
+      };
+    }
+  }
+
+  // Path 2: QA chooser identity — post-OTP, pre-deal-selection
+  const qaEmail = await getQAChooserEmail();
+  if (qaEmail && isQABorrowerEmail(qaEmail)) {
+    let bankId: string;
+    try {
+      bankId = await getBrokerageBankId();
+    } catch {
+      throw new NoSessionError("brokerage_tenant_missing");
+    }
+    return { email: qaEmail, dealId: null, bankId };
+  }
+
+  // Neither path succeeded — unauthorised
   if (!session) {
     throw new NoSessionError("no_session_cookie");
   }
-
-  const claimedEmail = session.claimed_email?.toLowerCase().trim();
-  if (!claimedEmail || !isQABorrowerEmail(claimedEmail)) {
-    throw new NoSessionError("not_qa_session");
-  }
-
-  // P0-1: session MUST be claimed/verified — unclaimed sessions are rejected
-  if (!session.claimed_at) {
-    throw new NoSessionError("session_not_verified");
-  }
-
-  return {
-    email: claimedEmail,
-    dealId: session.deal_id,
-    bankId: session.bank_id,
-  };
+  throw new NoSessionError("not_qa_session");
 }
 
 class NoSessionError extends Error {
@@ -108,7 +123,7 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  let ctx: { email: string; dealId: string; bankId: string };
+  let ctx: { email: string; dealId: string | null; bankId: string };
   try {
     ctx = await requireQABorrowerSession();
   } catch (e) {
@@ -164,6 +179,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       bankId,
       claimedEmail: ctx.email,
     });
+
+    // P1: QA chooser cookie is no longer needed — a real deal-bound session exists now.
+    await clearQAChooserCookie().catch(() => {});
 
     return NextResponse.json({ ok: true, dealId, isNew: true });
   }
@@ -226,6 +244,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       bankId: d.bank_id,
       claimedEmail: ctx.email,
     });
+
+    // P1: QA chooser cookie is no longer needed.
+    await clearQAChooserCookie().catch(() => {});
 
     return NextResponse.json({
       ok: true,

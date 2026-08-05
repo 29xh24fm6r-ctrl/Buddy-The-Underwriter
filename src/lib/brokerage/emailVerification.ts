@@ -38,6 +38,7 @@ import {
   generateVerificationCode as generateCode,
 } from "@/lib/brokerage/verificationCode";
 import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
+import { setQAChooserCookie } from "@/lib/brokerage/qaChooser";
 
 const CODE_TTL_SECONDS = 10 * 60;
 const MAX_VERIFY_ATTEMPTS = 5;
@@ -204,6 +205,12 @@ export async function verifyCodeAndCreateSession(args: {
   // If the session was resolved to a non-test deal, signal the client to
   // show the QA chooser instead — no session token was created.
   if (dealId === null) {
+    // P1 FIX (2026-08-05): Set a signed QA identity cookie so the
+    // applications endpoint can authenticate the QA borrower for
+    // listing/creating test applications without a deal-bound session.
+    // This breaks the circular dependency: "need a session to list apps,
+    // but need to create an app to get a session."
+    await setQAChooserCookie(email);
     return { ok: true, dealId: null, qaNeedsChooser: true };
   }
 
