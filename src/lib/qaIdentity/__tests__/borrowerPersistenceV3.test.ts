@@ -414,8 +414,8 @@ describe("I. Multiple QA applications hydrate only their own deal data", () => {
 
   it("deal change triggers fresh hydration", () => {
     // When dealId changes (via QA resume), progressHydrated must be reset
-    const prevDealId = "old-deal";
-    const newDealId = "new-deal";
+    const prevDealId: string = "old-deal";
+    const newDealId: string = "new-deal";
     const dealChanged = prevDealId !== newDealId;
     assert.ok(dealChanged, "Must detect deal change");
     // Reset: progressHydrated = false, chapter = 1, purposes = [], totalAmount = 0
