@@ -16,6 +16,11 @@ import "server-only";
  *
  * Code storage mirrors sessionToken.ts's posture: only the SHA-256 hash is
  * ever persisted, never the raw code.
+ *
+ * P0 SECURITY (2026-08-05): QA identities must never resolve to a non-test
+ * production deal. When a configured QA email verifies, the lead lookup
+ * may return a converted_deal_id that points to a non-test deal — this
+ * path now checks is_test before creating any session token.
  */
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -32,6 +37,7 @@ import {
   hashVerificationCode as hashCode,
   generateVerificationCode as generateCode,
 } from "@/lib/brokerage/verificationCode";
+import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
 
 const CODE_TTL_SECONDS = 10 * 60;
 const MAX_VERIFY_ATTEMPTS = 5;
@@ -143,9 +149,10 @@ export async function sendVerificationCode(args: {
 
 export type VerifyCodeResult =
   | { ok: true; dealId: string }
+  | { ok: true; dealId: null; qaNeedsChooser: true }
   | {
       ok: false;
-      error: "invalid_code" | "expired" | "too_many_attempts" | "not_found";
+      error: "invalid_code" | "expired" | "too_many_attempts" | "not_found" | "qa_blocked_non_test_deal";
     };
 
 export async function verifyCodeAndCreateSession(args: {
@@ -192,7 +199,27 @@ export async function verifyCodeAndCreateSession(args: {
     name: args.name ?? null,
     bankId: args.bankId,
   });
+
+  // P0 SECURITY: QA identity must never return a non-test dealId.
+  // If the session was resolved to a non-test deal, signal the client to
+  // show the QA chooser instead — no session token was created.
+  if (dealId === null) {
+    return { ok: true, dealId: null, qaNeedsChooser: true };
+  }
+
   return { ok: true, dealId };
+}
+
+/**
+ * P0 SECURITY — QA guard exception class.
+ * Thrown internally when a QA identity would be bound to a non-test deal.
+ * Caught immediately in the calling scope — never escapes to the HTTP layer.
+ */
+class QANonTestDealGuard extends Error {
+  constructor(email: string, dealId: string) {
+    super(`QA identity ${email} blocked from non-test deal ${dealId}`);
+    this.name = "QANonTestDealGuard";
+  }
 }
 
 /**
@@ -206,13 +233,21 @@ export async function verifyCodeAndCreateSession(args: {
  * the fix for the underlying stale/mismatched-session problem: identity is
  * keyed on the confirmed email, not on whichever cookie a browser happens
  * to still be holding.
+ *
+ * P0 SECURITY (2026-08-05): For QA identities, the resolved deal's is_test
+ * is verified BEFORE any session token is created. If the deal is non-test,
+ * no token is created and null is returned, signaling the caller to show
+ * the QA chooser instead.
+ *
+ * Returns the dealId, or null when a QA identity resolves to a non-test deal.
  */
 async function resolveOrCreateVerifiedBorrowerSession(args: {
   email: string;
   name: string | null;
   bankId: string;
-}): Promise<string> {
+}): Promise<string | null> {
   const sb = supabaseAdmin();
+  const isQA = isQABorrowerEmail(args.email);
 
   const { data: existingLead } = await sb
     .from("brokerage_leads")
@@ -223,6 +258,27 @@ async function resolveOrCreateVerifiedBorrowerSession(args: {
     .maybeSingle();
 
   if (existingLead?.converted_deal_id) {
+    // P0 SECURITY: QA identity must never be bound to a non-test deal.
+    // Verify is_test before creating any session token.
+    if (isQA) {
+      const { data: deal } = await sb
+        .from("deals")
+        .select("is_test")
+        .eq("id", existingLead.converted_deal_id)
+        .maybeSingle();
+
+      const isTest = (deal as any)?.is_test === true;
+
+      if (!isTest) {
+        // Security event — log without exposing tokens
+        console.error(
+          `[emailVerification] P0 SECURITY: QA identity ${args.email} blocked from ` +
+          `non-test deal ${existingLead.converted_deal_id}. No session token created.`,
+        );
+        return null;
+      }
+    }
+
     const current = await getBorrowerSession();
     if (current?.deal_id === existingLead.converted_deal_id) {
       // Already the right session on this device — nothing to mint.

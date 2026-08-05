@@ -18,7 +18,7 @@ import { Icon } from "@/components/ui/Icon";
 
 type Step = "identify" | "code" | "settling";
 
-export type VerifiedSession = { dealId: string; name: string | null };
+export type VerifiedSession = { dealId: string | null; name: string | null; qaNeedsChooser?: boolean };
 
 async function postSession(body: Record<string, unknown>) {
   const res = await fetch("/api/brokerage/session", {
@@ -101,6 +101,13 @@ export function BorrowerWorkspaceGate({
         if (data?.error === "expired" || data?.error === "too_many_attempts") {
           setStep("identify");
         }
+        return;
+      }
+      // P0 SECURITY: QA identity verified but no test deal — signal chooser state.
+      if (data?.qaNeedsChooser) {
+        window.setTimeout(() => {
+          onVerified({ dealId: null, name: name.trim() || null, qaNeedsChooser: true });
+        }, 900);
         return;
       }
       setStep("settling");

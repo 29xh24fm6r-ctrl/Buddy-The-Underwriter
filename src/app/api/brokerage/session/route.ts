@@ -81,6 +81,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const status = result.error === "not_found" ? 404 : 400;
       return NextResponse.json({ ok: false, error: result.error }, { status });
     }
+    // P0 SECURITY: QA identity verified but no test deal — client must show QA chooser.
+    // No session token was created for a non-test deal.
+    if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
+      return NextResponse.json({ ok: true, dealId: null, qaNeedsChooser: true });
+    }
     return NextResponse.json({ ok: true, dealId: result.dealId });
   }
 
