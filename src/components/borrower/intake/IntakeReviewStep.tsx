@@ -36,7 +36,7 @@ function buildReviewItems(
     },
     {
       key: "business",
-      label: "Business verification",
+      label: "Business Information",
       detail: verifications.entityResolved
         ? "Entity matched"
         : "Not started",
@@ -128,7 +128,7 @@ export function IntakeReviewStep({
 
       {/* Review checklist */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="mb-4 text-sm font-semibold text-slate-800">Package Readiness</h3>
+        <h3 className="mb-4 text-sm font-semibold text-slate-800">Application Review</h3>
         <div className="space-y-3">
           {items.map((item) => (
             <div
