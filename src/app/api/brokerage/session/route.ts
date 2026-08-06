@@ -86,6 +86,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
       return NextResponse.json({ ok: true, dealId: null, qaNeedsChooser: true });
     }
+    // One or more prior applications exist for this verified email — client
+    // must show the Welcome Back chooser. No session token was created.
+    if ("applicationChoiceNeeded" in result && result.applicationChoiceNeeded) {
+      return NextResponse.json({ ok: true, dealId: null, applicationChoiceNeeded: true });
+    }
     return NextResponse.json({ ok: true, dealId: result.dealId });
   }
 
