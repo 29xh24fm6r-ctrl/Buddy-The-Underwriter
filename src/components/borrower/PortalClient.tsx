@@ -7,11 +7,6 @@ import { BorrowerExpectationCard } from "@/components/borrower/BorrowerExpectati
 import { BorrowerCommunicationCenter } from "@/components/borrower/communication/BorrowerCommunicationCenter";
 import { BorrowerDocumentExperience } from "@/components/borrower/documents/BorrowerDocumentExperience";
 import { BorrowerMobileCommandCenter } from "@/components/borrower/mobile/BorrowerMobileCommandCenter";
-import { BorrowerSubmissionReadinessHero } from "@/components/borrower/submission/BorrowerSubmissionReadinessHero";
-import { BorrowerSubmissionChecklist } from "@/components/borrower/submission/BorrowerSubmissionChecklist";
-import { BorrowerSubmissionPackageSummary } from "@/components/borrower/submission/BorrowerSubmissionPackageSummary";
-import { BorrowerSubmissionAttentionItems } from "@/components/borrower/submission/BorrowerSubmissionAttentionItems";
-import { BorrowerSubmissionEducationCard } from "@/components/borrower/submission/BorrowerSubmissionEducationCard";
 import { BorrowerMobileNextActionBar } from "@/components/borrower/mobile/BorrowerMobileNextActionBar";
 import { BorrowerMobileDocumentPriorityStack } from "@/components/borrower/mobile/BorrowerMobileDocumentPriorityStack";
 import { BorrowerFundingJourney } from "@/components/borrower/BorrowerFundingJourney";
@@ -32,6 +27,11 @@ import { BorrowerWaitingState } from "@/components/borrower/BorrowerWaitingState
 import { DocToolbar } from "@/components/borrower/DocToolbar";
 import { TridentPreviewCard } from "@/components/borrower/TridentPreviewCard";
 import { Icon } from "@/components/ui/Icon";
+import {
+  deriveBorrowerDocStatus,
+  isInFlightDocStatus,
+  normalizeChecklistKey,
+} from "@/lib/portal/deriveBorrowerDocStatus";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
 import { MilestoneToast, type MilestoneKey, type MilestoneMessages } from "@/components/borrower/MilestoneToast";
 import {
@@ -50,7 +50,6 @@ import type { GuidanceInput } from "@/lib/borrower/buildBorrowerGuidanceViewMode
 import { buildBorrowerDocumentExperienceViewModel } from "@/lib/borrower/buildBorrowerDocumentExperienceViewModel";
 import type {
   BorrowerDocumentItemInput,
-  BorrowerDocumentStatus,
 } from "@/lib/borrower/buildBorrowerDocumentExperienceViewModel";
 import { buildBorrowerCommunicationViewModel } from "@/lib/borrower/buildBorrowerCommunicationViewModel";
 import type {
@@ -113,6 +112,35 @@ type ChecklistStats = {
   required: number;
   missing: number;
   received: number;
+};
+
+/** Response shape from /api/portal/[token]/readiness-inputs. Real
+ *  profile/ownership/SBA-forms data feeding Buddy's Lender Readiness Score
+ *  — replaces the previous hardcoded stub values. */
+type ReadinessInputsResponse = {
+  ok: boolean;
+  profile: {
+    fieldsRequired: number;
+    fieldsPresent: number;
+    missingFields: string[];
+  };
+  ownership: {
+    hasSignificantOwner: boolean;
+    totalDocumentedPct: number;
+    hasAttestation: boolean;
+    conditionsSatisfied: number;
+    conditionsRequired: number;
+    gateComplete: boolean;
+    clarificationNeeded: boolean;
+  };
+  sbaForms: {
+    applicable: boolean;
+    required: number;
+    accepted: number;
+    underReview: number;
+    needsAttention: number;
+    notApplicableReason: string | null;
+  };
 };
 
 type PortalStatus = {
@@ -325,14 +353,6 @@ function formatChecklistGroup(group: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function normalizeChecklistKey(value?: string | null) {
-  return String(value ?? "")
-    .trim()
-    .replace(/[^A-Za-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase();
-}
-
 function humanizeCode(code: string) {
   return code
     .toLowerCase()
@@ -405,36 +425,6 @@ type SafeBorrowerStage =
   | "buddy_reviewing"
   | "additional_items_needed"
   | "ready_for_sba_review";
-
-function isInFlightDocStatus(status: string) {
-  const normalized = status.trim().toLowerCase();
-  return normalized === "pending" || normalized === "processing" || normalized === "received";
-}
-
-function deriveBorrowerDocStatus(params: {
-  checklistStatus: string | null | undefined;
-  docs: Doc[];
-  required: boolean;
-}): BorrowerDocumentStatus {
-  const checklist = (params.checklistStatus ?? "missing").toLowerCase();
-
-  if (checklist === "verified") return "accepted";
-
-  const hasInFlight = params.docs.some((doc) => isInFlightDocStatus(doc.status));
-  const hasSubmitted = params.docs.some((doc) => {
-    const s = doc.status.trim().toLowerCase();
-    return s === "submitted" || s === "confirmed" || s === "complete";
-  });
-
-  if (checklist === "received") {
-    return hasInFlight ? "reviewing" : "received";
-  }
-
-  if (hasInFlight) return "uploaded";
-  if (hasSubmitted) return "received";
-
-  return params.required ? "missing" : "optional";
-}
 
 function deriveSafeBorrowerStage(params: {
   checklistStats: ChecklistStats | null;
@@ -620,6 +610,8 @@ export function PortalClient({ token }: { token: string }) {
   const [fields, setFields] = React.useState<Field[]>([]);
   const [checklist, setChecklist] = React.useState<PortalChecklistItem[]>([]);
   const [checklistStats, setChecklistStats] = React.useState<ChecklistStats | null>(null);
+  const [readinessInputsData, setReadinessInputsData] =
+    React.useState<ReadinessInputsResponse | null>(null);
   // SPEC-M4 FIX-CARDS-1: bumped whenever a checklist-affecting action
   // completes, so GlassBoxPanel/FixCardsPanel (which otherwise only fetch
   // once on mount) refetch and visibly reflect the change.
@@ -723,6 +715,21 @@ export function PortalClient({ token }: { token: string }) {
     setChecklistStats((json.stats ?? null) as ChecklistStats | null);
   }, [token]);
 
+  const refreshReadinessInputs = React.useCallback(async () => {
+    const response = await fetch(`/api/portal/${token}/readiness-inputs`, {
+      method: "GET",
+      cache: "no-store",
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.ok) {
+      // Non-fatal: readiness falls back to its previous conservative
+      // defaults below rather than breaking portal load over this.
+      setReadinessInputsData(null);
+      return;
+    }
+    setReadinessInputsData(json as ReadinessInputsResponse);
+  }, [token]);
+
   const refreshStatus = React.useCallback(async () => {
     const response = await fetch(`/api/portal/${token}/status`, {
       method: "GET",
@@ -784,14 +791,22 @@ export function PortalClient({ token }: { token: string }) {
             // journey checklist shown, rest of the portal is unaffected.
           });
       }
-      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity()]);
+      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity(), refreshReadinessInputs()]);
       bumpRefreshKey();
     } catch (error) {
       setErr(sanitizeBorrowerError(error instanceof Error ? error.message : error));
     } finally {
       setLoading(false);
     }
-  }, [bumpRefreshKey, refreshActivity, refreshChecklist, refreshDocs, refreshStatus, token]);
+  }, [
+    bumpRefreshKey,
+    refreshActivity,
+    refreshChecklist,
+    refreshDocs,
+    refreshReadinessInputs,
+    refreshStatus,
+    token,
+  ]);
 
   React.useEffect(() => {
     loadPortal();
@@ -847,7 +862,7 @@ export function PortalClient({ token }: { token: string }) {
         throw new Error(json?.error || "submit_failed");
       }
       setActionMessage("Buddy received that document and added it to your package.");
-      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity(), refreshFields(activeUploadId)]);
+      await Promise.all([refreshDocs(), refreshChecklist(), refreshStatus(), refreshActivity(), refreshFields(activeUploadId), refreshReadinessInputs()]);
       bumpRefreshKey();
     } catch (error) {
       setActionMessage(sanitizeBorrowerError(error instanceof Error ? error.message : error));
@@ -952,10 +967,24 @@ export function PortalClient({ token }: { token: string }) {
     docsUploaded: docs.length,
     docsInFlight: docs.some((doc) => isInFlightDocStatus(doc.status)),
     docsVerified: verifiedDocs.length,
-    profileCompleteness: deal?.name ? 0.6 : 0.2,
-    ownershipVerified: false,
-    sbaFormsReceived: 0,
-    sbaFormsRequired: 0,
+    // Real, server-provided values (src/app/api/portal/[token]/readiness-inputs)
+    // — replaces the previous hardcoded profile/ownership/SBA-forms stubs.
+    // Falls back to the prior conservative defaults only while the fetch is
+    // still in flight or unavailable, so the score never shows a false 100%
+    // before real data has loaded.
+    profileCompleteness: readinessInputsData
+      ? readinessInputsData.profile.fieldsRequired > 0
+        ? readinessInputsData.profile.fieldsPresent / readinessInputsData.profile.fieldsRequired
+        : 0
+      : deal?.name
+        ? 0.6
+        : 0.2,
+    ownershipVerified: readinessInputsData?.ownership.gateComplete ?? false,
+    ownershipConditionsSatisfied: readinessInputsData?.ownership.conditionsSatisfied,
+    ownershipConditionsRequired: readinessInputsData?.ownership.conditionsRequired,
+    sbaFormsReceived: readinessInputsData?.sbaForms.accepted ?? 0,
+    sbaFormsRequired: readinessInputsData?.sbaForms.required ?? 0,
+    sbaFormsApplicable: readinessInputsData?.sbaForms.applicable ?? true,
     blockerCount: missingChecklist.filter((i) => i.required).length,
     missingItems: missingChecklist.map((item) => ({
       id: item.id,
@@ -1342,16 +1371,7 @@ export function PortalClient({ token }: { token: string }) {
           <BorrowerDocumentExperience viewModel={documentExperienceViewModel} />
         </div>
 
-        <BorrowerSubmissionReadinessHero viewModel={submissionReadinessViewModel} />
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <BorrowerSubmissionChecklist items={submissionReadinessViewModel.checklist} />
-          <BorrowerSubmissionPackageSummary items={submissionReadinessViewModel.packageItems} />
-        </div>
-
-        <BorrowerSubmissionAttentionItems items={submissionReadinessViewModel.attentionItems} />
-
-        <BorrowerSubmissionEducationCard steps={submissionReadinessViewModel.nextSteps} />
+        {/* Submission readiness is still used by Trust Review but is not rendered as a separate borrower-facing section. */}
 
         <BorrowerTrustReviewCenter viewModel={trustReviewViewModel} />
 
