@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BorrowerWorkspaceGate, type VerifiedSession } from "@/components/brokerage/BorrowerWorkspaceGate";
+import { ApplicationChooserScreen } from "@/components/brokerage/ApplicationChooserScreen";
 import {
   type JourneyStatusInput,
   type MarketplaceListingStatus,
@@ -364,6 +365,9 @@ export function StartConciergeClient({
   // P0 SECURITY: QA identitity detected on client (via qaNeedsChooser response).
   // Distinct from qaAuthState which comes from page.tsx server props.
   const [clientQADetected, setClientQADetected] = useState(false);
+  // Welcome Back chooser: true when the just-verified email has one or
+  // more prior applications and must explicitly choose resume/view/new.
+  const [clientApplicationChoiceNeeded, setClientApplicationChoiceNeeded] = useState(false);
 
   // ── P0 SECURITY: Compute authorizedDealId BEFORE any hooks or requests ──
   // For non-QA: session dealId is always authorized.
@@ -552,11 +556,27 @@ export function StartConciergeClient({
     if (vs.qaNeedsChooser) {
       setClientQADetected(true);
     }
+    if (vs.applicationChoiceNeeded) {
+      setClientApplicationChoiceNeeded(true);
+    }
     setSession(vs);
   }, []);
 
   if (!session) {
     return <BorrowerWorkspaceGate onVerified={handleVerified} />;
+  }
+
+  // Welcome Back chooser: verified email has prior applications, no deal
+  // has been chosen yet. Never auto-resumes — the borrower must pick.
+  if (clientApplicationChoiceNeeded && !session.dealId) {
+    return (
+      <ApplicationChooserScreen
+        onResolved={(dealId) => {
+          setClientApplicationChoiceNeeded(false);
+          setSession({ dealId, name: session.name ?? null });
+        }}
+      />
+    );
   }
 
   // ── P0 SECURITY: Fail-closed guard for QA identities ──
