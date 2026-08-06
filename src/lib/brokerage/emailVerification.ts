@@ -39,6 +39,8 @@ import {
 } from "@/lib/brokerage/verificationCode";
 import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
 import { setQAChooserCookie } from "@/lib/brokerage/qaChooser";
+import { setApplicationChooserCookie } from "@/lib/brokerage/applicationChooser";
+import { listBorrowerApplications } from "@/lib/brokerage/listBorrowerApplications";
 
 const CODE_TTL_SECONDS = 10 * 60;
 const MAX_VERIFY_ATTEMPTS = 5;
@@ -151,6 +153,7 @@ export async function sendVerificationCode(args: {
 export type VerifyCodeResult =
   | { ok: true; dealId: string }
   | { ok: true; dealId: null; qaNeedsChooser: true }
+  | { ok: true; dealId: null; applicationChoiceNeeded: true }
   | {
       ok: false;
       error: "invalid_code" | "expired" | "too_many_attempts" | "not_found" | "qa_blocked_non_test_deal";
@@ -195,7 +198,7 @@ export async function verifyCodeAndCreateSession(args: {
     .update({ consumed_at: new Date().toISOString() })
     .eq("id", row.id);
 
-  const dealId = await resolveOrCreateVerifiedBorrowerSession({
+  const resolution = await resolveOrCreateVerifiedBorrowerSession({
     email,
     name: args.name ?? null,
     bankId: args.bankId,
@@ -204,7 +207,7 @@ export async function verifyCodeAndCreateSession(args: {
   // P0 SECURITY: QA identity must never return a non-test dealId.
   // If the session was resolved to a non-test deal, signal the client to
   // show the QA chooser instead — no session token was created.
-  if (dealId === null) {
+  if (resolution.kind === "qa_needs_chooser") {
     // P1 FIX (2026-08-05): Set a signed QA identity cookie so the
     // applications endpoint can authenticate the QA borrower for
     // listing/creating test applications without a deal-bound session.
@@ -214,7 +217,18 @@ export async function verifyCodeAndCreateSession(args: {
     return { ok: true, dealId: null, qaNeedsChooser: true };
   }
 
-  return { ok: true, dealId };
+  // General (non-QA) case: one or more prior applications exist for this
+  // verified email — do not silently resume. Set the application-chooser
+  // cookie (proves this email+bank were just verified) and signal the
+  // client to show the Welcome Back chooser instead of a deal-bound
+  // session. No session token is created until the borrower explicitly
+  // chooses resume/view/new.
+  if (resolution.kind === "application_choice_needed") {
+    await setApplicationChooserCookie(email, args.bankId);
+    return { ok: true, dealId: null, applicationChoiceNeeded: true };
+  }
+
+  return { ok: true, dealId: resolution.dealId };
 }
 
 /**
@@ -234,40 +248,47 @@ class QANonTestDealGuard extends Error {
  * normal way, then claim it immediately (reuses claimBorrowerSession's
  * existing lead-capture side effect rather than duplicating it).
  *
- * Any later verification for the same email (a different device, or the
- * same device after clearing cookies) finds the lead already converted and
- * reattaches to that same deal_id instead of forking a second one — this is
- * the fix for the underlying stale/mismatched-session problem: identity is
- * keyed on the confirmed email, not on whichever cookie a browser happens
- * to still be holding.
+ * Any later verification for the same email where prior applications exist
+ * no longer auto-resumes — it signals the caller to show the Welcome Back
+ * chooser instead, so the borrower explicitly picks resume/view/new rather
+ * than being silently reattached (this was the fix approved after the
+ * incognito-reproducible "existing owner names" investigation: identity is
+ * still keyed on the confirmed email, but resuming is now an explicit
+ * borrower choice, not an automatic one).
  *
- * P0 SECURITY (2026-08-05): For QA identities, the resolved deal's is_test
- * is verified BEFORE any session token is created. If the deal is non-test,
- * no token is created and null is returned, signaling the caller to show
- * the QA chooser instead.
+ * QA identity handling is completely unchanged from before this change —
+ * same brokerage_leads lookup, same is_test guard, same session-reuse
+ * optimization — the new chooser only applies to the general (non-QA) path.
  *
- * Returns the dealId, or null when a QA identity resolves to a non-test deal.
+ * Returns a discriminated result: a resolved deal, "qa needs chooser"
+ * (QA-only, existing behavior), or "application choice needed" (new,
+ * general case — one or more prior applications exist for this email).
  */
 async function resolveOrCreateVerifiedBorrowerSession(args: {
   email: string;
   name: string | null;
   bankId: string;
-}): Promise<string | null> {
+}): Promise<
+  | { kind: "deal"; dealId: string }
+  | { kind: "qa_needs_chooser" }
+  | { kind: "application_choice_needed" }
+> {
   const sb = supabaseAdmin();
   const isQA = isQABorrowerEmail(args.email);
 
-  const { data: existingLead } = await sb
-    .from("brokerage_leads")
-    .select("converted_deal_id")
-    .eq("bank_id", args.bankId)
-    .eq("email", args.email)
-    .not("converted_deal_id", "is", null)
-    .maybeSingle();
+  if (isQA) {
+    // QA path: unchanged from before this change.
+    const { data: existingLead } = await sb
+      .from("brokerage_leads")
+      .select("converted_deal_id")
+      .eq("bank_id", args.bankId)
+      .eq("email", args.email)
+      .not("converted_deal_id", "is", null)
+      .maybeSingle();
 
-  if (existingLead?.converted_deal_id) {
-    // P0 SECURITY: QA identity must never be bound to a non-test deal.
-    // Verify is_test before creating any session token.
-    if (isQA) {
+    if (existingLead?.converted_deal_id) {
+      // P0 SECURITY: QA identity must never be bound to a non-test deal.
+      // Verify is_test before creating any session token.
       const { data: deal } = await sb
         .from("deals")
         .select("is_test")
@@ -282,24 +303,39 @@ async function resolveOrCreateVerifiedBorrowerSession(args: {
           `[emailVerification] P0 SECURITY: QA identity ${args.email} blocked from ` +
           `non-test deal ${existingLead.converted_deal_id}. No session token created.`,
         );
-        return null;
+        return { kind: "qa_needs_chooser" };
       }
+
+      const current = await getBorrowerSession();
+      if (current?.deal_id === existingLead.converted_deal_id) {
+        // Already the right session on this device — nothing to mint.
+        return { kind: "deal", dealId: existingLead.converted_deal_id };
+      }
+      await createBorrowerSession({
+        dealId: existingLead.converted_deal_id,
+        bankId: args.bankId,
+        claimedEmail: args.email,
+      });
+      return { kind: "deal", dealId: existingLead.converted_deal_id };
     }
 
-    const current = await getBorrowerSession();
-    if (current?.deal_id === existingLead.converted_deal_id) {
-      // Already the right session on this device — nothing to mint.
-      return existingLead.converted_deal_id;
-    }
-    await createBorrowerSession({
-      dealId: existingLead.converted_deal_id,
-      bankId: args.bankId,
-      claimedEmail: args.email,
-    });
-    return existingLead.converted_deal_id;
+    const qaSession = await getOrCreateBorrowerSession();
+    await claimBorrowerSession({ tokenHash: qaSession.tokenHash, email: args.email });
+    return { kind: "deal", dealId: qaSession.deal_id };
+  }
+
+  // General (non-QA) path: check for ANY existing applications for this
+  // email at this bank before ever creating/resuming a session.
+  const existingApplications = await listBorrowerApplications({
+    email: args.email,
+    bankId: args.bankId,
+  });
+
+  if (existingApplications.length > 0) {
+    return { kind: "application_choice_needed" };
   }
 
   const session = await getOrCreateBorrowerSession();
   await claimBorrowerSession({ tokenHash: session.tokenHash, email: args.email });
-  return session.deal_id;
+  return { kind: "deal", dealId: session.deal_id };
 }
