@@ -173,7 +173,13 @@ const GROUP_DEFINITIONS: Record<BorrowerDocumentGroupId, GroupDefinition> = {
 // Group classification
 // ---------------------------------------------------------------------------
 
-function classifyGroup(
+/**
+ * Exported additively (was private) so server-side readers — e.g. the
+ * readiness-inputs endpoint — can classify checklist items into the same
+ * groups already shown to the borrower, instead of re-implementing this
+ * keyword classification a second time. No logic change.
+ */
+export function classifyGroup(
   title: string,
   inputGroup?: string | null,
 ): BorrowerDocumentGroupId {
