@@ -157,7 +157,7 @@ export async function GET(
 
     if (!scoreRow) {
       try {
-        const computed = await computeBuddySBAScore({ dealId, sb, context: "auto" });
+        const computed = await computeBuddySBAScore({ dealId, sb, context: "package_seal" });
         if (computed.score >= 60 && computed.eligibilityPassed) {
           await lockBuddySBAScore({ dealId, sb });
         }
