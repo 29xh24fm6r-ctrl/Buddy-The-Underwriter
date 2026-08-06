@@ -24,11 +24,34 @@ export type BorrowerReadinessBand =
   | "strong_progress"
   | "near_submission_ready";
 
+/** One row of the six-category weighted breakdown. Additive — existing
+ *  consumers that only read score/band/summary/delta are unaffected. */
+export type BorrowerReadinessComponent = {
+  id:
+    | "documentCompleteness"
+    | "profileCompleteness"
+    | "ownershipVerification"
+    | "sbaFormsCompletion"
+    | "financialPackage"
+    | "blockerPenalty";
+  label: string;
+  /** 0-100, this category's own completion percentage. */
+  scorePercent: number;
+  /** 0-100, this category's weight in the overall score. */
+  weightPercent: number;
+  /** 0-100, scorePercent * weightPercent / 100 — this category's actual
+   *  contribution to the overall score. */
+  contributionPercent: number;
+};
+
 export type BorrowerReadinessScore = {
   score: number;
   band: BorrowerReadinessBand;
   summary: string;
   delta?: number;
+  /** Additive: the six weighted sub-scores that produce `score`, previously
+   *  computed internally and discarded. */
+  components: BorrowerReadinessComponent[];
 };
 
 export type BorrowerDealInsight = {
@@ -87,12 +110,28 @@ export type ReadinessInput = {
   /** Profile completeness (0-1) */
   profileCompleteness: number;
 
-  /** Ownership verified? */
+  /** Ownership verified? Retained for backward compatibility — used only
+   *  when the richer `ownershipConditionsSatisfied`/`ownershipConditionsRequired`
+   *  pair below is not supplied. */
   ownershipVerified: boolean;
 
-  /** SBA forms status */
+  /** Ownership partial credit, e.g. 2 of 3 shared-evaluator conditions met
+   *  (significant owner present, total ownership >= 80%, attestation on
+   *  file). Optional/additive: when present, this replaces the binary
+   *  `ownershipVerified` for scoring purposes so ownership can contribute
+   *  partial credit instead of an all-or-nothing 0/1. */
+  ownershipConditionsSatisfied?: number;
+  ownershipConditionsRequired?: number;
+
+  /** SBA forms status. `sbaFormsReceived` should count only forms whose
+   *  status is "accepted" (Buddy/banker confirmed) — not merely uploaded. */
   sbaFormsReceived: number;
   sbaFormsRequired: number;
+  /** Whether SBA forms apply to this deal at all. Defaults to true. When
+   *  false, the category is treated as fully satisfied rather than scored
+   *  0 — a deal that doesn't need SBA forms should never be prevented from
+   *  reaching 100% because of them. */
+  sbaFormsApplicable?: boolean;
 
   /** How many blockers exist */
   blockerCount: number;
@@ -149,7 +188,13 @@ const READINESS_WEIGHTS = {
   blockerPenalty: 0.10,
 } as const;
 
-function computeReadinessScore(input: ReadinessInput): number {
+/**
+ * The six raw (0-1) sub-scores. Extracted from the former single
+ * `computeReadinessScore` body so both the weighted total and the
+ * borrower-facing breakdown panel derive from one calculation — no second
+ * copy of this math exists anywhere else.
+ */
+function computeReadinessComponents(input: ReadinessInput) {
   const docScore =
     input.checklistRequired > 0
       ? input.checklistReceived / input.checklistRequired
@@ -157,10 +202,26 @@ function computeReadinessScore(input: ReadinessInput): number {
 
   const profileScore = Math.min(input.profileCompleteness, 1);
 
-  const ownershipScore = input.ownershipVerified ? 1 : 0;
+  // Ownership: prefer partial-credit conditions from the shared borrower
+  // completeness evaluator when supplied; fall back to the binary flag
+  // otherwise (e.g. existing tests / callers that predate this field).
+  const ownershipScore =
+    input.ownershipConditionsRequired && input.ownershipConditionsRequired > 0
+      ? Math.min(
+          (input.ownershipConditionsSatisfied ?? 0) /
+            input.ownershipConditionsRequired,
+          1,
+        )
+      : input.ownershipVerified
+        ? 1
+        : 0;
 
-  const sbaScore =
-    input.sbaFormsRequired > 0
+  // SBA forms: not-applicable deals are fully satisfied, never zeroed —
+  // a deal that doesn't require SBA forms shouldn't be blocked by them.
+  const sbaApplicable = input.sbaFormsApplicable ?? true;
+  const sbaScore = !sbaApplicable
+    ? 1
+    : input.sbaFormsRequired > 0
       ? input.sbaFormsReceived / input.sbaFormsRequired
       : 0;
 
@@ -174,16 +235,66 @@ function computeReadinessScore(input: ReadinessInput): number {
   const blockerPenalty = Math.min(input.blockerCount * 0.1, 1);
   const blockerScore = 1 - blockerPenalty;
 
+  return {
+    docScore,
+    profileScore,
+    ownershipScore,
+    sbaScore,
+    financialScore,
+    blockerScore,
+  };
+}
+
+function computeReadinessScore(input: ReadinessInput): number {
+  const c = computeReadinessComponents(input);
+
   const raw =
-    docScore * READINESS_WEIGHTS.documentCompleteness +
-    profileScore * READINESS_WEIGHTS.profileCompleteness +
-    ownershipScore * READINESS_WEIGHTS.ownershipVerification +
-    sbaScore * READINESS_WEIGHTS.sbaFormsCompletion +
-    financialScore * READINESS_WEIGHTS.financialPackage +
-    blockerScore * READINESS_WEIGHTS.blockerPenalty;
+    c.docScore * READINESS_WEIGHTS.documentCompleteness +
+    c.profileScore * READINESS_WEIGHTS.profileCompleteness +
+    c.ownershipScore * READINESS_WEIGHTS.ownershipVerification +
+    c.sbaScore * READINESS_WEIGHTS.sbaFormsCompletion +
+    c.financialScore * READINESS_WEIGHTS.financialPackage +
+    c.blockerScore * READINESS_WEIGHTS.blockerPenalty;
 
   // Convert to 0-100 and clamp
   return Math.min(Math.max(Math.round(raw * 100), 0), 100);
+}
+
+const COMPONENT_LABELS: Record<BorrowerReadinessComponent["id"], string> = {
+  documentCompleteness: "Supporting Documentation",
+  profileCompleteness: "Business Information",
+  ownershipVerification: "Ownership verification",
+  sbaFormsCompletion: "SBA forms",
+  financialPackage: "Financial package",
+  blockerPenalty: "No unresolved blockers",
+};
+
+function buildComponentBreakdown(
+  input: ReadinessInput,
+): BorrowerReadinessComponent[] {
+  const c = computeReadinessComponents(input);
+  const raw: Record<BorrowerReadinessComponent["id"], number> = {
+    documentCompleteness: c.docScore,
+    profileCompleteness: c.profileScore,
+    ownershipVerification: c.ownershipScore,
+    sbaFormsCompletion: c.sbaScore,
+    financialPackage: c.financialScore,
+    blockerPenalty: c.blockerScore,
+  };
+
+  return (Object.keys(READINESS_WEIGHTS) as Array<keyof typeof READINESS_WEIGHTS>).map(
+    (id) => {
+      const weightPercent = Math.round(READINESS_WEIGHTS[id] * 100);
+      const scorePercent = Math.round(Math.min(Math.max(raw[id], 0), 1) * 100);
+      return {
+        id,
+        label: COMPONENT_LABELS[id],
+        scorePercent,
+        weightPercent,
+        contributionPercent: Math.round((scorePercent * weightPercent) / 100),
+      };
+    },
+  );
 }
 
 function scoreToBand(score: number): BorrowerReadinessBand {
@@ -235,8 +346,9 @@ function buildReadinessScore(
   const summary = buildReadinessSummary(score, band, input);
   const delta =
     input.previousScore != null ? score - input.previousScore : undefined;
+  const components = buildComponentBreakdown(input);
 
-  return { score, band, summary, delta };
+  return { score, band, summary, delta, components };
 }
 
 // ---------------------------------------------------------------------------
