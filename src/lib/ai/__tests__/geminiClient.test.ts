@@ -155,7 +155,7 @@ test("empty response text: ok:false with the provider's empty-response error sur
   assert.match(res.error ?? "", /empty response/);
 });
 
-test("thinkingLevel/maxOutputTokens defaults are passed through to the gateway", async () => {
+test("thinkingLevel/maxOutputTokens/jsonMode defaults are passed through to the gateway", async () => {
   let captured: any = null;
   __setProviderImplForTests("google", async (req) => {
     captured = req;
@@ -169,6 +169,37 @@ test("thinkingLevel/maxOutputTokens defaults are passed through to the gateway",
   assert.equal(captured.thinkingLevel, "low");
   assert.equal(captured.maxOutputTokens, 16384);
   assert.equal(captured.model, GEMINI_FLASH);
+  assert.equal(captured.jsonMode, true);
+  assert.equal(captured.responseSchema, undefined);
+});
+
+test("multi-field JSON prompt returns populated object (regression: bare { type: 'object' } schema returned {})", async () => {
+  const realisticResponse = JSON.stringify({
+    message: "Thank you for sharing that information about your loan needs.",
+    next_question: "What type of business are you starting?",
+    extracted_facts: {
+      loan: { amount_requested: 250000 },
+      business: { annual_revenue: 120000 },
+    },
+  });
+  __setProviderImplForTests("google", async () => okResult(realisticResponse));
+  const res = await callGeminiJSON<{
+    message: string;
+    next_question: string;
+    extracted_facts: Record<string, unknown>;
+  }>({
+    model: GEMINI_FLASH,
+    prompt: "I need a $250,000 loan. I expect $10,000/month in revenue.",
+    logTag: "concierge_turn",
+  });
+  assert.equal(res.ok, true);
+  assert.ok(res.result);
+  assert.ok(res.result!.message.length > 0, "message should not be empty");
+  assert.ok(res.result!.next_question.length > 0, "next_question should not be empty");
+  assert.ok(
+    Object.keys(res.result!.extracted_facts).length > 0,
+    "extracted_facts should not be empty",
+  );
 });
 
 test("systemInstruction: optional, passed through when provided", async () => {

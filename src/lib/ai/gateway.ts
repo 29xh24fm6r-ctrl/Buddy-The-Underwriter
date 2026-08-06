@@ -37,6 +37,13 @@ export type RunRoleRequest = {
   maxOutputTokens?: number;
   /** JSON Schema for structured output (routed to each provider's native mechanism). */
   responseSchema?: Record<string, unknown>;
+  /**
+   * Request JSON output without constraining the shape via a schema.
+   * Routed to each provider's schema-less JSON mode (e.g. Gemini's
+   * responseMimeType: "application/json" without responseSchema).
+   * Ignored when responseSchema is also set.
+   */
+  jsonMode?: boolean;
   /** Ledger `purpose` column — short, stable label, e.g. "naics_suggest". */
   purpose: string;
   dealId?: string | null;
@@ -274,6 +281,7 @@ export async function runRole(
         maxOutputTokens: request.maxOutputTokens,
         timeoutMs: request.timeoutMs ?? config.timeoutMs,
         responseSchema: request.responseSchema,
+        jsonMode: request.jsonMode,
         authMode: request.authMode ?? step.authMode,
         inlineData: request.inlineData,
         useSearchGrounding: request.useSearchGrounding,

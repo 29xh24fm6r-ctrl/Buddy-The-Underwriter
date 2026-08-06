@@ -136,7 +136,7 @@ export async function extractStructuredAssist(args: {
           modelOverride: GEMINI_MODEL,
           temperature: isRetry ? 0.0 : GEMINI_TEMPERATURE,
           timeoutMs: STRUCTURED_ASSIST_TIMEOUT_MS,
-          responseSchema: { type: "object" },
+          jsonMode: true,
         });
         rawText = result.text.trim();
       } catch (attemptErr: any) {

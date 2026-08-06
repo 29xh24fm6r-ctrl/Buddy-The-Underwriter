@@ -38,6 +38,8 @@ function buildGenerationConfig(req: ProviderCallRequest): Record<string, unknown
   if (req.responseSchema) {
     config.responseMimeType = "application/json";
     config.responseSchema = req.responseSchema;
+  } else if (req.jsonMode) {
+    config.responseMimeType = "application/json";
   }
   if (isGemini3Model(req.model)) {
     // Gemini 3.x rejects sub-1.0 temperatures — omit entirely, use thinkingConfig instead.

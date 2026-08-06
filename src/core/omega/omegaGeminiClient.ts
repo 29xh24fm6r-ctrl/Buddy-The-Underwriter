@@ -6,7 +6,7 @@ import "server-only";
  * downstream generators (Communication/Explanation/Recommendations/
  * RiskNarrative/Scenarios) each define their own prompt + expected JSON
  * shape and parse the returned text themselves via safeParseJSON below —
- * this shared client stays schema-agnostic (a permissive object schema,
+ * this shared client stays schema-agnostic (jsonMode without a schema,
  * same "ask for JSON via prompt, parse leniently" contract as before).
  * Never writes to canonical tables.
  */
@@ -19,7 +19,7 @@ export async function callOmegaGemini(prompt: string): Promise<string> {
       purpose: "omega_advisory",
       prompt,
       maxOutputTokens: 4096,
-      responseSchema: { type: "object" },
+      jsonMode: true,
     });
     return result.text;
   } catch (e) {

@@ -84,7 +84,7 @@ export async function classifyWithGeminiText(
       temperature: 0.0,
       maxOutputTokens: 2048,
       thinkingLevel: "low",
-      responseSchema: { type: "object" },
+      jsonMode: true,
     });
 
     const parsed = parseGeminiResult(result.text);
@@ -125,7 +125,7 @@ export async function classifyWithGeminiVision(
       temperature: 0.0,
       maxOutputTokens: 2048,
       thinkingLevel: "low",
-      responseSchema: { type: "object" },
+      jsonMode: true,
     });
 
     const parsed = parseGeminiResult(result.text);

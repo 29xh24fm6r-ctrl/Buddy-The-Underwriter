@@ -273,7 +273,7 @@ async function callGeminiGroundedWithModel<T>(
       temperature: 0.1,
       maxOutputTokens: 8192,
       useSearchGrounding: args.useGrounding,
-      responseSchema: args.useGrounding ? undefined : { type: "object" },
+      jsonMode: args.useGrounding ? undefined : true,
       timeoutMs: 60_000,
       disableFailover: true,
     });

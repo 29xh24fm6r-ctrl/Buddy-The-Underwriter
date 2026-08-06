@@ -14,6 +14,14 @@ export type ProviderCallRequest = {
   /** JSON Schema for structured output (OpenAI json_schema mode / Gemini responseSchema). */
   responseSchema?: Record<string, unknown>;
   /**
+   * Request JSON output without constraining the shape via a schema.
+   * Google: sets responseMimeType: "application/json" without responseSchema.
+   * OpenAI: sets response_format: { type: "json_object" }.
+   * Anthropic: no-op (no native JSON mode without tool-use).
+   * Ignored when responseSchema is also set (the schema already implies JSON mode).
+   */
+  jsonMode?: boolean;
+  /**
    * SPEC-GATEWAY-CAPABILITY-EXPANSION-1 §1 — selects Vertex/WIF auth instead
    * of the default GEMINI_API_KEY REST path. Google-only; ignored by
    * OpenAI/Anthropic.

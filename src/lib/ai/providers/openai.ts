@@ -51,6 +51,8 @@ export async function callOpenAI(req: ProviderCallRequest): Promise<ProviderCall
         strict: true,
       },
     };
+  } else if (req.jsonMode) {
+    body.response_format = { type: "json_object" };
   }
 
   const controller = new AbortController();

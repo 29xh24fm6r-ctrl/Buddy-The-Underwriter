@@ -711,15 +711,11 @@ export type BrokerageConciergeResponse = {
  * or the pre-existing direct callGeminiJSON path. Both branches return the
  * same shape so every call site downstream is unaffected by the flag.
  *
- * The gateway's google provider only enables Gemini's native JSON response
- * mode when a responseSchema is supplied (see providers/google.ts); this
- * route doesn't pass one (the extracted_facts shape is registry-driven and
- * open-ended — a strict schema would need to enumerate every one of
- * BORROWER_FIELD_REGISTRY's ~170 entries to avoid silently dropping fields).
- * Instead this mirrors geminiClient.ts's own fence-stripping fallback
- * (`callOnce`'s "Gemini occasionally wraps JSON in \`\`\`json fences" comment)
- * — the prompt already asks for pure JSON; this just tolerates the model
- * not always complying.
+ * The gateway's google provider uses jsonMode (responseMimeType without a
+ * responseSchema) — the extracted_facts shape is registry-driven and
+ * open-ended (~170 entries), so a strict schema isn't viable. The fence-
+ * stripping fallback mirrors geminiClient.ts's own cleanup (tolerates the
+ * model occasionally wrapping JSON in markdown fences).
  */
 async function callConciergeTurnModel(
   prompt: string,

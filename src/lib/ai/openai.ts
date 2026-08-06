@@ -82,7 +82,7 @@ async function geminiChatJson(args: {
     temperature: 0.1,
     maxOutputTokens: args.maxOutputTokens ?? 4096,
     timeoutMs: args.timeoutMs,
-    responseSchema: { type: "object" },
+    jsonMode: true,
     prompt:
       `${args.system}\n\n` +
       `${args.user}\n\n` +
@@ -109,7 +109,7 @@ async function repairToJson(args: {
     temperature: 0,
     maxOutputTokens: args.maxOutputTokens ?? 4096,
     timeoutMs: args.timeoutMs,
-    responseSchema: { type: "object" },
+    jsonMode: true,
     prompt:
       `${args.system}\n\n` +
       `The following text was supposed to be JSON but is invalid.\n` +

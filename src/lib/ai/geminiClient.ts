@@ -210,16 +210,12 @@ async function callOnce<T>(args: {
   maxOutputTokens?: number;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }): Promise<T> {
-  // SPEC-M1.1: migrated onto the AI gateway (generator role). All
-  // callers observed to use object-shaped T (Record<string, any> / inline
-  // object types), so a permissive object responseSchema is passed to
-  // preserve the original responseMimeType: "application/json" request
-  // (only set by the provider adapter when a schema is present) without
-  // over-constraining the shape. maxOutputTokens/thinkingLevel defaults
-  // match this file's own incident-driven tuning (see streamGeminiText's
-  // doc comment above); temperature omission for Gemini 3.x models and
-  // empty-response detection are both already handled inside
-  // providers/google.ts's callGoogle.
+  // SPEC-M1.1: migrated onto the AI gateway (generator role).
+  // jsonMode requests responseMimeType: "application/json" without a
+  // responseSchema — Gemini's constrained decoder treats a bare
+  // { type: "object" } schema (no properties) as "zero properties
+  // allowed," returning {} on every call. Schema-less JSON mode lets
+  // the prompt govern the shape while still guaranteeing valid JSON.
   const result = await runRole("generator", {
     modelOverride: args.model,
     purpose: args.logTag,
@@ -228,7 +224,7 @@ async function callOnce<T>(args: {
     maxOutputTokens: args.maxOutputTokens ?? 16384,
     thinkingLevel: args.thinkingLevel ?? "low",
     timeoutMs: args.timeoutMs,
-    responseSchema: { type: "object" },
+    jsonMode: true,
   });
 
   // Gemini occasionally wraps JSON in ```json fences even with responseMimeType.
