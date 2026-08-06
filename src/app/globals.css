@@ -2,7 +2,6 @@
 @config "../../tailwind.config.ts";
 @import "../styles/buddyTheme.css";
 
-@layer base {
 
 @layer base {
   :root {
