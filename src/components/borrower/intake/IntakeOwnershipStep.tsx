@@ -13,6 +13,7 @@ export function IntakeOwnershipStep({
   onContinue: () => void;
 }) {
   const [structure, setStructure] = useState<OwnerStructure>(null);
+  const [ownershipSaved, setOwnershipSaved] = useState(false);
   const [additionalOwners, setAdditionalOwners] = useState<
     { name: string; pct: string }[]
   >([]);
@@ -50,13 +51,14 @@ export function IntakeOwnershipStep({
       } catch {
         // non-fatal
       }
+      setOwnershipSaved(true);
     },
     [],
   );
 
   useEffect(() => {
     if (structure === "solo") {
-      saveStructure("solo");
+      void saveStructure("solo");
     }
   }, [structure, saveStructure]);
 
@@ -223,8 +225,8 @@ export function IntakeOwnershipStep({
         </div>
       )}
 
-      {/* Identity verification */}
-      {structure && (
+      {/* Identity verification — wait for the save so the ownership entity exists */}
+      {structure && ownershipSaved && (
         <div className="animate-in slide-in-from-top-2 fade-in duration-300">
           <IdentityVerificationCard dealId={dealId} />
         </div>

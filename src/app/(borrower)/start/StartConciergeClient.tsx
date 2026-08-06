@@ -52,11 +52,13 @@ function deriveVerifications(counts: {
   identityVerificationCount: number;
   ownershipEntityCount: number;
   documentsUploadedCount: number;
+  franchiseMatched: boolean;
 }): DealVerificationState {
   return {
     entityResolved: counts.ownershipEntityCount >= 1,
     identityVerified: counts.identityVerificationCount >= 1,
     financialsExtracted: counts.documentsUploadedCount > 0,
+    franchiseMatched: counts.franchiseMatched,
   };
 }
 
@@ -74,16 +76,29 @@ function chapterFromFieldProgress(
   return 5;
 }
 
+type BorrowerScoreData = {
+  score: number;
+  band: string;
+  eligibilityPassed: boolean;
+  eligibilityFailures?: Array<{ check: string; reason: string }>;
+  topStrengths: string[];
+  topWeaknesses: string[];
+  narrative: string;
+  computedAt: string | null;
+} | null;
+
 type ExtendedJourneyStatus = JourneyStatusInput & {
   fieldProgress: FieldProgress | null;
   gateReasons: string[];
   identityVerificationCount: number;
   ownershipEntityCount: number;
+  franchiseMatched: boolean;
+  scoreData: BorrowerScoreData;
   refreshSoon: () => void;
 };
 
 function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
-  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; ownershipEntityCount: number }>({
+  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; ownershipEntityCount: number; franchiseMatched: boolean; scoreData: BorrowerScoreData }>({
     hasDealId: false,
     progressPct: 0,
     documentsUploadedCount: 0,
@@ -95,14 +110,25 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
     gateReasons: [],
     identityVerificationCount: 0,
     ownershipEntityCount: 0,
+    franchiseMatched: false,
+    scoreData: null,
   });
+  const consecutiveErrorsRef = useRef(0);
 
   const refresh = useCallback(
     async (id: string) => {
       try {
         const res = await fetch(`/api/brokerage/deals/${id}/seal-status`);
+        if (!res.ok) {
+          consecutiveErrorsRef.current += 1;
+          return;
+        }
         const json = await res.json();
-        if (!json?.ok) return;
+        if (!json?.ok) {
+          consecutiveErrorsRef.current += 1;
+          return;
+        }
+        consecutiveErrorsRef.current = 0;
         setStatus({
           hasDealId: true,
           progressPct: json.fieldProgress?.determinable && json.fieldProgress.requiredTotal > 0
@@ -117,19 +143,38 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
           gateReasons: Array.isArray(json.gateReasons) ? json.gateReasons : [],
           identityVerificationCount: typeof json.identityVerificationCount === "number" ? json.identityVerificationCount : 0,
           ownershipEntityCount: typeof json.ownershipEntityCount === "number" ? json.ownershipEntityCount : 0,
+          franchiseMatched: Boolean(json.franchiseMatched),
+          scoreData: json.score ?? null,
         });
       } catch {
-        // non-fatal
+        consecutiveErrorsRef.current += 1;
       }
     },
     [],
   );
 
+  const sealedRef = useRef(false);
+  useEffect(() => {
+    sealedRef.current = status.sealed;
+  }, [status.sealed]);
+
   useEffect(() => {
     if (!dealId) return;
     void refresh(dealId);
-    const timer = window.setInterval(() => void refresh(dealId), JOURNEY_POLL_MS);
-    return () => window.clearInterval(timer);
+    let handle: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    function schedule() {
+      if (stopped) return;
+      const errors = consecutiveErrorsRef.current;
+      const sealed = sealedRef.current;
+      const interval = sealed ? 60_000 : errors > 0 ? Math.min(JOURNEY_POLL_MS * 2 ** errors, 120_000) : JOURNEY_POLL_MS;
+      handle = setTimeout(() => {
+        if (stopped) return;
+        void refresh(dealId!).then(schedule);
+      }, interval);
+    }
+    schedule();
+    return () => { stopped = true; clearTimeout(handle); };
   }, [dealId, refresh]);
 
   const refreshSoon = useCallback(() => {
@@ -713,9 +758,10 @@ export function StartConciergeClient({
                   identityVerificationCount: journeyStatus.identityVerificationCount,
                   ownershipEntityCount: journeyStatus.ownershipEntityCount,
                   documentsUploadedCount: journeyStatus.documentsUploadedCount,
+                  franchiseMatched: journeyStatus.franchiseMatched,
                 })}
                 onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
-                token={nonNullDealId}
+                scoreData={journeyStatus.scoreData}
               />
             )}
           </>

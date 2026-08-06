@@ -759,8 +759,7 @@ async function callConciergeTurnModel(
     model: MODEL_CONCIERGE_REASONING,
     prompt,
     logTag: "brokerage-concierge-turn",
-    timeoutMs: 15_000,
-    maxRetries: 0,
+    timeoutMs: 25_000,
   });
   return { ok: legacy.ok, result: legacy.result, error: legacy.error };
 }
@@ -787,7 +786,12 @@ function coerceCorrectionValue(raw: unknown, type: "string" | "number" | "boolea
     const n = typeof raw === "number" ? raw : Number(raw);
     return Number.isFinite(n) ? n : null;
   }
-  if (type === "boolean") return typeof raw === "boolean" ? raw : null;
+  if (type === "boolean") {
+    if (typeof raw === "boolean") return raw;
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    return null;
+  }
   const s = String(raw).trim();
   return s.length > 0 ? s : null;
 }
@@ -857,6 +861,25 @@ async function handleCorrectFact(body: CorrectFactRequest): Promise<NextResponse
   try {
     if (body.factPath === "loan.amount_requested") {
       await sb.from("deals").update({ loan_amount: value }).eq("id", session.deal_id);
+    } else if (body.factPath === "ownership.structure" && value === "solo") {
+      const { count } = await sb
+        .from("ownership_entities")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", session.deal_id);
+      if (!count || count === 0) {
+        const borrowerFacts = (updatedFacts as Record<string, any>)?.borrower ?? {};
+        const displayName = [borrowerFacts.first_name, borrowerFacts.last_name]
+          .filter(Boolean)
+          .join(" ") || "Primary Owner";
+        await sb.from("ownership_entities").insert({
+          deal_id: session.deal_id,
+          entity_type: "individual",
+          display_name: displayName,
+          ownership_pct: 100,
+          confidence: 0.9,
+          meta_json: { source: "concierge_solo" },
+        });
+      }
     } else if (scope === "business") {
       const entry = BORROWER_FIELD_REGISTRY.find((f) => f.factPath === body.factPath);
       if (entry) {

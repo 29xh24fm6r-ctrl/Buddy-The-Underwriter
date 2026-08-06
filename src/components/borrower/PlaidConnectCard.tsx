@@ -61,7 +61,7 @@ function loadPlaidScript(): Promise<void> {
   });
 }
 
-export type PlaidConnectStatus = "idle" | "connecting" | "connected" | "error";
+export type PlaidConnectStatus = "idle" | "connecting" | "connected" | "error" | "unavailable";
 
 /**
  * Pure presentational body — no fetching, no window/Plaid access. Split out
@@ -83,6 +83,26 @@ export function PlaidConnectCardBody({
       <div className="flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
         <span aria-hidden>✓</span>
         <span>Bank account connected — Buddy will use it instead of asking you to upload statements.</span>
+      </div>
+    );
+  }
+
+  if (status === "unavailable") {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-slate-200">
+            <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-slate-600">Bank connection coming soon</p>
+            <p className="text-xs text-slate-400">
+              You can skip this for now — enter your revenue above and upload statements later.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -141,6 +161,10 @@ export function PlaidConnectCard({
         credentials: "include",
       });
       const tokenBody = await tokenRes.json();
+      if (tokenBody?.errorCode === "plaid_not_configured") {
+        setStatus("unavailable");
+        return;
+      }
       if (!tokenRes.ok || !tokenBody?.ok || !tokenBody?.link_token) {
         throw new Error(tokenBody?.error ?? "Could not start bank connection");
       }

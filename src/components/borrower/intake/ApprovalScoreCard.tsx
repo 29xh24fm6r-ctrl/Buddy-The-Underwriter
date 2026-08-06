@@ -34,11 +34,20 @@ const BAND_LABELS: Record<string, { label: string; color: string }> = {
   not_eligible: { label: "Not Eligible", color: "text-rose-700 bg-rose-50 border-rose-200" },
 };
 
-export function ApprovalScoreCard({ token }: { token: string }) {
-  const [score, setScore] = useState<BorrowerScore | null>(null);
-  const [loading, setLoading] = useState(true);
+export function ApprovalScoreCard({ token, scoreData }: { token?: string; scoreData?: BorrowerScore | null }) {
+  const [score, setScore] = useState<BorrowerScore | null>(scoreData ?? null);
+  const [loading, setLoading] = useState(!scoreData);
 
   useEffect(() => {
+    if (scoreData !== undefined) {
+      setScore(scoreData ?? null);
+      setLoading(false);
+      return;
+    }
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     async function load() {
       try {
@@ -56,7 +65,7 @@ export function ApprovalScoreCard({ token }: { token: string }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, scoreData]);
 
   if (loading) {
     return (

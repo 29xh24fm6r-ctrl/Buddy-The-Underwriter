@@ -85,12 +85,23 @@ export function IntakeReviewStep({
   verifications = {},
   onNavigateChapter,
   token,
+  scoreData,
 }: {
   dealId: string;
   purposes: string[];
   verifications?: DealVerificationState;
   onNavigateChapter?: (chapter: number) => void;
   token?: string;
+  scoreData?: {
+    score: number;
+    band: string;
+    eligibilityPassed: boolean;
+    eligibilityFailures?: Array<{ check: string; reason: string }>;
+    topStrengths: string[];
+    topWeaknesses: string[];
+    narrative: string;
+    computedAt: string | null;
+  } | null;
 }) {
   const items = buildReviewItems(purposes, verifications);
 
@@ -179,7 +190,8 @@ export function IntakeReviewStep({
       <SigningPanel dealId={dealId} />
 
       {/* Approval score */}
-      {token && <ApprovalScoreCard token={token} />}
+      {scoreData && <ApprovalScoreCard scoreData={scoreData} />}
+      {!scoreData && token && <ApprovalScoreCard token={token} />}
     </div>
   );
 }
