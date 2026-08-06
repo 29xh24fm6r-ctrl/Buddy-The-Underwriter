@@ -17,12 +17,19 @@ export type BorrowerCompleteness = {
   complete: boolean;
   missing: string[];
   confidence_warnings: string[];
+  /** Subset of `missing` that are borrower/business profile field names only
+   *  (excludes ownership-condition entries like "owner_gte_20pct"). Additive —
+   *  lets callers separate "profile incomplete" from "ownership incomplete"
+   *  without re-deriving the field lists themselves. */
+  profile_missing_fields: string[];
   stats: {
     fields_present: number;
     fields_required: number;
     owner_count: number;
     total_ownership_pct: number;
     has_attestation: boolean;
+    /** Additive: was internally computed but previously discarded. */
+    has_significant_owner: boolean;
   };
 };
 
@@ -61,12 +68,14 @@ export async function evaluateBorrowerCompleteness(args: {
       complete: false,
       missing: ["borrower_not_found"],
       confidence_warnings: [],
+      profile_missing_fields: [],
       stats: {
         fields_present: 0,
         fields_required: REQUIRED_FIELDS.length + ADDRESS_FIELDS.length,
         owner_count: 0,
         total_ownership_pct: 0,
         has_attestation: false,
+        has_significant_owner: false,
       },
     };
   }
@@ -74,6 +83,7 @@ export async function evaluateBorrowerCompleteness(args: {
   // 2) Check required fields
   let fieldsPresent = 0;
   const totalRequired = REQUIRED_FIELDS.length + ADDRESS_FIELDS.length;
+  const profileMissingFields: string[] = [];
 
   for (const field of REQUIRED_FIELDS) {
     const val = (borrower as any)[field];
@@ -81,6 +91,7 @@ export async function evaluateBorrowerCompleteness(args: {
       fieldsPresent++;
     } else {
       missing.push(field);
+      profileMissingFields.push(field);
     }
   }
 
@@ -90,6 +101,7 @@ export async function evaluateBorrowerCompleteness(args: {
       fieldsPresent++;
     } else {
       missing.push(field);
+      profileMissingFields.push(field);
     }
   }
 
@@ -146,12 +158,14 @@ export async function evaluateBorrowerCompleteness(args: {
     complete: missing.length === 0,
     missing,
     confidence_warnings,
+    profile_missing_fields: profileMissingFields,
     stats: {
       fields_present: fieldsPresent,
       fields_required: totalRequired,
       owner_count: ownerList.length,
       total_ownership_pct: totalOwnership,
       has_attestation: hasAttestation,
+      has_significant_owner: significantOwners.length > 0,
     },
   };
 }
