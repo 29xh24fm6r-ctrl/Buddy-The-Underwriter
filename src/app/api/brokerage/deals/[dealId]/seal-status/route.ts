@@ -28,6 +28,9 @@ import { deepMerge } from "@/lib/brokerage/borrowerConversation";
 import { buildPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
 import { computeApplicableForms } from "@/lib/sba/forms/applicability";
 import { computeFieldProgress, type FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
+import { computeBuddySBAScore, lockBuddySBAScore } from "@/lib/score/buddySbaScore";
+import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
+import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -109,6 +112,22 @@ export async function GET(
     .select("id", { count: "exact", head: true })
     .eq("deal_id", dealId);
 
+  // Franchise match — deal_franchises linked to an SBA-eligible brand.
+  const { data: franchiseLink } = await sb
+    .from("deal_franchises")
+    .select("brand_id")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+  let franchiseMatched = false;
+  if (franchiseLink?.brand_id) {
+    const { data: brand } = await sb
+      .from("franchise_brands")
+      .select("sba_eligible")
+      .eq("id", franchiseLink.brand_id)
+      .maybeSingle();
+    franchiseMatched = Boolean((brand as any)?.sba_eligible);
+  }
+
   // Current active listing if one exists.
   const { data: listing } = await sb
     .from("marketplace_listings")
@@ -120,6 +139,86 @@ export async function GET(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // Auto-resolve resolvable sealing blockers so the borrower doesn't have to
+  // manually trigger score computation, assumption confirmation, or trident
+  // generation — those steps have no UI in the concierge flow.
+  const autoResolveErrors: string[] = [];
+  try {
+    const { data: existingScore } = await sb
+      .from("buddy_sba_scores")
+      .select("id, score_status, score, eligibility_passed")
+      .eq("deal_id", dealId)
+      .order("computed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const scoreRow = existingScore as { id?: string; score_status?: string; score?: number; eligibility_passed?: boolean } | null;
+
+    if (!scoreRow) {
+      try {
+        const computed = await computeBuddySBAScore({ dealId, sb, context: "package_seal" });
+        if (computed.score >= 60 && computed.eligibilityPassed) {
+          await lockBuddySBAScore({ dealId, sb });
+        }
+      } catch (e) {
+        autoResolveErrors.push(`score: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else if (scoreRow.score_status === "draft" && (scoreRow.score ?? 0) >= 60 && scoreRow.eligibility_passed) {
+      try {
+        await lockBuddySBAScore({ dealId, sb });
+      } catch (e) {
+        autoResolveErrors.push(`lock: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    const { data: existingAssumptions } = await sb
+      .from("buddy_sba_assumptions")
+      .select("id, status")
+      .eq("deal_id", dealId)
+      .maybeSingle();
+
+    if (!existingAssumptions || (existingAssumptions as any).status !== "confirmed") {
+      try {
+        await ensureAssumptionsForPreview({
+          dealId,
+          conciergeFacts: facts as any,
+          sb,
+        });
+      } catch (e) {
+        autoResolveErrors.push(`assumptions: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    const { data: existingBundle } = await sb
+      .from("buddy_trident_bundles")
+      .select("id")
+      .eq("deal_id", dealId)
+      .eq("mode", "preview")
+      .eq("status", "succeeded")
+      .is("superseded_at", null)
+      .maybeSingle();
+
+    if (!existingBundle) {
+      const { data: confirmedAssumptions } = await sb
+        .from("buddy_sba_assumptions")
+        .select("id, status")
+        .eq("deal_id", dealId)
+        .maybeSingle();
+      if (confirmedAssumptions && (confirmedAssumptions as any).status === "confirmed") {
+        try {
+          await generateTridentBundle({ dealId, mode: "preview" });
+        } catch (e) {
+          autoResolveErrors.push(`trident: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+  } catch (e) {
+    autoResolveErrors.push(`auto-resolve: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (autoResolveErrors.length > 0) {
+    console.warn("[seal-status] auto-resolve warnings:", autoResolveErrors);
+  }
 
   // Gate evaluation (even when already sealed — surfaces re-seal readiness).
   const gate = await canSeal(dealId, sb);
@@ -174,6 +273,7 @@ export async function GET(
       documentsUploadedCount: documentsUploadedCount ?? 0,
       identityVerificationCount: identityVerificationCount ?? 0,
       ownershipEntityCount: ownershipEntityCount ?? 0,
+      franchiseMatched,
       facts,
       fieldProgress,
       sealed: true,
@@ -192,6 +292,7 @@ export async function GET(
       },
       claims,
       manifest,
+      score: await loadScoreForResponse(dealId, sb),
       canSeal: gate.ok,
       gateReasons: gate.ok ? [] : gate.reasons,
     });
@@ -203,10 +304,39 @@ export async function GET(
     documentsUploadedCount: documentsUploadedCount ?? 0,
     identityVerificationCount: identityVerificationCount ?? 0,
     ownershipEntityCount: ownershipEntityCount ?? 0,
+    franchiseMatched,
     facts,
     fieldProgress,
     sealed: false,
+    score: await loadScoreForResponse(dealId, sb),
     canSeal: gate.ok,
     gateReasons: gate.ok ? [] : gate.reasons,
   });
+}
+
+async function loadScoreForResponse(
+  dealId: string,
+  sb: ReturnType<typeof supabaseAdmin>,
+): Promise<Record<string, unknown> | null> {
+  const { data } = await sb
+    .from("buddy_sba_scores")
+    .select(
+      "score, band, eligibility_passed, eligibility_failures, top_strengths, top_weaknesses, narrative, computed_at",
+    )
+    .eq("deal_id", dealId)
+    .order("computed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as any;
+  return {
+    score: row.score,
+    band: row.band,
+    eligibilityPassed: row.eligibility_passed,
+    eligibilityFailures: row.eligibility_failures ?? [],
+    topStrengths: row.top_strengths ?? [],
+    topWeaknesses: row.top_weaknesses ?? [],
+    narrative: row.narrative ?? "",
+    computedAt: row.computed_at ?? null,
+  };
 }

@@ -64,10 +64,12 @@ export function deriveVerificationsForTest(counts: {
   identityVerificationCount: number;
   ownershipEntityCount: number;
   documentsUploadedCount: number;
+  franchiseMatched?: boolean;
 }): DealVerificationState {
   return {
     entityResolved: counts.ownershipEntityCount >= 1,
     identityVerified: counts.identityVerificationCount >= 1,
     financialsExtracted: counts.documentsUploadedCount > 0,
+    franchiseMatched: counts.franchiseMatched ?? false,
   };
 }

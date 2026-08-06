@@ -35,7 +35,13 @@ const BUSINESS_FIELDS: CorrectableField[] = BORROWER_FIELD_REGISTRY
 
 export const CORRECTABLE_FACT_FIELDS: CorrectableField[] = [
   { factPath: "loan.amount_requested", label: "Loan amount requested", type: "number" },
+  { factPath: "loan.use_of_proceeds", label: "Use of proceeds", type: "string" },
   ...BUSINESS_FIELDS,
+  { factPath: "business.is_franchise", label: "Franchise", type: "boolean" },
+  { factPath: "business.is_startup", label: "Startup", type: "boolean" },
+  { factPath: "business.annual_revenue", label: "Annual revenue", type: "number" },
+  { factPath: "business.legal_name_or_industry", label: "Business name or industry", type: "string" },
+  { factPath: "ownership.structure", label: "Ownership structure", type: "string" },
 ];
 
 export function correctableFieldFor(factPath: string): CorrectableField | undefined {

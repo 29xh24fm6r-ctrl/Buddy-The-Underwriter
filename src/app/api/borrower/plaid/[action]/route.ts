@@ -127,7 +127,14 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({ ok: false, error: `unsupported_action: ${action}` }, { status: 400 });
   } catch (e: any) {
+    const msg: string = e?.message ?? "unexpected_error";
+    if (msg.includes("Plaid not configured")) {
+      return NextResponse.json(
+        { ok: false, errorCode: "plaid_not_configured", error: "Bank connection is being set up — check back soon." },
+        { status: 503 },
+      );
+    }
     console.error("[/api/borrower/plaid/[action]]", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "unexpected_error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
