@@ -18,7 +18,12 @@ import { Icon } from "@/components/ui/Icon";
 
 type Step = "identify" | "code" | "settling";
 
-export type VerifiedSession = { dealId: string | null; name: string | null; qaNeedsChooser?: boolean };
+export type VerifiedSession = {
+  dealId: string | null;
+  name: string | null;
+  qaNeedsChooser?: boolean;
+  applicationChoiceNeeded?: boolean;
+};
 
 async function postSession(body: Record<string, unknown>) {
   const res = await fetch("/api/brokerage/session", {
@@ -107,6 +112,14 @@ export function BorrowerWorkspaceGate({
       if (data?.qaNeedsChooser) {
         window.setTimeout(() => {
           onVerified({ dealId: null, name: name.trim() || null, qaNeedsChooser: true });
+        }, 900);
+        return;
+      }
+      // One or more prior applications exist for this email — signal the
+      // Welcome Back chooser instead of settling into a deal.
+      if (data?.applicationChoiceNeeded) {
+        window.setTimeout(() => {
+          onVerified({ dealId: null, name: name.trim() || null, applicationChoiceNeeded: true });
         }, 900);
         return;
       }
