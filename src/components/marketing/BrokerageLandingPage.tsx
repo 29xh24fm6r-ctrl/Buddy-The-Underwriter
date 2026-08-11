@@ -175,12 +175,12 @@ export function BrokerageLandingPage() {
               >
                 Start your SBA package
               </Link>
-              <Link
-                href="/start"
+              <a
+                href="#how"
                 className="rounded-xl border border-white/[0.18] bg-white/[0.08] px-7 py-[15px] text-[16px] font-bold text-white transition hover:bg-white/[0.14]"
               >
-                Talk to Buddy
-              </Link>
+                See How Buddy Works
+              </a>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[14px] text-[#b9cbdd]">
               <span>Not sure which applies?</span>
@@ -232,7 +232,7 @@ export function BrokerageLandingPage() {
             <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1c8de0]/[0.12] to-[#4db8f0]/[0.06]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/images/buddy-robot.png"
+                src="/images/buddy-robot-hero.png"
                 alt="Buddy the SBA Underwriter"
                 className="block w-full rounded-2xl"
               />
