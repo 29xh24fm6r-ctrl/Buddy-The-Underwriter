@@ -52,6 +52,10 @@ const ALLOWED_FILES = new Set([
   // (no real client of any kind).
   "src/lib/brokerage/__tests__/conversionFunnel.test.ts",
   "src/lib/brokerage/__tests__/liveFunnelCheck.test.ts",
+  // Structural tripwire test — asserts the route source does NOT contain a raw
+  // .insert on borrower_session_tokens. References the table name only inside
+  // a doesNotMatch regex; never constructs any Supabase client.
+  "src/app/api/brokerage/session/applications/__tests__/routeAuth.test.ts",
 ]);
 
 const PUBLISHABLE_CLIENT_HINTS = [
