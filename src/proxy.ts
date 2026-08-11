@@ -31,6 +31,7 @@ import { isMarketingHost, APP_ORIGIN } from "@/lib/navigation/clerkHosts";
 const isPublicRoute = createRouteMatcher([
   "/",
   "/start(.*)",
+  "/welcome-back(.*)",
   "/for-banks(.*)",
   "/pricing(.*)",
   "/franchise(.*)",

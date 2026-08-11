@@ -154,6 +154,7 @@ export type VerifyCodeResult =
   | { ok: true; dealId: string }
   | { ok: true; dealId: null; qaNeedsChooser: true }
   | { ok: true; dealId: null; applicationChoiceNeeded: true }
+  | { ok: true; dealId: null; noApplicationsFound: true }
   | {
       ok: false;
       error: "invalid_code" | "expired" | "too_many_attempts" | "not_found" | "qa_blocked_non_test_deal";
@@ -164,6 +165,7 @@ export async function verifyCodeAndCreateSession(args: {
   code: string;
   name?: string | null;
   bankId: string;
+  mode?: "start" | "welcome-back";
 }): Promise<VerifyCodeResult> {
   const email = args.email.trim().toLowerCase();
   const sb = supabaseAdmin();
@@ -202,6 +204,7 @@ export async function verifyCodeAndCreateSession(args: {
     email,
     name: args.name ?? null,
     bankId: args.bankId,
+    mode: args.mode,
   });
 
   // P0 SECURITY: QA identity must never return a non-test dealId.
@@ -226,6 +229,10 @@ export async function verifyCodeAndCreateSession(args: {
   if (resolution.kind === "application_choice_needed") {
     await setApplicationChooserCookie(email, args.bankId);
     return { ok: true, dealId: null, applicationChoiceNeeded: true };
+  }
+
+  if (resolution.kind === "no_applications") {
+    return { ok: true, dealId: null, noApplicationsFound: true };
   }
 
   return { ok: true, dealId: resolution.dealId };
@@ -268,10 +275,12 @@ async function resolveOrCreateVerifiedBorrowerSession(args: {
   email: string;
   name: string | null;
   bankId: string;
+  mode?: "start" | "welcome-back";
 }): Promise<
   | { kind: "deal"; dealId: string }
   | { kind: "qa_needs_chooser" }
   | { kind: "application_choice_needed" }
+  | { kind: "no_applications" }
 > {
   const sb = supabaseAdmin();
   const isQA = isQABorrowerEmail(args.email);
@@ -333,6 +342,10 @@ async function resolveOrCreateVerifiedBorrowerSession(args: {
 
   if (existingApplications.length > 0) {
     return { kind: "application_choice_needed" };
+  }
+
+  if (args.mode === "welcome-back") {
+    return { kind: "no_applications" };
   }
 
   const session = await getOrCreateBorrowerSession();
