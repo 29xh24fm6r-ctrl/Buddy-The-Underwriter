@@ -17,6 +17,7 @@ const PUBLIC_BORROWER_PREFIXES = [
   "/brokerage",
   "/apply",
   "/start",
+  "/welcome-back",
   "/for-banks",
   "/pricing",
   "/franchise",

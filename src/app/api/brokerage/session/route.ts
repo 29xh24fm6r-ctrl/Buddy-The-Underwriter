@@ -22,7 +22,7 @@ import {
 } from "@/lib/brokerage/emailVerification";
 
 type SendBody = { action: "send"; name?: string; email: string };
-type VerifyBody = { action: "verify"; email: string; code: string; name?: string };
+type VerifyBody = { action: "verify"; email: string; code: string; name?: string; mode?: "start" | "welcome-back" };
 type Body = SendBody | VerifyBody;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -71,11 +71,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "code_required" }, { status: 400 });
     }
     const name = typeof body.name === "string" ? body.name.slice(0, 200) : null;
+    const mode = body.mode === "welcome-back" ? "welcome-back" as const : undefined;
     const result = await verifyCodeAndCreateSession({
       email: body.email,
       code: body.code,
       name,
       bankId,
+      mode,
     });
     if (!result.ok) {
       const status = result.error === "not_found" ? 404 : 400;
@@ -85,6 +87,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // No session token was created for a non-test deal.
     if ("qaNeedsChooser" in result && result.qaNeedsChooser) {
       return NextResponse.json({ ok: true, dealId: null, qaNeedsChooser: true });
+    }
+    // One or more prior applications exist for this verified email — client
+    // must show the Welcome Back chooser. No session token was created.
+    if ("applicationChoiceNeeded" in result && result.applicationChoiceNeeded) {
+      return NextResponse.json({ ok: true, dealId: null, applicationChoiceNeeded: true });
+    }
+    if ("noApplicationsFound" in result && result.noApplicationsFound) {
+      return NextResponse.json({ ok: true, dealId: null, noApplicationsFound: true });
     }
     return NextResponse.json({ ok: true, dealId: result.dealId });
   }

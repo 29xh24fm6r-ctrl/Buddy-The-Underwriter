@@ -272,13 +272,13 @@ describe("Test H: no non-test deal can be listed, resumed, or bound", () => {
 // ── EmailVerification integration ──
 
 describe("EmailVerification sets QA chooser cookie on qaNeedsChooser", () => {
-  it("verifyCodeAndCreateSession calls setQAChooserCookie when dealId is null", () => {
+  it("verifyCodeAndCreateSession calls setQAChooserCookie when resolution is qa_needs_chooser", () => {
     const source = readSource("src/lib/brokerage/emailVerification.ts");
-    // After the "if (dealId === null)" check, setQAChooserCookie is called
-    const nullIdx = source.indexOf("if (dealId === null)");
-    const chooserIdx = source.indexOf("setQAChooserCookie", nullIdx);
-    assert.ok(nullIdx > -1, "Must check dealId === null");
-    assert.ok(chooserIdx > nullIdx, "setQAChooserCookie must be called after null check");
+    // After the discriminated kind check, setQAChooserCookie is called
+    const kindIdx = source.indexOf('resolution.kind === "qa_needs_chooser"');
+    const chooserIdx = source.indexOf("setQAChooserCookie", kindIdx);
+    assert.ok(kindIdx > -1, "Must check resolution.kind === qa_needs_chooser");
+    assert.ok(chooserIdx > kindIdx, "setQAChooserCookie must be called after kind check");
   });
 
   it("setQAChooserCookie import exists in emailVerification.ts", () => {

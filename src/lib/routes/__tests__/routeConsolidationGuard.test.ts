@@ -53,7 +53,12 @@ const ROOT = resolve(__dirname, "../../../..");
 // existing SBA routes. 2 additional route.ts files arrived from upstream
 // merges since the last bump. Actual measured total: 803 route.ts * 2 +
 // 192 page.tsx * 2 = 1990. Still 48 slots under the 2048 hard cap.
-const MERGED_WARNING_THRESHOLD = 2000;
+//
+// Bumped 2000 -> 2002 on 2026-08-11: Sign Back In feature added 1 new
+// page at /welcome-back (returning-borrower identity verification).
+// Actual measured total: 807 route.ts * 2 + 193 page.tsx * 2 = 2000.
+// Still 46 slots under the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 2002;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {

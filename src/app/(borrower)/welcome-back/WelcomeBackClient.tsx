@@ -1,29 +1,10 @@
 "use client";
 
-/**
- * Email-verification gate that sits in front of the /start concierge chat.
- *
- * A borrower gives their name + email, gets a 6-digit code, and verifying
- * it is the moment their private workspace is created — the whole chat
- * conversation happens inside it from message one, rather than an
- * anonymous session that only later gets tied to an email mid-conversation.
- * That's what makes the workspace durable across devices: identity is keyed
- * on the confirmed email (see resolveOrCreateVerifiedBorrowerSession in
- * lib/brokerage/emailVerification.ts), not on whatever session cookie a
- * browser happens to already be holding.
- */
-
 import * as React from "react";
 import { Icon } from "@/components/ui/Icon";
+import { ApplicationChooserScreen } from "@/components/brokerage/ApplicationChooserScreen";
 
-type Step = "identify" | "code" | "settling";
-
-export type VerifiedSession = {
-  dealId: string | null;
-  name: string | null;
-  qaNeedsChooser?: boolean;
-  applicationChoiceNeeded?: boolean;
-};
+type Step = "email" | "code" | "chooser" | "not_found";
 
 async function postSession(body: Record<string, unknown>) {
   const res = await fetch("/api/brokerage/session", {
@@ -35,13 +16,8 @@ async function postSession(body: Record<string, unknown>) {
   return { res, data };
 }
 
-export function BorrowerWorkspaceGate({
-  onVerified,
-}: {
-  onVerified: (session: VerifiedSession) => void;
-}) {
-  const [step, setStep] = React.useState<Step>("identify");
-  const [name, setName] = React.useState("");
+export function WelcomeBackClient() {
+  const [step, setStep] = React.useState<Step>("email");
   const [email, setEmail] = React.useState("");
   const [code, setCode] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -50,20 +26,26 @@ export function BorrowerWorkspaceGate({
 
   React.useEffect(() => {
     if (resendCooldown <= 0) return;
-    const t = window.setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    const t = window.setInterval(
+      () => setResendCooldown((s) => Math.max(0, s - 1)),
+      1000,
+    );
     return () => window.clearInterval(t);
   }, [resendCooldown]);
 
   async function sendCode(e?: React.FormEvent) {
     e?.preventDefault();
     if (!email.trim()) {
-      setError("Enter your email to get started.");
+      setError("Enter the email you used with Buddy.");
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const { res, data } = await postSession({ action: "send", name, email });
+      const { res, data } = await postSession({
+        action: "send",
+        email,
+      });
       if (!res.ok || !data?.ok) {
         if (res.status === 429) {
           const retryAfter = Number(res.headers.get("retry-after") ?? "60");
@@ -72,14 +54,18 @@ export function BorrowerWorkspaceGate({
         } else if (data?.error === "valid_email_required") {
           setError("That email doesn't look right — double-check it.");
         } else {
-          setError("Buddy couldn't send that code. Please try again.");
+          setError(
+            "Buddy couldn't send that code. Please try again.",
+          );
         }
         return;
       }
       setResendCooldown(30);
       setStep("code");
     } catch {
-      setError("Buddy couldn't reach the server. Check your connection and try again.");
+      setError(
+        "Buddy couldn't reach the server. Check your connection and try again.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -94,53 +80,119 @@ export function BorrowerWorkspaceGate({
     setSubmitting(true);
     setError(null);
     try {
-      const { data } = await postSession({ action: "verify", email, code, name });
+      const { data } = await postSession({
+        action: "verify",
+        email,
+        code,
+        mode: "welcome-back",
+      });
       if (!data?.ok) {
         const messages: Record<string, string> = {
-          invalid_code: "That code isn't right — check your email and try again.",
+          invalid_code:
+            "That code isn't right — check your email and try again.",
           expired: "That code expired — send a new one.",
           too_many_attempts: "Too many tries — send a new code.",
           not_found: "Send a code first.",
         };
-        setError(messages[data?.error] ?? "Buddy couldn't verify that code. Please try again.");
-        if (data?.error === "expired" || data?.error === "too_many_attempts") {
-          setStep("identify");
+        setError(
+          messages[data?.error] ??
+            "Buddy couldn't verify that code. Please try again.",
+        );
+        if (
+          data?.error === "expired" ||
+          data?.error === "too_many_attempts"
+        ) {
+          setStep("email");
         }
         return;
       }
-      // P0 SECURITY: QA identity verified but no test deal — signal chooser state.
-      if (data?.qaNeedsChooser) {
-        window.setTimeout(() => {
-          onVerified({ dealId: null, name: name.trim() || null, qaNeedsChooser: true });
-        }, 900);
+
+      if (data.noApplicationsFound) {
+        setStep("not_found");
         return;
       }
-      // One or more prior applications exist for this email — signal the
-      // Welcome Back chooser instead of settling into a deal.
-      if (data?.applicationChoiceNeeded) {
-        window.setTimeout(() => {
-          onVerified({ dealId: null, name: name.trim() || null, applicationChoiceNeeded: true });
-        }, 900);
+
+      if (data.applicationChoiceNeeded) {
+        setStep("chooser");
         return;
       }
-      setStep("settling");
-      window.setTimeout(() => {
-        onVerified({ dealId: data.dealId as string, name: name.trim() || null });
-      }, 900);
+
+      if (data.qaNeedsChooser) {
+        setStep("chooser");
+        return;
+      }
+
+      // Unexpected: a direct dealId in welcome-back mode. Treat as
+      // "applications found" and show the chooser rather than auto-resuming.
+      if (data.dealId) {
+        console.warn(
+          "[welcome-back] Unexpected direct dealId in welcome-back mode — showing chooser instead of auto-resuming.",
+        );
+        setStep("chooser");
+        return;
+      }
+
+      setStep("not_found");
     } catch {
-      setError("Buddy couldn't reach the server. Check your connection and try again.");
+      setError(
+        "Buddy couldn't reach the server. Check your connection and try again.",
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (step === "settling") {
+  if (step === "chooser") {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-white p-10 text-center">
-        <div className="brand-gradient-cta flex h-14 w-14 items-center justify-center rounded-full">
-          <Icon name="auto_awesome" className="h-7 w-7 animate-pulse text-white" />
+      <ApplicationChooserScreen
+        onResolved={() => {
+          window.location.href = `/start`;
+        }}
+      />
+    );
+  }
+
+  if (step === "not_found") {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+            <Icon name="error" className="h-5 w-5 text-slate-400" />
+          </div>
+          <div>
+            <h2 className="font-heading text-lg font-bold text-slate-900">
+              No applications found
+            </h2>
+            <p className="text-sm text-slate-600">
+              We verified your email but didn't find any existing SBA
+              packages associated with{" "}
+              <span className="font-medium text-slate-900">{email}</span>.
+            </p>
+          </div>
         </div>
-        <p className="text-sm font-semibold text-slate-900">Setting up your workspace…</p>
+        <p className="mb-5 text-sm leading-6 text-slate-600">
+          If you've used Buddy before, make sure you're using the same
+          email address. Otherwise, you can start a new application.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => {
+              setStep("email");
+              setCode("");
+              setError(null);
+            }}
+            className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Try a different email
+          </button>
+          <a
+            href="/start"
+            className="brand-gradient-cta flex-1 rounded-xl px-4 py-3 text-center text-sm font-semibold text-white transition hover:brightness-110"
+          >
+            Start a new application
+          </a>
+        </div>
       </div>
     );
   }
@@ -153,16 +205,21 @@ export function BorrowerWorkspaceGate({
             <Icon name="mail" className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h2 className="font-heading text-lg font-bold text-slate-900">Check your email</h2>
+            <h2 className="font-heading text-lg font-bold text-slate-900">
+              Check your email
+            </h2>
             <p className="text-sm text-slate-600">
-              We sent a 6-digit code to <span className="font-medium text-slate-900">{email}</span>.
+              We sent a 6-digit code to{" "}
+              <span className="font-medium text-slate-900">{email}</span>.
             </p>
           </div>
         </div>
         <form onSubmit={verifyCode} className="space-y-3">
           <input
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) =>
+              setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+            }
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
@@ -180,14 +237,14 @@ export function BorrowerWorkspaceGate({
             disabled={submitting}
             className="brand-gradient-cta w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
           >
-            {submitting ? "Verifying…" : "Verify and enter my workspace"}
+            {submitting ? "Verifying…" : "Verify and find my applications"}
           </button>
         </form>
         <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
           <button
             type="button"
             onClick={() => {
-              setStep("identify");
+              setStep("email");
               setCode("");
               setError(null);
             }}
@@ -201,35 +258,32 @@ export function BorrowerWorkspaceGate({
             onClick={() => void sendCode()}
             className="font-medium text-brand-blue-500 underline hover:text-brand-blue-600 disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
           >
-            {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}
+            {resendCooldown > 0
+              ? `Resend code in ${resendCooldown}s`
+              : "Resend code"}
           </button>
         </div>
       </div>
     );
   }
 
+  // step === "email"
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
       <div className="mb-5 flex items-center gap-3">
         <div className="brand-gradient-cta flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
-          <Icon name="auto_awesome" className="h-5 w-5 text-white" />
+          <Icon name="person" className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h2 className="font-heading text-lg font-bold text-slate-900">Let's set up your workspace</h2>
+          <h2 className="font-heading text-lg font-bold text-slate-900">
+            Welcome back
+          </h2>
           <p className="text-sm text-slate-600">
-            A private space just for your SBA package — accessible from any device, always yours.
+            Enter the email you used with Buddy to find your applications.
           </p>
         </div>
       </div>
       <form onSubmit={sendCode} className="space-y-3">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
-          autoComplete="name"
-          aria-label="Your name"
-          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-brand-blue-500 focus:outline-none focus:ring-2 focus:ring-brand-blue-500/30"
-        />
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -249,11 +303,21 @@ export function BorrowerWorkspaceGate({
           disabled={submitting || resendCooldown > 0}
           className="brand-gradient-cta w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
         >
-          {submitting ? "Sending…" : resendCooldown > 0 ? `Try again in ${resendCooldown}s` : "Send my code"}
+          {submitting
+            ? "Sending…"
+            : resendCooldown > 0
+              ? `Try again in ${resendCooldown}s`
+              : "Continue"}
         </button>
       </form>
-      <p className="mt-3 text-center text-xs text-slate-500">
-        We'll only ever use this to save your progress and let you back in.
+      <p className="mt-4 text-center text-sm text-slate-500">
+        New to Buddy?{" "}
+        <a
+          href="/start"
+          className="font-medium text-brand-blue-500 underline hover:text-brand-blue-600"
+        >
+          Start a new application
+        </a>
       </p>
     </div>
   );
