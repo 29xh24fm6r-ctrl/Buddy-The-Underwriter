@@ -300,7 +300,7 @@ export function BrokerageLandingPage() {
       {/* ────────────────────────────────────────────────────────────────
           1. NAVIGATION
       ──────────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-50 border-b border-black/[0.06] bg-white/90 backdrop-blur-xl">
+      <nav className="border-b border-black/[0.06] bg-white">
         <div className="mx-auto flex h-[68px] max-w-[1200px] items-center justify-between px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2.5">
             <div
@@ -599,47 +599,70 @@ export function BrokerageLandingPage() {
       {/* ────────────────────────────────────────────────────────────────
           6. READY FOR UNDERWRITING — DOCUMENT VISUAL
       ──────────────────────────────────────────────────────────────── */}
-      <section className="overflow-hidden bg-gradient-to-b from-[#f0f4f8] to-[#e8eef4] px-6 py-16 sm:py-20 lg:px-8">
+      <section className="overflow-hidden bg-gradient-to-b from-[#f0f4f8] to-[#e8eef4] px-6 py-10 sm:py-12 lg:px-8">
         <div className="mx-auto max-w-[1200px]">
-          <div className="relative mx-auto flex h-[260px] max-w-[700px] items-center justify-center sm:h-[320px]">
-            <div className="absolute h-[200px] w-[320px] rotate-[-8deg] rounded-lg bg-white shadow-[0_8px_32px_rgba(0,0,0,0.1)] sm:h-[240px] sm:w-[400px]">
-              <div className="p-5">
-                <div className="mb-3 h-3 w-24 rounded bg-[#e2e8f0]" />
-                <div className="space-y-2">
-                  <div className="h-2 w-full rounded bg-[#f1f5f9]" />
-                  <div className="h-2 w-4/5 rounded bg-[#f1f5f9]" />
-                  <div className="h-2 w-3/4 rounded bg-[#f1f5f9]" />
-                  <div className="h-2 w-5/6 rounded bg-[#f1f5f9]" />
+          <div className="relative mx-auto flex h-[220px] max-w-[700px] items-center justify-center sm:h-[280px]">
+            {/* Back card — Business Plan page */}
+            <div className="absolute h-[180px] w-[300px] rotate-[-8deg] rounded-lg bg-white shadow-[0_8px_32px_rgba(0,0,0,0.1)] sm:h-[220px] sm:w-[380px]" style={{ fontSize: 0 }}>
+              <div className="p-4" style={{ fontSize: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#1e3a5f", marginBottom: 6 }}>Business Plan</div>
+                <div style={{ fontSize: 7, color: "#64748b", lineHeight: "1.5", marginBottom: 4 }}>1. Executive Summary</div>
+                <div style={{ fontSize: 6, color: "#94a3b8", lineHeight: "1.4", marginBottom: 3 }}>The company was founded in 2019 and operates in the commercial services sector...</div>
+                <div style={{ fontSize: 7, color: "#64748b", lineHeight: "1.5", marginBottom: 4 }}>2. Market Analysis</div>
+                <div style={{ fontSize: 6, color: "#94a3b8", lineHeight: "1.4" }}>Total addressable market estimated at $4.2B with projected 12% CAGR through 2028.</div>
+              </div>
+            </div>
+            {/* Middle card — Financial Summary */}
+            <div className="absolute h-[180px] w-[300px] rotate-[-3deg] rounded-lg bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)] sm:h-[220px] sm:w-[380px]" style={{ fontSize: 0 }}>
+              <div className="p-4" style={{ fontSize: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#1e3a5f", marginBottom: 6 }}>Financial Summary</div>
+                <div className="mb-2 grid grid-cols-3 gap-2">
+                  <div className="rounded bg-[#f0f7ff] p-1.5 text-center">
+                    <div style={{ fontSize: 6, color: "#64748b" }}>Revenue</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: "#1c8de0" }}>$1.2M</div>
+                  </div>
+                  <div className="rounded bg-[#f0fdf4] p-1.5 text-center">
+                    <div style={{ fontSize: 6, color: "#64748b" }}>Net Income</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: "#16a34a" }}>$340K</div>
+                  </div>
+                  <div className="rounded bg-[#faf5ff] p-1.5 text-center">
+                    <div style={{ fontSize: 6, color: "#64748b" }}>DSCR</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: "#7c3aed" }}>1.42x</div>
+                  </div>
+                </div>
+                <div className="flex items-end gap-1.5" style={{ height: 32 }}>
+                  <div className="w-4 rounded-t bg-[#bfdbfe]" style={{ height: "45%" }} />
+                  <div className="w-4 rounded-t bg-[#93c5fd]" style={{ height: "60%" }} />
+                  <div className="w-4 rounded-t bg-[#60a5fa]" style={{ height: "85%" }} />
+                  <div className="w-4 rounded-t bg-[#3b82f6]" style={{ height: "100%" }} />
+                  <div className="w-4 rounded-t bg-[#60a5fa]" style={{ height: "70%" }} />
                 </div>
               </div>
             </div>
-            <div className="absolute h-[200px] w-[320px] rotate-[-3deg] rounded-lg bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)] sm:h-[240px] sm:w-[400px]">
-              <div className="p-5">
-                <div className="mb-3 h-3 w-32 rounded bg-[#dbeafe]" />
-                <div className="mb-3 grid grid-cols-3 gap-2">
-                  <div className="h-12 rounded bg-[#f1f5f9]" />
-                  <div className="h-12 rounded bg-[#eef6ff]" />
-                  <div className="h-12 rounded bg-[#f1f5f9]" />
+            {/* Front card — SBA Application */}
+            <div className="absolute h-[180px] w-[300px] rotate-[2deg] rounded-lg bg-white shadow-[0_16px_48px_rgba(0,0,0,0.14)] sm:h-[220px] sm:w-[380px]" style={{ fontSize: 0 }}>
+              <div className="p-4" style={{ fontSize: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#1e3a5f", marginBottom: 6 }}>SBA 7(a) Loan Application</div>
+                <div className="mb-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  <div>
+                    <div style={{ fontSize: 6, color: "#94a3b8" }}>Loan Amount</div>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: "#334155" }}>$350,000</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 6, color: "#94a3b8" }}>Term</div>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: "#334155" }}>10 Years</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 6, color: "#94a3b8" }}>Business Name</div>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: "#334155" }}>Acme Services LLC</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 6, color: "#94a3b8" }}>NAICS Code</div>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: "#334155" }}>541611</div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="h-2 w-full rounded bg-[#f1f5f9]" />
-                  <div className="h-2 w-2/3 rounded bg-[#f1f5f9]" />
-                </div>
-              </div>
-            </div>
-            <div className="absolute h-[200px] w-[320px] rotate-[2deg] rounded-lg bg-white shadow-[0_16px_48px_rgba(0,0,0,0.14)] sm:h-[240px] sm:w-[400px]">
-              <div className="p-5">
-                <div className="mb-3 h-3 w-28 rounded bg-[#dbeafe]" />
-                <div className="flex items-end gap-2 h-16 mb-3">
-                  <div className="w-5 rounded-t bg-[#bfdbfe]" style={{ height: "40%" }} />
-                  <div className="w-5 rounded-t bg-[#93c5fd]" style={{ height: "65%" }} />
-                  <div className="w-5 rounded-t bg-[#60a5fa]" style={{ height: "100%" }} />
-                  <div className="w-5 rounded-t bg-[#93c5fd]" style={{ height: "55%" }} />
-                  <div className="w-5 rounded-t bg-[#bfdbfe]" style={{ height: "35%" }} />
-                </div>
-                <div className="space-y-2">
-                  <div className="h-2 w-full rounded bg-[#f1f5f9]" />
-                  <div className="h-2 w-3/4 rounded bg-[#f1f5f9]" />
+                <div className="mt-2 rounded bg-[#f0fdf4] px-2 py-1">
+                  <div style={{ fontSize: 7, fontWeight: 600, color: "#16a34a" }}>Status: Complete - All documents verified</div>
                 </div>
               </div>
             </div>
@@ -1164,7 +1187,7 @@ export function BrokerageLandingPage() {
               Start Your SBA Package
             </Link>
           </div>
-          <div className="hidden w-[200px] shrink-0 lg:block">
+          <div className="hidden w-[440px] shrink-0 lg:block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/images/buddy-robot.png"
@@ -1217,7 +1240,6 @@ export function BrokerageLandingPage() {
                 Company
               </h4>
               <div className="space-y-2.5">
-                <Link href="/" className="block text-[13px] transition hover:text-white">About Buddy</Link>
                 <a href="mailto:hello@buddysba.com" className="block text-[13px] transition hover:text-white">Contact Us</a>
               </div>
             </div>
