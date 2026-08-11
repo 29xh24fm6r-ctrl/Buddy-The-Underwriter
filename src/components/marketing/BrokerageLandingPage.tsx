@@ -18,46 +18,149 @@ const jakarta = Plus_Jakarta_Sans({
   display: "swap",
 });
 
+const pp: React.CSSProperties = {
+  fontFamily: "var(--font-poppins), sans-serif",
+};
+
 const STEPS = [
   {
     n: 1,
     title: "Tell Buddy About Your Business",
     desc: "Answer simple questions about your business and funding goals.",
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+        <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+      </svg>
+    ),
   },
   {
     n: 2,
     title: "Upload Documents",
     desc: "Upload your financials and supporting documents securely.",
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="16 16 12 12 8 16" />
+        <line x1="12" y1="12" x2="12" y2="21" />
+        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+      </svg>
+    ),
   },
   {
     n: 3,
     title: "Buddy Reviews Everything",
     desc: "Buddy identifies missing items, analyzes your financials, and organizes your package.",
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+    ),
   },
   {
     n: 4,
     title: "We Build Your SBA Loan Package",
-    desc: "Business plan, SBA forms, lender summary, financial analysis, projections, and document checklist.",
+    desc: "Business plan, SBA forms, financial analysis, projections, and a complete checklist.",
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+      </svg>
+    ),
   },
   {
     n: 5,
     title: "Get Matched With Qualified SBA Lenders",
     desc: "We connect you with lenders that fit your loan request.",
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
   },
   {
     n: 6,
     title: "Funding Support",
     desc: "You stay in control while Buddy helps coordinate the process through closing.",
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </svg>
+    ),
   },
 ];
 
 const PACKAGE_ITEMS = [
-  { title: "Executive Summary", desc: "A clear snapshot of your business and loan request." },
-  { title: "Business Plan", desc: "A lender-ready plan that tells your story and your strategy." },
-  { title: "Financial Analysis", desc: "Professional analysis of your financials and cash flow." },
-  { title: "SBA Forms", desc: "All required SBA forms completed accurately." },
-  { title: "Readiness Score", desc: "See how your package stacks up before it reaches lenders." },
-  { title: "Complete Lender Package", desc: "A polished package that makes a strong first impression." },
+  {
+    title: "Executive Summary",
+    desc: "Clear overview of your business, goals, and loan request.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <polyline points="10 9 9 9 8 9" />
+      </svg>
+    ),
+  },
+  {
+    title: "Business Plan",
+    desc: "Lender-ready plan with market, strategy, and operations.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </svg>
+    ),
+  },
+  {
+    title: "Financial Analysis",
+    desc: "In-depth review of your financials and key metrics.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10" />
+        <line x1="12" y1="20" x2="12" y2="4" />
+        <line x1="6" y1="20" x2="6" y2="14" />
+      </svg>
+    ),
+  },
+  {
+    title: "SBA Forms",
+    desc: "All required SBA forms completed and organized.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <path d="M9 15l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
+    title: "Readiness Score",
+    desc: "See how lender-ready your package is before you apply.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 6v6l4 2" />
+      </svg>
+    ),
+  },
+  {
+    title: "Complete Lender Package",
+    desc: "All documents compiled in a professional, easy-to-review package.",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+  },
 ];
 
 const FAQ_ITEMS = [
@@ -91,261 +194,399 @@ const FAQ_ITEMS = [
   },
 ];
 
+const OWNER_BENEFITS = [
+  { title: "Save Weeks of Work", desc: "Buddy does the heavy lifting." },
+  { title: "Never Wonder What's Missing", desc: "We show you exactly what lenders need." },
+  { title: "Bank-Ready Packages", desc: "Professionally prepared and easy to review." },
+  { title: "Expert Guidance", desc: "Built from real SBA lending experience." },
+  { title: "Higher Confidence Before Applying", desc: "Know your package is complete and strong." },
+];
+
+const LENDER_BENEFITS = [
+  { title: "Cleaner Applications", desc: "Organized, complete, and easy to review." },
+  { title: "Better Organized Files", desc: "Everything in the right place." },
+  { title: "Faster Reviews", desc: "Spend less time chasing information." },
+  { title: "Reduced Back-and-Forth", desc: "Fewer requests. Fewer delays." },
+  { title: "Better Qualified Borrowers", desc: "Stronger packages from the start." },
+];
+
+const SBA_TYPES = [
+  {
+    label: "SBA 7(a)",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 21h18" />
+        <path d="M3 10h18" />
+        <path d="M5 6l7-3 7 3" />
+        <line x1="4" y1="10" x2="4" y2="21" />
+        <line x1="20" y1="10" x2="20" y2="21" />
+        <line x1="8" y1="14" x2="8" y2="17" />
+        <line x1="12" y1="14" x2="12" y2="17" />
+        <line x1="16" y1="14" x2="16" y2="17" />
+      </svg>
+    ),
+  },
+  {
+    label: "SBA 504",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="6" width="15" height="16" rx="2" />
+        <rect x="8" y="2" width="15" height="16" rx="2" />
+      </svg>
+    ),
+  },
+  {
+    label: "Business Acquisition",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="M9 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
+    label: "Commercial Real Estate",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="2" width="16" height="20" rx="2" />
+        <line x1="9" y1="6" x2="9.01" y2="6" />
+        <line x1="15" y1="6" x2="15.01" y2="6" />
+        <line x1="9" y1="10" x2="9.01" y2="10" />
+        <line x1="15" y1="10" x2="15.01" y2="10" />
+        <line x1="9" y1="14" x2="9.01" y2="14" />
+        <line x1="15" y1="14" x2="15.01" y2="14" />
+        <path d="M9 18h6" />
+      </svg>
+    ),
+  },
+  {
+    label: "Working Capital",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="1" x2="12" y2="23" />
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    ),
+  },
+  {
+    label: "Equipment Financing",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Business Expansion",
+    icon: (
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+        <polyline points="17 6 23 6 23 12" />
+      </svg>
+    ),
+  },
+];
+
 export function BrokerageLandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
 
   return (
     <main
-      className={`${poppins.variable} ${jakarta.variable} min-h-screen bg-[#f6f8fb] text-[#12263f] antialiased`}
+      className={`${poppins.variable} ${jakarta.variable} min-h-screen bg-[#f8fafc] text-[#12263f] antialiased`}
       style={{ fontFamily: "var(--font-jakarta), sans-serif" }}
     >
-      {/* ── 1. NAV ── */}
-      <nav className="sticky top-0 z-50 border-b border-[#12263f]/[0.07] bg-[#f6f8fb]/85 px-6 py-4 backdrop-blur-xl sm:px-10">
-        <div className="mx-auto flex max-w-[1240px] items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
+      {/* ────────────────────────────────────────────────────────────────
+          1. NAVIGATION
+      ──────────────────────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-50 border-b border-black/[0.06] bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-[68px] max-w-[1200px] items-center justify-between px-6 lg:px-8">
+          <Link href="/" className="flex items-center gap-2.5">
             <div
-              className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-[19px] font-extrabold italic text-white"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-[18px] font-extrabold italic text-white shadow-[0_2px_8px_rgba(28,141,224,0.3)]"
+              style={pp}
             >
               B
             </div>
             <div className="leading-none">
-              <div
-                className="text-[20px] font-bold text-[#12263f]"
-                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-              >
+              <div className="text-[18px] font-bold text-[#12263f]" style={pp}>
                 Buddy
               </div>
-              <div className="mt-0.5 text-[8px] font-semibold tracking-[2px] text-[#6b8299]">
-                THE SBA UNDERWRITER
+              <div className="text-[7.5px] font-bold uppercase tracking-[2.2px] text-[#6b8299]">
+                The SBA Underwriter
               </div>
             </div>
           </Link>
-          <div className="flex items-center gap-4 sm:gap-8">
-            <a
-              href="#how"
-              className="hidden text-[15px] font-semibold text-[#3d5674] transition hover:text-[#1c8de0] sm:inline"
-            >
-              How it works
-            </a>
-            <a
-              href="#lenders"
-              className="hidden text-[15px] font-semibold text-[#3d5674] transition hover:text-[#1c8de0] sm:inline"
-            >
-              For lenders
-            </a>
+
+          <div className="hidden items-center gap-7 lg:flex">
+            {[
+              { label: "How It Works", href: "#how" },
+              { label: "What Buddy Builds", href: "#package" },
+              { label: "For Lenders", href: "#lenders" },
+              { label: "FAQ", href: "#faq" },
+              { label: "Sign In", href: "/welcome-back" },
+            ].map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                className="text-[14px] font-semibold text-[#3d5674] transition-colors hover:text-[#1c8de0]"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
             <Link
               href="/apply"
-              className="rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-5 py-[11px] text-[15px] font-bold text-white shadow-[0_6px_18px_rgba(28,141,224,0.28)] transition hover:brightness-[1.06]"
+              className="rounded-full bg-gradient-to-r from-[#1c8de0] to-[#3ba4f0] px-6 py-2.5 text-[14px] font-bold text-white shadow-[0_4px_14px_rgba(28,141,224,0.35)] transition hover:shadow-[0_6px_20px_rgba(28,141,224,0.45)] hover:brightness-[1.04]"
             >
-              Start your package
+              Start Your SBA Package
             </Link>
+            <button
+              onClick={() => setNavOpen(!navOpen)}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-[#3d5674] transition hover:bg-[#f1f5f9] lg:hidden"
+              aria-label="Menu"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                {navOpen ? (
+                  <>
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </>
+                ) : (
+                  <>
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </>
+                )}
+              </svg>
+            </button>
           </div>
         </div>
+
+        {navOpen && (
+          <div className="border-t border-black/[0.06] bg-white px-6 pb-4 pt-2 lg:hidden">
+            {[
+              { label: "How It Works", href: "#how" },
+              { label: "What Buddy Builds", href: "#package" },
+              { label: "For Lenders", href: "#lenders" },
+              { label: "FAQ", href: "#faq" },
+              { label: "Sign In", href: "/welcome-back" },
+            ].map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                onClick={() => setNavOpen(false)}
+                className="block py-2.5 text-[15px] font-semibold text-[#3d5674] transition hover:text-[#1c8de0]"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        )}
       </nav>
 
-      {/* ── 2. HERO ── */}
-      <section className="relative overflow-hidden bg-[linear-gradient(160deg,#0e2340_0%,#12263f_55%,#173250_100%)] px-6 py-16 text-white sm:px-10 sm:py-20 lg:py-24">
+      {/* ────────────────────────────────────────────────────────────────
+          2. HERO
+      ──────────────────────────────────────────────────────────────── */}
+      <section className="relative overflow-hidden bg-[linear-gradient(135deg,#0b1a2e_0%,#12263f_50%,#162d4a_100%)]">
         <div
-          className="pointer-events-none absolute -right-20 -top-[120px] h-[460px] w-[460px] rounded-full"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(28,141,224,0.28), transparent 70%)",
-          }}
+          className="pointer-events-none absolute right-0 top-0 h-full w-1/2"
+          style={{ background: "radial-gradient(ellipse at 70% 50%, rgba(28,141,224,0.12), transparent 70%)" }}
         />
-        <div className="relative mx-auto grid max-w-[1240px] items-center gap-10 lg:grid-cols-[1fr_0.9fr] lg:gap-16">
-          <div>
+        <div className="relative mx-auto grid max-w-[1200px] items-center gap-10 px-6 py-16 sm:py-20 lg:grid-cols-[1fr_1fr] lg:gap-12 lg:px-8 lg:py-24">
+          <div className="max-w-[560px]">
             <h1
-              className="text-[32px] font-extrabold leading-[1.08] tracking-tight sm:text-[48px] lg:text-[52px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+              className="text-[36px] font-extrabold leading-[1.06] tracking-tight text-white sm:text-[48px] lg:text-[56px]"
+              style={pp}
             >
-              Build a Lender-Ready SBA Loan Package
+              Build a Lender-Ready
+              <br />
+              SBA Loan Package
             </h1>
             <p
-              className="mt-2 text-[26px] font-extrabold text-[#4db8f0] sm:text-[36px] lg:text-[40px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+              className="mt-3 text-[28px] font-extrabold italic text-[#4db8f0] sm:text-[36px] lg:text-[42px]"
+              style={pp}
             >
               Right the First Time.
             </p>
-            <p className="mb-8 mt-5 max-w-[540px] text-[17px] leading-relaxed text-[#b9cbdd] sm:text-[19px]">
+            <p className="mb-9 mt-6 max-w-[480px] text-[16px] leading-[1.7] text-[#94a8bf] sm:text-[17px]">
               Buddy guides you step-by-step, organizes your documents, builds a
               professional SBA loan package, and prepares everything before it
               reaches a lender.
             </p>
-            <div className="flex flex-wrap gap-3.5">
+            <div className="flex flex-wrap items-center gap-4">
               <Link
                 href="/apply"
-                className="rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-7 py-[15px] text-[16px] font-bold text-white shadow-[0_10px_28px_rgba(28,141,224,0.4)] transition hover:brightness-[1.06]"
+                className="rounded-full bg-gradient-to-r from-[#1c8de0] to-[#3ba4f0] px-8 py-[14px] text-[15px] font-bold text-white shadow-[0_8px_24px_rgba(28,141,224,0.4)] transition hover:shadow-[0_12px_32px_rgba(28,141,224,0.5)] hover:brightness-[1.04]"
               >
                 Start Your SBA Package
               </Link>
               <a
                 href="#how"
-                className="rounded-xl border border-white/[0.18] bg-white/[0.08] px-7 py-[15px] text-[16px] font-bold text-white transition hover:bg-white/[0.14]"
+                className="group flex items-center gap-2.5 rounded-full border border-white/[0.18] bg-white/[0.06] px-7 py-[13px] text-[15px] font-bold text-white transition hover:bg-white/[0.12]"
               >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-white/80">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5" />
+                  <polygon points="10,8 16,12 10,16" fill="currentColor" />
+                </svg>
                 See How Buddy Works
               </a>
             </div>
+
+            <div className="mt-12 flex flex-wrap items-center gap-6 sm:gap-8">
+              {[
+                {
+                  label: "Built to SBA Standards",
+                  icon: (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    </svg>
+                  ),
+                },
+                {
+                  label: "Bank-Ready Documentation",
+                  icon: (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ),
+                },
+                {
+                  label: "No Guesswork. No Paper Chase.",
+                  icon: (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  ),
+                },
+              ].map((t) => (
+                <div key={t.label} className="flex items-center gap-2">
+                  <span className="text-[#4db8f0]">{t.icon}</span>
+                  <span className="text-[12px] font-semibold text-[#7b95ad] sm:text-[13px]">{t.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="relative hidden lg:block">
-            <div
-              className="absolute -inset-4 rounded-3xl"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(28,141,224,0.25), transparent)",
-              }}
-            />
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1c8de0]/[0.12] to-[#4db8f0]/[0.06]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/images/buddy-robot-hero.png"
-                alt="Buddy the SBA Underwriter"
-                className="block w-full rounded-2xl"
+
+          <div className="relative hidden lg:flex lg:justify-end">
+            <div className="relative">
+              <div
+                className="absolute -inset-6 rounded-3xl"
+                style={{ background: "radial-gradient(ellipse at center, rgba(28,141,224,0.18), transparent 70%)" }}
               />
+              <div className="relative overflow-hidden rounded-2xl shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/images/buddy-robot-hero.png"
+                  alt="Buddy the SBA Underwriter — loan packaging dashboard"
+                  className="block w-full max-w-[520px]"
+                />
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── TRUST STRIP ── */}
-      <section className="border-b border-[#12263f]/[0.07] bg-white px-6 py-6 sm:px-10">
-        <div className="mx-auto flex max-w-[1240px] flex-wrap items-center justify-center gap-x-10 gap-y-4">
-          {[
-            {
-              label: "Built to SBA Standards",
-              icon: (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              ),
-            },
-            {
-              label: "Bank-Ready Documentation",
-              icon: (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ),
-            },
-            {
-              label: "No Guesswork. No Paper Chase.",
-              icon: (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              ),
-            },
-          ].map((t) => (
-            <div key={t.label} className="flex items-center gap-2 text-[14px] font-semibold text-[#3d5674]">
-              <span className="text-[#1c8de0]">{t.icon}</span>
-              {t.label}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── 3. DESIGNED FOR SBA FINANCING ── */}
-      <section className="px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-12 max-w-[660px] text-center">
-            <h2
-              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
+      {/* ────────────────────────────────────────────────────────────────
+          3. DESIGNED FOR SBA FINANCING
+      ──────────────────────────────────────────────────────────────── */}
+      <section id="financing" className="px-6 py-20 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="mx-auto mb-14 max-w-[600px] text-center">
+            <h2 className="text-[22px] font-bold uppercase tracking-[1.5px] sm:text-[28px]" style={pp}>
               Designed for SBA Financing
             </h2>
+            <p className="mt-3 text-[15px] leading-relaxed text-[#5b7189] sm:text-[16px]">
+              Buddy supports the most common SBA loan types and business goals.
+            </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { label: "SBA 7(a)", icon: "🏦" },
-              { label: "SBA 504", icon: "🏗️" },
-              { label: "Business Acquisition", icon: "🤝" },
-              { label: "Commercial Real Estate", icon: "🏢" },
-              { label: "Working Capital", icon: "💼" },
-              { label: "Equipment Financing", icon: "⚙️" },
-              { label: "Business Expansion", icon: "📈" },
-            ].map((item) => (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
+            {SBA_TYPES.map((item) => (
               <div
                 key={item.label}
-                className="flex items-center gap-3 rounded-xl border border-[#12263f]/[0.07] bg-white px-5 py-4 text-[15px] font-semibold text-[#12263f]"
+                className="group flex flex-col items-center gap-3 rounded-2xl border border-[#e2e8f0] bg-white px-4 py-6 text-center transition hover:-translate-y-1 hover:border-[#1c8de0]/20 hover:shadow-[0_8px_24px_rgba(28,141,224,0.08)]"
               >
-                <span className="text-[20px]">{item.icon}</span>
-                {item.label}
+                <div className="text-[#1c8de0] transition group-hover:scale-110">
+                  {item.icon}
+                </div>
+                <span className="text-[13px] font-bold leading-tight text-[#12263f]" style={pp}>
+                  {item.label}
+                </span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── 4. HOW BUDDY WORKS ── */}
-      <section id="how" className="bg-white px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <h2
-              className="mb-3 text-[28px] font-bold tracking-tight sm:text-[38px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
+      {/* ────────────────────────────────────────────────────────────────
+          4. HOW BUDDY WORKS
+      ──────────────────────────────────────────────────────────────── */}
+      <section id="how" className="bg-white px-6 py-20 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="mx-auto mb-16 max-w-[600px] text-center">
+            <h2 className="text-[22px] font-bold uppercase tracking-[1.5px] sm:text-[28px]" style={pp}>
               How Buddy Works
             </h2>
-            <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
+            <p className="mt-3 text-[15px] leading-relaxed text-[#5b7189] sm:text-[16px]">
               Six simple steps to a stronger SBA loan package.
             </p>
           </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {STEPS.map((s) => (
-              <div
-                key={s.n}
-                className="rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-7 transition hover:-translate-y-1 hover:shadow-[0_12px_30px_rgba(18,38,63,0.08)]"
-              >
-                <div
-                  className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#0e2340] to-[#1c8de0] text-[18px] font-bold text-white"
-                  style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-                >
-                  {s.n}
+
+          <div className="relative">
+            <div className="absolute left-0 right-0 top-[68px] hidden h-[2px] bg-gradient-to-r from-transparent via-[#e2e8f0] to-transparent lg:block" />
+            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-6 lg:gap-5">
+              {STEPS.map((s) => (
+                <div key={s.n} className="relative flex flex-col items-center text-center">
+                  <div className="mb-3 text-[#1c8de0]">{s.icon}</div>
+                  <div
+                    className="relative z-10 mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-[#16a34a] text-[16px] font-bold text-white shadow-[0_3px_10px_rgba(22,163,74,0.3)]"
+                    style={pp}
+                  >
+                    {s.n}
+                  </div>
+                  <h3 className="mb-2 text-[14px] font-bold leading-tight text-[#12263f]" style={pp}>
+                    {s.title}
+                  </h3>
+                  <p className="text-[13px] leading-relaxed text-[#5b7189]">
+                    {s.desc}
+                  </p>
                 </div>
-                <h3
-                  className="mb-2 text-[18px] font-bold tracking-tight"
-                  style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-                >
-                  {s.title}
-                </h3>
-                <p className="text-[15px] leading-relaxed text-[#5b7189]">
-                  {s.desc}
-                </p>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── 5. EVERYTHING YOUR SBA LENDER WANTS ── */}
-      <section className="px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[1240px]">
+      {/* ────────────────────────────────────────────────────────────────
+          5. EVERYTHING YOUR SBA LENDER WANTS
+      ──────────────────────────────────────────────────────────────── */}
+      <section id="package" className="px-6 py-20 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
           <div className="mx-auto mb-14 max-w-[700px] text-center">
-            <h2
-              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
+            <h2 className="text-[20px] font-bold uppercase tracking-[1.5px] sm:text-[26px] lg:text-[28px]" style={pp}>
               Everything Your SBA Lender Wants... Built Automatically.
             </h2>
-            <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
+            <p className="mt-3 text-[15px] leading-relaxed text-[#5b7189] sm:text-[16px]">
               A complete, organized package—ready for underwriting.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {PACKAGE_ITEMS.map((item) => (
               <div
                 key={item.title}
-                className="rounded-2xl border border-[#12263f]/[0.07] bg-white p-6 transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(18,38,63,0.08)]"
+                className="group rounded-2xl border border-[#e2e8f0] bg-white p-7 transition hover:-translate-y-1 hover:border-[#1c8de0]/20 hover:shadow-[0_12px_32px_rgba(28,141,224,0.08)]"
               >
-                <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-[#1c8de0]/[0.1] text-[#1c8de0]">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#eef6ff] text-[#1c8de0] transition group-hover:bg-[#1c8de0]/[0.15]">
+                  {item.icon}
                 </div>
-                <h3 className="mb-1 text-[16px] font-bold">{item.title}</h3>
+                <h3 className="mb-2 text-[16px] font-bold text-[#12263f]" style={pp}>
+                  {item.title}
+                </h3>
                 <p className="text-[14px] leading-relaxed text-[#5b7189]">
                   {item.desc}
                 </p>
@@ -355,177 +596,208 @@ export function BrokerageLandingPage() {
         </div>
       </section>
 
-      {/* ── 6. WHY BUSINESS OWNERS CHOOSE BUDDY ── */}
-      <section className="bg-white px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <h2
-              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
-              Why Business Owners Choose Buddy
-            </h2>
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                title: "Save Weeks of Work",
-                desc: "We handle the heavy lifting so you can focus on your business.",
-              },
-              {
-                title: "Never Wonder What's Missing",
-                desc: "Buddy checks for gaps before your package reaches a lender.",
-              },
-              {
-                title: "Bank-Ready Packages",
-                desc: "Everything is organized the way lenders want it.",
-              },
-              {
-                title: "Expert Guidance",
-                desc: "Buddy guides you from start to finish.",
-              },
-              {
-                title: "Higher Confidence Before Applying",
-                desc: "Know your package is strong before it hits a lender's desk.",
-              },
-            ].map((b) => (
-              <div
-                key={b.title}
-                className="rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-7 transition hover:-translate-y-1 hover:shadow-[0_12px_30px_rgba(18,38,63,0.08)]"
-              >
-                <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-[#1c8de0]/[0.1] text-[#1c8de0]">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
+      {/* ────────────────────────────────────────────────────────────────
+          6. READY FOR UNDERWRITING — DOCUMENT VISUAL
+      ──────────────────────────────────────────────────────────────── */}
+      <section className="overflow-hidden bg-gradient-to-b from-[#f0f4f8] to-[#e8eef4] px-6 py-16 sm:py-20 lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="relative mx-auto flex h-[260px] max-w-[700px] items-center justify-center sm:h-[320px]">
+            <div className="absolute h-[200px] w-[320px] rotate-[-8deg] rounded-lg bg-white shadow-[0_8px_32px_rgba(0,0,0,0.1)] sm:h-[240px] sm:w-[400px]">
+              <div className="p-5">
+                <div className="mb-3 h-3 w-24 rounded bg-[#e2e8f0]" />
+                <div className="space-y-2">
+                  <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                  <div className="h-2 w-4/5 rounded bg-[#f1f5f9]" />
+                  <div className="h-2 w-3/4 rounded bg-[#f1f5f9]" />
+                  <div className="h-2 w-5/6 rounded bg-[#f1f5f9]" />
                 </div>
-                <h3
-                  className="mb-2 text-[18px] font-bold tracking-tight"
-                  style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-                >
-                  {b.title}
-                </h3>
-                <p className="text-[15px] leading-relaxed text-[#5b7189]">
-                  {b.desc}
-                </p>
               </div>
-            ))}
+            </div>
+            <div className="absolute h-[200px] w-[320px] rotate-[-3deg] rounded-lg bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)] sm:h-[240px] sm:w-[400px]">
+              <div className="p-5">
+                <div className="mb-3 h-3 w-32 rounded bg-[#dbeafe]" />
+                <div className="mb-3 grid grid-cols-3 gap-2">
+                  <div className="h-12 rounded bg-[#f1f5f9]" />
+                  <div className="h-12 rounded bg-[#eef6ff]" />
+                  <div className="h-12 rounded bg-[#f1f5f9]" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                  <div className="h-2 w-2/3 rounded bg-[#f1f5f9]" />
+                </div>
+              </div>
+            </div>
+            <div className="absolute h-[200px] w-[320px] rotate-[2deg] rounded-lg bg-white shadow-[0_16px_48px_rgba(0,0,0,0.14)] sm:h-[240px] sm:w-[400px]">
+              <div className="p-5">
+                <div className="mb-3 h-3 w-28 rounded bg-[#dbeafe]" />
+                <div className="flex items-end gap-2 h-16 mb-3">
+                  <div className="w-5 rounded-t bg-[#bfdbfe]" style={{ height: "40%" }} />
+                  <div className="w-5 rounded-t bg-[#93c5fd]" style={{ height: "65%" }} />
+                  <div className="w-5 rounded-t bg-[#60a5fa]" style={{ height: "100%" }} />
+                  <div className="w-5 rounded-t bg-[#93c5fd]" style={{ height: "55%" }} />
+                  <div className="w-5 rounded-t bg-[#bfdbfe]" style={{ height: "35%" }} />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                  <div className="h-2 w-3/4 rounded bg-[#f1f5f9]" />
+                </div>
+              </div>
+            </div>
+            <div
+              className="absolute z-20 rounded-md bg-[#16a34a] px-10 py-3 shadow-[0_4px_20px_rgba(22,163,74,0.4)] sm:px-14 sm:py-4"
+              style={{ transform: "rotate(-12deg)" }}
+            >
+              <span className="text-[16px] font-extrabold tracking-[2px] text-white sm:text-[20px]" style={pp}>
+                READY FOR UNDERWRITING
+              </span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── 7. WHY SBA LENDERS LOVE BUDDY ── */}
+      {/* ────────────────────────────────────────────────────────────────
+          7-8. WHY BUSINESS OWNERS + WHY SBA LENDERS
+      ──────────────────────────────────────────────────────────────── */}
       <section
         id="lenders"
         data-section="bank-platform-entry"
-        className="relative overflow-hidden bg-[linear-gradient(135deg,#0e2340,#173250)] px-6 py-16 text-white sm:px-10 sm:py-24"
+        className="px-6 py-20 sm:py-24 lg:px-8"
       >
-        <div
-          className="pointer-events-none absolute -bottom-24 right-16 h-80 w-80 rounded-full"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(28,141,224,0.2), transparent 70%)",
-          }}
-        />
-        <div className="relative mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#8fd0f7]">
-              For SBA lenders
-            </div>
-            <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
-              Why SBA Lenders Love Buddy
-            </h2>
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                title: "Cleaner Applications",
-                desc: "Complete, well-structured packages every time.",
-              },
-              {
-                title: "Better Organized Files",
-                desc: "Everything is easy to find and review.",
-              },
-              {
-                title: "Faster Reviews",
-                desc: "Less back-and-forth. Faster underwriting.",
-              },
-              {
-                title: "Reduced Back-and-Forth",
-                desc: "More accurate information up front.",
-              },
-              {
-                title: "Better Qualified Borrowers",
-                desc: "Stronger packages from day one.",
-              },
-            ].map((item) => (
-              <div
-                key={item.title}
-                className="rounded-2xl border border-white/[0.1] bg-white/[0.06] p-7 transition hover:bg-white/[0.1]"
+        <div className="mx-auto max-w-[1200px]">
+          <div className="grid items-stretch gap-6 lg:grid-cols-[1fr_auto_1fr] lg:gap-0">
+            <div className="rounded-2xl bg-[#f0fdf4] p-8 sm:p-10 lg:rounded-r-none">
+              <h3
+                className="mb-8 text-[18px] font-bold uppercase tracking-[1.2px] text-[#12263f] sm:text-[20px]"
+                style={pp}
               >
-                <h3
-                  className="mb-3 text-[19px] font-bold"
-                  style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-                >
-                  {item.title}
-                </h3>
-                <p className="text-[15px] leading-relaxed text-[#b9cbdd]">
-                  {item.desc}
-                </p>
+                Why Business Owners
+                <br />
+                Choose Buddy
+              </h3>
+              <div className="space-y-5">
+                {OWNER_BENEFITS.map((b) => (
+                  <div key={b.title} className="flex gap-3">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#16a34a]">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-[14px] font-bold text-[#12263f]">{b.title}</div>
+                      <div className="text-[13px] text-[#5b7189]">{b.desc}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="mt-10 text-center">
-            <Link
-              href="/underwriter"
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-7 py-[15px] text-[16px] font-bold text-[#12263f] transition hover:shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
-            >
-              Explore the banking platform
-              <span aria-hidden="true">&rarr;</span>
-            </Link>
+            </div>
+
+            <div className="relative hidden w-[220px] items-end justify-center overflow-hidden lg:flex">
+              <div className="absolute inset-0 bg-gradient-to-b from-[#f0fdf4] via-[#f4f8fb] to-[#eef6ff]" />
+              <div className="relative z-10 w-full">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/images/buddy-robot.png"
+                  alt="Buddy the SBA Underwriter"
+                  className="w-full object-contain object-bottom"
+                />
+                <div className="absolute bottom-[40%] left-1/2 -translate-x-1/2 rotate-[-8deg] rounded bg-[#16a34a] px-2 py-1 shadow-md">
+                  <span className="whitespace-nowrap text-[8px] font-extrabold tracking-[1px] text-white" style={pp}>
+                    READY FOR UNDERWRITING
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-[#eef6ff] p-8 sm:p-10 lg:rounded-l-none">
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
+                For SBA lenders
+              </div>
+              <h3
+                className="mb-8 text-[18px] font-bold uppercase tracking-[1.2px] text-[#12263f] sm:text-[20px]"
+                style={pp}
+              >
+                Why SBA Lenders
+                <br />
+                Love Buddy
+              </h3>
+              <div className="space-y-5">
+                {LENDER_BENEFITS.map((b) => (
+                  <div key={b.title} className="flex gap-3">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#1c8de0]">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-[14px] font-bold text-[#12263f]">{b.title}</div>
+                      <div className="text-[13px] text-[#5b7189]">{b.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-8">
+                <Link
+                  href="/underwriter"
+                  className="inline-flex items-center gap-2 text-[14px] font-bold text-[#1c8de0] transition hover:text-[#0e6fc0]"
+                >
+                  Explore the banking platform
+                  <span aria-hidden="true">&rarr;</span>
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── 8. BUILT FOR TRUST ── */}
-      <section className="px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <h2
-              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
+      {/* ────────────────────────────────────────────────────────────────
+          9. BUILT FOR TRUST
+      ──────────────────────────────────────────────────────────────── */}
+      <section className="bg-white px-6 py-20 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="mx-auto mb-14 max-w-[600px] text-center">
+            <h2 className="text-[20px] font-bold uppercase tracking-[1.5px] sm:text-[26px]" style={pp}>
               Built for Trust. Designed for Security.
             </h2>
+            <p className="mt-3 text-[15px] leading-relaxed text-[#5b7189] sm:text-[16px]">
+              Your information is protected every step of the way.
+            </p>
           </div>
-          <div className="grid gap-6 sm:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-[1fr_1fr_1fr_1fr_1.2fr]">
             {[
               {
                 title: "Secure Document Handling",
-                desc: "Your documents are encrypted in transit and at rest. Direct-to-storage uploads keep your files protected.",
+                desc: "Encrypted uploads and secure storage.",
                 icon: (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
                 ),
               },
               {
-                title: "Role-Based Access Controls",
-                desc: "Your information is only visible to the people who need it, when they need it. You control who sees your data.",
+                title: "Role-Based Access",
+                desc: "Only authorized people see your information.",
                 icon: (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                   </svg>
                 ),
               },
               {
-                title: "Audit & Event History",
-                desc: "Every action is recorded. An event history tracks decisions, documents, and data points from start to finish.",
+                title: "Controlled Sharing",
+                desc: "You decide what lenders can see.",
                 icon: (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                ),
+              },
+              {
+                title: "Audit & Event History",
+                desc: "Complete activity logs and audit trail.",
+                icon: (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
                     <line x1="16" y1="13" x2="8" y2="13" />
@@ -534,117 +806,167 @@ export function BrokerageLandingPage() {
                 ),
               },
             ].map((item) => (
-              <div
-                key={item.title}
-                className="rounded-2xl border border-[#12263f]/[0.07] bg-white p-7 transition hover:-translate-y-1 hover:shadow-[0_12px_30px_rgba(18,38,63,0.08)] sm:p-8"
-              >
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#0e2340] text-[#4db8f0]">
+              <div key={item.title} className="text-center lg:text-left">
+                <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#0e2340] text-[#4db8f0] lg:mx-0">
                   {item.icon}
                 </div>
-                <h3
-                  className="mb-3 text-[19px] font-bold tracking-tight"
-                  style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-                >
+                <h4 className="mb-1 text-[14px] font-bold text-[#12263f]" style={pp}>
                   {item.title}
-                </h3>
-                <p className="text-[15px] leading-relaxed text-[#5b7189]">
-                  {item.desc}
-                </p>
+                </h4>
+                <p className="text-[13px] leading-relaxed text-[#5b7189]">{item.desc}</p>
               </div>
             ))}
-          </div>
-          <p className="mt-8 text-center text-[14px] text-[#6b8299]">
-            Buddy is not a lender. We do not make loan decisions.
-          </p>
-        </div>
-      </section>
-
-      {/* ── 9. SEE WHAT BUDDY ACTUALLY BUILDS ── */}
-      <section className="bg-white px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <h2
-              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
-              See What Buddy Actually Builds
-            </h2>
-            <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
-              Real documents. Real quality. Ready for underwriting.
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { title: "Business Plan" },
-              { title: "Executive Summary" },
-              { title: "Financial Analysis" },
-              { title: "SBA Forms" },
-              { title: "Cash Flow Projections" },
-              { title: "Lender Package" },
-            ].map((doc) => (
-              <div
-                key={doc.title}
-                className="rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-6"
-              >
-                <div className="mb-4 flex h-28 items-center justify-center rounded-xl bg-white border border-[#12263f]/[0.05]">
-                  <div className="text-center">
-                    <div className="mb-1 text-[14px] font-bold text-[#12263f]">{doc.title}</div>
-                    <div className="text-[11px] text-[#6b8299]">Sample preview</div>
-                  </div>
-                </div>
-                <h3 className="text-[15px] font-bold text-[#12263f]">{doc.title}</h3>
+            <div className="rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] p-6 sm:p-7">
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#1c8de0]">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
               </div>
-            ))}
-          </div>
-          <div className="mt-10 flex justify-center">
-            <div className="inline-flex items-center gap-2 rounded-lg border-2 border-[#22c55e] bg-[#22c55e]/[0.08] px-6 py-3">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span
-                className="text-[16px] font-extrabold tracking-wide text-[#22c55e]"
-                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-              >
-                READY FOR UNDERWRITING
-              </span>
+              <p className="mb-2 text-[15px] font-bold leading-snug text-[#12263f]" style={pp}>
+                Buddy is not a lender.<br />We do not make loan decisions.
+              </p>
+              <p className="text-[12px] leading-relaxed text-[#6b8299]">
+                Loan approval is subject to lender underwriting, SBA guidelines, and borrower eligibility.
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── 10. FAQ ── */}
-      <section className="px-6 py-16 sm:px-10 sm:py-24">
-        <div className="mx-auto max-w-[800px]">
-          <div className="mb-12 text-center">
-            <h2
-              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-            >
-              Frequently Asked Questions
+      {/* ────────────────────────────────────────────────────────────────
+          10. SEE WHAT BUDDY ACTUALLY BUILDS
+      ──────────────────────────────────────────────────────────────── */}
+      <section className="bg-[linear-gradient(135deg,#0b1a2e_0%,#12263f_50%,#162d4a_100%)] px-6 py-20 sm:py-24 lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="mx-auto mb-14 max-w-[600px] text-center">
+            <h2 className="text-[22px] font-bold uppercase tracking-[1.5px] text-white sm:text-[28px]" style={pp}>
+              See What Buddy Actually Builds
             </h2>
+            <p className="mt-3 text-[15px] leading-relaxed text-[#8ba1b8] sm:text-[16px]">
+              Real documents. Real quality. Ready for underwriting.
+            </p>
           </div>
-          <div className="divide-y divide-[#12263f]/[0.08] rounded-2xl border border-[#12263f]/[0.07] bg-white">
-            {FAQ_ITEMS.map((item, i) => (
-              <div key={i}>
-                <button
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                  className="flex w-full items-center justify-between px-6 py-5 text-left transition hover:bg-[#f6f8fb]/60 sm:px-8"
-                >
-                  <span className="pr-4 text-[16px] font-semibold text-[#12263f]">
-                    {item.q}
-                  </span>
-                  <span
-                    className={`shrink-0 text-[20px] text-[#6b8299] transition-transform duration-200 ${openFaq === i ? "rotate-45" : ""}`}
-                  >
-                    +
-                  </span>
-                </button>
-                <div
-                  className={`overflow-hidden transition-all duration-300 ${openFaq === i ? "max-h-60 opacity-100" : "max-h-0 opacity-0"}`}
-                >
-                  <p className="px-6 pb-5 text-[15px] leading-relaxed text-[#5b7189] sm:px-8">
-                    {item.a}
-                  </p>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                title: "Business Plan",
+                content: (
+                  <div className="space-y-2.5">
+                    <div className="h-2.5 w-28 rounded bg-[#dbeafe]" />
+                    <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                    <div className="h-2 w-5/6 rounded bg-[#f1f5f9]" />
+                    <div className="h-2 w-4/5 rounded bg-[#f1f5f9]" />
+                    <div className="mt-3 h-2.5 w-24 rounded bg-[#dbeafe]" />
+                    <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                    <div className="h-2 w-3/4 rounded bg-[#f1f5f9]" />
+                  </div>
+                ),
+              },
+              {
+                title: "Executive Summary",
+                content: (
+                  <div>
+                    <div className="mb-3 h-2.5 w-32 rounded bg-[#dbeafe]" />
+                    <div className="mb-3 grid grid-cols-2 gap-2">
+                      <div className="h-10 rounded bg-[#eef6ff]" />
+                      <div className="h-10 rounded bg-[#eef6ff]" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                      <div className="h-2 w-3/4 rounded bg-[#f1f5f9]" />
+                      <div className="h-2 w-5/6 rounded bg-[#f1f5f9]" />
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                title: "Financial Analysis",
+                content: (
+                  <div>
+                    <div className="mb-3 h-2.5 w-28 rounded bg-[#dbeafe]" />
+                    <div className="mb-3 flex items-end gap-1.5" style={{ height: 56 }}>
+                      <div className="w-4 rounded-t bg-[#bfdbfe]" style={{ height: "35%" }} />
+                      <div className="w-4 rounded-t bg-[#93c5fd]" style={{ height: "55%" }} />
+                      <div className="w-4 rounded-t bg-[#60a5fa]" style={{ height: "90%" }} />
+                      <div className="w-4 rounded-t bg-[#3b82f6]" style={{ height: "100%" }} />
+                      <div className="w-4 rounded-t bg-[#60a5fa]" style={{ height: "70%" }} />
+                      <div className="w-4 rounded-t bg-[#93c5fd]" style={{ height: "45%" }} />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-2 w-full rounded bg-[#f1f5f9]" />
+                      <div className="h-2 w-2/3 rounded bg-[#f1f5f9]" />
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                title: "SBA Forms",
+                content: (
+                  <div className="space-y-3">
+                    <div className="h-2.5 w-20 rounded bg-[#dbeafe]" />
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="h-2 w-14 shrink-0 rounded bg-[#e2e8f0]" />
+                        <div className="h-6 flex-1 rounded border border-[#e2e8f0] bg-[#fafbfc]" />
+                      </div>
+                    ))}
+                  </div>
+                ),
+              },
+              {
+                title: "Cash Flow Projections",
+                content: (
+                  <div>
+                    <div className="mb-3 h-2.5 w-32 rounded bg-[#dbeafe]" />
+                    <div className="space-y-1">
+                      <div className="flex gap-1">
+                        <div className="h-5 w-20 rounded bg-[#e2e8f0]" />
+                        <div className="h-5 flex-1 rounded bg-[#f1f5f9]" />
+                        <div className="h-5 flex-1 rounded bg-[#f1f5f9]" />
+                        <div className="h-5 flex-1 rounded bg-[#f1f5f9]" />
+                      </div>
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="flex gap-1">
+                          <div className="h-5 w-20 rounded bg-[#f8fafc]" />
+                          <div className="h-5 flex-1 rounded bg-[#fafbfc]" />
+                          <div className="h-5 flex-1 rounded bg-[#fafbfc]" />
+                          <div className="h-5 flex-1 rounded bg-[#fafbfc]" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                title: "Lender Package",
+                content: (
+                  <div className="flex h-full flex-col items-center justify-center rounded-lg bg-[#0e2340] px-4 py-5 text-center">
+                    <div className="mb-1 flex items-center gap-1.5">
+                      <div className="flex h-5 w-5 items-center justify-center rounded bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-[10px] font-extrabold italic text-white" style={pp}>
+                        B
+                      </div>
+                      <span className="text-[12px] font-bold text-white" style={pp}>Buddy</span>
+                    </div>
+                    <div className="mb-3 text-[9px] font-semibold uppercase tracking-[1.5px] text-[#6b8299]">
+                      SBA Loan Package
+                    </div>
+                    <div className="rounded bg-[#16a34a] px-3 py-1">
+                      <span className="text-[9px] font-extrabold tracking-[1px] text-white" style={pp}>
+                        READY FOR UNDERWRITING
+                      </span>
+                    </div>
+                  </div>
+                ),
+              },
+            ].map((doc) => (
+              <div key={doc.title} className="group overflow-hidden rounded-2xl bg-white/[0.07] backdrop-blur-sm transition hover:bg-white/[0.12]">
+                <div className="border-b border-white/[0.06] p-5">
+                  <div className="h-[140px] overflow-hidden rounded-lg bg-white p-4">
+                    {doc.content}
+                  </div>
+                </div>
+                <div className="px-5 py-4">
+                  <h4 className="text-[14px] font-bold text-white" style={pp}>{doc.title}</h4>
                 </div>
               </div>
             ))}
@@ -652,109 +974,192 @@ export function BrokerageLandingPage() {
         </div>
       </section>
 
-      {/* ── 11. WHEN DO YOU PAY ── */}
-      <section id="fees" className="bg-white px-6 py-12 sm:px-10 sm:py-16">
-        <div className="mx-auto max-w-[800px] text-center">
-          <h2
-            className="text-[24px] font-bold tracking-tight sm:text-[30px]"
-            style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-          >
-            When Do You Pay?
-          </h2>
-          <p
-            className="mt-3 text-[28px] font-extrabold text-[#1c8de0] sm:text-[36px]"
-            style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-          >
-            Nothing Up Front.
-          </p>
-          <div className="mx-auto mt-6 max-w-[640px] rounded-xl border border-[#12263f]/[0.07] bg-[#f6f8fb] px-6 py-5">
-            <p className="text-[13px] leading-relaxed text-[#6b8299]">
-              A packaging fee of $1,000 applies for SBA loan preparation and
-              lender matching services. This fee may be financed into the loan
-              at closing, subject to lender approval. Buddy may also receive a
-              referral fee from the selected lender, disclosed on SBA Form 159.
-              Buddy does not guarantee loan approval — SBA loan approval is
-              subject to lender underwriting, SBA guidelines, and borrower
-              eligibility.
+      {/* ────────────────────────────────────────────────────────────────
+          11-12. FAQ + WHEN DO YOU PAY
+      ──────────────────────────────────────────────────────────────── */}
+      <section id="faq" className="px-6 py-20 sm:py-24 lg:px-8">
+        <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
+          <div>
+            <h2 className="mb-8 text-[20px] font-bold uppercase tracking-[1.5px] sm:text-[24px]" style={pp}>
+              Frequently Asked Questions
+            </h2>
+            <div className="divide-y divide-[#e2e8f0] rounded-2xl border border-[#e2e8f0] bg-white">
+              {FAQ_ITEMS.map((item, i) => (
+                <div key={i}>
+                  <button
+                    onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                    className="flex w-full items-center justify-between px-6 py-4 text-left transition hover:bg-[#f8fafc]"
+                  >
+                    <span className="pr-4 text-[14px] font-semibold text-[#12263f] sm:text-[15px]">
+                      {item.q}
+                    </span>
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#94a3b8"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={`shrink-0 transition-transform duration-200 ${openFaq === i ? "rotate-180" : ""}`}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  <div
+                    className={`overflow-hidden transition-all duration-300 ${openFaq === i ? "max-h-48 opacity-100" : "max-h-0 opacity-0"}`}
+                  >
+                    <p className="px-6 pb-5 text-[14px] leading-relaxed text-[#5b7189]">
+                      {item.a}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div id="fees" className="lg:pt-14">
+            <h2 className="mb-2 text-[18px] font-bold uppercase tracking-[1.5px] sm:text-[22px]" style={pp}>
+              When Do You Pay?
+            </h2>
+            <p
+              className="mb-6 text-[32px] font-extrabold italic text-[#1c8de0] sm:text-[40px]"
+              style={pp}
+            >
+              Nothing Up Front.
             </p>
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-6">
+              <p className="mb-4 text-[13px] leading-[1.8] text-[#5b7189]">
+                A packaging fee of $1,000 applies for SBA loan preparation and
+                lender matching services. This fee may be financed into the loan
+                at closing, subject to lender approval. Buddy may also receive a
+                referral fee from the selected lender, disclosed on SBA Form 159.
+              </p>
+              <p className="text-[13px] leading-[1.8] text-[#5b7189]">
+                Buddy does not guarantee loan approval. SBA loan approval is
+                subject to lender underwriting, SBA guidelines, and borrower
+                eligibility.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── 12. FINAL CTA ── */}
-      <section className="relative overflow-hidden bg-[linear-gradient(160deg,#0e2340_0%,#12263f_100%)] px-6 py-16 text-white sm:px-10 sm:py-24">
+      {/* ────────────────────────────────────────────────────────────────
+          13. FINAL CTA
+      ──────────────────────────────────────────────────────────────── */}
+      <section className="relative overflow-hidden bg-[linear-gradient(135deg,#0e2340_0%,#12263f_100%)] px-6 py-16 text-white sm:py-20 lg:px-8">
         <div
-          className="pointer-events-none absolute left-1/2 top-0 h-[400px] w-[600px] -translate-x-1/2 rounded-full"
-          style={{
-            background:
-              "radial-gradient(ellipse, rgba(28,141,224,0.2), transparent 70%)",
-          }}
+          className="pointer-events-none absolute left-1/3 top-0 h-full w-2/3"
+          style={{ background: "radial-gradient(ellipse at 50% 50%, rgba(28,141,224,0.1), transparent 70%)" }}
         />
-        <div className="relative mx-auto flex max-w-[1240px] flex-col items-center gap-10 lg:flex-row lg:justify-between">
-          <div className="text-center lg:text-left">
+        <div className="relative mx-auto flex max-w-[1200px] items-center justify-between gap-10">
+          <div className="max-w-[560px]">
             <h2
-              className="text-[30px] font-extrabold tracking-tight sm:text-[42px]"
-              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+              className="text-[28px] font-extrabold tracking-tight sm:text-[36px] lg:text-[40px]"
+              style={pp}
             >
               Let&apos;s Build Your SBA Loan Package.
             </h2>
-            <p className="my-5 max-w-[500px] text-[17px] leading-relaxed text-[#b9cbdd] sm:text-[19px]">
+            <p className="my-5 max-w-[440px] text-[16px] leading-relaxed text-[#94a8bf] sm:text-[17px]">
               Start your package and let Buddy guide you from application to
               lender-ready.
             </p>
             <Link
               href="/apply"
-              className="inline-flex rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-10 py-[17px] text-[17px] font-bold text-white shadow-[0_12px_32px_rgba(28,141,224,0.35)] transition hover:brightness-[1.06]"
+              className="inline-flex rounded-full bg-gradient-to-r from-[#1c8de0] to-[#3ba4f0] px-10 py-[15px] text-[15px] font-bold text-white shadow-[0_8px_28px_rgba(28,141,224,0.4)] transition hover:shadow-[0_12px_36px_rgba(28,141,224,0.5)] hover:brightness-[1.04]"
             >
               Start Your SBA Package
             </Link>
           </div>
-          <div className="hidden w-[280px] shrink-0 lg:block">
+          <div className="hidden w-[200px] shrink-0 lg:block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/images/buddy-robot.png"
               alt="Buddy the SBA Underwriter"
-              className="w-full rounded-2xl opacity-90"
+              className="w-full rounded-xl opacity-90"
             />
           </div>
         </div>
       </section>
 
-      {/* ── 13. FOOTER ── */}
-      <footer className="bg-[#0a1929] px-6 py-10 text-[#8ba1b8] sm:px-10 sm:py-12">
-        <div className="mx-auto max-w-[1240px]">
-          <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
-            <div className="flex items-center gap-3">
-              <div
-                className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-[16px] font-extrabold italic text-white"
-                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-              >
-                B
+      {/* ────────────────────────────────────────────────────────────────
+          14. FOOTER
+      ──────────────────────────────────────────────────────────────── */}
+      <footer className="bg-[#0a1929] px-6 pb-8 pt-14 text-[#8ba1b8] lg:px-8">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="mb-10 grid gap-10 sm:grid-cols-2 lg:grid-cols-5 lg:gap-8">
+            <div className="lg:col-span-1">
+              <div className="mb-3 flex items-center gap-2.5">
+                <div
+                  className="flex h-[28px] w-[28px] items-center justify-center rounded-lg bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-[14px] font-extrabold italic text-white"
+                  style={pp}
+                >
+                  B
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-white" style={pp}>Buddy</div>
+                  <div className="text-[7px] font-bold uppercase tracking-[2px] text-[#5b7189]">
+                    The SBA Underwriter
+                  </div>
+                </div>
               </div>
-              <div
-                className="text-[17px] font-bold text-white"
-                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-              >
-                Buddy
+              <p className="text-[12px] leading-relaxed text-[#5b7189]">
+                We build lender-ready SBA loan packages so you can focus on your business.
+              </p>
+            </div>
+
+            <div>
+              <h4 className="mb-4 text-[11px] font-bold uppercase tracking-[1.5px] text-[#6b8299]">
+                Product
+              </h4>
+              <div className="space-y-2.5">
+                <a href="#how" className="block text-[13px] transition hover:text-white">How It Works</a>
+                <a href="#package" className="block text-[13px] transition hover:text-white">What Buddy Builds</a>
+                <Link href="/underwriter" className="block text-[13px] transition hover:text-white">For Lenders</Link>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-6 text-[14px]">
-              <Link href="/apply" className="transition hover:text-white">
-                Start your package
-              </Link>
-              <Link href="/underwriter" className="transition hover:text-white">
-                For lenders
-              </Link>
-              <a
-                href="mailto:hello@buddytheunderwriter.com"
-                className="transition hover:text-white"
-              >
+
+            <div>
+              <h4 className="mb-4 text-[11px] font-bold uppercase tracking-[1.5px] text-[#6b8299]">
+                Company
+              </h4>
+              <div className="space-y-2.5">
+                <Link href="/" className="block text-[13px] transition hover:text-white">About Buddy</Link>
+                <a href="mailto:hello@buddysba.com" className="block text-[13px] transition hover:text-white">Contact Us</a>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="mb-4 text-[11px] font-bold uppercase tracking-[1.5px] text-[#6b8299]">
+                Resources
+              </h4>
+              <div className="space-y-2.5">
+                <a href="#faq" className="block text-[13px] transition hover:text-white">FAQ</a>
+                <a href="#financing" className="block text-[13px] transition hover:text-white">SBA Loan Types</a>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="mb-4 text-[11px] font-bold uppercase tracking-[1.5px] text-[#6b8299]">
                 Contact
+              </h4>
+              <a
+                href="mailto:hello@buddysba.com"
+                className="inline-flex items-center gap-2 text-[13px] transition hover:text-white"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
+                hello@buddysba.com
               </a>
             </div>
           </div>
-          <div className="mt-8 border-t border-white/[0.08] pt-6 text-center text-[13px] text-[#5b7189]">
-            © {new Date().getFullYear()} Buddy. All rights reserved.
+
+          <div className="border-t border-white/[0.08] pt-6 text-center text-[12px] text-[#475569]">
+            &copy; {new Date().getFullYear()} Buddy The Underwriter. All rights reserved.
           </div>
         </div>
       </footer>
