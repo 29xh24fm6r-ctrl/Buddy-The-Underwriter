@@ -22,70 +22,72 @@ const STEPS = [
   {
     n: 1,
     title: "Tell Buddy About Your Business",
-    desc: "Answer a few questions about your business, financials, and loan goals. Buddy guides the conversation — no paperwork yet.",
+    desc: "Answer simple questions about your business and funding goals.",
   },
   {
     n: 2,
     title: "Upload Documents",
-    desc: "Tax returns, bank statements, and formation documents. Buddy extracts, organizes, and verifies everything automatically.",
+    desc: "Upload your financials and supporting documents securely.",
   },
   {
     n: 3,
     title: "Buddy Reviews Everything",
-    desc: "Your deal is analyzed against SBA guidelines, scored for readiness, and flagged for anything that needs attention — before a lender ever sees it.",
+    desc: "Buddy identifies missing items, analyzes your financials, and organizes your package.",
   },
   {
     n: 4,
     title: "We Build Your SBA Loan Package",
-    desc: "Business plan, financial projections, feasibility study, SBA forms — your complete package, prepared and reviewed for completeness.",
+    desc: "Business plan, SBA forms, lender summary, financial analysis, projections, and document checklist.",
   },
   {
     n: 5,
     title: "Get Matched With Qualified SBA Lenders",
-    desc: "Your anonymized profile reaches qualified SBA lenders through a competitive marketplace. Your identity stays private until you decide.",
+    desc: "We connect you with lenders that fit your loan request.",
   },
   {
     n: 6,
     title: "Funding Support",
-    desc: "Conditions tracking, document collection, and closing coordination — Buddy stays with you from application to funded.",
+    desc: "You stay in control while Buddy helps coordinate the process through closing.",
   },
 ];
 
 const PACKAGE_ITEMS = [
-  { title: "Executive Summary", desc: "Your deal at a glance — business overview, loan request, and key strengths." },
-  { title: "Business Plan", desc: "Narrative, operations, management, and market positioning." },
-  { title: "Financial Projections", desc: "5-year forecasts with assumptions, built from your actual financials." },
-  { title: "Feasibility Study", desc: "Revenue analysis, break-even, and viability assessment." },
-  { title: "Debt Service Coverage", desc: "DSCR calculations showing your ability to service the loan." },
-  { title: "SBA Forms", desc: "1919, 1920, 912, 413 — completed accurately and cross-referenced." },
-  { title: "Collateral Analysis", desc: "Asset inventory and coverage ratios organized for review." },
-  { title: "Industry & Market Analysis", desc: "Market size, competitive landscape, and growth indicators." },
+  { title: "Executive Summary", desc: "A clear snapshot of your business and loan request." },
+  { title: "Business Plan", desc: "A lender-ready plan that tells your story and your strategy." },
+  { title: "Financial Analysis", desc: "Professional analysis of your financials and cash flow." },
+  { title: "SBA Forms", desc: "All required SBA forms completed accurately." },
+  { title: "Readiness Score", desc: "See how your package stacks up before it reaches lenders." },
+  { title: "Complete Lender Package", desc: "A polished package that makes a strong first impression." },
 ];
 
 const FAQ_ITEMS = [
   {
-    q: "What does it cost?",
-    a: "A packaging fee of $1,000 applies at closing — it can be financed into the loan, so you're never out of pocket upfront. All fees are fully disclosed on SBA Form 159.",
-  },
-  {
-    q: "How long does the process take?",
-    a: "Most borrowers go from application to lender match in 30–60 days. The lender marketplace step itself takes about 2 business days.",
+    q: "How long does it take to build my package?",
+    a: "It depends on how quickly you provide your documents and information. Most borrowers complete the process in a few weeks, but your timeline depends on your readiness.",
   },
   {
     q: "What documents do I need?",
-    a: "Your last 3 years of business tax returns, 3 months of bank statements, a government-issued ID, and business formation documents. Buddy tells you exactly what's needed as you go.",
+    a: "Your last 3 years of business tax returns, recent bank statements, a government-issued ID, and business formation documents. Buddy tells you exactly what's needed as you go.",
   },
   {
-    q: "Is my information safe?",
-    a: "Your identity is never shared with lenders during the matching process. Only the lender you choose ever sees your name or business details.",
+    q: "Do you guarantee loan approval?",
+    a: "No. Buddy does not guarantee loan approval. SBA loan approval is subject to lender underwriting, SBA guidelines, and borrower eligibility. Buddy prepares a strong, complete package to give your application the best possible presentation.",
   },
   {
-    q: "What if I don't like any lender offers?",
-    a: "You're never obligated to accept. You can re-list once within 60 days at no additional cost.",
+    q: "When do I pay?",
+    a: "A packaging fee of $1,000 applies for SBA loan preparation and lender matching services. This fee may be financed into the loan at closing, subject to lender approval. Buddy may also receive a referral fee from the selected lender, disclosed on SBA Form 159.",
   },
   {
-    q: "What types of SBA loans does Buddy support?",
+    q: "What if I don't finish my application?",
+    a: "No problem. Your progress is saved and you can pick up where you left off at any time. There is no fee unless your loan is approved and funded.",
+  },
+  {
+    q: "What types of SBA financing does Buddy support?",
     a: "SBA 7(a) and 504 loans — acquisitions, expansions, equipment, real estate, working capital, and franchise financing.",
+  },
+  {
+    q: "Can Buddy help with a business acquisition or franchise?",
+    a: "Yes. Buddy supports business acquisitions, franchise purchases, expansions, equipment financing, commercial real estate, and working capital loans through SBA 7(a) and 504 programs.",
   },
 ];
 
@@ -153,27 +155,29 @@ export function BrokerageLandingPage() {
         />
         <div className="relative mx-auto grid max-w-[1240px] items-center gap-10 lg:grid-cols-[1fr_0.9fr] lg:gap-16">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#4db8f0]/35 bg-[#1c8de0]/[0.16] px-[15px] py-[7px] text-[13px] font-semibold tracking-[0.3px] text-[#8fd0f7]">
-              <span className="h-[7px] w-[7px] rounded-full bg-[#4db8f0]" />
-              The world&apos;s first Loan Operations System
-            </div>
             <h1
-              className="mt-6 text-[32px] font-extrabold leading-[1.08] tracking-tight sm:text-[48px] lg:text-[52px]"
+              className="text-[32px] font-extrabold leading-[1.08] tracking-tight sm:text-[48px] lg:text-[52px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
-              Your SBA loan package, built and matched to the right lender.
+              Build a Lender-Ready SBA Loan Package
             </h1>
+            <p
+              className="mt-2 text-[26px] font-extrabold text-[#4db8f0] sm:text-[36px] lg:text-[40px]"
+              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+            >
+              Right the First Time.
+            </p>
             <p className="mb-8 mt-5 max-w-[540px] text-[17px] leading-relaxed text-[#b9cbdd] sm:text-[19px]">
-              Buddy prepares your complete SBA application, scores your
-              readiness, and connects you with qualified lenders through a
-              competitive marketplace.
+              Buddy guides you step-by-step, organizes your documents, builds a
+              professional SBA loan package, and prepares everything before it
+              reaches a lender.
             </p>
             <div className="flex flex-wrap gap-3.5">
               <Link
                 href="/apply"
                 className="rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-7 py-[15px] text-[16px] font-bold text-white shadow-[0_10px_28px_rgba(28,141,224,0.4)] transition hover:brightness-[1.06]"
               >
-                Start your SBA package
+                Start Your SBA Package
               </Link>
               <a
                 href="#how"
@@ -181,44 +185,6 @@ export function BrokerageLandingPage() {
               >
                 See How Buddy Works
               </a>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-[14px] text-[#b9cbdd]">
-              <span>Not sure which applies?</span>
-              <Link
-                href="/start?path=standard"
-                className="font-semibold text-white underline decoration-[#4db8f0]/50 underline-offset-4 hover:decoration-[#4db8f0]"
-              >
-                Independent business
-              </Link>
-              <span className="text-[#5b7189]">·</span>
-              <Link
-                href="/start?path=franchise"
-                className="font-semibold text-white underline decoration-[#4db8f0]/50 underline-offset-4 hover:decoration-[#4db8f0]"
-              >
-                Buying a franchise
-              </Link>
-            </div>
-            <div className="mt-10 flex flex-wrap gap-x-8 gap-y-4">
-              {[
-                { value: "92%", label: "Avg. confidence score" },
-                { value: "End-to-end", label: "Intake to funded" },
-                { value: "SBA 7(a)", label: "& 504 ready" },
-              ].map((stat) => (
-                <div key={stat.label} className="flex items-center gap-8">
-                  <div>
-                    <div
-                      className="text-[24px] font-bold text-[#4db8f0] sm:text-[26px]"
-                      style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-                    >
-                      {stat.value}
-                    </div>
-                    <div className="mt-0.5 text-[13px] text-[#8ba1b8]">
-                      {stat.label}
-                    </div>
-                  </div>
-                  <div className="hidden h-10 w-px bg-white/[0.12] last:hidden sm:block" />
-                </div>
-              ))}
             </div>
           </div>
           <div className="relative hidden lg:block">
@@ -241,96 +207,74 @@ export function BrokerageLandingPage() {
         </div>
       </section>
 
+      {/* ── TRUST STRIP ── */}
+      <section className="border-b border-[#12263f]/[0.07] bg-white px-6 py-6 sm:px-10">
+        <div className="mx-auto flex max-w-[1240px] flex-wrap items-center justify-center gap-x-10 gap-y-4">
+          {[
+            {
+              label: "Built to SBA Standards",
+              icon: (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              ),
+            },
+            {
+              label: "Bank-Ready Documentation",
+              icon: (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ),
+            },
+            {
+              label: "No Guesswork. No Paper Chase.",
+              icon: (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              ),
+            },
+          ].map((t) => (
+            <div key={t.label} className="flex items-center gap-2 text-[14px] font-semibold text-[#3d5674]">
+              <span className="text-[#1c8de0]">{t.icon}</span>
+              {t.label}
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* ── 3. DESIGNED FOR SBA FINANCING ── */}
       <section className="px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[1240px]">
           <div className="mx-auto mb-12 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              Built for your business
-            </div>
             <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
+              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
               Designed for SBA Financing
             </h2>
-            <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
-              Whether you&apos;re acquiring a business, expanding operations, or
-              buying into a franchise — Buddy builds the same complete,
-              lender-ready SBA loan package.
-            </p>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Link
-              href="/start?path=standard"
-              className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#12263f]/[0.08] bg-white p-7 shadow-[0_2px_14px_rgba(18,38,63,0.05)] transition hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(18,38,63,0.1)] sm:p-8"
-            >
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#0e2340] to-[#1c8de0] text-white">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 21h18M5 21V7l8-4v18M13 21V11l6 3v7" />
-                </svg>
-              </div>
-              <div className="inline-flex w-fit rounded-full bg-[#12263f]/[0.06] px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.5px] text-[#12263f]">
-                Independent business
-              </div>
-              <h3
-                className="mb-2 mt-3 text-[20px] font-bold tracking-tight sm:text-[21px]"
-                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-              >
-                Buying, refinancing, or growing a business you run
-              </h3>
-              <p className="mb-6 flex-1 text-[15px] leading-relaxed text-[#5b7189]">
-                SBA 7(a) or 504 financing for acquisition, equipment, real
-                estate, working capital, or expansion.
-              </p>
-              <span className="inline-flex items-center gap-2 text-[15px] font-bold text-[#1c8de0] transition group-hover:gap-3">
-                Start your SBA package
-                <span aria-hidden="true">&rarr;</span>
-              </span>
-            </Link>
-            <Link
-              href="/start?path=franchise"
-              className="group relative flex flex-col overflow-hidden rounded-2xl border border-[#1c8de0]/[0.15] bg-gradient-to-br from-white to-[#eef6fd] p-7 shadow-[0_2px_14px_rgba(18,38,63,0.05)] transition hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(28,141,224,0.14)] sm:p-8"
-            >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: "SBA 7(a)", icon: "🏦" },
+              { label: "SBA 504", icon: "🏗️" },
+              { label: "Business Acquisition", icon: "🤝" },
+              { label: "Commercial Real Estate", icon: "🏢" },
+              { label: "Working Capital", icon: "💼" },
+              { label: "Equipment Financing", icon: "⚙️" },
+              { label: "Business Expansion", icon: "📈" },
+            ].map((item) => (
               <div
-                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-70"
-                style={{
-                  background:
-                    "radial-gradient(circle, rgba(28,141,224,0.14), transparent 70%)",
-                }}
-              />
-              <div className="relative mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-white">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 9l9-6 9 6M4 9v11h16V9M9 20v-6h6v6" />
-                </svg>
-              </div>
-              <div className="relative inline-flex w-fit rounded-full bg-[#1c8de0]/[0.1] px-3 py-1.5 text-[12px] font-bold uppercase tracking-[0.5px] text-[#1c8de0]">
-                Franchise
-              </div>
-              <h3
-                className="relative mb-2 mt-3 text-[20px] font-bold tracking-tight sm:text-[21px]"
-                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+                key={item.label}
+                className="flex items-center gap-3 rounded-xl border border-[#12263f]/[0.07] bg-white px-5 py-4 text-[15px] font-semibold text-[#12263f]"
               >
-                Buying into a franchise brand
-              </h3>
-              <p className="relative mb-6 flex-1 text-[15px] leading-relaxed text-[#5b7189]">
-                Buddy tracks SBA data on 8,400+ brands — certification status,
-                FDD Item 19 performance, and franchisor support signals built
-                into your package.
-              </p>
-              <span className="relative inline-flex items-center gap-2 text-[15px] font-bold text-[#12263f] transition group-hover:gap-3">
-                Find your brand
-                <span aria-hidden="true">&rarr;</span>
-              </span>
-            </Link>
+                <span className="text-[20px]">{item.icon}</span>
+                {item.label}
+              </div>
+            ))}
           </div>
-          <p className="mt-6 text-center text-[14px] text-[#5b7189]">
-            Not sure?{" "}
-            <Link href="/start" className="font-semibold text-[#1c8de0] hover:underline">
-              Just start the conversation
-            </Link>{" "}
-            — Buddy will figure it out.
-          </p>
         </div>
       </section>
 
@@ -338,17 +282,14 @@ export function BrokerageLandingPage() {
       <section id="how" className="bg-white px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[1240px]">
           <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              How it works
-            </div>
             <h2
-              className="mb-3 mt-3 text-[28px] font-bold tracking-tight sm:text-[38px]"
+              className="mb-3 text-[28px] font-bold tracking-tight sm:text-[38px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
-              From Application to Approval
+              How Buddy Works
             </h2>
             <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
-              Six steps. One clear path to funded.
+              Six simple steps to a stronger SBA loan package.
             </p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -381,22 +322,18 @@ export function BrokerageLandingPage() {
       {/* ── 5. EVERYTHING YOUR SBA LENDER WANTS ── */}
       <section className="px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[1240px]">
-          <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              What you get
-            </div>
+          <div className="mx-auto mb-14 max-w-[700px] text-center">
             <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
+              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
-              Everything Your SBA Lender Wants — Built Automatically
+              Everything Your SBA Lender Wants... Built Automatically.
             </h2>
             <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
-              A complete loan package, prepared to SBA standards and ready
-              before underwriting begins. Nothing missing. Nothing incomplete.
+              A complete, organized package—ready for underwriting.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {PACKAGE_ITEMS.map((item) => (
               <div
                 key={item.title}
@@ -422,37 +359,47 @@ export function BrokerageLandingPage() {
       <section className="bg-white px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[1240px]">
           <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              For business owners
-            </div>
             <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
+              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
               Why Business Owners Choose Buddy
             </h2>
           </div>
-          <div className="grid gap-6 sm:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
-                title: "Your Privacy, Protected",
-                desc: "Lenders see your deal — not your identity. You stay anonymous throughout the marketplace until you choose your lender.",
+                title: "Save Weeks of Work",
+                desc: "We handle the heavy lifting so you can focus on your business.",
               },
               {
-                title: "Built Right the First Time",
-                desc: "No back-and-forth over missing documents. No incomplete applications. Your package arrives ready for underwriting.",
+                title: "Never Wonder What's Missing",
+                desc: "Buddy checks for gaps before your package reaches a lender.",
               },
               {
-                title: "One Application, Multiple Lenders",
-                desc: "Qualified SBA lenders compete for your deal through a transparent marketplace. You compare and choose — no pressure, no obligation.",
+                title: "Bank-Ready Packages",
+                desc: "Everything is organized the way lenders want it.",
+              },
+              {
+                title: "Expert Guidance",
+                desc: "Buddy guides you from start to finish.",
+              },
+              {
+                title: "Higher Confidence Before Applying",
+                desc: "Know your package is strong before it hits a lender's desk.",
               },
             ].map((b) => (
               <div
                 key={b.title}
-                className="rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-7 transition hover:-translate-y-1 hover:shadow-[0_12px_30px_rgba(18,38,63,0.08)] sm:p-8"
+                className="rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-7 transition hover:-translate-y-1 hover:shadow-[0_12px_30px_rgba(18,38,63,0.08)]"
               >
+                <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-[#1c8de0]/[0.1] text-[#1c8de0]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
                 <h3
-                  className="mb-3 text-[19px] font-bold tracking-tight"
+                  className="mb-2 text-[18px] font-bold tracking-tight"
                   style={{ fontFamily: "var(--font-poppins), sans-serif" }}
                 >
                   {b.title}
@@ -490,29 +437,33 @@ export function BrokerageLandingPage() {
             >
               Why SBA Lenders Love Buddy
             </h2>
-            <p className="text-[16px] leading-relaxed text-[#b9cbdd] sm:text-[17px]">
-              Complete packages. Consistent documentation. Deals that are ready
-              for underwriting from day one.
-            </p>
           </div>
-          <div className="grid gap-6 sm:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
-                title: "Examiner-Ready Packages",
-                desc: "Every package arrives with complete documentation, audit trails, and SBA compliance checks already performed.",
+                title: "Cleaner Applications",
+                desc: "Complete, well-structured packages every time.",
               },
               {
-                title: "Pre-Scored Deals",
-                desc: "Confidence scores and readiness assessments help you identify strong candidates before committing underwriting resources.",
+                title: "Better Organized Files",
+                desc: "Everything is easy to find and review.",
               },
               {
-                title: "Standardized Documentation",
-                desc: "Consistent formatting, complete cross-referencing, and uniform quality across every deal in your pipeline.",
+                title: "Faster Reviews",
+                desc: "Less back-and-forth. Faster underwriting.",
+              },
+              {
+                title: "Reduced Back-and-Forth",
+                desc: "More accurate information up front.",
+              },
+              {
+                title: "Better Qualified Borrowers",
+                desc: "Stronger packages from day one.",
               },
             ].map((item) => (
               <div
                 key={item.title}
-                className="rounded-2xl border border-white/[0.1] bg-white/[0.06] p-7 transition hover:bg-white/[0.1] sm:p-8"
+                className="rounded-2xl border border-white/[0.1] bg-white/[0.06] p-7 transition hover:bg-white/[0.1]"
               >
                 <h3
                   className="mb-3 text-[19px] font-bold"
@@ -542,11 +493,8 @@ export function BrokerageLandingPage() {
       <section className="px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[1240px]">
           <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              Security
-            </div>
             <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
+              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
               Built for Trust. Designed for Security.
@@ -555,20 +503,8 @@ export function BrokerageLandingPage() {
           <div className="grid gap-6 sm:grid-cols-3">
             {[
               {
-                title: "Every Action Recorded",
-                desc: "An immutable audit trail tracks every decision, document, and data point from application to close.",
-                icon: (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                  </svg>
-                ),
-              },
-              {
-                title: "Encrypted Document Storage",
-                desc: "Your documents are encrypted at rest and in transit. Direct-to-storage uploads keep your files off intermediary servers.",
+                title: "Secure Document Handling",
+                desc: "Your documents are encrypted in transit and at rest. Direct-to-storage uploads keep your files protected.",
                 icon: (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -577,11 +513,23 @@ export function BrokerageLandingPage() {
                 ),
               },
               {
-                title: "Privacy by Design",
-                desc: "Role-based access ensures your information is only visible to the people who need it, when they need it.",
+                title: "Role-Based Access Controls",
+                desc: "Your information is only visible to the people who need it, when they need it. You control who sees your data.",
                 icon: (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                ),
+              },
+              {
+                title: "Audit & Event History",
+                desc: "Every action is recorded. An event history tracks decisions, documents, and data points from start to finish.",
+                icon: (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
                   </svg>
                 ),
               },
@@ -605,6 +553,9 @@ export function BrokerageLandingPage() {
               </div>
             ))}
           </div>
+          <p className="mt-8 text-center text-[14px] text-[#6b8299]">
+            Buddy is not a lender. We do not make loan decisions.
+          </p>
         </div>
       </section>
 
@@ -612,64 +563,51 @@ export function BrokerageLandingPage() {
       <section className="bg-white px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[1240px]">
           <div className="mx-auto mb-14 max-w-[660px] text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              The finished product
-            </div>
             <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
+              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
               See What Buddy Actually Builds
             </h2>
             <p className="text-[16px] leading-relaxed text-[#5b7189] sm:text-[17px]">
-              This is what arrives in front of your lender — a complete,
-              professionally prepared SBA loan package.
+              Real documents. Real quality. Ready for underwriting.
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              {
-                title: "Executive Summary & Business Plan",
-                desc: "A clear narrative covering your business, the opportunity, management experience, and loan request — written for underwriters.",
-              },
-              {
-                title: "5-Year Financial Projections",
-                desc: "Revenue forecasts, expense modeling, and cash flow analysis built from your actual financials — not generic templates.",
-              },
-              {
-                title: "Feasibility & DSCR Analysis",
-                desc: "Break-even calculations, debt service coverage ratios, and viability assessment your lender requires.",
-              },
-              {
-                title: "SBA Forms — Complete & Accurate",
-                desc: "Borrower Information (1919), Lender Application (1920), Personal Financial Statement (413) — filled, cross-referenced, and ready.",
-              },
-              {
-                title: "Collateral & Industry Analysis",
-                desc: "Asset coverage ratios, market positioning, competitive landscape, and industry risk factors organized for review.",
-              },
-              {
-                title: "Management & Experience Summary",
-                desc: "Owner qualifications, relevant experience, and management capabilities presented to SBA standards.",
-              },
+              { title: "Business Plan" },
+              { title: "Executive Summary" },
+              { title: "Financial Analysis" },
+              { title: "SBA Forms" },
+              { title: "Cash Flow Projections" },
+              { title: "Lender Package" },
             ].map((doc) => (
               <div
                 key={doc.title}
-                className="flex gap-4 rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-6"
+                className="rounded-2xl border border-[#12263f]/[0.07] bg-[#f6f8fb] p-6"
               >
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1c8de0]/[0.1] text-[#1c8de0]">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
+                <div className="mb-4 flex h-28 items-center justify-center rounded-xl bg-white border border-[#12263f]/[0.05]">
+                  <div className="text-center">
+                    <div className="mb-1 text-[14px] font-bold text-[#12263f]">{doc.title}</div>
+                    <div className="text-[11px] text-[#6b8299]">Sample preview</div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="mb-1 text-[15px] font-bold">{doc.title}</h3>
-                  <p className="text-[14px] leading-relaxed text-[#5b7189]">
-                    {doc.desc}
-                  </p>
-                </div>
+                <h3 className="text-[15px] font-bold text-[#12263f]">{doc.title}</h3>
               </div>
             ))}
+          </div>
+          <div className="mt-10 flex justify-center">
+            <div className="inline-flex items-center gap-2 rounded-lg border-2 border-[#22c55e] bg-[#22c55e]/[0.08] px-6 py-3">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span
+                className="text-[16px] font-extrabold tracking-wide text-[#22c55e]"
+                style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+              >
+                READY FOR UNDERWRITING
+              </span>
+            </div>
           </div>
         </div>
       </section>
@@ -678,11 +616,8 @@ export function BrokerageLandingPage() {
       <section className="px-6 py-16 sm:px-10 sm:py-24">
         <div className="mx-auto max-w-[800px]">
           <div className="mb-12 text-center">
-            <div className="text-[13px] font-bold uppercase tracking-[1.5px] text-[#1c8de0]">
-              Common questions
-            </div>
             <h2
-              className="mb-3 mt-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
+              className="mb-3 text-[26px] font-bold tracking-tight sm:text-[36px]"
               style={{ fontFamily: "var(--font-poppins), sans-serif" }}
             >
               Frequently Asked Questions
@@ -747,7 +682,7 @@ export function BrokerageLandingPage() {
       </section>
 
       {/* ── 12. FINAL CTA ── */}
-      <section className="relative overflow-hidden bg-[linear-gradient(160deg,#0e2340_0%,#12263f_100%)] px-6 py-16 text-center text-white sm:px-10 sm:py-24">
+      <section className="relative overflow-hidden bg-[linear-gradient(160deg,#0e2340_0%,#12263f_100%)] px-6 py-16 text-white sm:px-10 sm:py-24">
         <div
           className="pointer-events-none absolute left-1/2 top-0 h-[400px] w-[600px] -translate-x-1/2 rounded-full"
           style={{
@@ -755,23 +690,33 @@ export function BrokerageLandingPage() {
               "radial-gradient(ellipse, rgba(28,141,224,0.2), transparent 70%)",
           }}
         />
-        <div className="relative mx-auto max-w-[640px]">
-          <h2
-            className="text-[30px] font-extrabold tracking-tight sm:text-[42px]"
-            style={{ fontFamily: "var(--font-poppins), sans-serif" }}
-          >
-            Ready to Get Started?
-          </h2>
-          <p className="mx-auto my-5 max-w-[500px] text-[17px] leading-relaxed text-[#b9cbdd] sm:text-[19px]">
-            Your complete SBA loan package — built, scored, and matched to
-            the right lender. Start in minutes.
-          </p>
-          <Link
-            href="/apply"
-            className="inline-flex rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-10 py-[17px] text-[17px] font-bold text-white shadow-[0_12px_32px_rgba(28,141,224,0.35)] transition hover:brightness-[1.06]"
-          >
-            Start your SBA package
-          </Link>
+        <div className="relative mx-auto flex max-w-[1240px] flex-col items-center gap-10 lg:flex-row lg:justify-between">
+          <div className="text-center lg:text-left">
+            <h2
+              className="text-[30px] font-extrabold tracking-tight sm:text-[42px]"
+              style={{ fontFamily: "var(--font-poppins), sans-serif" }}
+            >
+              Let&apos;s Build Your SBA Loan Package.
+            </h2>
+            <p className="my-5 max-w-[500px] text-[17px] leading-relaxed text-[#b9cbdd] sm:text-[19px]">
+              Start your package and let Buddy guide you from application to
+              lender-ready.
+            </p>
+            <Link
+              href="/apply"
+              className="inline-flex rounded-xl bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] px-10 py-[17px] text-[17px] font-bold text-white shadow-[0_12px_32px_rgba(28,141,224,0.35)] transition hover:brightness-[1.06]"
+            >
+              Start Your SBA Package
+            </Link>
+          </div>
+          <div className="hidden w-[280px] shrink-0 lg:block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/images/buddy-robot.png"
+              alt="Buddy the SBA Underwriter"
+              className="w-full rounded-2xl opacity-90"
+            />
+          </div>
         </div>
       </section>
 
