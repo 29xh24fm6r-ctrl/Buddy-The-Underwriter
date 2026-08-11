@@ -859,219 +859,231 @@ export function BrokerageLandingPage() {
       {/* ────────────────────────────────────────────────────────────────
           10. SEE WHAT BUDDY ACTUALLY BUILDS
       ──────────────────────────────────────────────────────────────── */}
-      <section className="bg-[linear-gradient(135deg,#0b1a2e_0%,#12263f_50%,#162d4a_100%)] px-6 py-16 sm:py-20 lg:px-8">
+      <section className="bg-gradient-to-b from-[#f0f4f8] to-[#e8eef4] px-6 py-16 sm:py-20 lg:px-8">
         <div className="mx-auto max-w-[1200px]">
-          <div className="mx-auto mb-12 max-w-[600px] text-center">
-            <h2 className="text-[22px] font-bold uppercase tracking-[1.5px] text-white sm:text-[28px]" style={pp}>
+          <div className="mx-auto mb-10 max-w-[600px] text-center sm:mb-14">
+            <h2 className="text-[22px] font-bold uppercase tracking-[1.5px] text-[#12263f] sm:text-[28px]" style={pp}>
               See What Buddy Actually Builds
             </h2>
-            <p className="mt-3 text-[15px] leading-relaxed text-[#8ba1b8] sm:text-[16px]">
+            <p className="mt-3 text-[15px] leading-relaxed text-[#5b7189] sm:text-[16px]">
               Real documents. Real quality. Ready for underwriting.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Executive Summary */}
-            <div className="group overflow-hidden rounded-2xl bg-white/[0.07] shadow-lg shadow-black/20 backdrop-blur-sm transition-all duration-300 hover:bg-white/[0.12] hover:shadow-xl hover:shadow-black/30 hover:-translate-y-0.5">
-              <div className="border-b border-white/[0.06] p-4">
-                <div className="h-[180px] overflow-hidden rounded-lg bg-white p-4" style={{ fontSize: 0 }}>
-                  <div className="mb-2 text-[9px] font-bold uppercase tracking-wider text-[#1c8de0]" style={{ ...pp, fontSize: "9px" }}>Executive Summary</div>
-                  <div className="mb-2 grid grid-cols-2 gap-2">
-                    <div className="rounded bg-[#eef6ff] px-2 py-1.5">
-                      <div className="text-[6px] font-medium text-[#5b7189]" style={{ fontSize: "6px" }}>Loan Amount</div>
-                      <div className="text-[9px] font-bold text-[#12263f]" style={{ fontSize: "9px" }}>$350,000</div>
-                    </div>
-                    <div className="rounded bg-[#eef6ff] px-2 py-1.5">
-                      <div className="text-[6px] font-medium text-[#5b7189]" style={{ fontSize: "6px" }}>SBA Program</div>
-                      <div className="text-[9px] font-bold text-[#12263f]" style={{ fontSize: "9px" }}>7(a) Loan</div>
-                    </div>
+          <div className="flex flex-wrap items-start justify-center gap-5 sm:gap-6 lg:flex-nowrap lg:gap-5">
+
+            {/* ── Business Plan ── */}
+            <div className="w-[calc(50%-12px)] sm:w-[170px] lg:flex-1">
+              <div
+                className="mx-auto overflow-hidden bg-white shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.14)]"
+                style={{ fontSize: 0, aspectRatio: "8.5/11", borderRadius: 3, transform: "rotate(-1.5deg)" }}
+              >
+                <div className="p-3" style={{ fontSize: 0 }}>
+                  <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f", marginBottom: 5 }}>Business Plan</div>
+                  <div style={{ fontSize: 6.5, fontWeight: 600, color: "#1c8de0", marginBottom: 3 }}>1. Executive Summary</div>
+                  <div className="mb-1.5 space-y-[2px]">
+                    <div className="h-[2px] w-full rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[90%] rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[82%] rounded-sm bg-[#e2e8f0]" />
                   </div>
-                  <div className="mb-1.5 text-[7px] font-semibold text-[#12263f]" style={{ fontSize: "7px" }}>Business Overview</div>
-                  <div className="space-y-1">
-                    <div className="h-[3px] w-full rounded-sm bg-[#e8ecf1]" />
-                    <div className="h-[3px] w-[92%] rounded-sm bg-[#e8ecf1]" />
-                    <div className="h-[3px] w-[85%] rounded-sm bg-[#e8ecf1]" />
+                  <div style={{ fontSize: 6.5, fontWeight: 600, color: "#1c8de0", marginBottom: 3 }}>2. Market Analysis</div>
+                  <div className="mb-1.5 space-y-[2px]">
+                    <div className="h-[2px] w-full rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[95%] rounded-sm bg-[#e2e8f0]" />
                   </div>
-                  <div className="mt-2 mb-1.5 text-[7px] font-semibold text-[#12263f]" style={{ fontSize: "7px" }}>Use of Funds</div>
-                  <div className="space-y-1">
-                    <div className="h-[3px] w-full rounded-sm bg-[#e8ecf1]" />
-                    <div className="h-[3px] w-[78%] rounded-sm bg-[#e8ecf1]" />
+                  <div style={{ fontSize: 6.5, fontWeight: 600, color: "#1c8de0", marginBottom: 3 }}>3. Management Team</div>
+                  <div className="mb-1.5 space-y-[2px]">
+                    <div className="h-[2px] w-full rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[75%] rounded-sm bg-[#e2e8f0]" />
+                  </div>
+                  <div style={{ fontSize: 6.5, fontWeight: 600, color: "#1c8de0", marginBottom: 3 }}>4. Financial Projections</div>
+                  <div className="space-y-[2px]">
+                    <div className="h-[2px] w-full rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[88%] rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[70%] rounded-sm bg-[#e2e8f0]" />
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3">
-                <h4 className="text-[13px] font-bold text-white" style={pp}>Executive Summary</h4>
-              </div>
+              <div className="mt-3 text-center text-[13px] font-semibold text-[#334155]" style={pp}>Business Plan</div>
             </div>
 
-            {/* Business Plan */}
-            <div className="group overflow-hidden rounded-2xl bg-white/[0.07] shadow-lg shadow-black/20 backdrop-blur-sm transition-all duration-300 hover:bg-white/[0.12] hover:shadow-xl hover:shadow-black/30 hover:-translate-y-0.5">
-              <div className="border-b border-white/[0.06] p-4">
-                <div className="h-[180px] overflow-hidden rounded-lg bg-white p-4" style={{ fontSize: 0 }}>
-                  <div className="mb-2 text-[9px] font-bold uppercase tracking-wider text-[#1c8de0]" style={{ ...pp, fontSize: "9px" }}>Business Plan</div>
-                  <div className="mb-1.5 text-[7px] font-semibold text-[#12263f]" style={{ fontSize: "7px" }}>1. Company Description</div>
-                  <div className="mb-2 space-y-1">
-                    <div className="h-[3px] w-full rounded-sm bg-[#e8ecf1]" />
-                    <div className="h-[3px] w-[88%] rounded-sm bg-[#e8ecf1]" />
-                  </div>
-                  <div className="mb-1.5 text-[7px] font-semibold text-[#12263f]" style={{ fontSize: "7px" }}>2. Market Analysis</div>
-                  <div className="mb-2 space-y-1">
-                    <div className="h-[3px] w-full rounded-sm bg-[#e8ecf1]" />
-                    <div className="h-[3px] w-[94%] rounded-sm bg-[#e8ecf1]" />
-                  </div>
-                  <div className="mb-1.5 text-[7px] font-semibold text-[#12263f]" style={{ fontSize: "7px" }}>3. Management Team</div>
-                  <div className="mb-2 flex gap-1.5">
-                    <div className="flex-1 rounded bg-[#f6f8fa] p-1.5">
-                      <div className="mb-0.5 h-3 w-3 rounded-full bg-[#dbeafe] mx-auto" />
-                      <div className="h-[2px] w-full rounded-sm bg-[#e8ecf1]" />
+            {/* ── Executive Summary ── */}
+            <div className="w-[calc(50%-12px)] sm:w-[170px] lg:flex-1">
+              <div
+                className="mx-auto overflow-hidden bg-white shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.14)]"
+                style={{ fontSize: 0, aspectRatio: "8.5/11", borderRadius: 3, transform: "rotate(0.8deg)" }}
+              >
+                <div className="p-3" style={{ fontSize: 0 }}>
+                  <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f", marginBottom: 5 }}>Executive Summary</div>
+                  <div className="mb-2 grid grid-cols-2 gap-1.5">
+                    <div className="rounded bg-[#eef6ff] px-1.5 py-1">
+                      <div style={{ fontSize: 5, color: "#5b7189" }}>Loan Amount</div>
+                      <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f" }}>$350,000</div>
                     </div>
-                    <div className="flex-1 rounded bg-[#f6f8fa] p-1.5">
-                      <div className="mb-0.5 h-3 w-3 rounded-full bg-[#dbeafe] mx-auto" />
-                      <div className="h-[2px] w-full rounded-sm bg-[#e8ecf1]" />
-                    </div>
-                    <div className="flex-1 rounded bg-[#f6f8fa] p-1.5">
-                      <div className="mb-0.5 h-3 w-3 rounded-full bg-[#dbeafe] mx-auto" />
-                      <div className="h-[2px] w-full rounded-sm bg-[#e8ecf1]" />
+                    <div className="rounded bg-[#eef6ff] px-1.5 py-1">
+                      <div style={{ fontSize: 5, color: "#5b7189" }}>SBA Program</div>
+                      <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f" }}>7(a) Loan</div>
                     </div>
                   </div>
-                  <div className="text-[7px] font-semibold text-[#12263f]" style={{ fontSize: "7px" }}>4. Revenue Strategy</div>
+                  <div className="mb-1 flex items-center gap-1">
+                    <div className="h-8 w-8 rounded-full bg-[#dbeafe] flex items-center justify-center">
+                      <div className="h-5 w-5 rounded-full" style={{ background: "conic-gradient(#1c8de0 75%, #e2e8f0 0)" }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 5.5, color: "#5b7189" }}>DSCR</div>
+                      <div style={{ fontSize: 8, fontWeight: 700, color: "#1c8de0" }}>1.42x</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-[2px]">
+                    <div className="h-[2px] w-full rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[90%] rounded-sm bg-[#e2e8f0]" />
+                    <div className="h-[2px] w-[78%] rounded-sm bg-[#e2e8f0]" />
+                  </div>
                 </div>
               </div>
-              <div className="px-4 py-3">
-                <h4 className="text-[13px] font-bold text-white" style={pp}>Business Plan</h4>
-              </div>
+              <div className="mt-3 text-center text-[13px] font-semibold text-[#334155]" style={pp}>Executive Summary</div>
             </div>
 
-            {/* Financial Statements */}
-            <div className="group overflow-hidden rounded-2xl bg-white/[0.07] shadow-lg shadow-black/20 backdrop-blur-sm transition-all duration-300 hover:bg-white/[0.12] hover:shadow-xl hover:shadow-black/30 hover:-translate-y-0.5">
-              <div className="border-b border-white/[0.06] p-4">
-                <div className="h-[180px] overflow-hidden rounded-lg bg-white p-4" style={{ fontSize: 0 }}>
-                  <div className="mb-2 text-[9px] font-bold uppercase tracking-wider text-[#1c8de0]" style={{ ...pp, fontSize: "9px" }}>Financial Statements</div>
-                  <div className="mb-2 flex items-end gap-[3px]" style={{ height: 48 }}>
-                    {[32, 45, 38, 58, 52, 72, 68, 85, 78, 95].map((h, i) => (
-                      <div key={i} className="flex-1 rounded-t" style={{ height: `${h}%`, background: i >= 8 ? "#1c8de0" : i >= 5 ? "#3b9fe8" : "#a8d4f5" }} />
+            {/* ── Financial Analysis ── */}
+            <div className="w-[calc(50%-12px)] sm:w-[170px] lg:flex-1">
+              <div
+                className="mx-auto overflow-hidden bg-white shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.14)]"
+                style={{ fontSize: 0, aspectRatio: "8.5/11", borderRadius: 3, transform: "rotate(-0.5deg)" }}
+              >
+                <div className="p-3" style={{ fontSize: 0 }}>
+                  <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f", marginBottom: 5 }}>Financial Analysis</div>
+                  <div className="mb-2 flex items-end gap-[2px]" style={{ height: 40 }}>
+                    {[28, 42, 35, 55, 48, 62, 58, 78, 72, 90].map((h, i) => (
+                      <div key={i} className="flex-1 rounded-t" style={{ height: `${h}%`, background: i >= 7 ? "#1c8de0" : i >= 4 ? "#60a5fa" : "#bfdbfe" }} />
                     ))}
                   </div>
-                  <div className="rounded border border-[#e8ecf1]" style={{ fontSize: "6px" }}>
+                  <div className="rounded border border-[#e8ecf1]" style={{ fontSize: 0 }}>
                     <div className="flex border-b border-[#e8ecf1] bg-[#f6f8fa]">
-                      <div className="flex-[2] px-1.5 py-1 font-semibold text-[#5b7189]" style={{ fontSize: "6px" }}>Period</div>
-                      <div className="flex-1 px-1 py-1 text-right font-semibold text-[#5b7189]" style={{ fontSize: "6px" }}>Revenue</div>
-                      <div className="flex-1 px-1 py-1 text-right font-semibold text-[#5b7189]" style={{ fontSize: "6px" }}>Net</div>
+                      <div className="flex-[2] px-1 py-0.5" style={{ fontSize: 5.5, fontWeight: 600, color: "#5b7189" }}>Year</div>
+                      <div className="flex-1 px-1 py-0.5 text-right" style={{ fontSize: 5.5, fontWeight: 600, color: "#5b7189" }}>Revenue</div>
+                      <div className="flex-1 px-1 py-0.5 text-right" style={{ fontSize: 5.5, fontWeight: 600, color: "#5b7189" }}>Net</div>
                     </div>
-                    {[["2024", "$842K", "$126K"], ["2023", "$715K", "$98K"]].map(([yr, rev, net]) => (
+                    {[["2024", "$842K", "$126K"], ["2023", "$715K", "$98K"], ["2022", "$583K", "$72K"]].map(([yr, rev, net]) => (
                       <div key={yr} className="flex border-b border-[#f1f3f5] last:border-0">
-                        <div className="flex-[2] px-1.5 py-0.5 text-[#12263f] font-medium" style={{ fontSize: "6px" }}>{yr}</div>
-                        <div className="flex-1 px-1 py-0.5 text-right text-[#12263f]" style={{ fontSize: "6px" }}>{rev}</div>
-                        <div className="flex-1 px-1 py-0.5 text-right text-[#16a34a] font-medium" style={{ fontSize: "6px" }}>{net}</div>
+                        <div className="flex-[2] px-1 py-0.5" style={{ fontSize: 5.5, color: "#12263f" }}>{yr}</div>
+                        <div className="flex-1 px-1 py-0.5 text-right" style={{ fontSize: 5.5, color: "#12263f" }}>{rev}</div>
+                        <div className="flex-1 px-1 py-0.5 text-right" style={{ fontSize: 5.5, fontWeight: 600, color: "#16a34a" }}>{net}</div>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3">
-                <h4 className="text-[13px] font-bold text-white" style={pp}>Financial Statements</h4>
-              </div>
+              <div className="mt-3 text-center text-[13px] font-semibold text-[#334155]" style={pp}>Financial Analysis</div>
             </div>
 
-            {/* SBA Form 1919 */}
-            <div className="group overflow-hidden rounded-2xl bg-white/[0.07] shadow-lg shadow-black/20 backdrop-blur-sm transition-all duration-300 hover:bg-white/[0.12] hover:shadow-xl hover:shadow-black/30 hover:-translate-y-0.5">
-              <div className="border-b border-white/[0.06] p-4">
-                <div className="h-[180px] overflow-hidden rounded-lg bg-white p-4" style={{ fontSize: 0 }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-[#1c8de0]" style={{ ...pp, fontSize: "9px" }}>SBA Form 1919</div>
-                    <div className="rounded bg-[#eef6ff] px-1.5 py-0.5 text-[6px] font-semibold text-[#1c8de0]" style={{ fontSize: "6px" }}>Borrower Info</div>
+            {/* ── SBA Forms ── */}
+            <div className="w-[calc(50%-12px)] sm:w-[170px] lg:flex-1">
+              <div
+                className="mx-auto overflow-hidden bg-white shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.14)]"
+                style={{ fontSize: 0, aspectRatio: "8.5/11", borderRadius: 3, transform: "rotate(1deg)" }}
+              >
+                <div className="p-3" style={{ fontSize: 0 }}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f" }}>SBA Form 1919</div>
+                    <div className="rounded bg-[#eef6ff] px-1 py-0.5" style={{ fontSize: 5, fontWeight: 600, color: "#1c8de0" }}>Borrower</div>
                   </div>
+                  <div className="h-px w-full bg-[#e2e8f0] mb-2" />
                   {[
-                    ["Legal Business Name", "Sunrise Bakery LLC"],
-                    ["EIN / Tax ID", "XX-XXXXXXX"],
-                    ["Business Address", "123 Main St, Suite 200"],
-                    ["Year Established", "2019"],
-                    ["Number of Employees", "12"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="mb-1.5 flex items-center gap-1.5">
-                      <div className="w-[72px] shrink-0 text-[6px] font-medium text-[#5b7189]" style={{ fontSize: "6px" }}>{label}</div>
-                      <div className="flex-1 rounded border border-[#e2e8f0] bg-[#fafbfc] px-1.5 py-[3px] text-[6px] text-[#12263f]" style={{ fontSize: "6px" }}>{value}</div>
+                    ["Legal Name", "Sunrise Bakery LLC"],
+                    ["EIN", "XX-XXXXXXX"],
+                    ["Address", "123 Main St #200"],
+                    ["Established", "2019"],
+                    ["Employees", "12"],
+                  ].map(([lbl, val]) => (
+                    <div key={lbl} className="mb-1 flex items-center gap-1">
+                      <div className="w-[52px] shrink-0" style={{ fontSize: 5, color: "#5b7189" }}>{lbl}</div>
+                      <div className="flex-1 rounded border border-[#e2e8f0] bg-[#fafbfc] px-1 py-[2px]" style={{ fontSize: 5.5, color: "#12263f" }}>{val}</div>
                     </div>
                   ))}
-                  <div className="mt-1 flex items-center gap-1">
-                    <div className="h-[6px] w-[6px] rounded-sm border border-[#1c8de0] bg-[#1c8de0]" />
-                    <div className="text-[5px] text-[#5b7189]" style={{ fontSize: "5px" }}>I certify this information is accurate</div>
+                  <div className="mt-1.5 flex items-center gap-1">
+                    <div className="h-[5px] w-[5px] rounded-sm bg-[#1c8de0]" />
+                    <div style={{ fontSize: 4.5, color: "#5b7189" }}>I certify this information is accurate</div>
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3">
-                <h4 className="text-[13px] font-bold text-white" style={pp}>SBA Form 1919</h4>
-              </div>
+              <div className="mt-3 text-center text-[13px] font-semibold text-[#334155]" style={pp}>SBA Forms</div>
             </div>
 
-            {/* Cash Flow Projection */}
-            <div className="group overflow-hidden rounded-2xl bg-white/[0.07] shadow-lg shadow-black/20 backdrop-blur-sm transition-all duration-300 hover:bg-white/[0.12] hover:shadow-xl hover:shadow-black/30 hover:-translate-y-0.5">
-              <div className="border-b border-white/[0.06] p-4">
-                <div className="h-[180px] overflow-hidden rounded-lg bg-white p-4" style={{ fontSize: 0 }}>
-                  <div className="mb-2 text-[9px] font-bold uppercase tracking-wider text-[#1c8de0]" style={{ ...pp, fontSize: "9px" }}>Cash Flow Projection</div>
-                  <div className="rounded border border-[#e8ecf1] mb-2" style={{ fontSize: "6px" }}>
+            {/* ── Cash Flow Projections ── */}
+            <div className="w-[calc(50%-12px)] sm:w-[170px] lg:flex-1">
+              <div
+                className="mx-auto overflow-hidden bg-white shadow-[0_4px_20px_rgba(0,0,0,0.10)] transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(0,0,0,0.14)]"
+                style={{ fontSize: 0, aspectRatio: "8.5/11", borderRadius: 3, transform: "rotate(-0.8deg)" }}
+              >
+                <div className="p-3" style={{ fontSize: 0 }}>
+                  <div style={{ fontSize: 8, fontWeight: 700, color: "#12263f", marginBottom: 5 }}>Cash Flow Projection</div>
+                  <div className="rounded border border-[#e8ecf1] mb-2" style={{ fontSize: 0 }}>
                     <div className="flex border-b border-[#e8ecf1] bg-[#f6f8fa]">
-                      <div className="flex-[1.5] px-1.5 py-1 font-semibold text-[#5b7189]" style={{ fontSize: "5.5px" }}></div>
+                      <div className="flex-[1.3] px-1 py-0.5" style={{ fontSize: 5, fontWeight: 600, color: "#5b7189" }}></div>
                       {["Q1", "Q2", "Q3", "Q4"].map((q) => (
-                        <div key={q} className="flex-1 px-1 py-1 text-center font-semibold text-[#5b7189]" style={{ fontSize: "5.5px" }}>{q}</div>
+                        <div key={q} className="flex-1 px-0.5 py-0.5 text-center" style={{ fontSize: 5, fontWeight: 600, color: "#5b7189" }}>{q}</div>
                       ))}
                     </div>
                     {[
                       ["Revenue", "$185K", "$210K", "$238K", "$265K"],
                       ["Expenses", "$142K", "$155K", "$168K", "$178K"],
                       ["Net Cash", "$43K", "$55K", "$70K", "$87K"],
-                    ].map(([label, ...vals], ri) => (
-                      <div key={label} className={`flex ${ri === 2 ? "bg-[#f0fdf4]" : ""} ${ri < 2 ? "border-b border-[#f1f3f5]" : ""}`}>
-                        <div className={`flex-[1.5] px-1.5 py-0.5 ${ri === 2 ? "font-bold text-[#12263f]" : "text-[#5b7189]"}`} style={{ fontSize: "5.5px" }}>{label}</div>
-                        {vals.map((v, ci) => (
-                          <div key={ci} className={`flex-1 px-1 py-0.5 text-center ${ri === 2 ? "font-bold text-[#16a34a]" : "text-[#12263f]"}`} style={{ fontSize: "5.5px" }}>{v}</div>
+                    ].map(([lbl, ...vs], ri) => (
+                      <div key={lbl} className={`flex ${ri === 2 ? "bg-[#f0fdf4]" : ""} ${ri < 2 ? "border-b border-[#f1f3f5]" : ""}`}>
+                        <div className={`flex-[1.3] px-1 py-0.5 ${ri === 2 ? "font-bold" : ""}`} style={{ fontSize: 5, color: ri === 2 ? "#12263f" : "#5b7189" }}>{lbl}</div>
+                        {vs.map((v, ci) => (
+                          <div key={ci} className={`flex-1 px-0.5 py-0.5 text-center ${ri === 2 ? "font-bold" : ""}`} style={{ fontSize: 5, color: ri === 2 ? "#16a34a" : "#12263f" }}>{v}</div>
                         ))}
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-end gap-[2px]" style={{ height: 32 }}>
-                    {[28, 36, 46, 57].map((h, i) => (
-                      <div key={i} className="flex-1 rounded-t bg-[#16a34a]" style={{ height: `${h}%`, opacity: 0.5 + i * 0.15 }} />
+                  <div className="flex items-end gap-[2px]" style={{ height: 28 }}>
+                    {[30, 40, 52, 65].map((h, i) => (
+                      <div key={i} className="flex-1 rounded-t bg-[#16a34a]" style={{ height: `${h}%`, opacity: 0.5 + i * 0.16 }} />
                     ))}
                   </div>
                   <div className="mt-0.5 flex justify-between px-0.5">
                     {["Q1", "Q2", "Q3", "Q4"].map((q) => (
-                      <div key={q} className="text-[5px] text-[#94a3b8]" style={{ fontSize: "5px" }}>{q}</div>
+                      <div key={q} style={{ fontSize: 4.5, color: "#94a3b8" }}>{q}</div>
                     ))}
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3">
-                <h4 className="text-[13px] font-bold text-white" style={pp}>Cash Flow Projection</h4>
-              </div>
+              <div className="mt-3 text-center text-[13px] font-semibold text-[#334155]" style={pp}>Cash Flow Projections</div>
             </div>
 
-            {/* READY FOR UNDERWRITING Package — focal point */}
-            <div className="group overflow-hidden rounded-2xl shadow-lg shadow-black/20 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-black/30 hover:-translate-y-0.5" style={{ background: "linear-gradient(135deg, rgba(22,163,74,0.15) 0%, rgba(28,141,224,0.12) 100%)", border: "1px solid rgba(22,163,74,0.25)" }}>
-              <div className="border-b border-white/[0.06] p-4">
-                <div className="flex h-[180px] flex-col items-center justify-center overflow-hidden rounded-lg bg-gradient-to-b from-[#0b1a2e] to-[#12263f] px-5 py-4 text-center">
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#1c8de0] to-[#4db8f0] text-[12px] font-extrabold italic text-white" style={pp}>
+            {/* ── Lender Package (cover/binder) ── */}
+            <div className="w-[calc(50%-12px)] sm:w-[170px] lg:flex-1">
+              <div
+                className="mx-auto overflow-hidden shadow-[0_6px_28px_rgba(0,0,0,0.18)] transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.22)]"
+                style={{ fontSize: 0, aspectRatio: "8.5/11", borderRadius: 4, background: "linear-gradient(160deg, #0b1a2e 0%, #12263f 60%, #162d4a 100%)" }}
+              >
+                <div className="flex h-full flex-col items-center justify-center px-3 text-center" style={{ fontSize: 0 }}>
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <div
+                      className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-[#1c8de0] to-[#4db8f0]"
+                      style={{ fontSize: 10, fontWeight: 800, fontStyle: "italic", color: "white", ...pp }}
+                    >
                       B
                     </div>
-                    <span className="text-[14px] font-bold text-white" style={pp}>Buddy</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "white", ...pp }}>Buddy</span>
                   </div>
-                  <div className="mb-1 text-[8px] font-semibold uppercase tracking-[2px] text-[#6b8299]">
+                  <div style={{ fontSize: 6.5, fontWeight: 600, letterSpacing: 2, textTransform: "uppercase", color: "#6b8299", marginBottom: 6 }}>
                     SBA Loan Package
                   </div>
-                  <div className="mb-3 h-px w-16 bg-gradient-to-r from-transparent via-[#3b9fe8]/40 to-transparent" />
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#16a34a]">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <div className="mb-3 h-px w-10 bg-gradient-to-r from-transparent via-[#3b9fe8]/40 to-transparent" />
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-[#16a34a]">
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                     </div>
-                    <div className="rounded-full bg-[#16a34a] px-4 py-1.5 shadow-lg shadow-green-900/30">
-                      <span className="text-[10px] font-extrabold uppercase tracking-[1.5px] text-white" style={pp}>
+                    <div className="rounded-full bg-[#16a34a] px-3 py-1 shadow-[0_2px_12px_rgba(22,163,74,0.4)]">
+                      <span style={{ fontSize: 7, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "white", ...pp }}>
                         Ready for Underwriting
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3 flex gap-3 text-[7px] text-[#6b8299]" style={{ fontSize: "7px" }}>
+                  <div className="mt-3 flex gap-2" style={{ fontSize: 5.5, color: "#6b8299" }}>
                     <span>6 Documents</span>
                     <span>&#183;</span>
                     <span>Complete</span>
@@ -1080,10 +1092,9 @@ export function BrokerageLandingPage() {
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3">
-                <h4 className="text-[13px] font-bold text-[#4ade80]" style={pp}>READY FOR UNDERWRITING</h4>
-              </div>
+              <div className="mt-3 text-center text-[13px] font-semibold text-[#334155]" style={pp}>Lender Package</div>
             </div>
+
           </div>
         </div>
       </section>
