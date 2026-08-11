@@ -4,6 +4,7 @@ import * as React from "react";
 import { ToastProvider, useToast } from "@/components/portal/toast/ToastProvider";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
 import { BuddyCoachCard } from "@/components/portal/BuddyCoachCard";
+import { PortalUploadDropzone } from "@/components/borrower/intake/PortalUploadDropzone";
 import { BorrowerPortalDataProvider, useBorrowerPortalDataContext } from "@/buddy/portal";
 import { BorrowerLiveIndicator, BorrowerProcessingBanner, BorrowerToastStack } from "@/components/portal/BorrowerLiveIndicator";
 
@@ -71,6 +72,10 @@ function GuidedBorrowerUploadPage({ dealId }: { dealId: string }) {
   const [data, setData] = React.useState<Guided | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [inviteToken, setInviteToken] = React.useState<string>("");
+  React.useEffect(() => {
+    setInviteToken(localStorage.getItem("buddy_invite_token") ?? "");
+  }, []);
 
   // Celebration triggers
   const [burst, setBurst] = React.useState(false);
@@ -327,12 +332,21 @@ function GuidedBorrowerUploadPage({ dealId }: { dealId: string }) {
               Drag & drop here (or click). We'll automatically check off your checklist.
             </div>
 
-            {/* IMPORTANT:
-               Replace this div with your existing Borrower Upload component
-               e.g. <BorrowerUploadBox dealId={dealId} />
-            */}
-            <div className="mt-3 rounded-lg border bg-white p-6 text-sm text-gray-500">
-              Dropzone placeholder — wire your existing upload UI here.
+            <div className="mt-3">
+              {inviteToken ? (
+                <PortalUploadDropzone
+                  token={inviteToken}
+                  dealId={dealId}
+                  onUploadComplete={() => {
+                    portalData.markUserAction();
+                    load();
+                  }}
+                />
+              ) : (
+                <div className="rounded-lg border bg-white p-6 text-sm text-gray-500">
+                  Reconnecting your upload session…
+                </div>
+              )}
             </div>
           </div>
 

@@ -59,8 +59,8 @@ function buildReviewItems(
       label: "Financials",
       detail: verifications.financialsExtracted
         ? "Documents received"
-        : "Not started",
-      status: verifications.financialsExtracted ? "complete" : "pending",
+        : "No documents uploaded yet",
+      status: verifications.financialsExtracted ? "complete" : "flagged",
       source: "deal_documents",
       resolveChapter: 4,
     },
