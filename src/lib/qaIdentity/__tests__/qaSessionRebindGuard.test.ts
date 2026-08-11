@@ -47,8 +47,8 @@ describe("P0 SESSION REBIND GUARD — Test A: QA email + existing non-test deal 
     // is_test check
     assert.ok(source.includes("is_test"), "Guard must check is_test column");
 
-    // Null return for blocked deals
-    assert.ok(source.includes("return null"), "Must return null when QA blocked from non-test deal");
+    // Discriminated return for blocked deals (refactored from `return null`)
+    assert.ok(source.includes('return { kind: "qa_needs_chooser" }'), "Must return qa_needs_chooser when QA blocked from non-test deal");
 
     // Security log
     assert.ok(source.includes("P0 SECURITY"), "Must log P0 SECURITY event");
@@ -117,16 +117,16 @@ describe("P0 SESSION REBIND GUARD — Test C: QA email + explicit test deal → 
       source.indexOf("const session = await getOrCreateBorrowerSession"),
     );
 
-    // "return null" is inside the is_test=false block
-    const nullReturnPos = guardSection.indexOf("return null");
+    // qa_needs_chooser return is inside the is_test=false block (refactored from `return null`)
+    const chooserReturnPos = guardSection.indexOf('return { kind: "qa_needs_chooser" }');
     const isTestCheckPos = guardSection.indexOf("isTest");
     const notIsTestPos = guardSection.indexOf("!isTest");
 
     assert.ok(isTestCheckPos > -1, "is_test must be checked");
     assert.ok(notIsTestPos > -1, "!isTest condition must exist");
-    assert.ok(nullReturnPos > -1, "return null must exist for non-test deals");
-    // null return happens only in the !isTest branch
-    assert.ok(notIsTestPos < nullReturnPos, "return null must be inside !isTest branch");
+    assert.ok(chooserReturnPos > -1, "return qa_needs_chooser must exist for non-test deals");
+    // qa_needs_chooser return happens only in the !isTest branch
+    assert.ok(notIsTestPos < chooserReturnPos, "return qa_needs_chooser must be inside !isTest branch");
   });
 
   it("is_test field from deals table is the guard's canonical source", () => {
@@ -149,13 +149,13 @@ describe("P0 SESSION REBIND GUARD — Test D: QA email + explicit non-test deal 
   });
 
   it("No session token row created when qaNeedsChooser is returned", () => {
-    // When resolveOrCreateVerifiedBorrowerSession returns null, no
-    // createBorrowerSession is called — confirmed by source analysis.
+    // When resolveOrCreateVerifiedBorrowerSession returns qa_needs_chooser,
+    // no createBorrowerSession is called — confirmed by source analysis.
     const source = readSource("src/lib/brokerage/emailVerification.ts");
 
-    // In verifyCodeAndCreateSession, the null return triggers qaNeedsChooser
-    assert.ok(source.includes("if (dealId === null)"), "Must handle null dealId from resolveOrCreate");
-    assert.ok(source.includes("qaNeedsChooser: true"), "Must set qaNeedsChooser: true when dealId is null");
+    // In verifyCodeAndCreateSession, the discriminated kind triggers qaNeedsChooser
+    assert.ok(source.includes('resolution.kind === "qa_needs_chooser"'), "Must handle qa_needs_chooser kind from resolveOrCreate");
+    assert.ok(source.includes("qaNeedsChooser: true"), "Must set qaNeedsChooser: true when qa_needs_chooser");
   });
 
   it("QAVerifyCodeResult type includes qaNeedsChooser variant", () => {
@@ -197,13 +197,13 @@ describe("P0 SESSION REBIND GUARD — Test E: Ordinary borrower behavior unchang
   });
 
   it("Normal borrower does not receive qaNeedsChooser in response", () => {
-    // For non-QA, resolveOrCreateVerifiedBorrowerSession never returns null,
-    // so verifyCodeAndCreateSession never sets qaNeedsChooser.
+    // For non-QA, resolveOrCreateVerifiedBorrowerSession never returns
+    // qa_needs_chooser, so verifyCodeAndCreateSession never sets qaNeedsChooser.
     const source = readSource("src/lib/brokerage/emailVerification.ts");
 
-    // The qaNeedsChooser return is after a condition
-    assert.ok(source.includes("if (dealId === null)"), "qaNeedsChooser only returned when dealId is null");
-    assert.ok(source.includes("return { ok: true, dealId }"), "Normal path returns dealId string");
+    // The qaNeedsChooser return is gated by the discriminated kind
+    assert.ok(source.includes('resolution.kind === "qa_needs_chooser"'), "qaNeedsChooser only returned for qa_needs_chooser kind");
+    assert.ok(source.includes("return { ok: true, dealId: resolution.dealId }"), "Normal path returns dealId from resolution");
   });
 });
 
@@ -254,8 +254,8 @@ describe("P0 SESSION REBIND GUARD — End-to-end invariants", () => {
     const gate = readSource("src/components/brokerage/BorrowerWorkspaceGate.tsx");
     const client = readSource("src/app/(borrower)/start/StartConciergeClient.tsx");
 
-    // Step 4: return null for QA+non-test
-    assert.ok(verify.includes("return null"), "Step 4: resolveOrCreate returns null for QA+non-test");
+    // Step 4: return qa_needs_chooser for QA+non-test
+    assert.ok(verify.includes('return { kind: "qa_needs_chooser" }'), "Step 4: resolveOrCreate returns qa_needs_chooser for QA+non-test");
 
     // Step 6: qaNeedsChooser variant
     assert.ok(verify.includes("qaNeedsChooser: true"), "Step 6: verifyCodeAndCreateSession has qaNeedsChooser");
