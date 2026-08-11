@@ -16,6 +16,7 @@ import "server-only";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   getBorrowerSession,
@@ -514,12 +515,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     const nextQuestion: string | null = turnResult.result?.next_question ?? null;
 
     if (!messageText) {
-      // The call itself may have succeeded with an empty/malformed "message"
-      // field, or failed outright (turnResult.ok === false, logged above
-      // with the real error) — either way, give the borrower an honest,
-      // non-generic fallback rather than pretending nothing was said.
       messageText =
         "Sorry, I didn't quite catch that — could you tell me again what you're looking to finance?";
+      Sentry.captureMessage("concierge_fallback_triggered", {
+        level: "warning",
+        extra: {
+          dealId: session.deal_id,
+          aiError: turnResult.error ?? "empty_message",
+          turnOk: turnResult.ok,
+        },
+      });
     }
 
     const mergedFacts = mergeExtractedFacts(existingFacts, newFacts);
@@ -640,7 +645,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           userMessage: body.userMessage,
           source: body.source ?? "text",
         },
-        output_json: { buddyResponse: messageText, progressPct, sessionClaimed },
+        output_json: { buddyResponse: messageText, progressPct, sessionClaimed, aiError: turnResult.ok ? null : (turnResult.error ?? "unknown") },
         confidence: 0.9,
         requires_human_review: false,
       })
