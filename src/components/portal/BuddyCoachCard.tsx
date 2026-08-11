@@ -17,19 +17,6 @@ type MissingDocHelp = {
 };
 
 export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
-  async function createShare() {
-    try {
-      console.log("createShare clicked");
-    } catch {}
-  }
-
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {}
-  }
-
-
   const [input, setInput] = React.useState("");
   const [thread, setThread] = React.useState<Array<{ role: "borrower" | "buddy"; text: string }>>([
     {
@@ -96,7 +83,6 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
       setThread((t) => [...t, { role: "buddy", text: `${result.reply}${extra}` }]);
       setLastQuickReplies(result.quickReplies ?? lastQuickReplies);
 
-      // If they said they can't find it, open the helper modal proactively
       if (message.toLowerCase().includes("can't find") || message.toLowerCase().includes("cant find")) {
         setShowMissing(true);
       }
@@ -159,13 +145,16 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
       setMissingHelp(null);
       setMissingReason("");
     } catch (e: any) {
-   
+      setError(e?.message ?? "Unknown error");
+    } finally {
+      setSendingToBank(false);
+    }
+  }
 
   async function createShare() {
     setError(null);
     setShareUrl(null);
     try {
-      // find checklist item id by title (borrower-safe)
       const item = (props.guidedSnapshot?.checklist ?? []).find((x: any) => x.title === missingItemTitle);
       const itemId = item?.id ? String(item.id) : null;
       if (!itemId) throw new Error("Could not locate checklist item.");
@@ -185,7 +174,6 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error ?? "Failed to create link");
 
-      // Convert relative to absolute for copy/paste
       const absolute = `${window.location.origin}${json.shareUrl}`;
       setShareUrl(absolute);
       setShareExp(json.expiresAt ?? null);
@@ -196,10 +184,6 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
 
   function copy(text: string) {
     navigator.clipboard.writeText(text);
-  }   setError(e?.message ?? "Unknown error");
-    } finally {
-      setSendingToBank(false);
-    }
   }
 
   return (
@@ -266,45 +250,45 @@ export function BuddyCoachCard(props: { dealId: string; guidedSnapshot: any }) {
       {/* Missing-doc helper modal */}
       {showMissing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-xl rounded-2xl border bg-white p-5 shadow-lg">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-5 shadow-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold">No worries — we'll solve it together</div>
                 <div className="mt-1 text-sm text-gray-600">
                   Pick what you're stuck on. I'll suggest easy substitutes and send a note to your bank if you want.
-               {/* Share link creator */}
-              <div className="rounded-xl border bg-white p-4">
-                <div className="text-sm font-semibold">Request from someone else</div>
-                <div className="mt-1 text-sm text-gray-600">
-                  If your accountant/bookkeeper has it, generate a secure upload link for just this item.
                 </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button className="h-11 rounded-md border px-4 text-sm font-medium hover:bg-gray-50" onClick={createShare}>
-                    Create secure upload link
-                  </button>
-                </div>
-
-                {shareUrl ? (
-                  <div className="mt-3 rounded-lg border bg-gray-50 p-3">
-                    <div className="text-xs text-gray-500">Secure link (share this)</div>
-                    <div className="mt-1 break-all text-sm font-medium">{shareUrl}</div>
-                    {shareExp ? <div className="mt-1 text-xs text-gray-500">Expires: {new Date(shareExp).toLocaleString()}</div> : null}
-
-                    <div className="mt-2 flex gap-2">
-                      <button className="rounded-md border px-3 py-2 text-sm hover:bg-white" onClick={() => copy(shareUrl)}>
-                        Copy link
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              </div>
               </div>
               <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" onClick={() => setShowMissing(false)}>
                 Close
               </button>
+            </div>
+
+            {/* Share link creator */}
+            <div className="mt-4 rounded-xl border bg-white p-4">
+              <div className="text-sm font-semibold">Request from someone else</div>
+              <div className="mt-1 text-sm text-gray-600">
+                If your accountant/bookkeeper has it, generate a secure upload link for just this item.
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="h-11 rounded-md border px-4 text-sm font-medium hover:bg-gray-50" onClick={createShare}>
+                  Create secure upload link
+                </button>
+              </div>
+
+              {shareUrl ? (
+                <div className="mt-3 rounded-lg border bg-gray-50 p-3">
+                  <div className="text-xs text-gray-500">Secure link (share this)</div>
+                  <div className="mt-1 break-all text-sm font-medium">{shareUrl}</div>
+                  {shareExp ? <div className="mt-1 text-xs text-gray-500">Expires: {new Date(shareExp).toLocaleString()}</div> : null}
+
+                  <div className="mt-2 flex gap-2">
+                    <button className="rounded-md border px-3 py-2 text-sm hover:bg-white" onClick={() => copy(shareUrl)}>
+                      Copy link
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-4 grid gap-3">

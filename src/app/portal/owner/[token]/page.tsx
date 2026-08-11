@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ToastProvider, useToast } from "@/components/portal/toast/ToastProvider";
 import { ConfettiBurst } from "@/components/portal/fun/ConfettiBurst";
+import { PortalUploadDropzone } from "@/components/borrower/intake/PortalUploadDropzone";
 
 export default function OwnerPortalShell({ params }: { params: Promise<{ token: string }> }) {
   const { token } = React.use(params);
@@ -119,8 +120,18 @@ function OwnerPortal({ params }: { params: Promise<{ token: string }> }) {
         <div className="mt-4 rounded-xl border bg-gray-50 p-4">
           <div className="text-sm font-semibold">Upload</div>
           <div className="mt-1 text-sm text-gray-600">Drag & drop (or click). We'll auto-check items as we receive them.</div>
-          <div className="mt-3 rounded-lg border bg-white p-6 text-sm text-gray-500">
-            Dropzone placeholder — wire your existing upload UI here, but pass owner token to server route.
+          <div className="mt-3">
+            {token && data.dealId ? (
+              <PortalUploadDropzone
+                token={token}
+                dealId={data.dealId}
+                onUploadComplete={() => load()}
+              />
+            ) : (
+              <div className="rounded-lg border bg-white p-6 text-sm text-gray-500">
+                Reconnecting your upload session…
+              </div>
+            )}
           </div>
         </div>
       </div>
