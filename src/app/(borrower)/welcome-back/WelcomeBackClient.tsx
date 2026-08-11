@@ -4,7 +4,7 @@ import * as React from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ApplicationChooserScreen } from "@/components/brokerage/ApplicationChooserScreen";
 
-type Step = "email" | "code" | "verifying" | "chooser" | "not_found";
+type Step = "email" | "code" | "chooser" | "not_found";
 
 async function postSession(body: Record<string, unknown>) {
   const res = await fetch("/api/brokerage/session", {
@@ -193,22 +193,6 @@ export function WelcomeBackClient() {
             Start a new application
           </a>
         </div>
-      </div>
-    );
-  }
-
-  if (step === "verifying") {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-white p-10 text-center">
-        <div className="brand-gradient-cta flex h-14 w-14 items-center justify-center rounded-full">
-          <Icon
-            name="auto_awesome"
-            className="h-7 w-7 animate-pulse text-white"
-          />
-        </div>
-        <p className="text-sm font-semibold text-slate-900">
-          Looking up your applications…
-        </p>
       </div>
     );
   }
