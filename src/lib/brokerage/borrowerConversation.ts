@@ -312,6 +312,95 @@ ${renderRegistryFields("entity", "        ")}
 }
 
 /**
+ * SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1 — structured-output schema for
+ * buildCombinedConciergeTurnPromptJSON's response, passed as
+ * GeminiCallOptions.responseSchema / RunRoleRequest.responseSchema.
+ *
+ * Root cause this closes: the shared Gemini client (geminiClient.ts) only
+ * ever requested a bare `{ type: "object" }` schema for this call — no
+ * `required` array — so nothing forced the model to fill the free-text
+ * "message" field. A terse, fact-free borrower message (e.g. "need money")
+ * is exactly the input most likely to produce an empty/omitted "message",
+ * which previously fell straight through to a generic dead-end fallback.
+ *
+ * "extracted_facts" is deliberately left as an unconstrained
+ * `{ type: "object" }` with no nested properties/required — it is
+ * registry-driven and open-ended (BORROWER_FIELD_REGISTRY has ~170
+ * entries); constraining its shape here would risk silently dropping
+ * fields the model wants to report. Only "message" is required.
+ */
+export const CONCIERGE_TURN_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    message: {
+      type: "string",
+      description:
+        "Buddy's warm conversational reply to the borrower (1-4 sentences). Never empty — always respond to what the borrower just said, even when there's nothing new to ask.",
+    },
+    next_question: { type: "string" },
+    extracted_facts: { type: "object" },
+  },
+  required: ["message"],
+  additionalProperties: false,
+} as const;
+
+// ── Deterministic fallback reply (no LLM call) ──────────────────────────
+//
+// SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1 — used only when the combined-turn
+// model call fails outright OR still returns an empty "message" despite
+// CONCIERGE_TURN_RESPONSE_SCHEMA (provider error, timeout, malformed JSON,
+// safety block, or a genuinely empty field). Never invents or infers
+// borrower facts — it asks the next legitimate intake question using the
+// EXACT SAME priority ranking the prompt itself uses (BOOTSTRAP_CHECKS,
+// then computeNextCriticalField), so a fallback turn asks the same
+// question a successful turn would have asked. This keeps the SBA intake
+// conversation moving instead of dead-ending on a generic
+// "I didn't understand you" message.
+
+const BOOTSTRAP_FALLBACK_COPY: Record<string, string> = {
+  "borrower.first_name": "Let's get started — what's your name?",
+  "borrower.email": "What's the best email to save your progress?",
+  "business.legal_name_or_industry":
+    "Tell me about the business you're looking to finance — what's it called, or what industry is it in?",
+  "loan.amount_requested": "About how much financing are you looking for?",
+  "loan.use_of_proceeds": "What will the loan be used for?",
+  "business.is_franchise": "Is this for a franchise business?",
+};
+
+export function buildSafeFallbackReply(
+  existingFacts: Record<string, unknown>,
+  canonicallyAnswered: ReadonlySet<string> = new Set(),
+): string {
+  // computeNextRequiredFields is the canonicallyAnswered-respecting source
+  // of truth (a field a prior session/document/Plaid sync already
+  // established should never be re-asked). computeNextCriticalField does
+  // NOT take a canonicallyAnswered set at all, so it's only trusted below
+  // when it agrees with `missing` — otherwise it can surface a field that's
+  // genuinely already satisfied.
+  const missing = computeNextRequiredFields(existingFacts, canonicallyAnswered);
+  if (missing.length === 0) {
+    return "You're in good shape on the essentials — let me know if there's anything else about your business or financing you'd like to add.";
+  }
+
+  const firstMissingBootstrap = missing.find((key) => key in BOOTSTRAP_FALLBACK_COPY);
+  if (firstMissingBootstrap) {
+    return BOOTSTRAP_FALLBACK_COPY[firstMissingBootstrap];
+  }
+
+  const nextCritical = computeNextCriticalField(existingFacts);
+  const label =
+    nextCritical && missing.includes(nextCritical.factPath)
+      ? nextCritical.label
+      : BORROWER_FIELD_REGISTRY.find((f) => f.factPath === missing[0])?.label;
+
+  if (label) {
+    return `Let's keep going — could you tell me a bit about ${label.toLowerCase()}?`;
+  }
+
+  return "You're in good shape on the essentials — let me know if there's anything else about your business or financing you'd like to add.";
+}
+
+/**
  * Highest-impact still-missing registry field across whatever SBA forms
  * this deal's known facts make applicable — generalizes the ruleEngine's
  * getNextCriticalFact idea (see the deprecated /api/borrower/concierge

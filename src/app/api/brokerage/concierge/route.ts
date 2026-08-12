@@ -47,6 +47,8 @@ import {
   deepMerge,
   computeNextRequiredFields,
   computeNextCriticalField,
+  CONCIERGE_TURN_RESPONSE_SCHEMA,
+  buildSafeFallbackReply,
 } from "@/lib/brokerage/borrowerConversation";
 import { loadAnsweredBorrowerFieldKeys } from "@/lib/brokerage/answeredBorrowerFields";
 import { recordFactRequest } from "@/lib/brokerage/beatMetrics";
@@ -515,8 +517,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     const nextQuestion: string | null = turnResult.result?.next_question ?? null;
 
     if (!messageText) {
-      messageText =
-        "Sorry, I didn't quite catch that — could you tell me again what you're looking to finance?";
+      // SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1 — CONCIERGE_TURN_RESPONSE_SCHEMA
+      // (passed to callConciergeTurnModel below) makes this branch rare now,
+      // but a provider error/timeout/malformed-JSON/safety-block can still
+      // reach it. Rather than a dead-end "I didn't understand" message,
+      // deterministically ask the next legitimate intake question — same
+      // priority ranking the prompt itself uses, no invented facts.
+      messageText = buildSafeFallbackReply(existingFacts, canonicallyAnswered);
       Sentry.captureMessage("concierge_fallback_triggered", {
         level: "warning",
         extra: {
@@ -716,15 +723,16 @@ export type BrokerageConciergeResponse = {
  * or the pre-existing direct callGeminiJSON path. Both branches return the
  * same shape so every call site downstream is unaffected by the flag.
  *
- * The gateway's google provider only enables Gemini's native JSON response
- * mode when a responseSchema is supplied (see providers/google.ts); this
- * route doesn't pass one (the extracted_facts shape is registry-driven and
- * open-ended — a strict schema would need to enumerate every one of
- * BORROWER_FIELD_REGISTRY's ~170 entries to avoid silently dropping fields).
- * Instead this mirrors geminiClient.ts's own fence-stripping fallback
- * (`callOnce`'s "Gemini occasionally wraps JSON in \`\`\`json fences" comment)
- * — the prompt already asks for pure JSON; this just tolerates the model
- * not always complying.
+ * SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1 — both branches now pass
+ * CONCIERGE_TURN_RESPONSE_SCHEMA, which requires "message" (root cause of
+ * the empty-reply bug: previously neither branch requested a schema with a
+ * `required` array, so nothing forced the model to fill that field). The
+ * schema deliberately leaves "extracted_facts" as an unconstrained object —
+ * it's registry-driven and open-ended (BORROWER_FIELD_REGISTRY has ~170
+ * entries), so only "message" is required, never the fact shape. The
+ * gateway branch also keeps its own fence-stripping fallback (mirrors
+ * geminiClient.ts's "Gemini occasionally wraps JSON in ```json fences"
+ * comment) as defense in depth.
  */
 async function callConciergeTurnModel(
   prompt: string,
@@ -741,6 +749,7 @@ async function callConciergeTurnModel(
         purpose: "brokerage-concierge-turn",
         dealId,
         npiTagged: true,
+        responseSchema: CONCIERGE_TURN_RESPONSE_SCHEMA,
       });
       const clean = gatewayResult.text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
       const parsed = JSON.parse(clean) as {
@@ -765,6 +774,7 @@ async function callConciergeTurnModel(
     prompt,
     logTag: "brokerage-concierge-turn",
     timeoutMs: 25_000,
+    responseSchema: CONCIERGE_TURN_RESPONSE_SCHEMA,
   });
   return { ok: legacy.ok, result: legacy.result, error: legacy.error };
 }
