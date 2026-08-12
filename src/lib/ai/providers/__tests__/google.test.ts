@@ -16,6 +16,7 @@ mockServerOnly();
 const require = createRequire(import.meta.url);
 const {
   callGoogle,
+  stripAdditionalPropertiesForGemini,
   __setVertexAccessTokenForTests,
   __resetVertexAccessTokenForTests,
 } = require("../google") as typeof import("../google");
@@ -161,6 +162,96 @@ describe("callGoogle: generationConfig temperature/thinkingConfig branching", ()
       await callGoogle({ ...BASE_REQ, model: "gemini-2.5-flash", temperature: 0.7 });
       const body = JSON.parse(calls[0].init.body);
       assert.equal(body.generationConfig.temperature, 0.7);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("stripAdditionalPropertiesForGemini: SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-3", () => {
+  // Gemini's response_schema dialect doesn't recognize `additionalProperties`
+  // at any depth — its mere presence 400s the whole request. Confirmed via
+  // live gateway-ledger evidence: "Unknown name \"additionalProperties\"...
+  // Cannot find field."
+
+  const SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES = {
+    type: "object",
+    properties: {
+      message: { type: "string" },
+      extracted_facts: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          owners: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                name: { type: "string" },
+              },
+              required: ["name"],
+            },
+          },
+        },
+      },
+    },
+    required: ["message", "extracted_facts"],
+    additionalProperties: false,
+  };
+
+  it("recursively removes every additionalProperties key (root, nested object, and array items)", () => {
+    const stripped = stripAdditionalPropertiesForGemini(SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES);
+    const asString = JSON.stringify(stripped);
+    assert.equal(asString.includes("additionalProperties"), false);
+  });
+
+  it("does NOT mutate the source schema object", () => {
+    const before = JSON.parse(JSON.stringify(SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES));
+    stripAdditionalPropertiesForGemini(SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES);
+    assert.deepEqual(SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES, before);
+    // additionalProperties must still be present on the original — proves
+    // the function returned a copy, not the same mutated reference.
+    assert.equal(
+      (SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES.properties.extracted_facts as any)
+        .additionalProperties,
+      false,
+    );
+  });
+
+  it("preserves all other supported schema structure (properties/required/type/items)", () => {
+    const stripped = stripAdditionalPropertiesForGemini(SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES);
+    assert.equal(stripped.type, "object");
+    assert.deepEqual(stripped.required, ["message", "extracted_facts"]);
+    const props = stripped.properties as Record<string, any>;
+    assert.equal(props.message.type, "string");
+    assert.equal(props.extracted_facts.type, "object");
+    const ownersItems = props.extracted_facts.properties.owners.items;
+    assert.equal(ownersItems.type, "object");
+    assert.deepEqual(ownersItems.required, ["name"]);
+    assert.equal(ownersItems.properties.name.type, "string");
+  });
+
+  it("is a no-op (other than the copy) for a schema with no additionalProperties anywhere", () => {
+    const clean = { type: "object", properties: { a: { type: "string" } }, required: ["a"] };
+    const stripped = stripAdditionalPropertiesForGemini(clean);
+    assert.deepEqual(stripped, clean);
+  });
+
+  it("callGoogle sends a request body with additionalProperties stripped from responseSchema", async () => {
+    const { restore, calls } = installFetch(async () =>
+      okResponse({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }),
+    );
+    try {
+      await callGoogle({
+        ...BASE_REQ,
+        responseSchema: SCHEMA_WITH_NESTED_ADDITIONAL_PROPERTIES,
+      });
+      const body = JSON.parse(calls[0].init.body);
+      const sentSchemaStr = JSON.stringify(body.generationConfig.responseSchema);
+      assert.equal(sentSchemaStr.includes("additionalProperties"), false);
+      // Structure otherwise intact.
+      assert.equal(body.generationConfig.responseSchema.required.length, 2);
     } finally {
       restore();
     }

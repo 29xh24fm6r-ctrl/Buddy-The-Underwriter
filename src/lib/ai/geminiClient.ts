@@ -44,6 +44,16 @@ export type GeminiCallOptions = {
    */
   maxOutputTokens?: number;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /**
+   * SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1 — optional JSON Schema for structured
+   * output. Defaults to the permissive `{ type: "object" }` used by every
+   * existing caller when omitted, so this is fully backward compatible.
+   * Pass a real schema (with a `required` array) when a caller's contract
+   * has a field that must never be silently dropped — see
+   * src/lib/brokerage/borrowerConversation.ts's CONCIERGE_TURN_RESPONSE_SCHEMA
+   * for the motivating case (concierge route's "message" field).
+   */
+  responseSchema?: Record<string, unknown>;
 };
 
 export type GeminiCallResult<T> = {
@@ -83,6 +93,7 @@ export async function callGeminiJSON<T>(
         systemInstruction: opts.systemInstruction,
         maxOutputTokens: opts.maxOutputTokens,
         thinkingLevel: opts.thinkingLevel,
+        responseSchema: opts.responseSchema,
       });
       return {
         ok: true,
@@ -209,17 +220,20 @@ async function callOnce<T>(args: {
   systemInstruction?: string;
   maxOutputTokens?: number;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  responseSchema?: Record<string, unknown>;
 }): Promise<T> {
   // SPEC-M1.1: migrated onto the AI gateway (generator role). All
   // callers observed to use object-shaped T (Record<string, any> / inline
-  // object types), so a permissive object responseSchema is passed to
-  // preserve the original responseMimeType: "application/json" request
+  // object types), so a permissive object responseSchema is the default —
+  // it preserves the original responseMimeType: "application/json" request
   // (only set by the provider adapter when a schema is present) without
-  // over-constraining the shape. maxOutputTokens/thinkingLevel defaults
-  // match this file's own incident-driven tuning (see streamGeminiText's
-  // doc comment above); temperature omission for Gemini 3.x models and
-  // empty-response detection are both already handled inside
-  // providers/google.ts's callGoogle.
+  // over-constraining the shape. A caller may opt into a stricter schema
+  // via args.responseSchema (SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1) when it
+  // has a field that must never be silently omitted. maxOutputTokens/
+  // thinkingLevel defaults match this file's own incident-driven tuning
+  // (see streamGeminiText's doc comment above); temperature omission for
+  // Gemini 3.x models and empty-response detection are both already
+  // handled inside providers/google.ts's callGoogle.
   const result = await runRole("generator", {
     modelOverride: args.model,
     purpose: args.logTag,
@@ -228,7 +242,7 @@ async function callOnce<T>(args: {
     maxOutputTokens: args.maxOutputTokens ?? 16384,
     thinkingLevel: args.thinkingLevel ?? "low",
     timeoutMs: args.timeoutMs,
-    responseSchema: { type: "object" },
+    responseSchema: args.responseSchema ?? { type: "object" },
   });
 
   // Gemini occasionally wraps JSON in ```json fences even with responseMimeType.
