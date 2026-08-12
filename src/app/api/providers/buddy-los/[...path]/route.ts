@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  ENGINE_VERSION,
   MAX_DOCUMENT_BYTES,
   bearerMatches,
   parseProviderRequest,
@@ -13,7 +14,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST(request: Request) {
+type RouteContext = { params: Promise<{ path: string[] }> };
+
+export async function GET(_request: Request, context: RouteContext) {
+  const { path } = await context.params;
+  if (path.join("/") !== "health") return json({ error: "not_found" }, 404);
+
+  const admission = readProviderAdmission();
+  return json(
+    { ready: admission.enabled, engineVersion: ENGINE_VERSION },
+    admission.enabled ? 200 : 503,
+  );
+}
+
+export async function POST(request: Request, context: RouteContext) {
+  const { path } = await context.params;
+  if (path.join("/") !== "document-intelligence") return json({ error: "not_found" }, 404);
+
   const admission = readProviderAdmission();
   if (!admission.enabled) return json({ error: "provider_unavailable" }, 503);
   if (!bearerMatches(request.headers.get("authorization"), admission.config.apiKey)) {

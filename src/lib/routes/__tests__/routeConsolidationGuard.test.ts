@@ -56,9 +56,11 @@ const ROOT = resolve(__dirname, "../../../..");
 //
 // Bumped 2000 -> 2002 on 2026-08-11: Sign Back In feature added 1 new
 // page at /welcome-back (returning-borrower identity verification).
-// Actual measured total: 807 route.ts * 2 + 193 page.tsx * 2 = 2000.
-// Still 46 slots under the 2048 hard cap.
-const MERGED_WARNING_THRESHOLD = 2002;
+// Actual measured total after the consolidated Buddy LOS provider route:
+// 808 route.ts * 2 + 193 page.tsx * 2 = 2002. The provider's health and
+// document-intelligence endpoints share one catch-all dispatcher rather than
+// consuming two route files. Still 44 slots under the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 2004;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
