@@ -23,6 +23,7 @@ export function WelcomeBackClient() {
   const [error, setError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [resendCooldown, setResendCooldown] = React.useState(0);
+  const [startingNew, setStartingNew] = React.useState(false);
 
   React.useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -142,6 +143,38 @@ export function WelcomeBackClient() {
     }
   }
 
+  // SPEC-WELCOME-BACK-ZERO-APP-SESSION-1 — mirrors
+  // ApplicationChooserScreen.tsx's submitChoice({action:"new"}) pattern
+  // exactly: the buddy_application_chooser cookie set for the zero-apps
+  // case (emailVerification.ts) authenticates this POST without a second
+  // OTP, and the endpoint mints a real buddy_borrower_session before
+  // responding — so by the time we navigate, /start recognizes the
+  // borrower.
+  async function startNewApplication() {
+    setStartingNew(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/brokerage/session/applications", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "new" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setError("Buddy couldn't start a new application. Please try again.");
+        setStartingNew(false);
+        return;
+      }
+      window.location.href = "/start";
+    } catch {
+      setError(
+        "Buddy couldn't reach the server. Check your connection and try again.",
+      );
+      setStartingNew(false);
+    }
+  }
+
   if (step === "chooser") {
     return (
       <ApplicationChooserScreen
@@ -174,24 +207,32 @@ export function WelcomeBackClient() {
           If you've used Buddy before, make sure you're using the same
           email address. Otherwise, you can start a new application.
         </p>
+        {error && (
+          <p role="alert" className="mb-5 text-sm text-red-700">
+            {error}
+          </p>
+        )}
         <div className="flex flex-col gap-3 sm:flex-row">
           <button
             type="button"
+            disabled={startingNew}
             onClick={() => {
               setStep("email");
               setCode("");
               setError(null);
             }}
-            className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
           >
             Try a different email
           </button>
-          <a
-            href="/start"
-            className="brand-gradient-cta flex-1 rounded-xl px-4 py-3 text-center text-sm font-semibold text-white transition hover:brightness-110"
+          <button
+            type="button"
+            disabled={startingNew}
+            onClick={() => void startNewApplication()}
+            className="brand-gradient-cta flex-1 rounded-xl px-4 py-3 text-center text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
           >
-            Start a new application
-          </a>
+            {startingNew ? "Starting…" : "Start a new application"}
+          </button>
         </div>
       </div>
     );

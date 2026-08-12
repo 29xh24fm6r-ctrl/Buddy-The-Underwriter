@@ -231,7 +231,17 @@ export async function verifyCodeAndCreateSession(args: {
     return { ok: true, dealId: null, applicationChoiceNeeded: true };
   }
 
+  // SPEC-WELCOME-BACK-ZERO-APP-SESSION-1 — zero applications is NOT an
+  // error and must not force a second verification. Set the exact same
+  // application-chooser identity cookie the application_choice_needed
+  // branch above already sets, proving this browser just verified this
+  // email for this bank — so the borrower's subsequent explicit "Start a
+  // new application" click (POST action:"new" to
+  // /api/brokerage/session/applications) can create a real session without
+  // any new OTP. No new cookie/auth mechanism introduced; this reuses
+  // applicationChooser.ts's existing, already-tested identity proof.
   if (resolution.kind === "no_applications") {
+    await setApplicationChooserCookie(email, args.bankId);
     return { ok: true, dealId: null, noApplicationsFound: true };
   }
 
