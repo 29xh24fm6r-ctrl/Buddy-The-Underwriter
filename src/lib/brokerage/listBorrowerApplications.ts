@@ -49,6 +49,20 @@ export type BorrowerApplication = {
   bucket: ApplicationBucket;
 };
 
+/**
+ * SPEC-BORROWER-APPLICATION-DISCOVERY-1 — thrown when the deals/deal_status
+ * lookup itself fails (schema drift, connection error, etc.), as distinct
+ * from a borrower genuinely having zero applications. Callers MUST NOT
+ * catch this and treat it as an empty result — see this file's own
+ * incident note below for why that distinction matters.
+ */
+export class ApplicationLookupError extends Error {
+  constructor(message: string, public readonly cause: unknown) {
+    super(message);
+    this.name = "ApplicationLookupError";
+  }
+}
+
 const ACTIVE_STAGES = new Set([
   "intake",
   "docs_in_progress",
@@ -84,6 +98,21 @@ export function labelForStage(stage: string | null | undefined): string {
   return STAGE_LABELS[stage] ?? "Status unavailable";
 }
 
+/**
+ * SPEC-BORROWER-APPLICATION-DISCOVERY-1 — INCIDENT (found live, 2026-08-12):
+ * this query used to select `deals.loan_purpose`, a column that does not
+ * exist on `deals` in production (it lives on `brokerage_leads`,
+ * `deal_loan_requests`, `loan_requests`, and `borrower_applications`
+ * instead — none of which this function currently joins). Every call
+ * 400'd, and the old code path folded that failure into the SAME return
+ * value as "borrower genuinely has zero applications" ([]) — so a real
+ * borrower with real applications could be told "no applications found."
+ * A database/query failure and a legitimate empty result are different
+ * states and must never be conflated: this now throws
+ * ApplicationLookupError on query failure so callers can't silently
+ * misrepresent one as the other, while a genuine zero-row result still
+ * returns [] exactly as before.
+ */
 export async function listBorrowerApplications(args: {
   email: string;
   bankId: string;
@@ -93,16 +122,22 @@ export async function listBorrowerApplications(args: {
 
   const { data: deals, error: dealsErr } = await sb
     .from("deals")
-    .select("id, display_name, name, loan_purpose, updated_at")
+    .select("id, display_name, name, updated_at")
     .eq("bank_id", args.bankId)
     .eq("borrower_email", email)
     .order("updated_at", { ascending: false })
     .limit(50);
 
-  if (dealsErr || !deals || deals.length === 0) {
-    if (dealsErr) {
-      console.error("[listBorrowerApplications] deals query failed:", dealsErr.message);
-    }
+  if (dealsErr) {
+    console.error("[listBorrowerApplications] deals query failed:", dealsErr.message);
+    throw new ApplicationLookupError(
+      "Failed to look up borrower applications",
+      dealsErr,
+    );
+  }
+
+  if (!deals || deals.length === 0) {
+    // Genuine empty result — the query itself succeeded.
     return [];
   }
 
@@ -115,6 +150,10 @@ export async function listBorrowerApplications(args: {
 
   if (statusErr) {
     console.error("[listBorrowerApplications] deal_status query failed:", statusErr.message);
+    throw new ApplicationLookupError(
+      "Failed to look up borrower application statuses",
+      statusErr,
+    );
   }
 
   const stageByDealId = new Map<string, string>();
@@ -127,7 +166,10 @@ export async function listBorrowerApplications(args: {
     return {
       id: d.id,
       businessName: d.display_name ?? d.name ?? null,
-      loanPurpose: d.loan_purpose ?? null,
+      // loan_purpose does not exist on `deals` (see incident note above) —
+      // never selected, always null here. Do not reintroduce it without a
+      // real join to one of the tables that actually has the column.
+      loanPurpose: null,
       status: stage,
       statusLabel: labelForStage(stage),
       lastActivityAt: d.updated_at ?? null,

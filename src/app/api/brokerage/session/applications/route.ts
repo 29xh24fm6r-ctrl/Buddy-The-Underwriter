@@ -41,6 +41,7 @@ import { getOrCreateBorrowerSession } from "@/lib/brokerage/session";
 import { claimBorrowerSession } from "@/lib/brokerage/sessionToken";
 import {
   listBorrowerApplications,
+  ApplicationLookupError,
   type ApplicationBucket,
 } from "@/lib/brokerage/listBorrowerApplications";
 
@@ -67,12 +68,21 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "no_pending_choice_session" }, { status: 401 });
   }
 
-  const applications = await listBorrowerApplications({
-    email: identity.email,
-    bankId: identity.bankId,
-  });
-
-  return NextResponse.json({ ok: true, applications });
+  // SPEC-BORROWER-APPLICATION-DISCOVERY-1 — a lookup failure must never be
+  // returned to the client shaped like a legitimate empty applications list.
+  try {
+    const applications = await listBorrowerApplications({
+      email: identity.email,
+      bankId: identity.bankId,
+    });
+    return NextResponse.json({ ok: true, applications });
+  } catch (e) {
+    if (e instanceof ApplicationLookupError) {
+      console.error("[application-chooser] GET application lookup failed:", e.message);
+      return NextResponse.json({ ok: false, error: "application_lookup_failed" }, { status: 500 });
+    }
+    throw e;
+  }
 }
 
 type Body =
@@ -153,10 +163,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Re-derive the status bucket server-side and check it matches the
     // requested action — a client cannot "resume" a completed deal or
     // "view" an active one by changing the action string.
-    const applications = await listBorrowerApplications({
-      email: identity.email,
-      bankId: identity.bankId,
-    });
+    //
+    // SPEC-BORROWER-APPLICATION-DISCOVERY-1 — a lookup failure here must
+    // be surfaced distinctly, not silently treated as bucket=unknown
+    // (which would just fall through to a resume_not_allowed/
+    // view_not_allowed rejection with no signal that the cause was a
+    // query failure rather than a real bucket mismatch).
+    let applications: Awaited<ReturnType<typeof listBorrowerApplications>>;
+    try {
+      applications = await listBorrowerApplications({
+        email: identity.email,
+        bankId: identity.bankId,
+      });
+    } catch (e) {
+      if (e instanceof ApplicationLookupError) {
+        console.error("[application-chooser] POST application lookup failed:", e.message);
+        return NextResponse.json({ ok: false, error: "application_lookup_failed" }, { status: 500 });
+      }
+      throw e;
+    }
     const match = applications.find((a) => a.id === dealId);
     const bucket: ApplicationBucket | null = match?.bucket ?? null;
 
