@@ -338,7 +338,16 @@ export const CONCIERGE_TURN_RESPONSE_SCHEMA = {
         "Buddy's warm conversational reply to the borrower (1-4 sentences). Never empty — always respond to what the borrower just said, even when there's nothing new to ask.",
     },
     next_question: { type: "string" },
-    extracted_facts: { type: "object" },
+    // additionalProperties: false is required here, not just at the root —
+    // the AI gateway's `generator` role fails over from Google to OpenAI
+    // (roleConfig.ts), and OpenAI's strict json_schema mode rejects the
+    // WHOLE request unless every nested object schema sets this explicitly,
+    // recursively (confirmed via a live 400: "In context=('properties',
+    // 'extracted_facts'), 'additionalProperties' is required to be
+    // supplied and to be false."). Gemini's own schema handling does not
+    // require this, but the same schema object is passed to whichever
+    // provider ends up handling the call — see gateway.ts's runRole.
+    extracted_facts: { type: "object", additionalProperties: false },
   },
   required: ["message"],
   additionalProperties: false,

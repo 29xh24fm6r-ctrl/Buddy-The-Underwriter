@@ -194,10 +194,51 @@ test("CONCIERGE_TURN_RESPONSE_SCHEMA does NOT constrain extracted_facts's intern
   assert.equal("required" in factsSchema, false);
 });
 
+test("REGRESSION (SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-2): extracted_facts explicitly sets additionalProperties: false", () => {
+  // Root cause of the live preview failure: OpenAI's strict json_schema
+  // mode (the `generator` role's failover step when Google fails) rejects
+  // the WHOLE request unless every nested object schema sets this,
+  // recursively — not just the root. Confirmed via a live 400 response:
+  // "In context=('properties', 'extracted_facts'), 'additionalProperties'
+  // is required to be supplied and to be false."
+  const factsSchema = CONCIERGE_TURN_RESPONSE_SCHEMA.properties.extracted_facts as Record<
+    string,
+    unknown
+  >;
+  assert.equal(factsSchema.additionalProperties, false);
+});
+
 test("CONCIERGE_TURN_RESPONSE_SCHEMA does NOT require extracted_facts or next_question (only message)", () => {
   const required = CONCIERGE_TURN_RESPONSE_SCHEMA.required as readonly string[];
   assert.equal(required.length, 1);
   assert.equal(required[0], "message");
+});
+
+test("CONCIERGE_TURN_RESPONSE_SCHEMA: every object node is recursively OpenAI-strict-schema compliant", () => {
+  // Generic walker, not hand-picked assertions — so this guard still holds
+  // if the schema is extended later with new nested objects. OpenAI's
+  // strict json_schema mode requires additionalProperties: false on every
+  // node with type "object", at any depth, or the entire request 400s.
+  function assertStrictCompliant(node: unknown, path: string): void {
+    if (node === null || typeof node !== "object") return;
+    const obj = node as Record<string, unknown>;
+    if (obj.type === "object") {
+      assert.equal(
+        obj.additionalProperties,
+        false,
+        `${path}: every object-typed schema node must set additionalProperties: false for OpenAI strict mode`,
+      );
+    }
+    if (obj.properties && typeof obj.properties === "object") {
+      for (const [key, child] of Object.entries(obj.properties as Record<string, unknown>)) {
+        assertStrictCompliant(child, `${path}.properties.${key}`);
+      }
+    }
+    if (obj.items) {
+      assertStrictCompliant(obj.items, `${path}.items`);
+    }
+  }
+  assertStrictCompliant(CONCIERGE_TURN_RESPONSE_SCHEMA, "CONCIERGE_TURN_RESPONSE_SCHEMA");
 });
 
 // ── 5. Source tripwires (route.ts wiring) ─────────────────────────────────
