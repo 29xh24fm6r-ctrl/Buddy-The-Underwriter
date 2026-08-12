@@ -35,8 +35,10 @@ const {
  *     returns an empty/malformed "message" — always produces a real,
  *     forward-moving intake question, never the old dead-end copy, and
  *     never invents a borrower fact.
- *  4. CONCIERGE_TURN_RESPONSE_SCHEMA requires "message" but leaves
- *     "extracted_facts" unconstrained (the actual root-cause fix).
+ *  4. CONCIERGE_TURN_RESPONSE_SCHEMA requires every key in "properties"
+ *     (message, next_question, extracted_facts — OpenAI strict-mode
+ *     compliance, SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-3) while leaving
+ *     "extracted_facts"'s internal shape unconstrained.
  *  5. Source tripwires confirming the schema is wired into both
  *     callConciergeTurnModel branches and the old dead-end string is gone.
  */
@@ -208,17 +210,43 @@ test("REGRESSION (SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-2): extracted_facts explicitl
   assert.equal(factsSchema.additionalProperties, false);
 });
 
-test("CONCIERGE_TURN_RESPONSE_SCHEMA does NOT require extracted_facts or next_question (only message)", () => {
+test("REGRESSION (SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-3): CONCIERGE_TURN_RESPONSE_SCHEMA requires EVERY key in properties (message, next_question, extracted_facts)", () => {
+  // OpenAI's strict json_schema mode rejects a schema whose `required` array
+  // doesn't list every key present in `properties` — confirmed via a live
+  // 400: "'required' is required to be supplied and to be an array
+  // including every key in properties. Missing 'next_question'." This is a
+  // SEPARATE requirement from additionalProperties:false (fix #2 above) —
+  // fixing one does not fix the other.
   const required = CONCIERGE_TURN_RESPONSE_SCHEMA.required as readonly string[];
-  assert.equal(required.length, 1);
-  assert.equal(required[0], "message");
+  const propertyKeys = Object.keys(CONCIERGE_TURN_RESPONSE_SCHEMA.properties);
+  assert.deepEqual([...required].sort(), [...propertyKeys].sort());
+});
+
+test("next_question and extracted_facts stay conceptually optional via an empty-value convention, not a nullable type", () => {
+  // A `type: ["string","null"]` union satisfies OpenAI but Gemini's schema
+  // dialect expects a single scalar Type enum and would reject it — so
+  // "optional" is modeled as "required key, empty-string/empty-object
+  // value allowed" instead, which both provider dialects accept unchanged.
+  const nextQuestionSchema = CONCIERGE_TURN_RESPONSE_SCHEMA.properties.next_question as Record<
+    string,
+    unknown
+  >;
+  const factsSchema = CONCIERGE_TURN_RESPONSE_SCHEMA.properties.extracted_facts as Record<
+    string,
+    unknown
+  >;
+  assert.equal(nextQuestionSchema.type, "string");
+  assert.equal(Array.isArray(nextQuestionSchema.type), false);
+  assert.equal(factsSchema.type, "object");
+  assert.equal(Array.isArray(factsSchema.type), false);
 });
 
 test("CONCIERGE_TURN_RESPONSE_SCHEMA: every object node is recursively OpenAI-strict-schema compliant", () => {
   // Generic walker, not hand-picked assertions — so this guard still holds
   // if the schema is extended later with new nested objects. OpenAI's
-  // strict json_schema mode requires additionalProperties: false on every
-  // node with type "object", at any depth, or the entire request 400s.
+  // strict json_schema mode requires, at every object-typed node at any
+  // depth: (a) additionalProperties: false, and (b) required lists every
+  // key present in properties — or the entire request 400s.
   function assertStrictCompliant(node: unknown, path: string): void {
     if (node === null || typeof node !== "object") return;
     const obj = node as Record<string, unknown>;
@@ -230,6 +258,13 @@ test("CONCIERGE_TURN_RESPONSE_SCHEMA: every object node is recursively OpenAI-st
       );
     }
     if (obj.properties && typeof obj.properties === "object") {
+      const propertyKeys = Object.keys(obj.properties as Record<string, unknown>);
+      const required = (obj.required as readonly string[] | undefined) ?? [];
+      assert.deepEqual(
+        [...required].sort(),
+        [...propertyKeys].sort(),
+        `${path}: required must list every key in properties for OpenAI strict mode`,
+      );
       for (const [key, child] of Object.entries(obj.properties as Record<string, unknown>)) {
         assertStrictCompliant(child, `${path}.properties.${key}`);
       }

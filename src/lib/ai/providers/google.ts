@@ -31,13 +31,56 @@ import type { ProviderCallRequest, ProviderCallResult } from "./types";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
+/**
+ * SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-3 — Gemini's `response_schema` dialect
+ * (an OpenAPI 3.0 subset) does not recognize the `additionalProperties`
+ * keyword at ANY nesting level. Its mere presence anywhere in the schema
+ * causes a 400 ("Unknown name \"additionalProperties\"... Cannot find
+ * field") that rejects the whole request — confirmed via live gateway
+ * ledger evidence (ai_gateway_calls, purpose=brokerage-concierge-turn).
+ *
+ * OpenAI's strict json_schema mode requires the opposite: additionalProperties:
+ * false recursively on every object node. A caller that needs to satisfy both
+ * providers via one shared schema object (e.g. the AI gateway's `generator`/
+ * `interviewer` roles, whose chain includes both) can't use a single object
+ * as-is — this normalizes a Google-bound COPY by stripping every
+ * `additionalProperties` key, recursively, while leaving all other schema
+ * structure (properties/required/type/description/items) intact. Never
+ * mutates the input — callers may still hold a reference to the original
+ * (OpenAI-shaped) schema elsewhere.
+ */
+export function stripAdditionalPropertiesForGemini(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const { additionalProperties: _drop, ...rest } = schema;
+  const out: Record<string, unknown> = { ...rest };
+
+  if (rest.properties && typeof rest.properties === "object" && !Array.isArray(rest.properties)) {
+    const props = rest.properties as Record<string, unknown>;
+    const newProps: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(props)) {
+      newProps[key] =
+        value && typeof value === "object" && !Array.isArray(value)
+          ? stripAdditionalPropertiesForGemini(value as Record<string, unknown>)
+          : value;
+    }
+    out.properties = newProps;
+  }
+
+  if (rest.items && typeof rest.items === "object" && !Array.isArray(rest.items)) {
+    out.items = stripAdditionalPropertiesForGemini(rest.items as Record<string, unknown>);
+  }
+
+  return out;
+}
+
 function buildGenerationConfig(req: ProviderCallRequest): Record<string, unknown> {
   const config: Record<string, unknown> = {
     maxOutputTokens: req.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
   };
   if (req.responseSchema) {
     config.responseMimeType = "application/json";
-    config.responseSchema = req.responseSchema;
+    config.responseSchema = stripAdditionalPropertiesForGemini(req.responseSchema);
   }
   if (isGemini3Model(req.model)) {
     // Gemini 3.x rejects sub-1.0 temperatures — omit entirely, use thinkingConfig instead.

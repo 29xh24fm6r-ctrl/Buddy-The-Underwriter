@@ -272,7 +272,7 @@ Return ONLY a single JSON object — no markdown fences, no text before or after
 
 {
   "message": string,
-  "next_question": string | null,
+  "next_question": string,
   "extracted_facts": {
     "borrower": {
       "first_name": string | null,
@@ -308,7 +308,7 @@ ${renderRegistryFields("entity", "        ")}
   }
 }
 
-"message" is your warm conversational reply (1-4 sentences, include your next question per the priorities above if you have one). This field is NEVER empty — even with nothing left to ask, always write at least a short reply that responds to what the borrower just said. "extracted_facts" covers only what the borrower JUST said (this message only; use null for anything they didn't mention).`;
+"message" is your warm conversational reply (1-4 sentences, include your next question per the priorities above if you have one). This field is NEVER empty — even with nothing left to ask, always write at least a short reply that responds to what the borrower just said. "next_question" and "extracted_facts" are always present in the object, but may be empty ("" / {}) when there's nothing to ask or nothing new was mentioned — never omit either key. "extracted_facts" covers only what the borrower JUST said (this message only; use null for anything they didn't mention).`;
 }
 
 /**
@@ -323,11 +323,36 @@ ${renderRegistryFields("entity", "        ")}
  * is exactly the input most likely to produce an empty/omitted "message",
  * which previously fell straight through to a generic dead-end fallback.
  *
- * "extracted_facts" is deliberately left as an unconstrained
- * `{ type: "object" }` with no nested properties/required — it is
- * registry-driven and open-ended (BORROWER_FIELD_REGISTRY has ~170
- * entries); constraining its shape here would risk silently dropping
- * fields the model wants to report. Only "message" is required.
+ * SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-3 — this schema is sent generically to
+ * whichever provider the gateway's `generator`/`interviewer` role chain
+ * ends up using (google, then openai — roleConfig.ts). Live gateway-ledger
+ * evidence (ai_gateway_calls, purpose=brokerage-concierge-turn) proved BOTH
+ * steps were failing on every turn, for two independent dialect reasons:
+ *
+ *  - Google: Gemini's response_schema dialect doesn't recognize the
+ *    `additionalProperties` keyword at any depth — its mere presence 400s
+ *    the whole request ("Unknown name \"additionalProperties\"... Cannot
+ *    find field"). Fixed at the provider boundary, not here — see
+ *    providers/google.ts's stripAdditionalPropertiesForGemini, applied to
+ *    a Google-bound COPY of whatever schema is passed in.
+ *  - OpenAI: strict json_schema mode requires `required` to list EVERY key
+ *    present in `properties` — a key merely absent from `required` (not
+ *    "additionalProperties") is rejected too ("'required' is required to
+ *    be supplied and to be an array including every key in properties.
+ *    Missing 'next_question'."). Fixed here: all three properties are
+ *    required. "next_question" and "extracted_facts" stay conceptually
+ *    optional via an empty-value convention (""  / {}) rather than a
+ *    nullable/union type — a `type` array like ["string","null"] is valid
+ *    for OpenAI but not for Gemini's schema dialect (which expects a
+ *    single scalar Type enum), so it would just trade one provider's
+ *    rejection for the other's. "required" only demands the KEY be
+ *    present, not that its value be non-default, so this is sufficient for
+ *    both providers with no type changes at all.
+ *
+ * "extracted_facts" stays an unconstrained `{ type: "object" }` (no nested
+ * properties/required) — it is registry-driven and open-ended
+ * (BORROWER_FIELD_REGISTRY has ~170 entries); constraining its shape here
+ * would risk silently dropping fields the model wants to report.
  */
 export const CONCIERGE_TURN_RESPONSE_SCHEMA = {
   type: "object",
@@ -337,19 +362,24 @@ export const CONCIERGE_TURN_RESPONSE_SCHEMA = {
       description:
         "Buddy's warm conversational reply to the borrower (1-4 sentences). Never empty — always respond to what the borrower just said, even when there's nothing new to ask.",
     },
-    next_question: { type: "string" },
-    // additionalProperties: false is required here, not just at the root —
-    // the AI gateway's `generator` role fails over from Google to OpenAI
-    // (roleConfig.ts), and OpenAI's strict json_schema mode rejects the
-    // WHOLE request unless every nested object schema sets this explicitly,
-    // recursively (confirmed via a live 400: "In context=('properties',
-    // 'extracted_facts'), 'additionalProperties' is required to be
-    // supplied and to be false."). Gemini's own schema handling does not
-    // require this, but the same schema object is passed to whichever
-    // provider ends up handling the call — see gateway.ts's runRole.
-    extracted_facts: { type: "object", additionalProperties: false },
+    next_question: {
+      type: "string",
+      description:
+        "The next intake question to ask, verbatim. Empty string when there is nothing left to ask right now — never omit this key.",
+    },
+    // additionalProperties: false is required here for OpenAI's strict
+    // json_schema mode (context=('properties','extracted_facts')). Gemini
+    // doesn't support this keyword at all — providers/google.ts strips it
+    // recursively from its own copy of the schema before sending to Gemini,
+    // so this stays safe for both providers despite being shared generically.
+    extracted_facts: {
+      type: "object",
+      additionalProperties: false,
+      description:
+        "Only what the borrower JUST said (this message only). Empty object {} when nothing new was mentioned — never omit this key.",
+    },
   },
-  required: ["message"],
+  required: ["message", "next_question", "extracted_facts"],
   additionalProperties: false,
 } as const;
 

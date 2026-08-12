@@ -514,7 +514,12 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     let messageText = turnResult.result?.message ?? "";
     const newFacts: Record<string, unknown> = turnResult.result?.extracted_facts ?? {};
-    const nextQuestion: string | null = turnResult.result?.next_question ?? null;
+    // SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-3 — CONCIERGE_TURN_RESPONSE_SCHEMA now
+    // requires "next_question" (OpenAI strict-mode compliance), so the model
+    // signals "nothing to ask" with "" rather than omitting/nulling the key.
+    // `||` (not `??`) folds that empty-string convention back into the same
+    // `string | null` shape every existing caller downstream already expects.
+    const nextQuestion: string | null = turnResult.result?.next_question || null;
 
     if (!messageText) {
       // SPEC-CONCIERGE-EMPTY-MESSAGE-FIX-1 — CONCIERGE_TURN_RESPONSE_SCHEMA
