@@ -90,7 +90,7 @@ function getClientIp(req: Request): string | null {
   return realIp ? String(realIp) : null;
 }
 
-export default clerkMiddleware(async (auth, req) => {
+const applicationProxy = clerkMiddleware(async (auth, req) => {
   const p = req.nextUrl.pathname;
 
   // ── Domain-based routing for homepage ────────────────────────────────
@@ -209,6 +209,21 @@ export default clerkMiddleware(async (auth, req) => {
 
   return withBuildHeader();
 });
+
+function providerOnlyProxy(req: Request) {
+  const path = new URL(req.url).pathname;
+  if (path === "/api/providers/buddy-los/document-intelligence" || path === "/api/providers/buddy-los/health") {
+    return NextResponse.next();
+  }
+  return new NextResponse(null, {
+    status: 404,
+    headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+  });
+}
+
+export default process.env.BUDDY_LOS_PROVIDER_ONLY === "true"
+  ? providerOnlyProxy
+  : applicationProxy;
 
 export const config = {
   matcher: [
