@@ -24,10 +24,20 @@ export default defineConfig({
     navigationTimeout: 30_000,
   },
   projects: [
-    { name: "smoke-public", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "smoke-public",
+      testIgnore: /qa-borrower-identity\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
     {
       name: "smoke-authed",
+      testIgnore: /qa-borrower-identity\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], storageState },
+    },
+    {
+      name: "qa-borrower-identity",
+      testMatch: /qa-borrower-identity\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
   webServer: {
