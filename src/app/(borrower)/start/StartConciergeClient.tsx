@@ -754,20 +754,20 @@ export function StartConciergeClient({
               <IntakeBusinessStep
                 dealId={nonNullDealId}
                 isStartup={isStartup}
-                onContinue={() => { void navigateToChapter(3); }}
+                onContinue={(data) => { void navigateToChapter(3, data); }}
               />
             )}
             {chapter === 3 && (
               <IntakeOwnershipStep
                 dealId={nonNullDealId}
-                onContinue={() => { void navigateToChapter(4); }}
+                onContinue={(data) => { void navigateToChapter(4, data); }}
               />
             )}
             {chapter === 4 && (
               <IntakeFinancialsStep
                 dealId={nonNullDealId}
                 isFranchise={isFranchise}
-                onContinue={() => { void navigateToChapter(5); }}
+                onContinue={(data) => { void navigateToChapter(5, data); }}
               />
             )}
             {chapter === 5 && (

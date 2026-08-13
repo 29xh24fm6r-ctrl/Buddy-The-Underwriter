@@ -10,7 +10,7 @@ export function IntakeOwnershipStep({
   onContinue,
 }: {
   dealId: string;
-  onContinue: () => void;
+  onContinue: (data?: Record<string, unknown>) => void;
 }) {
   const [structure, setStructure] = useState<OwnerStructure>(null);
   const [ownershipSaved, setOwnershipSaved] = useState(false);
@@ -239,7 +239,7 @@ export function IntakeOwnershipStep({
             type="button"
             onClick={async () => {
               if (structure === "multi") await saveStructure("multi");
-              onContinue();
+              onContinue({ structure });
             }}
             className="brand-gradient-cta rounded-2xl px-8 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110"
           >
