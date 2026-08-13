@@ -12,6 +12,9 @@ jobs:
     env:
       SMOKE_AUTH_BOOTSTRAP_URL: ${{ secrets.SMOKE_AUTH_BOOTSTRAP_URL }}
       DRIFT_DETECT_DB_URL: ${{ secrets.DRIFT_DETECT_DB_URL }}
+      BORROWER_QA_EMAIL: ${{ secrets.BORROWER_QA_EMAIL }}
+      BORROWER_TEST_AUTH_ENABLED: ${{ secrets.BORROWER_TEST_AUTH_ENABLED }}
+      BORROWER_TEST_OTP: ${{ secrets.BORROWER_TEST_OTP }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

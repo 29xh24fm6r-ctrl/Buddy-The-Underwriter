@@ -64,7 +64,7 @@ async function deriveCompletedChapters(
   const completed: number[] = [];
 
   // Load all relevant data in parallel
-  const [concierge, deal, ownerships, docs, verifications] = await Promise.all([
+  const [concierge, deal, ownerships, docs, verifications, bankConns] = await Promise.all([
     sb
       .from("borrower_concierge_sessions")
       .select("extracted_facts")
@@ -87,6 +87,11 @@ async function deriveCompletedChapters(
       .from("borrower_identity_verifications")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId),
+    sb
+      .from("borrower_bank_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("deal_id", dealId)
+      .eq("status", "active"),
   ]);
 
   const facts = ((concierge as any)?.extracted_facts ?? {}) as Record<string, any>;
@@ -120,7 +125,8 @@ async function deriveCompletedChapters(
 
   // Ch4: Financials — complete if documents uploaded or bank connected
   const hasDocs = (docs as any)?.count > 0;
-  if (hasDocs) {
+  const hasBankConnection = ((bankConns as any)?.count ?? 0) > 0;
+  if (hasDocs || hasBankConnection) {
     completed.push(4);
   }
 

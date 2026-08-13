@@ -2,18 +2,21 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Poppins, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
+const poppins = localFont({
+  src: [
+    { path: "../../../public/fonts/Poppins-500.woff2", weight: "500", style: "normal" },
+    { path: "../../../public/fonts/Poppins-600.woff2", weight: "600", style: "normal" },
+    { path: "../../../public/fonts/Poppins-700.woff2", weight: "700", style: "normal" },
+    { path: "../../../public/fonts/Poppins-800.woff2", weight: "800", style: "normal" },
+  ],
   variable: "--font-poppins",
   display: "swap",
 });
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+const jakarta = localFont({
+  src: "../../../public/fonts/PlusJakartaSans-Variable.woff2",
   variable: "--font-jakarta",
   display: "swap",
 });
