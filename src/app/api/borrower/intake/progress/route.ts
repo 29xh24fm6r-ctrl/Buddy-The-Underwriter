@@ -252,13 +252,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "session_create_failed" }, { status: 500 });
     }
 
-    // Step 2: Save chapter-specific facts to canonical tables
+    // Step 2: Save chapter-specific facts to canonical tables.
+    // `chapter` is the destination (chapter being navigated TO), so
+    // chapter N data corresponds to the chapter just completed (N-1).
     const data = body.data ?? {};
 
-    // Ch1: Financing — save purposes and amount to deals + concierge facts
-    if (data.purposes !== undefined || data.totalAmount !== undefined) {
-      try {
-        // Write to deals.loan_amount
+    try {
+      // Ch1 → 2: Financing — save purposes and amount to deals + concierge facts
+      if (chapter === 2 && (data.purposes !== undefined || data.totalAmount !== undefined)) {
         if (typeof data.totalAmount === "number") {
           await sb.from("deals").update({
             loan_amount: data.totalAmount,
@@ -266,7 +267,6 @@ export async function POST(request: Request) {
           }).eq("id", dealId);
         }
 
-        // Write purposes to concierge extracted_facts
         if (Array.isArray(data.purposes)) {
           const { data: existing } = await sb
             .from("borrower_concierge_sessions")
@@ -297,10 +297,86 @@ export async function POST(request: Request) {
             })
             .eq("deal_id", dealId);
         }
-      } catch (e) {
-        console.error(`${LOG_PREFIX} ch1 save failed deal=${dealId}`, e);
-        return NextResponse.json({ ok: false, error: "chapter_save_failed" }, { status: 500 });
       }
+
+      // Ch2 → 3: Business — save entity type + NAICS to concierge facts
+      if (chapter === 3 && (data.entityType !== undefined || data.naicsCode !== undefined)) {
+        const { data: existing } = await sb
+          .from("borrower_concierge_sessions")
+          .select("extracted_facts")
+          .eq("deal_id", dealId)
+          .maybeSingle();
+
+        const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+        const updatedFacts = {
+          ...currentFacts,
+          business: {
+            ...(currentFacts.business ?? {}),
+            ...(data.entityType !== undefined ? { entity_type: String(data.entityType) } : {}),
+            ...(data.naicsCode !== undefined ? { naics: String(data.naicsCode) } : {}),
+          },
+        };
+
+        await sb.from("borrower_concierge_sessions")
+          .update({
+            extracted_facts: updatedFacts,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("deal_id", dealId);
+      }
+
+      // Ch3 → 4: Ownership — save structure to concierge facts
+      if (chapter === 4 && data.structure !== undefined) {
+        const { data: existing } = await sb
+          .from("borrower_concierge_sessions")
+          .select("extracted_facts")
+          .eq("deal_id", dealId)
+          .maybeSingle();
+
+        const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+        const updatedFacts = {
+          ...currentFacts,
+          ownership: {
+            ...(currentFacts.ownership ?? {}),
+            structure: String(data.structure),
+          },
+        };
+
+        await sb.from("borrower_concierge_sessions")
+          .update({
+            extracted_facts: updatedFacts,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("deal_id", dealId);
+      }
+
+      // Ch4 → 5: Financials — save annual revenue to concierge facts
+      if (chapter === 5 && typeof data.annualRevenue === "number" && data.annualRevenue > 0) {
+        const { data: existing } = await sb
+          .from("borrower_concierge_sessions")
+          .select("extracted_facts")
+          .eq("deal_id", dealId)
+          .maybeSingle();
+
+        const currentFacts = (existing?.extracted_facts as Record<string, any>) ?? {};
+        const updatedFacts = {
+          ...currentFacts,
+          business: {
+            ...(currentFacts.business ?? {}),
+            annual_revenue: String(data.annualRevenue),
+          },
+        };
+
+        await sb.from("borrower_concierge_sessions")
+          .update({
+            extracted_facts: updatedFacts,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("deal_id", dealId);
+      }
+    } catch (e) {
+      console.error(`${LOG_PREFIX} ch${chapter - 1} save failed deal=${dealId}`, e);
+      return NextResponse.json({ ok: false, error: "chapter_save_failed" }, { status: 500 });
     }
 
     // Step 3: Derive completion from canonical facts

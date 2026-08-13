@@ -11,7 +11,7 @@ export function IntakeFinancialsStep({
 }: {
   dealId: string;
   isFranchise: boolean;
-  onContinue: () => void;
+  onContinue: (data?: Record<string, unknown>) => void;
 }) {
   const [annualRevenue, setAnnualRevenue] = useState("");
   const [monthlyRevenue, setMonthlyRevenue] = useState("");
@@ -69,7 +69,7 @@ export function IntakeFinancialsStep({
     } finally {
       setSaving(false);
     }
-    onContinue();
+    onContinue({ annualRevenue: computedAnnual, plaidConnected, documentsUploaded: uploadedCount > 0 });
   };
 
   return (

@@ -28,7 +28,7 @@ export function IntakeBusinessStep({
 }: {
   dealId: string;
   isStartup?: boolean;
-  onContinue: () => void;
+  onContinue: (data?: Record<string, unknown>) => void;
 }) {
   const [mode, setMode] = useState<Mode>(isStartup ? "startup" : "choose");
   const [query, setQuery] = useState("");
@@ -67,7 +67,7 @@ export function IntakeBusinessStep({
     } finally {
       setDetailsSaving(false);
     }
-    onContinue();
+    onContinue({ entityType, naicsCode: naicsCode.trim() });
   };
 
   const search = useCallback(async () => {
