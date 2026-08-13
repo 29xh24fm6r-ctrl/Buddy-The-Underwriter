@@ -40,7 +40,10 @@ import {
 import { isQABorrowerEmail } from "@/lib/qaIdentity/config";
 import { setQAChooserCookie } from "@/lib/brokerage/qaChooser";
 import { setApplicationChooserCookie } from "@/lib/brokerage/applicationChooser";
-import { listBorrowerApplications } from "@/lib/brokerage/listBorrowerApplications";
+import {
+  listBorrowerApplications,
+  ApplicationLookupError,
+} from "@/lib/brokerage/listBorrowerApplications";
 
 const CODE_TTL_SECONDS = 10 * 60;
 const MAX_VERIFY_ATTEMPTS = 5;
@@ -157,7 +160,13 @@ export type VerifyCodeResult =
   | { ok: true; dealId: null; noApplicationsFound: true }
   | {
       ok: false;
-      error: "invalid_code" | "expired" | "too_many_attempts" | "not_found" | "qa_blocked_non_test_deal";
+      error:
+        | "invalid_code"
+        | "expired"
+        | "too_many_attempts"
+        | "not_found"
+        | "qa_blocked_non_test_deal"
+        | "application_lookup_failed";
     };
 
 export async function verifyCodeAndCreateSession(args: {
@@ -210,6 +219,12 @@ export async function verifyCodeAndCreateSession(args: {
   // P0 SECURITY: QA identity must never return a non-test dealId.
   // If the session was resolved to a non-test deal, signal the client to
   // show the QA chooser instead — no session token was created.
+  // SPEC-BORROWER-APPLICATION-DISCOVERY-1 — a query failure surfaces as its
+  // own error, never silently folded into "no applications found."
+  if (resolution.kind === "lookup_failed") {
+    return { ok: false, error: "application_lookup_failed" };
+  }
+
   if (resolution.kind === "qa_needs_chooser") {
     // P1 FIX (2026-08-05): Set a signed QA identity cookie so the
     // applications endpoint can authenticate the QA borrower for
@@ -291,6 +306,7 @@ async function resolveOrCreateVerifiedBorrowerSession(args: {
   | { kind: "qa_needs_chooser" }
   | { kind: "application_choice_needed" }
   | { kind: "no_applications" }
+  | { kind: "lookup_failed" }
 > {
   const sb = supabaseAdmin();
   const isQA = isQABorrowerEmail(args.email);
@@ -345,10 +361,27 @@ async function resolveOrCreateVerifiedBorrowerSession(args: {
 
   // General (non-QA) path: check for ANY existing applications for this
   // email at this bank before ever creating/resuming a session.
-  const existingApplications = await listBorrowerApplications({
-    email: args.email,
-    bankId: args.bankId,
-  });
+  //
+  // SPEC-BORROWER-APPLICATION-DISCOVERY-1 — a lookup failure here must
+  // never be treated as "zero applications." listBorrowerApplications
+  // throws ApplicationLookupError specifically so this can't happen
+  // silently; caught here and surfaced as its own distinct result kind.
+  let existingApplications: Awaited<ReturnType<typeof listBorrowerApplications>>;
+  try {
+    existingApplications = await listBorrowerApplications({
+      email: args.email,
+      bankId: args.bankId,
+    });
+  } catch (e) {
+    if (e instanceof ApplicationLookupError) {
+      console.error(
+        "[emailVerification] application lookup failed — NOT treating as zero applications:",
+        e.message,
+      );
+      return { kind: "lookup_failed" };
+    }
+    throw e;
+  }
 
   if (existingApplications.length > 0) {
     return { kind: "application_choice_needed" };

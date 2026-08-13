@@ -80,7 +80,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       mode,
     });
     if (!result.ok) {
-      const status = result.error === "not_found" ? 404 : 400;
+      // SPEC-BORROWER-APPLICATION-DISCOVERY-1 — a server-side lookup
+      // failure is a 500, not a 400/404 client-input error, and is never
+      // represented to the client as "no applications found."
+      const status =
+        result.error === "not_found"
+          ? 404
+          : result.error === "application_lookup_failed"
+            ? 500
+            : 400;
       return NextResponse.json({ ok: false, error: result.error }, { status });
     }
     // P0 SECURITY: QA identity verified but no test deal — client must show QA chooser.
