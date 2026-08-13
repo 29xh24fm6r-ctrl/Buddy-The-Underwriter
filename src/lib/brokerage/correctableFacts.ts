@@ -34,6 +34,8 @@ const BUSINESS_FIELDS: CorrectableField[] = BORROWER_FIELD_REGISTRY
   .map((f) => ({ factPath: f.factPath, label: f.label, type: f.type === "date" ? "string" : f.type }));
 
 export const CORRECTABLE_FACT_FIELDS: CorrectableField[] = [
+  { factPath: "borrower.first_name", label: "First name", type: "string" },
+  { factPath: "borrower.last_name", label: "Last name", type: "string" },
   { factPath: "loan.amount_requested", label: "Loan amount requested", type: "number" },
   { factPath: "loan.use_of_proceeds", label: "Use of proceeds", type: "string" },
   ...BUSINESS_FIELDS,

@@ -147,13 +147,13 @@ export async function GET(
   try {
     const { data: existingScore } = await sb
       .from("buddy_sba_scores")
-      .select("id, score_status, score, eligibility_passed")
+      .select("id, score_status, score, eligibility_passed, computed_at")
       .eq("deal_id", dealId)
       .order("computed_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const scoreRow = existingScore as { id?: string; score_status?: string; score?: number; eligibility_passed?: boolean } | null;
+    const scoreRow = existingScore as { id?: string; score_status?: string; score?: number; eligibility_passed?: boolean; computed_at?: string } | null;
 
     if (!scoreRow) {
       try {
@@ -169,6 +169,21 @@ export async function GET(
         await lockBuddySBAScore({ dealId, sb });
       } catch (e) {
         autoResolveErrors.push(`lock: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else if (scoreRow.score_status === "draft") {
+      const scoreAgeMs = scoreRow.computed_at
+        ? Date.now() - new Date(scoreRow.computed_at).getTime()
+        : Infinity;
+      const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+      if (scoreAgeMs >= STALE_THRESHOLD_MS) {
+        try {
+          const computed = await computeBuddySBAScore({ dealId, sb, context: "package_seal" });
+          if (computed.score >= 60 && computed.eligibilityPassed) {
+            await lockBuddySBAScore({ dealId, sb });
+          }
+        } catch (e) {
+          autoResolveErrors.push(`score_recompute: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
 
