@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import ClerkGate from "./ClerkGate";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { ConditionalHeroBar } from "@/components/nav/ConditionalHeroBar";
 import FrameGuard from "@/components/dev/FrameGuard";
 import BuildBootLog from "@/components/dev/BuildBootLog";
@@ -9,9 +9,8 @@ import { QaModeProvider } from "@/components/qa/QaModeProvider";
 import { BuddyProvider } from "@/buddy/core/BuddyProvider";
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+const inter = localFont({
+  src: "../../public/fonts/Inter-Variable.woff2",
   variable: "--font-inter",
   display: "swap",
 });
