@@ -94,6 +94,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       return handleCorrectFact(body);
     }
 
+    if ("action" in body && (body as any).action === "confirm_assumptions") {
+      return handleConfirmAssumptions();
+    }
+
     if (!("userMessage" in body) || !body.userMessage || typeof body.userMessage !== "string") {
       return NextResponse.json(
         { ok: false, error: "userMessage required" },
@@ -814,6 +818,59 @@ function coerceCorrectionValue(raw: unknown, type: "string" | "number" | "boolea
   }
   const s = String(raw).trim();
   return s.length > 0 ? s : null;
+}
+
+/**
+ * Deterministic assumptions confirmation — T2 of SPEC-BORROWER-FUNNEL-SEAL-BLOCKERS.
+ * Called when the client sends `{ action: "confirm_assumptions" }` (a button click,
+ * not a chat message). Calls ensureAssumptionsForPreview directly, bypassing the
+ * LLM entirely — the borrower already saw their numbers and clicked "confirm."
+ */
+async function handleConfirmAssumptions(): Promise<NextResponse> {
+  const session = await getBorrowerSession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const sb = supabaseAdmin();
+  const { data: conciergeRow } = await sb
+    .from("borrower_concierge_sessions")
+    .select("id, extracted_facts")
+    .eq("deal_id", session.deal_id)
+    .maybeSingle();
+
+  const conciergeFacts =
+    (conciergeRow?.extracted_facts as Record<string, unknown>) ?? null;
+
+  const ensure = await ensureAssumptionsForPreview({
+    dealId: session.deal_id,
+    conciergeFacts,
+    sb,
+  });
+
+  if (ensure.ok) {
+    const brokerageBankId = await getBrokerageBankId();
+    if (conciergeFacts) {
+      propagateBorrowerFacts({
+        dealId: session.deal_id,
+        bankId: brokerageBankId,
+        facts: conciergeFacts as BorrowerFacts,
+        sb,
+      }).catch((e) => {
+        console.warn(
+          "[brokerage-concierge] confirm-assumptions propagation failed (non-fatal):",
+          e?.message ?? String(e),
+        );
+      });
+    }
+  }
+
+  return NextResponse.json({
+    ok: ensure.ok,
+    assumptionsId: ensure.ok ? ensure.assumptionsId : undefined,
+    alreadyConfirmed: ensure.ok ? ensure.alreadyConfirmed : undefined,
+    blockers: ensure.ok ? undefined : ensure.blockers,
+  });
 }
 
 /**

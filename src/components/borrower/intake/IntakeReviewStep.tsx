@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 import { SigningPanel } from "@/components/brokerage/SigningPanel";
 import { ApprovalScoreCard } from "@/components/borrower/intake/ApprovalScoreCard";
+import { IdentityVerificationPanel } from "@/components/borrower/intake/IdentityVerificationPanel";
 
 type ReviewItem = {
   key: string;
@@ -46,11 +48,11 @@ function buildReviewItems(
     },
     {
       key: "ownership",
-      label: "Ownership",
+      label: "Ownership & Identity",
       detail: verifications.identityVerified
         ? "Identity verified"
-        : "Not started",
-      status: verifications.identityVerified ? "complete" : "pending",
+        : "Identity verification required",
+      status: verifications.identityVerified ? "complete" : "flagged",
       source: "borrower_identity_verifications",
       resolveChapter: 3,
     },
@@ -104,6 +106,33 @@ export function IntakeReviewStep({
   } | null;
 }) {
   const items = buildReviewItems(purposes, verifications);
+
+  const [confirmState, setConfirmState] = useState<
+    "idle" | "confirming" | "confirmed" | "blocked"
+  >("idle");
+  const [confirmBlockers, setConfirmBlockers] = useState<string[]>([]);
+
+  const handleConfirmAssumptions = async () => {
+    setConfirmState("confirming");
+    try {
+      const res = await fetch("/api/brokerage/concierge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "confirm_assumptions" }),
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setConfirmState("confirmed");
+      } else {
+        setConfirmState("blocked");
+        setConfirmBlockers(json.blockers ?? ["Unable to confirm at this time"]);
+      }
+    } catch {
+      setConfirmState("blocked");
+      setConfirmBlockers(["Network error — please try again"]);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -181,6 +210,64 @@ export function IntakeReviewStep({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Identity verification — T4 SPEC-BORROWER-FUNNEL-SEAL-BLOCKERS */}
+      {token && !verifications.identityVerified && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="mb-2 text-sm font-semibold text-slate-800">Identity Verification</h3>
+          <p className="mb-4 text-xs text-slate-500">
+            SBA regulations require identity verification for every owner with 20% or more ownership. Complete verification below to unlock package sealing.
+          </p>
+          <IdentityVerificationPanel token={token} />
+        </div>
+      )}
+
+      {/* Assumptions confirmation — T2 SPEC-BORROWER-FUNNEL-SEAL-BLOCKERS */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-2 text-sm font-semibold text-slate-800">Confirm Your Numbers</h3>
+        <p className="mb-4 text-xs text-slate-500">
+          Lock in the financial assumptions Buddy will use to build your SBA package. You can still make changes after confirming.
+        </p>
+        {confirmState === "idle" && (
+          <button
+            type="button"
+            onClick={handleConfirmAssumptions}
+            className="rounded-lg bg-brand-blue-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-blue-600 transition-colors"
+          >
+            Confirm &amp; lock numbers
+          </button>
+        )}
+        {confirmState === "confirming" && (
+          <p className="text-sm text-slate-500">Confirming...</p>
+        )}
+        {confirmState === "confirmed" && (
+          <div className="flex items-center gap-2">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500">
+              <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-emerald-700">Numbers locked in</p>
+          </div>
+        )}
+        {confirmState === "blocked" && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-amber-700">A few things need attention first:</p>
+            <ul className="space-y-1">
+              {confirmBlockers.map((b, i) => (
+                <li key={i} className="text-xs text-slate-600">&#x2022; {b}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={handleConfirmAssumptions}
+              className="mt-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Certify + SealPackageCard */}

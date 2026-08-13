@@ -12,6 +12,15 @@ type VerifiedInfo = {
 type VerifyStatus = "idle" | "searching" | "found" | "not_found" | "error";
 type Mode = "choose" | "existing" | "startup";
 
+const ENTITY_TYPE_OPTIONS = [
+  { value: "", label: "Select entity type…" },
+  { value: "LLC", label: "LLC" },
+  { value: "Corporation", label: "Corporation" },
+  { value: "S-Corporation", label: "S-Corporation" },
+  { value: "Partnership", label: "Partnership" },
+  { value: "Sole Proprietorship", label: "Sole Proprietorship" },
+];
+
 export function IntakeBusinessStep({
   dealId,
   isStartup,
@@ -30,6 +39,36 @@ export function IntakeBusinessStep({
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [startupName, setStartupName] = useState("");
   const [startupSaving, setStartupSaving] = useState(false);
+
+  const [entityType, setEntityType] = useState("");
+  const [naicsCode, setNaicsCode] = useState("");
+  const [showDetailsCapture, setShowDetailsCapture] = useState(false);
+  const [detailsSaving, setDetailsSaving] = useState(false);
+
+  const canContinueDetails = entityType !== "" && naicsCode.trim().length >= 2;
+
+  const saveDetailsAndContinue = async () => {
+    setDetailsSaving(true);
+    try {
+      const factsToSave = [
+        { factPath: "business.entity_type", value: entityType },
+        { factPath: "business.naics", value: naicsCode.trim() },
+      ];
+      for (const { factPath, value } of factsToSave) {
+        await fetch("/api/brokerage/concierge", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ factPath, value }),
+          credentials: "include",
+        });
+      }
+    } catch {
+      // non-fatal — facts may still be correctable later
+    } finally {
+      setDetailsSaving(false);
+    }
+    onContinue();
+  };
 
   const search = useCallback(async () => {
     const text = query.trim();
@@ -83,7 +122,7 @@ export function IntakeBusinessStep({
     } finally {
       setStartupSaving(false);
     }
-    onContinue();
+    setShowDetailsCapture(true);
   };
 
   // --- Choose mode ---
@@ -127,6 +166,84 @@ export function IntakeBusinessStep({
                 <p className="mt-0.5 text-xs text-slate-500">No registration or EIN yet — that&apos;s fine</p>
               </div>
             </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Details capture (entity type + NAICS) ---
+  if (showDetailsCapture) {
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue-500 to-brand-blue-400 text-sm font-bold text-white">
+            B
+          </div>
+          <div className="rounded-2xl rounded-bl-md bg-slate-100 px-5 py-3.5">
+            <p className="text-sm text-slate-800">
+              Two more quick details so I can check SBA eligibility for you.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Type of business entity
+            </label>
+            <select
+              value={entityType}
+              onChange={(e) => setEntityType(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+            >
+              {ENTITY_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              NAICS code
+            </label>
+            <input
+              type="text"
+              value={naicsCode}
+              onChange={(e) => setNaicsCode(e.target.value)}
+              placeholder="e.g. 722511"
+              maxLength={6}
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              6-digit industry code — look yours up at{" "}
+              <a
+                href="https://www.census.gov/naics/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-brand-blue-500 hover:text-brand-blue-400"
+              >
+                census.gov/naics
+              </a>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowDetailsCapture(false)}
+            className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            ← Back
+          </button>
+          <button
+            type="button"
+            onClick={saveDetailsAndContinue}
+            disabled={!canContinueDetails || detailsSaving}
+            className="brand-gradient-cta rounded-2xl px-8 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110 disabled:opacity-50"
+          >
+            {detailsSaving ? "Saving…" : "Continue →"}
           </button>
         </div>
       </div>
@@ -287,7 +404,7 @@ export function IntakeBusinessStep({
             </button>
             <button
               type="button"
-              onClick={onContinue}
+              onClick={() => setShowDetailsCapture(true)}
               className="brand-gradient-cta rounded-2xl px-6 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110"
             >
               Continue →
@@ -317,7 +434,7 @@ export function IntakeBusinessStep({
           <div className="mt-6 flex gap-3">
             <button
               type="button"
-              onClick={onContinue}
+              onClick={() => setShowDetailsCapture(true)}
               className="brand-gradient-cta rounded-2xl px-6 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110"
             >
               Yes, that&apos;s us →
@@ -347,7 +464,7 @@ export function IntakeBusinessStep({
             </button>
             <button
               type="button"
-              onClick={onContinue}
+              onClick={() => setShowDetailsCapture(true)}
               className="brand-gradient-cta rounded-2xl px-6 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110"
             >
               Continue →
