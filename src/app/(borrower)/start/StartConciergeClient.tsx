@@ -781,6 +781,7 @@ export function StartConciergeClient({
                   franchiseMatched: journeyStatus.franchiseMatched,
                 })}
                 onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
+                token={nonNullDealId}
                 scoreData={journeyStatus.scoreData}
               />
             )}
