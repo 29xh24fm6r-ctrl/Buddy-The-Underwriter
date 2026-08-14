@@ -10,7 +10,7 @@
 export default function ExportCanonicalMemoPdfButton({
   dealId,
   className,
-  label = "Export PDF",
+  label = "Print / Save PDF",
 }: {
   dealId: string;
   className?: string;
