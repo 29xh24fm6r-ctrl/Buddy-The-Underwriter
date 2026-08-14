@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { IdentityVerificationCard } from "@/components/brokerage/IdentityVerificationCard";
 
 type OwnerStructure = "solo" | "multi" | null;
@@ -23,7 +23,9 @@ export function IntakeOwnershipStep({
   const prefillParts = (borrowerName ?? "").trim().split(/\s+/);
   const [firstName, setFirstName] = useState(prefillParts[0] ?? "");
   const [lastName, setLastName] = useState(prefillParts.slice(1).join(" ") ?? "");
-  const [nameSaved, setNameSaved] = useState(false);
+  const [primaryPct, setPrimaryPct] = useState("100");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const addOwner = useCallback(() => {
     setAdditionalOwners((prev) => [...prev, { name: "", pct: "" }]);
@@ -42,57 +44,47 @@ export function IntakeOwnershipStep({
     setAdditionalOwners((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const saveBorrowerName = useCallback(async () => {
-    const first = firstName.trim();
-    const last = lastName.trim();
-    if (!first) return;
+  const saveOwnership = useCallback(async () => {
+    if (!structure) return false;
+    const primaryName = [firstName.trim(), lastName.trim()]
+      .filter(Boolean)
+      .join(" ");
+    const owners = [
+      {
+        full_name: primaryName,
+        ownership_pct: structure === "solo" ? 100 : Number(primaryPct),
+      },
+      ...additionalOwners.map((owner) => ({
+        full_name: owner.name.trim(),
+        ownership_pct: Number(owner.pct),
+      })),
+    ];
+    setSaving(true);
+    setSaveError(null);
     try {
-      await Promise.all([
-        fetch("/api/brokerage/concierge", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ factPath: "borrower.first_name", value: first }),
-          credentials: "include",
-        }),
-        fetch("/api/brokerage/concierge", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ factPath: "borrower.last_name", value: last }),
-          credentials: "include",
-        }),
-      ]);
-    } catch {
-      // non-fatal
-    }
-    setNameSaved(true);
-  }, [firstName, lastName]);
-
-  const saveStructure = useCallback(
-    async (s: OwnerStructure) => {
-      if (!s) return;
-      try {
-        await fetch("/api/brokerage/concierge", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            factPath: "ownership.structure",
-            value: s,
-          }),
-          credentials: "include",
-        });
-      } catch {
-        // non-fatal
+      const response = await fetch("/api/brokerage/concierge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "save_ownership", structure, owners }),
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        setSaveError(
+          data.detail ??
+            "Please complete every owner and make sure ownership totals 100%.",
+        );
+        return false;
       }
       setOwnershipSaved(true);
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (structure === "solo") {
-      void saveStructure("solo");
+      return true;
+    } catch {
+      setSaveError("Could not save ownership. Please try again.");
+      return false;
+    } finally {
+      setSaving(false);
     }
-  }, [structure, saveStructure]);
+  }, [additionalOwners, firstName, lastName, primaryPct, structure]);
 
   return (
     <div className="space-y-6">
@@ -189,19 +181,19 @@ export function IntakeOwnershipStep({
               <input
                 type="text"
                 value={firstName}
-                onChange={(e) => { setFirstName(e.target.value); setNameSaved(false); }}
+                onChange={(e) => { setFirstName(e.target.value); setOwnershipSaved(false); }}
                 placeholder="First name"
                 className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
               />
               <input
                 type="text"
                 value={lastName}
-                onChange={(e) => { setLastName(e.target.value); setNameSaved(false); }}
+                onChange={(e) => { setLastName(e.target.value); setOwnershipSaved(false); }}
                 placeholder="Last name"
                 className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
               />
             </div>
-            {nameSaved && (
+            {ownershipSaved && (
               <p className="mt-2 text-xs text-emerald-600">Name saved</p>
             )}
           </div>
@@ -229,6 +221,32 @@ export function IntakeOwnershipStep({
       {/* Multi-owner path */}
       {structure === "multi" && (
         <div className="animate-in slide-in-from-top-2 fade-in duration-300 space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+            <h4 className="mb-3 text-sm font-medium text-slate-700">Primary owner</h4>
+            <div className="grid grid-cols-3 gap-3">
+              <input
+                type="text"
+                value={[firstName, lastName].filter(Boolean).join(" ")}
+                onChange={(e) => {
+                  const parts = e.target.value.split(/\s+/);
+                  setFirstName(parts[0] ?? "");
+                  setLastName(parts.slice(1).join(" "));
+                  setOwnershipSaved(false);
+                }}
+                placeholder="Full name"
+                className="col-span-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+              />
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={primaryPct}
+                onChange={(e) => { setPrimaryPct(e.target.value); setOwnershipSaved(false); }}
+                placeholder="Ownership %"
+                className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+              />
+            </div>
+          </div>
           {additionalOwners.map((owner, i) => (
             <div
               key={i}
@@ -297,18 +315,22 @@ export function IntakeOwnershipStep({
         <div className="flex justify-end pt-2">
           <button
             type="button"
-            disabled={structure === "solo" && !firstName.trim()}
+            disabled={
+              saving ||
+              !firstName.trim() ||
+              (structure === "multi" && additionalOwners.length === 0)
+            }
             onClick={async () => {
-              if (structure === "solo") await saveBorrowerName();
-              if (structure === "multi") await saveStructure("multi");
-              onContinue({ structure });
+              const saved = await saveOwnership();
+              if (saved) onContinue({ structure });
             }}
             className="brand-gradient-cta rounded-2xl px-8 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110 disabled:opacity-50"
           >
-            Continue →
+            {saving ? "Saving…" : "Continue →"}
           </button>
         </div>
       )}
+      {saveError && <p className="text-sm text-rose-600">{saveError}</p>}
     </div>
   );
 }

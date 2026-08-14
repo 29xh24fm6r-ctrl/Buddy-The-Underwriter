@@ -177,11 +177,33 @@ async function callResearch(token: string) {
 }
 
 async function callConfirm(token: string) {
-  const res = await sbaAssumptionsPATCH(mkReq({ patch: { status: "confirmed" } }), {
+  const res = await sbaAssumptionsPATCH(mkReq({ patch: {
+    status: "confirmed",
+    revenueStreams: [{ id: "s1", name: "Sales", baseAnnualRevenue: 100000, growthRateYear1: 0.1 }],
+    costAssumptions: { cogsPercentYear1: 0.5, cogsPercentYear2: 0.5, cogsPercentYear3: 0.5 },
+    workingCapital: { targetDSO: 30, targetDPO: 25, inventoryTurns: null },
+    loanImpact: { loanAmount: 50000, termMonths: 120, interestRate: 0.08, existingDebt: [] },
+    managementTeam: [{ name: "Alex Owner", bio: "Experienced owner and operator of the business." }],
+  } }), {
     params: Promise.resolve({ token }),
   });
   return { status: res.status, body: await res.json() };
 }
+
+test("invalid assumptions cannot be labelled confirmed or trigger Trident", async () => {
+  resetState();
+  const token = "tok-invalid-confirm";
+  const res = await sbaAssumptionsPATCH(
+    mkReq({ patch: { status: "confirmed", revenueStreams: [] } }),
+    { params: Promise.resolve({ token }) },
+  );
+  const body = await res.json();
+  assert.equal(res.status, 422);
+  assert.equal(body.error, "assumption_validation_failed");
+  assert.ok(body.blockers.length > 0);
+  assert.equal(state.assumptions[0].status, "draft");
+  assert.equal(state.events.length, 0);
+});
 
 test.afterEach(() => resetState());
 

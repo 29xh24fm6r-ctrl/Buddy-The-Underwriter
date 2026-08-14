@@ -187,22 +187,21 @@ export async function GET(
       }
     }
 
-    const { data: existingAssumptions } = await sb
-      .from("buddy_sba_assumptions")
-      .select("id, status")
-      .eq("deal_id", dealId)
-      .maybeSingle();
-
-    if (!existingAssumptions || (existingAssumptions as any).status !== "confirmed") {
-      try {
-        await ensureAssumptionsForPreview({
-          dealId,
-          conciergeFacts: facts as any,
-          sb,
-        });
-      } catch (e) {
-        autoResolveErrors.push(`assumptions: ${e instanceof Error ? e.message : String(e)}`);
+    // Revalidate even rows labelled `confirmed`. Older confirmation paths
+    // could persist structurally invalid assumptions; trusting the label
+    // caused seal-status polling to launch an endless series of doomed
+    // Trident previews.
+    try {
+      const ensured = await ensureAssumptionsForPreview({
+        dealId,
+        conciergeFacts: facts as any,
+        sb,
+      });
+      if (!ensured.ok) {
+        autoResolveErrors.push(`assumptions: ${ensured.blockers.join("; ")}`);
       }
+    } catch (e) {
+      autoResolveErrors.push(`assumptions: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     const { data: existingBundle } = await sb

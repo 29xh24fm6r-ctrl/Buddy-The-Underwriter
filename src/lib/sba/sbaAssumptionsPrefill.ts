@@ -54,24 +54,20 @@ export async function loadSBAAssumptionsPrefill(
   const industryLabel = (app?.industry as string | null) ?? null;
   const bench = findBenchmarkByNaics(naicsCode);
 
-  // Management team auto-fill from ownership entities
+  // Management team auto-fill from the canonical ownership_entities table.
+  // The previous implementation read deal_ownership_entities + interests,
+  // while the borrower intake and identity gates write/read
+  // ownership_entities directly. That split left real borrower owners
+  // invisible to package generation.
   const { data: owners } = await sb
-    .from("deal_ownership_entities")
-    .select("id, display_name, entity_type")
+    .from("ownership_entities")
+    .select("id, display_name, entity_type, ownership_pct")
     .eq("deal_id", dealId)
     .eq("entity_type", "individual");
 
-  const { data: interests } = await sb
-    .from("deal_ownership_interests")
-    .select("owner_entity_id, ownership_pct")
-    .eq("deal_id", dealId);
-
   const managementTeam = (owners ?? []).map(
-    (owner: { id: string; display_name: string | null }) => {
-      const interest = (interests ?? []).find(
-        (i: { owner_entity_id: string }) => i.owner_entity_id === owner.id,
-      );
-      const pct = Number(interest?.ownership_pct ?? 0);
+    (owner: { id: string; display_name: string | null; ownership_pct: number | null }) => {
+      const pct = Number(owner.ownership_pct ?? 0);
       return {
         name: owner.display_name ?? "",
         title: pct >= 50 ? "Owner / CEO" : "Partner",
