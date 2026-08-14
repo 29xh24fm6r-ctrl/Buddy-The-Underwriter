@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const page = readFileSync("src/app/admin/brokerage/golden-trident/page.tsx", "utf8");
+const page = readFileSync("src/components/brokerage/GoldenTridentLab.tsx", "utf8");
 const client = readFileSync("src/components/brokerage/GoldenTridentLabClient.tsx", "utf8");
+const packagesPage = readFileSync("src/app/admin/brokerage/packages/page.tsx", "utf8");
 
 test("golden trident lab invokes the real final-mode generator", () => {
   assert.match(client, /trident\/generate/);
@@ -22,4 +23,9 @@ test("golden trident lab exposes every quality-review surface", () => {
 test("golden trident lab is tenant scoped and does not advance marketplace state", () => {
   assert.match(page, /\.eq\("bank_id", brokerageBankId\)/);
   assert.doesNotMatch(page + client, /seal-status|marketplace\/pick|marketplace_listings/);
+});
+
+test("golden trident lab reuses the existing packages page slot", () => {
+  assert.match(packagesPage, /lab === "golden-trident"/);
+  assert.match(packagesPage, /<GoldenTridentLab/);
 });

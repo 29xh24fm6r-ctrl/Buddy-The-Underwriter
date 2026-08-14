@@ -44,7 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Team & roles", href: "/admin/brokerage/team", icon: "◐" },
       { label: "Ops health", href: "/admin/brokerage/listings", icon: "◍" },
-      { label: "Golden Trident", href: "/admin/brokerage/golden-trident", icon: "△" },
+      { label: "Golden Trident", href: "/admin/brokerage/packages?lab=golden-trident", icon: "△" },
       { label: "Launch readiness", href: "/admin/brokerage/launch-readiness", icon: "⚑" },
     ],
   },
@@ -59,7 +59,6 @@ const TITLES: Record<string, [string, string]> = {
   "/admin/brokerage-owner": ["Owner command center", "Business-level view"],
   "/admin/brokerage/team": ["Team & roles", "Access and workload"],
   "/admin/brokerage/listings": ["Ops health", "Listings & sessions"],
-  "/admin/brokerage/golden-trident": ["Golden Trident", "Artifact quality lab"],
   "/admin/brokerage/uploads": ["Ops health", "Uploads pending OCR"],
   "/admin/brokerage/packages": ["Ops health", "Sealed packages"],
   "/admin/brokerage/comms": ["Ops health", "Communications"],

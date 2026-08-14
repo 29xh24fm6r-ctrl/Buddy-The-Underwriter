@@ -25,7 +25,7 @@ function ArtifactCard(props: { title: string; note: string; href?: string | null
   );
 }
 
-export default async function GoldenTridentLabPage({ searchParams }: { searchParams: SearchParams }) {
+export async function GoldenTridentLab({ searchParams }: { searchParams: SearchParams }) {
   const dealId = (await searchParams).dealId?.trim() ?? "";
   const sb = supabaseAdmin();
   const brokerageBankId = await getBrokerageBankId();
@@ -74,6 +74,7 @@ export default async function GoldenTridentLabPage({ searchParams }: { searchPar
       </header>
 
       <form className="flex max-w-3xl gap-3" method="get">
+        <input type="hidden" name="lab" value="golden-trident" />
         <input name="dealId" defaultValue={dealId} required placeholder="Deal UUID" className="min-w-0 flex-1 rounded-md border border-[#5d4b32] bg-[#17130f] px-3 py-2 font-mono text-sm" />
         <button className="rounded-md border border-[#8b7350] px-4 py-2 text-sm font-semibold">Load deal</button>
       </form>
