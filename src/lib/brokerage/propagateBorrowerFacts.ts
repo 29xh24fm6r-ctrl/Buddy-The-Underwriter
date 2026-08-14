@@ -176,7 +176,10 @@ export async function propagateBorrowerFacts(params: {
   // ── 3. deal_financial_facts — the keys the score engine reads ────────
   const factWrites: Array<{ key: string; value: number | null }> = [
     { key: "YEARS_IN_BUSINESS", value: num(businessFacts["years_in_business"]) },
-    { key: "ANNUAL_REVENUE", value: num(businessFacts["annual_revenue"]) },
+    // TOTAL_REVENUE is the canonical key consumed by the SBA package,
+    // spreads, credit memo, and feasibility engines. The score loader keeps
+    // a legacy ANNUAL_REVENUE fallback for old rows.
+    { key: "TOTAL_REVENUE", value: num(businessFacts["annual_revenue"]) },
     { key: "EMPLOYEE_COUNT", value: num(businessFacts["employee_count"]) },
   ];
 

@@ -52,3 +52,36 @@ test("borrower signing state survives refresh and prevents duplicate requests", 
   assert.match(panel, /esign\.pendingRequests/);
   assert.match(panel, /esign\.signedDocuments/);
 });
+
+test("ownership intake persists named owners before advancing", () => {
+  const panel = read("src/components/borrower/intake/IntakeOwnershipStep.tsx");
+  const route = read("src/app/api/brokerage/concierge/route.ts");
+
+  assert.match(panel, /action: "save_ownership"/);
+  assert.match(panel, /if \(saved\) onContinue/);
+  assert.match(route, /handleSaveOwnership/);
+  assert.match(route, /Math\.abs\(totalOwnership - 100\)/);
+  assert.match(route, /propagateBorrowerFacts/);
+});
+
+test("confirmed assumptions are revalidated before Trident generation", () => {
+  const bootstrap = read("src/lib/sba/sbaAssumptionsBootstrap.ts");
+  const confirmRoute = read(
+    "src/app/api/borrower/portal/[token]/sba-assumptions/route.ts",
+  );
+  const sealStatus = read(
+    "src/app/api/brokerage/deals/[dealId]/seal-status/route.ts",
+  );
+  const ensureSource = bootstrap.slice(
+    bootstrap.indexOf("export async function ensureAssumptionsForPreview"),
+    bootstrap.indexOf("export async function persistAssumptionsDraft"),
+  );
+
+  assert.doesNotMatch(
+    ensureSource,
+    /if \(existing && existing\.status === "confirmed"\) \{\s*return/s,
+  );
+  assert.match(confirmRoute, /validateSBAAssumptions\(candidate\)/);
+  assert.match(confirmRoute, /assumption_validation_failed/);
+  assert.match(sealStatus, /const ensured = await ensureAssumptionsForPreview/);
+});

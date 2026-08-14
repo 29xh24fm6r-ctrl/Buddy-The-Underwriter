@@ -13,6 +13,8 @@ import { logSbaAssumptionsEvent } from "@/lib/sba/logSbaAssumptionsEvent";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import { computeBuddySBAScore } from "@/lib/score/buddySbaScore";
 import { supabaseAdmin as supabaseAdminClient } from "@/lib/supabase/admin";
+import { validateSBAAssumptions } from "@/lib/sba/sbaAssumptionsValidator";
+import type { SBAAssumptions } from "@/lib/sba/sbaReadinessTypes";
 
 export const runtime = "nodejs";
 // SPEC-ASSUMPTION-CONFIRM-DEADEND-FIX-V1 — bumped from 30s. Confirming now
@@ -171,6 +173,12 @@ export async function PATCH(
 
   const sb = supabaseAdmin();
 
+  const { data: existingRow } = await sb
+    .from("buddy_sba_assumptions")
+    .select("*")
+    .eq("deal_id", ctx.dealId)
+    .maybeSingle();
+
   const upsertData: Record<string, unknown> = {
     deal_id: ctx.dealId,
     updated_at: new Date().toISOString(),
@@ -188,9 +196,46 @@ export async function PATCH(
     upsertData.management_team = patch.managementTeam;
   if (patch.status !== undefined) {
     upsertData.status = patch.status;
-    if (patch.status === "confirmed") {
-      upsertData.confirmed_at = new Date().toISOString();
+  }
+
+  if (patch.status === "confirmed") {
+    const candidate: SBAAssumptions = {
+      dealId: ctx.dealId,
+      status: "confirmed",
+      confirmedAt: new Date().toISOString(),
+      revenueStreams: (upsertData.revenue_streams ??
+        existingRow?.revenue_streams ??
+        []) as SBAAssumptions["revenueStreams"],
+      costAssumptions: (upsertData.cost_assumptions ??
+        existingRow?.cost_assumptions) as SBAAssumptions["costAssumptions"],
+      workingCapital: (upsertData.working_capital ??
+        existingRow?.working_capital) as SBAAssumptions["workingCapital"],
+      loanImpact: (upsertData.loan_impact ??
+        existingRow?.loan_impact) as SBAAssumptions["loanImpact"],
+      managementTeam: (upsertData.management_team ??
+        existingRow?.management_team ??
+        []) as SBAAssumptions["managementTeam"],
+    };
+    const validation = validateSBAAssumptions(candidate);
+    if (!validation.ok) {
+      await sb.from("buddy_sba_assumptions").upsert(
+        {
+          ...upsertData,
+          status: "draft",
+          confirmed_at: null,
+        },
+        { onConflict: "deal_id" },
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "assumption_validation_failed",
+          blockers: validation.blockers,
+        },
+        { status: 422 },
+      );
     }
+    upsertData.confirmed_at = candidate.confirmedAt;
   }
 
   const { error } = await sb

@@ -292,6 +292,53 @@ test("existing/prefill revenue streams still win over concierge facts", () => {
   assert.equal(c.revenueStreams[0].baseAnnualRevenue, 850_000);
 });
 
+test("stale zero-value confirmed revenue is repaired from newer concierge facts", () => {
+  const c = buildCandidate({
+    dealId: "deal-1",
+    prefill: { ...FULL_PREFILL, revenueStreams: [] },
+    existingRow: {
+      status: "confirmed",
+      revenue_streams: [
+        {
+          id: "stale",
+          name: "Primary Revenue",
+          baseAnnualRevenue: 0,
+          growthRateYear1: 0.05,
+          growthRateYear2: 0.04,
+          growthRateYear3: 0.03,
+          pricingModel: "flat",
+          seasonalityProfile: null,
+        },
+      ],
+    },
+    conciergeFacts: {
+      business: { legal_name: "Acme", annual_revenue: 500_000 },
+      owners: [{ full_name: "Alex Owner", ownership_pct: 100 }],
+    },
+  });
+  assert.equal(c.revenueStreams[0].baseAnnualRevenue, 500_000);
+  assert.equal(c.managementTeam[0].name, "Alex Owner");
+  assert.equal(validateSBAAssumptions(c).ok, true);
+});
+
+test("seeds the management team from the complete ownership array", () => {
+  const c = buildCandidate({
+    dealId: "deal-1",
+    prefill: FULL_PREFILL,
+    existingRow: null,
+    conciergeFacts: {
+      owners: [
+        { full_name: "Alex Owner", ownership_pct: 60 },
+        { full_name: "Sam Partner", ownership_pct: 40 },
+      ],
+    },
+  });
+  assert.deepEqual(
+    c.managementTeam.map((owner) => [owner.name, owner.ownershipPct]),
+    [["Alex Owner", 60], ["Sam Partner", 40]],
+  );
+});
+
 test("rephraseBlockersForBorrower: swaps the generic revenue blocker for startup guidance", () => {
   const rephrase = bootstrap.__test_rephraseBlockersForBorrower;
   const blockers = [

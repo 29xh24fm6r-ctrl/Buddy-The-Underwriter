@@ -220,13 +220,17 @@ export async function loadScoreInputs(params: {
     .select("fact_key, fact_value_num, fact_value_text")
     .eq("deal_id", dealId);
 
-  function factNum(key: string): number | null {
-    const row = factRows?.find((r: any) => r.fact_key === key);
-    return tryNumber(row?.fact_value_num);
+  function factNum(...keys: string[]): number | null {
+    for (const key of keys) {
+      const row = factRows?.find((r: any) => r.fact_key === key);
+      const value = tryNumber(row?.fact_value_num);
+      if (value != null) return value;
+    }
+    return null;
   }
 
   const yearsInBusiness = factNum("YEARS_IN_BUSINESS");
-  const annualRevenueUsd = factNum("ANNUAL_REVENUE");
+  const annualRevenueUsd = factNum("TOTAL_REVENUE", "ANNUAL_REVENUE");
   const employeeCount = factNum("EMPLOYEE_COUNT");
 
   if (yearsInBusiness == null) missing.push("years_in_business");

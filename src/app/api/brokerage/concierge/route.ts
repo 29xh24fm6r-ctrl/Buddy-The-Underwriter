@@ -80,10 +80,22 @@ type ConciergeRequest = {
 };
 
 type CorrectFactRequest = { factPath: string; value?: unknown };
+type SaveOwnershipRequest = {
+  action: "save_ownership";
+  structure: "solo" | "multi";
+  owners: Array<{ full_name: string; ownership_pct: number }>;
+};
 
 export async function POST(req: NextRequest): Promise<Response> {
   try {
-    const body = (await req.json()) as ConciergeRequest | CorrectFactRequest;
+    const body = (await req.json()) as
+      | ConciergeRequest
+      | CorrectFactRequest
+      | SaveOwnershipRequest;
+
+    if ("action" in body && body.action === "save_ownership") {
+      return handleSaveOwnership(body);
+    }
 
     // Method-merged onto this route (rather than a new route.ts file) to
     // stay under the route-slot warning threshold — see
@@ -871,6 +883,99 @@ async function handleConfirmAssumptions(): Promise<NextResponse> {
     alreadyConfirmed: ensure.ok ? ensure.alreadyConfirmed : undefined,
     blockers: ensure.ok ? undefined : ensure.blockers,
   });
+}
+
+async function handleSaveOwnership(
+  body: SaveOwnershipRequest,
+): Promise<NextResponse> {
+  const session = await getBorrowerSession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const owners = (body.owners ?? []).map((owner) => ({
+    full_name: String(owner.full_name ?? "").trim(),
+    ownership_pct: Number(owner.ownership_pct),
+  }));
+  const invalidOwner = owners.some(
+    (owner) =>
+      !owner.full_name ||
+      !Number.isFinite(owner.ownership_pct) ||
+      owner.ownership_pct <= 0 ||
+      owner.ownership_pct > 100,
+  );
+  const totalOwnership = owners.reduce(
+    (sum, owner) => sum + owner.ownership_pct,
+    0,
+  );
+  if (
+    !["solo", "multi"].includes(body.structure) ||
+    invalidOwner ||
+    owners.length === 0 ||
+    (body.structure === "solo" &&
+      (owners.length !== 1 || owners[0].ownership_pct !== 100)) ||
+    (body.structure === "multi" && owners.length < 2) ||
+    Math.abs(totalOwnership - 100) > 0.01
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "invalid_ownership",
+        detail: "Owner names are required and ownership must total 100%.",
+      },
+      { status: 422 },
+    );
+  }
+
+  const sb = supabaseAdmin();
+  const { data: conciergeRow } = await sb
+    .from("borrower_concierge_sessions")
+    .select("id, extracted_facts")
+    .eq("deal_id", session.deal_id)
+    .maybeSingle();
+  if (!conciergeRow) {
+    return NextResponse.json(
+      { ok: false, error: "session_not_found" },
+      { status: 404 },
+    );
+  }
+
+  const primaryName = owners[0].full_name.split(/\s+/);
+  const updatedFacts = deepMerge(
+    (conciergeRow.extracted_facts as Record<string, unknown>) ?? {},
+    {
+      borrower: {
+        first_name: primaryName[0] ?? "",
+        last_name: primaryName.slice(1).join(" "),
+      },
+      ownership: { structure: body.structure },
+      owners,
+    },
+  );
+
+  const { error } = await sb
+    .from("borrower_concierge_sessions")
+    .update({ extracted_facts: updatedFacts, updated_at: new Date().toISOString() })
+    .eq("id", conciergeRow.id);
+  if (error) {
+    return NextResponse.json({ ok: false, error: "save_failed" }, { status: 500 });
+  }
+
+  const brokerageBankId = await getBrokerageBankId();
+  const propagation = await propagateBorrowerFacts({
+    dealId: session.deal_id,
+    bankId: brokerageBankId,
+    facts: updatedFacts as BorrowerFacts,
+    sb,
+  });
+  if (!propagation.ok) {
+    return NextResponse.json(
+      { ok: false, error: "ownership_propagation_failed", detail: propagation.errors },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ ok: true, owners, extractedFacts: updatedFacts });
 }
 
 /**

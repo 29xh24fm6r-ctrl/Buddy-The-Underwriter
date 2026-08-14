@@ -11,8 +11,8 @@ import "server-only";
  * with "Assumptions must be confirmed before generating the SBA package."
  *
  * What this does:
- *   1. If a confirmed row already exists for the deal, leave it alone.
- *   2. Otherwise: load prefill (NAICS-driven defaults + financial facts +
+ *   1. Revalidate any existing row, including rows labelled confirmed.
+ *   2. Load prefill (NAICS-driven defaults + financial facts +
  *      ownership entities), merge concierge facts as fallbacks, fill the
  *      narrative-only management bio with a preview placeholder, run the
  *      same validateSBAAssumptions used by the bank flow, and on pass
@@ -52,6 +52,12 @@ export type EnsureResult =
 
 export type ConciergeFacts = {
   borrower?: { first_name?: string | null; last_name?: string | null } | null;
+  owners?: Array<{
+    full_name?: string | null;
+    title?: string | null;
+    ownership_pct?: number | string | null;
+    years_in_industry?: number | string | null;
+  }> | null;
   business?: {
     legal_name?: string | null;
     annual_revenue?: number | null;
@@ -73,14 +79,6 @@ export async function ensureAssumptionsForPreview(args: {
     .select("*")
     .eq("deal_id", args.dealId)
     .maybeSingle();
-
-  if (existing && existing.status === "confirmed") {
-    return {
-      ok: true,
-      assumptionsId: existing.id,
-      alreadyConfirmed: true,
-    };
-  }
 
   const prefill = await loadSBAAssumptionsPrefill(args.dealId);
   const candidate = buildCandidate({
@@ -113,7 +111,13 @@ export async function ensureAssumptionsForPreview(args: {
     candidate,
     "confirmed",
   );
-  return { ok: true, assumptionsId: id, alreadyConfirmed: false };
+  return {
+    ok: true,
+    assumptionsId: id,
+    alreadyConfirmed:
+      existing?.status === "confirmed" &&
+      validatePersistedAssumptions(args.dealId, existing).ok,
+  };
 }
 
 // Generic growth-rate fallback used when no NAICS benchmark is available —
@@ -191,11 +195,17 @@ function buildCandidate(args: {
   // is the only source available. A genuine pre-revenue startup reports
   // annual_revenue: 0 here — that case is left as a validator blocker
   // (rephraseBlockersForBorrower below) rather than fabricating a number.
+  const validExistingRevenueStreams = (exRevenueStreams ?? []).filter(
+    (stream) => Number(stream.baseAnnualRevenue ?? 0) > 0,
+  );
+  const validPrefillRevenueStreams = (prefill.revenueStreams ?? []).filter(
+    (stream) => Number(stream.baseAnnualRevenue ?? 0) > 0,
+  );
   const revenueStreams: RevenueStream[] =
-    exRevenueStreams && exRevenueStreams.length
-      ? exRevenueStreams
-      : prefill.revenueStreams && prefill.revenueStreams.length
-        ? prefill.revenueStreams
+    validExistingRevenueStreams.length
+      ? validExistingRevenueStreams
+      : validPrefillRevenueStreams.length
+        ? validPrefillRevenueStreams
         : conciergeRevenue > 0
           ? [buildConciergeRevenueStream(conciergeFacts, conciergeRevenue)]
           : [];
@@ -273,6 +283,18 @@ function buildCandidate(args: {
       : prefill.managementTeam && prefill.managementTeam.length
         ? prefill.managementTeam
         : [];
+
+  if (managementTeam.length === 0) {
+    managementTeam = (conciergeFacts?.owners ?? [])
+      .map((owner) => ({
+        name: String(owner.full_name ?? "").trim(),
+        title: String(owner.title ?? "").trim() || "Owner",
+        ownershipPct: Number(owner.ownership_pct ?? 0),
+        yearsInIndustry: Number(owner.years_in_industry ?? 0),
+        bio: PREVIEW_BIO_PLACEHOLDER,
+      }))
+      .filter((owner) => owner.name.length > 0);
+  }
 
   // Borrower fallback: if no team came from prefill (no ownership entities
   // recorded — typical for brokerage concierge deals), seed from concierge
@@ -402,3 +424,19 @@ export async function persistAssumptionsDraft(args: {
 export const __test_buildCandidate = buildCandidate;
 export const __test_PREVIEW_BIO_PLACEHOLDER = PREVIEW_BIO_PLACEHOLDER;
 export const __test_rephraseBlockersForBorrower = rephraseBlockersForBorrower;
+
+function validatePersistedAssumptions(
+  dealId: string,
+  row: Record<string, unknown>,
+) {
+  return validateSBAAssumptions({
+    dealId,
+    status: String(row.status ?? "draft") as SBAAssumptions["status"],
+    confirmedAt: (row.confirmed_at as string | null) ?? undefined,
+    revenueStreams: (row.revenue_streams as SBAAssumptions["revenueStreams"]) ?? [],
+    costAssumptions: row.cost_assumptions as SBAAssumptions["costAssumptions"],
+    workingCapital: row.working_capital as SBAAssumptions["workingCapital"],
+    loanImpact: row.loan_impact as SBAAssumptions["loanImpact"],
+    managementTeam: (row.management_team as SBAAssumptions["managementTeam"]) ?? [],
+  });
+}
