@@ -284,8 +284,26 @@ test("preview happy path: pending → running → succeeded with redactor_versio
 
 test("final happy path: redactor_version null, projections XLSX populated", async () => {
   resetState();
-  state.sbaPackages.push({ id: "pkg-1", ...state.sbaPackageRowForXlsx });
-  state.feasibilityStudies.push({ id: "study-1", narratives: {} });
+  const substantive = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+  state.sbaPackages.push({
+    id: "pkg-1",
+    ...state.sbaPackageRowForXlsx,
+    business_overview_narrative: substantive,
+    executive_summary: substantive,
+    industry_analysis: substantive,
+    marketing_strategy: substantive,
+    operations_plan: substantive,
+  });
+  state.feasibilityStudies.push({
+    id: "study-1",
+    narratives: {
+      executiveSummary: substantive,
+      marketDemandNarrative: substantive,
+      financialViabilityNarrative: substantive,
+      operationalReadinessNarrative: substantive,
+      locationSuitabilityNarrative: substantive,
+    },
+  });
 
   const r = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
   assert.equal(r.ok, true);
@@ -302,6 +320,22 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
   assert.equal(call.dealId, "deal-1");
   assert.equal(call.bankId, "bank-1");
   assert.equal(call.packageId, "pkg-1");
+});
+
+test("final generation fails closed when business-plan PDF would contain placeholders", async () => {
+  resetState();
+  state.sbaPackages.push({
+    id: "pkg-1",
+    ...state.sbaPackageRowForXlsx,
+    business_overview_narrative: "Business overview not available.",
+    executive_summary: "Executive summary not available.",
+  });
+
+  const r = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Business-plan narrative acceptance failed: 0\/10/);
+  assert.equal(state.bundles[0].status, "failed");
+  assert.equal(state.bundles[0].business_plan_pdf_path, undefined);
 });
 
 test("SBA package failure: bundle marked failed with generation_error", async () => {

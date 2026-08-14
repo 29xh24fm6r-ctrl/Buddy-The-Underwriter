@@ -126,7 +126,6 @@ export async function callGeminiJSON(prompt: string): Promise<string> {
     purpose: "sba_package_narrative",
     maxOutputTokens: 8192,
     thinkingLevel: "low",
-    responseSchema: { type: "object" },
     prompt,
   });
 

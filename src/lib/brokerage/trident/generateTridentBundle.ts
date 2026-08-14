@@ -29,6 +29,10 @@ import {
   REDACTOR_VERSION,
   redactFeasibilityForPreview,
 } from "./redactor";
+import {
+  assessBusinessPlanNarratives,
+  assessFeasibilityNarratives,
+} from "./narrativeAcceptance";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -122,6 +126,28 @@ export async function generateTridentBundle(args: {
       });
     } catch (enrichErr) {
       console.error("[generateTridentBundle] business-plan verification failed (non-fatal):", enrichErr);
+    }
+
+    if (mode === "final") {
+      const { data: narrativeRow, error: narrativeReadError } = await sb
+        .from("buddy_sba_packages")
+        .select(
+          "business_overview_narrative,executive_summary,industry_analysis,marketing_strategy,operations_plan," +
+            "swot_strengths,swot_weaknesses,swot_opportunities,swot_threats,sensitivity_narrative",
+        )
+        .eq("id", sbaResult.packageId)
+        .maybeSingle();
+      if (narrativeReadError) {
+        throw new Error(`Business-plan narrative acceptance read failed: ${narrativeReadError.message}`);
+      }
+      const acceptance = assessBusinessPlanNarratives(
+        narrativeRow as Record<string, unknown> | null,
+      );
+      if (!acceptance.ok) {
+        throw new Error(
+          `Business-plan narrative acceptance failed: ${acceptance.substantive}/${acceptance.total} core sections are substantive`,
+        );
+      }
     }
 
     const businessPlanPath = await copyToTridentBucket(sb, {
@@ -247,6 +273,24 @@ export async function generateTridentBundle(args: {
       });
       if (feasResult.ok) {
         sourceFeasibilityId = feasResult.studyId ?? null;
+        if (mode === "final" && sourceFeasibilityId) {
+          const { data: feasibilityRow, error: feasibilityReadError } = await sb
+            .from("buddy_feasibility_studies")
+            .select("narratives")
+            .eq("id", sourceFeasibilityId)
+            .maybeSingle();
+          if (feasibilityReadError) {
+            throw new Error(`Feasibility narrative acceptance read failed: ${feasibilityReadError.message}`);
+          }
+          const acceptance = assessFeasibilityNarratives(
+            (feasibilityRow?.narratives as Record<string, unknown> | null) ?? null,
+          );
+          if (!acceptance.ok) {
+            throw new Error(
+              `Feasibility narrative acceptance failed: ${acceptance.substantive}/${acceptance.required} required sections are substantive`,
+            );
+          }
+        }
         if (mode === "final" && feasResult.pdfUrl) {
           feasibilityPdfPath = await copyToTridentBucket(sb, {
             sourceBucket: "deal-documents",
@@ -264,6 +308,7 @@ export async function generateTridentBundle(args: {
         }
       }
     } catch (feasErr) {
+      if (mode === "final") throw feasErr;
       console.warn("[trident] feasibility render failed (non-fatal):", feasErr);
     }
 
