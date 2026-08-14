@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { PlaidConnectCard } from "@/components/borrower/PlaidConnectCard";
-import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { borrowerIntakeDocumentUpload } from "@/lib/uploads/uploadFile";
 
 export function IntakeFinancialsStep({
   dealId,
@@ -20,26 +20,35 @@ export function IntakeFinancialsStep({
   const [saving, setSaving] = useState(false);
   const [uploadedCount, setUploadedCount] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = useCallback(
     async (files: FileList | File[]) => {
       setUploading(true);
+      setUploadError(null);
       let count = 0;
+      let lastError: string | null = null;
       for (const file of Array.from(files)) {
         try {
-          const result = await directDealDocumentUpload({
+          const result = await borrowerIntakeDocumentUpload({
             dealId,
             file,
             checklistKey: null,
-            source: "internal",
           });
-          if (result.ok) count++;
-        } catch {
-          // non-fatal per file
+          if (result.ok) {
+            count++;
+          } else {
+            lastError = "error" in result ? result.error : null;
+          }
+        } catch (e) {
+          lastError = e instanceof Error ? e.message : "Upload failed";
         }
       }
       setUploadedCount((prev) => prev + count);
+      if (count === 0 && lastError) {
+        setUploadError("We couldn't upload that file. You can try again, or skip this for now and add it later.");
+      }
       setUploading(false);
     },
     [dealId],
@@ -233,6 +242,9 @@ export function IntakeFinancialsStep({
             <p className="mt-2 text-xs text-emerald-600">
               {uploadedCount} document{uploadedCount !== 1 ? "s" : ""} uploaded
             </p>
+          )}
+          {uploadError && (
+            <p className="mt-2 text-xs text-amber-600">{uploadError}</p>
           )}
         </div>
       </div>
