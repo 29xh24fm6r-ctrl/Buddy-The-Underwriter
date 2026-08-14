@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sha256Base64url } from "@/lib/portal/token";
+import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 
 export type PortalContext = {
   dealId: string;
@@ -8,9 +9,29 @@ export type PortalContext = {
 
 /**
  * Canonical portal token resolver.
- * Uses existing borrower_invites table with token_hash (SHA256 base64url).
- * Single source of truth for all portal operations.
- * Aligns with existing portal auth system.
+ *
+ * Primary path: admin-issued `borrower_invites` token (SHA256 base64url
+ * hash lookup) — unchanged, still the only path for the bank/examiner
+ * `/portal/[token]` invite flow.
+ *
+ * Fallback path (SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1): every borrower-
+ * facing component mounted inside the self-serve `/start` funnel
+ * (IdentityVerificationPanel, PostSubmitHub, ApprovalScoreCard,
+ * AssumptionInterview) calls this same `/api/borrower/portal/[token]/*`
+ * route family, but passes the borrower's own `dealId` as `token` instead
+ * of an invite token — there is no invite in the self-serve funnel. Before
+ * this fallback, that always 401'd (0 rows in `borrower_invites` for the
+ * brokerage tenant), so every one of those routes was silently unreachable
+ * for a real borrower.
+ *
+ * The fallback accepts `token` as a raw deal ID ONLY when the caller also
+ * presents a valid `buddy_borrower_session` cookie whose bound deal_id is
+ * an EXACT match for `token`. This can never grant access to a deal other
+ * than the one the borrower's own session cookie already authorizes — it
+ * is not a general "treat any token as a deal ID" bypass, it just lets the
+ * already-authenticated borrower reach their own deal through this route
+ * family the same way they already reach it through every other
+ * `/api/brokerage/*` route.
  */
 export async function resolvePortalContext(token: string): Promise<PortalContext> {
   const sb = supabaseAdmin();
@@ -24,13 +45,25 @@ export async function resolvePortalContext(token: string): Promise<PortalContext
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (error || !data) throw new Error("Invalid portal token");
-  if (data.revoked_at) throw new Error("Invite revoked");
-  if (data.expires_at && new Date(data.expires_at) < new Date())
-    throw new Error("Invite expired");
+  if (!error && data) {
+    if (data.revoked_at) throw new Error("Invite revoked");
+    if (data.expires_at && new Date(data.expires_at) < new Date())
+      throw new Error("Invite expired");
+    return { dealId: data.deal_id, bankId: data.bank_id };
+  }
 
-  return {
-    dealId: data.deal_id,
-    bankId: data.bank_id,
-  };
+  // Fallback: self-serve borrower session, scoped to its own deal only.
+  const session = await getBorrowerSession();
+  if (session?.deal_id && session.deal_id === token) {
+    const { data: deal, error: dealErr } = await sb
+      .from("deals")
+      .select("id, bank_id")
+      .eq("id", token)
+      .maybeSingle();
+    if (!dealErr && deal) {
+      return { dealId: deal.id, bankId: deal.bank_id };
+    }
+  }
+
+  throw new Error("Invalid portal token");
 }

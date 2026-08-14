@@ -11,8 +11,9 @@ import type { FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 const CHAPTER_LABELS = [
   "Financing",
   "Business",
-  "Ownership",
-  "Financials",
+  "Ownership & Management",
+  "Financial Assumptions",
+  "Documents",
   "Review",
 ] as const;
 
@@ -26,7 +27,7 @@ export function GuidedIntakeShell({
   nextStepsSummary,
   children,
 }: {
-  currentChapter: 1 | 2 | 3 | 4 | 5;
+  currentChapter: 1 | 2 | 3 | 4 | 5 | 6;
   dealId: string;
   onChapterChange: (n: number) => void;
   totalAmount: number;
@@ -61,7 +62,7 @@ export function GuidedIntakeShell({
               Chapter {currentChapter}: {CHAPTER_LABELS[currentChapter - 1]}
             </span>
             {fieldProgress?.determinable && (() => {
-              const ch = fieldProgress.byChapter[currentChapter as 1 | 2 | 3 | 4 | 5];
+              const ch = fieldProgress.byChapter[currentChapter as 1 | 2 | 3 | 4 | 5 | 6];
               return ch.total > 0 ? (
                 <span className="text-xs text-slate-500">
                   {ch.complete} of {ch.total} done
@@ -130,7 +131,7 @@ export function GuidedIntakeShell({
                 ${totalAmount.toLocaleString()}
               </p>
             </div>
-            {currentChapter < 5 && (
+            {currentChapter < 6 && (
               <button
                 type="button"
                 onClick={() => onChapterChange(currentChapter + 1)}

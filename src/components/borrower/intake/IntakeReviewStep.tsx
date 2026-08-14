@@ -22,9 +22,32 @@ export type DealVerificationState = {
   franchiseMatched?: boolean;
 };
 
+// SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1 — maintainable blocker-to-section
+// mapping. Every actionable blocker sbaAssumptionsValidator.ts (and its
+// startup-specific rephrasing in sbaAssumptionsBootstrap.ts) can produce
+// maps to the /start chapter that actually resolves it, so "Resolve in
+// Financial Assumptions" is a real link, not a dead-end warning. Matched
+// by keyword rather than exact string since rephraseBlockersForBorrower()
+// varies the wording (e.g. the startup-specific revenue message).
+const BLOCKER_CHAPTER_RULES: Array<{ match: RegExp; chapter: number; label: string }> = [
+  { match: /revenue/i, chapter: 4, label: "Financial Assumptions → Revenue" },
+  { match: /cogs|cost/i, chapter: 4, label: "Financial Assumptions → Costs" },
+  { match: /loan amount|loan term|interest rate/i, chapter: 4, label: "Financial Assumptions → Loan Details" },
+  { match: /management team|bio/i, chapter: 3, label: "Ownership & Management → Management Team" },
+  { match: /owner/i, chapter: 3, label: "Ownership & Management → Ownership" },
+];
+
+function resolveBlockerChapter(blocker: string): { chapter: number; label: string } | null {
+  for (const rule of BLOCKER_CHAPTER_RULES) {
+    if (rule.match.test(blocker)) return { chapter: rule.chapter, label: rule.label };
+  }
+  return null;
+}
+
 function buildReviewItems(
   purposes: string[],
   verifications: DealVerificationState,
+  assumptionsConfirmed: boolean,
 ): ReviewItem[] {
   const isFranchise = purposes.includes("franchise");
   const items: ReviewItem[] = [
@@ -57,14 +80,24 @@ function buildReviewItems(
       resolveChapter: 3,
     },
     {
+      key: "financial_assumptions",
+      label: "Financial Assumptions",
+      detail: assumptionsConfirmed
+        ? "Confirmed"
+        : "Revenue, costs, and loan details for your projections",
+      status: assumptionsConfirmed ? "complete" : "pending",
+      source: "buddy_sba_assumptions",
+      resolveChapter: 4,
+    },
+    {
       key: "financials",
-      label: "Financials",
+      label: "Supporting Documents",
       detail: verifications.financialsExtracted
         ? "Documents received"
         : "No documents uploaded yet",
-      status: verifications.financialsExtracted ? "complete" : "flagged",
+      status: verifications.financialsExtracted ? "complete" : "pending",
       source: "deal_documents",
-      resolveChapter: 4,
+      resolveChapter: 5,
     },
   ];
   if (isFranchise) {
@@ -105,12 +138,11 @@ export function IntakeReviewStep({
     computedAt: string | null;
   } | null;
 }) {
-  const items = buildReviewItems(purposes, verifications);
-
   const [confirmState, setConfirmState] = useState<
     "idle" | "confirming" | "confirmed" | "blocked"
   >("idle");
   const [confirmBlockers, setConfirmBlockers] = useState<string[]>([]);
+  const items = buildReviewItems(purposes, verifications, confirmState === "confirmed");
 
   const handleConfirmAssumptions = async () => {
     setConfirmState("confirming");
@@ -254,10 +286,24 @@ export function IntakeReviewStep({
         {confirmState === "blocked" && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-amber-700">A few things need attention first:</p>
-            <ul className="space-y-1">
-              {confirmBlockers.map((b, i) => (
-                <li key={i} className="text-xs text-slate-600">&#x2022; {b}</li>
-              ))}
+            <ul className="space-y-2">
+              {confirmBlockers.map((b, i) => {
+                const resolved = resolveBlockerChapter(b);
+                return (
+                  <li key={i} className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                    <span>&#x2022; {b}</span>
+                    {resolved && onNavigateChapter && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateChapter(resolved.chapter)}
+                        className="shrink-0 whitespace-nowrap text-xs font-medium text-brand-blue-500 hover:text-brand-blue-400"
+                      >
+                        Resolve in {resolved.label}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
             <button
               type="button"

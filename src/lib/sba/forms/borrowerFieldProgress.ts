@@ -105,7 +105,7 @@ export type FieldProgress = {
   requiredTotal: number;
   completedCount: number;
   remainingFactPaths: string[];
-  byChapter: Record<1 | 2 | 3 | 4 | 5, { total: number; complete: number }>;
+  byChapter: Record<1 | 2 | 3 | 4 | 5 | 6, { total: number; complete: number }>;
   excluded: string[];
   determinable: boolean;
 };
@@ -168,6 +168,7 @@ export function computeFieldProgress(
         3: { total: 0, complete: 0 },
         4: { total: 0, complete: 0 },
         5: { total: 0, complete: 0 },
+        6: { total: 0, complete: 0 },
       },
       excluded: ["no_form_codes"],
       determinable: false,
@@ -210,18 +211,20 @@ export function computeFieldProgress(
         3: { total: 0, complete: 0 },
         4: { total: 0, complete: 0 },
         5: { total: 0, complete: 0 },
+        6: { total: 0, complete: 0 },
       },
       excluded,
       determinable: false,
     };
   }
 
-  const byChapter: Record<1 | 2 | 3 | 4 | 5, { total: number; complete: number }> = {
+  const byChapter: Record<1 | 2 | 3 | 4 | 5 | 6, { total: number; complete: number }> = {
     1: { total: 0, complete: 0 },
     2: { total: 0, complete: 0 },
     3: { total: 0, complete: 0 },
     4: { total: 0, complete: 0 },
     5: { total: 0, complete: 0 },
+    6: { total: 0, complete: 0 },
   };
 
   let requiredTotal = 0;
