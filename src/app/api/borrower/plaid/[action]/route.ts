@@ -59,14 +59,37 @@ export async function POST(req: Request, ctx: Ctx) {
       const ownershipEntityId = typeof body.ownership_entity_id === "string" ? body.ownership_entity_id : "";
       const redirectUri = typeof body.redirect_uri === "string" ? body.redirect_uri : undefined;
 
-      const result = await createLinkToken({
-        dealId: session.deal_id,
-        ownershipEntityId,
-        userId: session.tokenHash,
-        redirectUri,
-      });
+      try {
+        const result = await createLinkToken({
+          dealId: session.deal_id,
+          ownershipEntityId,
+          userId: session.tokenHash,
+          redirectUri,
+        });
 
-      return NextResponse.json({ ok: true, ...result });
+        return NextResponse.json({ ok: true, ...result });
+      } catch (linkTokenErr: any) {
+        // SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1-HOTFIX — a borrower must
+        // never see a raw Plaid/HTTP-client error ("Request failed with
+        // status code 400" etc.). ANY failure creating the link token
+        // (misconfiguration, an unauthorized product, Plaid being down,
+        // network issues) degrades to the same friendly, non-blocking
+        // "unavailable" state the frontend already renders for
+        // plaid_not_configured — the full technical detail is logged
+        // server-side only.
+        console.error("[/api/borrower/plaid/link-token] createLinkToken failed", {
+          message: linkTokenErr?.message,
+          plaidError: linkTokenErr?.response?.data ?? null,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            errorCode: "plaid_unavailable",
+            error: "Bank connection is temporarily unavailable. You can continue without connecting your bank.",
+          },
+          { status: 200 },
+        );
+      }
     }
 
     if (action === "exchange") {
