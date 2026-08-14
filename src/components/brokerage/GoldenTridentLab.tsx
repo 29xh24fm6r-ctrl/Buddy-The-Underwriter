@@ -2,9 +2,11 @@ import "server-only";
 
 import Link from "next/link";
 import { GoldenTridentLabClient } from "@/components/brokerage/GoldenTridentLabClient";
+import { GoldenTridentFixtureButton } from "@/components/brokerage/GoldenTridentFixtureButton";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { getTridentReadiness, type TridentReadiness } from "@/lib/brokerage/trident/tridentReadiness";
+import { gradeGoldenTrident, type GoldenTridentQualityReport } from "@/lib/brokerage/trident/goldenTridentQuality";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,7 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
   let bundle: Record<string, unknown> | null = null;
   let loadError: string | null = null;
   let readiness: TridentReadiness | null = null;
+  let quality: GoldenTridentQualityReport | null = null;
   const signed: Record<string, string | null> = {};
 
   if (dealId) {
@@ -50,7 +53,10 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
     bundle = bundleResult.data as Record<string, unknown> | null;
 
     if (deal) {
-      readiness = await getTridentReadiness({ sb, dealId, bankId: brokerageBankId });
+      [readiness, quality] = await Promise.all([
+        getTridentReadiness({ sb, dealId, bankId: brokerageBankId }),
+        gradeGoldenTrident({ sb, dealId, bankId: brokerageBankId }),
+      ]);
     }
 
     if (bundle?.status === "succeeded") {
@@ -78,6 +84,11 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
           Choose a real brokerage deal with completed uploads. Generation uses the production engines and preserves evidence provenance; it does not seal, list, or modify marketplace state.
         </p>
       </header>
+
+      <section className="rounded-lg border border-[#5d4b32] bg-[#211c15] p-4">
+        <h2 className="mb-2 font-semibold">Commissioning deal</h2>
+        <GoldenTridentFixtureButton />
+      </section>
 
       <form className="flex max-w-3xl gap-3" method="get">
         <input type="hidden" name="lab" value="golden-trident" />
@@ -112,6 +123,30 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
             <ArtifactCard title="Credit memo" note="Review the canonical memo; generate its narrative above when prerequisites are ready." href={`/deals/${dealId}/credit-memo`} action="Review memo" />
             <ArtifactCard title="Credit memo PDF" note="Committee-formatted PDF. Its safety gate will identify missing certified inputs." href={`/api/deals/${dealId}/credit-memo/canonical/pdf`} />
           </section>
+
+          {quality ? (
+            <section className="rounded-lg border border-[#5d4b32] bg-[#17130f] p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b68b3c]">Deterministic commissioning scorecard</p>
+                  <h2 className="mt-1 text-2xl font-semibold">Overall {quality.overallScore}/100</h2>
+                </div>
+                <p className="max-w-2xl text-xs text-[#a99b84]">Structural grading catches missing, thin, incomplete, or unverified outputs. Lender judgment of writing quality remains a separate UAT step.</p>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {quality.artifacts.map((item) => (
+                  <article key={item.key} className="rounded-md border border-[#4f422f] bg-[#211c15] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="font-semibold">{item.label}</h3>
+                      <span className={`rounded px-2 py-1 text-xs font-semibold ${item.status === "pass" ? "bg-emerald-900/50 text-emerald-200" : item.status === "review" ? "bg-amber-900/50 text-amber-200" : "bg-red-950/60 text-red-200"}`}>{item.score}/100 · {item.status}</span>
+                    </div>
+                    {item.passed.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-emerald-200/90">{item.passed.map((line) => <li key={line}>{line}</li>)}</ul> : null}
+                    {item.findings.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-200">{item.findings.map((line) => <li key={line}>{line}</li>)}</ul> : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-lg border border-[#5d4b32] bg-[#17130f] p-4">
             <div className="flex items-center justify-between gap-3">
