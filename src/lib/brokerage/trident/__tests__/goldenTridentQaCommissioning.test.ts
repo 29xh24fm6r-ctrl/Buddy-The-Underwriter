@@ -9,6 +9,8 @@ const lab = readFileSync("src/components/brokerage/GoldenTridentLab.tsx", "utf8"
 const tridentGenerateRoute = readFileSync("src/app/api/brokerage/deals/[dealId]/trident/generate/route.ts", "utf8");
 const spreadRoute = readFileSync("src/app/api/deals/[dealId]/classic-spread/route.ts", "utf8");
 const memoGenerateRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/generate/route.ts", "utf8");
+const bankerAnalysisRoute = readFileSync("src/app/api/deals/[dealId]/banker-analysis/run/route.ts", "utf8");
+const labClient = readFileSync("src/components/brokerage/GoldenTridentLabClient.tsx", "utf8");
 
 test("QA fixture seeds evidence and underwriting inputs, never fake outputs", () => {
   assert.match(fixture, /SYNTHETIC QA EVIDENCE — NOT A BORROWER DOCUMENT/);
@@ -48,4 +50,14 @@ test("brokerage staff can run and inspect governed artifacts without changing th
   assert.doesNotMatch(tridentGenerateRoute, /bank_user_memberships/);
   assert.match(spreadRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
   assert.match(memoGenerateRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(bankerAnalysisRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(labClient, /Run AI assessment/);
+});
+
+test("QA fixture commissions canonical spread inputs without seeding a rendered spread", () => {
+  assert.match(fixture, /SL_TOTAL_ASSETS/);
+  assert.match(fixture, /source_canonical_type/);
+  assert.match(fixture, /deal_structural_pricing/);
+  assert.match(fixture, /annual_debt_service_est/);
+  assert.doesNotMatch(fixture, /\.from\("deal_spreads"\)\.(insert|upsert)/);
 });
