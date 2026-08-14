@@ -42,8 +42,12 @@ const WORKER_SECRETS = ["WORKER_SECRET", "CRON_SECRET", "BUDDY_GATEWAY_SECRET"];
 // these resolves the caller's bank/role AND compares it against the target
 // deal before any supabaseAdmin() call is reached, same contract as
 // assertDealAccess/withDealAccess — the guard just didn't know their names.
+// The brokerage-aware variant first runs ensureDealBankAccess and only permits
+// its fallback when the deal belongs to the singleton brokerage tenant and the
+// caller passes requireBrokerageStaff.
 const OTHER_ACCESS_FUNCTIONS = [
   "ensureDealBankAccess(",
+  "ensureDealBankAccessAllowingBrokerageStaff(",
   "requireDealAccess(", // @/lib/auth/requireDealAccess and @/lib/server/authz — both throw/redirect on mismatch
   "requireDealCockpitAccess(",
   "requireUnderwriterOnDeal(",
