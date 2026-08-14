@@ -43,7 +43,7 @@ export async function GET(
       .select("section_key, completed")
       .eq("deal_id", ctx.dealId),
     sb
-      .from("documents")
+      .from("deal_documents")
       .select("id", { count: "exact", head: true })
       .eq("deal_id", ctx.dealId),
     sb
@@ -126,7 +126,7 @@ export async function GET(
     {
       key: "package_generated",
       label: "Loan Package Generated",
-      complete: bundleResult.data?.status === "completed",
+      complete: bundleResult.data?.status === "succeeded",
       detail: bundleResult.data ? `Status: ${bundleResult.data.status}` : null,
     },
     {

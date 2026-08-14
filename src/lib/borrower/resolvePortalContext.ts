@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sha256Base64url } from "@/lib/portal/token";
+import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 
 export type PortalContext = {
   dealId: string;
@@ -14,6 +15,17 @@ export type PortalContext = {
  */
 export async function resolvePortalContext(token: string): Promise<PortalContext> {
   const sb = supabaseAdmin();
+
+  // `/start` is authenticated by the HttpOnly buddy_borrower_session cookie
+  // and intentionally does not expose the raw invite token to the browser.
+  // Components shared with `/portal/[token]` therefore receive the selected
+  // deal id. Accept that value only when it exactly matches the authenticated
+  // session. This keeps one resolver for the shared borrower APIs without
+  // weakening token auth or allowing a borrower to probe another deal.
+  const session = await getBorrowerSession().catch(() => null);
+  if (session?.deal_id === token) {
+    return { dealId: session.deal_id, bankId: session.bank_id };
+  }
 
   // Use existing token hash format (base64url, not hex)
   const tokenHash = sha256Base64url(token);

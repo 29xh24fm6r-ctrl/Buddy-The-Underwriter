@@ -299,7 +299,27 @@ async function getMockCompleteKyc(req: NextRequest, dealId: string): Promise<Nex
 async function getEsignStatus(req: NextRequest, dealId: string): Promise<NextResponse> {
   const submissionId = req.nextUrl.searchParams.get("submissionId");
   if (!submissionId) {
-    return NextResponse.json({ ok: false, error: "missing_submissionId_query_param" }, { status: 400 });
+    const sb = supabaseAdmin();
+    const [{ data: signedDocuments }, { data: pendingRequests }] = await Promise.all([
+      sb
+        .from("signed_documents")
+        .select("form_code, signer_ownership_entity_id, esign_document_id, signature_completed_at")
+        .eq("deal_id", dealId),
+      sb
+        .from("signing_requests")
+        .select("form_code, signer_ownership_entity_id, signwell_document_id, signing_url, status")
+        .eq("deal_id", dealId),
+    ]);
+
+    const activeRequests = (pendingRequests ?? []).filter(
+      (row) => !["completed", "signed"].includes(String(row.status).toLowerCase()),
+    );
+
+    return NextResponse.json({
+      ok: true,
+      signedDocuments: signedDocuments ?? [],
+      pendingRequests: activeRequests,
+    });
   }
 
   const sb = supabaseAdmin();

@@ -1,16 +1,9 @@
 "use client";
 
 /**
- * Ticket 2 follow-up — borrower-facing e-signature trigger. Mirrors the
- * Underwriter tenant's SbaSigningPanel.tsx (owner x form grid, "Send" opens
- * DocuSeal's embed URL in a new tab), generic on form_code same as the
- * underlying /borrower-actions/esign action — it does not depend on
- * Brokerage's own SBA form-generation pipeline (src/lib/brokerage/
- * borrowerFormsOrchestration.ts), since DocuSeal signs against its own
- * pre-configured template per form code, not a generated reference PDF
- * (see the T7 AAR). Functions identically whether DocuSeal is real or the
- * mock-vendor test harness is active — the server decides that
- * transparently; this component has no test-mode-specific branching.
+ * Borrower-facing SignWell trigger. The server renders the already-filled
+ * SBA PDF and SignWell adds the signature ceremony; the browser never sends
+ * loan values or chooses a template.
  *
  * Visibility: rendered once at least one owner has completed IAL2 (the
  * hard server-side gate, enforced in requestSignature/mockRequestSignature
@@ -29,13 +22,17 @@ type OwnerRow = {
   ial2Status: "verified" | "pending" | "declined" | "not_started";
 };
 
-type FormStatus = { signed: boolean; submissionId: string | null };
+type FormStatus = {
+  signed: boolean;
+  submissionId: string | null;
+  signingUrl: string | null;
+};
 
 const TRACKED_FORMS = [
-  { code: "SBA_1919", label: "Form 1919" },
-  { code: "SBA_413", label: "Form 413 (PFS)" },
-  { code: "SBA_912", label: "Form 912" },
-  { code: "IRS_4506C", label: "Form 4506-C" },
+  { code: "FORM_1919", label: "Form 1919" },
+  { code: "FORM_413", label: "Form 413 (PFS)" },
+  { code: "FORM_912", label: "Form 912" },
+  { code: "FORM_4506C", label: "Form 4506-C" },
 ] as const;
 
 export function SigningPanel({ dealId }: { dealId: string }) {
@@ -47,13 +44,41 @@ export function SigningPanel({ dealId }: { dealId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/brokerage/deals/${dealId}/borrower-actions/kyc`, {
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data.ok) {
-        setOwners(data.owners ?? []);
-        setSessionEmail(data.sessionEmail ?? null);
+      const [kycRes, esignRes] = await Promise.all([
+        fetch(`/api/brokerage/deals/${dealId}/borrower-actions/kyc`, {
+          credentials: "include",
+        }),
+        fetch(`/api/brokerage/deals/${dealId}/borrower-actions/esign`, {
+          credentials: "include",
+        }),
+      ]);
+      const [kyc, esign] = await Promise.all([
+        kycRes.json().catch(() => ({})),
+        esignRes.json().catch(() => ({})),
+      ]);
+      if (kyc.ok) {
+        setOwners(kyc.owners ?? []);
+        setSessionEmail(kyc.sessionEmail ?? null);
+      }
+      if (esign.ok) {
+        const restored: Record<string, FormStatus> = {};
+        for (const row of esign.pendingRequests ?? []) {
+          const key = `${row.signer_ownership_entity_id}:${row.form_code}`;
+          restored[key] = {
+            signed: false,
+            submissionId: row.signwell_document_id ?? null,
+            signingUrl: row.signing_url ?? null,
+          };
+        }
+        for (const row of esign.signedDocuments ?? []) {
+          const key = `${row.signer_ownership_entity_id}:${row.form_code}`;
+          restored[key] = {
+            signed: true,
+            submissionId: row.esign_document_id ?? null,
+            signingUrl: null,
+          };
+        }
+        setFormStatus(restored);
       }
     } catch {
       // non-fatal — keep showing last known state
@@ -65,7 +90,7 @@ export function SigningPanel({ dealId }: { dealId: string }) {
   }, [load]);
 
   // Poll pending submissions so a signature completed in the other tab
-  // (real DocuSeal, or the mock-vendor test harness's confirmation page)
+  // (real SignWell, or the mock-vendor test harness's confirmation page)
   // flips this panel to "signed" without the borrower needing to reload.
   useEffect(() => {
     const pending = Object.entries(formStatus).filter(([, s]) => s.submissionId && !s.signed);
@@ -115,12 +140,21 @@ export function SigningPanel({ dealId }: { dealId: string }) {
           setError(
             data.error === "IAL2_NOT_COMPLETED"
               ? "Identity verification must complete before signing."
-              : data.error === "docuseal_template_not_configured"
-                ? "This form isn't ready to sign yet — check back soon."
+              : data.detail?.includes("form_incomplete")
+                ? "This form still needs information before it can be signed."
+                : data.detail?.includes("template_not_available")
+                  ? "This form isn't ready to sign yet — check back soon."
                 : "Could not start signing.",
           );
         } else {
-          setFormStatus((prev) => ({ ...prev, [key]: { signed: false, submissionId: data.submission_id } }));
+          setFormStatus((prev) => ({
+            ...prev,
+            [key]: {
+              signed: false,
+              submissionId: data.submission_id,
+              signingUrl: data.embed_url ?? null,
+            },
+          }));
           if (data.embed_url) {
             window.open(data.embed_url, "_blank", "noopener,noreferrer");
           }
@@ -151,6 +185,7 @@ export function SigningPanel({ dealId }: { dealId: string }) {
               {TRACKED_FORMS.map((f) => {
                 const key = `${owner.ownershipEntityId}:${f.code}`;
                 const status = formStatus[key];
+                const hasPendingRequest = Boolean(status?.submissionId && !status.signed);
                 return (
                   <li key={f.code}>
                     {status?.signed ? (
@@ -159,12 +194,24 @@ export function SigningPanel({ dealId }: { dealId: string }) {
                       </span>
                     ) : (
                       <button
-                        onClick={() => sendForSignature(owner, f.code)}
-                        disabled={busyKey === key}
+                        onClick={() => {
+                          if (hasPendingRequest && status?.signingUrl) {
+                            window.open(status.signingUrl, "_blank", "noopener,noreferrer");
+                            return;
+                          }
+                          void sendForSignature(owner, f.code);
+                        }}
+                        disabled={busyKey === key || (hasPendingRequest && !status?.signingUrl)}
                         type="button"
                         className="text-xs font-medium text-slate-700 border border-slate-200 px-2 py-1 rounded hover:bg-slate-50 disabled:opacity-50"
                       >
-                        {busyKey === key ? "Opening…" : `Sign ${f.label}`}
+                        {busyKey === key
+                          ? "Opening…"
+                          : hasPendingRequest
+                            ? status?.signingUrl
+                              ? `Continue ${f.label}`
+                              : `${f.label} pending`
+                            : `Sign ${f.label}`}
                       </button>
                     )}
                   </li>
