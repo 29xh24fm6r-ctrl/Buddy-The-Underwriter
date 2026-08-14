@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { loadClassicSpreadData } from "@/lib/classicSpread/classicSpreadLoader";
 import { renderClassicSpread } from "@/lib/classicSpread/classicSpreadRenderer";
 import { generateSpreadNarrative } from "@/lib/classicSpread/narrativeEngine";
@@ -22,7 +22,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
 export async function GET(_req: Request, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
+    const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
     if (!access.ok) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
