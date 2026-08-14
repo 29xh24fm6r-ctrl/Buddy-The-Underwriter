@@ -24,7 +24,7 @@ type Ctx = { params: Promise<{ dealId: string }> };
  *   404 — no cached PDF exists (UI should call /ensure or fall back to sync route)
  *   409 — cached PDF exists but is in error/queued state
  */
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(req: Request, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
     const access = await ensureDealBankAccess(dealId);
@@ -102,12 +102,16 @@ export async function GET(_req: Request, ctx: Ctx) {
     }
 
     const pdfBuffer = Buffer.from(payload.pdf_base64, "base64");
+    const disposition =
+      new URL(req.url).searchParams.get("download") === "1"
+        ? "attachment"
+        : "inline";
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "content-type": "application/pdf",
-        "content-disposition": `inline; filename="FinancialSpread_${dealId.slice(0, 8)}.pdf"`,
+        "content-disposition": `${disposition}; filename="FinancialSpread_${dealId.slice(0, 8)}.pdf"`,
         "x-buddy-classic-pdf-stale": isStale ? "true" : "false",
         "x-buddy-classic-pdf-sha256": payload.pdf_sha256,
         "x-buddy-classic-pdf-generated-at": payload.generatedAt,
