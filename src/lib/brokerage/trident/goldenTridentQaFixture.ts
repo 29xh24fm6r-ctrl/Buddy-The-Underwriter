@@ -1,6 +1,7 @@
 import "server-only";
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { ingestDocument } from "@/lib/documents/ingestDocument";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const FIXTURE_NAME = "[QA] Golden Trident — Precision Fabrication";
@@ -150,22 +151,30 @@ export async function seedGoldenTridentQaFixture(args: {
         upsert: true,
       });
       if (uploadError) throw new Error(`source upload: ${uploadError.message}`);
-      const { data: row, error: docError } = await sb
-        .from("deal_documents")
-        .insert({
-          deal_id: dealId,
-          bank_id: bankId,
+      const ingested = await ingestDocument({
+        dealId,
+        bankId,
+        file: {
           original_filename: doc.filename,
-          canonical_type: doc.canonicalType,
-          checklist_key: doc.checklistKey,
-          storage_path: path,
-          document_key: `${FIXTURE_VERSION}:${doc.filename}`,
-          finalized_at: now,
-        })
-        .select("id")
-        .single();
-      if (docError || !row) throw new Error(`source row: ${docError?.message ?? "missing row"}`);
-      documentIds.push(row.id);
+          mimeType: "application/pdf",
+          sizeBytes: bytes.byteLength,
+          storagePath: path,
+          storageBucket: "deal-documents",
+        },
+        source: "system",
+        documentKey: `${FIXTURE_VERSION}:${doc.filename}`,
+        metadata: {
+          task_checklist_key: doc.checklistKey,
+          synthetic_qa_fixture: FIXTURE_VERSION,
+        },
+      });
+      const { error: docError } = await sb
+        .from("deal_documents")
+        .update({ canonical_type: doc.canonicalType })
+        .eq("id", ingested.documentId)
+        .eq("deal_id", dealId);
+      if (docError) throw new Error(`source typing: ${docError.message}`);
+      documentIds.push(ingested.documentId);
     }
 
     const incomeDocId = documentIds[0];
@@ -270,4 +279,3 @@ export async function seedGoldenTridentQaFixture(args: {
 
   return { dealId, created: true, fixtureVersion: FIXTURE_VERSION };
 }
-
