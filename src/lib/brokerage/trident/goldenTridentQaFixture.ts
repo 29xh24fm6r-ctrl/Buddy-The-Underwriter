@@ -4,8 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const FIXTURE_NAME = "[QA] Golden Trident — Precision Fabrication";
-const FIXTURE_VERSION = "golden-trident-qa-v1";
+const FIXTURE_NAME = "[QA] Golden Trident v2 — Precision Fabrication";
+const FIXTURE_VERSION = "golden-trident-qa-v2";
 
 type FixtureResult = {
   dealId: string;
@@ -133,12 +133,13 @@ export async function seedGoldenTridentQaFixture(args: {
       },
       {
         filename: "qa_2025_balance_sheet.pdf",
-        canonicalType: "BUSINESS_FINANCIAL_STATEMENT",
-        checklistKey: "BUSINESS_FINANCIAL_STATEMENT",
+        canonicalType: "BALANCE_SHEET",
+        checklistKey: "BALANCE_SHEET",
         lines: [
           "Cash: $240,000", "Accounts receivable: $310,000", "Inventory: $180,000",
-          "Fixed assets: $950,000", "Accounts payable: $210,000", "Long-term debt: $620,000",
-          "Total equity: $850,000", "Years in business: 9",
+          "Fixed assets: $950,000", "Total assets: $1,680,000", "Accounts payable: $210,000",
+          "Long-term debt: $620,000", "Total liabilities: $830,000", "Total equity: $850,000",
+          "Years in business: 9",
         ],
       },
     ];
@@ -188,6 +189,7 @@ export async function seedGoldenTridentQaFixture(args: {
       ["CASH", 240000, balanceDocId], ["ACCOUNTS_RECEIVABLE", 310000, balanceDocId],
       ["INVENTORY", 180000, balanceDocId], ["TOTAL_FIXED_ASSETS", 950000, balanceDocId],
       ["ACCOUNTS_PAYABLE", 210000, balanceDocId], ["TOTAL_LONG_TERM_DEBT", 620000, balanceDocId],
+      ["TOTAL_ASSETS", 1680000, balanceDocId], ["TOTAL_LIABILITIES", 830000, balanceDocId],
       ["TOTAL_EQUITY", 850000, balanceDocId], ["YEARS_IN_BUSINESS", 9, balanceDocId],
     ].map(([factKey, value, sourceDocumentId]) => ({
       deal_id: dealId,
