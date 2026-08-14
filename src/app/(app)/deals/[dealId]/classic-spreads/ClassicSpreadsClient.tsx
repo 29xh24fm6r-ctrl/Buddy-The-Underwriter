@@ -46,7 +46,7 @@ export default function ClassicSpreadsClient({ dealId }: { dealId: string }) {
         <div className="flex items-center gap-2">
           {state === "ready" && (
             <a
-              href={pdfUrl ?? undefined}
+              href={`/api/deals/${dealId}/classic-spread/cached?download=1`}
               download={`FinancialSpread_${dealId.slice(0, 8)}.pdf`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
             >
