@@ -8,9 +8,32 @@ import { listLeadQueue } from "@/lib/leads/queries";
 import { listManagementQueue } from "@/lib/dealStage/queues";
 import { computeIntelligenceAlerts } from "@/lib/intelligence/alerts";
 import { computePipelineForecast } from "@/lib/intelligence/forecast";
+import { seedGoldenTridentQaFixture } from "@/lib/brokerage/trident/goldenTridentQaFixture";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+export async function POST(req: NextRequest) {
+  try {
+    await requireBrokerageStaff();
+    const body = await req.json().catch(() => ({}));
+    if (body?.action !== "seed_golden_trident_qa") {
+      return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });
+    }
+    const result = await seedGoldenTridentQaFixture({
+      sb: supabaseAdmin(),
+      bankId: await getBrokerageBankId(),
+    });
+    return NextResponse.json({ ok: true, ...result });
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    if (message === "unauthorized") {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+    console.error("[golden-trident-fixture]", reason);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
 
 /**
  * GET /api/admin/brokerage/command-center
