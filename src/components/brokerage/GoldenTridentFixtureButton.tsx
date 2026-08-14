@@ -12,7 +12,11 @@ export function GoldenTridentFixtureButton() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/admin/brokerage/golden-trident/fixture", { method: "POST" });
+      const response = await fetch("/api/admin/brokerage/command-center", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "seed_golden_trident_qa" }),
+      });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.dealId) throw new Error(body.error ?? `Fixture failed (${response.status})`);
       router.push(`/admin/brokerage/packages?lab=golden-trident&dealId=${encodeURIComponent(body.dealId)}`);
@@ -34,4 +38,3 @@ export function GoldenTridentFixtureButton() {
     </div>
   );
 }
-
