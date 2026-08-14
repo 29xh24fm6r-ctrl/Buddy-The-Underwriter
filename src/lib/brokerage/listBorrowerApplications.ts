@@ -161,7 +161,7 @@ export async function listBorrowerApplications(args: {
     stageByDealId.set((row as any).deal_id, (row as any).stage);
   }
 
-  return (deals as any[]).map((d) => {
+  const applications = (deals as any[]).map((d) => {
     const stage = stageByDealId.get(d.id) ?? null;
     return {
       id: d.id,
@@ -176,4 +176,40 @@ export async function listBorrowerApplications(args: {
       bucket: bucketForStage(stage),
     };
   });
+
+  return collapseBlankDuplicates(applications);
+}
+
+/**
+ * SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1-HOTFIX — safe DISPLAY-layer
+ * dedup, applied here (the single source both the OTP-verification dedup
+ * check and the Application Chooser UI both call) so both stay
+ * consistent. Confirmed in production: repeated concierge/chat
+ * interactions from a fresh session (see the concierge route's own fix,
+ * same spec) previously left a real borrower with many literally
+ * unmodified "New borrower inquiry" deals — never a real application,
+ * just abandoned session artifacts.
+ *
+ * Deliberately narrow: only collapses deals whose display name is STILL
+ * the exact literal placeholder ("New borrower inquiry" — set once at
+ * deal creation and never touched again unless the borrower actually
+ * enters business info, which updates it elsewhere). Anything with a
+ * real, borrower-entered name is never touched, collapsed, or hidden —
+ * this never hides a legitimate application. Rows are never deleted here;
+ * this only affects what this function returns to its callers.
+ */
+const BLANK_PLACEHOLDER_NAME = "New borrower inquiry";
+
+export function collapseBlankDuplicates(
+  applications: BorrowerApplication[],
+): BorrowerApplication[] {
+  const blank = applications.filter((a) => a.businessName === BLANK_PLACEHOLDER_NAME);
+  if (blank.length <= 1) return applications;
+
+  // Already sorted by updated_at desc from the query — keep the first
+  // (most recent) blank one, drop the rest.
+  const keepId = blank[0].id;
+  return applications.filter(
+    (a) => a.businessName !== BLANK_PLACEHOLDER_NAME || a.id === keepId,
+  );
 }
