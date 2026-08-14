@@ -9,6 +9,7 @@
  *   d) WORKER-marked + worker secret      → pass
  *   e) allowlisted unpatched route        → pass
  *   f) stale allowlist (ghost) entry      → fail
+ *   g) brokerage-aware deal access         → pass
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -60,6 +61,11 @@ before(() => {
     "worker/route.ts",
     `// route-class: WORKER\nimport { supabaseAdmin } from "x";\nif (h !== process.env.WORKER_SECRET) return;\nsupabaseAdmin();`,
   );
+  // g) canonical brokerage-aware tenant access
+  writeRoute(
+    "brokerage/route.ts",
+    `import { supabaseAdmin } from "x";\nawait ensureDealBankAccessAllowingBrokerageStaff(dealId);\nsupabaseAdmin();`,
+  );
   // e) another unpatched route we will allowlist
   writeRoute("allowed/route.ts", `import { supabaseAdmin } from "x";\nsupabaseAdmin();`);
   // A route with no supabaseAdmin at all — out of scope, never counted.
@@ -97,9 +103,9 @@ describe("guard-deal-route-access fixtures", () => {
     assert.match(res.stderr, /ghost\/route\.ts/);
   });
 
-  it("BORROWER_TOKEN + WORKER marked routes never appear as failing", () => {
+  it("recognized token, worker, and brokerage-aware routes never appear as failing", () => {
     // With only the two genuinely-unpatched routes allowlisted, guard passes —
-    // proving token/route.ts and worker/route.ts are treated as protected.
+    // proving token, worker, and brokerage-aware routes are treated as protected.
     const res = runGuard(["unpatched/route.ts", "allowed/route.ts"]);
     assert.equal(res.status, 0, res.stdout + res.stderr);
   });

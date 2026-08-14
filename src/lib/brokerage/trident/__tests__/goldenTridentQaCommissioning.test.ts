@@ -6,6 +6,9 @@ const fixture = readFileSync("src/lib/brokerage/trident/goldenTridentQaFixture.t
 const route = readFileSync("src/app/api/admin/brokerage/command-center/route.ts", "utf8");
 const quality = readFileSync("src/lib/brokerage/trident/goldenTridentQuality.ts", "utf8");
 const lab = readFileSync("src/components/brokerage/GoldenTridentLab.tsx", "utf8");
+const tridentGenerateRoute = readFileSync("src/app/api/brokerage/deals/[dealId]/trident/generate/route.ts", "utf8");
+const spreadRoute = readFileSync("src/app/api/deals/[dealId]/classic-spread/route.ts", "utf8");
+const memoGenerateRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/generate/route.ts", "utf8");
 
 test("QA fixture seeds evidence and underwriting inputs, never fake outputs", () => {
   assert.match(fixture, /SYNTHETIC QA EVIDENCE — NOT A BORROWER DOCUMENT/);
@@ -37,4 +40,12 @@ test("quality lab grades every lender-facing artifact family", () => {
   assert.match(lab, /gradeGoldenTrident/);
   assert.match(lab, /Deterministic commissioning scorecard/);
   assert.match(lab, /Lender judgment of writing quality remains a separate UAT step/);
+});
+
+test("brokerage staff can run and inspect governed artifacts without changing their active bank", () => {
+  assert.match(tridentGenerateRoute, /requireBrokerageStaff\(\)/);
+  assert.match(tridentGenerateRoute, /eq\("bank_id", brokerageBankId\)/);
+  assert.doesNotMatch(tridentGenerateRoute, /bank_user_memberships/);
+  assert.match(spreadRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(memoGenerateRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
 });

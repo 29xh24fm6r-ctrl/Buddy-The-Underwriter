@@ -15,7 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentBankId } from "@/lib/tenant/getCurrentBankId";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { getAIProvider } from "@/lib/ai/provider";
 import { logPipelineLedger } from "@/lib/pipeline/logPipelineLedger";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -40,7 +40,7 @@ export async function POST(
 ) {
   try {
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
+    const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
     if (!access.ok) {
       const status = access.error === "unauthorized" ? 401 : 403;
       return NextResponse.json({ ok: false, error: access.error }, { status });

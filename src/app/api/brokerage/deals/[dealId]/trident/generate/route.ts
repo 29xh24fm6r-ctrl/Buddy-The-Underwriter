@@ -10,11 +10,11 @@ import "server-only";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { getTridentReadiness } from "@/lib/brokerage/trident/tridentReadiness";
+import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,29 +24,18 @@ export async function POST(
   { params }: { params: Promise<{ dealId: string }> },
 ): Promise<NextResponse> {
   const { dealId } = await params;
-  const { userId } = await auth();
-  if (!userId) {
+  try {
+    await requireBrokerageStaff();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "forbidden";
     return NextResponse.json(
-      { ok: false, error: "unauthenticated" },
-      { status: 401 },
+      { ok: false, error: message },
+      { status: message === "unauthorized" ? 401 : 403 },
     );
   }
 
   const brokerageBankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
-  const { data: membership } = await sb
-    .from("bank_user_memberships")
-    .select("role")
-    .eq("bank_id", brokerageBankId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!membership) {
-    return NextResponse.json(
-      { ok: false, error: "forbidden" },
-      { status: 403 },
-    );
-  }
 
   const { data: deal } = await sb
     .from("deals")
