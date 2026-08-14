@@ -23,6 +23,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getBorrowerSession } from "@/lib/brokerage/sessionToken";
 
 export type PortalTokenContext = {
   token: string;
@@ -34,6 +35,15 @@ export async function resolvePortalToken(
   sb?: SupabaseClient,
 ): Promise<PortalTokenContext | null> {
   if (!token || typeof token !== "string") return null;
+
+  // Shared Trident UI is rendered from both `/portal/[token]` and the
+  // cookie-authenticated `/start` workspace. `/start` never receives the raw
+  // portal token, so it passes its selected deal id. Permit that form only
+  // when the HttpOnly borrower session proves the exact same deal.
+  const session = await getBorrowerSession().catch(() => null);
+  if (session?.deal_id === token) {
+    return { token, dealId: session.deal_id };
+  }
 
   const client = sb ?? supabaseAdmin();
   const { data: link } = await client
