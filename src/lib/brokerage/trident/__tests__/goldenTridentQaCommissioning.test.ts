@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const fixture = readFileSync("src/lib/brokerage/trident/goldenTridentQaFixture.ts", "utf8");
-const route = readFileSync("src/app/api/admin/brokerage/golden-trident/fixture/route.ts", "utf8");
+const route = readFileSync("src/app/api/admin/brokerage/command-center/route.ts", "utf8");
 const quality = readFileSync("src/lib/brokerage/trident/goldenTridentQuality.ts", "utf8");
 const lab = readFileSync("src/components/brokerage/GoldenTridentLab.tsx", "utf8");
 
@@ -24,6 +24,7 @@ test("QA fixture is admin-only and bank-scoped", () => {
   assert.match(route, /requireBrokerageStaff\(\)/);
   assert.match(route, /getBrokerageBankId\(\)/);
   assert.match(route, /seedGoldenTridentQaFixture/);
+  assert.match(route, /seed_golden_trident_qa/);
 });
 
 test("quality lab grades every lender-facing artifact family", () => {
@@ -34,4 +35,3 @@ test("quality lab grades every lender-facing artifact family", () => {
   assert.match(lab, /Deterministic commissioning scorecard/);
   assert.match(lab, /Lender judgment of writing quality remains a separate UAT step/);
 });
-
