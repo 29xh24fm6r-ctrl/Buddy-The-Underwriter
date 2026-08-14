@@ -13,6 +13,9 @@ test("QA fixture seeds evidence and underwriting inputs, never fake outputs", ()
   assert.match(fixture, /\.from\("buddy_sba_assumptions"\)\.insert/);
   assert.match(fixture, /status: "confirmed"/);
   assert.match(fixture, /is_test: true/);
+  assert.match(fixture, /deal_type: "SBA"/);
+  assert.match(fixture, /product_type: "SBA_7A"/);
+  assert.doesNotMatch(fixture, /deal_type: "SBA_7A"/);
   assert.doesNotMatch(fixture, /\.from\("buddy_trident_bundles"\)\.(insert|upsert)/);
   assert.doesNotMatch(fixture, /\.from\("buddy_sba_packages"\)\.(insert|upsert)/);
   assert.doesNotMatch(fixture, /\.from\("buddy_feasibility_studies"\)\.(insert|upsert)/);
