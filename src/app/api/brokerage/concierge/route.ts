@@ -23,6 +23,7 @@ import {
   claimBorrowerSession,
 } from "@/lib/brokerage/sessionToken";
 import { getOrCreateBorrowerSession } from "@/lib/brokerage/session";
+import { listBorrowerApplications } from "@/lib/brokerage/listBorrowerApplications";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { checkConciergeRateLimit } from "@/lib/brokerage/rateLimits";
 import { callGeminiJSON } from "@/lib/ai/geminiClient";
@@ -564,6 +565,22 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
 
     // Claim the session the first time an email appears.
+    //
+    // SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1-HOTFIX — this used to claim
+    // unconditionally, independent of the existing-application dedup check
+    // verifyCodeAndCreateSession() runs for the OTP flow. Any time a
+    // borrower interacted with concierge/chat from a fresh cookie (new
+    // device, cleared cookies, a different Preview deployment host) using
+    // an email they'd already verified before, this path minted and
+    // claimed ANOTHER blank "New borrower inquiry" deal for that email —
+    // confirmed in production (6 duplicates for one email, 2 for another,
+    // all real staff test accounts, all created after the OTP-side dedup
+    // fix had already landed, which only made sense once this second,
+    // unguarded claim path was found). Apply the same dedup check here:
+    // if the email already has real applications, leave this anonymous
+    // session unclaimed rather than adding another. The borrower still
+    // reaches their existing application(s) correctly the next time they
+    // verify via OTP, which does route them through the chooser.
     const extractedEmail = (newFacts as any)?.borrower?.email;
     let sessionClaimed = false;
     if (
@@ -571,11 +588,31 @@ export async function POST(req: NextRequest): Promise<Response> {
       extractedEmail.includes("@") &&
       !session.claimed_email
     ) {
-      await claimBorrowerSession({
-        tokenHash: session.tokenHash,
-        email: extractedEmail,
-      });
-      sessionClaimed = true;
+      let hasExistingApplications = false;
+      try {
+        const existingApplications = await listBorrowerApplications({
+          email: extractedEmail,
+          bankId: brokerageBankId,
+        });
+        hasExistingApplications = existingApplications.length > 0;
+      } catch (lookupErr) {
+        // Fail closed: a lookup failure must not risk minting yet another
+        // duplicate. Leave unclaimed; OTP verification remains the
+        // authoritative, already-hardened path for this borrower.
+        console.warn(
+          "[brokerage-concierge] existing-application lookup failed during auto-claim guard (leaving session unclaimed):",
+          lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+        );
+        hasExistingApplications = true;
+      }
+
+      if (!hasExistingApplications) {
+        await claimBorrowerSession({
+          tokenHash: session.tokenHash,
+          email: extractedEmail,
+        });
+        sessionClaimed = true;
+      }
     }
 
     // Display-name convenience update — never needs to gate the
