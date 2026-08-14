@@ -38,7 +38,9 @@ export default function ClassicSpreadsClient({ dealId }: { dealId: string }) {
     const a = document.createElement("a");
     a.href = pdfUrl;
     a.download = `FinancialSpread_${dealId.slice(0, 8)}.pdf`;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
   }, [pdfUrl, dealId]);
 
   return (
@@ -48,7 +50,7 @@ export default function ClassicSpreadsClient({ dealId }: { dealId: string }) {
         <div>
           <h2 className="text-lg font-semibold text-white">Classic Banker Spread</h2>
           <p className="text-sm text-white/50 mt-0.5">
-            Institutional-format 4-page PDF — Balance Sheet · Income Statement · Ratios · Executive Summary
+            Institutional financial package — statements, ratios, cash flow, audit, borrowing base, and executive analysis
           </p>
         </div>
         <div className="flex items-center gap-2">

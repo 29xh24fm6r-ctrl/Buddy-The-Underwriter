@@ -4,6 +4,7 @@ import Link from "next/link";
 import { GoldenTridentLabClient } from "@/components/brokerage/GoldenTridentLabClient";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+import { getTridentReadiness, type TridentReadiness } from "@/lib/brokerage/trident/tridentReadiness";
 
 export const dynamic = "force-dynamic";
 
@@ -34,18 +35,23 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
   let assumptions: Record<string, unknown> | null = null;
   let bundle: Record<string, unknown> | null = null;
   let loadError: string | null = null;
+  let readiness: TridentReadiness | null = null;
   const signed: Record<string, string | null> = {};
 
   if (dealId) {
     const [dealResult, assumptionsResult, bundleResult] = await Promise.all([
       sb.from("deals").select("id, display_name, borrower_name, loan_amount, state, status, is_test, bank_id").eq("id", dealId).eq("bank_id", brokerageBankId).maybeSingle(),
       sb.from("buddy_sba_assumptions").select("*").eq("deal_id", dealId).maybeSingle(),
-      sb.from("buddy_trident_bundles").select("*").eq("deal_id", dealId).eq("mode", "final").is("superseded_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      sb.from("buddy_trident_bundles").select("*").eq("deal_id", dealId).eq("mode", "final").is("superseded_at", null).order("generated_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     loadError = dealResult.error?.message ?? assumptionsResult.error?.message ?? bundleResult.error?.message ?? null;
     deal = dealResult.data as Record<string, unknown> | null;
     assumptions = assumptionsResult.data as Record<string, unknown> | null;
     bundle = bundleResult.data as Record<string, unknown> | null;
+
+    if (deal) {
+      readiness = await getTridentReadiness({ sb, dealId, bankId: brokerageBankId });
+    }
 
     if (bundle?.status === "succeeded") {
       for (const [key, column] of Object.entries({
@@ -92,7 +98,9 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
               </div>
               <p className="text-sm text-[#b9ad99]">{deal.is_test ? "TEST DEAL" : "LIVE DEAL — generation creates new artifact versions"}</p>
             </div>
-            <div className="mt-4"><GoldenTridentLabClient dealId={dealId} /></div>
+            <div className="mt-4">
+              <GoldenTridentLabClient dealId={dealId} readiness={readiness} />
+            </div>
             {bundle?.status === "failed" ? <p className="mt-3 rounded bg-red-950/40 p-3 text-sm text-red-200">Generation stopped: {String(bundle.generation_error ?? "unknown error")}</p> : null}
           </section>
 
