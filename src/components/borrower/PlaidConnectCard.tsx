@@ -161,7 +161,15 @@ export function PlaidConnectCard({
         credentials: "include",
       });
       const tokenBody = await tokenRes.json();
-      if (tokenBody?.errorCode === "plaid_not_configured") {
+      // Any friendly-mapped Plaid failure (not configured, or any other
+      // failure the server degraded gracefully — see
+      // /api/borrower/plaid/[action]/route.ts) shows the same non-blocking
+      // "unavailable" state. A borrower should never see a raw technical
+      // error message here.
+      if (
+        tokenBody?.errorCode === "plaid_not_configured" ||
+        tokenBody?.errorCode === "plaid_unavailable"
+      ) {
         setStatus("unavailable");
         return;
       }
