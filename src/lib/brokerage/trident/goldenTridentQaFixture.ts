@@ -4,8 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const FIXTURE_NAME = "[QA] Golden Trident v2 — Precision Fabrication";
-const FIXTURE_VERSION = "golden-trident-qa-v2";
+const FIXTURE_NAME = "[QA] Golden Trident v3 — Precision Fabrication";
+const FIXTURE_VERSION = "golden-trident-qa-v3";
 
 type FixtureResult = {
   dealId: string;
@@ -182,7 +182,8 @@ export async function seedGoldenTridentQaFixture(args: {
     const incomeDocId = documentIds[0];
     const balanceDocId = documentIds[1];
     const facts = [
-      ["TOTAL_REVENUE", 2400000, incomeDocId], ["COST_OF_GOODS_SOLD", 1320000, incomeDocId],
+      ["TOTAL_REVENUE", 2400000, incomeDocId], ["GROSS_RECEIPTS", 2400000, incomeDocId],
+      ["COST_OF_GOODS_SOLD", 1320000, incomeDocId],
       ["TOTAL_OPERATING_EXPENSES", 720000, incomeDocId], ["EBITDA", 360000, incomeDocId],
       ["DEPRECIATION", 90000, incomeDocId], ["INTEREST_EXPENSE", 45000, incomeDocId],
       ["TOTAL_TAX", 35000, incomeDocId], ["NET_INCOME", 190000, incomeDocId], ["ADS", 120000, incomeDocId],
@@ -191,6 +192,14 @@ export async function seedGoldenTridentQaFixture(args: {
       ["ACCOUNTS_PAYABLE", 210000, balanceDocId], ["TOTAL_LONG_TERM_DEBT", 620000, balanceDocId],
       ["TOTAL_ASSETS", 1680000, balanceDocId], ["TOTAL_LIABILITIES", 830000, balanceDocId],
       ["TOTAL_EQUITY", 850000, balanceDocId], ["YEARS_IN_BUSINESS", 9, balanceDocId],
+      // Classic Spread consumes Schedule-L-shaped canonical keys. These are
+      // certified aliases of the same synthetic balance-sheet evidence, not
+      // generated spread output.
+      ["SL_CASH", 240000, balanceDocId], ["SL_AR_GROSS", 310000, balanceDocId],
+      ["SL_INVENTORY", 180000, balanceDocId], ["SL_PPE_GROSS", 950000, balanceDocId],
+      ["SL_ACCOUNTS_PAYABLE", 210000, balanceDocId], ["SL_LONG_TERM_DEBT", 620000, balanceDocId],
+      ["SL_TOTAL_ASSETS", 1680000, balanceDocId], ["SL_TOTAL_LIABILITIES", 830000, balanceDocId],
+      ["SL_TOTAL_EQUITY", 850000, balanceDocId],
     ].map(([factKey, value, sourceDocumentId]) => ({
       deal_id: dealId,
       bank_id: bankId,
@@ -200,10 +209,34 @@ export async function seedGoldenTridentQaFixture(args: {
       fact_period_start: periodStart,
       fact_period_end: periodEnd,
       fact_value_num: value,
+      source_canonical_type: sourceDocumentId === balanceDocId ? "BALANCE_SHEET" : "BUSINESS_TAX_RETURN",
       confidence: 1,
       provenance: { source: FIXTURE_VERSION, synthetic: true, certifiedForQa: true },
     }));
     await requireOk("financial facts", sb.from("deal_financial_facts").insert(facts));
+
+    // Input required by the canonical cash-flow aggregator. The spread route
+    // derives DSCR and cash-flow facts from this structural loan term; it does
+    // not fabricate or seed a rendered spread.
+    await requireOk(
+      "structural pricing",
+      sb.from("deal_structural_pricing").insert({
+        deal_id: dealId,
+        bank_id: bankId,
+        loan_amount: 850000,
+        term_months: 120,
+        amort_months: 120,
+        interest_only_months: 0,
+        rate_index: "SBA_PRIME",
+        requested_spread_bps: 300,
+        structural_rate_pct: 10.5,
+        monthly_payment_est: 11468,
+        annual_debt_service_est: 137616,
+        source: FIXTURE_VERSION,
+        floor_rate_pct: 0,
+        rate_type: "variable",
+      }),
+    );
 
     await requireOk(
       "sources and uses",

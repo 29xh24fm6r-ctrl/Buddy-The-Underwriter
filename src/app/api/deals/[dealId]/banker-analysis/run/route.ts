@@ -13,7 +13,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import {
   runBankerAnalysisPipeline,
@@ -43,7 +43,7 @@ function parseReason(input: unknown): BankerAnalysisReason {
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {
     const { dealId } = await ctx.params;
-    const access = await ensureDealBankAccess(dealId);
+    const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
     if (!access.ok) {
       return NextResponse.json(
         { ok: false, error: access.error },
