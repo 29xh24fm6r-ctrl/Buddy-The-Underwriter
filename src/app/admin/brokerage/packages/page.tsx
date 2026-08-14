@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadLastEvents } from "../_components/loadLastEvents";
 import { StuckTable, type StuckRow } from "../_components/StuckTable";
 import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { GoldenTridentLab } from "@/components/brokerage/GoldenTridentLab";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,16 @@ export const dynamic = "force-dynamic";
  * Active sealed packages — `buddy_sealed_packages` with `unsealed_at
  * IS NULL`. Oldest first. SPEC-BROKERAGE-LAUNCH-BLOCKERS-V1 §3.6.
  */
-export default async function BrokeragePackagesPage() {
+export default async function BrokeragePackagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ lab?: string; dealId?: string }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  if (resolvedSearchParams.lab === "golden-trident") {
+    return <GoldenTridentLab searchParams={Promise.resolve(resolvedSearchParams)} />;
+  }
+
   const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("buddy_sealed_packages")

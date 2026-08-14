@@ -44,6 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Team & roles", href: "/admin/brokerage/team", icon: "◐" },
       { label: "Ops health", href: "/admin/brokerage/listings", icon: "◍" },
+      { label: "Golden Trident", href: "/admin/brokerage/packages?lab=golden-trident", icon: "△" },
       { label: "Launch readiness", href: "/admin/brokerage/launch-readiness", icon: "⚑" },
     ],
   },
