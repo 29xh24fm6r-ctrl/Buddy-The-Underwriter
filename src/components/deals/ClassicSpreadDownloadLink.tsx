@@ -62,7 +62,9 @@ export function ClassicSpreadDownloadLink({
         downloadRef.current.click();
       }
 
-      URL.revokeObjectURL(url);
+      // Revoking synchronously races Chrome's download hand-off and can
+      // produce a button that appears to work without saving a file.
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
       if (mountedRef.current) setState("idle");
     } catch {
       if (mountedRef.current) setState("error");
