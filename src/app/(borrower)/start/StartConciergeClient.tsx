@@ -760,6 +760,7 @@ export function StartConciergeClient({
             {chapter === 3 && (
               <IntakeOwnershipStep
                 dealId={nonNullDealId}
+                borrowerName={session.name}
                 onContinue={(data) => { void navigateToChapter(4, data); }}
               />
             )}

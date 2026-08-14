@@ -7,9 +7,11 @@ type OwnerStructure = "solo" | "multi" | null;
 
 export function IntakeOwnershipStep({
   dealId,
+  borrowerName,
   onContinue,
 }: {
   dealId: string;
+  borrowerName?: string | null;
   onContinue: (data?: Record<string, unknown>) => void;
 }) {
   const [structure, setStructure] = useState<OwnerStructure>(null);
@@ -17,6 +19,11 @@ export function IntakeOwnershipStep({
   const [additionalOwners, setAdditionalOwners] = useState<
     { name: string; pct: string }[]
   >([]);
+
+  const prefillParts = (borrowerName ?? "").trim().split(/\s+/);
+  const [firstName, setFirstName] = useState(prefillParts[0] ?? "");
+  const [lastName, setLastName] = useState(prefillParts.slice(1).join(" ") ?? "");
+  const [nameSaved, setNameSaved] = useState(false);
 
   const addOwner = useCallback(() => {
     setAdditionalOwners((prev) => [...prev, { name: "", pct: "" }]);
@@ -34,6 +41,31 @@ export function IntakeOwnershipStep({
   const removeOwner = useCallback((idx: number) => {
     setAdditionalOwners((prev) => prev.filter((_, i) => i !== idx));
   }, []);
+
+  const saveBorrowerName = useCallback(async () => {
+    const first = firstName.trim();
+    const last = lastName.trim();
+    if (!first) return;
+    try {
+      await Promise.all([
+        fetch("/api/brokerage/concierge", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ factPath: "borrower.first_name", value: first }),
+          credentials: "include",
+        }),
+        fetch("/api/brokerage/concierge", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ factPath: "borrower.last_name", value: last }),
+          credentials: "include",
+        }),
+      ]);
+    } catch {
+      // non-fatal
+    }
+    setNameSaved(true);
+  }, [firstName, lastName]);
 
   const saveStructure = useCallback(
     async (s: OwnerStructure) => {
@@ -145,22 +177,50 @@ export function IntakeOwnershipStep({
         </button>
       </div>
 
-      {/* Solo celebrate card */}
+      {/* Solo: confirm borrower name + celebrate card */}
       {structure === "solo" && (
-        <div className="animate-in slide-in-from-top-2 fade-in duration-300 rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
-              <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
+        <div className="animate-in slide-in-from-top-2 fade-in duration-300 space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+            <h4 className="mb-1 text-sm font-semibold text-slate-800">Confirm your name</h4>
+            <p className="mb-4 text-xs text-slate-500">
+              SBA requires the sole owner&apos;s legal name on file.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => { setFirstName(e.target.value); setNameSaved(false); }}
+                placeholder="First name"
+                className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+              />
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => { setLastName(e.target.value); setNameSaved(false); }}
+                placeholder="Last name"
+                className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+              />
             </div>
-            <div>
-              <p className="text-sm font-medium text-emerald-900">
-                That&apos;s the simplest structure — no ownership map needed.
-              </p>
-              <p className="text-xs text-emerald-700 mt-0.5">
-                We just need to verify your identity next.
-              </p>
+            {nameSaved && (
+              <p className="mt-2 text-xs text-emerald-600">Name saved</p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
+                <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-emerald-900">
+                  That&apos;s the simplest structure — no ownership map needed.
+                </p>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  We just need to verify your identity next.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -237,11 +297,13 @@ export function IntakeOwnershipStep({
         <div className="flex justify-end pt-2">
           <button
             type="button"
+            disabled={structure === "solo" && !firstName.trim()}
             onClick={async () => {
+              if (structure === "solo") await saveBorrowerName();
               if (structure === "multi") await saveStructure("multi");
               onContinue({ structure });
             }}
-            className="brand-gradient-cta rounded-2xl px-8 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110"
+            className="brand-gradient-cta rounded-2xl px-8 py-3 text-sm font-medium text-white shadow-sm hover:brightness-110 disabled:opacity-50"
           >
             Continue →
           </button>
