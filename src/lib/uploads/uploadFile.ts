@@ -510,3 +510,87 @@ export async function uploadBorrowerFile(
     return toUploadErr(error, requestId);
   }
 }
+
+/**
+ * Self-serve /start funnel upload — authenticated via the borrower session
+ * cookie (getBorrowerSession() server-side), not a Clerk staff session and
+ * not a borrower_portal_links token. See
+ * src/app/api/borrower/intake/files/sign/route.ts's doc comment for why
+ * this exists as its own path rather than reusing directDealDocumentUpload
+ * or uploadBorrowerFile (both are gated on auth this component's caller
+ * doesn't have).
+ */
+export async function borrowerIntakeDocumentUpload(
+  args: { dealId: string; file: File; checklistKey?: string | null },
+): Promise<UploadResult> {
+  const requestId = generateRequestId();
+  const { file, checklistKey = null } = args;
+
+  try {
+    const signRes = await fetchWithTimeout(
+      "/api/borrower/intake/files/sign",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-request-id": requestId },
+        body: JSON.stringify({
+          filename: file.name,
+          mime_type: file.type,
+          size_bytes: file.size,
+          checklist_key: checklistKey,
+        }),
+      },
+      20_000,
+    );
+    const signData = await readJson<SignedUploadResponse>(signRes);
+    if (!signRes.ok || !signData?.ok || !signData.upload) {
+      console.warn("[upload] borrower-intake sign failed", { requestId, status: signRes.status, error: signData?.error });
+      return {
+        ok: false,
+        error: signData?.error || `Failed to get signed URL (${signRes.status})`,
+        request_id: requestId,
+      };
+    }
+
+    const { file_id, object_path, signed_url, headers: uploadHeaders } = signData.upload;
+
+    const uploadResult = await uploadViaSignedUrl(signed_url, file, undefined, uploadHeaders);
+    if (!uploadResult.ok) {
+      const err = uploadResult as UploadErr;
+      console.warn("[upload] borrower-intake storage failed", { requestId, file_id, error: err.error });
+      return { ...err, request_id: requestId };
+    }
+
+    const recordRes = await fetchWithTimeout(
+      "/api/borrower/intake/files/record",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-request-id": requestId },
+        body: JSON.stringify({
+          file_id,
+          object_path,
+          original_filename: file.name,
+          mime_type: file.type,
+          size_bytes: file.size,
+          checklist_key: checklistKey,
+        }),
+      },
+      30_000,
+    );
+    const recordData = await readJson<UploadResult>(recordRes);
+    if (!recordRes.ok || !recordData?.ok) {
+      const errMsg = recordData && !recordData.ok ? (recordData as UploadErr).error : null;
+      console.warn("[upload] borrower-intake record failed", { requestId, file_id, status: recordRes.status });
+      return {
+        ok: false,
+        error: errMsg || `Failed to record file (${recordRes.status})`,
+        request_id: requestId,
+      };
+    }
+
+    console.log("[upload] borrower-intake success", { requestId, file_id });
+    return { ok: true, file_id, checklist_key: checklistKey, request_id: requestId } as UploadResult;
+  } catch (error: any) {
+    console.warn("[upload] borrower-intake unexpected error", { requestId, error: error?.message });
+    return toUploadErr(error, requestId);
+  }
+}
