@@ -29,6 +29,7 @@ import { buildResearchTrace } from "@/lib/research/memoEvidenceResolver";
 import { memoRenderSource, resolveMemoCutoverFlags, loadFinengineMemo, renderFinengineMemoNarrative } from "@/lib/finengine/memo/loadFinengineMemo";
 import { enforceMemoGenerationPreconditions } from "@/lib/creditMemo/memoGenerationPreconditions";
 import type { RiskOutput } from "@/lib/ai/provider";
+import { ensureMemoCoverage } from "@/lib/creditMemo/canonical/ensureMemoCoverage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -221,11 +222,12 @@ export async function POST(
 
     // ── Step 5: Generate memo ────────────────────────────────────────────
     const provider = getAIProvider();
-    const memo = await provider.generateMemo({
+    const generatedMemo = await provider.generateMemo({
       dealId,
       dealSnapshot,
       risk: riskOutput,
     });
+    const memo = ensureMemoCoverage(generatedMemo, dealSnapshot, riskOutput);
 
     // ── Step 6: Compute provenance hash from canonical inputs ─────────────
     const hashInputs = await fetchMemoHashInputs(sb, dealId);

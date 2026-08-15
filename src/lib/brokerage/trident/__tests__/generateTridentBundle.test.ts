@@ -21,6 +21,7 @@ const state: {
   feasResult: any;
   sbaPackageRowForXlsx: Row | null;
   enrichBusinessPlanPackageCalls: Array<{ dealId: string; bankId: string; packageId: string }>;
+  enrichFeasibilityStudyCalls: Array<{ dealId: string; bankId: string; studyId: string }>;
 } = {
   bundles: [],
   deals: [{ id: "deal-1", bank_id: "bank-1" }],
@@ -34,6 +35,7 @@ const state: {
   feasResult: null,
   sbaPackageRowForXlsx: null,
   enrichBusinessPlanPackageCalls: [],
+  enrichFeasibilityStudyCalls: [],
 };
 
 function resetState() {
@@ -41,6 +43,7 @@ function resetState() {
   state.sbaPackages = [];
   state.feasibilityStudies = [];
   state.enrichBusinessPlanPackageCalls = [];
+  state.enrichFeasibilityStudyCalls = [];
   let n = 0;
   state.nextBundleId = () => `bundle-${++n}`;
   state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1 };
@@ -250,6 +253,17 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
   },
 } as any;
 
+require.cache[require.resolve("@/lib/feasibility/enrichFeasibilityStudy")] = {
+  id: "enrich-feasibility-stub",
+  filename: "enrich-feasibility-stub",
+  loaded: true,
+  exports: {
+    enrichFeasibilityStudy: async (args: { dealId: string; bankId: string; studyId: string }) => {
+      state.enrichFeasibilityStudyCalls.push({ dealId: args.dealId, bankId: args.bankId, studyId: args.studyId });
+    },
+  },
+} as any;
+
 require.cache[require.resolve("@/lib/feasibility/feasibilityRenderer")] = {
   id: "feas-render-stub",
   filename: "feas-render-stub",
@@ -320,6 +334,9 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
   assert.equal(call.dealId, "deal-1");
   assert.equal(call.bankId, "bank-1");
   assert.equal(call.packageId, "pkg-1");
+  assert.deepEqual(state.enrichFeasibilityStudyCalls, [
+    { dealId: "deal-1", bankId: "bank-1", studyId: "study-1" },
+  ]);
 });
 
 test("final generation fails closed when business-plan PDF would contain placeholders", async () => {

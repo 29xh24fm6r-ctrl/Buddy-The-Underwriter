@@ -156,8 +156,15 @@ export async function gradeGoldenTrident(args: {
     score += Math.min(25, substantive * 5);
     if (substantive >= 5) passed.push("Five substantive feasibility narratives are present.");
     else findings.push(`Only ${substantive} substantive feasibility narrative(s) found.`);
-    if (feasibility?.narrative_citations && Object.keys(feasibility.narrative_citations as object).length > 0) { score += 10; passed.push("Narrative citation map is present."); }
-    else findings.push("Narrative citations are missing.");
+    const citationMap = feasibility?.narrative_citations && typeof feasibility.narrative_citations === "object"
+      ? Object.values(feasibility.narrative_citations as Record<string, unknown>) : [];
+    const citedSections = citationMap.filter((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const citation = entry as { urls?: unknown; precise?: unknown };
+      return citation.precise === true && Array.isArray(citation.urls) && citation.urls.length > 0;
+    }).length;
+    if (citedSections >= 3) { score += 10; passed.push("All research-backed narratives have precise citations."); }
+    else findings.push(`Only ${citedSections} of 3 research-backed narratives have precise citations.`);
     if (feasibility?.verification_verdict === "pass") { score += 10; passed.push("Feasibility verifier passed."); }
     else findings.push(`Feasibility verification is ${String(feasibility?.verification_verdict ?? "missing")}.`);
     artifacts.push(artifact("feasibility", "Feasibility study", score, exists, passed, findings));
@@ -186,9 +193,10 @@ export async function gradeGoldenTrident(args: {
     let score = 0;
     const exists = Boolean(memo);
     const sections = Array.isArray((memo?.narratives as { sections?: unknown[] } | null)?.sections)
-      ? (memo?.narratives as { sections: unknown[] }).sections : [];
-    if (sections.length >= 5) { score += 50; passed.push(`${sections.length} memo narrative sections are present.`); }
-    else findings.push(`Credit memo has ${sections.length} narrative section(s); expected at least 5.`);
+      ? (memo?.narratives as { sections: Array<{ content?: unknown }> }).sections : [];
+    const substantiveSections = sections.filter((section) => words(section?.content) >= 35).length;
+    if (substantiveSections >= 6) { score += 50; passed.push(`${substantiveSections} substantive memo narrative sections are present.`); }
+    else findings.push(`Credit memo has ${substantiveSections} substantive narrative section(s); expected at least 6.`);
     if (memo?.model) { score += 15; passed.push(`Generation model recorded (${memo.model}).`); }
     else findings.push("Memo model provenance is missing.");
     if (memo?.research_trust_grade) { score += 20; passed.push(`Research trust grade recorded (${memo.research_trust_grade}).`); }
@@ -204,4 +212,3 @@ export async function gradeGoldenTrident(args: {
     artifacts,
   };
 }
-
