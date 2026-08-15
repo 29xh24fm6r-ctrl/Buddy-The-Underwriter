@@ -8,6 +8,8 @@ const require = createRequire(import.meta.url);
 
 const { callGeminiJSON } =
   require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
+const { parseNarrativeField } =
+  require("../sbaPackageNarrative") as typeof import("../sbaPackageNarrative");
 const { GEMINI_PRO } = require("../../ai/models") as typeof import("../../ai/models");
 const {
   __setProviderImplForTests,
@@ -75,4 +77,23 @@ test("uses MODEL_SBA_NARRATIVE (GEMINI_PRO) as modelOverride, with thinkingLevel
   await callGeminiJSON("write a thesis");
   assert.equal(captured.model, GEMINI_PRO);
   assert.equal(captured.thinkingLevel, "low");
+});
+
+test("parseNarrativeField unwraps fenced and prefaced JSON", () => {
+  const narrative = "Specific borrower analysis with enough detail to be useful.";
+  assert.equal(
+    parseNarrativeField(`\`\`\`json\n${JSON.stringify({ executiveSummary: narrative })}\n\`\`\``, "executiveSummary", "fallback"),
+    narrative,
+  );
+  assert.equal(
+    parseNarrativeField(`Here is the requested JSON:\n${JSON.stringify({ executiveSummary: narrative })}`, "executiveSummary", "fallback"),
+    narrative,
+  );
+});
+
+test("parseNarrativeField fails closed on malformed serialized output", () => {
+  assert.equal(
+    parseNarrativeField("```json\n{not valid json}\n```", "executiveSummary", "fallback"),
+    "fallback",
+  );
 });

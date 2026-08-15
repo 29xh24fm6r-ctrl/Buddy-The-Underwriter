@@ -22,6 +22,7 @@ import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
 import { enrichBusinessPlanPackage } from "@/lib/sba/enrichBusinessPlanPackage";
 import { hashPackageNarratives, getBusinessPlanAttestationStatus } from "@/lib/sba/businessPlanAttestation";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
+import { enrichFeasibilityStudy } from "@/lib/feasibility/enrichFeasibilityStudy";
 import { renderFeasibilityPDF } from "@/lib/feasibility/feasibilityRenderer";
 import { renderProjectionsXlsx } from "./projectionsXlsx";
 import { renderProjectionsPreviewPdf } from "./projectionsPreviewPdf";
@@ -273,6 +274,15 @@ export async function generateTridentBundle(args: {
       });
       if (feasResult.ok) {
         sourceFeasibilityId = feasResult.studyId ?? null;
+        if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
+          await enrichFeasibilityStudy({
+            dealId,
+            bankId: deal.bank_id,
+            studyId: sourceFeasibilityId,
+            composite: feasResult.composite,
+            sb,
+          });
+        }
         if (mode === "final" && sourceFeasibilityId) {
           const { data: feasibilityRow, error: feasibilityReadError } = await sb
             .from("buddy_feasibility_studies")

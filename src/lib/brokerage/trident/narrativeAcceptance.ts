@@ -26,14 +26,22 @@ function wordCount(value: unknown): number {
     : 0;
 }
 
+function isPresentationSafe(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return !/```(?:json)?|^\s*[\[{]\s*["']/im.test(value);
+}
+
 export function assessBusinessPlanNarratives(
   pkg: Record<string, unknown> | null,
 ): { ok: boolean; substantive: number; total: number } {
   const substantive = BUSINESS_PLAN_FIELDS.filter(
-    (field) => wordCount(pkg?.[field]) >= 45,
+    (field) => wordCount(pkg?.[field]) >= 45 && isPresentationSafe(pkg?.[field]),
   ).length;
   return {
-    ok: substantive >= 5,
+    // A lender-facing final plan is one document, not a collection where half
+    // the core analysis may silently be absent. Preview remains permissive;
+    // final Golden Trident generation uses this fail-closed contract.
+    ok: substantive === BUSINESS_PLAN_FIELDS.length,
     substantive,
     total: BUSINESS_PLAN_FIELDS.length,
   };

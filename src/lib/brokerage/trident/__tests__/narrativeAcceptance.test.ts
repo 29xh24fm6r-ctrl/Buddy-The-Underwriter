@@ -15,7 +15,7 @@ test("business-plan acceptance rejects renderer placeholders", () => {
   assert.deepEqual(result, { ok: false, substantive: 0, total: 10 });
 });
 
-test("business-plan acceptance requires five substantive core sections", () => {
+test("business-plan acceptance requires every substantive core section", () => {
   const result = assessBusinessPlanNarratives({
     business_overview_narrative: prose,
     executive_summary: prose,
@@ -23,8 +23,35 @@ test("business-plan acceptance requires five substantive core sections", () => {
     marketing_strategy: prose,
     operations_plan: prose,
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
   assert.equal(result.substantive, 5);
+
+  const complete = assessBusinessPlanNarratives({
+    business_overview_narrative: prose,
+    executive_summary: prose,
+    industry_analysis: prose,
+    marketing_strategy: prose,
+    operations_plan: prose,
+    swot_strengths: prose,
+    swot_weaknesses: prose,
+    swot_opportunities: prose,
+    swot_threats: prose,
+    sensitivity_narrative: prose,
+  });
+  assert.deepEqual(complete, { ok: true, substantive: 10, total: 10 });
+});
+
+test("business-plan acceptance rejects serialized JSON presentation leaks", () => {
+  const leaked = `\`\`\`json\n${JSON.stringify({ narrative: prose })}\n\`\`\``;
+  const result = assessBusinessPlanNarratives(
+    Object.fromEntries([
+      "business_overview_narrative", "executive_summary", "industry_analysis",
+      "marketing_strategy", "operations_plan", "swot_strengths", "swot_weaknesses",
+      "swot_opportunities", "swot_threats", "sensitivity_narrative",
+    ].map((field) => [field, field === "industry_analysis" ? leaked : prose])),
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.substantive, 9);
 });
 
 test("feasibility acceptance rejects generation-failed strings", () => {

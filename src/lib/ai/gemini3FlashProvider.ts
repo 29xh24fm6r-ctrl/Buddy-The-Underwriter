@@ -180,7 +180,8 @@ export class Gemini3FlashProvider implements AIProvider {
         "MEMO RULES:",
         "- Professional credit memo tone. Short paragraphs. No fluff.",
         "- Put citations in citations[] per section. Only cite evidence you were given.",
-        "- If evidence is insufficient for a section, keep it high-level and leave citations empty.",
+        "- Always return substantive prose for these six required sections: executive_summary, borrower_background, business_description, repayment_analysis, risk_factors, recommendation.",
+        "- If evidence is insufficient, state the limitation explicitly, keep the discussion high-level, and leave citations empty; never omit a required section.",
         "- You MUST use ONLY these exact sectionKey values (canonical section alignment):",
         "  executive_summary, income_analysis, property_description,",
         "  borrower_background, borrower_experience, guarantor_strength,",
@@ -198,7 +199,7 @@ export class Gemini3FlashProvider implements AIProvider {
           ...input.risk.pricingExplain.flatMap((p) => p.evidence ?? []),
         ],
         INSTRUCTIONS:
-          "Generate memo narrative content for each canonical section. Use ONLY the listed sectionKey values. Cite only from EVIDENCE_CATALOG. If you lack evidence for a section, omit it entirely.",
+          "Generate memo narrative content for every required section. Use ONLY the listed sectionKey values and cite only from EVIDENCE_CATALOG. Required: executive_summary, borrower_background, business_description, repayment_analysis, risk_factors, recommendation.",
       },
     });
   }
