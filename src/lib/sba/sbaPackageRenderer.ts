@@ -307,18 +307,51 @@ function renderKeyMetricsDashboard(s: DocState) {
   s.y += boxH + 14;
 }
 
+export function normalizeNarrativeForPdf(text: string): string {
+  let value = text.trim();
+  if (!value) return "";
+  value = value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  if (value.startsWith("{") && value.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      const strings = Object.values(parsed).filter(
+        (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+      );
+      value = strings.length === 1 ? strings[0] : strings.join("\n\n");
+    } catch {
+      return "Narrative unavailable due to an invalid generation response.";
+    }
+  }
+  return value.replace(/\*\*(.*?)\*\*/g, "$1").replace(/^#{1,6}\s+/gm, "").trim();
+}
+
 function renderNarrativeBody(s: DocState, text: string, sectionTitle: string) {
   if (!text) return;
   const { doc } = s;
   const maxWidth = doc.page.width - PAGE_MARGIN * 2;
-  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-  // Simple paragraph renderer with page breaks
-  const paragraphs = text.split(/\n\n+/);
+  const paragraphs = normalizeNarrativeForPdf(text).split(/\n\n+/);
   for (const p of paragraphs) {
-    checkPageBreak(s, 40, sectionTitle);
-    doc.text(p, PAGE_MARGIN, s.y, { width: maxWidth, lineGap: 2 });
-    s.y = doc.y + 10;
+    const lines = p.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    const bulletBlock = lines.length > 0 && lines.every((line) => /^(?:[•-]|\d+\.)\s+/.test(line));
+    checkPageBreak(s, bulletBlock ? Math.max(40, lines.length * 18) : 40, sectionTitle);
+    doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY).fillColor("#1f2937");
+    if (bulletBlock) {
+      for (const line of lines) {
+        checkPageBreak(s, 22, sectionTitle);
+        const clean = line.replace(/^(?:[•-]|\d+\.)\s+/, "");
+        doc.fillColor(SERIES_BLUE).text("•", PAGE_MARGIN + 4, s.y, { width: 12 });
+        doc.fillColor("#1f2937").text(clean, PAGE_MARGIN + 18, s.y, {
+          width: maxWidth - 18,
+          lineGap: 2,
+        });
+        s.y = doc.y + 6;
+      }
+    } else {
+      doc.text(lines.join(" "), PAGE_MARGIN, s.y, { width: maxWidth, lineGap: 3 });
+      s.y = doc.y + 10;
+    }
   }
+  doc.fillColor("#000000");
 }
 
 // ---------------------------------------------------------------------------
@@ -946,15 +979,11 @@ function renderGlobalCashFlow(s: DocState) {
 // ---------------------------------------------------------------------------
 
 function renderSection1_BusinessOverview(s: DocState) {
-  const { doc, input } = s;
-  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
-
-  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
-  doc.text(input.businessOverviewNarrative, PAGE_MARGIN, s.y, {
-    width: maxWidth,
-    lineGap: 2,
-  });
-  s.y = doc.y + 16;
+  renderNarrativeBody(
+    s,
+    s.input.businessOverviewNarrative,
+    "2. Company Description (cont.)",
+  );
 }
 
 function renderSection2_Projections(s: DocState) {

@@ -362,7 +362,7 @@ export async function generateSBAPackage(
   ]);
   const researchSummary = research.industryOverview ?? undefined;
 
-  const proceedsDescription =
+  const proceedsLineItems =
     useOfProceeds.length > 0
       ? useOfProceeds
           .map(
@@ -371,6 +371,13 @@ export async function generateSBAPackage(
           )
           .join(", ")
       : "General business purposes";
+  const proceedsDescription =
+    `${proceedsLineItems}. Total project uses: $${Math.round(sourcesAndUses.totalUses).toLocaleString()}; ` +
+    `SBA loan source: $${Math.round(assumptions.loanImpact.loanAmount).toLocaleString()}; ` +
+    `borrower equity source: $${Math.round(sourcesAndUses.equityInjection.actualAmount).toLocaleString()}. ` +
+    (sourcesAndUses.balanced
+      ? "Sources and uses balance."
+      : `Sources and uses are not balanced; unresolved difference: $${Math.abs(Math.round(sourcesAndUses.imbalance)).toLocaleString()}. Do not describe the project as fully funded.`);
 
   // Phase 2 — shared context strings for the narrative prompts.
   const managementBios = assumptions.managementTeam

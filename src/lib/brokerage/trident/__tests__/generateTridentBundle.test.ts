@@ -307,6 +307,11 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
     industry_analysis: substantive,
     marketing_strategy: substantive,
     operations_plan: substantive,
+    swot_strengths: substantive,
+    swot_weaknesses: substantive,
+    swot_opportunities: substantive,
+    swot_threats: substantive,
+    sensitivity_narrative: substantive,
   });
   state.feasibilityStudies.push({
     id: "study-1",

@@ -90,13 +90,46 @@ function formatStoryForPrompt(story: BorrowerStory | null | undefined): string {
   return lines.join("\n\n") + "\n";
 }
 
-function safeParseField(text: string, field: string, fallback: string): string {
-  try {
-    const parsed = JSON.parse(text);
-    return typeof parsed[field] === "string" ? parsed[field] : fallback;
-  } catch {
-    return text.length > 50 ? text : fallback;
+export function parseNarrativeField(
+  text: string,
+  field: string,
+  fallback: string,
+): string {
+  const raw = text.trim();
+  if (!raw) return fallback;
+
+  // Model providers occasionally honor the requested JSON shape but wrap it
+  // in a Markdown fence (or a one-line preamble). Returning that wrapper as
+  // prose leaked literal ```json and the complete object into the PDF.
+  const unfenced = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const candidates = [unfenced];
+  const firstBrace = unfenced.indexOf("{");
+  const lastBrace = unfenced.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(unfenced.slice(firstBrace, lastBrace + 1));
   }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      const value = parsed[field];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    } catch {
+      // Try the next bounded candidate before treating the response as prose.
+    }
+  }
+
+  // Plain prose is a permitted provider degradation. JSON-shaped output is
+  // not: fail closed instead of printing internal serialization to a client.
+  if (/^\s*[\[{]/.test(unfenced) || /```(?:json)?/i.test(raw)) return fallback;
+  return unfenced.length > 50 ? unfenced : fallback;
+}
+
+function safeParseField(text: string, field: string, fallback: string): string {
+  return parseNarrativeField(text, field, fallback);
 }
 
 // Phase 3 — exported so sbaAssumptionDrafter and other narrative callers can
@@ -332,6 +365,7 @@ export async function generateIndustryAnalysis(params: {
 ${STANDARD_GUARDRAILS}
 
 CRITICAL: Use ONLY the research data provided below. Do NOT invent any statistics, market sizes, growth rates, or competitor names that are not explicitly stated in the research context. If a research section is missing or says "data not available", acknowledge the gap honestly rather than filling it with generic filler.
+Do not lead with missing-data language. Lead with the borrower-specific market position and known demand evidence. Put any material research limitation in one concise final paragraph labeled "Data limitations"; never repeat the limitation throughout the section.
 ${storyBlock ? "\nWhere the borrower's own competitive insight speaks to the industry, weave it into the Competitive Positioning paragraph in third person — the reader should feel that this analysis is coming from someone who knows this market from the inside.\n" : ""}
 
 ${params.planThesis ? `PLAN THESIS:\n${params.planThesis}\n` : ""}${storyBlock}
@@ -342,7 +376,7 @@ Industry: ${params.industryDescription}
 
 ${section("INDUSTRY OVERVIEW", params.industryOverview)}${section("INDUSTRY OUTLOOK", params.industryOutlook)}${section("COMPETITIVE LANDSCAPE", params.competitiveLandscape)}${section("REGULATORY ENVIRONMENT", params.regulatoryEnvironment)}${section("LOCAL MARKET INTELLIGENCE", params.marketIntelligence)}${!anyResearch ? "(No Buddy research available — write a conservative, descriptive overview without specific statistics.)\n" : ""}
 Write 4-5 paragraphs covering:
-1. Industry landscape and size (from research ONLY — no invented numbers).
+1. Industry landscape and demand context (from research ONLY — omit market-size claims when no sourced size is available).
 2. Growth drivers and demand trends.
 3. Competitive positioning for ${params.dealName}${storyBlock ? " — anchor this paragraph in the borrower's stated competitive insight" : ""}.
 4. Regulatory or input-cost considerations.

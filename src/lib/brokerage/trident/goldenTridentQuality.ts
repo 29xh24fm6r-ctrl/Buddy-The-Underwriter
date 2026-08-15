@@ -95,10 +95,15 @@ export async function gradeGoldenTrident(args: {
       "business_overview_narrative", "executive_summary", "industry_analysis", "marketing_strategy", "operations_plan",
       "swot_strengths", "swot_weaknesses", "swot_opportunities", "swot_threats", "sensitivity_narrative",
     ] as const;
-    const substantive = narrativeFields.filter((field) => words(pkg?.[field]) >= 45).length;
+    const substantive = narrativeFields.filter((field) => {
+      const value = pkg?.[field];
+      return words(value) >= 45 &&
+        typeof value === "string" &&
+        !/```(?:json)?|^\s*[\[{]\s*["']/im.test(value);
+    }).length;
     score += substantive * 5;
     if (substantive === narrativeFields.length) passed.push("All ten core narrative sections are substantive.");
-    else findings.push(`${narrativeFields.length - substantive} of 10 narrative sections are missing or thin (<45 words).`);
+    else findings.push(`${narrativeFields.length - substantive} of 10 narrative sections are missing, thin (<45 words), or contain serialized model output.`);
     if (words(pkg?.plan_thesis) >= 35) { score += 10; passed.push("Plan thesis is substantive."); }
     else findings.push("Plan thesis is missing or thin.");
     const roadmap = [pkg?.milestone_timeline, pkg?.kpi_dashboard, pkg?.risk_contingency_matrix].filter(Boolean).length;
