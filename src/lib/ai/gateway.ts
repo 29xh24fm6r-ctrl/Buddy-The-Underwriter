@@ -28,6 +28,7 @@ import { callGoogle, streamGoogle } from "./providers/google";
 import { callAnthropic } from "./providers/anthropic";
 import { callOpenAI } from "./providers/openai";
 import type { ProviderCallRequest, ProviderCallResult } from "./providers/types";
+import { getAIExecutionContext } from "./executionContext";
 
 export type { GatewayProvider, GatewayRole } from "./roleConfig";
 
@@ -198,8 +199,16 @@ export async function runRole(
   request: RunRoleRequest,
 ): Promise<RunRoleResult> {
   const config = getRoleConfig(role);
-  const npiTagged = request.npiTagged ?? false;
-  const dealId = request.dealId ?? null;
+  const executionContext = getAIExecutionContext();
+  // Explicit true is always honored. Explicit false cannot downgrade a
+  // request-scoped NPI context established by an artifact orchestrator.
+  const npiTagged = (request.npiTagged ?? false) || (executionContext?.npiTagged ?? false);
+  const dealId = request.dealId ?? executionContext?.dealId ?? null;
+  const provenance = {
+    traceId: executionContext?.traceId ?? null,
+    artifactType: executionContext?.artifactType ?? null,
+    artifactId: executionContext?.artifactId ?? null,
+  };
 
   let lastError: Error | null = null;
   let attempts = 0;
@@ -247,6 +256,7 @@ export async function runRole(
         npiTagged,
         outcome: "failure",
         errorMessage: lastError.message,
+        ...provenance,
       });
       continue; // a later chain step may be an APPROVED provider
     }
@@ -294,6 +304,7 @@ export async function runRole(
         purpose: request.purpose,
         npiTagged,
         outcome: "success",
+        ...provenance,
       });
       return {
         text: result.text,
@@ -322,6 +333,7 @@ export async function runRole(
         npiTagged,
         outcome: "failure",
         errorMessage: lastError.message,
+        ...provenance,
       });
       // fall through — try the next chain step (failover)
     }
@@ -341,8 +353,14 @@ export async function* runRoleStream(
 ): AsyncGenerator<string> {
   const config = getRoleConfig(role);
   const step = config.chain[0];
-  const npiTagged = request.npiTagged ?? false;
-  const dealId = request.dealId ?? null;
+  const executionContext = getAIExecutionContext();
+  const npiTagged = (request.npiTagged ?? false) || (executionContext?.npiTagged ?? false);
+  const dealId = request.dealId ?? executionContext?.dealId ?? null;
+  const provenance = {
+    traceId: executionContext?.traceId ?? null,
+    artifactType: executionContext?.artifactType ?? null,
+    artifactId: executionContext?.artifactId ?? null,
+  };
 
   if (npiTagged && VENDOR_NPI_APPROVAL[step.provider] !== "APPROVED") {
     const err = npiRefusalError(step.provider);
@@ -358,6 +376,7 @@ export async function* runRoleStream(
       npiTagged,
       outcome: "failure",
       errorMessage: err.message,
+      ...provenance,
     });
     throw err;
   }
@@ -406,6 +425,7 @@ export async function* runRoleStream(
       purpose: request.purpose,
       npiTagged,
       outcome: "success",
+      ...provenance,
     });
   } catch (e) {
     const latencyMs = Date.now() - start;
@@ -422,6 +442,7 @@ export async function* runRoleStream(
       npiTagged,
       outcome: "failure",
       errorMessage: err.message,
+      ...provenance,
     });
     throw err;
   }

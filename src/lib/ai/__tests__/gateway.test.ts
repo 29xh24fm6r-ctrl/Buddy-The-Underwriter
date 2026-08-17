@@ -27,6 +27,11 @@ const {
   __resetGatewayTestOverrides,
   __resetGatewayBudgetForTests,
 } = require("../gateway") as typeof import("../gateway");
+const { runWithAIExecutionContext } = require("../executionContext") as typeof import("../executionContext");
+const {
+  __setVendorApprovalForTests,
+  __resetVendorApprovalForTests,
+} = require("../vendorApproval") as typeof import("../vendorApproval");
 
 let ledgerEntries: LedgerEntry[];
 
@@ -42,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   __resetGatewayTestOverrides();
   __resetGatewayBudgetForTests();
+  __resetVendorApprovalForTests();
   delete process.env.AI_GATEWAY_BUDGET_GENERATOR;
   delete process.env.AI_GATEWAY_CHAIN_GENERATOR;
 });
@@ -105,6 +111,30 @@ describe("runRole: role resolution + failover", () => {
 });
 
 describe("runRole: NPI-refusal gate", () => {
+  it("inherits non-downgradable NPI classification and artifact provenance", async () => {
+    __setVendorApprovalForTests("google", "APPROVED");
+    __setProviderImplForTests("google", async () => okResult("context preserved"));
+
+    const result = await runWithAIExecutionContext(
+      {
+        dealId: "11111111-1111-4111-8111-111111111111",
+        traceId: "22222222-2222-4222-8222-222222222222",
+        artifactType: "trident_bundle",
+        artifactId: "22222222-2222-4222-8222-222222222222",
+        npiTagged: true,
+      },
+      () => runRole("generator", { prompt: "borrower facts", purpose: "test", npiTagged: false }),
+    );
+
+    assert.equal(result.text, "context preserved");
+    assert.equal(ledgerEntries.length, 1);
+    assert.equal(ledgerEntries[0].npiTagged, true);
+    assert.equal(ledgerEntries[0].dealId, "11111111-1111-4111-8111-111111111111");
+    assert.equal(ledgerEntries[0].traceId, "22222222-2222-4222-8222-222222222222");
+    assert.equal(ledgerEntries[0].artifactType, "trident_bundle");
+    assert.equal(ledgerEntries[0].artifactId, "22222222-2222-4222-8222-222222222222");
+  });
+
   it("refuses an npiTagged request to a PENDING provider before any network call", async () => {
     let called = false;
     __setProviderImplForTests("anthropic", async () => {

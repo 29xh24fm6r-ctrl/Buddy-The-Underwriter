@@ -38,6 +38,9 @@ export type LedgerEntry = {
   npiTagged: boolean;
   outcome: LedgerOutcome;
   errorMessage?: string;
+  traceId?: string | null;
+  artifactType?: string | null;
+  artifactId?: string | null;
 };
 
 export async function logGatewayCall(
@@ -61,6 +64,9 @@ export async function logGatewayCall(
       npi_tagged: entry.npiTagged,
       outcome: entry.outcome,
       error_message: entry.errorMessage ?? null,
+      trace_id: entry.traceId ?? null,
+      artifact_type: entry.artifactType ?? null,
+      artifact_id: entry.artifactId ?? null,
     });
     if (error) {
       console.error("[ai-gateway:ledger] insert failed", error.message);

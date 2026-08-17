@@ -35,9 +35,12 @@ function artifact(
   exists: boolean,
   passed: string[],
   findings: string[],
+  requiredGatePassed = true,
 ): ArtifactQuality {
   const bounded = Math.max(0, Math.min(100, Math.round(score)));
-  return { key, label, score: bounded, status: qualityStatus(bounded, exists), passed, findings };
+  const structuralStatus = qualityStatus(bounded, exists);
+  const status = !requiredGatePassed && structuralStatus === "pass" ? "review" : structuralStatus;
+  return { key, label, score: bounded, status, passed, findings };
 }
 
 /** Structural, deterministic grading. It intentionally does not pretend to
@@ -112,7 +115,15 @@ export async function gradeGoldenTrident(args: {
     else findings.push(`${3 - roadmap} roadmap section(s) are missing.`);
     if (pkg?.verification_verdict === "pass") { score += 10; passed.push("Business-plan verifier passed."); }
     else findings.push(`Business-plan verification is ${String(pkg?.verification_verdict ?? "missing")}.`);
-    artifacts.push(artifact("businessPlan", "Business plan", score, exists, passed, findings));
+    artifacts.push(artifact(
+      "businessPlan",
+      "Business plan",
+      score,
+      exists,
+      passed,
+      findings,
+      pkg?.verification_verdict === "pass",
+    ));
   }
 
   {
@@ -172,7 +183,15 @@ export async function gradeGoldenTrident(args: {
     else findings.push(`Only ${citedSections} of 3 research-backed narratives have precise citations.`);
     if (feasibility?.verification_verdict === "pass") { score += 10; passed.push("Feasibility verifier passed."); }
     else findings.push(`Feasibility verification is ${String(feasibility?.verification_verdict ?? "missing")}.`);
-    artifacts.push(artifact("feasibility", "Feasibility study", score, exists, passed, findings));
+    artifacts.push(artifact(
+      "feasibility",
+      "Feasibility study",
+      score,
+      exists,
+      passed,
+      findings,
+      feasibility?.verification_verdict === "pass",
+    ));
   }
 
   {
