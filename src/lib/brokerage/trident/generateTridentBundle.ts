@@ -34,6 +34,7 @@ import {
   assessBusinessPlanNarratives,
   assessFeasibilityNarratives,
 } from "./narrativeAcceptance";
+import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -102,6 +103,18 @@ export async function generateTridentBundle(args: {
     })
     .eq("id", bundleId);
 
+  return runWithAIExecutionContext(
+    {
+      dealId,
+      traceId: bundleId,
+      artifactType: "trident_bundle",
+      artifactId: bundleId,
+      // A full borrower package contains names, financials, tax-derived
+      // values, and management details. Nested helpers may never downgrade
+      // this classification by omitting or explicitly clearing npiTagged.
+      npiTagged: true,
+    },
+    async () => {
   try {
     // 1. SBA package (business plan PDF + package row).
     const sbaResult = await generateSBAPackage(dealId, { mode });
@@ -375,6 +388,8 @@ export async function generateTridentBundle(args: {
       .eq("id", bundleId);
     return { ok: false, bundleId, error: msg };
   }
+    },
+  );
 }
 
 async function copyToTridentBucket(
