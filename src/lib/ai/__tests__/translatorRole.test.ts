@@ -35,14 +35,14 @@ describe("translator role", () => {
 });
 
 describe("VENDOR_NPI_APPROVAL test seam", () => {
-  it("defaults anthropic to PENDING", () => {
-    assert.equal(VENDOR_NPI_APPROVAL.anthropic, "PENDING");
+  it("defaults anthropic to its production APPROVED status", () => {
+    assert.equal(VENDOR_NPI_APPROVAL.anthropic, "APPROVED");
   });
 
   it("__setVendorApprovalForTests flips a provider, __reset restores it", () => {
-    __setVendorApprovalForTests("anthropic", "APPROVED");
-    assert.equal(VENDOR_NPI_APPROVAL.anthropic, "APPROVED");
-    __resetVendorApprovalForTests();
+    __setVendorApprovalForTests("anthropic", "PENDING");
     assert.equal(VENDOR_NPI_APPROVAL.anthropic, "PENDING");
+    __resetVendorApprovalForTests();
+    assert.equal(VENDOR_NPI_APPROVAL.anthropic, "APPROVED");
   });
 });

@@ -1,10 +1,8 @@
 # Vendor doc — OpenAI
 
-**Status: PENDING** — Matt to review and flip `VENDOR_NPI_APPROVAL.openai`
-in `src/lib/ai/vendorApproval.ts` to `APPROVED` once satisfied. Until then,
-the AI gateway (`src/lib/ai/gateway.ts`) refuses any `npiTagged: true`
-request to this provider — the `structurer` role runs only on synthetic or
-non-NPI content in the meantime.
+**Status: APPROVED** — Matt approved OpenAI for borrower-NPI processing on
+2026-08-17. The AI gateway (`src/lib/ai/gateway.ts`) permits `npiTagged: true`
+requests to this provider while the safeguards in this record remain in force.
 
 Note: OpenAI is **not** a net-new vendor to this repo overall — the
 `openai` npm package and `OPENAI_API_KEY` are already in production use
@@ -63,14 +61,13 @@ our OpenAI account, and whether the Chat Completions endpoint (used by
 `src/lib/ai/providers/openai.ts`) is on OpenAI's current ZDR-eligible
 endpoint list.
 
-## Permitted data categories (pending Matt's sign-off)
+## Permitted data categories
 
 - Synthetic/fixture data and non-NPI structured-mapping tasks: OK today.
-- Borrower NPI flowing through the **gateway's** structurer/generator
-  roles: **blocked** until this doc is APPROVED, independent of whatever
-  is already happening on the pre-existing non-gateway OpenAI call sites.
+- Borrower NPI flowing through the gateway's underwriting and repair roles:
+  approved, subject to continued no-training and retention controls.
 
-## Open items for Matt
+## Continuing controls
 
 1. Confirm ZDR enrollment status and endpoint eligibility for our account.
 2. Decide whether Azure OpenAI (region-pinned) should be the access path

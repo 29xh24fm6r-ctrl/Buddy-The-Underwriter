@@ -1,10 +1,9 @@
 # Vendor doc — Anthropic (Claude)
 
-**Status: PENDING** — Matt to review and flip `VENDOR_NPI_APPROVAL.anthropic`
-in `src/lib/ai/vendorApproval.ts` to `APPROVED` once satisfied. Until then,
-the AI gateway (`src/lib/ai/gateway.ts`) refuses any `npiTagged: true`
-request to this provider — the `verifier` role runs only on synthetic or
-non-NPI content in the meantime.
+**Status: APPROVED** — Matt approved Anthropic/Claude for borrower-NPI
+processing on 2026-08-17. The AI gateway (`src/lib/ai/gateway.ts`) permits
+`npiTagged: true` requests to this provider while the safeguards in this
+record remain in force.
 
 Net-new vendor: no prior Anthropic usage exists anywhere in this repo
 (confirmed via `grep -rn "ANTHROPIC_API_KEY\|@anthropic-ai" src/` returning
@@ -52,16 +51,17 @@ exceptions).
 it has actually been requested/enabled — "offered" is not the same as
 "in place."
 
-## Permitted data categories (pending Matt's sign-off)
+## Permitted data categories
 
 - Synthetic/fixture facts and drafts (used in this spec's own tests): OK
   today.
 - Real borrower narrative drafts with no NPI (e.g. a narrative that only
   references facts already public or non-identifying): candidate for
   interim approval — Matt's call.
-- Borrower NPI: **blocked by the gateway** until this doc is APPROVED.
+- Borrower NPI: approved for gateway verification and release review, subject
+  to continued commercial no-training and retention controls.
 
-## Open items for Matt
+## Continuing controls
 
 1. Confirm a commercial (not consumer) Anthropic agreement exists or is
    being executed.
