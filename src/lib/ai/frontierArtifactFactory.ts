@@ -29,7 +29,7 @@ type ReviewIssue = {
   repairInstruction: string;
 };
 
-const REVIEW_SCHEMA = {
+const REVIEW_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     issues: {
@@ -68,9 +68,9 @@ const REVIEW_SCHEMA = {
   },
   required: ["issues"],
   additionalProperties: false,
-} as const;
+};
 
-const REPAIR_SCHEMA = {
+const REPAIR_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     sections: {
@@ -88,7 +88,7 @@ const REPAIR_SCHEMA = {
   },
   required: ["sections"],
   additionalProperties: false,
-} as const;
+};
 
 const REVIEW_SYSTEM = [
   "You are the independent senior credit officer for an institutional commercial lending platform.",

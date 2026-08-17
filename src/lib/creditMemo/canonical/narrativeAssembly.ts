@@ -42,7 +42,7 @@ const NARRATIVES_SCHEMA = `{
   "guarantor_strength": "1 paragraph: guarantor net worth vs loan amount, liquid assets, monthly income vs proposed debt service, secondary repayment adequacy."
 }`;
 
-const NARRATIVES_RESPONSE_SCHEMA = {
+const NARRATIVES_RESPONSE_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     executive_summary: { type: "string" },
@@ -59,7 +59,7 @@ const NARRATIVES_RESPONSE_SCHEMA = {
     "guarantor_strength",
   ],
   additionalProperties: false,
-} as const;
+};
 
 // SPEC-M8 ARTIFACT-PIPELINE-1: exported so the credit-memo verifier pass
 // can build its `facts` payload from the exact same deterministic memo
