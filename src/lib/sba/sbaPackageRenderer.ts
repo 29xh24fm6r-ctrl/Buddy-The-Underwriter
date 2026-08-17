@@ -358,8 +358,43 @@ function renderNarrativeBody(s: DocState, text: string, sectionTitle: string) {
         s.y = doc.y + 6;
       }
     } else {
-      doc.text(lines.join(" "), PAGE_MARGIN, s.y, { width: maxWidth, lineGap: 3 });
-      s.y = doc.y + 10;
+      // PDFKit will silently add pages when one text() call is taller than the
+      // remaining body area. That bypasses newPage(), so continuation headers,
+      // footers, the logical page counter, and the rewritten TOC all drift.
+      // Fit each chunk before drawing it and create every continuation page
+      // through the governed page helper instead.
+      const words = lines.join(" ").split(/\s+/).filter(Boolean);
+      while (words.length > 0) {
+        const bottomLimit = doc.page.height - FOOTER_HEIGHT - 20;
+        if (bottomLimit - s.y < 24) newPage(s, sectionTitle);
+
+        const availableHeight = bottomLimit - s.y;
+        let low = 1;
+        let high = words.length;
+        let fittingWordCount = 1;
+        while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const candidate = words.slice(0, mid).join(" ");
+          const height = doc.heightOfString(candidate, {
+            width: maxWidth,
+            lineGap: 3,
+          });
+          if (height <= availableHeight) {
+            fittingWordCount = mid;
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+
+        const chunk = words.splice(0, fittingWordCount).join(" ");
+        doc.text(chunk, PAGE_MARGIN, s.y, {
+          width: maxWidth,
+          lineGap: 3,
+        });
+        s.y = doc.y + 10;
+        if (words.length > 0) newPage(s, sectionTitle);
+      }
     }
   }
   doc.fillColor("#000000");
