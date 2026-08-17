@@ -56,7 +56,9 @@ export function computeCounts(
   return {
     totalRows: records.length,
     uniqueNaics: unique.size,
+    baseRows: records.filter((r) => r.exceptionLabel == null).length,
     exceptionRows: records.filter((r) => r.exceptionLabel != null).length,
+    footnotedRows: records.filter((r) => r.footnoteRefs.length > 0).length,
     receiptsRows: records.filter((r) => r.measure === "annual_receipts").length,
     employeeRows: records.filter((r) => r.measure === "employees").length,
     assetsRows: records.filter((r) => r.measure === "assets").length,

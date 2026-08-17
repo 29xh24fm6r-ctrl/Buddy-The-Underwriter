@@ -103,7 +103,11 @@ export type SbaSizeStandardRecord = {
 export type SbaSizeStandardCounts = {
   totalRows: number;
   uniqueNaics: number;
+  /** Rows with no exception label — one per NAICS industry. */
+  baseRows: number;
   exceptionRows: number;
+  /** Rows carrying at least one §121.201 footnote reference. */
+  footnotedRows: number;
   receiptsRows: number;
   employeeRows: number;
   assetsRows: number;

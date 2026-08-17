@@ -36,7 +36,24 @@ const DATASET = path.join(DATA_DIR, "sba-size-standards.json");
 const MANIFEST = path.join(DATA_DIR, "sba-size-standards.manifest.json");
 const SRC = path.join(ROOT, "src");
 
-const failures = [];
+/**
+ * Two INDEPENDENT conditions, reported separately (Phase 1 requirement):
+ *
+ *   A. ARTIFACT VALIDATION — is the generated reference dataset present,
+ *      internally consistent, and unmodified since generation? This must
+ *      PASS once the artifact exists.
+ *
+ *   B. LEGACY PLACEHOLDER DETECTION — does any source file still hard-code
+ *      a size-standard table? This is EXPECTED TO FAIL until Phase 3
+ *      removes src/lib/score/eligibility/sbaSizeStandards.ts.
+ *
+ * Both are reported every run so Phase 1 completion can be judged on (A)
+ * alone. The guard still exits non-zero while either fails — the exit code
+ * is not softened, because a green CI signal must continue to mean "no
+ * placeholder table anywhere".
+ */
+const artifactFailures = [];
+const placeholderFailures = [];
 const notes = [];
 
 /**
@@ -81,7 +98,7 @@ function relative(file) {
 let dataset = null;
 
 if (!fs.existsSync(DATASET)) {
-  failures.push(
+  artifactFailures.push(
     `NOT_GENERATED: ${relative(DATASET)} does not exist. Generate it with ` +
       `\`pnpm reference:build:sba\` from an environment with network access to ` +
       `the official SBA source, then commit the artifact and manifest.`,
@@ -90,7 +107,7 @@ if (!fs.existsSync(DATASET)) {
   try {
     dataset = JSON.parse(fs.readFileSync(DATASET, "utf8"));
   } catch (error) {
-    failures.push(`UNPARSEABLE: ${relative(DATASET)} is not valid JSON — ${error.message}`);
+    artifactFailures.push(`UNPARSEABLE: ${relative(DATASET)} is not valid JSON — ${error.message}`);
   }
 }
 
@@ -107,14 +124,14 @@ if (dataset) {
   if (validateDataset) {
     const errors = validateDataset(dataset).filter((i) => i.severity === "error");
     for (const issue of errors) {
-      failures.push(`INVALID_DATASET: [${issue.code}] ${issue.message}`);
+      artifactFailures.push(`INVALID_DATASET: [${issue.code}] ${issue.message}`);
     }
   } else {
     notes.push("validator not loadable in this runtime; relying on manifest hash only");
   }
 
   if (!fs.existsSync(MANIFEST)) {
-    failures.push(`MISSING_MANIFEST: ${relative(MANIFEST)} does not exist`);
+    artifactFailures.push(`MISSING_MANIFEST: ${relative(MANIFEST)} does not exist`);
   } else {
     const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
     const recordsSha = crypto
@@ -123,7 +140,7 @@ if (dataset) {
       .digest("hex");
 
     if (manifest.recordsSha256 !== recordsSha) {
-      failures.push(
+      artifactFailures.push(
         `HASH_MISMATCH: dataset records hash ${recordsSha.slice(0, 12)}… does not ` +
           `match manifest ${String(manifest.recordsSha256).slice(0, 12)}…. The artifact ` +
           `was edited after generation — regenerate it from source instead.`,
@@ -132,7 +149,7 @@ if (dataset) {
 
     for (const key of Object.keys(manifest.counts ?? {})) {
       if (dataset.counts?.[key] !== manifest.counts[key]) {
-        failures.push(
+        artifactFailures.push(
           `COUNTS_DRIFT: counts.${key} is ${dataset.counts?.[key]} in the dataset ` +
             `but ${manifest.counts[key]} in the manifest`,
         );
@@ -152,7 +169,7 @@ for (const file of walk(SRC)) {
 
   const codes = new Set(text.match(NAICS_LITERAL) ?? []);
   if (codes.size >= INLINE_TABLE_MIN_CODES) {
-    failures.push(
+    placeholderFailures.push(
       `INLINE_TABLE: ${rel} appears to hard-code a size-standard table ` +
         `(${codes.size} NAICS literals alongside threshold keys). SBA size standards ` +
         `must come from the generated artifact in data/reference/, never from source.`,
@@ -162,15 +179,35 @@ for (const file of walk(SRC)) {
 
 // ─── Report ──────────────────────────────────────────────────────────────
 
-if (failures.length > 0) {
-  console.error("guard-reference-dataset-coverage: FAILED");
-  for (const failure of failures) console.error(` - ${failure}`);
+const summary = dataset
+  ? `${dataset.counts.uniqueNaics} unique NAICS, ${dataset.counts.totalRows} rows, ` +
+    `${dataset.counts.baseRows} base + ${dataset.counts.exceptionRows} exception, ` +
+    `effective ${dataset.effectiveDate}`
+  : "no dataset generated";
+
+console.log("── A. ARTIFACT VALIDATION ──");
+if (artifactFailures.length === 0) {
+  console.log(`✅ PASS (${summary})`);
+} else {
+  console.log(`❌ FAIL (${artifactFailures.length} issue(s))`);
+  for (const failure of artifactFailures) console.log(`   - ${failure}`);
+}
+for (const note of notes) console.log(`   note: ${note}`);
+
+console.log("\n── B. LEGACY PLACEHOLDER DETECTION ──");
+if (placeholderFailures.length === 0) {
+  console.log("✅ PASS (no hard-coded size-standard table under src/)");
+} else {
+  console.log(
+    `❌ FAIL (${placeholderFailures.length}) — EXPECTED until Phase 3 removes the ` +
+      `placeholder; not a Phase 1 defect`,
+  );
+  for (const failure of placeholderFailures) console.log(`   - ${failure}`);
+}
+
+if (artifactFailures.length > 0 || placeholderFailures.length > 0) {
+  console.error("\nguard-reference-dataset-coverage: FAILED");
   process.exit(1);
 }
 
-const summary = dataset
-  ? `${dataset.counts.uniqueNaics} unique NAICS, ${dataset.counts.totalRows} rows, ` +
-    `${dataset.counts.exceptionRows} exception rows, effective ${dataset.effectiveDate}`
-  : "no dataset";
-console.log(`✅ guard-reference-dataset-coverage passed (${summary}).`);
-for (const note of notes) console.log(`   note: ${note}`);
+console.log("\n✅ guard-reference-dataset-coverage passed.");

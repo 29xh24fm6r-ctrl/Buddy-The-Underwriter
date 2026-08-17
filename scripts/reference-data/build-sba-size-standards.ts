@@ -333,6 +333,7 @@ async function main(): Promise<void> {
   let xlsxRecords: SbaSizeStandardRecord[] | null = null;
   let xlsxSha: string | null = null;
   let xlsxMalformed = 0;
+let xlsxMisaligned = 0;
 
   const xlsxSource = await loadBytes({
     fileArg: arg("xlsx-source-file"),
@@ -361,6 +362,9 @@ async function main(): Promise<void> {
         `  unparsed: ${entry.reason} :: ${JSON.stringify(entry.row.naicsCell)}`,
       );
     }
+    xlsxMisaligned = parsed.malformed.filter((m) =>
+      /misaligned/i.test(m.reason),
+    ).length;
   }
 
   // ── eCFR (legal cross-check) ──────────────────────────────────────────
@@ -436,6 +440,42 @@ async function main(): Promise<void> {
     recordKey(a).localeCompare(recordKey(b)),
   );
 
+  // Duplicate compound keys — reported explicitly (the validator also
+  // errors on these; counting them here makes the figure reportable).
+  const keyCounts = new Map<string, number>();
+  for (const record of records) {
+    const key = recordKey(record);
+    keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+  }
+  const duplicateKeys = Array.from(keyCounts.entries()).filter(([, n]) => n > 1);
+  for (const [key, n] of duplicateKeys.slice(0, 20)) {
+    console.error(`  duplicate compound key: ${key} x${n}`);
+  }
+
+  // Optional Census 2022 cross-check: which SBA codes are not present in
+  // the Census universe (and vice versa). Classification data only — this
+  // never supplies or alters a threshold.
+  let censusUnmatched: string[] = [];
+  let censusChecked = false;
+  const censusFile = arg("census-file");
+  if (censusFile) {
+    censusChecked = true;
+    const censusRaw = readFileSync(resolve(process.cwd(), censusFile), "utf8");
+    const censusCodes = new Set(
+      (censusRaw.match(/\b\d{6}\b/g) ?? []).map((c) => c),
+    );
+    censusUnmatched = Array.from(
+      new Set(records.map((r) => r.naics).filter((c) => !censusCodes.has(c))),
+    ).sort();
+    console.log(
+      `[census] ${censusCodes.size} codes in Census file; ` +
+        `${censusUnmatched.length} SBA codes unmatched`,
+    );
+    for (const code of censusUnmatched.slice(0, 20)) {
+      console.log(`  unmatched: ${code}`);
+    }
+  }
+
   const dataset: SbaSizeStandardDataset = {
     version: arg("version") ?? "2023-03",
     effectiveDate: arg("effective-date") ?? "2023-03-17",
@@ -492,13 +532,20 @@ async function main(): Promise<void> {
   console.log(`  records SHA-256      ${manifest.recordsSha256}`);
   console.log(`  total rows           ${dataset.counts.totalRows}`);
   console.log(`  unique 6-digit       ${dataset.counts.uniqueNaics}`);
+  console.log(`  base rows            ${dataset.counts.baseRows}`);
   console.log(`  exception rows       ${dataset.counts.exceptionRows}`);
+  console.log(`  footnoted rows       ${dataset.counts.footnotedRows}`);
   console.log(`  receipts standards   ${dataset.counts.receiptsRows}`);
   console.log(`  employee standards   ${dataset.counts.employeeRows}`);
   console.log(`  asset standards      ${dataset.counts.assetsRows}`);
   console.log(`  other/unclassified   ${dataset.counts.otherRows}`);
   console.log(`  json rejected        ${jsonRejected}`);
   console.log(`  xlsx unparsed        ${xlsxMalformed}`);
+  console.log(`  misaligned rows      ${xlsxMisaligned}`);
+  console.log(`  duplicate keys       ${duplicateKeys.length}`);
+  console.log(
+    `  census unmatched     ${censusChecked ? censusUnmatched.length : "(not checked)"}`,
+  );
   console.log(`  material discrepanc. ${materialTotal}`);
   console.log(`\nWrote ${OUT_DATASET}\nWrote ${OUT_MANIFEST}`);
 }
