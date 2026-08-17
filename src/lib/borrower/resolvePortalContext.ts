@@ -36,7 +36,34 @@ export async function resolvePortalContext(token: string): Promise<PortalContext
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
-  if (error || !data) throw new Error("Invalid portal token");
+  if (error || !data) {
+    // Legacy/parallel token store. `borrower_portal_links` predates
+    // `borrower_invites` and is still what the upload routes issue against.
+    // Checked here so there is ONE resolver for all borrower token auth
+    // rather than each route hand-rolling its own lookup (which is how the
+    // upload routes ended up rejecting self-serve `/start` borrowers).
+    const { data: link } = await sb
+      .from("borrower_portal_links")
+      .select("deal_id, expires_at")
+      .eq("token", token)
+      .maybeSingle();
+
+    if (link?.deal_id) {
+      if (link.expires_at && new Date(link.expires_at) < new Date()) {
+        throw new Error("Invite expired");
+      }
+      const { data: deal } = await sb
+        .from("deals")
+        .select("bank_id")
+        .eq("id", link.deal_id)
+        .maybeSingle();
+      if (deal?.bank_id) {
+        return { dealId: link.deal_id, bankId: deal.bank_id };
+      }
+    }
+
+    throw new Error("Invalid portal token");
+  }
   if (data.revoked_at) throw new Error("Invite revoked");
   if (data.expires_at && new Date(data.expires_at) < new Date())
     throw new Error("Invite expired");

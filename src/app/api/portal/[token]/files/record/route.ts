@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { writeEvent } from "@/lib/ledger/writeEvent";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import { recomputeDealReady } from "@/lib/deals/readiness";
@@ -83,29 +84,23 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Verify token and get deal_id
     const sb = supabaseAdmin();
 
-    const { data: link, error: linkErr } = await sb
-      .from("borrower_portal_links")
-      .select("deal_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-
-    if (linkErr || !link) {
-      console.error("[portal/files/record] invalid token", { token, linkErr });
+    // Canonical borrower auth — same resolver as the sign route and the
+    // portal hub. Accepts a portal-link token, an invite token, or an exact
+    // match against the authenticated borrower session, so self-serve
+    // `/start` borrowers can record the file they just uploaded.
+    let dealId: string;
+    try {
+      const ctx = await resolvePortalContext(token);
+      dealId = ctx.dealId;
+    } catch (error) {
+      console.error("[portal/files/record] auth failed", {
+        reason: (error as Error).message,
+      });
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
       );
     }
-
-    // Check expiration
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json(
-        { ok: false, error: "Link expired" },
-        { status: 403 },
-      );
-    }
-
-    const dealId = link.deal_id;
 
     // Fetch deal to get bank_id (required for insert)
     const { data: deal, error: dealErr } = await sb
