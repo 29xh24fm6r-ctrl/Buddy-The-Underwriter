@@ -24,9 +24,22 @@
  * incident or cost issue is a config change, not a deploy.
  */
 
-import { GEMINI_FLASH, OPENAI_CHAT, ANTHROPIC_VERIFIER } from "./models";
+import {
+  GEMINI_FLASH,
+  OPENAI_CHAT,
+  ANTHROPIC_VERIFIER,
+  MODEL_EVIDENCE_SYNTHESIS,
+  MODEL_UNDERWRITER,
+} from "./models";
 
-export type GatewayRole = "generator" | "verifier" | "structurer" | "interviewer" | "translator";
+export type GatewayRole =
+  | "generator"
+  | "verifier"
+  | "structurer"
+  | "interviewer"
+  | "translator"
+  | "evidence"
+  | "underwriter";
 export type GatewayProvider = "google" | "anthropic" | "openai";
 
 export type RoleStep = {
@@ -49,6 +62,7 @@ export type RoleConfig = {
 };
 
 const DEFAULT_TIMEOUT_MS = 25_000;
+const FRONTIER_TIMEOUT_MS = 180_000;
 
 const DEFAULT_CHAINS: Record<GatewayRole, RoleStep[]> = {
   generator: [
@@ -59,6 +73,8 @@ const DEFAULT_CHAINS: Record<GatewayRole, RoleStep[]> = {
   structurer: [{ provider: "openai", model: OPENAI_CHAT }],
   interviewer: [{ provider: "google", model: GEMINI_FLASH }],
   translator: [{ provider: "anthropic", model: ANTHROPIC_VERIFIER }],
+  evidence: [{ provider: "google", model: MODEL_EVIDENCE_SYNTHESIS, authMode: "vertex" }],
+  underwriter: [{ provider: "openai", model: MODEL_UNDERWRITER }],
 };
 
 const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
@@ -67,6 +83,8 @@ const DEFAULT_BUDGETS: Record<GatewayRole, number> = {
   structurer: 500_000,
   interviewer: 1_000_000,
   translator: 500_000,
+  evidence: 1_000_000,
+  underwriter: 1_000_000,
 };
 
 function isGatewayProvider(v: string): v is GatewayProvider {
@@ -102,6 +120,8 @@ export function getRoleConfig(role: GatewayRole): RoleConfig {
   return {
     chain: chainFromEnv(role) ?? DEFAULT_CHAINS[role],
     dailyTokenBudget: budgetFromEnv(role) ?? DEFAULT_BUDGETS[role],
-    timeoutMs: DEFAULT_TIMEOUT_MS,
+    timeoutMs: role === "evidence" || role === "underwriter" || role === "verifier"
+      ? FRONTIER_TIMEOUT_MS
+      : DEFAULT_TIMEOUT_MS,
   };
 }

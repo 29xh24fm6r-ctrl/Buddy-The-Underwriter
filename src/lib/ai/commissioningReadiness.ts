@@ -37,19 +37,22 @@ const PROVIDERS: Array<{
   {
     provider: "google",
     label: "Gemini",
-    roles: "Primary generator",
-    credential: () => Boolean(process.env.GEMINI_API_KEY),
+    roles: "Evidence synthesis and initial artifact generation",
+    credential: () => Boolean(
+      process.env.GEMINI_API_KEY ||
+      (process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID || process.env.GCP_PROJECT_ID),
+    ),
   },
   {
     provider: "openai",
     label: "OpenAI",
-    roles: "Structurer and generator failover",
+    roles: "Primary institutional underwriter and automated repair",
     credential: () => Boolean(process.env.OPENAI_API_KEY),
   },
   {
     provider: "anthropic",
     label: "Claude",
-    roles: "Independent verifier",
+    roles: "Independent senior credit officer and release reviewer",
     credential: () => Boolean(process.env.ANTHROPIC_API_KEY),
   },
 ];

@@ -132,7 +132,7 @@ function makeDealDb() {
 }
 
 function setGeneratorResponse(narrative: string) {
-  __setProviderImplForTests("google", async () => ({
+  __setProviderImplForTests("openai", async () => ({
     text: JSON.stringify({ narrative }),
     tokensIn: 100,
     tokensOut: 50,
@@ -183,9 +183,6 @@ test("degrades to a generic message when the verifier raises a critical flag", a
 });
 
 test("degrades gracefully when the generator call fails outright", async () => {
-  __setProviderImplForTests("google", async () => {
-    throw new Error("provider unavailable");
-  });
   __setProviderImplForTests("openai", async () => {
     throw new Error("provider unavailable");
   });

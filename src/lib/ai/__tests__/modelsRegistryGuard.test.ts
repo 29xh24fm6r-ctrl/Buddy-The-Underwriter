@@ -20,6 +20,8 @@ import {
   MODEL_OMEGA,
   MODEL_RATES,
   MODEL_CONCIERGE_EXTRACTION,
+  MODEL_UNDERWRITER,
+  MODEL_VERIFIER,
 } from "@/lib/ai/models";
 
 const FILE = resolve(process.cwd(), "src/lib/ai/models.ts");
@@ -86,4 +88,9 @@ test("[models-10] every OTHER Gemini lane still resolves to Flash-Lite (blast ra
   ] as const) {
     assert.equal(model, "gemini-3.1-flash-lite", `${name} drifted off Flash-Lite`);
   }
+});
+
+test("[models-11] institutional artifact lanes use frontier underwriter and reviewer models", () => {
+  assert.equal(MODEL_UNDERWRITER, "gpt-5.6-sol");
+  assert.equal(MODEL_VERIFIER, "claude-opus-4-8");
 });

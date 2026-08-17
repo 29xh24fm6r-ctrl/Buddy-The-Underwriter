@@ -103,6 +103,13 @@ export const MISTRAL_OCR = "mistral-ocr-latest";
 export const OPENAI_CHAT = "gpt-4o-2024-08-06";
 
 /**
+ * Frontier underwriting model. Kept separate from OPENAI_CHAT so high-volume
+ * legacy/chat lanes do not inherit frontier-model cost or latency. This model
+ * is reserved for lender-facing artifact composition and targeted repair.
+ */
+export const OPENAI_UNDERWRITER = "gpt-5.6-sol";
+
+/**
  * OpenAI mini model — cheaper, lower-latency tasks.
  * Used by: orchestrator, retrieval reranker, ask route.
  */
@@ -193,9 +200,11 @@ export const MODEL_CONCIERGE      = OPENAI_CHAT;   // legacy alias — CI guard 
  * Not yet pinned to a dated snapshot — swap for a dated model id once
  * Anthropic API access is provisioned and a specific snapshot is chosen.
  */
-export const ANTHROPIC_VERIFIER = "claude-sonnet-5";
+export const ANTHROPIC_VERIFIER = "claude-opus-4-8";
 
 export const MODEL_VERIFIER = ANTHROPIC_VERIFIER;
+export const MODEL_UNDERWRITER = OPENAI_UNDERWRITER;
+export const MODEL_EVIDENCE_SYNTHESIS = GEMINI_PRO;
 
 // ── Model family predicates ───────────────────────────────────────────────
 // Kept here so call sites never need to hardcode model-prefix strings.
