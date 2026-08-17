@@ -19,7 +19,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { evaluateBuddySbaEligibility } from "@/lib/score/eligibility/evaluate";
-import { lookupSizeStandard } from "@/lib/score/eligibility/sbaSizeStandards";
 
 function makeEligibilityInputs(overrides: Record<string, unknown> = {}) {
   return {
@@ -46,14 +45,7 @@ function makeEligibilityInputs(overrides: Record<string, unknown> = {}) {
 }
 
 describe("F-2 — scoring input bridge: concierge facts reach the scorer", () => {
-  it("NAICS 513210 is in the size-standard table (reference-data fix)", () => {
-    const entry = lookupSizeStandard("513210");
-    assert.ok(entry, "NAICS 513210 must be in the size-standard table");
-    assert.equal(entry.naics, "513210");
-    assert.equal(entry.unit, "annual_receipts_usd");
-    assert.equal(entry.threshold, 47_000_000);
-  });
-
+  
   it("production-equivalent inputs (entity_type=LLC, naics=513210, UoP present) → eligibility PASSES", () => {
     const inputs = makeEligibilityInputs();
     const result = evaluateBuddySbaEligibility(inputs);

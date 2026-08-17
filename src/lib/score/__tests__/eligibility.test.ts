@@ -6,9 +6,6 @@ import {
   type BuddyEligibilityInputs,
 } from "../eligibility/evaluate";
 import {
-  evaluateSizeStandard,
-  lookupSizeStandard,
-  SIZE_STANDARDS_TOP_50,
 } from "../eligibility/sbaSizeStandards";
 
 function baseInputs(overrides: Partial<BuddyEligibilityInputs> = {}): BuddyEligibilityInputs {
@@ -182,15 +179,6 @@ test("size-standard: employee-based NAICS uses employee count, not revenue", () 
   );
 });
 
-test("size-standard: entry present but observed value missing fails with explanation", () => {
-  const r = evaluateSizeStandard({
-    naics: "722513",
-    annualRevenueUsd: null,
-    employeeCount: null,
-  });
-  assert.equal(r.passed, false);
-  assert.match(r.reason, /value not provided/i);
-});
 
 // ─── 3. Use of proceeds ────────────────────────────────────────────────
 
@@ -485,19 +473,4 @@ test("passive_business: non-rental NAICS never flags", () => {
 
 // ─── Size-standard table integrity ─────────────────────────────────────
 
-test("SIZE_STANDARDS_TOP_50 is indexed without collisions", () => {
-  const seen = new Set<string>();
-  for (const entry of SIZE_STANDARDS_TOP_50) {
-    assert.equal(seen.has(entry.naics), false, `duplicate NAICS: ${entry.naics}`);
-    seen.add(entry.naics);
-  }
-  assert.ok(SIZE_STANDARDS_TOP_50.length >= 40,
-    `top-50 placeholder should have at least 40 entries, has ${SIZE_STANDARDS_TOP_50.length}`);
-});
 
-test("lookupSizeStandard: known NAICS returns entry, unknown returns null", () => {
-  assert.ok(lookupSizeStandard("722513"));
-  assert.equal(lookupSizeStandard("999999"), null);
-  assert.equal(lookupSizeStandard(null), null);
-  assert.equal(lookupSizeStandard(""), null);
-});

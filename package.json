@@ -92,7 +92,8 @@
     "gate:schema-drift": "tsx scripts/schema/drift-detect.ts",
     "worker:intake": "node --conditions react-server --import tsx --env-file=.env.local scripts/intake-worker.ts",
     "reference:build:sba": "tsx scripts/reference-data/build-sba-size-standards.ts",
-    "guard:reference-data": "node scripts/guards/guard-reference-dataset-coverage.mjs"
+    "guard:reference-data": "node scripts/guards/guard-reference-dataset-coverage.mjs",
+    "e2e:borrower-journey": "tsx scripts/e2e-borrower-journey.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.3",

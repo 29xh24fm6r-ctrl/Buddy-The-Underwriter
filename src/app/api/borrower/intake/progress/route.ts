@@ -314,6 +314,13 @@ export async function POST(request: Request) {
             ...(currentFacts.business ?? {}),
             ...(data.entityType !== undefined ? { entity_type: String(data.entityType) } : {}),
             ...(data.naicsCode !== undefined ? { naics: String(data.naicsCode) } : {}),
+            // Employee-based NAICS cannot be size-tested without this.
+            // Missing yields `needs_information`, never a denial.
+            ...(data.employeeCount !== undefined &&
+            data.employeeCount !== null &&
+            Number.isFinite(Number(data.employeeCount))
+              ? { employee_count: Number(data.employeeCount) }
+              : {}),
           },
         };
 
@@ -351,7 +358,11 @@ export async function POST(request: Request) {
       }
 
       // Ch4 → 5: Financials — save annual revenue to concierge facts
-      if (chapter === 5 && typeof data.annualRevenue === "number" && data.annualRevenue > 0) {
+      // `> 0` silently DROPPED a legitimate $0 revenue — the correct answer
+      // for a startup or pre-revenue acquisition, and one that materially
+      // changes underwriting. Absence of an answer and an answer of zero are
+      // different states; only the former should skip the write.
+      if (chapter === 5 && typeof data.annualRevenue === "number" && Number.isFinite(data.annualRevenue)) {
         const { data: existing } = await sb
           .from("borrower_concierge_sessions")
           .select("extracted_facts")
