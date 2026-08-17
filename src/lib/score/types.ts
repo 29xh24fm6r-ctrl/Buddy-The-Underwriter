@@ -69,10 +69,27 @@ export type EligibilityCheck = {
   sopReference: string;
 };
 
+/**
+ * Checks that could not be decided — missing borrower information,
+ * unresolved classification, or a reference-data fault. These block sealing
+ * as outstanding requirements but are NOT eligibility failures and must
+ * never be shown to a borrower as an SBA denial.
+ */
+export type EligibilityUnresolved = {
+  check: string;
+  category: EligibilityFailure["category"];
+  state: "needs_information" | "classification_unresolved" | "data_error";
+  reason: string;
+  nextAction: string | null;
+  sopReference: string;
+};
+
 export type EligibilityResult = {
   passed: boolean;
   failures: EligibilityFailure[];
   checks: EligibilityCheck[];
+  /** Optional for backwards compatibility with existing constructors. */
+  unresolved?: EligibilityUnresolved[];
 };
 
 export type BuddySBAScore = {

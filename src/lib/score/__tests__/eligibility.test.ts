@@ -90,20 +90,30 @@ test("for-profit: missing entity type produces for_profit_unknown failure", () =
 
 // ─── 2. Size standard: default-deny on unknown NAICS (EXPLICIT TEST) ──
 
-test("size-standard: unknown NAICS defaults to FAIL with 'manual review required' reason", () => {
+// BEHAVIOUR CHANGE (Phase 2). An unknown or missing NAICS used to produce a
+// size_standard FAILURE, which reported an internal data gap to the borrower
+// as an SBA size denial. It is now `classification_unresolved`: it blocks
+// sealing as an outstanding requirement but is never an eligibility failure.
+test("size-standard: unknown NAICS is unresolved, NOT an eligibility failure", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({ naics: "999999" }));
-  assert.equal(r.passed, false);
-  const failure = r.failures.find((f) => f.check === "size_standard");
-  assert.ok(failure, "expected size_standard failure on unknown NAICS");
-  assert.match(failure!.reason, /not in current size-standard table/i);
-  assert.match(failure!.reason, /manual review required/i);
+  assert.equal(
+    r.failures.some((f) => f.check === "size_standard"),
+    false,
+    "an unknown NAICS must never be recorded as a size failure",
+  );
+  const item = (r.unresolved ?? []).find((u) => u.check === "size_standard");
+  assert.ok(item, "expected an unresolved size_standard item");
+  assert.equal(item!.state, "classification_unresolved");
+  assert.ok(item!.nextAction, "borrower must be told what to do next");
 });
 
-test("size-standard: null NAICS also defaults to FAIL (not silent pass)", () => {
+test("size-standard: null NAICS is unresolved, not a denial and not a pass", () => {
   const r = evaluateBuddySbaEligibility(baseInputs({ naics: null }));
-  const failure = r.failures.find((f) => f.check === "size_standard");
-  assert.ok(failure);
-  assert.match(failure!.reason, /not in current size-standard table/i);
+  assert.equal(r.failures.some((f) => f.check === "size_standard"), false);
+  const check = r.checks.find((c) => c.check === "size_standard")!;
+  assert.equal(check.passed, false, "must not silently satisfy the requirement");
+  const item = (r.unresolved ?? []).find((u) => u.check === "size_standard");
+  assert.equal(item!.state, "classification_unresolved");
 });
 
 test("size-standard: known revenue-based NAICS under threshold passes", () => {
@@ -115,14 +125,39 @@ test("size-standard: known revenue-based NAICS under threshold passes", () => {
   assert.equal(check.passed, true);
 });
 
-test("size-standard: known revenue-based NAICS over threshold fails", () => {
+test("size-standard: over threshold with no alternative-standard data is unresolved", () => {
+  // Over the industry standard, but 121.301(b)(2) allows an alternative
+  // standard. Without TNW/net income we cannot rule it out, so asserting
+  // ineligibility here would repeat the old bug in a new place.
   const r = evaluateBuddySbaEligibility(baseInputs({
     naics: "722513",
     annualRevenueUsd: 50_000_000,
   }));
-  const check = r.checks.find((c) => c.check === "size_standard")!;
-  assert.equal(check.passed, false);
+  assert.equal(r.failures.some((f) => f.check === "size_standard"), false);
+  const item = (r.unresolved ?? []).find((u) => u.check === "size_standard");
+  assert.equal(item!.state, "needs_information");
+});
+
+test("size-standard: over BOTH standards is a real eligibility failure", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "722513",
+    annualRevenueUsd: 50_000_000,
+    tangibleNetWorthUsd: 40_000_000,
+    avgNetIncomeTwoYearUsd: 12_000_000,
+  }));
+  assert.equal(r.passed, false);
   assert.ok(r.failures.some((f) => f.check === "size_standard"));
+});
+
+test("size-standard: alternative size standard rescues an over-threshold applicant", () => {
+  const r = evaluateBuddySbaEligibility(baseInputs({
+    naics: "722513",
+    annualRevenueUsd: 50_000_000,
+    tangibleNetWorthUsd: 15_000_000,
+    avgNetIncomeTwoYearUsd: 4_000_000,
+  }));
+  assert.equal(r.failures.some((f) => f.check === "size_standard"), false);
+  assert.equal(r.checks.find((c) => c.check === "size_standard")!.passed, true);
 });
 
 test("size-standard: employee-based NAICS uses employee count, not revenue", () => {
