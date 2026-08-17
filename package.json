@@ -48,7 +48,7 @@
     "guard:dropped-tables": "node scripts/guards/guard-dropped-tables.mjs",
     "guard:migration-versions": "node scripts/guards/guard-migration-versions.mjs",
     "guard:schema-manifest": "tsx scripts/guards/guard-schema-manifest.ts",
-    "guard:all": "pnpm guard:schema && pnpm guard:render && pnpm guard:phase66 && pnpm guard:loan-request-cta && pnpm guard:loan-request-form && pnpm guard:demo-data && pnpm guard:tenant-rls && pnpm guard:brokerage-rls && pnpm guard:no-llm-extractors && pnpm guard:ai-gateway-only && pnpm guard:ai-disclaimer && pnpm guard:finengine && pnpm guard:nav-prefetch && pnpm guard:deal-route-access && pnpm guard:rpc-existence && pnpm guard:internal-links && pnpm guard:lib-legacy-dirs && pnpm guard:dropped-tables && pnpm guard:migration-versions && pnpm guard:schema-manifest && pnpm check:api-fetches",
+    "guard:all": "pnpm guard:schema && pnpm guard:render && pnpm guard:phase66 && pnpm guard:loan-request-cta && pnpm guard:loan-request-form && pnpm guard:demo-data && pnpm guard:tenant-rls && pnpm guard:brokerage-rls && pnpm guard:no-llm-extractors && pnpm guard:ai-gateway-only && pnpm guard:ai-disclaimer && pnpm guard:finengine && pnpm guard:nav-prefetch && pnpm guard:deal-route-access && pnpm guard:rpc-existence && pnpm guard:internal-links && pnpm guard:lib-legacy-dirs && pnpm guard:dropped-tables && pnpm guard:migration-versions && pnpm guard:schema-manifest && pnpm check:api-fetches && pnpm guard:reference-data",
     "route-budget": "node scripts/count-routes.mjs --budget",
     "gen:tenant-sql": "node scripts/generate-tenant-sql.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -90,7 +90,9 @@
     "omega:validate": "node scripts/omega/validate-mapping.mjs",
     "gate:schema-select": "node scripts/schema/gate-select-columns.mjs",
     "gate:schema-drift": "tsx scripts/schema/drift-detect.ts",
-    "worker:intake": "node --conditions react-server --import tsx --env-file=.env.local scripts/intake-worker.ts"
+    "worker:intake": "node --conditions react-server --import tsx --env-file=.env.local scripts/intake-worker.ts",
+    "reference:build:sba": "tsx scripts/reference-data/build-sba-size-standards.ts",
+    "guard:reference-data": "node scripts/guards/guard-reference-dataset-coverage.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.3",
