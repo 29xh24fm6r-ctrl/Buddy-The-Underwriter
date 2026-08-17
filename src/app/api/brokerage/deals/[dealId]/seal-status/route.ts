@@ -378,7 +378,8 @@ async function loadScoreForResponse(
   const { data } = await sb
     .from("buddy_sba_scores")
     .select(
-      "score, band, eligibility_passed, eligibility_failures, top_strengths, top_weaknesses, narrative, computed_at",
+      "score, band, eligibility_passed, eligibility_failures, input_snapshot, " +
+        "top_strengths, top_weaknesses, narrative, computed_at",
     )
     .eq("deal_id", dealId)
     .order("computed_at", { ascending: false })
@@ -391,6 +392,13 @@ async function loadScoreForResponse(
     band: row.band,
     eligibilityPassed: row.eligibility_passed,
     eligibilityFailures: row.eligibility_failures ?? [],
+    // Outstanding Items: what the borrower still needs to supply. Distinct
+    // from eligibilityFailures, which are actual SBA findings. Surfacing
+    // them separately is what stops "we need your employee count" from
+    // reading like "you don't qualify".
+    eligibilityUnresolved:
+      (row.input_snapshot as { eligibilityUnresolved?: unknown[] } | null)
+        ?.eligibilityUnresolved ?? [],
     topStrengths: row.top_strengths ?? [],
     topWeaknesses: row.top_weaknesses ?? [],
     narrative: row.narrative ?? "",

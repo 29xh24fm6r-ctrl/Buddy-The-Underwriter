@@ -47,6 +47,9 @@ export async function computeBuddySBAScore(params: {
     businessEntityType: inputs.businessEntityType,
     annualRevenueUsd: inputs.annualRevenueUsd,
     employeeCount: inputs.employeeCount,
+    totalAssetsUsd: inputs.totalAssetsUsd ?? null,
+    tangibleNetWorthUsd: inputs.tangibleNetWorthUsd ?? null,
+    avgNetIncomeTwoYearUsd: inputs.avgNetIncomeTwoYearUsd ?? null,
     useOfProceeds: inputs.useOfProceeds,
     sourcesAndUses: inputs.sourcesAndUses,
     isFranchise: inputs.isFranchise,
@@ -151,7 +154,17 @@ function assembleScore(args: {
     narrative: narrative.narrative,
     topStrengths: narrative.strengths,
     topWeaknesses: narrative.weaknesses,
-    inputSnapshot: { ...inputs.snapshot, missingInputs: inputs.missingInputs },
+    inputSnapshot: {
+      ...inputs.snapshot,
+      missingInputs: inputs.missingInputs,
+      // Unresolved eligibility items ride in the existing jsonb snapshot
+      // rather than a new column. They are NOT failures: they are what the
+      // borrower still needs to supply, and the portal renders them as
+      // Outstanding Items. Without this they were computed and discarded,
+      // so a borrower blocked on "provide employee count" would see a
+      // stalled package with no stated reason.
+      eligibilityUnresolved: eligibility.unresolved ?? [],
+    },
     weightsSnapshot: weights,
     computationContext: context,
   };
@@ -195,7 +208,11 @@ function buildNotEligibleScore(args: {
     narrative,
     topStrengths: [],
     topWeaknesses,
-    inputSnapshot: { ...inputs.snapshot, missingInputs: inputs.missingInputs },
+    inputSnapshot: {
+      ...inputs.snapshot,
+      missingInputs: inputs.missingInputs,
+      eligibilityUnresolved: eligibility.unresolved ?? [],
+    },
     weightsSnapshot: {},
     computationContext: context,
   };
