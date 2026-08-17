@@ -179,6 +179,14 @@ function drawPageFooter(s: DocState) {
   const { doc } = s;
   const bottomY = doc.page.height - FOOTER_HEIGHT;
   const rightEdge = doc.page.width - PAGE_MARGIN;
+  const originalBottomMargin = doc.page.margins.bottom;
+
+  // PDFKit auto-adds a page when text is positioned below
+  // (page.height - bottomMargin). Footers intentionally live in that margin,
+  // so temporarily remove the pagination boundary while drawing them. Before
+  // this guard every logical page produced two additional blank physical
+  // pages, turning a 16-page plan into a 48-page PDF.
+  doc.page.margins.bottom = 0;
 
   doc
     .moveTo(PAGE_MARGIN, bottomY)
@@ -188,7 +196,9 @@ function drawPageFooter(s: DocState) {
 
   doc.font(FONT_NORMAL).fontSize(FONT_SIZE_SMALL);
   doc.text(DISCLAIMER, PAGE_MARGIN, bottomY + 4, {
-    width: rightEdge - PAGE_MARGIN,
+    width: rightEdge - PAGE_MARGIN - 62,
+    height: FOOTER_HEIGHT - 8,
+    ellipsis: true,
     lineGap: 1,
   });
 
@@ -196,6 +206,7 @@ function drawPageFooter(s: DocState) {
     width: 50,
     align: "right",
   });
+  doc.page.margins.bottom = originalBottomMargin;
 }
 
 function newPage(s: DocState, sectionTitle: string) {
@@ -466,6 +477,46 @@ function renderTableOfContents(
       .strokeColor("#000000");
     s.y = rowY + ROW_HEIGHT + 2;
   }
+}
+
+/** Rewrites buffered page 2 after layout so page numbers are exact. */
+function rewriteTableOfContents(
+  s: DocState,
+  entries: Array<{ label: string; page: number }>,
+) {
+  const { doc } = s;
+  const lastPageIndex = doc.bufferedPageRange().start + doc.bufferedPageRange().count - 1;
+  const savedPageNum = s.pageNum;
+  const savedY = s.y;
+
+  doc.switchToPage(1);
+  doc.save().fillColor("#ffffff").rect(0, 0, doc.page.width, doc.page.height).fill().restore();
+  s.pageNum = 2;
+  drawPageHeader(s, "Table of Contents");
+
+  doc.font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+  const maxWidth = doc.page.width - PAGE_MARGIN * 2;
+  const pageColWidth = 30;
+  const labelColWidth = maxWidth - pageColWidth - 4;
+  for (const entry of entries) {
+    const rowY = s.y;
+    doc.fillColor("#000000").font(FONT_NORMAL).fontSize(FONT_SIZE_BODY);
+    doc.text(entry.label, PAGE_MARGIN, rowY, { width: labelColWidth });
+    doc.text(String(entry.page), PAGE_MARGIN + labelColWidth + 4, rowY, {
+      width: pageColWidth,
+      align: "right",
+    });
+    doc.strokeColor(BRAND_GREY).dash(1, { space: 3 })
+      .moveTo(PAGE_MARGIN + 180, rowY + 10)
+      .lineTo(PAGE_MARGIN + labelColWidth, rowY + 10)
+      .stroke().undash();
+    s.y += ROW_HEIGHT + 2;
+  }
+  drawPageFooter(s);
+
+  doc.switchToPage(lastPageIndex);
+  s.pageNum = savedPageNum;
+  s.y = savedY;
 }
 
 /**
@@ -1303,7 +1354,8 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
     renderCoverPage(s);
 
     // === Page 2: Table of Contents ===
-    // Estimated page numbers — content lays out on successive pages.
+    // Initial values reserve the TOC layout. They are replaced with exact
+    // buffered-page numbers after every section has finished flowing.
     const tocEntries: Array<{ label: string; page: number }> = [
       { label: "1. Executive Summary", page: 3 },
       { label: "2. Company Description", page: 4 },
@@ -1327,6 +1379,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 3: Executive Summary ===
     newPage(s, "1. Executive Summary");
+    tocEntries[0].page = s.pageNum;
     if (input.executiveSummary) {
       renderNarrativeBody(s, input.executiveSummary, "1. Executive Summary (cont.)");
     } else {
@@ -1343,10 +1396,12 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 4: Company Description ===
     newPage(s, "2. Company Description");
+    tocEntries[1].page = s.pageNum;
     renderSection1_BusinessOverview(s);
 
     // === Page 5: Industry Analysis ===
     newPage(s, "3. Industry Analysis");
+    tocEntries[2].page = s.pageNum;
     if (input.industryAnalysis) {
       renderNarrativeBody(s, input.industryAnalysis, "3. Industry Analysis (cont.)");
     } else {
@@ -1357,6 +1412,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 6: Products/Marketing ===
     newPage(s, "4. Products, Services & Marketing Strategy");
+    tocEntries[3].page = s.pageNum;
     if (input.marketingStrategy) {
       renderNarrativeBody(
         s,
@@ -1367,6 +1423,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 7: Operations & Team ===
     newPage(s, "5. Operations Plan & Management Team");
+    tocEntries[4].page = s.pageNum;
     if (input.operationsPlan) {
       renderNarrativeBody(
         s,
@@ -1377,6 +1434,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 8: SWOT ===
     newPage(s, "6. SWOT Analysis");
+    tocEntries[5].page = s.pageNum;
     const swotSections: Array<[string, string | undefined]> = [
       ["Strengths", input.swotStrengths],
       ["Weaknesses", input.swotWeaknesses],
@@ -1398,6 +1456,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 9: Financial Projections + Revenue Chart ===
     newPage(s, "7. Financial Projections");
+    tocEntries[6].page = s.pageNum;
     {
       const y1 = input.annualProjections[0];
       const dscrY1 = y1?.dscr ?? 0;
@@ -1423,10 +1482,12 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 10: Projected Balance Sheet ===
     newPage(s, "8. Projected Balance Sheet");
+    tocEntries[7].page = s.pageNum;
     renderBalanceSheetTable(s);
 
     // === Page 11: Monthly Cash Flow ===
     newPage(s, "9. Monthly Cash Flow — Year 1");
+    tocEntries[8].page = s.pageNum;
     {
       const months = input.monthlyProjections ?? [];
       let tightestMonth = 0;
@@ -1446,6 +1507,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 12: Break-Even ===
     newPage(s, "10. Break-Even Analysis");
+    tocEntries[9].page = s.pageNum;
     {
       const be = input.breakEven;
       const y1Rev = input.annualProjections[0]?.revenue ?? 0;
@@ -1456,6 +1518,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 13: Sensitivity + DSCR Chart ===
     newPage(s, "11. Sensitivity Analysis");
+    tocEntries[10].page = s.pageNum;
     renderSection5_Sensitivity(s);
     checkPageBreak(s, 200, "11. Sensitivity Analysis (cont.)");
     doc.font(FONT_BOLD).fontSize(FONT_SIZE_BODY);
@@ -1465,6 +1528,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 14: Global Cash Flow ===
     newPage(s, "12. Global Cash Flow");
+    tocEntries[11].page = s.pageNum;
     if (input.globalCashFlow) {
       const gcf = input.globalCashFlow;
       const insight = `Including personal cash flow, the combined coverage ratio is ${fmtDscr(gcf.globalDSCR)}. Business EBITDA of $${fmtCurrency(Math.round(gcf.businessEbitda))} plus net personal cash of $${fmtCurrency(Math.round(gcf.totalNetPersonalCash))} covers $${fmtCurrency(Math.round(gcf.globalDebtService))} of total debt service.`;
@@ -1474,6 +1538,7 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 15: Sources & Uses ===
     newPage(s, "13. Sources & Uses of Funds");
+    tocEntries[12].page = s.pageNum;
     if (input.sourcesAndUses) {
       const ei = input.sourcesAndUses.equityInjection;
       const insight = ei.passes
@@ -1485,16 +1550,19 @@ export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
 
     // === Page 16: Use of Proceeds ===
     newPage(s, "14. Use of Proceeds");
+    tocEntries[13].page = s.pageNum;
     renderUseOfProceeds(s);
 
     // === Optional: Franchise section ===
     if (input.franchiseSection) {
       newPage(s, "Franchise Overview");
+      tocEntries[tocEntries.length - 1].page = s.pageNum;
       renderNarrativeBody(s, input.franchiseSection, "Franchise Overview (cont.)");
     }
 
     // Final footer on last page
     drawPageFooter(s);
+    rewriteTableOfContents(s, tocEntries);
 
     // Sprint 3: preview watermark is applied to every buffered page.
     if (input.previewWatermark) {
