@@ -5,8 +5,6 @@ import {
   evaluateBuddySbaEligibility,
   type BuddyEligibilityInputs,
 } from "../eligibility/evaluate";
-import {
-} from "../eligibility/sbaSizeStandards";
 
 function baseInputs(overrides: Partial<BuddyEligibilityInputs> = {}): BuddyEligibilityInputs {
   return {

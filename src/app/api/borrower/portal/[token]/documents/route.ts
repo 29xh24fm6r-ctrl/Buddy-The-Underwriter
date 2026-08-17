@@ -26,6 +26,27 @@ export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ token: string }> };
 
+/**
+ * The columns this route selects from `deal_documents`, verified against
+ * the production schema (the table has no `doc_type` or `withdrawn_at`).
+ *
+ * Declared explicitly because the select list is built as a concatenated
+ * string for readability, which the Supabase client cannot resolve to a
+ * literal type — without this it infers GenericStringError and the mapper
+ * fails to typecheck.
+ */
+type BorrowerDocumentRow = {
+  id: string;
+  original_filename: string | null;
+  document_category: string | null;
+  document_label: string | null;
+  created_at: string;
+  size_bytes: number | null;
+  status: string | null;
+  source: string | null;
+  is_active: boolean | null;
+};
+
 async function auth(token: string) {
   try {
     return await resolvePortalContext(token);
@@ -45,8 +66,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, document_category, document_label, created_at, " +
-        "size_bytes, status, source, is_active",
+      "id, original_filename, document_category, document_label, created_at, size_bytes, status, source, is_active",
     )
     .eq("deal_id", context.dealId)
     .neq("status", "withdrawn")
@@ -63,7 +83,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
 
   return NextResponse.json({
     ok: true,
-    documents: (data ?? []).map((d: Record<string, unknown>) => ({
+    documents: ((data ?? []) as unknown as BorrowerDocumentRow[]).map((d) => ({
       id: d.id,
       filename: d.original_filename ?? "Document",
       category: d.document_category ?? "other_supporting_document",
@@ -105,7 +125,7 @@ export async function DELETE(req: NextRequest, ctx: Context) {
     return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }
 
-  const source = (doc as { source?: string }).source;
+  const source = (doc as unknown as Pick<BorrowerDocumentRow, "source">).source;
   if (source !== "borrower_portal" && source !== "borrower") {
     return NextResponse.json(
       {

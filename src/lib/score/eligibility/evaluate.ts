@@ -122,6 +122,26 @@ export type BuddyEligibilityInputs = {
   businessEntityType: string | null;
   annualRevenueUsd: number | null;
   employeeCount: number | null;
+  /**
+   * Total assets. Required only by the handful of depository-institution
+   * NAICS whose 121.201 standard is stated in assets rather than receipts
+   * (522110, 522130, 522180, 522210). Optional because no other industry
+   * needs it, and absent it the size test yields `needs_information`
+   * rather than a denial.
+   */
+  totalAssetsUsd?: number | null;
+  /**
+   * 13 CFR 121.301(b)(2) alternative size standard inputs, applicable to
+   * 7(a) and 504 only. An applicant qualifies under EITHER the 121.201
+   * industry standard OR tangible net worth <= $20M together with
+   * two-year average net income after federal taxes <= $6.5M.
+   *
+   * Optional: when these are absent the alternative standard simply
+   * cannot be evaluated, which is a `needs_information` outcome. It must
+   * never be read as failing that test — see sizeEligibility.ts.
+   */
+  tangibleNetWorthUsd?: number | null;
+  avgNetIncomeTwoYearUsd?: number | null;
   /** Array of use-of-proceeds entries (any shape — we look for string content). */
   useOfProceeds: unknown[] | null;
   /** Parallel to use-of-proceeds but the jsonb object from buddy_sba_packages. */
