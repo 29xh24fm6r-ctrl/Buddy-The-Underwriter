@@ -37,11 +37,22 @@ test("QA fixture is admin-only and bank-scoped", () => {
 
 test("quality lab grades every lender-facing artifact family", () => {
   for (const key of ["businessPlan", "projections", "feasibility", "spreads", "creditMemo"]) {
-    assert.match(quality, new RegExp(`artifact\\(\\"${key}\\"`));
+    assert.match(quality, new RegExp(`artifact\\(\\s*\\"${key}\\"`));
   }
   assert.match(lab, /gradeGoldenTrident/);
   assert.match(lab, /Deterministic commissioning scorecard/);
   assert.match(lab, /Lender judgment of writing quality remains a separate UAT step/);
+  assert.match(lab, /AI production commissioning/);
+  assert.match(quality, /requiredGatePassed/);
+  assert.match(quality, /verification_verdict === "pass"/);
+});
+
+test("Golden Trident establishes one NPI-safe provider trace for every nested AI call", () => {
+  const generator = readFileSync("src/lib/brokerage/trident/generateTridentBundle.ts", "utf8");
+  assert.match(generator, /runWithAIExecutionContext/);
+  assert.match(generator, /traceId: bundleId/);
+  assert.match(generator, /artifactType: "trident_bundle"/);
+  assert.match(generator, /npiTagged: true/);
 });
 
 test("brokerage staff can run and inspect governed artifacts without changing their active bank", () => {
