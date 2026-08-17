@@ -42,6 +42,11 @@ export function IntakeBusinessStep({
 
   const [entityType, setEntityType] = useState("");
   const [naicsCode, setNaicsCode] = useState("");
+  // ~48% of SBA size standards (483 of 996 rows in the current 121.201
+  // table) are measured in employees, not receipts. Without headcount those
+  // deals resolve to `needs_information` and can never seal, so it is asked
+  // for here rather than discovered as a blocker at the review step.
+  const [employeeCount, setEmployeeCount] = useState("");
   const [showDetailsCapture, setShowDetailsCapture] = useState(false);
   const [detailsSaving, setDetailsSaving] = useState(false);
 
@@ -53,6 +58,9 @@ export function IntakeBusinessStep({
       const factsToSave = [
         { factPath: "business.entity_type", value: entityType },
         { factPath: "business.naics", value: naicsCode.trim() },
+        ...(employeeCount.trim() !== ""
+          ? [{ factPath: "business.employee_count", value: employeeCount.trim() }]
+          : []),
       ];
       for (const { factPath, value } of factsToSave) {
         await fetch("/api/brokerage/concierge", {
@@ -67,7 +75,14 @@ export function IntakeBusinessStep({
     } finally {
       setDetailsSaving(false);
     }
-    onContinue({ entityType, naicsCode: naicsCode.trim() });
+    onContinue({
+      entityType,
+      naicsCode: naicsCode.trim(),
+      // Empty stays undefined rather than 0: "not answered" and "zero
+      // employees" are different, and only the latter is an answer.
+      employeeCount:
+        employeeCount.trim() === "" ? undefined : Number(employeeCount.trim()),
+    });
   };
 
   const search = useCallback(async () => {
@@ -225,6 +240,25 @@ export function IntakeBusinessStep({
               >
                 census.gov/naics
               </a>
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Number of employees
+            </label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={employeeCount}
+              onChange={(e) => setEmployeeCount(e.target.value)}
+              placeholder="e.g. 18"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Include yourself and any part-time staff. Many SBA size standards
+              are measured in employees rather than revenue.
             </p>
           </div>
         </div>
