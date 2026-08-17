@@ -240,21 +240,58 @@ async function readXlsxSheets(bytes: Buffer): Promise<SheetLike[]> {
 
   return workbook.worksheets.map((worksheet) => {
     const rows: string[][] = [];
+    const superscripts: string[][][] = [];
+
     worksheet.eachRow({ includeEmpty: true }, (row) => {
       const values = row.values as unknown[];
       // exceljs uses 1-based indexing with a leading hole. Normalize to
       // 0-based WITHOUT collapsing empty cells — collapsing shifts columns
       // and silently moves an employee count into the receipts field.
       const cells: string[] = [];
+      const cellSupers: string[][] = [];
+
       for (let i = 1; i < values.length; i++) {
-        const value = values[i];
-        cells.push(
-          value == null ? "" : String((value as { text?: string })?.text ?? value),
-        );
+        const value = values[i] as
+          | null
+          | undefined
+          | string
+          | number
+          | { text?: string; result?: unknown; richText?: Array<{ text?: string; font?: { vertAlign?: string } }> };
+
+        const supers: string[] = [];
+
+        if (value == null) {
+          cells.push("");
+        } else if (typeof value === "object" && Array.isArray((value as { richText?: unknown }).richText)) {
+          // Rich text: footnote references are SUPERSCRIPT runs. Keep them
+          // out of the title and record them as references, otherwise the
+          // flattened cell reads "Petroleum Refineries4".
+          const runs = (value as { richText: Array<{ text?: string; font?: { vertAlign?: string } }> }).richText;
+          let text = "";
+          for (const run of runs) {
+            const runText = run.text ?? "";
+            if (run.font?.vertAlign === "superscript") {
+              for (const match of runText.matchAll(/\d{1,2}/g)) supers.push(match[0]);
+            } else {
+              text += runText;
+            }
+          }
+          cells.push(text);
+        } else if (typeof value === "object") {
+          const obj = value as { text?: string; result?: unknown };
+          cells.push(String(obj.text ?? obj.result ?? ""));
+        } else {
+          cells.push(String(value));
+        }
+
+        cellSupers.push(supers);
       }
+
       rows.push(cells);
+      superscripts.push(cellSupers);
     });
-    return { name: worksheet.name, rows };
+
+    return { name: worksheet.name, rows, superscripts };
   });
 }
 
@@ -334,6 +371,7 @@ async function main(): Promise<void> {
   let xlsxSha: string | null = null;
   let xlsxMalformed = 0;
 let xlsxMisaligned = 0;
+const xlsxFootnotes: Record<string, string> = {};
 
   const xlsxSource = await loadBytes({
     fileArg: arg("xlsx-source-file"),
@@ -350,6 +388,23 @@ let xlsxMisaligned = 0;
     console.log(
       `[xlsx] using worksheet "${sheet.name}" (header row ${layout.headerRowIndex + 1})`,
     );
+    // The workbook ships its own "footnotes" sheet, and states there that
+    // the footnotes "are integral to the industries to which they refer"
+    // and that the size standards "must be interpreted and applied using
+    // these footnotes". They are therefore imported from the same
+    // authoritative file rather than left to the eCFR cross-check.
+    const footnotesSheet = sheets.find((s2) => /^footnotes?$/i.test(s2.name));
+    if (footnotesSheet) {
+      for (const row of footnotesSheet.rows) {
+        const ref = (row[0] ?? "").trim();
+        const text = (row[1] ?? "").trim();
+        if (/^\d{1,2}$/.test(ref) && text.length > 20) xlsxFootnotes[ref] = text;
+      }
+      console.log(
+        `[xlsx] footnotes sheet: ${Object.keys(xlsxFootnotes).length} footnote(s)`,
+      );
+    }
+
     const parsed = rowsToRecords(extractXlsxRows(sheet, layout));
     xlsxRecords = parsed.records;
     xlsxMalformed = parsed.malformed.length;
@@ -486,7 +541,7 @@ let xlsxMisaligned = 0;
     sourceUrl: base === "json" ? (jsonUrl ?? DATASET_PAGE) : XLSX_URL,
     sourceSha256: (base === "json" ? jsonSha : xlsxSha) ?? "",
     importedAt: new Date().toISOString(),
-    footnotes,
+    footnotes: Object.keys(footnotes).length > 0 ? footnotes : xlsxFootnotes,
     counts: computeCounts(records),
     records,
   };

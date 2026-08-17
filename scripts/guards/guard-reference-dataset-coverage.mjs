@@ -29,6 +29,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 
 const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, "data", "reference");
@@ -112,22 +113,30 @@ if (!fs.existsSync(DATASET)) {
 }
 
 if (dataset) {
-  // Reuse the runtime validator so the guard and production agree.
-  const { validateDataset } = await import(
-    path.join(ROOT, "src/lib/reference/sba/validateDataset.ts")
-  ).catch(async () => {
-    // tsx is not always present for .mjs guards; fall back to the compiled
-    // expectations encoded in the manifest instead of skipping validation.
-    return { validateDataset: null };
-  });
+  // Reuse the runtime validator via tsx so the guard and production agree.
+  // Shelling out (rather than importing) because this guard is plain .mjs.
+  const validation = spawnSync(
+    "npx",
+    ["tsx", "scripts/reference-data/validate-artifact.ts"],
+    { cwd: ROOT, encoding: "utf8" },
+  );
 
-  if (validateDataset) {
-    const errors = validateDataset(dataset).filter((i) => i.severity === "error");
-    for (const issue of errors) {
-      artifactFailures.push(`INVALID_DATASET: [${issue.code}] ${issue.message}`);
-    }
+  if (validation.error || validation.status === null) {
+    artifactFailures.push(
+      `VALIDATOR_UNAVAILABLE: could not run the dataset validator ` +
+        `(${validation.error?.message ?? "no exit status"}). Refusing to pass on ` +
+        `hash checks alone — the guard must verify what production verifies.`,
+    );
   } else {
-    notes.push("validator not loadable in this runtime; relying on manifest hash only");
+    for (const line of (validation.stdout ?? "").trim().split("\n")) {
+      if (!line) continue;
+      const [severity, code, ...rest] = line.split("|");
+      if (severity === "ERROR") {
+        artifactFailures.push(`INVALID_DATASET: [${code}] ${rest.join("|")}`);
+      } else if (severity === "WARNING") {
+        notes.push(`[${code}] ${rest.join("|")}`);
+      }
+    }
   }
 
   if (!fs.existsSync(MANIFEST)) {

@@ -32,6 +32,13 @@ import type { RawSizeStandardRow } from "./parseSizeStandardRow";
 export type SheetLike = {
   name: string;
   rows: string[][];
+  /**
+   * Per-row, per-column superscript runs lifted from rich-text cells.
+   * Keyed [rowIndex][colIndex]. The official workbook marks footnote
+   * references as superscript inside the title cell, which is formatting
+   * rather than text — flattening loses it.
+   */
+  superscripts?: string[][][];
 };
 
 export type HeaderLayout = {
@@ -40,10 +47,16 @@ export type HeaderLayout = {
   titleCol: number;
   receiptsCol: number;
   employeesCol: number;
+  /** "Footnotes" column; -1 when the sheet has none. */
+  footnotesCol: number;
 };
 
 const NAICS_HEADER = /naics\s*code/i;
-const TITLE_HEADER = /naics\s*(u\.?s\.?\s*)?industry\s*title|industry\s*title/i;
+// The official workbook heads this column "NAICS Industry Description";
+// §121.201 as rendered by eCFR uses "NAICS U.S. Industry Title". Both.
+const TITLE_HEADER =
+  /naics\s*(u\.?s\.?\s*)?industry\s*(title|description)|industry\s*(title|description)/i;
+const FOOTNOTES_HEADER = /^footnotes?$/i;
 /** "Size standards in millions of dollars" */
 const RECEIPTS_HEADER = /size\s*standards?\s*in\s*millions/i;
 /** "Size standards in number of employees" */
@@ -56,6 +69,7 @@ export function findHeaderLayout(rows: string[][]): HeaderLayout | null {
     let titleCol = -1;
     let receiptsCol = -1;
     let employeesCol = -1;
+    let footnotesCol = -1;
 
     row.forEach((cell, colIndex) => {
       const text = (cell ?? "").replace(/\s+/g, " ").trim();
@@ -64,6 +78,7 @@ export function findHeaderLayout(rows: string[][]): HeaderLayout | null {
       else if (titleCol < 0 && TITLE_HEADER.test(text)) titleCol = colIndex;
       if (receiptsCol < 0 && RECEIPTS_HEADER.test(text)) receiptsCol = colIndex;
       if (employeesCol < 0 && EMPLOYEES_HEADER.test(text)) employeesCol = colIndex;
+      if (footnotesCol < 0 && FOOTNOTES_HEADER.test(text)) footnotesCol = colIndex;
     });
 
     // Both measure columns are required. A header row that yields only one
@@ -76,6 +91,7 @@ export function findHeaderLayout(rows: string[][]): HeaderLayout | null {
         titleCol: titleCol >= 0 ? titleCol : naicsCol + 1,
         receiptsCol,
         employeesCol,
+        footnotesCol,
       };
     }
   }
@@ -133,13 +149,19 @@ export function extractXlsxRows(
   for (let i = layout.headerRowIndex + 1; i < sheet.rows.length; i++) {
     const row = sheet.rows[i] ?? [];
     const naicsCell = cell(row, layout.naicsCol).trim();
-    if (!naicsCell) continue;
+    const titleCell = cell(row, layout.titleCol);
+    // A blank code cell is not automatically skippable: sector headings
+    // live in the description column with an empty code cell.
+    if (!naicsCell && !titleCell.trim()) continue;
 
     out.push({
       naicsCell,
       titleCell: cell(row, layout.titleCol),
       receiptsCell: cell(row, layout.receiptsCol),
       employeesCell: cell(row, layout.employeesCol),
+      footnotesCell:
+        layout.footnotesCol >= 0 ? cell(row, layout.footnotesCol) : undefined,
+      titleFootnoteRefs: sheet.superscripts?.[i]?.[layout.titleCol] ?? undefined,
     });
   }
 

@@ -32,6 +32,18 @@ export type RawSizeStandardRow = {
   receiptsCell: string;
   /** "Size standards in number of employees" column. */
   employeesCell: string;
+  /**
+   * "Footnotes" column, e.g. "See footnote 1". Present in the official
+   * XLSX; absent in the eCFR rendering, where footnote markers are inline.
+   */
+  footnotesCell?: string;
+  /**
+   * Footnote numbers carried as SUPERSCRIPT runs inside the title cell's
+   * rich text. Extracted by the workbook reader because superscript is
+   * formatting, not text — flattening the cell yields "Petroleum
+   * Refineries4" and loses the distinction entirely.
+   */
+  titleFootnoteRefs?: string[];
 };
 
 export type RowParseResult =
@@ -46,6 +58,13 @@ export type RowParseResult =
  * of ASSETS, not receipts. §121.201 flags these with a footnote and the
  * title/footnote text says "assets". Detected explicitly; never guessed
  * from magnitude.
+ */
+/**
+ * Depository-institution rows state their standard as assets, and the
+ * official XLSX writes that INTO THE VALUE CELL — NAICS 522110 Commercial
+ * Banking reads "$850 million in assets" while its title is just
+ * "Commercial Banking". Detecting on the title (as an earlier revision did)
+ * would silently classify an $850M asset cap as an $850M receipts cap.
  */
 const ASSETS_MARKER = /\bassets\b/i;
 
@@ -90,8 +109,13 @@ export function splitFootnoteRefs(value: string): {
  * never a partially-parsed value.
  */
 export function parseStandardValue(value: string): number | null {
-  const cleaned = normalizeCell(value).replace(/[$,]/g, "");
+  let cleaned = normalizeCell(value).replace(/[$,]/g, "");
   if (!cleaned) return null;
+  // "$850 million in assets" -> "850". The unit words are meaning, not
+  // noise, but they are captured by the measure classifier; the numeric
+  // parse only needs the magnitude, published in millions either way.
+  const assetsMatch = cleaned.match(/^(\d+(?:\.\d+)?)\s*million\b/i);
+  if (assetsMatch) cleaned = assetsMatch[1];
   if (!/^\d+(?:\.\d+)?$/.test(cleaned)) return null;
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
@@ -115,6 +139,11 @@ export function parseSizeStandardRow(row: RawSizeStandardRow): RowParseResult {
   const titleRaw = normalizeCell(row.titleCell);
 
   if (!naicsRaw) {
+    // Sector headings sit in the DESCRIPTION column with an empty code
+    // cell ("", "Sector 11 – Agriculture, Forestry, Fishing and Hunting").
+    if (/^(sector|subsector|sectors)\b/i.test(titleRaw)) {
+      return { kind: "heading", text: titleRaw };
+    }
     return { kind: "malformed", reason: "empty NAICS cell", row };
   }
 
@@ -142,9 +171,30 @@ export function parseSizeStandardRow(row: RawSizeStandardRow): RowParseResult {
     };
   }
 
-  const title = splitFootnoteRefs(titleRaw);
+  // Footnote sourcing, in order of reliability:
+  //   1. the explicit "Footnotes" column ("See footnote 1")
+  //   2. superscript runs lifted out of the title cell's rich text
+  //   3. (eCFR path only) inline trailing markers, when neither exists
+  //
+  // Trailing-digit stripping is NEVER applied when an authoritative source
+  // is available. On the real workbook exactly one title legitimately ends
+  // in digits — 541330 (Exception 2), "...National Energy Policy Act of
+  // 1992" — and the heuristic would have recorded "1992" as a footnote
+  // reference and truncated the industry title.
+  const hasAuthoritativeFootnotes =
+    (row.footnotesCell ?? "").trim() !== "" ||
+    (row.titleFootnoteRefs ?? []).length > 0;
+
+  const title = hasAuthoritativeFootnotes
+    ? { text: normalizeCell(titleRaw), refs: [] as string[] }
+    : splitFootnoteRefs(titleRaw);
   const receipts = splitFootnoteRefs(row.receiptsCell);
   const employees = splitFootnoteRefs(row.employeesCell);
+
+  const columnRefs = Array.from(
+    (row.footnotesCell ?? "").matchAll(/\d{1,2}/g),
+    (m) => m[0],
+  );
 
   const receiptsValue = parseStandardValue(receipts.text);
   const employeesValue = parseStandardValue(employees.text);
@@ -177,8 +227,14 @@ export function parseSizeStandardRow(row: RawSizeStandardRow): RowParseResult {
   }
 
   const footnoteRefs = Array.from(
-    new Set([...title.refs, ...receipts.refs, ...employees.refs]),
-  ).sort();
+    new Set([
+      ...columnRefs,
+      ...(row.titleFootnoteRefs ?? []),
+      ...title.refs,
+      ...receipts.refs,
+      ...employees.refs,
+    ]),
+  ).sort((a, b) => Number(a) - Number(b));
 
   let measure: SizeStandardMeasure;
   let receiptsMillionsUsd: number | null = null;
@@ -186,7 +242,11 @@ export function parseSizeStandardRow(row: RawSizeStandardRow): RowParseResult {
 
   if (employeesValue != null) {
     measure = "employees";
-  } else if (receiptsValue != null && ASSETS_MARKER.test(titleRaw)) {
+  } else if (receiptsValue != null && ASSETS_MARKER.test(row.receiptsCell)) {
+    // ONLY the value cell. Never the title: NAICS 533110 is "Lessors of
+    // Nonfinancial Intangible Assets (except Copyrighted Works)" and its
+    // standard is $47M of RECEIPTS. Matching the title classified it as a
+    // $47M asset cap — a receipts business measured on the wrong axis.
     measure = "assets";
     assetsMillionsUsd = receiptsValue;
   } else if (receiptsValue != null) {

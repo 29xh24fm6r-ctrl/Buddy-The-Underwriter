@@ -105,8 +105,12 @@ test("a ~50-code placeholder table is rejected", () => {
   );
 });
 
-test("coverage floor sits at the NAICS 2022 industry universe", () => {
-  assert.ok(MIN_UNIQUE_NAICS >= 1_000);
+test("coverage floor sits just below the verified official count", () => {
+  // The official workbook (SHA-256 dadfaf90…456f) carries 978 unique
+  // six-digit codes. The floor must be below that so a legitimate import
+  // passes, and far above placeholder scale so a partial one fails.
+  assert.ok(MIN_UNIQUE_NAICS < 978, "floor must not reject the real dataset");
+  assert.ok(MIN_UNIQUE_NAICS > 500, "floor must still catch a partial import");
 });
 
 // ─── The legacy importer's failure modes ────────────────────────────────

@@ -22,18 +22,26 @@ import type {
 import { recordKey } from "./parseSizeStandardRow";
 
 /**
- * NAICS 2022 defines 1,012 six-digit U.S. industries. SBA assigns a size
- * standard to every industry it recognizes, plus a set of sub-industry
- * exception rows. A dataset with materially fewer unique codes than the
- * NAICS universe is a partial import, not a valid table — which is exactly
- * the failure this whole workstream exists to eliminate (the placeholder it
- * replaces had 52).
+ * Coverage floor for a complete import.
  *
- * Set below 1,012 only to absorb rows SBA legitimately omits; a real import
- * is expected to land at or near it. The importer reports the true figure
- * and the manifest freezes it — this is a floor, not the expectation.
+ * VERIFIED against the official workbook (SHA-256 dadfaf90…456f, effective
+ * 2023-03-17): the table carries exactly **978 unique six-digit NAICS
+ * codes** plus 18 exception rows, spanning 23 sectors (11 through 81).
+ *
+ * NAICS 2022 defines 1,012 six-digit U.S. industries, so 34 are absent —
+ * SBA does not assign size standards to Sector 92 (Public Administration)
+ * or a handful of similar non-commercial industries. That gap is a property
+ * of the authoritative source, not a defect in the import.
+ *
+ * An earlier revision set this to 1,000 as a planning estimate before the
+ * real file was available. It is corrected here to sit just below the
+ * verified figure: low enough not to fail a legitimate SBA revision that
+ * retires a few industries, high enough that any partial import — above all
+ * a return to the 52-entry placeholder — still fails loudly. The exact
+ * count is additionally frozen in the manifest and enforced by the
+ * counts_mismatch check, so this floor is a backstop, not the real test.
  */
-export const MIN_UNIQUE_NAICS = 1_000;
+export const MIN_UNIQUE_NAICS = 950;
 
 /**
  * `other` means "the importer could not classify this row's measure".
