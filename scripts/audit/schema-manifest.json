@@ -40,5 +40,8 @@
   { "name": "test_data_cleanup_audit", "type": "table", "migration": "20260804000001_qa_borrower_identity.sql" },
   { "name": "create_qa_test_application", "type": "function", "migration": "20260804000001_qa_borrower_identity.sql" },
   { "name": "cleanup_test_data", "type": "function", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "borrower_intake_progress", "type": "table", "migration": "20260809000000_borrower_intake_progress.sql" }
+  { "name": "borrower_intake_progress", "type": "table", "migration": "20260809000000_borrower_intake_progress.sql" },
+  { "name": "ai_gateway_calls.trace_id", "type": "column", "migration": "20260817000000_ai_gateway_artifact_provenance.sql" },
+  { "name": "ai_gateway_calls.artifact_type", "type": "column", "migration": "20260817000000_ai_gateway_artifact_provenance.sql" },
+  { "name": "ai_gateway_calls.artifact_id", "type": "column", "migration": "20260817000000_ai_gateway_artifact_provenance.sql" }
 ]
