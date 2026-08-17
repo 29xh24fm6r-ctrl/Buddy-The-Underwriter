@@ -175,7 +175,10 @@ async function review(input: {
     dealId: input.dealId,
     npiTagged: input.npiTagged,
     maxOutputTokens: 8192,
-    timeoutMs: 120_000,
+    // Keep the release review inside the synchronous artifact route's wall
+    // clock budget. A slow reviewer must fail closed as a flagged artifact,
+    // not consume the entire Vercel function lifetime.
+    timeoutMs: 60_000,
   });
   return parseIssues(result.text);
 }
@@ -218,8 +221,8 @@ export async function finishInstitutionalArtifact(input: {
     purpose: `${input.artifactType}_targeted_repair`,
     dealId: input.dealId,
     npiTagged,
-    maxOutputTokens: 16_384,
-    timeoutMs: 180_000,
+    maxOutputTokens: 8_192,
+    timeoutMs: 75_000,
     });
   } catch {
     return {
