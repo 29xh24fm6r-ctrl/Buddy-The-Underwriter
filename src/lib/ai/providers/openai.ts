@@ -37,8 +37,14 @@ export async function callOpenAI(req: ProviderCallRequest): Promise<ProviderCall
   const body: Record<string, unknown> = {
     model: req.model,
     messages,
-    max_tokens: req.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
   };
+  // Frontier/reasoning models use max_completion_tokens; legacy GPT-4
+  // chat lanes retain max_tokens for backward compatibility.
+  if (/^(gpt-5|o[1-9])/.test(req.model)) {
+    body.max_completion_tokens = req.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  } else {
+    body.max_tokens = req.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  }
   if (req.temperature !== undefined) {
     body.temperature = req.temperature;
   }

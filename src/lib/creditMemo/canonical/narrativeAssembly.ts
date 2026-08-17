@@ -1,15 +1,15 @@
 import "server-only";
 
-import { aiJson } from "@/lib/ai/openai";
+import { runRole } from "@/lib/ai/gateway";
 import type { CanonicalCreditMemoV1, RatioAnalysisRow, RatioCategory } from "./types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import crypto from "crypto";
-import { MODEL_NARRATIVE } from "@/lib/ai/models";
+import { MODEL_UNDERWRITER } from "@/lib/ai/models";
 
 // Phase 89: use Gemini Pro for the narrative — deep-reasoning task where
 // the model must synthesize 26 ratios across 5 categories into committee prose.
 // Phase 93: pulled from the central registry (was hardcoded).
-const NARRATIVE_MODEL = MODEL_NARRATIVE;
+const NARRATIVE_MODEL = MODEL_UNDERWRITER;
 // Pro model with thinking enabled can emit large thought traces alongside
 // the answer. 8192 gives headroom for thinking + narrative output; extractResponseText
 // in openai.ts filters thought parts so only the narrative lands in text.
@@ -41,6 +41,25 @@ const NARRATIVES_SCHEMA = `{
   "borrower_experience": "1 paragraph: management track record, relevant industry experience, how they manage seasonal/cyclical risk.",
   "guarantor_strength": "1 paragraph: guarantor net worth vs loan amount, liquid assets, monthly income vs proposed debt service, secondary repayment adequacy."
 }`;
+
+const NARRATIVES_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    executive_summary: { type: "string" },
+    income_analysis: { type: "string" },
+    repayment_analysis: { type: "string" },
+    property_description: { type: "string" },
+    borrower_background: { type: "string" },
+    borrower_experience: { type: "string" },
+    guarantor_strength: { type: "string" },
+  },
+  required: [
+    "executive_summary", "income_analysis", "repayment_analysis",
+    "property_description", "borrower_background", "borrower_experience",
+    "guarantor_strength",
+  ],
+  additionalProperties: false,
+} as const;
 
 // SPEC-M8 ARTIFACT-PIPELINE-1: exported so the credit-memo verifier pass
 // can build its `facts` payload from the exact same deterministic memo
@@ -382,31 +401,17 @@ export async function assembleNarratives(args: {
   let narratives: MemoNarratives;
   let aiError: string | undefined;
   try {
-    const res = await aiJson<MemoNarratives>({
-      scope: "credit_memo_narratives",
-      action: "assemble",
-      system,
-      user,
-      jsonSchemaHint: NARRATIVES_SCHEMA,
-      model: NARRATIVE_MODEL,
+    const res = await runRole("underwriter", {
+      systemInstruction: `${system}\n\nOUTPUT CONTRACT:\n${NARRATIVES_SCHEMA}`,
+      prompt: user,
+      responseSchema: NARRATIVES_RESPONSE_SCHEMA,
+      purpose: "credit_memo_narratives_assemble",
+      dealId: memo.deal_id,
+      npiTagged: true,
       maxOutputTokens: NARRATIVE_MAX_TOKENS,
       timeoutMs: NARRATIVE_TIMEOUT_MS,
     });
-    if (!res.ok) {
-      // Phase 92: surface aiJson failures to Vercel logs. Previously the
-      // failure collapsed silently into FALLBACK_NARRATIVES with no signal.
-      console.error(
-        "[assembleNarratives] aiJson failed:",
-        res.error,
-        "model:", res.model,
-        "rawText:", res.rawText?.slice(0, 300),
-      );
-      // Bubble the error reason up to the caller so the route can include
-      // it in the response body for diagnosis.
-      aiError = res.error
-        + (res.rawText ? ` | rawText: ${res.rawText.slice(0, 200)}` : "");
-    }
-    narratives = res.ok ? res.result : FALLBACK_NARRATIVES;
+    narratives = JSON.parse(res.text) as MemoNarratives;
   } catch (e: any) {
     console.error("[assembleNarratives] aiJson threw:", e);
     narratives = FALLBACK_NARRATIVES;

@@ -17,7 +17,8 @@ import "server-only";
 
 import type { CanonicalCreditMemoV1 } from "./types";
 import { buildNarrativeInput, FALLBACK_NARRATIVES, type MemoNarratives } from "./narrativeAssembly";
-import { verifyArtifactAndFlag, type VerifyArtifactAndFlagResult } from "@/lib/ai/artifactVerification";
+import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
+import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
 
 type SB = { from: (t: string) => any };
 
@@ -50,7 +51,14 @@ export async function verifyMemoNarratives(args: {
   memo: CanonicalCreditMemoV1;
   narratives: MemoNarratives;
   sb: SB;
-}): Promise<VerifyArtifactAndFlagResult | null> {
+}): Promise<({
+  verdict: "pass" | "flagged";
+  flaggedClaims: import("@/lib/ai/verify").FlaggedClaim[];
+  conditionsCreated: number;
+  conditionsSkipped: number;
+  narratives: MemoNarratives;
+  repaired: boolean;
+}) | null> {
   const { dealId, bankId, memo, narratives, sb } = args;
 
   if (isFallback(narratives)) return null;
@@ -60,14 +68,24 @@ export async function verifyMemoNarratives(args: {
 
   const facts = buildNarrativeInput(memo);
 
-  return verifyArtifactAndFlag({
-    dealId,
-    bankId,
-    artifactType: "credit_memo",
-    sectionKey: "narratives",
-    facts,
-    draftText,
-    npiTagged: true,
-    sb,
+  const sections = (Object.keys(SECTION_LABELS) as Array<keyof MemoNarratives>).map((key) => ({
+    key,
+    text: narratives[key],
+  }));
+  const finished = await finishInstitutionalArtifact({
+    dealId, artifactType: "credit_memo", facts, sections, npiTagged: true,
   });
+  const conditions = await persistArtifactFlags({
+    dealId, bankId, artifactType: "credit_memo", sectionKey: "narratives",
+    flaggedClaims: finished.flaggedClaims, sb,
+  });
+  return {
+    verdict: finished.verdict,
+    flaggedClaims: finished.flaggedClaims,
+    ...conditions,
+    narratives: Object.fromEntries(
+      finished.sections.map((section) => [section.key, section.text]),
+    ) as MemoNarratives,
+    repaired: finished.repaired,
+  };
 }

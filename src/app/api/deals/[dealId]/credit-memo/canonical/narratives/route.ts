@@ -37,8 +37,6 @@ export async function POST(
     });
 
     // Overlay onto memo
-    const enrichedMemo = overlayNarratives(memoResult.memo, narratives);
-
     // SPEC-M8 ARTIFACT-PIPELINE-1: independent fact-check of the narrative
     // bundle against the same deterministic memo fields the generator saw.
     // Best-effort — a verifier outage must not block the memo from
@@ -56,9 +54,15 @@ export async function POST(
       console.error("[credit-memo/canonical/narratives] verification failed (non-fatal):", err);
     }
 
+    // Use the repaired narratives when the frontier factory completed a
+    // successful repair cycle; otherwise preserve the original generated
+    // artifact and surface the unresolved verification findings.
+    const finalNarratives = verification?.narratives ?? narratives;
+    const enrichedMemo = overlayNarratives(memoResult.memo, finalNarratives);
+
     return NextResponse.json({
       ok: true,
-      narratives,
+      narratives: finalNarratives,
       memo: enrichedMemo,
       aiError,
       verification,

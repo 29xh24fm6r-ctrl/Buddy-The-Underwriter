@@ -15,7 +15,9 @@ import "server-only";
  * file closes that gap, mirroring enrichFeasibilityStudy.ts's pattern.
  */
 
-import { verifyBusinessPlanPackage, type BusinessPlanPackageForVerify } from "./verifyBusinessPlanPackage";
+import type { BusinessPlanPackageForVerify } from "./verifyBusinessPlanPackage";
+import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
+import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 
 type SB = { from: (t: string) => any };
 
@@ -45,18 +47,50 @@ export async function enrichBusinessPlanPackage(args: {
 
   if (!pkg) return;
 
-  const verification = await verifyBusinessPlanPackage({
-    dealId,
-    bankId,
-    pkg: pkg as BusinessPlanPackageForVerify,
-    sb,
+  const typed = pkg as BusinessPlanPackageForVerify;
+  const narrativeKeys = [
+    "business_overview_narrative", "executive_summary", "industry_analysis",
+    "marketing_strategy", "operations_plan", "swot_strengths", "swot_weaknesses",
+    "swot_opportunities", "swot_threats", "sensitivity_narrative", "plan_thesis",
+    "franchise_section",
+  ];
+  const sections = narrativeKeys.flatMap((key) => {
+    const text = typed[key];
+    return typeof text === "string" && text.trim() ? [{ key, text }] : [];
   });
+  if (!sections.length) {
+    await sb.from("buddy_sba_packages").update({
+      verification_verdict: null,
+      verification_flagged_claims: null,
+    }).eq("id", packageId);
+    return;
+  }
+
+  const facts = {
+    dscr_year1_base: typed.dscr_year1_base,
+    dscr_year2_base: typed.dscr_year2_base,
+    dscr_year3_base: typed.dscr_year3_base,
+    dscr_year1_downside: typed.dscr_year1_downside,
+    dscr_below_threshold: typed.dscr_below_threshold,
+    break_even_revenue: typed.break_even_revenue,
+    margin_of_safety_pct: typed.margin_of_safety_pct,
+    use_of_proceeds: typed.use_of_proceeds,
+  };
+  const finished = await finishInstitutionalArtifact({
+    artifactType: "business_plan", facts, sections, dealId, npiTagged: true,
+  });
+  await persistArtifactFlags({
+    dealId, bankId, artifactType: "business_plan", sectionKey: "narratives",
+    flaggedClaims: finished.flaggedClaims, sb,
+  });
+  const repairedFields = Object.fromEntries(finished.sections.map((section) => [section.key, section.text]));
 
   await sb
     .from("buddy_sba_packages")
     .update({
-      verification_verdict: verification?.verdict ?? null,
-      verification_flagged_claims: verification?.flaggedClaims ?? null,
+      ...repairedFields,
+      verification_verdict: finished.verdict,
+      verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", packageId);
 }

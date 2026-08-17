@@ -56,6 +56,45 @@ function claimSourceKey(artifactType: string, sectionKey: string, claim: string)
   return `artifact_claim:${artifactType}:${sectionKey}:${claimHash}`;
 }
 
+export async function persistArtifactFlags(input: {
+  dealId: string;
+  bankId: string;
+  artifactType: ArtifactType;
+  sectionKey: string;
+  flaggedClaims: FlaggedClaim[];
+  sb: SB;
+}): Promise<{ conditionsCreated: number; conditionsSkipped: number }> {
+  const { dealId, bankId, artifactType, sectionKey, flaggedClaims, sb } = input;
+  let conditionsCreated = 0;
+  let conditionsSkipped = 0;
+
+  for (const flagged of flaggedClaims) {
+    if (!ACTIONABLE_SEVERITIES.has(flagged.severity)) continue;
+    const sourceKey = claimSourceKey(artifactType, sectionKey, flagged.claim);
+    const existing = await sb.from("deal_conditions").select("id").eq("deal_id", dealId)
+      .eq("source", "system").eq("source_key", sourceKey).maybeSingle();
+    if (existing.data?.id) {
+      conditionsSkipped += 1;
+      continue;
+    }
+    const ins = await sb.from("deal_conditions").insert({
+      deal_id: dealId,
+      bank_id: bankId,
+      title: `Unsupported claim in ${artifactType.replace(/_/g, " ")} (${sectionKey})`,
+      description: `"${flagged.claim}" — ${flagged.reason}`,
+      category: "credit",
+      status: "open",
+      source: "system",
+      source_key: sourceKey,
+      required_docs: [],
+      created_by: null,
+    });
+    if (ins.error) conditionsSkipped += 1;
+    else conditionsCreated += 1;
+  }
+  return { conditionsCreated, conditionsSkipped };
+}
+
 /**
  * Runs verifyClaims against a single artifact section's draft text, then
  * opens (or no-ops on re-run) a deal_conditions banker task for every
@@ -85,45 +124,9 @@ export async function verifyArtifactAndFlag(
     verdict = "flagged";
   }
 
-  let conditionsCreated = 0;
-  let conditionsSkipped = 0;
-
-  for (const flagged of flaggedClaims) {
-    if (!ACTIONABLE_SEVERITIES.has(flagged.severity)) continue;
-
-    const sourceKey = claimSourceKey(artifactType, sectionKey, flagged.claim);
-    const existing = await sb
-      .from("deal_conditions")
-      .select("id")
-      .eq("deal_id", dealId)
-      .eq("source", "system")
-      .eq("source_key", sourceKey)
-      .maybeSingle();
-
-    if (existing.data?.id) {
-      conditionsSkipped += 1;
-      continue;
-    }
-
-    const ins = await sb.from("deal_conditions").insert({
-      deal_id: dealId,
-      bank_id: bankId,
-      title: `Unsupported claim in ${artifactType.replace(/_/g, " ")} (${sectionKey})`,
-      description: `"${flagged.claim}" — ${flagged.reason}`,
-      category: "credit",
-      status: "open",
-      source: "system",
-      source_key: sourceKey,
-      required_docs: [],
-      created_by: null,
-    });
-
-    if (ins.error) {
-      conditionsSkipped += 1;
-    } else {
-      conditionsCreated += 1;
-    }
-  }
+  const { conditionsCreated, conditionsSkipped } = await persistArtifactFlags({
+    dealId, bankId, artifactType, sectionKey, flaggedClaims, sb,
+  });
 
   return { verdict, flaggedClaims, conditionsCreated, conditionsSkipped };
 }

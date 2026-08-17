@@ -30,7 +30,8 @@ import "server-only";
 
 import { runRole } from "@/lib/ai/gateway";
 import { getDisclaimer } from "@/lib/ai/disclaimers";
-import { verifyArtifactAndFlag } from "@/lib/ai/artifactVerification";
+import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
+import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
 import { loadProjectionInputsForDeal } from "@/lib/methodology/loadProjectionInputs";
 import { projectDscrForVariant } from "@/lib/methodology/projectDscrForVariant";
 
@@ -103,7 +104,7 @@ export async function generateProjectionsAssumptionsNarrative(
   };
 
   try {
-    const generated = await runRole("generator", {
+    const generated = await runRole("underwriter", {
       prompt: buildPrompt(facts),
       systemInstruction: GENERATOR_SYSTEM_INSTRUCTION,
       responseSchema: NARRATIVE_SCHEMA,
@@ -123,19 +124,20 @@ export async function generateProjectionsAssumptionsNarrative(
       };
     }
 
-    const verification = await verifyArtifactAndFlag({
+    const finished = await finishInstitutionalArtifact({
       dealId,
-      bankId,
       artifactType: "projections_assumptions",
-      sectionKey: "dscr_stack",
       facts,
-      draftText,
+      sections: [{ key: "dscr_stack", text: draftText }],
       npiTagged: true,
-      sb,
+    });
+    await persistArtifactFlags({
+      dealId, bankId, artifactType: "projections_assumptions", sectionKey: "dscr_stack",
+      flaggedClaims: finished.flaggedClaims, sb,
     });
 
-    const hasCriticalFlag = verification.flaggedClaims.some((f) => f.severity === "critical");
-    if (verification.verdict === "flagged" && hasCriticalFlag) {
+    const hasCriticalFlag = finished.flaggedClaims.some((f) => f.severity === "critical");
+    if (finished.verdict === "flagged" && hasCriticalFlag) {
       return {
         status: "degraded",
         message: "We're double-checking this projections narrative before showing it to you.",
@@ -143,7 +145,11 @@ export async function generateProjectionsAssumptionsNarrative(
       };
     }
 
-    return { status: "ready", narrative: draftText, disclaimer: getDisclaimer("memo") };
+    return {
+      status: "ready",
+      narrative: finished.sections[0]?.text ?? draftText,
+      disclaimer: getDisclaimer("memo"),
+    };
   } catch (err) {
     console.error("[projections-assumptions] generator/verifier call failed:", err);
     return {
