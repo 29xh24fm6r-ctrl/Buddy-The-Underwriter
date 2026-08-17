@@ -5,14 +5,11 @@
  * src/lib/ai/__tests__/vendorApprovalDocsSync.test.ts so the doc and this
  * gate can never drift apart.
  *
- * All three providers start PENDING, including Google/Gemini. Google is
- * already the pre-existing production vendor for the 18 direct call sites
- * this spec does NOT touch (see §0 inventory) — this gate has no effect on
- * those. But it's the first formal SR 11-7 vendor-doc review this repo has
- * done for any provider, so the *gateway's* new code path holds Google to
- * the same explicit sign-off as the two net-new vendors rather than
- * grandfathering it in silently. Matt flips a provider to APPROVED only
- * after reviewing its docs/vendors/<provider>.md.
+ * Matt approved Google/Gemini, OpenAI, and Anthropic/Claude for borrower-NPI
+ * processing on 2026-08-17 after reviewing the provider controls documented
+ * in docs/vendors/<provider>.md. The approval remains explicit in code so a
+ * provider can be returned to PENDING immediately if its contract, retention,
+ * training, residency, or security posture changes.
  */
 
 import type { GatewayProvider } from "./roleConfig";
@@ -20,9 +17,9 @@ import type { GatewayProvider } from "./roleConfig";
 export type VendorApprovalStatus = "PENDING" | "APPROVED";
 
 export const VENDOR_NPI_APPROVAL: Record<GatewayProvider, VendorApprovalStatus> = {
-  google: "PENDING",
-  anthropic: "PENDING",
-  openai: "PENDING",
+  google: "APPROVED",
+  anthropic: "APPROVED",
+  openai: "APPROVED",
 };
 
 /**
@@ -40,7 +37,7 @@ export function __setVendorApprovalForTests(
 
 /** Test-only: restore all providers to their real default (PENDING). */
 export function __resetVendorApprovalForTests(): void {
-  VENDOR_NPI_APPROVAL.google = "PENDING";
-  VENDOR_NPI_APPROVAL.anthropic = "PENDING";
-  VENDOR_NPI_APPROVAL.openai = "PENDING";
+  VENDOR_NPI_APPROVAL.google = "APPROVED";
+  VENDOR_NPI_APPROVAL.anthropic = "APPROVED";
+  VENDOR_NPI_APPROVAL.openai = "APPROVED";
 }

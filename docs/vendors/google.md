@@ -1,9 +1,9 @@
 # Vendor doc — Google (Gemini)
 
-**Status: PENDING** — Matt to review and flip `VENDOR_NPI_APPROVAL.google` in
-`src/lib/ai/vendorApproval.ts` to `APPROVED` once satisfied. Until then, the
-AI gateway (`src/lib/ai/gateway.ts`) refuses any `npiTagged: true` request to
-this provider. This gate applies only to the gateway's new code path
+**Status: APPROVED** — Matt approved Google/Gemini for borrower-NPI processing
+on 2026-08-17. The AI gateway (`src/lib/ai/gateway.ts`) permits
+`npiTagged: true` requests to this provider while the safeguards in this record
+remain in force. This gate applies only to the gateway's new code path
 (`generator`/`interviewer` roles); it does not affect the 18 pre-existing
 direct Gemini call sites this spec doesn't touch (see the SPEC-M1 §0
 inventory) — those are already in production today.
@@ -53,15 +53,15 @@ Conditions to actually achieve ZDR (not automatic):
   today for rate lookups (not borrower NPI) — flagging so any future
   NPI-adjacent use of grounded search is caught before it ships.
 
-## Permitted data categories (pending Matt's sign-off)
+## Permitted data categories
 
 - Non-NPI business facts (NAICS descriptions, generic loan terminology): OK
   today, matches current `naics-suggest` PoC migration.
-- Borrower NPI (SSN, income, tax data, PII): **blocked by the gateway** until
-  this doc is marked APPROVED and the Developer-API-vs-Vertex region
-  question above is resolved.
+- Borrower NPI (SSN, income, tax data, PII): approved for gateway processing,
+  subject to no grounded-search tool use and continued enforcement of the
+  platform's retention and no-training controls.
 
-## Open items for Matt
+## Continuing controls
 
 1. Confirm ZDR is actually enrolled/approved for our Google Cloud project
    (not just theoretically available).

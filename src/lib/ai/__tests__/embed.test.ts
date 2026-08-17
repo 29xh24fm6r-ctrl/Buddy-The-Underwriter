@@ -57,6 +57,7 @@ describe("embedText: happy path", () => {
 describe("embedText: NPI-refusal gate", () => {
   it("refuses an npiTagged request before any provider call", async () => {
     let called = false;
+    __setVendorApprovalForTests("openai", "PENDING");
     __setEmbedImplForTests(async () => {
       called = true;
       return { vector: [1], tokensIn: 1 };

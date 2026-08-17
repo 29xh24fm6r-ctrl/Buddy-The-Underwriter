@@ -137,6 +137,7 @@ describe("runRole: NPI-refusal gate", () => {
 
   it("refuses an npiTagged request to a PENDING provider before any network call", async () => {
     let called = false;
+    __setVendorApprovalForTests("anthropic", "PENDING");
     __setProviderImplForTests("anthropic", async () => {
       called = true;
       return okResult("should never happen");
@@ -154,6 +155,7 @@ describe("runRole: NPI-refusal gate", () => {
   });
 
   it("does not gate a non-NPI request to the same PENDING provider", async () => {
+    __setVendorApprovalForTests("anthropic", "PENDING");
     __setProviderImplForTests("anthropic", async () => okResult("fine, no NPI here"));
 
     const result = await runRole("verifier", { prompt: "hi", purpose: "test", npiTagged: false });
