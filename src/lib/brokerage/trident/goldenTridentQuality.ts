@@ -148,9 +148,25 @@ export async function gradeGoldenTrident(args: {
     else findings.push("Sources and uses are missing.");
     if (balance.length >= 3) { score += 10; passed.push("Balance-sheet projections are populated."); }
     else findings.push("Balance-sheet projections are incomplete.");
+    const negativeCashYears = balance.filter((row) => {
+      if (!row || typeof row !== "object") return false;
+      const record = row as Record<string, unknown>;
+      const cash = Number(record.cash ?? record.cashAndEquivalents ?? record.cash_and_equivalents);
+      return Number.isFinite(cash) && cash < 0;
+    }).length;
+    if (negativeCashYears > 0) findings.push(`${negativeCashYears} projected year(s) end with negative cash; institutional release is blocked.`);
+    else if (balance.length > 0) passed.push("Projected cash remains non-negative in every balance-sheet year.");
     if (words(pkg?.projections_assumptions_narrative) >= 35) { score += 5; passed.push("Projection assumptions narrative is substantive."); }
     else findings.push("Projection assumptions narrative is missing or thin.");
-    artifacts.push(artifact("projections", "Projections and assumptions", score, exists, passed, findings));
+    artifacts.push(artifact(
+      "projections",
+      "Projections and assumptions",
+      score,
+      exists,
+      passed,
+      findings,
+      negativeCashYears === 0,
+    ));
   }
 
   {
