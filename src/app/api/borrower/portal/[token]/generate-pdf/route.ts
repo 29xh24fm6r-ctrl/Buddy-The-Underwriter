@@ -7,13 +7,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import {
-  buildBaseYear,
-  buildAnnualProjections,
-  buildMonthlyProjections,
-  computeBreakEven,
-  buildSensitivityScenarios,
-} from "@/lib/sba/sbaForwardModelBuilder";
+import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
+import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
 import { renderBorrowerProjectionPDF } from "@/lib/sba/sbaBorrowerPDFRenderer";
 import { generateActionableRoadmap } from "@/lib/sba/sbaActionableRoadmap";
 import { loadBorrowerStory } from "@/lib/sba/sbaBorrowerStory";
@@ -200,21 +195,18 @@ export async function POST(
     existingDebtServiceAnnual: ads,
   });
 
-  const annual = buildAnnualProjections(assumptions, baseYear);
-  const year1 = annual[0];
-  if (!year1) {
-    return NextResponse.json(
-      { ok: false, error: "Unable to build Year 1 projection" },
-      { status: 500 },
-    );
-  }
-  const monthly = buildMonthlyProjections(assumptions, year1);
-  const breakEven = computeBreakEven(assumptions, year1);
-  const scenarios = buildSensitivityScenarios(
+  const projectionModel = computeSBAProjectionModel({
     assumptions,
-    [baseYear, ...annual],
+    baseYear,
     projectedDscrThreshold,
-  );
+  });
+  const {
+    annualProjections: annual,
+    monthlyProjections: monthly,
+    breakEven,
+    sensitivityScenarios: scenarios,
+  } = projectionModel;
+  const year1 = annual[0];
 
   // Reconstruct a briefing from the most recent compiled research narrative.
   let researchBriefing = "";
