@@ -235,8 +235,24 @@ export async function enrichFeasibilityStudy(args: {
         }
       : null,
   };
+  // Keep the evidence boundary comfortably below the synchronous review
+  // budget. This is a fail-fast invariant, not a license to silently discard
+  // calculations: the curated contract above contains every decision-material
+  // figure and explicitly excludes high-volume monthly detail.
+  const serializedFacts = JSON.stringify(facts);
+  const maxEvidenceCharacters = 24_000;
+  if (serializedFacts.length > maxEvidenceCharacters) {
+    throw new Error(
+      `Feasibility review evidence exceeds ${maxEvidenceCharacters} characters (${serializedFacts.length})`,
+    );
+  }
+
   const finished = await finishInstitutionalArtifact({
-    artifactType: "feasibility", facts, sections, dealId, npiTagged: true,
+    artifactType: "feasibility",
+    facts: serializedFacts,
+    sections,
+    dealId,
+    npiTagged: true,
   });
   await persistArtifactFlags({
     dealId, bankId, artifactType: "feasibility", sectionKey: "narratives",
