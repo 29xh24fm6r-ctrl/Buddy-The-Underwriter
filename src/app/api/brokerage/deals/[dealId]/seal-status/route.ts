@@ -171,11 +171,54 @@ export async function GET(
         autoResolveErrors.push(`lock: ${e instanceof Error ? e.message : String(e)}`);
       }
     } else if (scoreRow.score_status === "draft") {
-      const scoreAgeMs = scoreRow.computed_at
-        ? Date.now() - new Date(scoreRow.computed_at).getTime()
-        : Infinity;
-      const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-      if (scoreAgeMs >= STALE_THRESHOLD_MS) {
+      // RUNAWAY RECOMPUTE FIX.
+      //
+      // This branch used to recompute whenever the newest draft score was
+      // older than two minutes. Recomputing INSERTS a new row, which resets
+      // computed_at, which makes the row stale again two minutes later — a
+      // self-sustaining loop with no input change behind it. Production was
+      // writing ~477 score rows per day for a single deal and had
+      // accumulated 2,384 superseded rows.
+      //
+      // A recompute is only meaningful when the inputs actually changed, so
+      // that is now the trigger. Age alone is not evidence of anything.
+      const computedAtMs = scoreRow.computed_at
+        ? new Date(scoreRow.computed_at).getTime()
+        : 0;
+
+      const [dealRow, appRow, assumptionRow] = await Promise.all([
+        sb.from("deals").select("updated_at").eq("id", dealId).maybeSingle(),
+        sb
+          .from("borrower_applications")
+          .select("updated_at")
+          .eq("deal_id", dealId)
+          .maybeSingle(),
+        sb
+          .from("buddy_sba_assumptions")
+          .select("updated_at")
+          .eq("deal_id", dealId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const latestInputMs = Math.max(
+        ...[
+          (dealRow.data as { updated_at?: string } | null)?.updated_at,
+          (appRow.data as { updated_at?: string } | null)?.updated_at,
+          (assumptionRow.data as { updated_at?: string } | null)?.updated_at,
+        ]
+          .filter((v): v is string => Boolean(v))
+          .map((v) => new Date(v).getTime())
+          .concat([0]),
+      );
+
+      // Small grace window so a write landing moments before the score is
+      // computed is not mistaken for a change made after it.
+      const INPUT_CHANGE_GRACE_MS = 5 * 1000;
+      const inputsChanged = latestInputMs > computedAtMs + INPUT_CHANGE_GRACE_MS;
+
+      if (inputsChanged) {
         try {
           const computed = await computeBuddySBAScore({ dealId, sb, context: "package_seal" });
           if (computed.score >= 60 && computed.eligibilityPassed) {
@@ -335,7 +378,8 @@ async function loadScoreForResponse(
   const { data } = await sb
     .from("buddy_sba_scores")
     .select(
-      "score, band, eligibility_passed, eligibility_failures, top_strengths, top_weaknesses, narrative, computed_at",
+      "score, band, eligibility_passed, eligibility_failures, input_snapshot, " +
+        "top_strengths, top_weaknesses, narrative, computed_at",
     )
     .eq("deal_id", dealId)
     .order("computed_at", { ascending: false })
@@ -348,6 +392,13 @@ async function loadScoreForResponse(
     band: row.band,
     eligibilityPassed: row.eligibility_passed,
     eligibilityFailures: row.eligibility_failures ?? [],
+    // Outstanding Items: what the borrower still needs to supply. Distinct
+    // from eligibilityFailures, which are actual SBA findings. Surfacing
+    // them separately is what stops "we need your employee count" from
+    // reading like "you don't qualify".
+    eligibilityUnresolved:
+      (row.input_snapshot as { eligibilityUnresolved?: unknown[] } | null)
+        ?.eligibilityUnresolved ?? [],
     topStrengths: row.top_strengths ?? [],
     topWeaknesses: row.top_weaknesses ?? [],
     narrative: row.narrative ?? "",

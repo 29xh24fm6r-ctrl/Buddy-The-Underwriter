@@ -19,7 +19,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { evaluateBuddySbaEligibility } from "@/lib/score/eligibility/evaluate";
-import { lookupSizeStandard } from "@/lib/score/eligibility/sbaSizeStandards";
 
 function makeEligibilityInputs(overrides: Record<string, unknown> = {}) {
   return {
@@ -46,14 +45,7 @@ function makeEligibilityInputs(overrides: Record<string, unknown> = {}) {
 }
 
 describe("F-2 — scoring input bridge: concierge facts reach the scorer", () => {
-  it("NAICS 513210 is in the size-standard table (reference-data fix)", () => {
-    const entry = lookupSizeStandard("513210");
-    assert.ok(entry, "NAICS 513210 must be in the size-standard table");
-    assert.equal(entry.naics, "513210");
-    assert.equal(entry.unit, "annual_receipts_usd");
-    assert.equal(entry.threshold, 47_000_000);
-  });
-
+  
   it("production-equivalent inputs (entity_type=LLC, naics=513210, UoP present) → eligibility PASSES", () => {
     const inputs = makeEligibilityInputs();
     const result = evaluateBuddySbaEligibility(inputs);
@@ -80,13 +72,19 @@ describe("F-2 — scoring input bridge: concierge facts reach the scorer", () =>
     assert.ok(uopFailure, "Must have use_of_proceeds_unknown failure");
   });
 
-  it("before fix: NAICS not in table → size_standard failure with unknownNaics", () => {
+  it("NAICS not in table → unresolved classification, never an SBA denial", () => {
     const inputs = makeEligibilityInputs({ naics: "999999" });
     const result = evaluateBuddySbaEligibility(inputs);
 
-    assert.equal(result.passed, false, "Must fail eligibility with unknown NAICS");
-    const sizeFailure = result.failures.find((f: { check: string }) => f.check === "size_standard");
-    assert.ok(sizeFailure, "Must have size_standard failure");
+    assert.equal(
+      result.failures.some((f: { check: string }) => f.check === "size_standard"),
+      false,
+      "an internal data gap must never surface as a size failure",
+    );
+    const item = (result.unresolved ?? []).find(
+      (u: { check: string }) => u.check === "size_standard",
+    );
+    assert.ok(item, "must be recorded as an unresolved requirement");
   });
 
   it("propagation field mapping: businessFacts['entity_type'] → app.business_entity_type → scorer input", () => {

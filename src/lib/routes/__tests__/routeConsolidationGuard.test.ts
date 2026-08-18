@@ -60,7 +60,7 @@ const ROOT = resolve(__dirname, "../../../..");
 // 808 route.ts * 2 + 193 page.tsx * 2 = 2002. The provider's health and
 // document-intelligence endpoints share one catch-all dispatcher rather than
 // consuming two route files. Still 44 slots under the 2048 hard cap.
-const MERGED_WARNING_THRESHOLD = 2004;
+const MERGED_WARNING_THRESHOLD = 2006;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {
@@ -292,6 +292,20 @@ describe("route consolidation invariants", () => {
   // the actual post-merge total (see below) plus headroom, not just the
   // sum of the two deltas, since the two branches' route additions don't
   // stack in a simple arithmetic way once merged.
+  // Bumped 2004 -> 2006 on 2026-08-17 (launch sprint): ONE new route file,
+  // src/app/api/borrower/portal/[token]/documents/route.ts, carrying GET
+  // (list what I uploaded) and DELETE (withdraw my own mistake) behind a
+  // single dispatcher rather than two files — the same one-dispatcher
+  // precedent as the entries above.
+  //
+  // Why it could not be folded into an existing route: the borrower upload
+  // path had NO listing endpoint at all, and production has zero
+  // borrower_portal_links rows, so no self-serve borrower could see or
+  // manage an uploaded document. The portal hub route is a read-only
+  // aggregator returning counts; hanging a destructive DELETE off it would
+  // hide a mutation inside a dashboard fetch.
+  //
+  // Still 42 slots under the 2048 hard cap.
   it("total slot count stays below the merged warning threshold", () => {
     const apiRoutes = countRouteFiles();
     const pages = countPageFiles();

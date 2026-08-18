@@ -69,6 +69,11 @@ export type ScoreInputs = {
   yearsInBusiness: number | null;
   annualRevenueUsd: number | null;
   employeeCount: number | null;
+  /** Total assets — used by the handful of depository-institution NAICS. */
+  totalAssetsUsd?: number | null;
+  /** 13 CFR 121.301(b)(2) alternative size standard inputs. */
+  tangibleNetWorthUsd?: number | null;
+  avgNetIncomeTwoYearUsd?: number | null;
 
   // Franchise (only populated when isFranchise = true)
   franchise: {
@@ -232,6 +237,9 @@ export async function loadScoreInputs(params: {
   const yearsInBusiness = factNum("YEARS_IN_BUSINESS");
   const annualRevenueUsd = factNum("TOTAL_REVENUE", "ANNUAL_REVENUE");
   const employeeCount = factNum("EMPLOYEE_COUNT");
+  const totalAssetsUsd = factNum("TOTAL_ASSETS");
+  const tangibleNetWorthUsd = factNum("TANGIBLE_NET_WORTH");
+  const avgNetIncomeTwoYearUsd = factNum("AVG_NET_INCOME_2YR");
 
   if (yearsInBusiness == null) missing.push("years_in_business");
   if (annualRevenueUsd == null) missing.push("annual_revenue");
@@ -409,6 +417,9 @@ export async function loadScoreInputs(params: {
     yearsInBusiness,
     annualRevenueUsd,
     employeeCount,
+    totalAssetsUsd,
+    tangibleNetWorthUsd,
+    avgNetIncomeTwoYearUsd,
     collateralNetLendableTotal,
     applicantCount: applicants.length,
     isFranchise,
@@ -449,6 +460,9 @@ export async function loadScoreInputs(params: {
     yearsInBusiness,
     annualRevenueUsd,
     employeeCount,
+    totalAssetsUsd,
+    tangibleNetWorthUsd,
+    avgNetIncomeTwoYearUsd,
     franchise,
     managementTeamSize,
     federalDebtDelinquent,

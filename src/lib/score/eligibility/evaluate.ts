@@ -30,8 +30,9 @@ import type {
   EligibilityCheck,
   EligibilityFailure,
   EligibilityResult,
+  EligibilityUnresolved,
 } from "../types";
-import { evaluateSizeStandard } from "./sbaSizeStandards";
+import { evaluateSizeEligibility } from "./sizeEligibility";
 
 const SOP = {
   size_standard: "SOP 50 10 7.1, Chapter 2 — Size Standards (13 CFR §121.201)",
@@ -121,6 +122,26 @@ export type BuddyEligibilityInputs = {
   businessEntityType: string | null;
   annualRevenueUsd: number | null;
   employeeCount: number | null;
+  /**
+   * Total assets. Required only by the handful of depository-institution
+   * NAICS whose 121.201 standard is stated in assets rather than receipts
+   * (522110, 522130, 522180, 522210). Optional because no other industry
+   * needs it, and absent it the size test yields `needs_information`
+   * rather than a denial.
+   */
+  totalAssetsUsd?: number | null;
+  /**
+   * 13 CFR 121.301(b)(2) alternative size standard inputs, applicable to
+   * 7(a) and 504 only. An applicant qualifies under EITHER the 121.201
+   * industry standard OR tangible net worth <= $20M together with
+   * two-year average net income after federal taxes <= $6.5M.
+   *
+   * Optional: when these are absent the alternative standard simply
+   * cannot be evaluated, which is a `needs_information` outcome. It must
+   * never be read as failing that test — see sizeEligibility.ts.
+   */
+  tangibleNetWorthUsd?: number | null;
+  avgNetIncomeTwoYearUsd?: number | null;
   /** Array of use-of-proceeds entries (any shape — we look for string content). */
   useOfProceeds: unknown[] | null;
   /** Parallel to use-of-proceeds but the jsonb object from buddy_sba_packages. */
@@ -188,6 +209,7 @@ export function evaluateBuddySbaEligibility(
 ): EligibilityResult {
   const checks: EligibilityCheck[] = [];
   const failures: EligibilityFailure[] = [];
+  const unresolved: EligibilityUnresolved[] = [];
 
   // ─── 1. For-profit ────────────────────────────────────────────────────
   const entityTypeUpper = (inputs.businessEntityType ?? "").toUpperCase().trim();
@@ -209,24 +231,59 @@ export function evaluateBuddySbaEligibility(
   }
 
   // ─── 2. Size standard ─────────────────────────────────────────────────
-  const sizeOutcome = evaluateSizeStandard({
+  // Five-state evaluation against the complete §121.201 dataset. ONLY an
+  // `ineligible` result is an eligibility failure; missing information,
+  // unresolved classification and reference-data faults are recorded as
+  // unresolved requirements so an internal gap can never be reported to a
+  // borrower as an SBA size denial (which is exactly what the previous
+  // 52-code placeholder did to every deal in production).
+  const sizeOutcome = evaluateSizeEligibility({
     naics: inputs.naics,
-    annualRevenueUsd: inputs.annualRevenueUsd,
+    annualReceiptsUsd: inputs.annualRevenueUsd,
     employeeCount: inputs.employeeCount,
+    totalAssetsUsd: inputs.totalAssetsUsd ?? null,
+    tangibleNetWorthUsd: inputs.tangibleNetWorthUsd ?? null,
+    avgNetIncomeTwoYearUsd: inputs.avgNetIncomeTwoYearUsd ?? null,
   });
+
   checks.push(mkCheck(
     "size_standard",
     "size_standard",
-    sizeOutcome.passed,
+    sizeOutcome.satisfied,
     SOP.size_standard,
     sizeOutcome.reason,
   ));
-  if (!sizeOutcome.passed) {
+
+  if (sizeOutcome.failedRequirement) {
     failures.push(mkFail(
       "size_standard",
       "size_standard",
       sizeOutcome.reason,
       SOP.size_standard,
+    ));
+  } else if (!sizeOutcome.satisfied) {
+    unresolved.push({
+      check: "size_standard",
+      category: "size_standard",
+      state: sizeOutcome.state as EligibilityUnresolved["state"],
+      reason: sizeOutcome.reason,
+      nextAction: sizeOutcome.nextAction,
+      sopReference: SOP.size_standard,
+    });
+  }
+
+  // Exception rows are surfaced for human review, never auto-applied:
+  // which §121.201 exception applies depends on what the business actually
+  // does, and that is an underwriter determination.
+  if (sizeOutcome.exceptions.length > 0) {
+    checks.push(mkCheck(
+      "size_standard_exceptions",
+      "size_standard",
+      true,
+      SOP.size_standard,
+      `NAICS ${inputs.naics} has ${sizeOutcome.exceptions.length} SBA exception ` +
+        `standard(s) — confirm whether any applies: ` +
+        sizeOutcome.exceptions.map((e) => e.title).join("; "),
     ));
   }
 
@@ -434,8 +491,12 @@ export function evaluateBuddySbaEligibility(
   ));
 
   return {
+    // `passed` means "no eligibility failure found". Unresolved items do not
+    // make a deal ineligible; they block sealing separately, via the
+    // outstanding-requirements path.
     passed: failures.length === 0,
     failures,
     checks,
+    unresolved,
   };
 }

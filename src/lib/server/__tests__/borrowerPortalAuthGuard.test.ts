@@ -64,10 +64,17 @@ describe("Portal upload auth boundary", () => {
   it("portal file record route uses token auth, not Clerk", () => {
     const content = readFile("app/api/portal/[token]/files/record/route.ts");
 
-    // Must validate borrower_portal_links token
+    // Must authenticate the borrower by TOKEN. The check itself now lives in
+    // resolvePortalContext — the single resolver used by the sign route, the
+    // record route and the portal hub — which validates a portal-link token,
+    // an invite token, or an exact match against the authenticated borrower
+    // session. Routes previously hand-rolled a borrower_portal_links lookup,
+    // which rejected every self-serve /start borrower (production has zero
+    // portal-link rows), so nobody could upload a document.
     assert.ok(
-      content.includes("borrower_portal_links"),
-      "portal file record must validate against borrower_portal_links",
+      content.includes("resolvePortalContext") ||
+        content.includes("borrower_portal_links"),
+      "portal file record must authenticate the borrower by token",
     );
 
     // Must NOT import clerkAuth

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { buildGcsObjectKey, getGcsBucketName } from "@/lib/storage/gcs";
 import { createGcsV4SignedPutUrl } from "@/lib/storage/gcsSignedPutUrl";
@@ -95,29 +96,27 @@ export async function POST(req: NextRequest, ctx: Context) {
     // Verify token and get deal_id
     const sb = supabaseAdmin();
 
-    const { data: link, error: linkErr } = await sb
-      .from("borrower_portal_links")
-      .select("id, deal_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-
-    if (linkErr || !link) {
-      console.error("[borrower/portal/files/sign] invalid token", { token, linkErr });
+    // Canonical borrower auth. resolvePortalContext accepts a portal-link
+    // token, a borrower_invites token, OR an exact match against the
+    // authenticated buddy_borrower_session — which is what self-serve
+    // `/start` borrowers have. The previous raw borrower_portal_links
+    // lookup 403'd every self-serve borrower, so nobody could upload a
+    // document at all (production has zero portal-link rows).
+    let dealId: string;
+    let linkId: string | null = null;
+    try {
+      const ctx = await resolvePortalContext(token);
+      dealId = ctx.dealId;
+    } catch (error) {
+      console.error("[borrower/portal/files/sign] auth failed", {
+        reason: (error as Error).message,
+      });
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
       );
     }
 
-    // Check expiration
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json(
-        { ok: false, error: "Link expired" },
-        { status: 403 },
-      );
-    }
-
-    const dealId = link.deal_id;
     const { data: deal } = await sb
       .from("deals")
       .select("bank_id")
@@ -154,7 +153,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         dealId,
         bankId: deal.bank_id,
         source: "borrower",
-        portalLinkId: link.id,
+        portalLinkId: linkId,
       });
       uploadSessionId = created.sessionId;
       uploadSessionExpiresAt = created.expiresAt;
