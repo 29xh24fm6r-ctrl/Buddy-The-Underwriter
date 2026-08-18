@@ -192,3 +192,131 @@ test("still persists citations/verification and opens a banker task when no rese
   // CITED_NARRATIVE_FIELDS have non-empty narrative text here) → each opens a task.
   assert.equal(tables.deal_conditions?.length, 3);
 });
+
+
+test("reviewer receives exact same-run financial and management evidence", async () => {
+  let reviewPrompt = "";
+  __setProviderImplForTests("anthropic", async (request) => {
+    reviewPrompt = request.prompt;
+    return {
+      text: JSON.stringify({ issues: [] }),
+      tokensIn: 20,
+      tokensOut: 10,
+    };
+  });
+
+  const narratives = {
+    executiveSummary: "Apex is conditionally feasible based on the supplied evidence.",
+    marketDemandNarrative: "Market demand requires additional local validation.",
+    financialViabilityNarrative:
+      "Year 1 DSCR is 1.63x and downside DSCR is 0.78x.",
+    operationalReadinessNarrative:
+      "Jordan Ellis brings 17 years of industry experience.",
+    locationSuitabilityNarrative:
+      "No specific property has been selected.",
+    riskAssessment:
+      "The downside case does not cover annual debt service.",
+    recommendation:
+      "Resolve the downside coverage risk before approval.",
+    franchiseComparisonNarrative: null,
+  };
+  const tables: Record<string, Row[]> = {
+    buddy_feasibility_studies: [{
+      id: "study-1",
+      projections_package_id: "pkg-current",
+      narratives,
+      data_completeness: 0.4,
+      flags: [{ severity: "critical", dimension: "downsideResilience", message: "Downside DSCR is 0.78x." }],
+      market_demand_detail: { overallScore: 50, dataCompleteness: 0 },
+      financial_viability_detail: {
+        overallScore: 53,
+        debtServiceCoverage: { score: 90, detail: "Year 1 DSCR: 1.63x.", dataAvailable: true },
+        breakEvenMargin: { score: 80, detail: "Margin of safety: 33.9%.", dataAvailable: true },
+        downsideResilience: { score: 10, detail: "Downside DSCR: 0.78x.", dataAvailable: true },
+      },
+      operational_readiness_detail: {
+        overallScore: 78,
+        managementExperience: { score: 95, detail: "Lead operator: 17 years in industry.", dataAvailable: true },
+      },
+      location_suitability_detail: { overallScore: 48, dataCompleteness: 0 },
+    }],
+    buddy_sba_packages: [
+      {
+        id: "pkg-stale",
+        deal_id: "deal-1",
+        assumptions_id: "assumptions-stale",
+        projections_annual: [{ year: 1, dscr: 9.99, ebitda: 999999 }],
+      },
+      {
+        id: "pkg-current",
+        deal_id: "deal-1",
+        assumptions_id: "assumptions-current",
+        base_year_data: { revenue: 2400000, ebitda: 360000 },
+        projections_annual: [{
+          year: 1,
+          revenue: 2753880,
+          ebitda: 420646,
+          totalDebtService: 257634,
+          dscr: 1.6327,
+        }],
+        projections_monthly: [{ month: 1, revenue: 229490, debtService: 21469 }],
+        break_even: { breakEvenRevenue: 1819111, marginOfSafetyPct: 0.339 },
+        sensitivity_scenarios: [{ name: "Downside", dscrYear1: 0.78 }],
+        sources_and_uses: {
+          totalUses: 1000000,
+          totalSources: 1000000,
+          equityInjection: { actualAmount: 150000, actualPct: 0.15 },
+        },
+        global_cash_flow: { globalDSCR: 3 },
+        balance_sheet_projections: [{ year: 1, cash: -314068 }],
+        projections_assumptions_narrative:
+          "Projected EBITDA is $420,646 and annual debt service is $257,634.",
+      },
+    ],
+    buddy_sba_assumptions: [
+      {
+        id: "assumptions-stale",
+        deal_id: "deal-1",
+        status: "confirmed",
+        management_team: [{ name: "Stale Person", yearsInIndustry: 99 }],
+      },
+      {
+        id: "assumptions-current",
+        deal_id: "deal-1",
+        status: "confirmed",
+        confirmed_at: "2026-08-14T21:14:06.733Z",
+        revenue_streams: [{ name: "Precision machining", baseAnnualRevenue: 1800000 }],
+        cost_assumptions: { cogsPercentYear1: 0.55 },
+        working_capital: { targetDSO: 42 },
+        loan_impact: { loanAmount: 850000, equityInjectionAmount: 150000 },
+        management_team: [{
+          name: "Jordan Ellis",
+          title: "Founder and President",
+          yearsInIndustry: 17,
+          ownershipPct: 100,
+        }],
+      },
+    ],
+    buddy_research_missions: [],
+  };
+  const db = makeDb(tables);
+
+  await enrichFeasibilityStudy({
+    dealId: "deal-1",
+    bankId: "bank-1",
+    studyId: "study-1",
+    composite: baseComposite(),
+    sb: db,
+  });
+
+  assert.match(reviewPrompt, /"id": "pkg-current"/);
+  assert.match(reviewPrompt, /"dscr": 1\.6327/);
+  assert.match(reviewPrompt, /"ebitda": 420646/);
+  assert.match(reviewPrompt, /"totalDebtService": 257634/);
+  assert.match(reviewPrompt, /"dscrYear1": 0\.78/);
+  assert.match(reviewPrompt, /"actualAmount": 150000/);
+  assert.match(reviewPrompt, /"cash": -314068/);
+  assert.match(reviewPrompt, /"name": "Jordan Ellis"/);
+  assert.match(reviewPrompt, /"yearsInIndustry": 17/);
+  assert.doesNotMatch(reviewPrompt, /pkg-stale|Stale Person|9\.99/);
+});
