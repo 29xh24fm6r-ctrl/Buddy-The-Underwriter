@@ -93,6 +93,13 @@ export async function generateFeasibilityStudy(params: {
   dealId: string;
   bankId: string;
   onProgress?: FeasibilityProgressCallback;
+  /**
+   * Exact projection package this study must consume. A promise lets bundle
+   * orchestration start independent research immediately while waiting for
+   * the current run's package to finish. Omit only for standalone generation,
+   * where the latest package remains the documented behavior.
+   */
+  projectionsPackageId?: string | Promise<string>;
 }): Promise<FeasibilityResult> {
   const sb = supabaseAdmin();
   const { dealId, bankId } = params;
@@ -142,14 +149,38 @@ export async function generateFeasibilityStudy(params: {
   // data-driven scores instead of neutral defaults.
   const bieMarket = await extractBIEMarketData(dealId).catch(() => null);
 
-  // ── 4. SBA package (latest version) ────────────────────────────
-  const { data: sbaPackageRaw } = await sb
-    .from("buddy_sba_packages")
-    .select("*")
-    .eq("deal_id", dealId)
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // ── 4. SBA projection package ──────────────────────────────────
+  // Bundle callers provide the exact package created by their own run. Await
+  // it only after independent deal/research work above has already started.
+  // Standalone callers retain the documented latest-package behavior.
+  const requiredPackageId = params.projectionsPackageId
+    ? await params.projectionsPackageId
+    : null;
+  let sbaPackageRaw: unknown = null;
+  if (requiredPackageId) {
+    const { data } = await sb
+      .from("buddy_sba_packages")
+      .select("*")
+      .eq("deal_id", dealId)
+      .eq("id", requiredPackageId)
+      .maybeSingle();
+    sbaPackageRaw = data;
+    if (!sbaPackageRaw) {
+      return {
+        ok: false,
+        error: `Required projection package ${requiredPackageId} was not found for this deal`,
+      };
+    }
+  } else {
+    const { data } = await sb
+      .from("buddy_sba_packages")
+      .select("*")
+      .eq("deal_id", dealId)
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    sbaPackageRaw = data;
+  }
   const sbaPackage = (sbaPackageRaw ?? null) as SbaPackageRow | null;
 
   // ── 5. SBA assumptions (latest confirmed) ──────────────────────
@@ -597,6 +628,7 @@ export async function generateFeasibilityStudy(params: {
   return {
     ok: true,
     studyId: (study as { id?: string } | null)?.id,
+    projectionsPackageId: (sbaPackage?.id as string | undefined) ?? undefined,
     composite,
     pdfUrl: pdfUrl ?? undefined,
   };

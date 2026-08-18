@@ -116,24 +116,40 @@ export async function generateTridentBundle(args: {
     },
     async () => {
   try {
-    // Feasibility is independent of the SBA package. Start it alongside the
-    // business-plan/projections lane so the two expensive AI pipelines do not
-    // consume the route's 300-second budget serially. Capture rejection here
-    // so an early SBA failure cannot leave an unhandled promise behind.
+    // Start feasibility's independent deal/research work immediately, but
+    // give its financial phase a deferred dependency on THIS bundle's exact
+    // SBA package. This preserves concurrency without allowing a "latest row"
+    // race to bind feasibility to a prior run.
+    let resolveProjectionPackage!: (packageId: string) => void;
+    let rejectProjectionPackage!: (error: unknown) => void;
+    const projectionPackageId = new Promise<string>((resolve, reject) => {
+      resolveProjectionPackage = resolve;
+      rejectProjectionPackage = reject;
+    });
     const feasibilityGeneration = generateFeasibilityLane(sb, {
       dealId,
       bankId: deal.bank_id,
       mode,
+      projectionsPackageId: projectionPackageId,
     }).then(
       (result) => ({ result, error: null as unknown }),
       (error: unknown) => ({ result: null, error }),
     );
 
     // 1. SBA package (business plan PDF + package row).
-    const sbaResult = await generateSBAPackage(dealId, { mode });
-    if (!sbaResult.ok) {
-      throw new Error(`SBA package generation failed: ${sbaResult.error}`);
+    let sbaResult: Awaited<ReturnType<typeof generateSBAPackage>>;
+    try {
+      sbaResult = await generateSBAPackage(dealId, { mode });
+    } catch (error) {
+      rejectProjectionPackage(error);
+      throw error;
     }
+    if (!sbaResult.ok) {
+      const error = new Error(`SBA package generation failed: ${sbaResult.error}`);
+      rejectProjectionPackage(error);
+      throw error;
+    }
+    resolveProjectionPackage(sbaResult.packageId);
 
     // Audit fix (Borrower Intake Program review) — enrichBusinessPlanPackage
     // (SPEC-M8 ARTIFACT-PIPELINE-1's verifier pass) was wired into the SBA
@@ -363,17 +379,53 @@ export async function generateTridentBundle(args: {
 
 async function generateFeasibilityLane(
   sb: SupabaseClient,
-  args: { dealId: string; bankId: string; mode: TridentBundleMode },
+  args: {
+    dealId: string;
+    bankId: string;
+    mode: TridentBundleMode;
+    projectionsPackageId: Promise<string>;
+  },
 ): Promise<{ feasibilityPdfPath: string | null; sourceFeasibilityId: string | null }> {
   const feasResult = await generateFeasibilityStudy({
     dealId: args.dealId,
     bankId: args.bankId,
+    projectionsPackageId: args.projectionsPackageId,
   });
   if (!feasResult.ok) {
+    if (args.mode === "final") {
+      throw new Error(
+        `Feasibility generation failed: ${feasResult.error ?? "unknown error"}`,
+      );
+    }
     return { feasibilityPdfPath: null, sourceFeasibilityId: null };
   }
 
+  const expectedPackageId = await args.projectionsPackageId;
+  if (feasResult.projectionsPackageId !== expectedPackageId) {
+    throw new Error(
+      `Feasibility projection provenance mismatch: expected ${expectedPackageId}, received ${feasResult.projectionsPackageId ?? "none"}`,
+    );
+  }
+
   const sourceFeasibilityId = feasResult.studyId ?? null;
+  if (sourceFeasibilityId) {
+    const { data: provenanceRow, error: provenanceError } = await sb
+      .from("buddy_feasibility_studies")
+      .select("projections_package_id")
+      .eq("id", sourceFeasibilityId)
+      .maybeSingle();
+    if (provenanceError) {
+      throw new Error(
+        `Feasibility projection provenance read failed: ${provenanceError.message}`,
+      );
+    }
+    if (provenanceRow?.projections_package_id !== expectedPackageId) {
+      throw new Error(
+        `Persisted feasibility projection provenance mismatch: expected ${expectedPackageId}, received ${provenanceRow?.projections_package_id ?? "none"}`,
+      );
+    }
+  }
+
   if (args.mode === "final" && sourceFeasibilityId && feasResult.composite) {
     await enrichFeasibilityStudy({
       dealId: args.dealId,
