@@ -17,6 +17,52 @@ import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
 type SB = { from: (t: string) => any };
 
+type JsonRecord = Record<string, any>;
+
+function record(value: unknown): JsonRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
+}
+
+function pick(value: unknown, keys: string[]): JsonRecord | null {
+  const source = record(value);
+  if (!source) return null;
+  return Object.fromEntries(
+    keys.flatMap((key) =>
+      source[key] === undefined ? [] : [[key, source[key]]],
+    ),
+  );
+}
+
+function pickRows(value: unknown, keys: string[]): JsonRecord[] {
+  return Array.isArray(value)
+    ? value.flatMap((row) => {
+        const selected = pick(row, keys);
+        return selected ? [selected] : [];
+      })
+    : [];
+}
+
+function compactDimension(value: unknown): JsonRecord | null {
+  const source = record(value);
+  if (!source) return null;
+  const components = Object.fromEntries(
+    Object.entries(source).flatMap(([key, candidate]) => {
+      const component = record(candidate);
+      if (!component || typeof component.score !== "number") return [];
+      return [[
+        key,
+        pick(component, ["score", "detail", "dataAvailable", "dataSource"]),
+      ]];
+    }),
+  );
+  return {
+    ...pick(source, ["overallScore", "dataCompleteness", "flags"]),
+    components,
+  };
+}
+
 export async function enrichFeasibilityStudy(args: {
   dealId: string;
   bankId: string;
@@ -55,7 +101,7 @@ export async function enrichFeasibilityStudy(args: {
     ? await sb
         .from("buddy_sba_packages")
         .select(
-          "id, deal_id, assumptions_id, base_year_data, projections_annual, projections_monthly, break_even, sensitivity_scenarios, sources_and_uses, global_cash_flow, balance_sheet_projections, projections_assumptions_narrative",
+          "id, deal_id, assumptions_id, base_year_data, projections_annual, break_even, sensitivity_scenarios, sources_and_uses, global_cash_flow, balance_sheet_projections",
         )
         .eq("id", projectionsPackageId)
         .eq("deal_id", dealId)
@@ -92,25 +138,59 @@ export async function enrichFeasibilityStudy(args: {
       allFlags: studyRow?.flags ?? composite.allFlags,
     },
     deterministicStudy: {
-      marketDemand: studyRow?.market_demand_detail ?? null,
-      financialViability: studyRow?.financial_viability_detail ?? null,
-      operationalReadiness: studyRow?.operational_readiness_detail ?? null,
-      locationSuitability: studyRow?.location_suitability_detail ?? null,
+      marketDemand: compactDimension(studyRow?.market_demand_detail),
+      financialViability: compactDimension(
+        studyRow?.financial_viability_detail,
+      ),
+      operationalReadiness: compactDimension(
+        studyRow?.operational_readiness_detail,
+      ),
+      locationSuitability: compactDimension(
+        studyRow?.location_suitability_detail,
+      ),
     },
     projectionPackage: projectionPackage
       ? {
           id: projectionPackage.id,
           assumptionsId: projectionPackage.assumptions_id,
-          baseYear: projectionPackage.base_year_data,
-          annualProjections: projectionPackage.projections_annual,
-          monthlyProjections: projectionPackage.projections_monthly,
-          breakEven: projectionPackage.break_even,
-          sensitivityScenarios: projectionPackage.sensitivity_scenarios,
+          baseYear: pick(projectionPackage.base_year_data, [
+            "year", "revenue", "cogs", "grossProfit", "operatingExpenses",
+            "ebitda", "totalDebtService", "dscr",
+          ]),
+          annualProjections: pickRows(projectionPackage.projections_annual, [
+            "year", "revenue", "revenueGrowthPct", "cogs", "grossProfit",
+            "grossMarginPct", "operatingExpenses", "ebitda",
+            "totalDebtService", "dscr",
+          ]),
+          breakEven: pick(projectionPackage.break_even, [
+            "breakEvenRevenue", "projectedRevenueYear1",
+            "marginOfSafetyPct", "fixedCostsAnnual",
+            "contributionMarginPct", "flagLowMargin",
+          ]),
+          sensitivityScenarios: pickRows(
+            projectionPackage.sensitivity_scenarios,
+            [
+              "name", "label", "revenueYear1", "ebitdaMarginYear1",
+              "dscrYear1", "dscrYear2", "dscrYear3",
+              "revenueGrowthAdjustment", "cogsAdjustment",
+              "passesSBAThreshold",
+            ],
+          ),
           sourcesAndUses: projectionPackage.sources_and_uses,
-          globalCashFlow: projectionPackage.global_cash_flow,
-          balanceSheetProjections: projectionPackage.balance_sheet_projections,
-          assumptionsNarrative:
-            projectionPackage.projections_assumptions_narrative,
+          globalCashFlow: pick(projectionPackage.global_cash_flow, [
+            "globalDSCR", "globalCashAvailable", "globalDebtService",
+            "businessEbitda", "businessDebtService",
+            "totalPersonalIncome", "totalPersonalObligations",
+            "totalNetPersonalCash", "guarantorsWithNegativeCashFlow",
+          ]),
+          balanceSheetProjections: pickRows(
+            projectionPackage.balance_sheet_projections,
+            [
+              "year", "cash", "workingCapital", "currentRatio",
+              "debtToEquity", "totalAssets", "totalLiabilities",
+              "totalEquity", "longTermDebt",
+            ],
+          ),
         }
       : null,
     borrowerConfirmedAssumptions: confirmedAssumptions
@@ -118,11 +198,40 @@ export async function enrichFeasibilityStudy(args: {
           id: confirmedAssumptions.id,
           status: confirmedAssumptions.status,
           confirmedAt: confirmedAssumptions.confirmed_at,
-          revenueStreams: confirmedAssumptions.revenue_streams,
-          costAssumptions: confirmedAssumptions.cost_assumptions,
-          workingCapital: confirmedAssumptions.working_capital,
-          loanImpact: confirmedAssumptions.loan_impact,
-          managementTeam: confirmedAssumptions.management_team,
+          revenueStreams: pickRows(confirmedAssumptions.revenue_streams, [
+            "name", "pricingModel", "baseAnnualRevenue",
+            "growthRateYear1", "growthRateYear2", "growthRateYear3",
+          ]),
+          costAssumptions: {
+            ...pick(confirmedAssumptions.cost_assumptions, [
+              "cogsPercentYear1", "cogsPercentYear2", "cogsPercentYear3",
+            ]),
+            fixedCostCategories: pickRows(
+              confirmedAssumptions.cost_assumptions?.fixedCostCategories,
+              ["name", "annualAmount", "escalationPctPerYear"],
+            ),
+            plannedHires: pickRows(
+              confirmedAssumptions.cost_assumptions?.plannedHires,
+              ["role", "startMonth", "annualSalary"],
+            ),
+            plannedCapex: pickRows(
+              confirmedAssumptions.cost_assumptions?.plannedCapex,
+              ["year", "amount", "description"],
+            ),
+          },
+          workingCapital: pick(confirmedAssumptions.working_capital, [
+            "targetDSO", "targetDPO", "inventoryTurns",
+          ]),
+          loanImpact: pick(confirmedAssumptions.loan_impact, [
+            "loanAmount", "termMonths", "interestRate",
+            "equityInjectionAmount", "equityInjectionSource",
+            "sellerFinancingAmount", "existingDebt",
+            "revenueImpactPct", "revenueImpactStartMonth",
+            "revenueImpactDescription",
+          ]),
+          managementTeam: pickRows(confirmedAssumptions.management_team, [
+            "name", "title", "ownershipPct", "yearsInIndustry", "bio",
+          ]),
         }
       : null,
   };
