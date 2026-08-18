@@ -17,70 +17,23 @@ import type { CompositeFeasibilityScore, FeasibilityNarratives } from "./types";
 
 type SB = { from: (t: string) => any };
 
-type JsonRecord = Record<string, any>;
-
-function record(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
-}
-
-function pick(value: unknown, keys: string[]): JsonRecord {
-  const source = record(value);
-  if (!source) return {};
-  return Object.fromEntries(
-    keys.flatMap((key) =>
-      source[key] === undefined ? [] : [[key, source[key]]],
-    ),
-  );
-}
-
-function pickRows(value: unknown, keys: string[]): JsonRecord[] {
-  return Array.isArray(value)
-    ? value.flatMap((row) =>
-        record(row) ? [pick(row, keys)] : [],
-      )
-    : [];
-}
-
-function compactDimension(value: unknown): JsonRecord | null {
-  const source = record(value);
-  if (!source) return null;
-  const components = Object.fromEntries(
-    Object.entries(source).flatMap(([key, candidate]) => {
-      const component = record(candidate);
-      if (!component || typeof component.score !== "number") return [];
-      return [[
-        key,
-        pick(component, ["score", "detail", "dataAvailable", "dataSource"]),
-      ]];
-    }),
-  );
-  return {
-    ...pick(source, ["overallScore", "dataCompleteness", "flags"]),
-    components,
-  };
-}
-
 export async function enrichFeasibilityStudy(args: {
   dealId: string;
   bankId: string;
   studyId: string;
   composite: CompositeFeasibilityScore;
   sb: SB;
-}): Promise<void> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean }> {
   const { dealId, bankId, studyId, composite, sb } = args;
 
   const { data: studyRow } = await sb
     .from("buddy_feasibility_studies")
-    .select(
-      "narratives, projections_package_id, market_demand_detail, financial_viability_detail, operational_readiness_detail, location_suitability_detail, flags, data_completeness",
-    )
+    .select("narratives")
     .eq("id", studyId)
     .maybeSingle();
 
   const narratives = (studyRow?.narratives ?? null) as FeasibilityNarratives | null;
-  if (!narratives) return;
+  if (!narratives) return { verdict: null, repaired: false };
 
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
@@ -89,169 +42,20 @@ export async function enrichFeasibilityStudy(args: {
   const sections = Object.entries(narratives).flatMap(([key, text]) =>
     typeof text === "string" && text.trim() ? [{ key, text }] : [],
   );
-  // The institutional reviewer must receive the same deterministic evidence
-  // that produced the study. Supplying only summary scores causes the repair
-  // model to delete valid borrower-specific facts as "unsupported."
-  const projectionsPackageId =
-    typeof studyRow?.projections_package_id === "string"
-      ? studyRow.projections_package_id
-      : null;
-  const { data: projectionPackage } = projectionsPackageId
-    ? await sb
-        .from("buddy_sba_packages")
-        .select(
-          "id, deal_id, assumptions_id, base_year_data, projections_annual, break_even, sensitivity_scenarios, sources_and_uses, global_cash_flow, balance_sheet_projections",
-        )
-        .eq("id", projectionsPackageId)
-        .eq("deal_id", dealId)
-        .maybeSingle()
-    : { data: null };
-  const assumptionsId =
-    typeof projectionPackage?.assumptions_id === "string"
-      ? projectionPackage.assumptions_id
-      : null;
-  const { data: confirmedAssumptions } = assumptionsId
-    ? await sb
-        .from("buddy_sba_assumptions")
-        .select(
-          "id, deal_id, status, confirmed_at, revenue_streams, cost_assumptions, working_capital, loan_impact, management_team",
-        )
-        .eq("id", assumptionsId)
-        .eq("deal_id", dealId)
-        .maybeSingle()
-    : { data: null };
-
   const facts = {
-    composite: {
-      overallScore: composite.overallScore,
-      recommendation: composite.recommendation,
-      confidenceLevel: composite.confidenceLevel,
-      marketDemandScore: composite.marketDemand.score,
-      financialViabilityScore: composite.financialViability.score,
-      operationalReadinessScore: composite.operationalReadiness.score,
-      locationSuitabilityScore: composite.locationSuitability.score,
-      criticalFlags: composite.criticalFlags,
-      warningFlags: composite.warningFlags,
-      dimensionsMissingData: composite.dimensionsMissingData,
-      dataCompleteness: studyRow?.data_completeness ?? composite.overallDataCompleteness,
-      allFlags: studyRow?.flags ?? composite.allFlags,
-    },
-    deterministicStudy: {
-      marketDemand: compactDimension(studyRow?.market_demand_detail),
-      financialViability: compactDimension(
-        studyRow?.financial_viability_detail,
-      ),
-      operationalReadiness: compactDimension(
-        studyRow?.operational_readiness_detail,
-      ),
-      locationSuitability: compactDimension(
-        studyRow?.location_suitability_detail,
-      ),
-    },
-    projectionPackage: projectionPackage
-      ? {
-          id: projectionPackage.id,
-          assumptionsId: projectionPackage.assumptions_id,
-          baseYear: pick(projectionPackage.base_year_data, [
-            "year", "revenue", "cogs", "grossProfit", "operatingExpenses",
-            "ebitda", "totalDebtService", "dscr",
-          ]),
-          annualProjections: pickRows(projectionPackage.projections_annual, [
-            "year", "revenue", "revenueGrowthPct", "cogs", "grossProfit",
-            "grossMarginPct", "operatingExpenses", "ebitda",
-            "totalDebtService", "dscr",
-          ]),
-          breakEven: pick(projectionPackage.break_even, [
-            "breakEvenRevenue", "projectedRevenueYear1",
-            "marginOfSafetyPct", "fixedCostsAnnual",
-            "contributionMarginPct", "flagLowMargin",
-          ]),
-          sensitivityScenarios: pickRows(
-            projectionPackage.sensitivity_scenarios,
-            [
-              "name", "label", "revenueYear1", "ebitdaMarginYear1",
-              "dscrYear1", "dscrYear2", "dscrYear3",
-              "revenueGrowthAdjustment", "cogsAdjustment",
-              "passesSBAThreshold",
-            ],
-          ),
-          sourcesAndUses: projectionPackage.sources_and_uses,
-          globalCashFlow: pick(projectionPackage.global_cash_flow, [
-            "globalDSCR", "globalCashAvailable", "globalDebtService",
-            "businessEbitda", "businessDebtService",
-            "totalPersonalIncome", "totalPersonalObligations",
-            "totalNetPersonalCash", "guarantorsWithNegativeCashFlow",
-          ]),
-          balanceSheetProjections: pickRows(
-            projectionPackage.balance_sheet_projections,
-            [
-              "year", "cash", "workingCapital", "currentRatio",
-              "debtToEquity", "totalAssets", "totalLiabilities",
-              "totalEquity", "longTermDebt",
-            ],
-          ),
-        }
-      : null,
-    borrowerConfirmedAssumptions: confirmedAssumptions
-      ? {
-          id: confirmedAssumptions.id,
-          status: confirmedAssumptions.status,
-          confirmedAt: confirmedAssumptions.confirmed_at,
-          revenueStreams: pickRows(confirmedAssumptions.revenue_streams, [
-            "name", "pricingModel", "baseAnnualRevenue",
-            "growthRateYear1", "growthRateYear2", "growthRateYear3",
-          ]),
-          costAssumptions: {
-            ...pick(confirmedAssumptions.cost_assumptions, [
-              "cogsPercentYear1", "cogsPercentYear2", "cogsPercentYear3",
-            ]),
-            fixedCostCategories: pickRows(
-              confirmedAssumptions.cost_assumptions?.fixedCostCategories,
-              ["name", "annualAmount", "escalationPctPerYear"],
-            ),
-            plannedHires: pickRows(
-              confirmedAssumptions.cost_assumptions?.plannedHires,
-              ["role", "startMonth", "annualSalary"],
-            ),
-            plannedCapex: pickRows(
-              confirmedAssumptions.cost_assumptions?.plannedCapex,
-              ["year", "amount", "description"],
-            ),
-          },
-          workingCapital: pick(confirmedAssumptions.working_capital, [
-            "targetDSO", "targetDPO", "inventoryTurns",
-          ]),
-          loanImpact: pick(confirmedAssumptions.loan_impact, [
-            "loanAmount", "termMonths", "interestRate",
-            "equityInjectionAmount", "equityInjectionSource",
-            "sellerFinancingAmount", "existingDebt",
-            "revenueImpactPct", "revenueImpactStartMonth",
-            "revenueImpactDescription",
-          ]),
-          managementTeam: pickRows(confirmedAssumptions.management_team, [
-            "name", "title", "ownershipPct", "yearsInIndustry", "bio",
-          ]),
-        }
-      : null,
+    overallScore: composite.overallScore,
+    recommendation: composite.recommendation,
+    confidenceLevel: composite.confidenceLevel,
+    marketDemandScore: composite.marketDemand.score,
+    financialViabilityScore: composite.financialViability.score,
+    operationalReadinessScore: composite.operationalReadiness.score,
+    locationSuitabilityScore: composite.locationSuitability.score,
+    criticalFlags: composite.criticalFlags,
+    warningFlags: composite.warningFlags,
+    dimensionsMissingData: composite.dimensionsMissingData,
   };
-  // Keep the evidence boundary comfortably below the synchronous review
-  // budget. This is a fail-fast invariant, not a license to silently discard
-  // calculations: the curated contract above contains every decision-material
-  // figure and explicitly excludes high-volume monthly detail.
-  const serializedFacts = JSON.stringify(facts);
-  const maxEvidenceCharacters = 24_000;
-  if (serializedFacts.length > maxEvidenceCharacters) {
-    throw new Error(
-      `Feasibility review evidence exceeds ${maxEvidenceCharacters} characters (${serializedFacts.length})`,
-    );
-  }
-
   const finished = await finishInstitutionalArtifact({
-    artifactType: "feasibility",
-    facts: serializedFacts,
-    sections,
-    dealId,
-    npiTagged: true,
+    artifactType: "feasibility", facts, sections, dealId, npiTagged: true,
   });
   await persistArtifactFlags({
     dealId, bankId, artifactType: "feasibility", sectionKey: "narratives",
@@ -270,4 +74,5 @@ export async function enrichFeasibilityStudy(args: {
       verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", studyId);
+  return { verdict: finished.verdict, repaired: finished.repaired };
 }

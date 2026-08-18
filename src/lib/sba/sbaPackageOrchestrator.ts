@@ -4,9 +4,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { validateSBAAssumptions } from "./sbaAssumptionsValidator";
 import {
   buildBaseYear,
+  buildAnnualProjections,
+  buildMonthlyProjections,
+  buildRevenueStreamProjections,
+  computeBreakEven,
+  buildSensitivityScenarios,
   buildUseOfProceeds,
 } from "./sbaForwardModelBuilder";
-import { computeSBAProjectionModel } from "./sbaProjectionAuthority";
 import { calculateSBAGuarantee, detectSBAProgram } from "./sbaGuarantee";
 import {
   detectNewBusinessFromFacts,
@@ -28,7 +32,7 @@ import {
   generateRiskContingencyMatrix,
 } from "./sbaBusinessPlanRoadmap";
 import { loadBorrowerStory } from "./sbaBorrowerStory";
-import { renderSBAPackagePDF } from "./sbaPackageRenderer";
+import { renderSBAPackagePDF, type SBAPackageRenderInput } from "./sbaPackageRenderer";
 import {
   redactSBAPackageForPreview,
   type SBAPackageInputs,
@@ -64,6 +68,7 @@ export async function generateSBAPackage(
       dscrYear1Base: number;
       pdfUrl: string | null;
       versionNumber: number;
+      renderInput: SBAPackageRenderInput;
     }
   | { ok: false; error: string; blockers?: string[] }
 > {
@@ -273,21 +278,24 @@ export async function generateSBAPackage(
     existingDebtServiceAnnual: ads,
   });
 
-  // One versioned authority computes every borrower-facing SBA projection.
-  // Artifacts consume this immutable model; they do not invoke individual
-  // calculators or recompute financial values.
-  const projectionModel = computeSBAProjectionModel({
+  // Run model passes
+  const annualProjections = buildAnnualProjections(assumptions, baseYear);
+  const monthlyProjections = buildMonthlyProjections(
     assumptions,
-    baseYear,
-    projectedDscrThreshold,
-  });
-  const {
+    annualProjections[0],
+  );
+  // Per-stream Y1–Y3 revenue. Used by the renderer to emit a stream-by-
+  // stream breakdown table and by the narrative to describe each stream
+  // individually. Sum of stream.revenueYearN equals annualProjections[N-1].revenue
+  // by construction (shared formula).
+  const revenueStreamProjections =
+    buildRevenueStreamProjections(assumptions);
+  const breakEven = computeBreakEven(assumptions, annualProjections[0]);
+  const sensitivityScenarios = buildSensitivityScenarios(
+    assumptions,
     annualProjections,
-    monthlyProjections,
-    revenueStreamProjections,
-    breakEven,
-    sensitivityScenarios,
-  } = projectionModel;
+    projectedDscrThreshold,
+  );
 
   // Use of proceeds
   const { data: proceedsItems } = await sb
@@ -326,8 +334,7 @@ export async function generateSBAPackage(
   const dscrBelowThreshold =
     dscrYear1Base < projectedDscrThreshold ||
     dscrYear2Base < projectedDscrThreshold ||
-    dscrYear3Base < projectedDscrThreshold ||
-    dscrYear1Downside < projectedDscrThreshold;
+    dscrYear3Base < projectedDscrThreshold;
 
   // Phase BPG — borrower_applications supplies naics/industry/ein (deals
   // does not carry these columns in this schema).
@@ -754,29 +761,18 @@ export async function generateSBAPackage(
   // section must never fail the whole package" convention as the
   // franchise-section lookup directly above.
   //
-  // The narrative receives the exact versioned projection facts used by this
-  // package. It must never load or calculate a second DSCR model.
+  // Deliberately NOT added to verifyBusinessPlanPackage.ts's narrative
+  // section list: that verifier checks narrative text against THIS
+  // package's dscr_year1_base/dscr_year2_base (sbaForwardModelBuilder's
+  // figures), whereas this narrative describes the methodology-slate DSCR
+  // from src/lib/methodology/projectDscrForVariant.ts — a distinct model.
+  // Cross-checking against the wrong set of facts would manufacture false
+  // "mismatch" flags; this narrative already gets its own correct verifier
+  // pass internally, against its own facts.
   let projectionsAssumptionsNarrative: string | null = null;
   try {
     if (deal?.bank_id) {
-      const year1Projection = annualProjections[0];
-      const projectionsResult = await generateProjectionsAssumptionsNarrative(
-        dealId,
-        deal.bank_id,
-        sb,
-        {
-          engineVersion: projectionModel.engineVersion,
-          methodologySlate: "borrower_confirmed_sba_assumptions",
-          formType: "SBA_FORWARD_MODEL",
-          projectedEbitda: year1Projection?.ebitda ?? 0,
-          projectedOfficerCompAddback: null,
-          projectedNcads: year1Projection?.ebitda ?? 0,
-          proposedAnnualDebtService: year1Projection?.totalDebtService ?? 0,
-          projectedDscr: year1Projection?.dscr ?? 0,
-          components:
-            "Projected EBITDA and total annual debt service from the authoritative SBA projection model.",
-        },
-      );
+      const projectionsResult = await generateProjectionsAssumptionsNarrative(dealId, deal.bank_id, sb);
       if (projectionsResult.status === "ready") {
         projectionsAssumptionsNarrative = projectionsResult.narrative;
       }
@@ -794,6 +790,7 @@ export async function generateSBAPackage(
   // overlay. The PDF contains no precise borrower numbers regardless of the
   // watermark — if someone removes it, the document is still preview-shaped.
   let pdfUrl: string | null = null;
+  let finalRenderInput: SBAPackageRenderInput | null = null;
   try {
     const redactionInput: SBAPackageInputs = {
       dealName: deal?.name ?? "Borrower",
@@ -844,7 +841,7 @@ export async function generateSBAPackage(
     // sensitivityScenarios, managementTeam, franchiseSection, balance sheet,
     // globalCashFlow) as-is. Preview mode for those additional fields is
     // handled by the watermark and by the redactor's scoped set.
-    const pdfBuffer = await renderSBAPackagePDF({
+    finalRenderInput = {
       dealName: redacted.dealName,
       loanType: redacted.loanType,
       loanAmount: redacted.loanAmount,
@@ -883,7 +880,8 @@ export async function generateSBAPackage(
       balanceSheetProjections: mode === "preview" ? undefined : balanceSheetProjections,
       globalCashFlow: mode === "preview" ? undefined : globalCashFlow,
       previewWatermark: mode === "preview",
-    });
+    };
+    const pdfBuffer = await renderSBAPackagePDF(finalRenderInput);
 
     const previewSuffix = mode === "preview" ? "_preview" : "";
     const pdfPath = `sba-packages/${dealId}/${Date.now()}${previewSuffix}.pdf`;
@@ -1008,6 +1006,10 @@ export async function generateSBAPackage(
     );
   }
 
+  if (!finalRenderInput) {
+    return { ok: false, error: "SBA package renderer input could not be assembled" };
+  }
+
   return {
     ok: true,
     packageId: pkg?.id ?? "",
@@ -1015,5 +1017,6 @@ export async function generateSBAPackage(
     dscrYear1Base,
     pdfUrl,
     versionNumber: nextVersionNumber,
+    renderInput: finalRenderInput,
   };
 }

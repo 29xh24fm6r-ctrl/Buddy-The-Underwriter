@@ -20,6 +20,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
 import { enrichBusinessPlanPackage } from "@/lib/sba/enrichBusinessPlanPackage";
+import { renderSBAPackagePDF } from "@/lib/sba/sbaPackageRenderer";
 import { hashPackageNarratives, getBusinessPlanAttestationStatus } from "@/lib/sba/businessPlanAttestation";
 import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
 import { enrichFeasibilityStudy } from "@/lib/feasibility/enrichFeasibilityStudy";
@@ -35,6 +36,9 @@ import {
   assessFeasibilityNarratives,
 } from "./narrativeAcceptance";
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
+import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
+import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
+import { evaluateTridentRelease } from "./tridentReleaseGate";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -116,40 +120,11 @@ export async function generateTridentBundle(args: {
     },
     async () => {
   try {
-    // Start feasibility's independent deal/research work immediately, but
-    // give its financial phase a deferred dependency on THIS bundle's exact
-    // SBA package. This preserves concurrency without allowing a "latest row"
-    // race to bind feasibility to a prior run.
-    let resolveProjectionPackage!: (packageId: string) => void;
-    let rejectProjectionPackage!: (error: unknown) => void;
-    const projectionPackageId = new Promise<string>((resolve, reject) => {
-      resolveProjectionPackage = resolve;
-      rejectProjectionPackage = reject;
-    });
-    const feasibilityGeneration = generateFeasibilityLane(sb, {
-      dealId,
-      bankId: deal.bank_id,
-      mode,
-      projectionsPackageId: projectionPackageId,
-    }).then(
-      (result) => ({ result, error: null as unknown }),
-      (error: unknown) => ({ result: null, error }),
-    );
-
     // 1. SBA package (business plan PDF + package row).
-    let sbaResult: Awaited<ReturnType<typeof generateSBAPackage>>;
-    try {
-      sbaResult = await generateSBAPackage(dealId, { mode });
-    } catch (error) {
-      rejectProjectionPackage(error);
-      throw error;
-    }
+    const sbaResult = await generateSBAPackage(dealId, { mode });
     if (!sbaResult.ok) {
-      const error = new Error(`SBA package generation failed: ${sbaResult.error}`);
-      rejectProjectionPackage(error);
-      throw error;
+      throw new Error(`SBA package generation failed: ${sbaResult.error}`);
     }
-    resolveProjectionPackage(sbaResult.packageId);
 
     // Audit fix (Borrower Intake Program review) — enrichBusinessPlanPackage
     // (SPEC-M8 ARTIFACT-PIPELINE-1's verifier pass) was wired into the SBA
@@ -160,18 +135,23 @@ export async function generateTridentBundle(args: {
     // with zero AI fact-checking. Best-effort, non-fatal — matches the
     // sba/route.ts call site exactly: the package itself already generated
     // successfully by this point.
+    let businessPlanVerification: Awaited<ReturnType<typeof enrichBusinessPlanPackage>> | null = null;
     try {
-      await enrichBusinessPlanPackage({
+      businessPlanVerification = await enrichBusinessPlanPackage({
         dealId,
         bankId: deal.bank_id,
         packageId: sbaResult.packageId,
         sb,
       });
     } catch (enrichErr) {
-      console.error("[generateTridentBundle] business-plan verification failed (non-fatal):", enrichErr);
+      if (mode === "final") throw enrichErr;
+      console.error("[generateTridentBundle] business-plan verification failed (preview only):", enrichErr);
     }
 
     if (mode === "final") {
+      if (businessPlanVerification?.verdict !== "pass") {
+        throw new Error("Business-plan institutional review did not pass; final publication blocked");
+      }
       const { data: narrativeRow, error: narrativeReadError } = await sb
         .from("buddy_sba_packages")
         .select(
@@ -193,9 +173,43 @@ export async function generateTridentBundle(args: {
       }
     }
 
+    let reviewedBusinessPlanSource = sbaResult.pdfUrl;
+    if (mode === "final") {
+      const { data: reviewedNarratives, error: reviewedNarrativesError } = await sb
+        .from("buddy_sba_packages")
+        .select(
+          "business_overview_narrative,executive_summary,industry_analysis,marketing_strategy,operations_plan," +
+            "swot_strengths,swot_weaknesses,swot_opportunities,swot_threats,sensitivity_narrative,franchise_section",
+        )
+        .eq("id", sbaResult.packageId)
+        .single();
+      if (reviewedNarrativesError || !reviewedNarratives) {
+        throw new Error(`Reviewed business-plan render read failed: ${reviewedNarrativesError?.message ?? "missing row"}`);
+      }
+      const reviewed = reviewedNarratives as unknown as Record<string, string | null>;
+      const reviewedBuffer = await renderSBAPackagePDF({
+        ...sbaResult.renderInput,
+        businessOverviewNarrative: reviewed.business_overview_narrative ?? "",
+        executiveSummary: reviewed.executive_summary ?? undefined,
+        industryAnalysis: reviewed.industry_analysis ?? undefined,
+        marketingStrategy: reviewed.marketing_strategy ?? undefined,
+        operationsPlan: reviewed.operations_plan ?? undefined,
+        swotStrengths: reviewed.swot_strengths ?? undefined,
+        swotWeaknesses: reviewed.swot_weaknesses ?? undefined,
+        swotOpportunities: reviewed.swot_opportunities ?? undefined,
+        swotThreats: reviewed.swot_threats ?? undefined,
+        sensitivityNarrative: reviewed.sensitivity_narrative ?? "",
+        franchiseSection: reviewed.franchise_section ?? undefined,
+      });
+      reviewedBusinessPlanSource = await uploadReviewedPdf(sb, {
+        dealId, artifact: "business_plan", buffer: reviewedBuffer,
+      });
+      await sb.from("buddy_sba_packages").update({ pdf_url: reviewedBusinessPlanSource }).eq("id", sbaResult.packageId);
+    }
+
     const businessPlanPath = await copyToTridentBucket(sb, {
       sourceBucket: "deal-documents",
-      sourcePath: sbaResult.pdfUrl,
+      sourcePath: reviewedBusinessPlanSource,
       dealId,
       mode,
       artifact: "business_plan",
@@ -306,21 +320,148 @@ export async function generateTridentBundle(args: {
       }
     }
 
-    // 3. Join the independently running feasibility lane. Generation,
-    // institutional review, acceptance, rendering, and copy all began at the
-    // start of the bundle instead of waiting behind the SBA lane.
+    // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
     let sourceFeasibilityId: string | null = null;
-    const feasibilityOutcome = await feasibilityGeneration;
-    if (feasibilityOutcome.error) {
-      if (mode === "final") throw feasibilityOutcome.error;
-      console.warn("[trident] feasibility render failed (non-fatal):", feasibilityOutcome.error);
-    } else if (feasibilityOutcome.result) {
-      feasibilityPdfPath = feasibilityOutcome.result.feasibilityPdfPath;
-      sourceFeasibilityId = feasibilityOutcome.result.sourceFeasibilityId;
+    try {
+      const feasResult = await generateFeasibilityStudy({
+        dealId,
+        bankId: deal.bank_id,
+      });
+      if (feasResult.ok) {
+        sourceFeasibilityId = feasResult.studyId ?? null;
+        if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
+          const feasibilityVerification = await enrichFeasibilityStudy({
+            dealId,
+            bankId: deal.bank_id,
+            studyId: sourceFeasibilityId,
+            composite: feasResult.composite,
+            sb,
+          });
+          if (feasibilityVerification.verdict !== "pass") {
+            throw new Error("Feasibility institutional review did not pass; final publication blocked");
+          }
+        }
+        if (mode === "final" && sourceFeasibilityId) {
+          const { data: feasibilityRow, error: feasibilityReadError } = await sb
+            .from("buddy_feasibility_studies")
+            .select("narratives")
+            .eq("id", sourceFeasibilityId)
+            .maybeSingle();
+          if (feasibilityReadError) {
+            throw new Error(`Feasibility narrative acceptance read failed: ${feasibilityReadError.message}`);
+          }
+          const acceptance = assessFeasibilityNarratives(
+            (feasibilityRow?.narratives as Record<string, unknown> | null) ?? null,
+          );
+          if (!acceptance.ok) {
+            throw new Error(
+              `Feasibility narrative acceptance failed: ${acceptance.substantive}/${acceptance.required} required sections are substantive`,
+            );
+          }
+        }
+        if (mode === "final" && sourceFeasibilityId && feasResult.renderInput) {
+          const { data: reviewedStudy, error: reviewedStudyError } = await sb
+            .from("buddy_feasibility_studies")
+            .select("narratives")
+            .eq("id", sourceFeasibilityId)
+            .single();
+          if (reviewedStudyError || !reviewedStudy?.narratives) {
+            throw new Error(`Reviewed feasibility render read failed: ${reviewedStudyError?.message ?? "missing narratives"}`);
+          }
+          const reviewedBuffer = await renderFeasibilityPDF({
+            ...feasResult.renderInput,
+            narratives: reviewedStudy.narratives as any,
+          });
+          const reviewedFeasibilitySource = await uploadReviewedPdf(sb, {
+            dealId, artifact: "feasibility", buffer: reviewedBuffer,
+          });
+          await sb.from("buddy_feasibility_studies").update({ pdf_url: reviewedFeasibilitySource }).eq("id", sourceFeasibilityId);
+          feasibilityPdfPath = await copyToTridentBucket(sb, {
+            sourceBucket: "deal-documents",
+            sourcePath: reviewedFeasibilitySource,
+            dealId,
+            mode,
+            artifact: "feasibility",
+            ext: "pdf",
+          });
+        } else if (mode === "preview" && sourceFeasibilityId) {
+          feasibilityPdfPath = await renderFeasibilityPreview(sb, {
+            studyId: sourceFeasibilityId,
+            dealId,
+          });
+        }
+      }
+    } catch (feasErr) {
+      if (mode === "final") throw feasErr;
+      console.warn("[trident] feasibility render failed (non-fatal):", feasErr);
     }
 
-    // 4. Supersede prior current succeeded bundle for this (deal, mode),
+    // 4. Bind a final release to the exact memo, spread, and reviewed
+    // artifacts from this run. Preview remains intentionally non-release.
+    let releaseManifest: Record<string, unknown> | null = null;
+    let sourceCreditMemoId: string | null = null;
+    let sourceSpreadId: string | null = null;
+    let canonicalMemoInputHash: string | null = null;
+    if (mode === "final") {
+      canonicalMemoInputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, dealId));
+      const [{ data: releasePkg }, { data: releaseFeasibility }, { data: releaseMemo }, { data: releaseSpread }] = await Promise.all([
+        sb.from("buddy_sba_packages")
+          .select("verification_verdict,projections_assumptions_narrative,sources_and_uses")
+          .eq("id", sbaResult.packageId).single(),
+        sb.from("buddy_feasibility_studies")
+          .select("verification_verdict,data_completeness,narrative_citations")
+          .eq("id", sourceFeasibilityId).single(),
+        sb.from("canonical_memo_narratives")
+          .select("id,input_hash,research_trust_grade")
+          .eq("deal_id", dealId).eq("bank_id", deal.bank_id)
+          .eq("input_hash", canonicalMemoInputHash).limit(1).maybeSingle(),
+        sb.from("deal_spreads")
+          .select("id,status,rendered_json")
+          .eq("deal_id", dealId).eq("bank_id", deal.bank_id)
+          .eq("spread_type", "CLASSIC_PDF")
+          .order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      const citationEntries = releaseFeasibility?.narrative_citations && typeof releaseFeasibility.narrative_citations === "object"
+        ? Object.values(releaseFeasibility.narrative_citations as Record<string, unknown>) : [];
+      const citationCount = citationEntries.filter((entry) => {
+        const value = entry as { precise?: unknown; urls?: unknown } | null;
+        return value?.precise === true && Array.isArray(value.urls) && value.urls.length > 0;
+      }).length;
+      const spreadPayload = releaseSpread?.rendered_json as Record<string, unknown> | null;
+      const gate = evaluateTridentRelease({
+        businessPlanVerdict: releasePkg?.verification_verdict,
+        feasibilityVerdict: releaseFeasibility?.verification_verdict,
+        feasibilityCompleteness: releaseFeasibility?.data_completeness,
+        feasibilityCitationCount: citationCount,
+        projectionsNarrative: releasePkg?.projections_assumptions_narrative,
+        sourcesAndUses: releasePkg?.sources_and_uses,
+        memoId: releaseMemo?.id ?? null,
+        memoInputHash: releaseMemo?.input_hash ?? null,
+        expectedMemoInputHash: canonicalMemoInputHash,
+        memoResearchTrustGrade: releaseMemo?.research_trust_grade ?? null,
+        spreadId: releaseSpread?.id ?? null,
+        spreadReady: releaseSpread?.status === "ready",
+        spreadHasIntegrityHash: Boolean(spreadPayload?.pdf_sha256),
+        spreadHasCanonicalFactsTimestamp: Boolean(spreadPayload?.canonicalFactsTimestamp),
+        artifactPaths: [businessPlanPath, projectionsXlsxPath, feasibilityPdfPath],
+      });
+      releaseManifest = {
+        ...gate,
+        evaluated_at: new Date().toISOString(),
+        source_sba_package_id: sbaResult.packageId,
+        source_feasibility_id: sourceFeasibilityId,
+        source_credit_memo_id: releaseMemo?.id ?? null,
+        source_spread_id: releaseSpread?.id ?? null,
+        canonical_memo_input_hash: canonicalMemoInputHash,
+      };
+      await sb.from("buddy_trident_bundles").update({ release_gate_json: releaseManifest }).eq("id", bundleId);
+      if (!gate.ok) throw new Error(`Golden Trident release blocked: ${gate.reasons.join(", ")}`);
+      sourceCreditMemoId = releaseMemo?.id ?? null;
+      sourceSpreadId = releaseSpread?.id ?? null;
+    }
+
+    // 5. Supersede prior current succeeded bundle for this (deal, mode),
     //    then mark this one succeeded. Partial unique index is the
     //    integrity guarantee; this sequence keeps it satisfied.
     await sb
@@ -345,6 +486,10 @@ export async function generateTridentBundle(args: {
         source_feasibility_id: sourceFeasibilityId,
         business_plan_attested: businessPlanAttested,
         business_plan_attested_at: businessPlanAttested ? new Date().toISOString() : null,
+        source_credit_memo_id: sourceCreditMemoId,
+        source_spread_id: sourceSpreadId,
+        canonical_memo_input_hash: canonicalMemoInputHash,
+        release_gate_json: releaseManifest,
       })
       .eq("id", bundleId);
 
@@ -377,102 +522,17 @@ export async function generateTridentBundle(args: {
   );
 }
 
-async function generateFeasibilityLane(
+async function uploadReviewedPdf(
   sb: SupabaseClient,
-  args: {
-    dealId: string;
-    bankId: string;
-    mode: TridentBundleMode;
-    projectionsPackageId: Promise<string>;
-  },
-): Promise<{ feasibilityPdfPath: string | null; sourceFeasibilityId: string | null }> {
-  const feasResult = await generateFeasibilityStudy({
-    dealId: args.dealId,
-    bankId: args.bankId,
-    projectionsPackageId: args.projectionsPackageId,
+  args: { dealId: string; artifact: string; buffer: Buffer },
+): Promise<string> {
+  const path = `${args.artifact === "business_plan" ? "sba-packages" : "feasibility-studies"}/${args.dealId}/${Date.now()}_reviewed.pdf`;
+  const { error } = await sb.storage.from("deal-documents").upload(path, args.buffer, {
+    contentType: "application/pdf",
+    upsert: true,
   });
-  if (!feasResult.ok) {
-    if (args.mode === "final") {
-      throw new Error(
-        `Feasibility generation failed: ${feasResult.error ?? "unknown error"}`,
-      );
-    }
-    return { feasibilityPdfPath: null, sourceFeasibilityId: null };
-  }
-
-  const expectedPackageId = await args.projectionsPackageId;
-  if (feasResult.projectionsPackageId !== expectedPackageId) {
-    throw new Error(
-      `Feasibility projection provenance mismatch: expected ${expectedPackageId}, received ${feasResult.projectionsPackageId ?? "none"}`,
-    );
-  }
-
-  const sourceFeasibilityId = feasResult.studyId ?? null;
-  if (sourceFeasibilityId) {
-    const { data: provenanceRow, error: provenanceError } = await sb
-      .from("buddy_feasibility_studies")
-      .select("projections_package_id")
-      .eq("id", sourceFeasibilityId)
-      .maybeSingle();
-    if (provenanceError) {
-      throw new Error(
-        `Feasibility projection provenance read failed: ${provenanceError.message}`,
-      );
-    }
-    if (provenanceRow?.projections_package_id !== expectedPackageId) {
-      throw new Error(
-        `Persisted feasibility projection provenance mismatch: expected ${expectedPackageId}, received ${provenanceRow?.projections_package_id ?? "none"}`,
-      );
-    }
-  }
-
-  if (args.mode === "final" && sourceFeasibilityId && feasResult.composite) {
-    await enrichFeasibilityStudy({
-      dealId: args.dealId,
-      bankId: args.bankId,
-      studyId: sourceFeasibilityId,
-      composite: feasResult.composite,
-      sb,
-    });
-  }
-
-  if (args.mode === "final" && sourceFeasibilityId) {
-    const { data: feasibilityRow, error: feasibilityReadError } = await sb
-      .from("buddy_feasibility_studies")
-      .select("narratives")
-      .eq("id", sourceFeasibilityId)
-      .maybeSingle();
-    if (feasibilityReadError) {
-      throw new Error(`Feasibility narrative acceptance read failed: ${feasibilityReadError.message}`);
-    }
-    const acceptance = assessFeasibilityNarratives(
-      (feasibilityRow?.narratives as Record<string, unknown> | null) ?? null,
-    );
-    if (!acceptance.ok) {
-      throw new Error(
-        `Feasibility narrative acceptance failed: ${acceptance.substantive}/${acceptance.required} required sections are substantive`,
-      );
-    }
-  }
-
-  let feasibilityPdfPath: string | null = null;
-  if (args.mode === "final" && feasResult.pdfUrl) {
-    feasibilityPdfPath = await copyToTridentBucket(sb, {
-      sourceBucket: "deal-documents",
-      sourcePath: feasResult.pdfUrl,
-      dealId: args.dealId,
-      mode: args.mode,
-      artifact: "feasibility",
-      ext: "pdf",
-    });
-  } else if (args.mode === "preview" && sourceFeasibilityId) {
-    feasibilityPdfPath = await renderFeasibilityPreview(sb, {
-      studyId: sourceFeasibilityId,
-      dealId: args.dealId,
-    });
-  }
-
-  return { feasibilityPdfPath, sourceFeasibilityId };
+  if (error) throw new Error(`Reviewed ${args.artifact} PDF upload failed: ${error.message}`);
+  return path;
 }
 
 async function copyToTridentBucket(

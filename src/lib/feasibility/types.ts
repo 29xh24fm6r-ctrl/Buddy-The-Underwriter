@@ -265,8 +265,7 @@ export interface FeasibilityResult {
   ok: boolean;
   error?: string;
   studyId?: string;
-  /** Exact SBA projection package consumed by this study. */
-  projectionsPackageId?: string;
   composite?: CompositeFeasibilityScore;
   pdfUrl?: string;
+  renderInput?: import("./feasibilityRenderer").FeasibilityRenderInput;
 }

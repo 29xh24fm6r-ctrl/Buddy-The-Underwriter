@@ -23,9 +23,7 @@ type SB = { from: (t: string) => any };
 
 const PACKAGE_COLUMNS =
   "dscr_year1_base, dscr_year2_base, dscr_year3_base, dscr_year1_downside, dscr_below_threshold, " +
-  "break_even_revenue, margin_of_safety_pct, use_of_proceeds, sources_and_uses, " +
-  "projections_annual, projections_monthly, sensitivity_scenarios, balance_sheet_projections, " +
-  "projections_assumptions_narrative, base_year_data, business_overview_narrative, " +
+  "break_even_revenue, margin_of_safety_pct, use_of_proceeds, business_overview_narrative, " +
   "executive_summary, industry_analysis, marketing_strategy, operations_plan, swot_strengths, " +
   "swot_weaknesses, swot_opportunities, swot_threats, sensitivity_narrative, plan_thesis, " +
   // Audit fix (Borrower Intake Program review): franchise_section was
@@ -38,7 +36,7 @@ export async function enrichBusinessPlanPackage(args: {
   bankId: string;
   packageId: string;
   sb: SB;
-}): Promise<void> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean }> {
   const { dealId, bankId, packageId, sb } = args;
 
   const { data: pkg } = await sb
@@ -47,7 +45,7 @@ export async function enrichBusinessPlanPackage(args: {
     .eq("id", packageId)
     .maybeSingle();
 
-  if (!pkg) return;
+  if (!pkg) return { verdict: null, repaired: false };
 
   const typed = pkg as BusinessPlanPackageForVerify;
   const narrativeKeys = [
@@ -65,7 +63,7 @@ export async function enrichBusinessPlanPackage(args: {
       verification_verdict: null,
       verification_flagged_claims: null,
     }).eq("id", packageId);
-    return;
+    return { verdict: null, repaired: false };
   }
 
   const facts = {
@@ -77,13 +75,6 @@ export async function enrichBusinessPlanPackage(args: {
     break_even_revenue: typed.break_even_revenue,
     margin_of_safety_pct: typed.margin_of_safety_pct,
     use_of_proceeds: typed.use_of_proceeds,
-    sources_and_uses: typed.sources_and_uses,
-    projections_annual: typed.projections_annual,
-    projections_monthly: typed.projections_monthly,
-    sensitivity_scenarios: typed.sensitivity_scenarios,
-    balance_sheet_projections: typed.balance_sheet_projections,
-    projections_assumptions_narrative: typed.projections_assumptions_narrative,
-    base_year_data: typed.base_year_data,
   };
   const finished = await finishInstitutionalArtifact({
     artifactType: "business_plan", facts, sections, dealId, npiTagged: true,
@@ -102,4 +93,5 @@ export async function enrichBusinessPlanPackage(args: {
       verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", packageId);
+  return { verdict: finished.verdict, repaired: finished.repaired };
 }
