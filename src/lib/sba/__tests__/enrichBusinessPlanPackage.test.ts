@@ -157,6 +157,52 @@ test("gives the institutional verifier the projection and sources-and-uses truth
   assert.match(providerInput, /150[,.]?000/);
 });
 
+test("gives the verifier borrower-confirmed management, staffing, and ramp assumptions", async () => {
+  let providerInput = "";
+  __setProviderImplForTests("anthropic", async (input: any) => {
+    providerInput = JSON.stringify(input);
+    return { text: JSON.stringify({ issues: [] }), tokensIn: 20, tokensOut: 10 };
+  });
+  const tables: Record<string, Row[]> = {
+    buddy_sba_packages: [basePkgRow({ executive_summary: "Jordan Ellis leads the second-shift expansion." })],
+    buddy_sba_assumptions: [{
+      deal_id: "deal-1",
+      status: "confirmed",
+      confirmed_at: "2026-08-14T21:14:06.733Z",
+      revenue_streams: [{ name: "Precision machining", baseAnnualRevenue: 1_800_000 }],
+      cost_assumptions: { plannedHires: [{ role: "CNC operator", startMonth: 4, annualSalary: 65_000 }] },
+      working_capital: { targetDSO: 42 },
+      loan_impact: { revenueImpactStartMonth: 4, revenueImpactPct: 0.08 },
+      management_team: [{ name: "Jordan Ellis", yearsInIndustry: 17 }],
+    }],
+  };
+
+  await enrichBusinessPlanPackage({ dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) });
+
+  assert.match(providerInput, /Jordan Ellis/);
+  assert.match(providerInput, /CNC operator/);
+  assert.match(providerInput, /65000/);
+  assert.match(providerInput, /revenueImpactStartMonth/);
+});
+
+test("does not treat unconfirmed assumptions as immutable review evidence", async () => {
+  let providerInput = "";
+  __setProviderImplForTests("anthropic", async (input: any) => {
+    providerInput = JSON.stringify(input);
+    return { text: JSON.stringify({ issues: [] }), tokensIn: 20, tokensOut: 10 };
+  });
+  const tables: Record<string, Row[]> = {
+    buddy_sba_packages: [basePkgRow({ executive_summary: "A decision-useful summary." })],
+    buddy_sba_assumptions: [{
+      deal_id: "deal-1", status: "draft", management_team: [{ name: "Unconfirmed Person" }],
+    }],
+  };
+
+  await enrichBusinessPlanPackage({ dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) });
+
+  assert.doesNotMatch(providerInput, /Unconfirmed Person/);
+});
+
 test("leaves verification columns null when the package has no real narrative content", async () => {
   const tables: Record<string, Row[]> = { buddy_sba_packages: [basePkgRow()] };
   const db = makeDb(tables);
