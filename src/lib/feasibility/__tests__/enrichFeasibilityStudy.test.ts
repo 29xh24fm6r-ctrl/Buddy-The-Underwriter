@@ -314,14 +314,14 @@ test("reviewer receives exact same-run financial and management evidence", async
     sb: db,
   });
 
-  assert.match(reviewPrompt, /"id": "pkg-current"/);
-  assert.match(reviewPrompt, /"dscr": 1\.6327/);
-  assert.match(reviewPrompt, /"ebitda": 420646/);
-  assert.match(reviewPrompt, /"totalDebtService": 257634/);
-  assert.match(reviewPrompt, /"dscrYear1": 0\.78/);
-  assert.match(reviewPrompt, /"actualAmount": 150000/);
-  assert.match(reviewPrompt, /"cash": -314068/);
-  assert.match(reviewPrompt, /"name": "Jordan Ellis"/);
+  assert.match(reviewPrompt, /"id":"pkg-current"/);
+  assert.match(reviewPrompt, /"dscr":1\.6327/);
+  assert.match(reviewPrompt, /"ebitda":420646/);
+  assert.match(reviewPrompt, /"totalDebtService":257634/);
+  assert.match(reviewPrompt, /"dscrYear1":0\.78/);
+  assert.match(reviewPrompt, /"actualAmount":150000/);
+  assert.match(reviewPrompt, /"cash":-314068/);
+  assert.match(reviewPrompt, /"name":"Jordan Ellis"/);
   assert.match(reviewPrompt, /"yearsInIndustry":17/);
   assert.doesNotMatch(reviewPrompt, /pkg-stale|Stale Person|9\.99/);
   assert.doesNotMatch(
