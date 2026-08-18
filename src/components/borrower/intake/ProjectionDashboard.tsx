@@ -17,13 +17,8 @@ import {
   ResponsiveContainer,
   ComposedChart,
 } from "recharts";
-import {
-  buildBaseYear,
-  buildAnnualProjections,
-  buildMonthlyProjections,
-  computeBreakEven,
-  buildSensitivityScenarios,
-} from "@/lib/sba/sbaForwardModelBuilder";
+import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
+import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import type {
   SBAAssumptions,
@@ -398,16 +393,14 @@ export function ProjectionDashboard({ token, assumptions }: Props) {
 
     try {
       const baseYear = buildBaseYear(baseYearFacts);
-      const annual = buildAnnualProjections(assumptions, baseYear);
-      const year1 = annual[0];
-      if (!year1) return null;
-      const monthly = buildMonthlyProjections(assumptions, year1);
-      const breakEven = computeBreakEven(assumptions, year1);
-      const scenarios = buildSensitivityScenarios(assumptions, [
+      const model = computeSBAProjectionModel({ assumptions, baseYear });
+      return {
         baseYear,
-        ...annual,
-      ]);
-      return { baseYear, annual, monthly, breakEven, scenarios };
+        annual: model.annualProjections,
+        monthly: model.monthlyProjections,
+        breakEven: model.breakEven,
+        scenarios: model.sensitivityScenarios,
+      };
     } catch {
       return null;
     }
