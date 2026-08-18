@@ -1,0 +1,2 @@
+<!DOCTYPE html>
+probe placeholder — will be overwritten by real content next call

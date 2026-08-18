@@ -11,6 +11,7 @@ import { GuidedIntakeShell } from "@/components/borrower/intake/GuidedIntakeShel
 import { IntakePurposeStep } from "@/components/borrower/intake/IntakePurposeStep";
 import { IntakeBusinessStep } from "@/components/borrower/intake/IntakeBusinessStep";
 import { IntakeOwnershipStep } from "@/components/borrower/intake/IntakeOwnershipStep";
+import { IntakeAssumptionsStep } from "@/components/borrower/intake/IntakeAssumptionsStep";
 import { IntakeFinancialsStep } from "@/components/borrower/intake/IntakeFinancialsStep";
 import { IntakeReviewStep } from "@/components/borrower/intake/IntakeReviewStep";
 import { FloatingConcierge } from "@/components/borrower/intake/FloatingConcierge";
@@ -66,15 +67,22 @@ function deriveVerifications(counts: {
 function chapterFromFieldProgress(
   fieldProgress: FieldProgress | null,
   sealed: boolean,
-): 1 | 2 | 3 | 4 | 5 {
-  if (sealed) return 5;
+): 1 | 2 | 3 | 4 | 5 | 6 {
+  if (sealed) return 6;
   if (!fieldProgress || !fieldProgress.determinable) return 1;
   const bc = fieldProgress.byChapter;
+  // NOTE: fieldProgress.byChapter tracks SBA-forms-registry field
+  // completeness (loan/business/owner/entity/pfs scopes — see
+  // borrowerFieldProgress.ts), a separate concept from the /start chapter
+  // sequence. It was never renumbered for the new Financial Assumptions
+  // chapter (4) since none of those scopes map there. This fallback only
+  // fires when no borrower_intake_progress row exists yet (first-ever
+  // load), so landing on 1 for an all-empty deal is still correct.
   for (const ch of [1, 2, 3, 4, 5] as const) {
     const c = bc[ch];
     if (c.total > 0 && c.complete < c.total) return ch;
   }
-  return 5;
+  return 6;
 }
 
 type BorrowerScoreData = {
@@ -427,7 +435,7 @@ export function StartConciergeClient({
 
   const journeyStatus = useJourneyStatus(authorizedDealId);
 
-  const [chapter, setChapter] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [chapter, setChapter] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [purposes, setPurposes] = useState<string[]>(
     initialPath === "franchise" ? ["franchise"] : [],
   );
@@ -458,8 +466,8 @@ export function StartConciergeClient({
         const validatedChapter = Math.min(
           p.currentChapter ?? 1,
           (p.completedChapters ?? []).length + 1,
-        ) as 1 | 2 | 3 | 4 | 5;
-        setChapter(Math.max(1, Math.min(5, validatedChapter)) as 1 | 2 | 3 | 4 | 5);
+        ) as 1 | 2 | 3 | 4 | 5 | 6;
+        setChapter(Math.max(1, Math.min(6, validatedChapter)) as 1 | 2 | 3 | 4 | 5 | 6);
         // Hydrate facts into local state
         if (p.facts) {
           setPurposes(p.facts.purposes ?? []);
@@ -505,7 +513,7 @@ export function StartConciergeClient({
 
   // ── SPEC-BORROWER-RESUME-PERSISTENCE-V3: fail-closed save ──
   const saveProgress = useCallback(
-    async (nextChapter: 1 | 2 | 3 | 4 | 5, data?: Record<string, unknown>): Promise<boolean> => {
+    async (nextChapter: 1 | 2 | 3 | 4 | 5 | 6, data?: Record<string, unknown>): Promise<boolean> => {
       if (!dealId) return false;
       setSaveError(null);
       try {
@@ -540,7 +548,7 @@ export function StartConciergeClient({
 
   // Navigate only after confirmed save
   const navigateToChapter = useCallback(
-    async (nextChapter: 1 | 2 | 3 | 4 | 5, data?: Record<string, unknown>) => {
+    async (nextChapter: 1 | 2 | 3 | 4 | 5 | 6, data?: Record<string, unknown>) => {
       const ok = await saveProgress(nextChapter, data);
       if (!ok) return; // Stay on current chapter — error already set
       setChapter(nextChapter);
@@ -728,7 +736,7 @@ export function StartConciergeClient({
       <GuidedIntakeShell
         currentChapter={chapter}
         dealId={nonNullDealId}
-        onChapterChange={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
+        onChapterChange={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5 | 6); }}
         totalAmount={totalAmount}
         journeyStatus={journeyStatus}
         fieldProgress={journeyStatus.fieldProgress}
@@ -765,13 +773,19 @@ export function StartConciergeClient({
               />
             )}
             {chapter === 4 && (
-              <IntakeFinancialsStep
+              <IntakeAssumptionsStep
                 dealId={nonNullDealId}
-                isFranchise={isFranchise}
-                onContinue={(data) => { void navigateToChapter(5, data); }}
+                onContinue={() => { void navigateToChapter(5); }}
               />
             )}
             {chapter === 5 && (
+              <IntakeFinancialsStep
+                dealId={nonNullDealId}
+                isFranchise={isFranchise}
+                onContinue={(data) => { void navigateToChapter(6, data); }}
+              />
+            )}
+            {chapter === 6 && (
               <IntakeReviewStep
                 dealId={nonNullDealId}
                 purposes={purposes}
@@ -781,7 +795,7 @@ export function StartConciergeClient({
                   documentsUploadedCount: journeyStatus.documentsUploadedCount,
                   franchiseMatched: journeyStatus.franchiseMatched,
                 })}
-                onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
+                onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5 | 6); }}
                 token={nonNullDealId}
                 scoreData={journeyStatus.scoreData}
               />

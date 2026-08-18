@@ -67,6 +67,13 @@ type Props = {
   // Phase 85-BPG-ELITE — invoked when borrower confirms the auto-generated
   // projections from the presentation phase. Lets the parent step advance.
   onConfirmAndContinue?: () => void;
+  // SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1 — the self-serve /start funnel
+  // collects management team in its own Ownership & Management chapter
+  // (see ManagementTeamFields.tsx) before this component ever renders, so
+  // it omits this sub-step there to avoid asking the borrower twice. The
+  // admin-invite /portal/[token]/apply flow (IntakeFormClient) doesn't
+  // pass this prop and keeps the original 5-sub-step behavior unchanged.
+  showManagementStep?: boolean;
 };
 
 // Phase 85-BPG-ELITE — three-phase flow:
@@ -106,7 +113,12 @@ export function AssumptionInterview({
   token,
   dealId,
   onConfirmAndContinue,
+  showManagementStep = true,
 }: Props) {
+  const visibleSubSteps = showManagementStep
+    ? SUB_STEPS
+    : SUB_STEPS.filter((s) => s.key !== "management");
+
   const [loading, setLoading] = useState(true);
   const [subStep, setSubStep] = useState<SubStep>("revenue");
   const [saving, setSaving] = useState(false);
@@ -502,9 +514,9 @@ export function AssumptionInterview({
     }
   }, [assembledAssumptions, baseYearFacts]);
 
-  const subStepIdx = SUB_STEPS.findIndex((s) => s.key === subStep);
+  const subStepIdx = visibleSubSteps.findIndex((s) => s.key === subStep);
   const canGoBack = subStepIdx > 0;
-  const canGoForward = subStepIdx < SUB_STEPS.length - 1;
+  const canGoForward = subStepIdx < visibleSubSteps.length - 1;
 
   // ── Phase 85-BPG-ELITE: researching ────────────────────────────────────
   if (loading || phase === "researching") {
@@ -617,7 +629,7 @@ export function AssumptionInterview({
 
       {/* Sub-step indicator */}
       <div className="flex gap-1">
-        {SUB_STEPS.map((s, i) => (
+        {visibleSubSteps.map((s, i) => (
           <button
             key={s.key}
             onClick={() => setSubStep(s.key)}
@@ -1162,7 +1174,7 @@ export function AssumptionInterview({
       )}
 
       {/* ── Management Team ───────────────────────────────────────── */}
-      {subStep === "management" && (
+      {showManagementStep && subStep === "management" && (
         <div className="space-y-4">
           <p className="text-xs text-slate-500">
             Tell us about your management team. This goes into your business
@@ -1330,7 +1342,7 @@ export function AssumptionInterview({
         {canGoBack && (
           <button
             type="button"
-            onClick={() => setSubStep(SUB_STEPS[subStepIdx - 1].key)}
+            onClick={() => setSubStep(visibleSubSteps[subStepIdx - 1].key)}
             className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-600 text-sm hover:bg-slate-50 transition min-h-[44px]"
           >
             Back
@@ -1339,10 +1351,10 @@ export function AssumptionInterview({
         {canGoForward ? (
           <button
             type="button"
-            onClick={() => setSubStep(SUB_STEPS[subStepIdx + 1].key)}
+            onClick={() => setSubStep(visibleSubSteps[subStepIdx + 1].key)}
             className="brand-gradient-cta flex-1 px-4 py-2.5 rounded-lg text-white text-sm font-medium hover:brightness-110 transition min-h-[44px] focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
           >
-            Next: {SUB_STEPS[subStepIdx + 1].label}
+            Next: {visibleSubSteps[subStepIdx + 1].label}
           </button>
         ) : (
           <button

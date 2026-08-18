@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { IdentityVerificationCard } from "@/components/brokerage/IdentityVerificationCard";
+import { ManagementTeamFields } from "./ManagementTeamFields";
 
 type OwnerStructure = "solo" | "multi" | null;
 
@@ -95,7 +96,7 @@ export function IntakeOwnershipStep({
         </div>
         <div className="rounded-2xl rounded-bl-md bg-slate-100 px-5 py-3.5">
           <p className="text-sm text-slate-800">
-            SBA requires identity verification for every owner with 20% or more. How many owners does the business have?
+            SBA requires identity verification for every owner with 20% or more, and wants to know who runs the business day to day. How many owners does the business have?
           </p>
         </div>
       </div>
@@ -300,6 +301,19 @@ export function IntakeOwnershipStep({
             </svg>
             Add another owner
           </button>
+        </div>
+      )}
+
+      {/* Management team — same people as above for a solo owner, or the
+          people who run the business day to day for a multi-owner deal.
+          Structured resolution for the "At least one management team
+          member is required" blocker (SPEC-BORROWER-STRUCTURED-ASSUMPTIONS-1). */}
+      {structure && (structure === "solo" ? nameSaved : ownershipSaved) && (
+        <div className="animate-in slide-in-from-top-2 fade-in duration-300">
+          <ManagementTeamFields
+            dealId={dealId}
+            defaultName={structure === "solo" ? `${firstName} ${lastName}`.trim() : undefined}
+          />
         </div>
       )}
 

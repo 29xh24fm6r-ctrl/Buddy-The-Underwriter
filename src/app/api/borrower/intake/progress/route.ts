@@ -55,7 +55,8 @@ async function ensureConciergeSession(dealId: string, sb: ReturnType<typeof supa
  * Ch1: deals.loan_amount OR concierge facts have loan data
  * Ch2: concierge facts have business.entity_name OR borrowers has data OR ownership_entities.count > 0 (solo path)
  * Ch3: concierge facts have ownership.structure OR identity verification exists
- * Ch4: concierge facts have financial data OR deal_documents count > 0
+ * Ch4: buddy_sba_assumptions has revenue streams + management team, or is confirmed
+ * Ch5: concierge facts have financial data OR deal_documents count > 0 OR bank connected
  */
 async function deriveCompletedChapters(
   dealId: string,
@@ -64,7 +65,7 @@ async function deriveCompletedChapters(
   const completed: number[] = [];
 
   // Load all relevant data in parallel
-  const [concierge, deal, ownerships, docs, verifications, bankConns] = await Promise.all([
+  const [concierge, deal, ownerships, docs, verifications, bankConns, assumptions] = await Promise.all([
     sb
       .from("borrower_concierge_sessions")
       .select("extracted_facts")
@@ -92,6 +93,11 @@ async function deriveCompletedChapters(
       .select("id", { count: "exact", head: true })
       .eq("deal_id", dealId)
       .eq("status", "active"),
+    sb
+      .from("buddy_sba_assumptions")
+      .select("revenue_streams, management_team, status")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
   ]);
 
   const facts = ((concierge as any)?.extracted_facts ?? {}) as Record<string, any>;
@@ -123,11 +129,26 @@ async function deriveCompletedChapters(
     completed.push(3);
   }
 
-  // Ch4: Financials — complete if documents uploaded or bank connected
+  // Ch4: Financial Assumptions — complete if the borrower has entered any
+  // real revenue/management data, or the row has been confirmed. Mirrors
+  // sbaAssumptionsValidator.ts's requirements at a coarse "started" level
+  // (not full validation — that's Review's job) so resume-routing doesn't
+  // strand a borrower who's genuinely made progress here.
+  const assumptionsRow = assumptions as
+    | { revenue_streams?: unknown[] | null; management_team?: unknown[] | null; status?: string | null }
+    | null;
+  const hasRevenueStreams = Array.isArray(assumptionsRow?.revenue_streams) && assumptionsRow!.revenue_streams!.length > 0;
+  const hasManagementTeam = Array.isArray(assumptionsRow?.management_team) && assumptionsRow!.management_team!.length > 0;
+  const assumptionsConfirmed = assumptionsRow?.status === "confirmed";
+  if (assumptionsConfirmed || (hasRevenueStreams && hasManagementTeam)) {
+    completed.push(4);
+  }
+
+  // Ch5: Financials/Documents — complete if documents uploaded or bank connected
   const hasDocs = (docs as any)?.count > 0;
   const hasBankConnection = ((bankConns as any)?.count ?? 0) > 0;
   if (hasDocs || hasBankConnection) {
-    completed.push(4);
+    completed.push(5);
   }
 
   return completed;
@@ -239,7 +260,7 @@ export async function POST(request: Request) {
 
     // Validate chapter
     const chapter = body.chapter;
-    if (typeof chapter !== "number" || chapter < 1 || chapter > 5) {
+    if (typeof chapter !== "number" || chapter < 1 || chapter > 6) {
       return NextResponse.json({ ok: false, error: "invalid_chapter" }, { status: 400 });
     }
 
@@ -350,8 +371,8 @@ export async function POST(request: Request) {
           .eq("deal_id", dealId);
       }
 
-      // Ch4 → 5: Financials — save annual revenue to concierge facts
-      if (chapter === 5 && typeof data.annualRevenue === "number" && data.annualRevenue > 0) {
+      // Ch5 → 6: Financials/Documents — save annual revenue to concierge facts
+      if (chapter === 6 && typeof data.annualRevenue === "number" && data.annualRevenue > 0) {
         const { data: existing } = await sb
           .from("borrower_concierge_sessions")
           .select("extracted_facts")
