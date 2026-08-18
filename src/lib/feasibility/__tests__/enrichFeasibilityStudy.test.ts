@@ -322,7 +322,7 @@ test("reviewer receives exact same-run financial and management evidence", async
   assert.match(reviewPrompt, /"actualAmount": 150000/);
   assert.match(reviewPrompt, /"cash": -314068/);
   assert.match(reviewPrompt, /"name": "Jordan Ellis"/);
-  assert.match(reviewPrompt, /"yearsInIndustry": 17/);
+  assert.match(reviewPrompt, /"yearsInIndustry":17/);
   assert.doesNotMatch(reviewPrompt, /pkg-stale|Stale Person|9\.99/);
   assert.doesNotMatch(
     reviewPrompt,
