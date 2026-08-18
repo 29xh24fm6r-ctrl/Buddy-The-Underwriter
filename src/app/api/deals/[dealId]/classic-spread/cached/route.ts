@@ -7,6 +7,7 @@ import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import type { ClassicPdfCachedPayload } from "@/lib/classicSpread/classicPdfWorker";
+import { loadLatestCanonicalFactsTimestamp } from "@/lib/classicSpread/latestCanonicalFactsTimestamp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,16 +88,13 @@ export async function GET(req: Request, ctx: Ctx) {
     // Staleness check: compare canonicalFactsTimestamp with latest fact
     let isStale = false;
     if (payload.canonicalFactsTimestamp) {
-      const { data: latestFact } = await (sb as any)
-        .from("deal_financial_facts")
-        .select("updated_at")
-        .eq("deal_id", dealId)
-        .eq("bank_id", bankId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const latestFactsTimestamp = await loadLatestCanonicalFactsTimestamp(
+        sb as any,
+        dealId,
+        bankId,
+      );
 
-      if (latestFact?.updated_at && latestFact.updated_at > payload.canonicalFactsTimestamp) {
+      if (latestFactsTimestamp && latestFactsTimestamp > payload.canonicalFactsTimestamp) {
         isStale = true;
       }
     }
