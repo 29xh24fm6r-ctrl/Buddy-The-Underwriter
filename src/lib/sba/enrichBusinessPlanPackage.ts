@@ -18,6 +18,7 @@ import "server-only";
 import type { BusinessPlanPackageForVerify } from "./verifyBusinessPlanPackage";
 import { finishInstitutionalArtifact } from "@/lib/ai/frontierArtifactFactory";
 import { persistArtifactFlags } from "@/lib/ai/artifactVerification";
+import type { FlaggedClaim } from "@/lib/ai/verify";
 
 type SB = { from: (t: string) => any };
 
@@ -38,7 +39,7 @@ export async function enrichBusinessPlanPackage(args: {
   bankId: string;
   packageId: string;
   sb: SB;
-}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean }> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean; flaggedClaims: FlaggedClaim[] }> {
   const { dealId, bankId, packageId, sb } = args;
 
   const { data: pkg } = await sb
@@ -47,7 +48,27 @@ export async function enrichBusinessPlanPackage(args: {
     .eq("id", packageId)
     .maybeSingle();
 
-  if (!pkg) return { verdict: null, repaired: false };
+  if (!pkg) return { verdict: null, repaired: false, flaggedClaims: [] };
+
+  // Narratives are composed from deterministic calculations plus inputs the
+  // borrower explicitly confirmed. Review against that same evidence set so
+  // legitimate management, staffing, and ramp facts are not misclassified as
+  // hallucinations. Draft assumptions never enter the release evidence.
+  const { data: assumptionsRow } = await sb
+    .from("buddy_sba_assumptions")
+    .select("revenue_streams,cost_assumptions,working_capital,loan_impact,management_team,status,confirmed_at")
+    .eq("deal_id", dealId)
+    .maybeSingle();
+  const confirmedAssumptions = assumptionsRow?.status === "confirmed"
+    ? {
+        confirmed_at: assumptionsRow.confirmed_at,
+        revenue_streams: assumptionsRow.revenue_streams,
+        cost_assumptions: assumptionsRow.cost_assumptions,
+        working_capital: assumptionsRow.working_capital,
+        loan_impact: assumptionsRow.loan_impact,
+        management_team: assumptionsRow.management_team,
+      }
+    : null;
 
   const typed = pkg as BusinessPlanPackageForVerify;
   const narrativeKeys = [
@@ -65,7 +86,7 @@ export async function enrichBusinessPlanPackage(args: {
       verification_verdict: null,
       verification_flagged_claims: null,
     }).eq("id", packageId);
-    return { verdict: null, repaired: false };
+    return { verdict: null, repaired: false, flaggedClaims: [] };
   }
 
   const facts = {
@@ -84,6 +105,7 @@ export async function enrichBusinessPlanPackage(args: {
     balance_sheet_projections: typed.balance_sheet_projections,
     projections_assumptions_narrative: typed.projections_assumptions_narrative,
     base_year_data: typed.base_year_data,
+    borrower_confirmed_assumptions: confirmedAssumptions,
   };
   const finished = await finishInstitutionalArtifact({
     artifactType: "business_plan", facts, sections, dealId, npiTagged: true,
@@ -102,5 +124,9 @@ export async function enrichBusinessPlanPackage(args: {
       verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", packageId);
-  return { verdict: finished.verdict, repaired: finished.repaired };
+  return {
+    verdict: finished.verdict,
+    repaired: finished.repaired,
+    flaggedClaims: finished.flaggedClaims,
+  };
 }
