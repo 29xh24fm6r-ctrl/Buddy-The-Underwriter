@@ -131,6 +131,32 @@ test("writes verification_verdict/flagged_claims back onto the package row when 
   assert.deepEqual(updated.verification_flagged_claims, []);
 });
 
+test("gives the institutional verifier the projection and sources-and-uses truth set", async () => {
+  let providerInput = "";
+  __setProviderImplForTests("anthropic", async (input: any) => {
+    providerInput = JSON.stringify(input);
+    return { text: JSON.stringify({ flaggedClaims: [] }), tokensIn: 20, tokensOut: 10 };
+  });
+  const tables: Record<string, Row[]> = {
+    buddy_sba_packages: [basePkgRow({
+      executive_summary: "The business projects $2.6 million of first-year revenue funded by an SBA loan and equity injection.",
+      projections_annual: [{ year: 1, revenue: 2_600_000, dscr: 1.35 }],
+      projections_monthly: [{ month: 1, revenue: 100_000 }],
+      sensitivity_scenarios: [{ name: "downside", dscrYear1: 1.1 }],
+      sources_and_uses: { sources: [{ label: "SBA loan", amount: 850_000 }, { label: "Equity", amount: 150_000 }] },
+      balance_sheet_projections: [{ year: 1, cash: 50_000 }],
+      projections_assumptions_narrative: "Revenue is built from borrower-confirmed unit volume and pricing assumptions.",
+      base_year_data: { revenue: 2_100_000 },
+    })],
+  };
+
+  await enrichBusinessPlanPackage({ dealId: "deal-1", bankId: "bank-1", packageId: "pkg-1", sb: makeDb(tables) });
+
+  assert.match(providerInput, /2[,.]?600[,.]?000/);
+  assert.match(providerInput, /850[,.]?000/);
+  assert.match(providerInput, /150[,.]?000/);
+});
+
 test("leaves verification columns null when the package has no real narrative content", async () => {
   const tables: Record<string, Row[]> = { buddy_sba_packages: [basePkgRow()] };
   const db = makeDb(tables);
