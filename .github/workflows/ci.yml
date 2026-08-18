@@ -26,12 +26,22 @@ jobs:
           node-version: 20
           cache: "pnpm"
       - name: Install
+        timeout-minutes: 6
         run: pnpm install --frozen-lockfile
       - name: Typecheck
+        timeout-minutes: 10
+        # Build already runs with an 8 GB heap; tsc over this repo is at
+        # least as memory-hungry and had no allowance at all, so it was
+        # running near Node's default limit. An OOM here presents as a stall
+        # rather than a clear error.
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: pnpm -s typecheck
       - name: Lint
+        timeout-minutes: 10
         run: pnpm -s lint
       - name: Architectural guards
+        timeout-minutes: 8
         run: pnpm -s guard:all
       - name: SPEC-13.5 — no legacy deal_memo_overrides writes
         run: bash scripts/check-no-legacy-overrides-writes.sh
@@ -40,8 +50,10 @@ jobs:
       # before the broader unit suite — highest safety-signal per second. Must never
       # be continue-on-error.
       - name: Safety invariants (CI-blocking)
+        timeout-minutes: 6
         run: pnpm -s test:invariants
       - name: Unit tests (CI-blocking)
+        timeout-minutes: 18
         run: pnpm -s test:unit
       # specs/audits/RESEARCH_SYSTEM_FULL_AUDIT.md P1: this harness existed
       # but was invisible to CI entirely — including the one case explicitly
@@ -49,12 +61,14 @@ jobs:
       # recur", which was ALSO being silently self-excluded by a placeholder-
       # detection bug (fixed alongside this). Exits 1 on any regression.
       - name: Research golden-set eval (CI-blocking)
+        timeout-minutes: 6
         run: pnpm -s golden:research
       - name: Check cockpit polling guardrail
         run: bash scripts/check-cockpit-polling.sh
       - name: Check Never-500 API invariant
         run: bash scripts/check-never-500.sh
       - name: Schema select gate
+        timeout-minutes: 5
         run: pnpm -s gate:schema-select
       - name: Schema drift detection
         if: env.DRIFT_DETECT_DB_URL != ''
@@ -68,6 +82,7 @@ jobs:
           path: .drift_report/
           if-no-files-found: warn
       - name: Build
+        timeout-minutes: 18
         run: pnpm -s build:ci
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -78,8 +93,10 @@ jobs:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
           OPENAI_API_KEY: sk-placeholder
       - name: Install Playwright browsers
+        timeout-minutes: 8
         run: pnpm -s e2e:install
       - name: E2E Smoke (public)
+        timeout-minutes: 12
         run: pnpm -s e2e:smoke:public
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -91,6 +108,7 @@ jobs:
           SMOKE_AUTH_BOOTSTRAP_URL: ${{ secrets.SMOKE_AUTH_BOOTSTRAP_URL }}
       - name: E2E Smoke (authed)
         if: env.SMOKE_AUTH_BOOTSTRAP_URL != ''
+        timeout-minutes: 12
         run: pnpm -s e2e:smoke:authed
         env:
           NEXT_TELEMETRY_DISABLED: "1"
