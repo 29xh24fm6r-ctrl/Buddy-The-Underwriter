@@ -23,6 +23,7 @@ const state: {
   enrichBusinessPlanPackageCalls: Array<{ dealId: string; bankId: string; packageId: string }>;
   enrichFeasibilityStudyCalls: Array<{ dealId: string; bankId: string; studyId: string }>;
   generationEvents: string[];
+  feasibilityPackageIds: string[];
 } = {
   bundles: [],
   deals: [{ id: "deal-1", bank_id: "bank-1" }],
@@ -38,6 +39,7 @@ const state: {
   enrichBusinessPlanPackageCalls: [],
   enrichFeasibilityStudyCalls: [],
   generationEvents: [],
+  feasibilityPackageIds: [],
 };
 
 function resetState() {
@@ -47,6 +49,7 @@ function resetState() {
   state.enrichBusinessPlanPackageCalls = [];
   state.enrichFeasibilityStudyCalls = [];
   state.generationEvents = [];
+  state.feasibilityPackageIds = [];
   let n = 0;
   state.nextBundleId = () => `bundle-${++n}`;
   state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1 };
@@ -255,9 +258,15 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
   filename: "feas-eng-stub",
   loaded: true,
   exports: {
-    generateFeasibilityStudy: async () => {
+    generateFeasibilityStudy: async (args: {
+      projectionsPackageId?: string | Promise<string>;
+    }) => {
       state.generationEvents.push("feasibility-start");
-      return state.feasResult;
+      const packageId = args.projectionsPackageId
+        ? await args.projectionsPackageId
+        : undefined;
+      if (packageId) state.feasibilityPackageIds.push(packageId);
+      return { ...state.feasResult, projectionsPackageId: packageId };
     },
   },
 } as any;
@@ -356,6 +365,41 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
   assert.deepEqual(state.enrichFeasibilityStudyCalls, [
     { dealId: "deal-1", bankId: "bank-1", studyId: "study-1" },
   ]);
+});
+
+test("feasibility binds to the exact package produced by the same bundle", async () => {
+  resetState();
+  const substantive = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+  state.sbaPackages.push({
+    id: "pkg-1",
+    ...state.sbaPackageRowForXlsx,
+    business_overview_narrative: substantive,
+    executive_summary: substantive,
+    industry_analysis: substantive,
+    marketing_strategy: substantive,
+    operations_plan: substantive,
+    swot_strengths: substantive,
+    swot_weaknesses: substantive,
+    swot_opportunities: substantive,
+    swot_threats: substantive,
+    sensitivity_narrative: substantive,
+  });
+  state.feasibilityStudies.push({
+    id: "study-1",
+    narratives: {
+      executiveSummary: substantive,
+      marketDemandNarrative: substantive,
+      financialViabilityNarrative: substantive,
+      operationalReadinessNarrative: substantive,
+      locationSuitabilityNarrative: substantive,
+    },
+  });
+
+  const result = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(state.feasibilityPackageIds, ["pkg-1"]);
+  assert.equal(state.bundles[0].source_sba_package_id, "pkg-1");
+  assert.equal(state.bundles[0].source_feasibility_id, "study-1");
 });
 
 test("final generation fails closed when business-plan PDF would contain placeholders", async () => {
