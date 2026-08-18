@@ -333,7 +333,8 @@ export async function generateSBAPackage(
   const dscrBelowThreshold =
     dscrYear1Base < projectedDscrThreshold ||
     dscrYear2Base < projectedDscrThreshold ||
-    dscrYear3Base < projectedDscrThreshold;
+    dscrYear3Base < projectedDscrThreshold ||
+    dscrYear1Downside < projectedDscrThreshold;
 
   // Phase BPG — borrower_applications supplies naics/industry/ein (deals
   // does not carry these columns in this schema).
