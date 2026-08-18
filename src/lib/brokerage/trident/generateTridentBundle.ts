@@ -408,6 +408,24 @@ async function generateFeasibilityLane(
   }
 
   const sourceFeasibilityId = feasResult.studyId ?? null;
+  if (sourceFeasibilityId) {
+    const { data: provenanceRow, error: provenanceError } = await sb
+      .from("buddy_feasibility_studies")
+      .select("projections_package_id")
+      .eq("id", sourceFeasibilityId)
+      .maybeSingle();
+    if (provenanceError) {
+      throw new Error(
+        `Feasibility projection provenance read failed: ${provenanceError.message}`,
+      );
+    }
+    if (provenanceRow?.projections_package_id !== expectedPackageId) {
+      throw new Error(
+        `Persisted feasibility projection provenance mismatch: expected ${expectedPackageId}, received ${provenanceRow?.projections_package_id ?? "none"}`,
+      );
+    }
+  }
+
   if (args.mode === "final" && sourceFeasibilityId && feasResult.composite) {
     await enrichFeasibilityStudy({
       dealId: args.dealId,
