@@ -24,6 +24,7 @@ const state: {
   enrichFeasibilityStudyCalls: Array<{ dealId: string; bankId: string; studyId: string }>;
   generationEvents: string[];
   feasibilityPackageIds: string[];
+  persistedFeasibilityPackageIdOverride?: string;
 } = {
   bundles: [],
   deals: [{ id: "deal-1", bank_id: "bank-1" }],
@@ -50,6 +51,7 @@ function resetState() {
   state.enrichFeasibilityStudyCalls = [];
   state.generationEvents = [];
   state.feasibilityPackageIds = [];
+  state.persistedFeasibilityPackageIdOverride = undefined;
   let n = 0;
   state.nextBundleId = () => `bundle-${++n}`;
   state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1 };
@@ -270,7 +272,10 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
         const study = state.feasibilityStudies.find(
           (row) => row.id === state.feasResult?.studyId,
         );
-        if (study) study.projections_package_id = packageId;
+        if (study) {
+          study.projections_package_id =
+            state.persistedFeasibilityPackageIdOverride ?? packageId;
+        }
       }
       return { ...state.feasResult, projectionsPackageId: packageId };
     },
@@ -406,6 +411,44 @@ test("feasibility binds to the exact package produced by the same bundle", async
   assert.deepEqual(state.feasibilityPackageIds, ["pkg-1"]);
   assert.equal(state.bundles[0].source_sba_package_id, "pkg-1");
   assert.equal(state.bundles[0].source_feasibility_id, "study-1");
+});
+
+test("final bundle fails closed when feasibility persisted a stale package", async () => {
+  resetState();
+  const substantive = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+  state.sbaPackages.push({
+    id: "pkg-1",
+    ...state.sbaPackageRowForXlsx,
+    business_overview_narrative: substantive,
+    executive_summary: substantive,
+    industry_analysis: substantive,
+    marketing_strategy: substantive,
+    operations_plan: substantive,
+    swot_strengths: substantive,
+    swot_weaknesses: substantive,
+    swot_opportunities: substantive,
+    swot_threats: substantive,
+    sensitivity_narrative: substantive,
+  });
+  state.feasibilityStudies.push({
+    id: "study-1",
+    narratives: {
+      executiveSummary: substantive,
+      marketDemandNarrative: substantive,
+      financialViabilityNarrative: substantive,
+      operationalReadinessNarrative: substantive,
+      locationSuitabilityNarrative: substantive,
+    },
+  });
+  state.persistedFeasibilityPackageIdOverride = "pkg-stale";
+
+  const result = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
+  assert.equal(result.ok, false);
+  assert.match(
+    result.error,
+    /Persisted feasibility projection provenance mismatch: expected pkg-1, received pkg-stale/,
+  );
+  assert.equal(state.bundles[0].status, "failed");
 });
 
 test("final generation fails closed when business-plan PDF would contain placeholders", async () => {
