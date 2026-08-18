@@ -30,5 +30,6 @@ test("[spec-b3-v16] cached route returns 404 when no cached row exists", () => {
 test("[spec-b3-v17] cached route checks staleness against latest fact timestamp", () => {
   const body = read("src/app/api/deals/[dealId]/classic-spread/cached/route.ts");
   assert.match(body, /canonicalFactsTimestamp/, "Must compare canonicalFactsTimestamp");
-  assert.match(body, /deal_financial_facts/, "Must query deal_financial_facts for latest timestamp");
+  assert.match(body, /loadLatestCanonicalFactsTimestamp/, "Must use the shared schema-correct timestamp reader");
+  assert.doesNotMatch(body, /select\("updated_at"\)/, "Financial facts do not expose updated_at");
 });

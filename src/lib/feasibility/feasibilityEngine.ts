@@ -25,6 +25,7 @@ import { generateFeasibilityNarratives } from "./feasibilityNarrative";
 import { renderFeasibilityPDF } from "./feasibilityRenderer";
 import { runFranchiseComparison } from "./franchiseComparator";
 import { extractBIEMarketData } from "./bieMarketExtractor";
+import { readCanonicalEquityInjectionPct } from "./canonicalProjectionInputs";
 import type {
   FeasibilityResult,
   ManagementMemberLite,
@@ -393,7 +394,7 @@ export async function generateFeasibilityStudy(params: {
     projectedRevenueYear1: pickNumber(projY1?.revenue),
     marginOfSafetyPct: pickNumber(breakEvenObj.marginOfSafetyPct),
     downsideDscrYear1: downsideDscrY1,
-    equityInjectionPct: pickNumber(sourcesAndUsesObj.equityInjectionPct),
+    equityInjectionPct: readCanonicalEquityInjectionPct(sourcesAndUsesObj),
     totalProjectCost: pickNumber(sourcesAndUsesObj.totalUses),
     workingCapitalReserveMonths: null,
     globalDscr: pickNumber(sbaPackage?.global_dscr),

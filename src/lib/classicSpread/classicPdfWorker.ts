@@ -22,6 +22,7 @@ import { preflightClassicSpread } from "@/lib/spreads/preflight/spreadPreflight"
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRenderVersion";
 import { computeClassicPdfInputsHash } from "@/lib/classicSpread/classicPdfInputsHash";
+import { loadLatestCanonicalFactsTimestamp } from "@/lib/classicSpread/latestCanonicalFactsTimestamp";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ export async function renderClassicPdfSpread(args: {
   // a re-render only materializes when the content or render version differs,
   // rather than blindly re-rendering on every trigger.
   const inputsHash = computeClassicPdfInputsHash(input);
-  const canonicalFactsTimestampEarly = await getLatestFactsTimestamp(sb, dealId, bankId);
+  const canonicalFactsTimestampEarly = await loadLatestCanonicalFactsTimestamp(sb, dealId, bankId);
   const { data: existingRow } = await (sb as any)
     .from("deal_spreads")
     .select("inputs_hash, status, rendered_json")
@@ -113,7 +114,7 @@ export async function renderClassicPdfSpread(args: {
   ) {
     // Content + renderer unchanged. Refresh only the staleness stamp so the
     // timestamp-based ensure/cached routes do not re-enqueue in a loop when a
-    // fact's updated_at advanced without any value change. No re-render.
+    // newer ledger fact was appended without any value change. No re-render.
     const cachedStamp = existingRow.rendered_json?.canonicalFactsTimestamp ?? null;
     if (canonicalFactsTimestampEarly && canonicalFactsTimestampEarly !== cachedStamp) {
       await (sb as any)
@@ -210,26 +211,4 @@ export async function renderClassicPdfSpread(args: {
     pdfSizeBytes: pdfBuffer.length,
     canonicalFactsTimestamp,
   };
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function getLatestFactsTimestamp(
-  sb: any,
-  dealId: string,
-  bankId: string,
-): Promise<string | null> {
-  try {
-    const { data } = await sb
-      .from("deal_financial_facts")
-      .select("updated_at")
-      .eq("deal_id", dealId)
-      .eq("bank_id", bankId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    return data?.updated_at ?? null;
-  } catch {
-    return null;
-  }
 }
