@@ -27,24 +27,35 @@ export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ token: string }> };
 
 /**
- * The columns this route selects from `deal_documents`, verified against
- * the production schema (the table has no `doc_type` or `withdrawn_at`).
+ * The columns this route selects from `deal_documents`.
  *
- * Declared explicitly because the select list is built as a concatenated
- * string for readability, which the Supabase client cannot resolve to a
- * literal type — without this it infers GenericStringError and the mapper
- * fails to typecheck.
+ * Every column here is defined by a migration. An earlier revision selected
+ * `document_category`, `document_label` and `is_active`: those exist in the
+ * production database but NO migration adds them to this table
+ * (`document_category`/`document_label` are added to `deal_checklist_items`
+ * by 20260106_prod_checklist_columns_safe.sql — a different table), so they
+ * are undeclared schema drift. Selecting them would 400 in any environment
+ * built from migrations, which is exactly what `gate:schema-select` exists
+ * to prevent.
+ *
+ * They were also the wrong fields regardless: `ingestDocument.ts` — the
+ * canonical writer, with its own ALLOWED_COLUMNS guard — never populates
+ * any of the three, so they are null on every borrower upload.
+ * `checklist_key` is what the uploader actually stamps when a borrower
+ * picks a document category.
+ *
+ * Declared explicitly because the Supabase client cannot resolve this
+ * select to a literal type, and without it the mapper infers
+ * GenericStringError and fails to typecheck.
  */
 type BorrowerDocumentRow = {
   id: string;
   original_filename: string | null;
-  document_category: string | null;
-  document_label: string | null;
+  checklist_key: string | null;
   created_at: string;
   size_bytes: number | null;
   status: string | null;
   source: string | null;
-  is_active: boolean | null;
 };
 
 async function auth(token: string) {
@@ -66,7 +77,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, document_category, document_label, created_at, size_bytes, status, source, is_active",
+      "id, original_filename, checklist_key, created_at, size_bytes, status, source",
     )
     .eq("deal_id", context.dealId)
     .neq("status", "withdrawn")
@@ -86,8 +97,8 @@ export async function GET(_req: NextRequest, ctx: Context) {
     documents: ((data ?? []) as unknown as BorrowerDocumentRow[]).map((d) => ({
       id: d.id,
       filename: d.original_filename ?? "Document",
-      category: d.document_category ?? "other_supporting_document",
-      label: d.document_label ?? d.original_filename ?? "Document",
+      category: d.checklist_key ?? "other_supporting_document",
+      label: d.original_filename ?? "Document",
       uploadedAt: d.created_at,
       sizeBytes: d.size_bytes ?? null,
       status: d.status ?? "uploaded",
@@ -140,11 +151,12 @@ export async function DELETE(req: NextRequest, ctx: Context) {
 
   const { error } = await sb
     .from("deal_documents")
-    // Soft withdraw. `deal_documents` has no withdrawn_at column, and adding
-    // one is a schema change this launch sprint does not need: status plus
-    // is_active is enough to hide it from the borrower and from packaging,
-    // while keeping the row for audit.
-    .update({ status: "withdrawn", is_active: false, updated_at: new Date().toISOString() })
+    // Soft withdraw. `deal_documents` has no withdrawn_at column and adding
+    // one is a schema change this launch does not need. `status` alone is
+    // sufficient: the GET above filters on .neq("status", "withdrawn"), so
+    // the row disappears from the borrower's view while remaining for audit.
+    // `is_active` is deliberately NOT set — it has no migration on this table.
+    .update({ status: "withdrawn", updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("deal_id", context.dealId);
 
