@@ -25,9 +25,9 @@ function record(value: unknown): JsonRecord | null {
     : null;
 }
 
-function pick(value: unknown, keys: string[]): JsonRecord | null {
+function pick(value: unknown, keys: string[]): JsonRecord {
   const source = record(value);
-  if (!source) return null;
+  if (!source) return {};
   return Object.fromEntries(
     keys.flatMap((key) =>
       source[key] === undefined ? [] : [[key, source[key]]],
@@ -37,10 +37,9 @@ function pick(value: unknown, keys: string[]): JsonRecord | null {
 
 function pickRows(value: unknown, keys: string[]): JsonRecord[] {
   return Array.isArray(value)
-    ? value.flatMap((row) => {
-        const selected = pick(row, keys);
-        return selected ? [selected] : [];
-      })
+    ? value.flatMap((row) =>
+        record(row) ? [pick(row, keys)] : [],
+      )
     : [];
 }
 
