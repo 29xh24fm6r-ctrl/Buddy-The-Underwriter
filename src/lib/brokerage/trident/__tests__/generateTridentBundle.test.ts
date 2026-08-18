@@ -265,7 +265,13 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
       const packageId = args.projectionsPackageId
         ? await args.projectionsPackageId
         : undefined;
-      if (packageId) state.feasibilityPackageIds.push(packageId);
+      if (packageId) {
+        state.feasibilityPackageIds.push(packageId);
+        const study = state.feasibilityStudies.find(
+          (row) => row.id === state.feasResult?.studyId,
+        );
+        if (study) study.projections_package_id = packageId;
+      }
       return { ...state.feasResult, projectionsPackageId: packageId };
     },
   },
