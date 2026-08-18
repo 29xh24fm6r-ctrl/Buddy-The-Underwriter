@@ -65,7 +65,11 @@ export async function POST(
       if (!pre.allowed) {
         return NextResponse.json({ ok: false, error: pre.error, source: "finengine" }, { status: pre.status });
       }
-      const pkg = await loadFinengineMemo(dealId, { bankId });
+      const [pkg, currentTrustGrade, researchTrace] = await Promise.all([
+        loadFinengineMemo(dealId, { bankId }),
+        loadTrustGradeForDeal(dealId),
+        buildResearchTrace(dealId),
+      ]);
       const memo = renderFinengineMemoNarrative(pkg);
       const hashInputs = await fetchMemoHashInputs(sb, dealId);
       const inputHash = computeMemoInputHash(hashInputs);
@@ -79,6 +83,8 @@ export async function POST(
             narratives: memo as any,
             model: "finengine.core",
             generated_at: new Date().toISOString(),
+            research_trace_json: researchTrace,
+            research_trust_grade: currentTrustGrade,
           } as any,
           { onConflict: "deal_id,bank_id,input_hash" },
         );
