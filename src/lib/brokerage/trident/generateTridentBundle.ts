@@ -150,7 +150,14 @@ export async function generateTridentBundle(args: {
 
     if (mode === "final") {
       if (businessPlanVerification?.verdict !== "pass") {
-        throw new Error("Business-plan institutional review did not pass; final publication blocked");
+        const findings = businessPlanVerification?.flaggedClaims
+          .slice(0, 3)
+          .map((finding) => `${finding.severity}: ${finding.reason}`)
+          .join(" | ");
+        throw new Error(
+          "Business-plan institutional review did not pass; final publication blocked" +
+            (findings ? ` — ${findings}` : ""),
+        );
       }
       const { data: narrativeRow, error: narrativeReadError } = await sb
         .from("buddy_sba_packages")
