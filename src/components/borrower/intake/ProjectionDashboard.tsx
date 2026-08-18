@@ -17,13 +17,8 @@ import {
   ResponsiveContainer,
   ComposedChart,
 } from "recharts";
-import {
-  buildBaseYear,
-  buildAnnualProjections,
-  buildMonthlyProjections,
-  computeBreakEven,
-  buildSensitivityScenarios,
-} from "@/lib/sba/sbaForwardModelBuilder";
+import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
+import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
 import { resolvePolicy } from "@/lib/finengine/policyRegistry";
 import type {
   SBAAssumptions,
@@ -35,7 +30,7 @@ import type {
 
 // Single source of truth (finengine's policy registry) for the DSCR
 // threshold this dashboard displays against — same flat resolution
-// buildSensitivityScenarios below defaults to when this dashboard doesn't
+// the authoritative projection model defaults to when this dashboard doesn't
 // pass deal-specific new-business/product context. Keeping both call sites
 // on the same registry read means the gauge/cell coloring can never drift
 // from the pass/fail flag the forward model itself computed.
@@ -398,16 +393,14 @@ export function ProjectionDashboard({ token, assumptions }: Props) {
 
     try {
       const baseYear = buildBaseYear(baseYearFacts);
-      const annual = buildAnnualProjections(assumptions, baseYear);
-      const year1 = annual[0];
-      if (!year1) return null;
-      const monthly = buildMonthlyProjections(assumptions, year1);
-      const breakEven = computeBreakEven(assumptions, year1);
-      const scenarios = buildSensitivityScenarios(assumptions, [
+      const model = computeSBAProjectionModel({ assumptions, baseYear });
+      return {
         baseYear,
-        ...annual,
-      ]);
-      return { baseYear, annual, monthly, breakEven, scenarios };
+        annual: model.annualProjections,
+        monthly: model.monthlyProjections,
+        breakEven: model.breakEven,
+        scenarios: model.sensitivityScenarios,
+      };
     } catch {
       return null;
     }

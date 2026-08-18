@@ -42,6 +42,22 @@ export type ProjectionsAssumptionsNarrative =
   | { status: "degraded"; message: string; disclaimer: string }
   | { status: "ready"; narrative: string; disclaimer: string };
 
+/**
+ * Immutable projection facts supplied by the calculation authority.
+ * Narrative generation may explain these values but must never recalculate them.
+ */
+export type AuthoritativeProjectionFacts = {
+  engineVersion: string;
+  methodologySlate: unknown;
+  formType: string;
+  projectedEbitda: number;
+  projectedOfficerCompAddback: number | null;
+  projectedNcads: number;
+  proposedAnnualDebtService: number;
+  projectedDscr: number;
+  components: string;
+};
+
 const GENERATOR_SYSTEM_INSTRUCTION =
   "You are narrating a commercial loan's debt-service-coverage projection " +
   "for a bank underwriter. You are given a set of immutable, already-" +
@@ -77,31 +93,38 @@ export async function generateProjectionsAssumptionsNarrative(
   dealId: string,
   bankId: string,
   sb: SB,
+  authoritativeFacts?: AuthoritativeProjectionFacts,
 ): Promise<ProjectionsAssumptionsNarrative> {
-  const inputs = await loadProjectionInputsForDeal(dealId, bankId, sb);
-  if (!inputs.projectable) {
-    return { status: "unavailable", message: inputs.reason };
+  // SBA/Golden Trident callers supply the already-computed projection model.
+  // The fallback remains only for the standalone methodology surface.
+  let facts: Record<string, unknown>;
+  if (authoritativeFacts) {
+    facts = { ...authoritativeFacts };
+  } else {
+    const inputs = await loadProjectionInputsForDeal(dealId, bankId, sb);
+    if (!inputs.projectable) {
+      return { status: "unavailable", message: inputs.reason };
+    }
+    const { facts: taxFacts, formType, currentSlate, proposedAds } = inputs;
+    const projection = projectDscrForVariant({
+      facts: taxFacts,
+      formType,
+      currentSlate,
+      override: null,
+      proposedAds,
+    });
+    facts = {
+      engineVersion: "methodology_projection_v1",
+      methodologySlate: currentSlate,
+      formType,
+      projectedEbitda: projection.projectedEbitda,
+      projectedOfficerCompAddback: projection.projectedOfficerCompAddback,
+      projectedNcads: projection.projectedNcads,
+      proposedAnnualDebtService: proposedAds,
+      projectedDscr: projection.projectedDscr,
+      components: projection.components,
+    };
   }
-  const { facts: taxFacts, formType, currentSlate, proposedAds } = inputs;
-
-  const projection = projectDscrForVariant({
-    facts: taxFacts,
-    formType,
-    currentSlate,
-    override: null,
-    proposedAds,
-  });
-
-  const facts: Record<string, unknown> = {
-    methodologySlate: currentSlate,
-    formType,
-    projectedEbitda: projection.projectedEbitda,
-    projectedOfficerCompAddback: projection.projectedOfficerCompAddback,
-    projectedNcads: projection.projectedNcads,
-    proposedAnnualDebtService: proposedAds,
-    projectedDscr: projection.projectedDscr,
-    components: projection.components,
-  };
 
   try {
     const generated = await runRole("underwriter", {

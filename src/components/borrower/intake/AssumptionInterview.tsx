@@ -18,13 +18,8 @@ import type {
   BreakEvenResult,
   SensitivityScenario,
 } from "@/lib/sba/sbaReadinessTypes";
-import {
-  buildBaseYear,
-  buildAnnualProjections,
-  buildMonthlyProjections,
-  computeBreakEven,
-  buildSensitivityScenarios,
-} from "@/lib/sba/sbaForwardModelBuilder";
+import { buildBaseYear } from "@/lib/sba/sbaForwardModelBuilder";
+import { computeSBAProjectionModel } from "@/lib/sba/sbaProjectionAuthority";
 import { ProjectionDashboard } from "./ProjectionDashboard";
 
 // Local mirror of ResearchContext shape from sbaResearchProjectionGenerator.ts
@@ -492,16 +487,16 @@ export function AssumptionInterview({
       return null;
     try {
       const bY = buildBaseYear(baseYearFacts);
-      const annual = buildAnnualProjections(assembledAssumptions, bY);
-      const year1 = annual[0];
-      if (!year1) return null;
-      const monthly = buildMonthlyProjections(assembledAssumptions, year1);
-      const breakEven = computeBreakEven(assembledAssumptions, year1);
-      const scenarios = buildSensitivityScenarios(assembledAssumptions, [
-        bY,
-        ...annual,
-      ]);
-      return { annual, monthly, breakEven, scenarios };
+      const model = computeSBAProjectionModel({
+        assumptions: assembledAssumptions,
+        baseYear: bY,
+      });
+      return {
+        annual: model.annualProjections,
+        monthly: model.monthlyProjections,
+        breakEven: model.breakEven,
+        scenarios: model.sensitivityScenarios,
+      };
     } catch {
       return null;
     }
