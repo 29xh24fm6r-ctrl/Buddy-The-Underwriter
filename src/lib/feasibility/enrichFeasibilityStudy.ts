@@ -68,7 +68,7 @@ export async function enrichFeasibilityStudy(args: {
   studyId: string;
   composite: CompositeFeasibilityScore;
   sb: SB;
-}): Promise<void> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean }> {
   const { dealId, bankId, studyId, composite, sb } = args;
 
   const { data: studyRow } = await sb
@@ -80,7 +80,7 @@ export async function enrichFeasibilityStudy(args: {
     .maybeSingle();
 
   const narratives = (studyRow?.narratives ?? null) as FeasibilityNarratives | null;
-  if (!narratives) return;
+  if (!narratives) return { verdict: null, repaired: false };
 
   const { segments, allUrls } = await loadDealGroundingSegments(dealId, sb);
   const citations = attributeFeasibilityCitations(narratives, segments, allUrls);
@@ -270,4 +270,5 @@ export async function enrichFeasibilityStudy(args: {
       verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", studyId);
+  return { verdict: finished.verdict, repaired: finished.repaired };
 }

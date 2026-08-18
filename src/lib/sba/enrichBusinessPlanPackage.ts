@@ -38,7 +38,7 @@ export async function enrichBusinessPlanPackage(args: {
   bankId: string;
   packageId: string;
   sb: SB;
-}): Promise<void> {
+}): Promise<{ verdict: "pass" | "flagged" | null; repaired: boolean }> {
   const { dealId, bankId, packageId, sb } = args;
 
   const { data: pkg } = await sb
@@ -47,7 +47,7 @@ export async function enrichBusinessPlanPackage(args: {
     .eq("id", packageId)
     .maybeSingle();
 
-  if (!pkg) return;
+  if (!pkg) return { verdict: null, repaired: false };
 
   const typed = pkg as BusinessPlanPackageForVerify;
   const narrativeKeys = [
@@ -65,7 +65,7 @@ export async function enrichBusinessPlanPackage(args: {
       verification_verdict: null,
       verification_flagged_claims: null,
     }).eq("id", packageId);
-    return;
+    return { verdict: null, repaired: false };
   }
 
   const facts = {
@@ -102,4 +102,5 @@ export async function enrichBusinessPlanPackage(args: {
       verification_flagged_claims: finished.flaggedClaims,
     })
     .eq("id", packageId);
+  return { verdict: finished.verdict, repaired: finished.repaired };
 }

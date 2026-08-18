@@ -28,7 +28,10 @@ import {
   generateRiskContingencyMatrix,
 } from "./sbaBusinessPlanRoadmap";
 import { loadBorrowerStory } from "./sbaBorrowerStory";
-import { renderSBAPackagePDF } from "./sbaPackageRenderer";
+import {
+  renderSBAPackagePDF,
+  type SBAPackageRenderInput,
+} from "./sbaPackageRenderer";
 import {
   redactSBAPackageForPreview,
   type SBAPackageInputs,
@@ -64,6 +67,8 @@ export async function generateSBAPackage(
       dscrYear1Base: number;
       pdfUrl: string | null;
       versionNumber: number;
+      /** Exact deterministic input used for the initial render. */
+      renderInput: SBAPackageRenderInput;
     }
   | { ok: false; error: string; blockers?: string[] }
 > {
@@ -794,6 +799,7 @@ export async function generateSBAPackage(
   // overlay. The PDF contains no precise borrower numbers regardless of the
   // watermark — if someone removes it, the document is still preview-shaped.
   let pdfUrl: string | null = null;
+  let finalRenderInput: SBAPackageRenderInput | null = null;
   try {
     const redactionInput: SBAPackageInputs = {
       dealName: deal?.name ?? "Borrower",
@@ -844,7 +850,7 @@ export async function generateSBAPackage(
     // sensitivityScenarios, managementTeam, franchiseSection, balance sheet,
     // globalCashFlow) as-is. Preview mode for those additional fields is
     // handled by the watermark and by the redactor's scoped set.
-    const pdfBuffer = await renderSBAPackagePDF({
+    finalRenderInput = {
       dealName: redacted.dealName,
       loanType: redacted.loanType,
       loanAmount: redacted.loanAmount,
@@ -883,7 +889,8 @@ export async function generateSBAPackage(
       balanceSheetProjections: mode === "preview" ? undefined : balanceSheetProjections,
       globalCashFlow: mode === "preview" ? undefined : globalCashFlow,
       previewWatermark: mode === "preview",
-    });
+    };
+    const pdfBuffer = await renderSBAPackagePDF(finalRenderInput);
 
     const previewSuffix = mode === "preview" ? "_preview" : "";
     const pdfPath = `sba-packages/${dealId}/${Date.now()}${previewSuffix}.pdf`;
@@ -902,6 +909,13 @@ export async function generateSBAPackage(
   } catch (pdfErr) {
     console.error("[sbaPackageOrchestrator] PDF render error:", pdfErr);
     // Non-fatal: proceed without PDF
+  }
+
+  if (!finalRenderInput) {
+    return {
+      ok: false,
+      error: "SBA package renderer input could not be assembled.",
+    };
   }
 
   // Compute SBA guarantee
@@ -1015,5 +1029,6 @@ export async function generateSBAPackage(
     dscrYear1Base,
     pdfUrl,
     versionNumber: nextVersionNumber,
+    renderInput: finalRenderInput,
   };
 }

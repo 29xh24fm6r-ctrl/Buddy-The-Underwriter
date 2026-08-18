@@ -52,7 +52,7 @@ const PASS_GREEN = "#15803d";
  * finengine's flat resolution for any caller that hasn't been updated to
  * pass one, never to a bare literal.
  */
-function resolveDscrThreshold(input: RenderInput): number {
+function resolveDscrThreshold(input: SBAPackageRenderInput): number {
   return input.dscrThreshold ?? resolvePolicy("dscr_floor").effective ?? 1.25;
 }
 
@@ -84,7 +84,7 @@ function fmtDscr(val: number): string {
 // Types
 // ---------------------------------------------------------------------------
 
-interface RenderInput {
+export interface SBAPackageRenderInput {
   dealName: string;
   loanType: string;
   loanAmount: number;
@@ -134,7 +134,7 @@ type DocState = {
   doc: PDFKit.PDFDocument;
   y: number;
   pageNum: number;
-  input: RenderInput;
+  input: SBAPackageRenderInput;
 };
 
 // ---------------------------------------------------------------------------
@@ -1370,7 +1370,7 @@ function drawPreviewWatermark(doc: PDFKit.PDFDocument): void {
   doc.restore();
 }
 
-export function renderSBAPackagePDF(input: RenderInput): Promise<Buffer> {
+export function renderSBAPackagePDF(input: SBAPackageRenderInput): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({
       size: "letter",

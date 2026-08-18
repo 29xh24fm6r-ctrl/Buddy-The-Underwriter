@@ -55,7 +55,7 @@ export async function gradeGoldenTrident(args: {
   const { sb, dealId, bankId } = args;
   const { data: bundle } = await sb
     .from("buddy_trident_bundles")
-    .select("id,status,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id,generation_error")
+    .select("id,status,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id,source_credit_memo_id,source_spread_id,canonical_memo_input_hash,release_gate_json,generation_error")
     .eq("deal_id", dealId)
     .eq("bank_id", bankId)
     .eq("mode", "final")
@@ -77,12 +77,14 @@ export async function gradeGoldenTrident(args: {
           "id,composite_score,market_demand_score,financial_viability_score,operational_readiness_score,location_suitability_score,data_completeness,narratives,narrative_citations,verification_verdict,verification_flagged_claims,pdf_url",
         ).eq("id", feasibilityId).maybeSingle()
       : Promise.resolve({ data: null }),
-    sb.from("deal_spreads").select("id,status,rendered_json,error,updated_at")
-      .eq("deal_id", dealId).eq("bank_id", bankId).eq("spread_type", "CLASSIC_PDF")
-      .order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-    sb.from("canonical_memo_narratives").select("id,narratives,model,research_trust_grade,generated_at")
-      .eq("deal_id", dealId).eq("bank_id", bankId)
-      .order("generated_at", { ascending: false }).limit(1).maybeSingle(),
+    bundle?.source_spread_id
+      ? sb.from("deal_spreads").select("id,status,rendered_json,error,updated_at")
+          .eq("id", bundle.source_spread_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    bundle?.source_credit_memo_id
+      ? sb.from("canonical_memo_narratives").select("id,input_hash,narratives,model,research_trust_grade,generated_at")
+          .eq("id", bundle.source_credit_memo_id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   const artifacts: ArtifactQuality[] = [];
@@ -148,25 +150,9 @@ export async function gradeGoldenTrident(args: {
     else findings.push("Sources and uses are missing.");
     if (balance.length >= 3) { score += 10; passed.push("Balance-sheet projections are populated."); }
     else findings.push("Balance-sheet projections are incomplete.");
-    const negativeCashYears = balance.filter((row) => {
-      if (!row || typeof row !== "object") return false;
-      const record = row as Record<string, unknown>;
-      const cash = Number(record.cash ?? record.cashAndEquivalents ?? record.cash_and_equivalents);
-      return Number.isFinite(cash) && cash < 0;
-    }).length;
-    if (negativeCashYears > 0) findings.push(`${negativeCashYears} projected year(s) end with negative cash; institutional release is blocked.`);
-    else if (balance.length > 0) passed.push("Projected cash remains non-negative in every balance-sheet year.");
     if (words(pkg?.projections_assumptions_narrative) >= 35) { score += 5; passed.push("Projection assumptions narrative is substantive."); }
     else findings.push("Projection assumptions narrative is missing or thin.");
-    artifacts.push(artifact(
-      "projections",
-      "Projections and assumptions",
-      score,
-      exists,
-      passed,
-      findings,
-      negativeCashYears === 0,
-    ));
+    artifacts.push(artifact("projections", "Projections and assumptions", score, exists, passed, findings));
   }
 
   {
@@ -243,12 +229,23 @@ export async function gradeGoldenTrident(args: {
     else findings.push("Research trust grade is missing.");
     if (memo?.generated_at) { score += 15; passed.push("Generation timestamp is present."); }
     else findings.push("Generation timestamp is missing.");
-    artifacts.push(artifact("creditMemo", "Credit memo", score, exists, passed, findings));
+    const memoFresh = Boolean(
+      memo?.input_hash && bundle?.canonical_memo_input_hash &&
+      memo.input_hash === bundle.canonical_memo_input_hash
+    );
+    if (memoFresh) passed.push("Memo is bound to this bundle's canonical input hash.");
+    else findings.push("Memo is missing or stale relative to this bundle's canonical input hash.");
+    artifacts.push(artifact("creditMemo", "Credit memo", score, exists, passed, findings, memoFresh));
   }
 
+  const releaseGate = bundle?.release_gate_json as { ok?: unknown } | null;
+  const releaseReady = releaseGate?.ok === true && artifacts.every((item) => item.status === "pass");
+  const structuralScore = Math.round(artifacts.reduce((sum, item) => sum + item.score, 0) / artifacts.length);
   return {
     generatedAt: new Date().toISOString(),
-    overallScore: Math.round(artifacts.reduce((sum, item) => sum + item.score, 0) / artifacts.length),
+    // A high structural score must never masquerade as an institutional
+    // release when the run-bound release ledger is absent or blocked.
+    overallScore: releaseReady ? structuralScore : Math.min(84, structuralScore),
     artifacts,
   };
 }

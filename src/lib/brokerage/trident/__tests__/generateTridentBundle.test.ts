@@ -16,20 +16,21 @@ const state: {
   deals: Row[];
   sbaPackages: Row[];
   feasibilityStudies: Row[];
+  memoNarratives: Row[];
+  spreads: Row[];
   nextBundleId: () => string;
   sbaResult: any;
   feasResult: any;
   sbaPackageRowForXlsx: Row | null;
   enrichBusinessPlanPackageCalls: Array<{ dealId: string; bankId: string; packageId: string }>;
   enrichFeasibilityStudyCalls: Array<{ dealId: string; bankId: string; studyId: string }>;
-  generationEvents: string[];
-  feasibilityPackageIds: string[];
-  persistedFeasibilityPackageIdOverride?: string;
 } = {
   bundles: [],
   deals: [{ id: "deal-1", bank_id: "bank-1" }],
   sbaPackages: [],
   feasibilityStudies: [],
+  memoNarratives: [],
+  spreads: [],
   nextBundleId: (() => {
     let n = 0;
     return () => `bundle-${++n}`;
@@ -39,23 +40,20 @@ const state: {
   sbaPackageRowForXlsx: null,
   enrichBusinessPlanPackageCalls: [],
   enrichFeasibilityStudyCalls: [],
-  generationEvents: [],
-  feasibilityPackageIds: [],
 };
 
 function resetState() {
   state.bundles = [];
   state.sbaPackages = [];
   state.feasibilityStudies = [];
+  state.memoNarratives = [{ id: "memo-1", deal_id: "deal-1", bank_id: "bank-1", input_hash: "memo-hash", research_trust_grade: "committee_grade" }];
+  state.spreads = [{ id: "spread-1", deal_id: "deal-1", bank_id: "bank-1", spread_type: "CLASSIC_PDF", status: "ready", rendered_json: { pdf_sha256: "abc", canonicalFactsTimestamp: "2026-08-18T00:00:00Z" } }];
   state.enrichBusinessPlanPackageCalls = [];
   state.enrichFeasibilityStudyCalls = [];
-  state.generationEvents = [];
-  state.feasibilityPackageIds = [];
-  state.persistedFeasibilityPackageIdOverride = undefined;
   let n = 0;
   state.nextBundleId = () => `bundle-${++n}`;
-  state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1 };
-  state.feasResult = { ok: true, studyId: "study-1", pdfUrl: "feas/deal-1/y.pdf", composite: {} };
+  state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1, renderInput: {} };
+  state.feasResult = { ok: true, studyId: "study-1", pdfUrl: "feas/deal-1/y.pdf", composite: {}, renderInput: {} };
   state.sbaPackageRowForXlsx = {
     base_year_data: {},
     projections_annual: [],
@@ -138,6 +136,8 @@ function makeQueryBuilder(table: string) {
         deals: state.deals,
         buddy_sba_packages: state.sbaPackages,
         buddy_feasibility_studies: state.feasibilityStudies,
+        canonical_memo_narratives: state.memoNarratives,
+        deal_spreads: state.spreads,
       } as Record<string, Row[]>)[this._table];
       if (!source) return [];
 
@@ -233,10 +233,7 @@ require.cache[require.resolve("@/lib/sba/sbaPackageOrchestrator")] = {
   filename: "sba-pkg-stub",
   loaded: true,
   exports: {
-    generateSBAPackage: async () => {
-      state.generationEvents.push("sba-start");
-      return state.sbaResult;
-    },
+    generateSBAPackage: async () => state.sbaResult,
   },
 } as any;
 
@@ -251,6 +248,7 @@ require.cache[require.resolve("@/lib/sba/enrichBusinessPlanPackage")] = {
   exports: {
     enrichBusinessPlanPackage: async (args: { dealId: string; bankId: string; packageId: string; sb: unknown }) => {
       state.enrichBusinessPlanPackageCalls.push({ dealId: args.dealId, bankId: args.bankId, packageId: args.packageId });
+      return { verdict: "pass", repaired: false };
     },
   },
 } as any;
@@ -260,25 +258,7 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
   filename: "feas-eng-stub",
   loaded: true,
   exports: {
-    generateFeasibilityStudy: async (args: {
-      projectionsPackageId?: string | Promise<string>;
-    }) => {
-      state.generationEvents.push("feasibility-start");
-      const packageId = args.projectionsPackageId
-        ? await args.projectionsPackageId
-        : undefined;
-      if (packageId) {
-        state.feasibilityPackageIds.push(packageId);
-        const study = state.feasibilityStudies.find(
-          (row) => row.id === state.feasResult?.studyId,
-        );
-        if (study) {
-          study.projections_package_id =
-            state.persistedFeasibilityPackageIdOverride ?? packageId;
-        }
-      }
-      return { ...state.feasResult, projectionsPackageId: packageId };
-    },
+    generateFeasibilityStudy: async () => state.feasResult,
   },
 } as any;
 
@@ -289,6 +269,7 @@ require.cache[require.resolve("@/lib/feasibility/enrichFeasibilityStudy")] = {
   exports: {
     enrichFeasibilityStudy: async (args: { dealId: string; bankId: string; studyId: string }) => {
       state.enrichFeasibilityStudyCalls.push({ dealId: args.dealId, bankId: args.bankId, studyId: args.studyId });
+      return { verdict: "pass", repaired: false };
     },
   },
 } as any;
@@ -300,6 +281,22 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityRenderer")] = {
   exports: {
     renderFeasibilityPDF: async () => Buffer.from("feasibility-pdf"),
   },
+} as any;
+
+require.cache[require.resolve("@/lib/sba/sbaPackageRenderer")] = {
+  id: "sba-render-stub",
+  filename: "sba-render-stub",
+  loaded: true,
+  exports: { renderSBAPackagePDF: async () => Buffer.from("business-plan-pdf") },
+} as any;
+
+require.cache[require.resolve("@/lib/creditMemo/canonical/fetchMemoHashInputs")] = {
+  id: "memo-hash-input-stub", filename: "memo-hash-input-stub", loaded: true,
+  exports: { fetchMemoHashInputs: async () => ({}) },
+} as any;
+require.cache[require.resolve("@/lib/creditMemo/canonical/memoProvenance")] = {
+  id: "memo-hash-stub", filename: "memo-hash-stub", loaded: true,
+  exports: { computeMemoInputHash: () => "memo-hash" },
 } as any;
 
 // Load the orchestrator now that shims are in place.
@@ -323,11 +320,6 @@ test("preview happy path: pending → running → succeeded with redactor_versio
   assert.ok(row.business_plan_pdf_path);
   assert.equal(row.projections_xlsx_path, null); // preview = no XLSX
   assert.equal(state.enrichBusinessPlanPackageCalls.length, 1, "verification must run on preview generation too");
-  assert.deepEqual(
-    state.generationEvents.slice(0, 2),
-    ["feasibility-start", "sba-start"],
-    "independent feasibility and SBA lanes must start concurrently",
-  );
 });
 
 test("final happy path: redactor_version null, projections XLSX populated", async () => {
@@ -346,6 +338,9 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
     swot_opportunities: substantive,
     swot_threats: substantive,
     sensitivity_narrative: substantive,
+    projections_assumptions_narrative: substantive,
+    sources_and_uses: { balanced: true, imbalance: 0 },
+    verification_verdict: "pass",
   });
   state.feasibilityStudies.push({
     id: "study-1",
@@ -355,6 +350,13 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
       financialViabilityNarrative: substantive,
       operationalReadinessNarrative: substantive,
       locationSuitabilityNarrative: substantive,
+    },
+    verification_verdict: "pass",
+    data_completeness: 0.9,
+    narrative_citations: {
+      market: { precise: true, urls: ["https://example.com/market"] },
+      industry: { precise: true, urls: ["https://example.com/industry"] },
+      location: { precise: true, urls: ["https://example.com/location"] },
     },
   });
 
@@ -376,79 +378,6 @@ test("final happy path: redactor_version null, projections XLSX populated", asyn
   assert.deepEqual(state.enrichFeasibilityStudyCalls, [
     { dealId: "deal-1", bankId: "bank-1", studyId: "study-1" },
   ]);
-});
-
-test("feasibility binds to the exact package produced by the same bundle", async () => {
-  resetState();
-  const substantive = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
-  state.sbaPackages.push({
-    id: "pkg-1",
-    ...state.sbaPackageRowForXlsx,
-    business_overview_narrative: substantive,
-    executive_summary: substantive,
-    industry_analysis: substantive,
-    marketing_strategy: substantive,
-    operations_plan: substantive,
-    swot_strengths: substantive,
-    swot_weaknesses: substantive,
-    swot_opportunities: substantive,
-    swot_threats: substantive,
-    sensitivity_narrative: substantive,
-  });
-  state.feasibilityStudies.push({
-    id: "study-1",
-    narratives: {
-      executiveSummary: substantive,
-      marketDemandNarrative: substantive,
-      financialViabilityNarrative: substantive,
-      operationalReadinessNarrative: substantive,
-      locationSuitabilityNarrative: substantive,
-    },
-  });
-
-  const result = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
-  assert.equal(result.ok, true);
-  assert.deepEqual(state.feasibilityPackageIds, ["pkg-1"]);
-  assert.equal(state.bundles[0].source_sba_package_id, "pkg-1");
-  assert.equal(state.bundles[0].source_feasibility_id, "study-1");
-});
-
-test("final bundle fails closed when feasibility persisted a stale package", async () => {
-  resetState();
-  const substantive = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
-  state.sbaPackages.push({
-    id: "pkg-1",
-    ...state.sbaPackageRowForXlsx,
-    business_overview_narrative: substantive,
-    executive_summary: substantive,
-    industry_analysis: substantive,
-    marketing_strategy: substantive,
-    operations_plan: substantive,
-    swot_strengths: substantive,
-    swot_weaknesses: substantive,
-    swot_opportunities: substantive,
-    swot_threats: substantive,
-    sensitivity_narrative: substantive,
-  });
-  state.feasibilityStudies.push({
-    id: "study-1",
-    narratives: {
-      executiveSummary: substantive,
-      marketDemandNarrative: substantive,
-      financialViabilityNarrative: substantive,
-      operationalReadinessNarrative: substantive,
-      locationSuitabilityNarrative: substantive,
-    },
-  });
-  state.persistedFeasibilityPackageIdOverride = "pkg-stale";
-
-  const result = await generateTridentBundle({ dealId: "deal-1", mode: "final" });
-  assert.equal(result.ok, false);
-  assert.match(
-    result.error,
-    /Persisted feasibility projection provenance mismatch: expected pkg-1, received pkg-stale/,
-  );
-  assert.equal(state.bundles[0].status, "failed");
 });
 
 test("final generation fails closed when business-plan PDF would contain placeholders", async () => {

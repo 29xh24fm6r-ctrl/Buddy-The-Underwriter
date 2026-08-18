@@ -262,6 +262,13 @@ export type AssembleNarrativesResult = {
 export async function assembleNarratives(args: {
   memo: CanonicalCreditMemoV1;
   forceRegenerate?: boolean;
+  inputHash?: string;
+  /**
+   * The canonical artifact service verifies before it writes. Direct callers
+   * may retain the historical cache behavior, but publication paths must pass
+   * false so an unreviewed generation can never become the durable artifact.
+   */
+  persist?: boolean;
 }): Promise<AssembleNarrativesResult> {
   const { memo } = args;
   const sb = supabaseAdmin();
@@ -289,7 +296,10 @@ export async function assembleNarratives(args: {
   }
 
   const input = buildNarrativeInput(memo, transcriptExcerpts);
-  const inputHash = computeInputHash(input);
+  // All memo readers and writers must use the deterministic canonical memo
+  // hash. The former private 16-character narrative hash created a second
+  // freshness domain and allowed incompatible rows for the same memo state.
+  const inputHash = args.inputHash || computeInputHash(input);
 
   // Check cache — wrapped defensively in case table schema differs.
   // Phase 92: the input hash now incorporates stress/qualitative/trend
@@ -421,7 +431,7 @@ export async function assembleNarratives(args: {
   // Cache result — fire-and-forget, failure is non-fatal.
   // Skip caching when we fell back, so a future retry can regenerate
   // instead of permanently serving the "unavailable" strings from cache.
-  if (!aiError) {
+  if (!aiError && args.persist !== false) {
     try {
       await (sb as any)
         .from("canonical_memo_narratives")

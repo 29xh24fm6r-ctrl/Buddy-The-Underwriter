@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDealBankAccess } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { buildCanonicalCreditMemo } from "@/lib/creditMemo/canonical/buildCanonicalCreditMemo";
-import { assembleNarratives, overlayNarratives } from "@/lib/creditMemo/canonical/narrativeAssembly";
-import { verifyMemoNarratives } from "@/lib/creditMemo/canonical/verifyMemoNarratives";
+import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,48 +21,21 @@ export async function POST(
     const body = await req.json().catch(() => ({}));
     const forceRegenerate = body?.force === true;
 
-    // Build the deterministic memo first
-    const memoResult = await buildCanonicalCreditMemo({ dealId, bankId });
-    if (!memoResult.ok) {
-      return NextResponse.json({ ok: false, error: memoResult.error }, { status: 400 });
-    }
-
-    // Generate narratives
-    const { narratives, aiError } = await assembleNarratives({
-      memo: memoResult.memo,
+    const result = await generateCanonicalMemoArtifact({
+      dealId,
+      bankId,
       forceRegenerate,
     });
-
-    // Overlay onto memo
-    // SPEC-M8 ARTIFACT-PIPELINE-1: independent fact-check of the narrative
-    // bundle against the same deterministic memo fields the generator saw.
-    // Best-effort — a verifier outage must not block the memo from
-    // rendering (the generator's output already succeeded or fell back).
-    let verification = null;
-    try {
-      verification = await verifyMemoNarratives({
-        dealId,
-        bankId,
-        memo: memoResult.memo,
-        narratives,
-        sb: supabaseAdmin(),
-      });
-    } catch (err) {
-      console.error("[credit-memo/canonical/narratives] verification failed (non-fatal):", err);
+    if (!result.ok) {
+      return NextResponse.json(result, { status: result.status });
     }
-
-    // Use the repaired narratives when the frontier factory completed a
-    // successful repair cycle; otherwise preserve the original generated
-    // artifact and surface the unresolved verification findings.
-    const finalNarratives = verification?.narratives ?? narratives;
-    const enrichedMemo = overlayNarratives(memoResult.memo, finalNarratives);
 
     return NextResponse.json({
       ok: true,
-      narratives: finalNarratives,
-      memo: enrichedMemo,
-      aiError,
-      verification,
+      narratives: result.narratives,
+      memo: result.canonicalMemo,
+      inputHash: result.inputHash,
+      verification: result.verification,
     });
   } catch (e: unknown) {
     rethrowNextErrors(e);
