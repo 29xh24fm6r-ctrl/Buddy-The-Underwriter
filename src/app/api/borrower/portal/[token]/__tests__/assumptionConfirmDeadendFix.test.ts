@@ -285,3 +285,32 @@ test("a non-confirm PATCH (plain autosave) does not trigger bundle generation", 
   assert.equal(body.bundleGeneration, undefined);
   assert.equal(state.events.length, 0);
 });
+
+test("editing confirmed assumptions invalidates the stale confirmation snapshot", async () => {
+  resetState();
+  const token = "tok-confirm-then-edit";
+
+  const confirmResult = await callConfirm(token);
+  assert.equal(confirmResult.status, 200);
+
+  const row = state.assumptions.find((a) => a.deal_id === `deal-for-${token}`);
+  assert.ok(row);
+  assert.equal(row.status, "confirmed");
+  assert.ok(row.confirmed_at);
+
+  const res = await sbaAssumptionsPATCH(
+    mkReq({ patch: {
+      managementTeam: [{ name: "Revised Owner", bio: "Revised but not yet reconfirmed." }],
+    } }),
+    { params: Promise.resolve({ token }) },
+  );
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.bundleGeneration, undefined);
+  assert.equal(row.status, "draft");
+  assert.equal(row.confirmed_at, null);
+  assert.equal(row.management_team[0].name, "Revised Owner");
+});
+

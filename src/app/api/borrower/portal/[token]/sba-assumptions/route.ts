@@ -198,6 +198,25 @@ export async function PATCH(
     upsertData.status = patch.status;
   }
 
+  const assumptionContentChanged =
+    patch.revenueStreams !== undefined ||
+    patch.costAssumptions !== undefined ||
+    patch.workingCapital !== undefined ||
+    patch.loanImpact !== undefined ||
+    patch.managementTeam !== undefined;
+
+  // A confirmation applies to one exact assumption snapshot. Any later
+  // content edit must invalidate it until the borrower explicitly confirms
+  // the revised values. This prevents debounced autosaves from preserving a
+  // stale confirmed status and promoting unreviewed edits into release
+  // evidence.
+  if (assumptionContentChanged && patch.status !== "confirmed") {
+    upsertData.status = "draft";
+    upsertData.confirmed_at = null;
+  } else if (patch.status === "draft") {
+    upsertData.confirmed_at = null;
+  }
+
   if (patch.status === "confirmed") {
     const candidate: SBAAssumptions = {
       dealId: ctx.dealId,
