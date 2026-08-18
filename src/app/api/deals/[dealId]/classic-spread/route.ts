@@ -12,6 +12,7 @@ import { CLASSIC_PDF_RENDER_VERSION } from "@/lib/classicSpread/classicPdfRender
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { SENTINEL_UUID } from "@/lib/financialFacts/writeFact";
 import type { ClassicPdfCachedPayload } from "@/lib/classicSpread/classicPdfWorker";
+import { loadLatestCanonicalFactsTimestamp } from "@/lib/classicSpread/latestCanonicalFactsTimestamp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,22 +94,19 @@ export async function GET(_req: Request, ctx: Ctx) {
       const pdfSha256 = createHash("sha256").update(pdf).digest("hex");
       const generatedAt = new Date().toISOString();
 
-      // Get latest facts timestamp for staleness comparison
+      // Read the authoritative append-ledger timestamp for staleness comparison.
       const sb = supabaseAdmin();
-      const { data: latestFact } = await (sb as any)
-        .from("deal_financial_facts")
-        .select("updated_at")
-        .eq("deal_id", dealId)
-        .eq("bank_id", bankId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const canonicalFactsTimestamp = await loadLatestCanonicalFactsTimestamp(
+        sb as any,
+        dealId,
+        bankId,
+      );
 
       const cachePayload: ClassicPdfCachedPayload = {
         pdf_base64: Buffer.from(pdf).toString("base64"),
         pdf_sha256: pdfSha256,
         pdf_size_bytes: pdf.length,
-        canonicalFactsTimestamp: latestFact?.updated_at ?? null,
+        canonicalFactsTimestamp,
         generatedAt,
         renderVersion: CLASSIC_PDF_RENDER_VERSION,
         certificationAudit: input.certificationAudit ?? null,
