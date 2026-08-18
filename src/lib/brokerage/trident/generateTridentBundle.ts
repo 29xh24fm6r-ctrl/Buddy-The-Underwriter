@@ -120,9 +120,10 @@ export async function generateTridentBundle(args: {
     // business-plan/projections lane so the two expensive AI pipelines do not
     // consume the route's 300-second budget serially. Capture rejection here
     // so an early SBA failure cannot leave an unhandled promise behind.
-    const feasibilityGeneration = generateFeasibilityStudy({
+    const feasibilityGeneration = generateFeasibilityLane(sb, {
       dealId,
       bankId: deal.bank_id,
+      mode,
     }).then(
       (result) => ({ result, error: null as unknown }),
       (error: unknown) => ({ result: null, error }),
@@ -289,61 +290,18 @@ export async function generateTridentBundle(args: {
       }
     }
 
-    // 3. Feasibility — call engine; for preview, re-render with redaction.
+    // 3. Join the independently running feasibility lane. Generation,
+    // institutional review, acceptance, rendering, and copy all began at the
+    // start of the bundle instead of waiting behind the SBA lane.
     let feasibilityPdfPath: string | null = null;
     let sourceFeasibilityId: string | null = null;
-    try {
-      const feasibilityOutcome = await feasibilityGeneration;
-      if (feasibilityOutcome.error) throw feasibilityOutcome.error;
-      const feasResult = feasibilityOutcome.result!;
-      if (feasResult.ok) {
-        sourceFeasibilityId = feasResult.studyId ?? null;
-        if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
-          await enrichFeasibilityStudy({
-            dealId,
-            bankId: deal.bank_id,
-            studyId: sourceFeasibilityId,
-            composite: feasResult.composite,
-            sb,
-          });
-        }
-        if (mode === "final" && sourceFeasibilityId) {
-          const { data: feasibilityRow, error: feasibilityReadError } = await sb
-            .from("buddy_feasibility_studies")
-            .select("narratives")
-            .eq("id", sourceFeasibilityId)
-            .maybeSingle();
-          if (feasibilityReadError) {
-            throw new Error(`Feasibility narrative acceptance read failed: ${feasibilityReadError.message}`);
-          }
-          const acceptance = assessFeasibilityNarratives(
-            (feasibilityRow?.narratives as Record<string, unknown> | null) ?? null,
-          );
-          if (!acceptance.ok) {
-            throw new Error(
-              `Feasibility narrative acceptance failed: ${acceptance.substantive}/${acceptance.required} required sections are substantive`,
-            );
-          }
-        }
-        if (mode === "final" && feasResult.pdfUrl) {
-          feasibilityPdfPath = await copyToTridentBucket(sb, {
-            sourceBucket: "deal-documents",
-            sourcePath: feasResult.pdfUrl,
-            dealId,
-            mode,
-            artifact: "feasibility",
-            ext: "pdf",
-          });
-        } else if (mode === "preview" && sourceFeasibilityId) {
-          feasibilityPdfPath = await renderFeasibilityPreview(sb, {
-            studyId: sourceFeasibilityId,
-            dealId,
-          });
-        }
-      }
-    } catch (feasErr) {
-      if (mode === "final") throw feasErr;
-      console.warn("[trident] feasibility render failed (non-fatal):", feasErr);
+    const feasibilityOutcome = await feasibilityGeneration;
+    if (feasibilityOutcome.error) {
+      if (mode === "final") throw feasibilityOutcome.error;
+      console.warn("[trident] feasibility render failed (non-fatal):", feasibilityOutcome.error);
+    } else if (feasibilityOutcome.result) {
+      feasibilityPdfPath = feasibilityOutcome.result.feasibilityPdfPath;
+      sourceFeasibilityId = feasibilityOutcome.result.sourceFeasibilityId;
     }
 
     // 4. Supersede prior current succeeded bundle for this (deal, mode),
@@ -401,6 +359,68 @@ export async function generateTridentBundle(args: {
   }
     },
   );
+}
+
+async function generateFeasibilityLane(
+  sb: SupabaseClient,
+  args: { dealId: string; bankId: string; mode: TridentBundleMode },
+): Promise<{ feasibilityPdfPath: string | null; sourceFeasibilityId: string | null }> {
+  const feasResult = await generateFeasibilityStudy({
+    dealId: args.dealId,
+    bankId: args.bankId,
+  });
+  if (!feasResult.ok) {
+    return { feasibilityPdfPath: null, sourceFeasibilityId: null };
+  }
+
+  const sourceFeasibilityId = feasResult.studyId ?? null;
+  if (args.mode === "final" && sourceFeasibilityId && feasResult.composite) {
+    await enrichFeasibilityStudy({
+      dealId: args.dealId,
+      bankId: args.bankId,
+      studyId: sourceFeasibilityId,
+      composite: feasResult.composite,
+      sb,
+    });
+  }
+
+  if (args.mode === "final" && sourceFeasibilityId) {
+    const { data: feasibilityRow, error: feasibilityReadError } = await sb
+      .from("buddy_feasibility_studies")
+      .select("narratives")
+      .eq("id", sourceFeasibilityId)
+      .maybeSingle();
+    if (feasibilityReadError) {
+      throw new Error(`Feasibility narrative acceptance read failed: ${feasibilityReadError.message}`);
+    }
+    const acceptance = assessFeasibilityNarratives(
+      (feasibilityRow?.narratives as Record<string, unknown> | null) ?? null,
+    );
+    if (!acceptance.ok) {
+      throw new Error(
+        `Feasibility narrative acceptance failed: ${acceptance.substantive}/${acceptance.required} required sections are substantive`,
+      );
+    }
+  }
+
+  let feasibilityPdfPath: string | null = null;
+  if (args.mode === "final" && feasResult.pdfUrl) {
+    feasibilityPdfPath = await copyToTridentBucket(sb, {
+      sourceBucket: "deal-documents",
+      sourcePath: feasResult.pdfUrl,
+      dealId: args.dealId,
+      mode: args.mode,
+      artifact: "feasibility",
+      ext: "pdf",
+    });
+  } else if (args.mode === "preview" && sourceFeasibilityId) {
+    feasibilityPdfPath = await renderFeasibilityPreview(sb, {
+      studyId: sourceFeasibilityId,
+      dealId: args.dealId,
+    });
+  }
+
+  return { feasibilityPdfPath, sourceFeasibilityId };
 }
 
 async function copyToTridentBucket(
