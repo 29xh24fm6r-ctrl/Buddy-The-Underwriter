@@ -22,6 +22,7 @@ const state: {
   sbaPackageRowForXlsx: Row | null;
   enrichBusinessPlanPackageCalls: Array<{ dealId: string; bankId: string; packageId: string }>;
   enrichFeasibilityStudyCalls: Array<{ dealId: string; bankId: string; studyId: string }>;
+  generationEvents: string[];
 } = {
   bundles: [],
   deals: [{ id: "deal-1", bank_id: "bank-1" }],
@@ -36,6 +37,7 @@ const state: {
   sbaPackageRowForXlsx: null,
   enrichBusinessPlanPackageCalls: [],
   enrichFeasibilityStudyCalls: [],
+  generationEvents: [],
 };
 
 function resetState() {
@@ -44,6 +46,7 @@ function resetState() {
   state.feasibilityStudies = [];
   state.enrichBusinessPlanPackageCalls = [];
   state.enrichFeasibilityStudyCalls = [];
+  state.generationEvents = [];
   let n = 0;
   state.nextBundleId = () => `bundle-${++n}`;
   state.sbaResult = { ok: true, packageId: "pkg-1", pdfUrl: "sba-packages/deal-1/x.pdf", dscrBelowThreshold: false, dscrYear1Base: 1.4, versionNumber: 1 };
@@ -225,7 +228,10 @@ require.cache[require.resolve("@/lib/sba/sbaPackageOrchestrator")] = {
   filename: "sba-pkg-stub",
   loaded: true,
   exports: {
-    generateSBAPackage: async () => state.sbaResult,
+    generateSBAPackage: async () => {
+      state.generationEvents.push("sba-start");
+      return state.sbaResult;
+    },
   },
 } as any;
 
@@ -249,7 +255,10 @@ require.cache[require.resolve("@/lib/feasibility/feasibilityEngine")] = {
   filename: "feas-eng-stub",
   loaded: true,
   exports: {
-    generateFeasibilityStudy: async () => state.feasResult,
+    generateFeasibilityStudy: async () => {
+      state.generationEvents.push("feasibility-start");
+      return state.feasResult;
+    },
   },
 } as any;
 
@@ -294,6 +303,11 @@ test("preview happy path: pending → running → succeeded with redactor_versio
   assert.ok(row.business_plan_pdf_path);
   assert.equal(row.projections_xlsx_path, null); // preview = no XLSX
   assert.equal(state.enrichBusinessPlanPackageCalls.length, 1, "verification must run on preview generation too");
+  assert.deepEqual(
+    state.generationEvents.slice(0, 2),
+    ["feasibility-start", "sba-start"],
+    "independent feasibility and SBA lanes must start concurrently",
+  );
 });
 
 test("final happy path: redactor_version null, projections XLSX populated", async () => {

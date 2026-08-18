@@ -116,6 +116,18 @@ export async function generateTridentBundle(args: {
     },
     async () => {
   try {
+    // Feasibility is independent of the SBA package. Start it alongside the
+    // business-plan/projections lane so the two expensive AI pipelines do not
+    // consume the route's 300-second budget serially. Capture rejection here
+    // so an early SBA failure cannot leave an unhandled promise behind.
+    const feasibilityGeneration = generateFeasibilityStudy({
+      dealId,
+      bankId: deal.bank_id,
+    }).then(
+      (result) => ({ result, error: null as unknown }),
+      (error: unknown) => ({ result: null, error }),
+    );
+
     // 1. SBA package (business plan PDF + package row).
     const sbaResult = await generateSBAPackage(dealId, { mode });
     if (!sbaResult.ok) {
@@ -281,10 +293,9 @@ export async function generateTridentBundle(args: {
     let feasibilityPdfPath: string | null = null;
     let sourceFeasibilityId: string | null = null;
     try {
-      const feasResult = await generateFeasibilityStudy({
-        dealId,
-        bankId: deal.bank_id,
-      });
+      const feasibilityOutcome = await feasibilityGeneration;
+      if (feasibilityOutcome.error) throw feasibilityOutcome.error;
+      const feasResult = feasibilityOutcome.result!;
       if (feasResult.ok) {
         sourceFeasibilityId = feasResult.studyId ?? null;
         if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
