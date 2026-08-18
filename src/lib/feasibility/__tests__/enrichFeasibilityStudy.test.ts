@@ -259,7 +259,12 @@ test("reviewer receives exact same-run financial and management evidence", async
           totalDebtService: 257634,
           dscr: 1.6327,
         }],
-        projections_monthly: [{ month: 1, revenue: 229490, debtService: 21469 }],
+        projections_monthly: Array.from({ length: 120 }, (_, month) => ({
+          month: month + 1,
+          revenue: 229490,
+          debtService: 21469,
+          verboseIgnoredDetail: "x".repeat(1000),
+        })),
         break_even: { breakEvenRevenue: 1819111, marginOfSafetyPct: 0.339 },
         sensitivity_scenarios: [{ name: "Downside", dscrYear1: 0.78 }],
         sources_and_uses: {
@@ -309,14 +314,22 @@ test("reviewer receives exact same-run financial and management evidence", async
     sb: db,
   });
 
-  assert.match(reviewPrompt, /"id": "pkg-current"/);
-  assert.match(reviewPrompt, /"dscr": 1\.6327/);
-  assert.match(reviewPrompt, /"ebitda": 420646/);
-  assert.match(reviewPrompt, /"totalDebtService": 257634/);
-  assert.match(reviewPrompt, /"dscrYear1": 0\.78/);
-  assert.match(reviewPrompt, /"actualAmount": 150000/);
-  assert.match(reviewPrompt, /"cash": -314068/);
-  assert.match(reviewPrompt, /"name": "Jordan Ellis"/);
-  assert.match(reviewPrompt, /"yearsInIndustry": 17/);
+  assert.match(reviewPrompt, /"id":"pkg-current"/);
+  assert.match(reviewPrompt, /"dscr":1\.6327/);
+  assert.match(reviewPrompt, /"ebitda":420646/);
+  assert.match(reviewPrompt, /"totalDebtService":257634/);
+  assert.match(reviewPrompt, /"dscrYear1":0\.78/);
+  assert.match(reviewPrompt, /"actualAmount":150000/);
+  assert.match(reviewPrompt, /"cash":-314068/);
+  assert.match(reviewPrompt, /"name":"Jordan Ellis"/);
+  assert.match(reviewPrompt, /"yearsInIndustry":17/);
   assert.doesNotMatch(reviewPrompt, /pkg-stale|Stale Person|9\.99/);
+  assert.doesNotMatch(
+    reviewPrompt,
+    /monthlyProjections|verboseIgnoredDetail/,
+  );
+  assert.ok(
+    reviewPrompt.length < 30_000,
+    `review prompt must stay below 30,000 characters; received ${reviewPrompt.length}`,
+  );
 });
