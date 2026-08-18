@@ -30,7 +30,7 @@ import type {
 
 // Single source of truth (finengine's policy registry) for the DSCR
 // threshold this dashboard displays against — same flat resolution
-// buildSensitivityScenarios below defaults to when this dashboard doesn't
+// the authoritative projection model defaults to when this dashboard doesn't
 // pass deal-specific new-business/product context. Keeping both call sites
 // on the same registry read means the gauge/cell coloring can never drift
 // from the pass/fail flag the forward model itself computed.
