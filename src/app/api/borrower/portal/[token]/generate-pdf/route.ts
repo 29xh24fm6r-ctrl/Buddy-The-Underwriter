@@ -207,6 +207,12 @@ export async function POST(
     sensitivityScenarios: scenarios,
   } = projectionModel;
   const year1 = annual[0];
+  if (!year1) {
+    return NextResponse.json(
+      { ok: false, error: "Unable to build Year 1 projection" },
+      { status: 500 },
+    );
+  }
 
   // Reconstruct a briefing from the most recent compiled research narrative.
   let researchBriefing = "";
