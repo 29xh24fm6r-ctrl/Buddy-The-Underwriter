@@ -4,13 +4,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { validateSBAAssumptions } from "./sbaAssumptionsValidator";
 import {
   buildBaseYear,
-  buildAnnualProjections,
-  buildMonthlyProjections,
-  buildRevenueStreamProjections,
-  computeBreakEven,
-  buildSensitivityScenarios,
   buildUseOfProceeds,
 } from "./sbaForwardModelBuilder";
+import { computeSBAProjectionModel } from "./sbaProjectionAuthority";
 import { calculateSBAGuarantee, detectSBAProgram } from "./sbaGuarantee";
 import {
   detectNewBusinessFromFacts,
@@ -277,24 +273,21 @@ export async function generateSBAPackage(
     existingDebtServiceAnnual: ads,
   });
 
-  // Run model passes
-  const annualProjections = buildAnnualProjections(assumptions, baseYear);
-  const monthlyProjections = buildMonthlyProjections(
+  // One versioned authority computes every borrower-facing SBA projection.
+  // Artifacts consume this immutable model; they do not invoke individual
+  // calculators or recompute financial values.
+  const projectionModel = computeSBAProjectionModel({
     assumptions,
-    annualProjections[0],
-  );
-  // Per-stream Y1–Y3 revenue. Used by the renderer to emit a stream-by-
-  // stream breakdown table and by the narrative to describe each stream
-  // individually. Sum of stream.revenueYearN equals annualProjections[N-1].revenue
-  // by construction (shared formula).
-  const revenueStreamProjections =
-    buildRevenueStreamProjections(assumptions);
-  const breakEven = computeBreakEven(assumptions, annualProjections[0]);
-  const sensitivityScenarios = buildSensitivityScenarios(
-    assumptions,
-    annualProjections,
+    baseYear,
     projectedDscrThreshold,
-  );
+  });
+  const {
+    annualProjections,
+    monthlyProjections,
+    revenueStreamProjections,
+    breakEven,
+    sensitivityScenarios,
+  } = projectionModel;
 
   // Use of proceeds
   const { data: proceedsItems } = await sb
@@ -761,18 +754,29 @@ export async function generateSBAPackage(
   // section must never fail the whole package" convention as the
   // franchise-section lookup directly above.
   //
-  // Deliberately NOT added to verifyBusinessPlanPackage.ts's narrative
-  // section list: that verifier checks narrative text against THIS
-  // package's dscr_year1_base/dscr_year2_base (sbaForwardModelBuilder's
-  // figures), whereas this narrative describes the methodology-slate DSCR
-  // from src/lib/methodology/projectDscrForVariant.ts — a distinct model.
-  // Cross-checking against the wrong set of facts would manufacture false
-  // "mismatch" flags; this narrative already gets its own correct verifier
-  // pass internally, against its own facts.
+  // The narrative receives the exact versioned projection facts used by this
+  // package. It must never load or calculate a second DSCR model.
   let projectionsAssumptionsNarrative: string | null = null;
   try {
     if (deal?.bank_id) {
-      const projectionsResult = await generateProjectionsAssumptionsNarrative(dealId, deal.bank_id, sb);
+      const year1Projection = annualProjections[0];
+      const projectionsResult = await generateProjectionsAssumptionsNarrative(
+        dealId,
+        deal.bank_id,
+        sb,
+        {
+          engineVersion: projectionModel.engineVersion,
+          methodologySlate: "borrower_confirmed_sba_assumptions",
+          formType: "SBA_FORWARD_MODEL",
+          projectedEbitda: year1Projection?.ebitda ?? 0,
+          projectedOfficerCompAddback: null,
+          projectedNcads: year1Projection?.ebitda ?? 0,
+          proposedAnnualDebtService: year1Projection?.totalDebtService ?? 0,
+          projectedDscr: year1Projection?.dscr ?? 0,
+          components:
+            "Projected EBITDA and total annual debt service from the authoritative SBA projection model.",
+        },
+      );
       if (projectionsResult.status === "ready") {
         projectionsAssumptionsNarrative = projectionsResult.narrative;
       }
