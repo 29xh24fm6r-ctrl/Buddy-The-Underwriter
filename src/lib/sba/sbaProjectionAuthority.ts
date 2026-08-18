@@ -31,7 +31,7 @@ export type SBAProjectionModel = {
 export function computeSBAProjectionModel(args: {
   assumptions: SBAAssumptions;
   baseYear: AnnualProjectionYear;
-  projectedDscrThreshold: number;
+  projectedDscrThreshold?: number;
 }): SBAProjectionModel {
   const { assumptions, baseYear, projectedDscrThreshold } = args;
   const annualProjections = buildAnnualProjections(assumptions, baseYear);
@@ -51,7 +51,7 @@ export function computeSBAProjectionModel(args: {
     breakEven: computeBreakEven(assumptions, year1),
     sensitivityScenarios: buildSensitivityScenarios(
       assumptions,
-      annualProjections,
+      [baseYear, ...annualProjections],
       projectedDscrThreshold,
     ),
   });
