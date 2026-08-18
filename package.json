@@ -81,7 +81,7 @@
     "check:no-llm-deterministic": "bash scripts/check-no-llm-in-deterministic.sh",
     "audit:layout": "node scripts/layout-audit.mjs",
     "capture:marketing": "node scripts/capture-marketing-screenshots.mjs",
-    "e2e:install": "playwright install --with-deps",
+    "e2e:install": "playwright install --with-deps chromium",
     "e2e:smoke": "playwright test --config=playwright.config.ts",
     "e2e:ui": "playwright test --ui --config=playwright.config.ts",
     "e2e:smoke:public": "playwright test --project=smoke-public",
