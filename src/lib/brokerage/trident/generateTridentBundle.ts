@@ -39,6 +39,8 @@ import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 import { fetchMemoHashInputs } from "@/lib/creditMemo/canonical/fetchMemoHashInputs";
 import { computeMemoInputHash } from "@/lib/creditMemo/canonical/memoProvenance";
 import { evaluateTridentRelease } from "./tridentReleaseGate";
+import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
+import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -47,54 +49,25 @@ export async function createTridentBundleRun(args: {
   mode: TridentBundleMode;
 }): Promise<{ ok: true; bundleId: string; reused: boolean } | { ok: false; error: string }> {
   const sb = supabaseAdmin();
-  const { data: deal } = await sb
-    .from("deals")
-    .select("id, bank_id")
-    .eq("id", args.dealId)
-    .single();
-  if (!deal) return { ok: false, error: "Deal not found" };
-
-  // A killed serverless request cannot run a catch/finally block. Recover an
-  // abandoned run before accepting a replacement so the UI never remains
-  // permanently pinned to a phantom `running` bundle.
-  const staleBefore = new Date(Date.now() - 20 * 60 * 1000).toISOString();
-  await sb
-    .from("buddy_trident_bundles")
-    .update({
-      status: "failed",
-      generation_error: "Generation worker stopped before completion; a replacement run was started.",
-      generation_completed_at: new Date().toISOString(),
-    })
-    .eq("deal_id", args.dealId)
-    .eq("mode", args.mode)
-    .eq("status", "running")
-    .lt("generation_started_at", staleBefore);
-
-  const { data: active } = await sb
-    .from("buddy_trident_bundles")
-    .select("id")
-    .eq("deal_id", args.dealId)
-    .eq("mode", args.mode)
-    .in("status", ["pending", "running"])
-    .gte("generated_at", staleBefore)
-    .order("generation_started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (active?.id) return { ok: true, bundleId: active.id, reused: true };
-
-  const { data: bundleRow, error } = await sb
-    .from("buddy_trident_bundles")
-    .insert({
-      deal_id: args.dealId,
-      bank_id: deal.bank_id,
-      mode: args.mode,
-      status: "pending",
-      redactor_version: args.mode === "preview" ? REDACTOR_VERSION : null,
-    })
-    .select("id")
-    .single();
-  if (error || !bundleRow) return { ok: false, error: error?.message ?? "Insert failed" };
-  return { ok: true, bundleId: bundleRow.id, reused: false };
+  try {
+    const inputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
+    const { data, error } = await sb.rpc("acquire_trident_bundle_run", {
+      p_deal_id: args.dealId,
+      p_mode: args.mode,
+      p_input_hash: inputHash,
+    });
+    const admitted = Array.isArray(data) ? data[0] : data;
+    if (error || !admitted?.bundle_id) {
+      return { ok: false, error: error?.message ?? "Atomic Trident admission failed" };
+    }
+    return {
+      ok: true,
+      bundleId: String(admitted.bundle_id),
+      reused: admitted.reused === true,
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export type GenerateResult =
@@ -287,6 +260,14 @@ export async function generateTridentBundle(args: {
       artifact: "business_plan",
       ext: "pdf",
     });
+    if (!businessPlanPath) throw new Error("Business-plan artifact persistence failed");
+    const { error: businessPlanPersistError } = await sb.from("buddy_trident_bundles").update({
+      business_plan_pdf_path: businessPlanPath,
+      source_sba_package_id: sbaResult.packageId,
+      current_stage: "business_plan",
+      last_heartbeat_at: new Date().toISOString(),
+    }).eq("id", bundleId);
+    if (businessPlanPersistError) throw new Error(`Business-plan manifest write failed: ${businessPlanPersistError.message}`);
 
     // SPEC-M8 ARTIFACT-PIPELINE-1 — read-only attestation lookup. Never
     // blocks bundle generation (see GenerateResult's businessPlanAttested
@@ -336,11 +317,12 @@ export async function generateTridentBundle(args: {
           balanceSheetProjections: pkgRow.balance_sheet_projections,
         });
         const path = `${dealId}/${mode}/${Date.now()}_projections.xlsx`;
-        await sb.storage.from("trident-bundles").upload(path, xlsxBuf, {
+        const { error: uploadError } = await sb.storage.from("trident-bundles").upload(path, xlsxBuf, {
           contentType:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           upsert: true,
         });
+        if (uploadError) throw new Error(`Projection workbook upload failed: ${uploadError.message}`);
         projectionsXlsxPath = path;
       }
     }
@@ -391,6 +373,14 @@ export async function generateTridentBundle(args: {
         );
       }
     }
+
+    const { error: projectionsPersistError } = await sb.from("buddy_trident_bundles").update({
+      projections_pdf_path: projectionsPdfPath,
+      projections_xlsx_path: projectionsXlsxPath,
+      current_stage: "projections",
+      last_heartbeat_at: new Date().toISOString(),
+    }).eq("id", bundleId);
+    if (projectionsPersistError) throw new Error(`Projection manifest write failed: ${projectionsPersistError.message}`);
 
     // 3. Feasibility — call engine; for preview, re-render with redaction.
     let feasibilityPdfPath: string | null = null;
@@ -469,6 +459,14 @@ export async function generateTridentBundle(args: {
       console.warn("[trident] feasibility render failed (non-fatal):", feasErr);
     }
 
+    const { error: feasibilityPersistError } = await sb.from("buddy_trident_bundles").update({
+      feasibility_pdf_path: feasibilityPdfPath,
+      source_feasibility_id: sourceFeasibilityId,
+      current_stage: "feasibility",
+      last_heartbeat_at: new Date().toISOString(),
+    }).eq("id", bundleId);
+    if (feasibilityPersistError) throw new Error(`Feasibility manifest write failed: ${feasibilityPersistError.message}`);
+
     // 4. Bind a final release to the exact memo, spread, and reviewed
     // artifacts from this run. Preview remains intentionally non-release.
     let releaseManifest: Record<string, unknown> | null = null;
@@ -476,6 +474,14 @@ export async function generateTridentBundle(args: {
     let sourceSpreadId: string | null = null;
     let canonicalMemoInputHash: string | null = null;
     if (mode === "final") {
+      const canonicalMemo = await generateCanonicalMemoArtifact({
+        dealId,
+        bankId: deal.bank_id,
+        forceRegenerate: false,
+      });
+      if (!canonicalMemo.ok) throw new Error(canonicalMemo.error);
+      const canonicalSpread = await renderClassicPdfSpread({ dealId, bankId: deal.bank_id });
+      if (!canonicalSpread.ok) throw new Error(canonicalSpread.error);
       canonicalMemoInputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, dealId));
       const [{ data: releasePkg }, { data: releaseFeasibility }, { data: releaseMemo }, { data: releaseSpread }] = await Promise.all([
         sb.from("buddy_sba_packages")
@@ -584,8 +590,10 @@ export async function generateTridentBundle(args: {
       .from("buddy_trident_bundles")
       .update({
         status: "failed",
-        generation_error: msg.slice(0, 500),
+        generation_error: msg,
+        stage_error_json: { stage: "artifact_factory", message: msg },
         generation_completed_at: new Date().toISOString(),
+        last_heartbeat_at: new Date().toISOString(),
       })
       .eq("id", bundleId);
     return { ok: false, bundleId, error: msg };
@@ -622,17 +630,20 @@ async function copyToTridentBucket(
   const { data, error: downloadErr } = await sb.storage
     .from(args.sourceBucket)
     .download(args.sourcePath);
-  if (downloadErr || !data) return null;
+  if (downloadErr || !data) {
+    throw new Error(`Artifact source download failed: ${downloadErr?.message ?? "missing data"}`);
+  }
 
   const buf = Buffer.from(await data.arrayBuffer());
   const targetPath = `${args.dealId}/${args.mode}/${Date.now()}_${args.artifact}.${args.ext}`;
-  await sb.storage.from("trident-bundles").upload(targetPath, buf, {
+  const { error: uploadError } = await sb.storage.from("trident-bundles").upload(targetPath, buf, {
     contentType:
       args.ext === "pdf"
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     upsert: true,
   });
+  if (uploadError) throw new Error(`Artifact target upload failed: ${uploadError.message}`);
   return targetPath;
 }
 
