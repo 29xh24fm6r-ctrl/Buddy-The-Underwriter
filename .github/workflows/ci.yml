@@ -81,17 +81,9 @@ jobs:
           name: drift-report
           path: .drift_report/
           if-no-files-found: warn
-      - name: Build
-        timeout-minutes: 18
-        run: pnpm -s build:ci
-        env:
-          NEXT_TELEMETRY_DISABLED: "1"
-          NODE_OPTIONS: "--max-old-space-size=8192"
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: placeholder
-          CLERK_SECRET_KEY: sk_test_placeholder
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
-          OPENAI_API_KEY: sk-placeholder
+      # Production compilation is enforced by the dedicated Build Check workflow.
+      # Do not repeat it here: this job's 30-minute budget is reserved for the
+      # full guard/test suite and Playwright smoke coverage.
       - name: Install Playwright browsers
         timeout-minutes: 8
         run: pnpm -s e2e:install
