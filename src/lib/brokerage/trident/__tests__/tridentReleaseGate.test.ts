@@ -24,12 +24,13 @@ function release(overrides: Record<string, unknown> = {}) {
     spreadHasIntegrityHash: true,
     spreadHasCanonicalFactsTimestamp: true,
     artifactPaths: ["plan.pdf", "projections.xlsx", "feasibility.pdf"],
+    isTestDeal: false,
     ...overrides,
   });
 }
 
 test("passes only a complete run-bound institutional release", () => {
-  assert.deepEqual(release(), { ok: true, reasons: [] });
+  assert.deepEqual(release(), { ok: true, reasons: [], warnings: [] });
 });
 
 test("blocks stale memo and unreconciled sources and uses", () => {
@@ -42,9 +43,25 @@ test("blocks stale memo and unreconciled sources and uses", () => {
   assert.ok(result.reasons.includes("sources_and_uses_not_reconciled"));
 });
 
-test("blocks structurally strong output without committee-grade evidence", () => {
-  const result = release({ memoResearchTrustGrade: "preliminary", feasibilityCitationCount: 0 });
+test("accepts private-company preliminary research with a lender-review warning", () => {
+  const result = release({ memoResearchTrustGrade: "preliminary" });
+  assert.equal(result.ok, true);
+  assert.ok(result.warnings.includes("memo_research_preliminary_requires_lender_review"));
+});
+
+test("blocks missing or non-reviewable research on real deals", () => {
+  const result = release({ memoResearchTrustGrade: null });
   assert.equal(result.ok, false);
-  assert.ok(result.reasons.includes("memo_research_not_committee_grade"));
-  assert.ok(result.reasons.includes("feasibility_citation_coverage_below_three_sections"));
+  assert.ok(result.reasons.includes("memo_research_not_release_ready"));
+});
+
+test("allows synthetic QA commissioning without fabricated public research or citations", () => {
+  const result = release({
+    isTestDeal: true,
+    memoResearchTrustGrade: null,
+    feasibilityCitationCount: 0,
+  });
+  assert.equal(result.ok, true);
+  assert.ok(result.warnings.includes("synthetic_qa_deal_has_no_public_research_grade"));
+  assert.ok(result.warnings.includes("synthetic_qa_citation_coverage_below_three_sections"));
 });
