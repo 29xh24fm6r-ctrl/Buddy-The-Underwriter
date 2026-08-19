@@ -203,21 +203,20 @@ async function mockRequireBrokerageStaff(): Promise<{ userId: string }> {
 }
 
 async function ensureDealBankAccessAllowingBrokerageStaffTestable(dealId: string): Promise<EnsureResult> {
-  const strict = await ensureDealBankAccessTestable(dealId);
-  if (strict.ok || strict.error !== "tenant_mismatch") return strict;
-
   try {
     const deal = mockDealRow;
-    if (!deal?.bank_id) return strict;
-
-    const brokerageBankId = await mockGetBrokerageBankId();
-    if (deal.bank_id !== brokerageBankId) return strict;
-
-    const { userId } = await mockRequireBrokerageStaff();
-    return { ok: true, dealId, bankId: deal.bank_id, userId };
+    if (deal?.bank_id) {
+      const brokerageBankId = await mockGetBrokerageBankId();
+      if (deal.bank_id === brokerageBankId) {
+        const { userId } = await mockRequireBrokerageStaff();
+        return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId };
+      }
+    }
   } catch {
-    return strict;
+    // Brokerage authorization is optional; preserve the strict tenant gate below.
   }
+
+  return ensureDealBankAccessTestable(dealId);
 }
 
 describe("ensureDealBankAccessAllowingBrokerageStaff", () => {
