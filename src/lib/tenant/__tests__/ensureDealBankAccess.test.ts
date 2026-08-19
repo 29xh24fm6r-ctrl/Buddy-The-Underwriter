@@ -263,12 +263,12 @@ describe("ensureDealBankAccessAllowingBrokerageStaff", () => {
     if (!result.ok) assert.equal(result.error, "deal_not_found");
   });
 
-  test("already-matching same-tenant access is unaffected", async () => {
+  test("brokerage authorization is canonical even when the active bank already matches", async () => {
     mockBankId = BROKERAGE_BANK_ID;
     mockDealRow = { id: "deal_1", bank_id: BROKERAGE_BANK_ID };
     const result = await ensureDealBankAccessAllowingBrokerageStaffTestable("deal_1");
     assert.equal(result.ok, true);
-    if (result.ok) assert.equal(result.userId, "user_123", "the strict path already succeeded — must not re-resolve via brokerage staff");
+    if (result.ok) assert.equal(result.userId, "staff_1", "brokerage deals must use the scoped brokerage authorization path");
   });
 });
 
