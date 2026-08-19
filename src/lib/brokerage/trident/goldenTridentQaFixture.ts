@@ -4,8 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { ingestDocument } from "@/lib/documents/ingestDocument";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const FIXTURE_NAME = "[QA] Golden Trident v3 — Precision Fabrication";
-const FIXTURE_VERSION = "golden-trident-qa-v3";
+const FIXTURE_NAME = "[QA] Golden Trident v4 — Precision Fabrication";
+const FIXTURE_VERSION = "golden-trident-qa-v4";
 
 type FixtureResult = {
   dealId: string;
