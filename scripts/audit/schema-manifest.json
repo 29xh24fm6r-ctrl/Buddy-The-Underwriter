@@ -47,5 +47,12 @@
   { "name": "buddy_trident_bundles.source_credit_memo_id", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
   { "name": "buddy_trident_bundles.source_spread_id", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
   { "name": "buddy_trident_bundles.canonical_memo_input_hash", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
-  { "name": "buddy_trident_bundles.release_gate_json", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" }
+  { "name": "buddy_trident_bundles.release_gate_json", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
+  { "name": "buddy_trident_bundles.input_hash", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
+  { "name": "buddy_trident_bundles.workflow_run_id", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
+  { "name": "buddy_trident_bundles.current_stage", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
+  { "name": "buddy_trident_bundles.last_heartbeat_at", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
+  { "name": "buddy_trident_bundles.stage_error_json", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
+  { "name": "buddy_trident_bundle_stages", "type": "table", "migration": "20260819000000_golden_trident_factory.sql" },
+  { "name": "acquire_trident_bundle_run", "type": "function", "migration": "20260819000000_golden_trident_factory.sql" }
 ]

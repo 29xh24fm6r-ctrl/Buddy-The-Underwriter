@@ -405,6 +405,10 @@ export async function generateMarketingAndOperations(params: {
   revenueStreamNames: string[];
   plannedHires: Array<{ role: string; annualSalary: number }>;
   useOfProceedsDescription: string;
+  existingDebtService: number;
+  newDebtService: number;
+  totalDebtService: number;
+  dscrYear1: number;
   // Phase 2 additions
   city?: string | null;
   state?: string | null;
@@ -434,12 +438,17 @@ Industry: ${params.industryDescription}
 Revenue streams: ${params.revenueStreamNames.join(", ") || "Not specified"}
 Planned hires: ${params.plannedHires.map((h) => `${h.role} ($${h.annualSalary.toLocaleString()}/yr)`).join("; ") || "None specified"}
 Use of proceeds: ${params.useOfProceedsDescription}
+Existing annual debt service retained after closing: ${Math.round(params.existingDebtService).toLocaleString()}
+New SBA and seller-financing annual debt service: ${Math.round(params.newDebtService).toLocaleString()}
+Total annual debt service used by the deterministic model: ${Math.round(params.totalDebtService).toLocaleString()}
+Year 1 DSCR after all retained and new debt: ${params.dscrYear1.toFixed(2)}x
+The Operations Plan MUST explicitly reconcile these three debt-service figures and state that the DSCR uses total annual debt service. Never substitute only the new-loan payment.
 
 ${params.marketIntelligence ? `Local market intelligence (from research):\n${params.marketIntelligence}\n` : ""}${params.competitiveLandscape ? `Competitive landscape (from research):\n${params.competitiveLandscape}\n` : ""}
 Return ONLY valid JSON:
 {
   "marketingStrategy": "2-3 paragraphs. Structure: target customer ${hasIdealCustomer ? "(drawn directly from borrower's ideal-customer description)" : ""}, channels and tactics ${hasGrowthStrategy ? "(each traceable to the borrower's named growth actions — cite those actions by name)" : ""}, pricing and sales approach, how loan proceeds (if marketing-related) will grow demand.",
-  "operationsPlan": "2-3 paragraphs: facility and location (reference actual city/state), staffing plan linked to the planned hires above by role, key suppliers or workflow, how the loan strengthens operations."
+  "operationsPlan": "2-3 paragraphs: facility and location (reference actual city/state), staffing plan linked to the planned hires above by role, key suppliers or workflow, how the loan strengthens operations. Include an explicit debt-service bridge from existing retained debt plus new debt to total annual debt service and the resulting Year 1 DSCR."
 }`;
 
   try {

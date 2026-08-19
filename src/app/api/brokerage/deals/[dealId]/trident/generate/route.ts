@@ -73,6 +73,11 @@ export async function POST(
         mode,
         bundleId: created.bundleId,
       }]);
+      const { error: runPersistError } = await sb.from("buddy_trident_bundles").update({
+        workflow_run_id: run.runId,
+        last_heartbeat_at: new Date().toISOString(),
+      }).eq("id", created.bundleId);
+      if (runPersistError) throw new Error(`Workflow identity persistence failed: ${runPersistError.message}`);
       return NextResponse.json(
         { ok: true, accepted: true, bundleId: created.bundleId, runId: run.runId },
         { status: 202 },
@@ -81,7 +86,8 @@ export async function POST(
       const message = error instanceof Error ? error.message : String(error);
       await sb.from("buddy_trident_bundles").update({
         status: "failed",
-        generation_error: `Workflow start failed: ${message}`.slice(0, 500),
+        generation_error: `Workflow start failed: ${message}`,
+        stage_error_json: { stage: "workflow_start", message },
         generation_completed_at: new Date().toISOString(),
       }).eq("id", created.bundleId);
       return NextResponse.json({ ok: false, bundleId: created.bundleId, error: message }, { status: 500 });
@@ -107,15 +113,23 @@ export async function GET(
   }
 
   const brokerageBankId = await getBrokerageBankId();
-  const { data: bundle, error } = await supabaseAdmin()
+  const sb = supabaseAdmin();
+  const { data: bundle, error } = await sb
     .from("buddy_trident_bundles")
-    .select("id,status,generation_error,generation_started_at,generation_completed_at")
+    .select("id,status,current_stage,workflow_run_id,generation_error,stage_error_json,generation_started_at,generation_completed_at,last_heartbeat_at,release_gate_json,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path")
     .eq("deal_id", dealId)
     .eq("bank_id", brokerageBankId)
     .eq("mode", "final")
+    .order("generation_started_at", { ascending: false, nullsFirst: false })
     .order("generated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, bundle });
+  const { data: stages, error: stagesError } = bundle?.id
+    ? await sb.from("buddy_trident_bundle_stages")
+        .select("stage,status,attempt_count,output_json,error_json,started_at,completed_at,updated_at")
+        .eq("bundle_id", bundle.id).order("started_at", { ascending: true })
+    : { data: [], error: null };
+  if (stagesError) return NextResponse.json({ ok: false, error: stagesError.message }, { status: 500 });
+  return NextResponse.json({ ok: true, bundle, stages: stages ?? [] });
 }

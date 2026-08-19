@@ -32,7 +32,8 @@ export function GoldenTridentLabClient({
       if (body.bundle.status === "failed") {
         throw new Error(body.bundle.generation_error || "Generation failed");
       }
-      setMessage("Golden Trident is running durably in the background. You may leave this page.");
+      const stage = body.bundle?.current_stage ? String(body.bundle.current_stage).replace(/_/g, " ") : "factory";
+      setMessage(`Golden Trident is running: ${stage}. You may leave this page.`);
     }
     throw new Error("Generation is still running after 30 minutes. It will continue in the background; reload this deal to check status.");
   }
@@ -78,6 +79,7 @@ export function GoldenTridentLabClient({
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
+      router.refresh();
     } finally {
       setBusy(null);
     }
@@ -89,6 +91,8 @@ export function GoldenTridentLabClient({
         <span className="rounded bg-black/30 px-2 py-1">Assumptions: {readiness?.evidence.assumptionsStatus ?? "missing"}</span>
         <span className="rounded bg-black/30 px-2 py-1">Documents: {readiness?.evidence.documentCount ?? 0}</span>
         <span className="rounded bg-black/30 px-2 py-1">Financial facts: {readiness?.evidence.financialFactCount ?? 0}</span>
+        <span className="rounded bg-black/30 px-2 py-1">Uses: {readiness?.evidence.useOfProceedsCount ?? 0}</span>
+        <span className="rounded bg-black/30 px-2 py-1">Validation: {readiness?.evidence.validationStatus ?? "not run"}</span>
       </div>
       {readiness && !readiness.ok ? (
         <div className="rounded-md border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">

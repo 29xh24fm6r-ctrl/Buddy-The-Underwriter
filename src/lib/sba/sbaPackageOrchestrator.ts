@@ -281,10 +281,25 @@ export async function generateSBAPackage(
   // One versioned authority computes every borrower-facing SBA projection.
   // Artifacts consume this immutable model; they do not invoke individual
   // calculators or recompute financial values.
+  // Freeze the canonical transaction uses before computing liquidity so
+  // the monthly cash schedule and the Sources & Uses exhibit share one input.
+  const { data: proceedsItems, error: proceedsError } = await sb
+    .from("deal_proceeds_items")
+    .select("category, description, amount")
+    .eq("deal_id", dealId);
+  if (proceedsError) {
+    return { ok: false, error: `Use-of-proceeds load failed: ${proceedsError.message}` };
+  }
+  const useOfProceeds = buildUseOfProceeds(
+    proceedsItems ?? [],
+    assumptions.loanImpact.loanAmount,
+  );
+
   const projectionModel = computeSBAProjectionModel({
     assumptions,
     baseYear,
     projectedDscrThreshold,
+    useOfProceeds,
   });
   const {
     annualProjections,
@@ -293,17 +308,6 @@ export async function generateSBAPackage(
     breakEven,
     sensitivityScenarios,
   } = projectionModel;
-
-  // Use of proceeds
-  const { data: proceedsItems } = await sb
-    .from("deal_proceeds_items")
-    .select("category, description, amount")
-    .eq("deal_id", dealId);
-
-  const useOfProceeds = buildUseOfProceeds(
-    proceedsItems ?? [],
-    assumptions.loanImpact.loanAmount,
-  );
 
   // Phase BPG — Sources & Uses (after useOfProceeds is known)
   const sourcesAndUses = buildSourcesAndUses({
@@ -490,6 +494,24 @@ export async function generateSBAPackage(
       revenueStreamNames: assumptions.revenueStreams.map((r) => r.name),
       plannedHires: plannedHiresForOps,
       useOfProceedsDescription: proceedsDescription,
+      existingDebtService: assumptions.loanImpact.existingDebt.reduce(
+        (sum, debt) => sum + ((debt.treatment ?? "retain") === "retain"
+          ? debt.monthlyPayment * Math.min(12, Math.max(0, debt.remainingTermMonths))
+          : 0),
+        0,
+      ),
+      newDebtService: Math.max(
+        0,
+        (annualProjections[0]?.totalDebtService ?? 0) -
+          assumptions.loanImpact.existingDebt.reduce(
+            (sum, debt) => sum + ((debt.treatment ?? "retain") === "retain"
+              ? debt.monthlyPayment * Math.min(12, Math.max(0, debt.remainingTermMonths))
+              : 0),
+            0,
+          ),
+      ),
+      totalDebtService: annualProjections[0]?.totalDebtService ?? 0,
+      dscrYear1: dscrYear1Base,
       // Phase 2
       city: dealCity,
       state: dealState,

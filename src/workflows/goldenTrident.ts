@@ -1,12 +1,4 @@
 import type { TridentBundleMode } from "@/lib/brokerage/trident/generateTridentBundle";
-import { FatalError } from "workflow";
-
-const NON_RETRYABLE_GENERATION_FAILURES = [
-  "institutional review did not pass",
-  "final publication blocked",
-  "release gate",
-  "not ready",
-];
 
 export async function goldenTridentWorkflow(args: {
   dealId: string;
@@ -14,29 +6,43 @@ export async function goldenTridentWorkflow(args: {
   bundleId: string;
 }) {
   "use workflow";
-
-  return executeGoldenTrident(args);
+  try {
+    const snapshot = await prepare(args);
+    await canonical({ ...args, bankId: snapshot.bankId });
+    await artifacts(args);
+    return await manifest(args);
+  } catch (error) {
+    await fail(args, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }
 
-async function executeGoldenTrident(args: {
-  dealId: string;
-  mode: TridentBundleMode;
-  bundleId: string;
-}) {
+async function prepare(args: Parameters<typeof goldenTridentWorkflow>[0]) {
   "use step";
+  const { prepareTridentFactory } = await import("@/lib/brokerage/trident/tridentFactoryStages");
+  return prepareTridentFactory(args);
+}
 
-  // Keep the heavy server-only graph outside the workflow bundle. The step
-  // is retried durably by Workflow and always targets the same persisted run.
-  const { generateTridentBundle } = await import(
-    "@/lib/brokerage/trident/generateTridentBundle"
-  );
-  const result = await generateTridentBundle(args);
-  if (!result.ok) {
-    const normalized = result.error.toLowerCase();
-    if (NON_RETRYABLE_GENERATION_FAILURES.some((marker) => normalized.includes(marker))) {
-      throw new FatalError(result.error);
-    }
-    throw new Error(result.error);
-  }
-  return result;
+async function canonical(args: Parameters<typeof goldenTridentWorkflow>[0] & { bankId: string }) {
+  "use step";
+  const { generateCanonicalFactoryArtifacts } = await import("@/lib/brokerage/trident/tridentFactoryStages");
+  return generateCanonicalFactoryArtifacts(args);
+}
+
+async function artifacts(args: Parameters<typeof goldenTridentWorkflow>[0]) {
+  "use step";
+  const { runArtifactFactory } = await import("@/lib/brokerage/trident/tridentFactoryStages");
+  return runArtifactFactory(args);
+}
+
+async function manifest(args: Parameters<typeof goldenTridentWorkflow>[0]) {
+  "use step";
+  const { verifyTridentFactory } = await import("@/lib/brokerage/trident/tridentFactoryStages");
+  return verifyTridentFactory(args);
+}
+
+async function fail(args: Parameters<typeof goldenTridentWorkflow>[0], message: string) {
+  "use step";
+  const { failTridentFactory } = await import("@/lib/brokerage/trident/tridentFactoryStages");
+  return failTridentFactory(args, message);
 }

@@ -185,7 +185,7 @@ export function buildAnnualProjections(
     // Fixed costs with annual escalation
     let fixedCosts = 0;
     for (const fc of assumptions.costAssumptions.fixedCostCategories) {
-      fixedCosts += fc.annualAmount * Math.pow(1 + fc.escalationPctPerYear, y);
+      fixedCosts += fc.annualAmount * Math.pow(1 + fc.escalationPctPerYear, y - 1);
     }
 
     // New hires — prorated for start month
@@ -215,13 +215,27 @@ export function buildAnnualProjections(
     const ebit = ebitda - depreciation;
 
     // Existing debt service (checks if paid off by this year)
+    const monthsElapsed = (y - 1) * 12;
     const existingDS = assumptions.loanImpact.existingDebt.reduce((sum, d) => {
-      const monthsElapsed = (y - 1) * 12;
-      if (monthsElapsed >= d.remainingTermMonths) return sum;
-      return sum + d.monthlyPayment * 12;
+      if ((d.treatment ?? "retain") !== "retain") return sum;
+      const monthsPaid = Math.min(12, Math.max(0, d.remainingTermMonths - monthsElapsed));
+      return sum + d.monthlyPayment * monthsPaid;
     }, 0);
-
-    const totalDebtService = existingDS + sbaAnnual;
+    const sbaMonthsPaid = Math.min(12, Math.max(0, assumptions.loanImpact.termMonths - monthsElapsed));
+    const sellerMonthly = assumptions.loanImpact.sellerFinancingAmount > 0 &&
+      assumptions.loanImpact.sellerFinancingTermMonths > 0
+      ? monthlyPayment(
+          assumptions.loanImpact.sellerFinancingAmount,
+          assumptions.loanImpact.sellerFinancingRate,
+          assumptions.loanImpact.sellerFinancingTermMonths,
+        )
+      : 0;
+    const sellerMonthsPaid = Math.min(
+      12,
+      Math.max(0, assumptions.loanImpact.sellerFinancingTermMonths - monthsElapsed),
+    );
+    const totalDebtService =
+      existingDS + sbaMonthly * sbaMonthsPaid + sellerMonthly * sellerMonthsPaid;
     const taxEstimate = Math.max(0, ebit * DEFAULT_TAX_RATE);
     const netIncome = ebit - taxEstimate;
     const dscr = finengineDscr(ebitda, totalDebtService).value ?? 99;
@@ -256,19 +270,25 @@ export function buildAnnualProjections(
 export function buildMonthlyProjections(
   assumptions: SBAAssumptions,
   year1: AnnualProjectionYear,
+  useOfProceeds: UseOfProceedsLine[] = [],
 ): MonthlyProjection[] {
   const sbaMonthly = monthlyPayment(
     assumptions.loanImpact.loanAmount,
     assumptions.loanImpact.interestRate,
     assumptions.loanImpact.termMonths,
   );
-  const existingMonthly = assumptions.loanImpact.existingDebt.reduce(
-    (sum, d) => sum + d.monthlyPayment,
+  const sellerMonthly = assumptions.loanImpact.sellerFinancingAmount > 0
+    ? monthlyPayment(
+        assumptions.loanImpact.sellerFinancingAmount,
+        assumptions.loanImpact.sellerFinancingRate,
+        assumptions.loanImpact.sellerFinancingTermMonths,
+      )
+    : 0;
+  const baseMonthlyRevenue = year1.revenue / 12;
+  const fixedMonthly = assumptions.costAssumptions.fixedCostCategories.reduce(
+    (sum, item) => sum + item.annualAmount / 12,
     0,
   );
-  const totalMonthlyDS = sbaMonthly + existingMonthly;
-  const baseMonthlyRevenue = year1.revenue / 12;
-  const baseMonthlyOpEx = (year1.cogs + year1.operatingExpenses) / 12;
   // Sources and uses close at the beginning of the projection period. Keep
   // them in the monthly liquidity schedule instead of presenting operating
   // cash flow as total cash flow. This is the same canonical assumption set
@@ -278,11 +298,16 @@ export function buildMonthlyProjections(
     assumptions.loanImpact.equityInjectionAmount +
     assumptions.loanImpact.sellerFinancingAmount +
     assumptions.loanImpact.otherSources.reduce((sum, source) => sum + source.amount, 0);
-  const yearOneCapex = assumptions.costAssumptions.plannedCapex
+  const canonicalClosingUses = useOfProceeds.reduce((sum, item) => sum + item.amount, 0);
+  const fallbackClosingUses = assumptions.costAssumptions.plannedCapex
     .filter((item) => item.year === 1)
     .reduce((sum, item) => sum + item.amount, 0);
+  const closingUses = canonicalClosingUses > 0 ? canonicalClosingUses : fallbackClosingUses;
 
   let cumulativeCash = 0;
+  let priorReceivables = 0;
+  let priorPayables = 0;
+  let priorInventory = 0;
   return Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
     // Apply seasonality from first stream if defined
@@ -290,21 +315,49 @@ export function buildMonthlyProjections(
     const seasonal = firstStream?.seasonalityProfile;
     const multiplier = seasonal ? seasonal[i] / 1 : 1;
     const revenue = baseMonthlyRevenue * multiplier;
-    const operatingDisbursements = baseMonthlyOpEx;
-    const netOperatingCF = revenue - operatingDisbursements;
+    const cogs = revenue * assumptions.costAssumptions.cogsPercentYear1;
+    const hireCost = assumptions.costAssumptions.plannedHires.reduce(
+      (sum, hire) => sum + (m >= hire.startMonth ? hire.annualSalary / 12 : 0),
+      0,
+    );
+    const operatingDisbursements = cogs + fixedMonthly + hireCost;
+    const receivables = revenue * Math.max(0, assumptions.workingCapital.targetDSO) / 30;
+    const payables = cogs * Math.max(0, assumptions.workingCapital.targetDPO) / 30;
+    const inventory = assumptions.workingCapital.inventoryTurns && assumptions.workingCapital.inventoryTurns > 0
+      ? (year1.cogs / assumptions.workingCapital.inventoryTurns)
+      : 0;
+    const workingCapitalChange =
+      (receivables - priorReceivables) + (inventory - priorInventory) - (payables - priorPayables);
+    priorReceivables = receivables;
+    priorPayables = payables;
+    priorInventory = inventory;
+    const netOperatingCF = revenue - operatingDisbursements - workingCapitalChange;
+    const existingMonthly = assumptions.loanImpact.existingDebt.reduce(
+      (sum, debt) => sum + (
+        (debt.treatment ?? "retain") === "retain" && m <= debt.remainingTermMonths
+          ? debt.monthlyPayment
+          : 0
+      ),
+      0,
+    );
+    const debtService =
+      (m <= assumptions.loanImpact.termMonths ? sbaMonthly : 0) +
+      (m <= assumptions.loanImpact.sellerFinancingTermMonths ? sellerMonthly : 0) +
+      existingMonthly;
     const financingInflows = m === 1 ? closingSources : 0;
-    const capitalExpenditures = m === 1 ? yearOneCapex : 0;
+    const capitalExpenditures = m === 1 ? closingUses : 0;
     const netCash =
-      netOperatingCF - totalMonthlyDS + financingInflows - capitalExpenditures;
+      netOperatingCF - debtService + financingInflows - capitalExpenditures;
     cumulativeCash += netCash;
     return {
       month: m,
       revenue,
       operatingDisbursements,
       netOperatingCF,
-      debtService: totalMonthlyDS,
+      debtService,
       financingInflows,
       capitalExpenditures,
+      workingCapitalChange,
       netCash,
       cumulativeCash,
     };
