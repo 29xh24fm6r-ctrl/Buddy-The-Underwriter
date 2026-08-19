@@ -494,6 +494,24 @@ export async function generateSBAPackage(
       revenueStreamNames: assumptions.revenueStreams.map((r) => r.name),
       plannedHires: plannedHiresForOps,
       useOfProceedsDescription: proceedsDescription,
+      existingDebtService: assumptions.loanImpact.existingDebt.reduce(
+        (sum, debt) => sum + ((debt.treatment ?? "retain") === "retain"
+          ? debt.monthlyPayment * Math.min(12, Math.max(0, debt.remainingTermMonths))
+          : 0),
+        0,
+      ),
+      newDebtService: Math.max(
+        0,
+        (annualProjections[0]?.totalDebtService ?? 0) -
+          assumptions.loanImpact.existingDebt.reduce(
+            (sum, debt) => sum + ((debt.treatment ?? "retain") === "retain"
+              ? debt.monthlyPayment * Math.min(12, Math.max(0, debt.remainingTermMonths))
+              : 0),
+            0,
+          ),
+      ),
+      totalDebtService: annualProjections[0]?.totalDebtService ?? 0,
+      dscrYear1: dscrYear1Base,
       // Phase 2
       city: dealCity,
       state: dealState,
