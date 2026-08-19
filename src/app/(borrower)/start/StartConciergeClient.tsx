@@ -88,6 +88,22 @@ type BorrowerScoreData = {
   computedAt: string | null;
 } | null;
 
+/**
+ * Outstanding Items — eligibility requirements that are NOT failures.
+ * Computed by the five-state size evaluator, persisted in the score's
+ * input_snapshot, and returned by seal-status. Surfaced to the borrower as
+ * Remaining Requirements so an internal data gap is never presented as an
+ * SBA denial.
+ */
+export type EligibilityUnresolvedItem = {
+  check: string;
+  category: string;
+  state: "needs_information" | "classification_unresolved" | "data_error";
+  reason: string;
+  nextAction: string | null;
+  sopReference?: string;
+};
+
 type ExtendedJourneyStatus = JourneyStatusInput & {
   fieldProgress: FieldProgress | null;
   gateReasons: string[];
@@ -95,11 +111,12 @@ type ExtendedJourneyStatus = JourneyStatusInput & {
   ownershipEntityCount: number;
   franchiseMatched: boolean;
   scoreData: BorrowerScoreData;
+  eligibilityUnresolved: EligibilityUnresolvedItem[];
   refreshSoon: () => void;
 };
 
 function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
-  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; ownershipEntityCount: number; franchiseMatched: boolean; scoreData: BorrowerScoreData }>({
+  const [status, setStatus] = useState<JourneyStatusInput & { fieldProgress: FieldProgress | null; gateReasons: string[]; identityVerificationCount: number; ownershipEntityCount: number; franchiseMatched: boolean; scoreData: BorrowerScoreData; eligibilityUnresolved: EligibilityUnresolvedItem[] }>({
     hasDealId: false,
     progressPct: 0,
     documentsUploadedCount: 0,
@@ -113,6 +130,7 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
     ownershipEntityCount: 0,
     franchiseMatched: false,
     scoreData: null,
+    eligibilityUnresolved: [],
   });
   const consecutiveErrorsRef = useRef(0);
 
@@ -146,6 +164,11 @@ function useJourneyStatus(dealId: string | null): ExtendedJourneyStatus {
           ownershipEntityCount: typeof json.ownershipEntityCount === "number" ? json.ownershipEntityCount : 0,
           franchiseMatched: Boolean(json.franchiseMatched),
           scoreData: json.score ?? null,
+          // seal-status already returns this; it was being discarded here,
+          // so "we need your employee count" never reached the borrower.
+          eligibilityUnresolved: Array.isArray(json.eligibilityUnresolved)
+            ? json.eligibilityUnresolved
+            : [],
         });
       } catch {
         consecutiveErrorsRef.current += 1;
@@ -769,6 +792,7 @@ export function StartConciergeClient({
                 dealId={nonNullDealId}
                 isFranchise={isFranchise}
                 onContinue={(data) => { void navigateToChapter(5, data); }}
+                onDocumentUploaded={journeyStatus.refreshSoon}
               />
             )}
             {chapter === 5 && (
@@ -784,6 +808,7 @@ export function StartConciergeClient({
                 onNavigateChapter={(n) => { void navigateToChapter(n as 1 | 2 | 3 | 4 | 5); }}
                 token={nonNullDealId}
                 scoreData={journeyStatus.scoreData}
+                outstandingItems={journeyStatus.eligibilityUnresolved}
               />
             )}
           </>

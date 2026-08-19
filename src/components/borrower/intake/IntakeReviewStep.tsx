@@ -15,6 +15,16 @@ type ReviewItem = {
   resolveChapter?: number;
 };
 
+/** Mirrors EligibilityUnresolvedItem from the borrower journey status. */
+export type OutstandingItem = {
+  check: string;
+  category: string;
+  state: "needs_information" | "classification_unresolved" | "data_error";
+  reason: string;
+  nextAction: string | null;
+  sopReference?: string;
+};
+
 export type DealVerificationState = {
   entityResolved?: boolean;
   identityVerified?: boolean;
@@ -88,12 +98,19 @@ export function IntakeReviewStep({
   onNavigateChapter,
   token,
   scoreData,
+  outstandingItems = [],
 }: {
   dealId: string;
   purposes: string[];
   verifications?: DealVerificationState;
   onNavigateChapter?: (chapter: number) => void;
   token?: string;
+  /**
+   * Remaining Requirements computed by the eligibility engine. These are
+   * NOT eligibility failures — they are things Buddy still needs before the
+   * package can move forward.
+   */
+  outstandingItems?: OutstandingItem[];
   scoreData?: {
     score: number;
     band: string;
@@ -211,6 +228,45 @@ export function IntakeReviewStep({
           ))}
         </div>
       </div>
+
+      {/* Outstanding Items / Remaining Requirements.
+          Deliberately separate from eligibility FAILURES: a missing input or
+          an unconfirmed industry classification must never be presented to a
+          borrower as an SBA denial. */}
+      {outstandingItems.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-6 shadow-sm">
+          <h3 className="mb-1 text-sm font-semibold text-amber-900">
+            Outstanding Items
+          </h3>
+          <p className="mb-4 text-xs text-amber-800">
+            These aren&apos;t problems with your business — they&apos;re details Buddy
+            still needs before your package is lender-ready.
+          </p>
+          <ul className="space-y-3">
+            {outstandingItems.map((item, i) => (
+              <li
+                key={`${item.check}-${i}`}
+                className="rounded-lg border border-amber-200 bg-white px-4 py-3"
+              >
+                <p className="text-sm font-medium text-slate-800">{item.reason}</p>
+                {item.nextAction && (
+                  <p className="mt-1 text-xs text-slate-600">
+                    <span className="font-medium text-slate-700">
+                      Next recommended action:
+                    </span>{" "}
+                    {item.nextAction}
+                  </p>
+                )}
+                {item.state === "data_error" && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    We&apos;re looking into this on our side — no action needed from you.
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Identity verification — T4 SPEC-BORROWER-FUNNEL-SEAL-BLOCKERS */}
       {token && !verifications.identityVerified && (
