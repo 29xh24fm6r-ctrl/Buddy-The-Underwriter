@@ -24,6 +24,8 @@ test("workflow retries are idempotent and abandoned runs are recoverable", () =>
   assert.match(generator, /Generation worker stopped before completion/);
   assert.match(generator, /20 \* 60 \* 1000/);
   assert.match(route, /Workflow start failed/);
+  assert.match(workflow, /FatalError/);
+  assert.match(workflow, /institutional review did not pass/);
 });
 
 test("the quality lab polls persisted state instead of holding the request open", () => {
