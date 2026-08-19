@@ -1,4 +1,12 @@
 import type { TridentBundleMode } from "@/lib/brokerage/trident/generateTridentBundle";
+import { FatalError } from "workflow";
+
+const NON_RETRYABLE_GENERATION_FAILURES = [
+  "institutional review did not pass",
+  "final publication blocked",
+  "release gate",
+  "not ready",
+];
 
 export async function goldenTridentWorkflow(args: {
   dealId: string;
@@ -23,6 +31,12 @@ async function executeGoldenTrident(args: {
     "@/lib/brokerage/trident/generateTridentBundle"
   );
   const result = await generateTridentBundle(args);
-  if (!result.ok) throw new Error(result.error);
+  if (!result.ok) {
+    const normalized = result.error.toLowerCase();
+    if (NON_RETRYABLE_GENERATION_FAILURES.some((marker) => normalized.includes(marker))) {
+      throw new FatalError(result.error);
+    }
+    throw new Error(result.error);
+  }
   return result;
 }
