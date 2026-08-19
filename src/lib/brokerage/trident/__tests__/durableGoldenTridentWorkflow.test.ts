@@ -9,6 +9,10 @@ const generator = readFileSync("src/lib/brokerage/trident/generateTridentBundle.
 const migration = readFileSync("supabase/migrations/20260819000000_golden_trident_factory.sql", "utf8");
 const client = readFileSync("src/components/brokerage/GoldenTridentLabClient.tsx", "utf8");
 const nextConfig = readFileSync("next.config.mjs", "utf8");
+const readiness = readFileSync("src/lib/brokerage/trident/tridentReadiness.ts", "utf8");
+const fixture = readFileSync("src/lib/brokerage/trident/goldenTridentQaFixture.ts", "utf8");
+const memoPdfRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/canonical/pdf/route.ts", "utf8");
+const dealAccess = readFileSync("src/lib/tenant/ensureDealBankAccess.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -46,4 +50,23 @@ test("the factory creates canonical credit artifacts and preserves failures", ()
   assert.doesNotMatch(generator, /generation_error: msg\.slice/);
   assert.match(client, /router\.refresh\(\)/);
   assert.match(client, /current_stage/);
+  assert.match(generator, /verification_flagged_claims/);
+});
+
+test("production commissioning cannot reuse stale evidence or bypass validation", () => {
+  assert.match(fixture, /golden-trident-qa-v4/);
+  assert.doesNotMatch(fixture, /golden-trident-qa-v3/);
+  assert.match(readiness, /Run the AI assessment and deterministic validation/);
+  assert.match(readiness, /else if \(!validationStatus\)/);
+});
+
+test("brokerage artifacts use scoped deal tenancy without a false strict mismatch probe", () => {
+  assert.match(memoPdfRoute, /ensureDealBankAccessAllowingBrokerageStaff/);
+  assert.match(memoPdfRoute, /bankId: access\.bankId/);
+  const brokerageGuard = dealAccess.slice(dealAccess.indexOf("export async function ensureDealBankAccessAllowingBrokerageStaff"));
+  assert.match(brokerageGuard, /requireBrokerageStaff/);
+  assert.ok(
+    brokerageGuard.indexOf("requireBrokerageStaff") < brokerageGuard.indexOf("return ensureDealBankAccess"),
+    "brokerage authorization must occur before the strict active-bank fallback",
+  );
 });

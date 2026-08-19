@@ -203,21 +203,20 @@ async function mockRequireBrokerageStaff(): Promise<{ userId: string }> {
 }
 
 async function ensureDealBankAccessAllowingBrokerageStaffTestable(dealId: string): Promise<EnsureResult> {
-  const strict = await ensureDealBankAccessTestable(dealId);
-  if (strict.ok || strict.error !== "tenant_mismatch") return strict;
-
   try {
     const deal = mockDealRow;
-    if (!deal?.bank_id) return strict;
-
-    const brokerageBankId = await mockGetBrokerageBankId();
-    if (deal.bank_id !== brokerageBankId) return strict;
-
-    const { userId } = await mockRequireBrokerageStaff();
-    return { ok: true, dealId, bankId: deal.bank_id, userId };
+    if (deal?.bank_id) {
+      const brokerageBankId = await mockGetBrokerageBankId();
+      if (deal.bank_id === brokerageBankId) {
+        const { userId } = await mockRequireBrokerageStaff();
+        return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId };
+      }
+    }
   } catch {
-    return strict;
+    // Brokerage authorization is optional; preserve the strict tenant gate below.
   }
+
+  return ensureDealBankAccessTestable(dealId);
 }
 
 describe("ensureDealBankAccessAllowingBrokerageStaff", () => {
@@ -263,12 +262,12 @@ describe("ensureDealBankAccessAllowingBrokerageStaff", () => {
     if (!result.ok) assert.equal(result.error, "deal_not_found");
   });
 
-  test("already-matching same-tenant access is unaffected", async () => {
+  test("brokerage authorization is canonical even when the active bank already matches", async () => {
     mockBankId = BROKERAGE_BANK_ID;
     mockDealRow = { id: "deal_1", bank_id: BROKERAGE_BANK_ID };
     const result = await ensureDealBankAccessAllowingBrokerageStaffTestable("deal_1");
     assert.equal(result.ok, true);
-    if (result.ok) assert.equal(result.userId, "user_123", "the strict path already succeeded — must not re-resolve via brokerage staff");
+    if (result.ok) assert.equal(result.userId, "staff_1", "brokerage deals must use the scoped brokerage authorization path");
   });
 });
 

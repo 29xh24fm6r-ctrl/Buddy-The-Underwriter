@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       NODE_OPTIONS: "--max-old-space-size=4096"
       SMOKE_AUTH_BOOTSTRAP_URL: ${{ secrets.SMOKE_AUTH_BOOTSTRAP_URL }}
@@ -85,7 +85,10 @@ jobs:
       # Do not repeat it here: this job's 30-minute budget is reserved for the
       # full guard/test suite and Playwright smoke coverage.
       - name: Install Playwright browsers
-        timeout-minutes: 8
+        # --with-deps downloads Ubuntu packages from an external mirror. The
+        # mirror can be slow even when healthy, so this boundary must cover
+        # network variance rather than fail a fully-passing application suite.
+        timeout-minutes: 15
         run: pnpm -s e2e:install
       - name: E2E Smoke (public)
         timeout-minutes: 12
