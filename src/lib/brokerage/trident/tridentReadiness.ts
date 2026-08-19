@@ -81,6 +81,7 @@ export async function getTridentReadiness(args: {
   else if (useOfProceedsCount < 1) reasons.push("At least one canonical use-of-proceeds line is required.");
 
   if (validationResult.error) reasons.push(`Validation status could not be checked: ${validationResult.error.message}`);
+  else if (!validationStatus) reasons.push("Run the AI assessment and deterministic validation before generating Final Trident.");
   else if (validationStatus === "FAIL") reasons.push("The latest deterministic validation report must not be FAIL.");
 
   if (confirmedRevenueStreams < 1) reasons.push("At least one confirmed revenue stream is required.");
