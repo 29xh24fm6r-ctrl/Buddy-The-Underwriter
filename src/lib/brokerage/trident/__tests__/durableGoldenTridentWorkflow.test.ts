@@ -58,8 +58,9 @@ test("the factory creates canonical credit artifacts and preserves failures", ()
   assert.match(client, /router\.refresh\(\)/);
   assert.match(client, /current_stage/);
   assert.match(generator, /verification_flagged_claims/);
-  assert.doesNotMatch(generator, /generateCanonicalMemoArtifact/);
-  assert.doesNotMatch(generator, /renderClassicPdfSpread/);
+  assert.match(generator, /if \(!args\.bundleId\)/);
+  assert.equal((generator.match(/generateCanonicalMemoArtifact\(/g) ?? []).length, 1);
+  assert.equal((generator.match(/renderClassicPdfSpread\(/g) ?? []).length, 1);
   assert.match(generator, /boundSources\.source_credit_memo_id/);
   assert.match(generator, /boundSources\.source_spread_id/);
 });
@@ -112,7 +113,7 @@ test("durable canonical-credit workers use an explicit bank-scoped system bounda
   assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
   assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
   assert.equal((stages.match(/executionContext: "system"/g) ?? []).length, 1);
-  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 0);
+  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 1);
 });
 
 test("the admitted bank and input snapshot remain immutable through release", () => {
