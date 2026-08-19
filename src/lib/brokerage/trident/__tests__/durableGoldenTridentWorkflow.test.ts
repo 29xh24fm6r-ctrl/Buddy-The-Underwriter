@@ -18,6 +18,8 @@ const validationPass = readFileSync("src/lib/validation/buddyValidationPass.ts",
 const validationFacts = readFileSync("src/lib/validation/validationFacts.ts", "utf8");
 const canonicalMemoBuilder = readFileSync("src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts", "utf8");
 const canonicalMemoArtifact = readFileSync("src/lib/creditMemo/canonical/generateCanonicalMemoArtifact.ts", "utf8");
+const snapshot = readFileSync("src/lib/brokerage/trident/tridentInputSnapshot.ts", "utf8");
+const releaseGate = readFileSync("src/lib/brokerage/trident/tridentReleaseGate.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -27,8 +29,8 @@ test("final Trident generation is accepted into a multi-stage durable workflow",
   assert.equal((workflow.match(/"use step"/g) ?? []).length, 5);
   assert.match(workflow, /prepare\(args\)/);
   assert.match(workflow, /canonical\(/);
-  assert.match(workflow, /artifacts\(args\)/);
-  assert.match(workflow, /manifest\(args\)/);
+  assert.match(workflow, /artifacts\(execution\)/);
+  assert.match(workflow, /manifest\(execution\)/);
   assert.match(nextConfig, /withWorkflow\(nextConfig\)/);
 });
 
@@ -56,6 +58,10 @@ test("the factory creates canonical credit artifacts and preserves failures", ()
   assert.match(client, /router\.refresh\(\)/);
   assert.match(client, /current_stage/);
   assert.match(generator, /verification_flagged_claims/);
+  assert.doesNotMatch(generator, /generateCanonicalMemoArtifact/);
+  assert.doesNotMatch(generator, /renderClassicPdfSpread/);
+  assert.match(generator, /boundSources\.source_credit_memo_id/);
+  assert.match(generator, /boundSources\.source_spread_id/);
 });
 
 test("production commissioning cannot reuse stale evidence or bypass validation", () => {
@@ -106,5 +112,18 @@ test("durable canonical-credit workers use an explicit bank-scoped system bounda
   assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
   assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
   assert.equal((stages.match(/executionContext: "system"/g) ?? []).length, 1);
-  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 1);
+  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 0);
+});
+
+test("the admitted bank and input snapshot remain immutable through release", () => {
+  assert.match(snapshot, /input_snapshot_changed/);
+  assert.match(stages, /bankId: string/);
+  assert.match(stages, /inputHash: string/);
+  assert.match(stages, /assertTridentInputSnapshot/);
+  assert.match(generator, /expectedHash: admittedInputHash/);
+  assert.match(generator, /\.eq\("bank_id", admittedBankId\)/);
+  assert.match(generator, /\.eq\("input_hash", admittedInputHash\)/);
+  assert.match(stages, /attempt_count: attemptCount/);
+  assert.match(releaseGate, /synthetic_qa_deal_has_no_public_research_grade/);
+  assert.match(releaseGate, /memo_research_preliminary_requires_lender_review/);
 });
