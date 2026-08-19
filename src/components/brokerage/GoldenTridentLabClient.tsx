@@ -106,12 +106,21 @@ export function GoldenTridentLabClient({
         <span className="rounded bg-black/30 px-2 py-1">Financial facts: {readiness?.evidence.financialFactCount ?? 0}</span>
         <span className="rounded bg-black/30 px-2 py-1">Uses: {readiness?.evidence.useOfProceedsCount ?? 0}</span>
         <span className="rounded bg-black/30 px-2 py-1">Validation: {readiness?.evidence.validationStatus ?? "not run"}</span>
+        <span className="rounded bg-black/30 px-2 py-1">Research: {readiness?.evidence.researchTrustGrade ?? (readiness?.evidence.isTestDeal ? "synthetic QA" : "not ready")}</span>
       </div>
       {readiness && !readiness.ok ? (
         <div className="rounded-md border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
           <p className="font-semibold">Not ready for a quality run</p>
           <ul className="mt-1 list-disc pl-5">
             {readiness.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+          </ul>
+        </div>
+      ) : null}
+      {readiness?.warnings.length ? (
+        <div className="rounded-md border border-sky-700/50 bg-sky-950/20 p-3 text-sm text-sky-100">
+          <p className="font-semibold">Release review notes</p>
+          <ul className="mt-1 list-disc pl-5">
+            {readiness.warnings.map((warning) => <li key={warning}>{warning.replace(/_/g, " ")}</li>)}
           </ul>
         </div>
       ) : null}
