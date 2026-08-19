@@ -38,6 +38,8 @@ import {
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 import { evaluateTridentRelease } from "./tridentReleaseGate";
 import { assertTridentInputSnapshot, computeTridentInputHash } from "./tridentInputSnapshot";
+import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
+import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -129,6 +131,7 @@ export async function generateTridentBundle(args: {
         bank_id: deal.bank_id,
         mode,
         status: "pending",
+        input_hash: await computeTridentInputHash(sb, dealId),
         redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
       })
       .select("id")
@@ -497,6 +500,40 @@ export async function generateTridentBundle(args: {
     let canonicalMemoInputHash: string | null = null;
     if (mode === "final") {
       await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
+
+      // Standalone final callers (notably lender pick) have no preceding
+      // durable canonical stage. Commission once and bind its exact outputs;
+      // durable workflow calls always arrive with bundleId and skip this.
+      if (!args.bundleId) {
+        const memo = await generateCanonicalMemoArtifact({
+          dealId,
+          bankId: admittedBankId,
+          forceRegenerate: false,
+          executionContext: "system",
+        });
+        if (!memo.ok) throw new Error(memo.error);
+        const spread = await renderClassicPdfSpread({ dealId, bankId: admittedBankId });
+        if (!spread.ok) throw new Error(spread.error);
+        await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
+        const [{ data: memoRow }, { data: spreadRow }] = await Promise.all([
+          sb.from("canonical_memo_narratives").select("id")
+            .eq("deal_id", dealId).eq("bank_id", admittedBankId)
+            .eq("input_hash", admittedInputHash).limit(1).maybeSingle(),
+          sb.from("deal_spreads").select("id")
+            .eq("deal_id", dealId).eq("bank_id", admittedBankId)
+            .eq("spread_type", "CLASSIC_PDF").eq("status", "ready")
+            .order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+        ]);
+        if (!memoRow?.id || !spreadRow?.id) {
+          throw new Error("Standalone canonical sources were not durably persisted");
+        }
+        const { error: bindError } = await sb.from("buddy_trident_bundles").update({
+          source_credit_memo_id: memoRow.id,
+          source_spread_id: spreadRow.id,
+          canonical_memo_input_hash: admittedInputHash,
+        }).eq("id", bundleId).eq("bank_id", admittedBankId).eq("input_hash", admittedInputHash);
+        if (bindError) throw new Error(`Standalone canonical source binding failed: ${bindError.message}`);
+      }
       const { data: boundSources, error: boundSourcesError } = await sb
         .from("buddy_trident_bundles")
         .select("source_credit_memo_id,source_spread_id,canonical_memo_input_hash")
