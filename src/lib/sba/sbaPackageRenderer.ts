@@ -1187,6 +1187,8 @@ function renderSection3_MonthlyCF(s: DocState) {
     { label: "Operating Costs", getter: (m) => m.operatingDisbursements },
     { label: "Net Operating CF", getter: (m) => m.netOperatingCF, bold: true },
     { label: "Debt Service", getter: (m) => m.debtService },
+    { label: "Financing Inflows", getter: (m) => m.financingInflows ?? 0 },
+    { label: "Capital Expenditures", getter: (m) => -(m.capitalExpenditures ?? 0) },
     { label: "Net Cash", getter: (m) => m.netCash },
     { label: "Cumulative Cash", getter: (m) => m.cumulativeCash, bold: true },
   ];

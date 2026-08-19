@@ -269,6 +269,18 @@ export function buildMonthlyProjections(
   const totalMonthlyDS = sbaMonthly + existingMonthly;
   const baseMonthlyRevenue = year1.revenue / 12;
   const baseMonthlyOpEx = (year1.cogs + year1.operatingExpenses) / 12;
+  // Sources and uses close at the beginning of the projection period. Keep
+  // them in the monthly liquidity schedule instead of presenting operating
+  // cash flow as total cash flow. This is the same canonical assumption set
+  // used by buildSourcesAndUses; no narrative model may invent timing.
+  const closingSources =
+    assumptions.loanImpact.loanAmount +
+    assumptions.loanImpact.equityInjectionAmount +
+    assumptions.loanImpact.sellerFinancingAmount +
+    assumptions.loanImpact.otherSources.reduce((sum, source) => sum + source.amount, 0);
+  const yearOneCapex = assumptions.costAssumptions.plannedCapex
+    .filter((item) => item.year === 1)
+    .reduce((sum, item) => sum + item.amount, 0);
 
   let cumulativeCash = 0;
   return Array.from({ length: 12 }, (_, i) => {
@@ -280,7 +292,10 @@ export function buildMonthlyProjections(
     const revenue = baseMonthlyRevenue * multiplier;
     const operatingDisbursements = baseMonthlyOpEx;
     const netOperatingCF = revenue - operatingDisbursements;
-    const netCash = netOperatingCF - totalMonthlyDS;
+    const financingInflows = m === 1 ? closingSources : 0;
+    const capitalExpenditures = m === 1 ? yearOneCapex : 0;
+    const netCash =
+      netOperatingCF - totalMonthlyDS + financingInflows - capitalExpenditures;
     cumulativeCash += netCash;
     return {
       month: m,
@@ -288,6 +303,8 @@ export function buildMonthlyProjections(
       operatingDisbursements,
       netOperatingCF,
       debtService: totalMonthlyDS,
+      financingInflows,
+      capitalExpenditures,
       netCash,
       cumulativeCash,
     };
