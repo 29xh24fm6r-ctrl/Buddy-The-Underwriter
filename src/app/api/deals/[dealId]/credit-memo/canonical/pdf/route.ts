@@ -22,8 +22,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
-import { requireDealAccess } from "@/lib/auth/requireDealAccess";
-import { tryGetCurrentBankId } from "@/lib/tenant/getCurrentBankId";
+import { ensureDealBankAccessAllowingBrokerageStaff } from "@/lib/tenant/ensureDealBankAccess";
 import { rethrowNextErrors } from "@/lib/api/rethrowNextErrors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadLatestCertifiedFloridaArmorySnapshot } from "@/lib/creditMemo/snapshot/loadLatestCertifiedSnapshot";
@@ -44,10 +43,9 @@ export const maxDuration = 300;
 
 async function handlePdfRequest(dealId: string) {
   try {
-    await requireDealAccess(dealId);
-    const bankPick = await tryGetCurrentBankId();
-    if (!bankPick.ok) {
-      return NextResponse.json({ ok: false, error: "no_bank_selected" }, { status: 401 });
+    const access = await ensureDealBankAccessAllowingBrokerageStaff(dealId);
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, error: "access_denied" }, { status: 403 });
     }
 
     // Phase 81: Trust enforcement — PDF export requires committee-grade research.
@@ -66,7 +64,7 @@ async function handlePdfRequest(dealId: string) {
     // pass through the snapshot + hard-gate pipeline.
     const snapshotRes = await loadLatestCertifiedFloridaArmorySnapshot({
       dealId,
-      bankId: bankPick.bankId,
+      bankId: access.bankId,
     });
     if (!snapshotRes.ok) {
       if (snapshotRes.reason === "not_found") {
