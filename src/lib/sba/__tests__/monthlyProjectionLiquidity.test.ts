@@ -84,3 +84,31 @@ test("monthly liquidity includes closing sources and year-one capital uses", () 
     months.reduce((sum, month) => sum + month.netCash, 0),
   );
 });
+
+
+test("monthly liquidity honors canonical uses, exact hire timing, working capital, and debt maturities", () => {
+  const exact: SBAAssumptions = {
+    ...assumptions,
+    costAssumptions: {
+      ...assumptions.costAssumptions,
+      fixedCostCategories: [{ name: "Rent", annualAmount: 120_000, escalationPctPerYear: 0.03 }],
+      plannedHires: [{ role: "Operator", startMonth: 7, annualSalary: 120_000 }],
+    },
+    loanImpact: {
+      ...assumptions.loanImpact,
+      existingDebt: [
+        { description: "Retained note", currentBalance: 10_000, monthlyPayment: 1_000, remainingTermMonths: 3, treatment: "retain" },
+        { description: "Refinanced note", currentBalance: 100_000, monthlyPayment: 5_000, remainingTermMonths: 24, treatment: "refinance" },
+      ],
+    },
+  };
+  const uses = [
+    { category: "equipment", description: "Equipment", amount: 700_000, pctOfTotal: 0.7 },
+    { category: "working_capital", description: "Working capital", amount: 300_000, pctOfTotal: 0.3 },
+  ];
+  const months = buildMonthlyProjections(exact, year1, uses);
+  assert.equal(months[0].capitalExpenditures, 1_000_000);
+  assert.equal(months[0].debtService - months[3].debtService, 1_000);
+  assert.equal(months[0].operatingDisbursements + 10_000, months[6].operatingDisbursements);
+  assert.ok((months[0].workingCapitalChange ?? 0) > 0);
+});
