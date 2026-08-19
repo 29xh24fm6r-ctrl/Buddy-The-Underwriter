@@ -69,6 +69,15 @@ export function GoldenTridentLabClient({
         const blockers = Array.isArray(body.result?.blockers) ? body.result.blockers.join(", ") : "";
         throw new Error(body.result?.message || blockers || `AI assessment ${body.result?.status ?? "did not complete"}`);
       }
+      if (kind === "analysis" && body.validation?.gatingDecision === "BLOCK_GENERATION") {
+        const blockingChecks = Array.isArray(body.validation?.checks)
+          ? body.validation.checks
+              .filter((check: { status?: unknown }) => check.status === "BLOCK")
+              .map((check: { message?: unknown }) => String(check.message ?? "Validation blocked generation."))
+              .join(" ")
+          : "";
+        throw new Error(blockingChecks || body.validation?.summary || "Deterministic validation blocked generation.");
+      }
       if (kind === "trident" && response.status === 202 && body.bundleId) {
         setMessage("Golden Trident accepted. Durable generation is running in the background.");
         await waitForTrident(body.bundleId);
