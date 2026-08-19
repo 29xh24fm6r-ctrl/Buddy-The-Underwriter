@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { withSentryConfig } from "@sentry/nextjs";
+import { withWorkflow } from "workflow/next";
 
 function getGitSha() {
   // Vercel sets this automatically; fall back to git for local/CI builds
@@ -124,9 +125,11 @@ const shouldEnableSentryPlugin =
   Boolean(process.env.SENTRY_AUTH_TOKEN) &&
   !process.env.CODESPACES;
 
+const workflowConfig = withWorkflow(nextConfig);
+
 export default shouldEnableSentryPlugin
   ? withSentryConfig(
-      nextConfig,
+      workflowConfig,
       {
         // Sentry build-time options
         silent: true,
@@ -137,4 +140,4 @@ export default shouldEnableSentryPlugin
         dryRun: false,
       },
     )
-  : nextConfig;
+  : workflowConfig;
