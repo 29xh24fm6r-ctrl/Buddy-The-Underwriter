@@ -36,6 +36,8 @@ export interface ExistingDebtItem {
   currentBalance: number;
   monthlyPayment: number;
   remainingTermMonths: number;
+  /** Retained debt remains in DSCR; refinance/payoff debt is excluded after closing. */
+  treatment?: "retain" | "refinance" | "payoff";
 }
 
 export interface ManagementMember {
@@ -148,8 +150,10 @@ export interface MonthlyProjection {
   debtService: number;
   /** Transaction funding received in the period (legacy rows may omit). */
   financingInflows?: number;
-  /** Capital uses paid in the period (legacy rows may omit). */
+  /** Transaction uses paid in the period (legacy field name retained for compatibility). */
   capitalExpenditures?: number;
+  /** Increase in AR + inventory less AP; positive values consume cash. */
+  workingCapitalChange?: number;
   netCash: number;
   cumulativeCash: number;
 }
