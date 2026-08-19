@@ -12,6 +12,7 @@ import { runMathematicalChecks } from "./mathematicalChecks";
 import { runCompletenessChecks } from "./completenessChecks";
 import { runPlausibilityChecks } from "./plausibilityChecks";
 import type { ValidationReport, ValidationCheck } from "./validationTypes";
+import { normalizeValidationFacts, VALIDATION_RULESET_VERSION } from "./validationFacts";
 import crypto from "node:crypto";
 
 export async function runBuddyValidationPass(
@@ -28,15 +29,18 @@ export async function runBuddyValidationPass(
 
   if (factsError) throw new Error(`validation_facts_load_failed: ${factsError.message}`);
 
-  const factMap: Record<string, number | null> = {};
+  const rawFactMap: Record<string, number | null> = {};
   for (const row of factsRows ?? []) {
-    factMap[row.fact_key] = row.fact_value_num ?? null;
+    rawFactMap[row.fact_key] = row.fact_value_num ?? null;
   }
+  const factMap = normalizeValidationFacts(rawFactMap);
 
-  // Compute snapshot hash for caching
+  // Include the ruleset version so a corrected alias or rule cannot reuse a
+  // stale cached verdict produced by an older validator.
+  const hashInput = { ruleset: VALIDATION_RULESET_VERSION, facts: factMap };
   const snapshotHash = crypto
     .createHash("sha256")
-    .update(JSON.stringify(factMap, Object.keys(factMap).sort()))
+    .update(JSON.stringify(hashInput))
     .digest("hex")
     .slice(0, 16);
 
