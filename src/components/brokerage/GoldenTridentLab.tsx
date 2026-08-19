@@ -47,7 +47,7 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
     const [dealResult, assumptionsResult, bundleResult] = await Promise.all([
       sb.from("deals").select("id, display_name, borrower_name, loan_amount, state, status, is_test, bank_id").eq("id", dealId).eq("bank_id", brokerageBankId).maybeSingle(),
       sb.from("buddy_sba_assumptions").select("*").eq("deal_id", dealId).maybeSingle(),
-      sb.from("buddy_trident_bundles").select("*").eq("deal_id", dealId).eq("mode", "final").is("superseded_at", null).order("generated_at", { ascending: false }).limit(1).maybeSingle(),
+      sb.from("buddy_trident_bundles").select("*").eq("deal_id", dealId).eq("mode", "final").is("superseded_at", null).order("generation_started_at", { ascending: false, nullsFirst: false }).order("generated_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     loadError = dealResult.error?.message ?? assumptionsResult.error?.message ?? bundleResult.error?.message ?? null;
     deal = dealResult.data as Record<string, unknown> | null;
@@ -61,7 +61,7 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
       ]);
     }
 
-    if (bundle?.status === "succeeded") {
+    if (bundle) {
       for (const [key, column] of Object.entries({
         businessPlan: "business_plan_pdf_path",
         projectionsPdf: "projections_pdf_path",
@@ -144,7 +144,7 @@ export async function GoldenTridentLab({ searchParams }: { searchParams: SearchP
             <div className="mt-4">
               <GoldenTridentLabClient dealId={dealId} readiness={readiness} />
             </div>
-            {bundle?.status === "failed" ? <p className="mt-3 rounded bg-red-950/40 p-3 text-sm text-red-200">Generation stopped: {String(bundle.generation_error ?? "unknown error")}</p> : null}
+            {bundle?.status === "failed" ? <p className="mt-3 rounded bg-red-950/40 p-3 text-sm text-red-200">Generation stopped during {String(bundle.current_stage ?? "factory")}: {String(bundle.generation_error ?? "unknown error")}</p> : null}
           </section>
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
