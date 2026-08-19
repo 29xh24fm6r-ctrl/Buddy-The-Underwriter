@@ -42,6 +42,61 @@ import { evaluateTridentRelease } from "./tridentReleaseGate";
 
 export type TridentBundleMode = "preview" | "final";
 
+export async function createTridentBundleRun(args: {
+  dealId: string;
+  mode: TridentBundleMode;
+}): Promise<{ ok: true; bundleId: string; reused: boolean } | { ok: false; error: string }> {
+  const sb = supabaseAdmin();
+  const { data: deal } = await sb
+    .from("deals")
+    .select("id, bank_id")
+    .eq("id", args.dealId)
+    .single();
+  if (!deal) return { ok: false, error: "Deal not found" };
+
+  // A killed serverless request cannot run a catch/finally block. Recover an
+  // abandoned run before accepting a replacement so the UI never remains
+  // permanently pinned to a phantom `running` bundle.
+  const staleBefore = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  await sb
+    .from("buddy_trident_bundles")
+    .update({
+      status: "failed",
+      generation_error: "Generation worker stopped before completion; a replacement run was started.",
+      generation_completed_at: new Date().toISOString(),
+    })
+    .eq("deal_id", args.dealId)
+    .eq("mode", args.mode)
+    .eq("status", "running")
+    .lt("generation_started_at", staleBefore);
+
+  const { data: active } = await sb
+    .from("buddy_trident_bundles")
+    .select("id")
+    .eq("deal_id", args.dealId)
+    .eq("mode", args.mode)
+    .in("status", ["pending", "running"])
+    .gte("generated_at", staleBefore)
+    .order("generation_started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (active?.id) return { ok: true, bundleId: active.id, reused: true };
+
+  const { data: bundleRow, error } = await sb
+    .from("buddy_trident_bundles")
+    .insert({
+      deal_id: args.dealId,
+      bank_id: deal.bank_id,
+      mode: args.mode,
+      status: "pending",
+      redactor_version: args.mode === "preview" ? REDACTOR_VERSION : null,
+    })
+    .select("id")
+    .single();
+  if (error || !bundleRow) return { ok: false, error: error?.message ?? "Insert failed" };
+  return { ok: true, bundleId: bundleRow.id, reused: false };
+}
+
 export type GenerateResult =
   | {
       ok: true;
@@ -68,6 +123,7 @@ export type GenerateResult =
 export async function generateTridentBundle(args: {
   dealId: string;
   mode: TridentBundleMode;
+  bundleId?: string;
 }): Promise<GenerateResult> {
   const { dealId, mode } = args;
   const sb = supabaseAdmin();
@@ -79,25 +135,34 @@ export async function generateTridentBundle(args: {
     .single();
   if (!deal) return { ok: false, bundleId: null, error: "Deal not found" };
 
-  const { data: bundleRow, error: insertErr } = await sb
-    .from("buddy_trident_bundles")
-    .insert({
-      deal_id: dealId,
-      bank_id: deal.bank_id,
-      mode,
-      status: "pending",
-      redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
-    })
-    .select("id")
-    .single();
-  if (insertErr || !bundleRow) {
-    return {
-      ok: false,
-      bundleId: null,
-      error: insertErr?.message ?? "Insert failed",
-    };
+  let bundleId: string;
+  if (args.bundleId) {
+    bundleId = args.bundleId;
+    const { data: existing } = await sb
+      .from("buddy_trident_bundles")
+      .select("id, deal_id, mode")
+      .eq("id", bundleId)
+      .eq("deal_id", dealId)
+      .eq("mode", mode)
+      .maybeSingle();
+    if (!existing) return { ok: false, bundleId: null, error: "Bundle run not found" };
+  } else {
+    const { data: bundleRow, error: insertErr } = await sb
+      .from("buddy_trident_bundles")
+      .insert({
+        deal_id: dealId,
+        bank_id: deal.bank_id,
+        mode,
+        status: "pending",
+        redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
+      })
+      .select("id")
+      .single();
+    if (insertErr || !bundleRow) {
+      return { ok: false, bundleId: null, error: insertErr?.message ?? "Insert failed" };
+    }
+    bundleId = bundleRow.id;
   }
-  const bundleId = bundleRow.id;
 
   await sb
     .from("buddy_trident_bundles")

@@ -158,6 +158,7 @@
     "tailwind-merge": "^3.4.0",
     "twilio": "^5.11.1",
     "uuid": "^13.0.0",
+    "workflow": "4.8.0",
     "zod": "^4.2.1",
     "zod-to-json-schema": "^3.25.0",
     "zustand": "^5.0.9"

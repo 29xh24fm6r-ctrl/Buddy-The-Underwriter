@@ -15,6 +15,28 @@ export function GoldenTridentLabClient({
   const [busy, setBusy] = useState<"trident" | "analysis" | "memo" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  async function waitForTrident(bundleId: string) {
+    const deadline = Date.now() + 30 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const response = await fetch(`/api/brokerage/deals/${dealId}/trident/generate`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.ok === false) {
+        throw new Error(body.error || `Status check failed (${response.status})`);
+      }
+      if (body.bundle?.id !== bundleId) continue;
+      if (body.bundle.status === "succeeded") return;
+      if (body.bundle.status === "failed") {
+        throw new Error(body.bundle.generation_error || "Generation failed");
+      }
+      setMessage("Golden Trident is running durably in the background. You may leave this page.");
+    }
+    throw new Error("Generation is still running after 30 minutes. It will continue in the background; reload this deal to check status.");
+  }
+
   async function run(kind: "trident" | "analysis" | "memo") {
     if (kind === "trident" && !readiness?.ok) {
       setMessage(readiness?.reasons.join(" ") ?? "Readiness could not be established.");
@@ -42,9 +64,13 @@ export function GoldenTridentLabClient({
         const reasons = Array.isArray(body.reasons) ? body.reasons.join(" ") : null;
         throw new Error(reasons || body.error || `Generation failed (${response.status})`);
       }
+      if (kind === "trident" && response.status === 202 && body.bundleId) {
+        setMessage("Golden Trident accepted. Durable generation is running in the background.");
+        await waitForTrident(body.bundleId);
+      }
       setMessage(
         kind === "trident"
-          ? "Golden Trident artifacts generated."
+          ? "Golden Trident artifacts generated successfully."
           : kind === "analysis"
             ? "AI risk assessment and underwriting pipeline completed."
             : "Credit memo narrative generated.",
@@ -87,7 +113,7 @@ export function GoldenTridentLabClient({
           onClick={() => run("trident")}
           className="rounded-md bg-[#b68b3c] px-4 py-2 text-sm font-semibold text-[#17130d] disabled:opacity-50"
         >
-          {busy === "trident" ? "Generating…" : "Generate final Trident"}
+          {busy === "trident" ? "Generating in background…" : "Generate final Trident"}
         </button>
         <button
           type="button"
