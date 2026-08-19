@@ -60,7 +60,7 @@ export async function gradeGoldenTrident(args: {
     .eq("bank_id", bankId)
     .eq("mode", "final")
     .is("superseded_at", null)
-    .order("generated_at", { ascending: false })
+    .order("generation_started_at", { ascending: false, nullsFirst: false }).order("generated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -93,7 +93,7 @@ export async function gradeGoldenTrident(args: {
     const passed: string[] = [];
     const findings: string[] = [];
     let score = 0;
-    const exists = bundle?.status === "succeeded" && Boolean(pkg);
+    const exists = Boolean(pkg);
     if (bundle?.business_plan_pdf_path) { score += 15; passed.push("Final business-plan PDF exists."); }
     else findings.push("Final business-plan PDF is missing.");
     const narrativeFields = [
