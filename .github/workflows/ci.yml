@@ -84,12 +84,12 @@ jobs:
       # Production compilation is enforced by the dedicated Build Check workflow.
       # Do not repeat it here: this job's 30-minute budget is reserved for the
       # full guard/test suite and Playwright smoke coverage.
-      - name: Install Playwright browsers
-        # --with-deps downloads Ubuntu packages from an external mirror. The
-        # mirror can be slow even when healthy, so this boundary must cover
-        # network variance rather than fail a fully-passing application suite.
-        timeout-minutes: 15
-        run: pnpm -s e2e:install
+      - name: Install Playwright browser
+        # ubuntu-latest already carries the browser runtime libraries. Install
+        # only Playwright's pinned Chromium binary; --with-deps re-downloads
+        # Ubuntu font packages from a slow external mirror on every PR.
+        timeout-minutes: 8
+        run: pnpm exec playwright install chromium
       - name: E2E Smoke (public)
         timeout-minutes: 12
         run: pnpm -s e2e:smoke:public
