@@ -13,6 +13,8 @@ const readiness = readFileSync("src/lib/brokerage/trident/tridentReadiness.ts", 
 const fixture = readFileSync("src/lib/brokerage/trident/goldenTridentQaFixture.ts", "utf8");
 const memoPdfRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/canonical/pdf/route.ts", "utf8");
 const dealAccess = readFileSync("src/lib/tenant/ensureDealBankAccess.ts", "utf8");
+const analysisRoute = readFileSync("src/app/api/deals/[dealId]/banker-analysis/run/route.ts", "utf8");
+const validationPass = readFileSync("src/lib/validation/buddyValidationPass.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -69,4 +71,15 @@ test("brokerage artifacts use scoped deal tenancy without a false strict mismatc
     brokerageGuard.indexOf("requireBrokerageStaff") < brokerageGuard.indexOf("return ensureDealBankAccess"),
     "brokerage authorization must occur before the strict active-bank fallback",
   );
+});
+
+
+test("AI assessment owns deterministic validation and never reports false success", () => {
+  assert.match(analysisRoute, /runBuddyValidationPass\(dealId\)/);
+  assert.match(analysisRoute, /result, validation/);
+  assert.match(client, /body\.result\?\.status !== "succeeded"/);
+  assert.match(client, /deterministic validation completed/);
+  assert.match(validationPass, /fact_key, fact_value_num/);
+  assert.doesNotMatch(validationPass, /fact_key, value_num/);
+  assert.match(validationPass, /validation_report_write_failed/);
 });
