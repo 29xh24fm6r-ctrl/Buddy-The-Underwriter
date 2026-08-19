@@ -222,7 +222,8 @@ export function buildAnnualProjections(
       return sum + d.monthlyPayment * monthsPaid;
     }, 0);
     const sbaMonthsPaid = Math.min(12, Math.max(0, assumptions.loanImpact.termMonths - monthsElapsed));
-    const sellerMonthly = assumptions.loanImpact.sellerFinancingAmount > 0
+    const sellerMonthly = assumptions.loanImpact.sellerFinancingAmount > 0 &&
+      assumptions.loanImpact.sellerFinancingTermMonths > 0
       ? monthlyPayment(
           assumptions.loanImpact.sellerFinancingAmount,
           assumptions.loanImpact.sellerFinancingRate,
