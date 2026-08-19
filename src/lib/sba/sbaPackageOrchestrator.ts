@@ -281,10 +281,25 @@ export async function generateSBAPackage(
   // One versioned authority computes every borrower-facing SBA projection.
   // Artifacts consume this immutable model; they do not invoke individual
   // calculators or recompute financial values.
+  // Freeze the canonical transaction uses before computing liquidity so
+  // the monthly cash schedule and the Sources & Uses exhibit share one input.
+  const { data: proceedsItems, error: proceedsError } = await sb
+    .from("deal_proceeds_items")
+    .select("category, description, amount")
+    .eq("deal_id", dealId);
+  if (proceedsError) {
+    return { ok: false, error: `Use-of-proceeds load failed: ${proceedsError.message}` };
+  }
+  const useOfProceeds = buildUseOfProceeds(
+    proceedsItems ?? [],
+    assumptions.loanImpact.loanAmount,
+  );
+
   const projectionModel = computeSBAProjectionModel({
     assumptions,
     baseYear,
     projectedDscrThreshold,
+    useOfProceeds,
   });
   const {
     annualProjections,
@@ -293,17 +308,6 @@ export async function generateSBAPackage(
     breakEven,
     sensitivityScenarios,
   } = projectionModel;
-
-  // Use of proceeds
-  const { data: proceedsItems } = await sb
-    .from("deal_proceeds_items")
-    .select("category, description, amount")
-    .eq("deal_id", dealId);
-
-  const useOfProceeds = buildUseOfProceeds(
-    proceedsItems ?? [],
-    assumptions.loanImpact.loanAmount,
-  );
 
   // Phase BPG — Sources & Uses (after useOfProceeds is known)
   const sourcesAndUses = buildSourcesAndUses({
