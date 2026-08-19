@@ -156,7 +156,7 @@ async function handlePdfRequest(dealId: string) {
         .from("canonical_memo_narratives")
         .select("narratives")
         .eq("deal_id", dealId)
-        .eq("bank_id", bankPick.bankId)
+        .eq("bank_id", access.bankId)
         .eq("input_hash", snapshotInputHash)
         .order("generated_at", { ascending: false })
         .limit(1)
