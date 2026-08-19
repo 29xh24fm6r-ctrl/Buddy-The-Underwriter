@@ -494,6 +494,7 @@ export async function generateTridentBundle(args: {
         dealId,
         bankId: deal.bank_id,
         forceRegenerate: false,
+        executionContext: "system",
       });
       if (!canonicalMemo.ok) throw new Error(canonicalMemo.error);
       const canonicalSpread = await renderClassicPdfSpread({ dealId, bankId: deal.bank_id });

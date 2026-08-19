@@ -184,6 +184,10 @@ export async function buildCanonicalCreditMemo(args: {
   bankId?: string;
   preparedBy?: string;
   renderMode?: MemoRenderMode;
+  /** Durable server workflows have no interactive user session. This mode
+   * skips only the session lookup; the bank-scoped deal query below remains
+   * mandatory and fails closed on a mismatched deal/bank pair. */
+  executionContext?: "interactive" | "system";
 }): Promise<{ ok: true; memo: CanonicalCreditMemoV1 } | { ok: false; error: string }> {
   try {
     const mode: MemoRenderMode = args.renderMode ?? "internal_diagnostic";
@@ -200,12 +204,14 @@ export async function buildCanonicalCreditMemo(args: {
       if (dealErr) return { ok: false, error: `deal_select_failed:${dealErr.message}` };
       if (!dealRow) return { ok: false, error: "deal_not_found" };
       bankId = String(dealRow.bank_id);
-    } else {
+    } else if (args.executionContext !== "system") {
       const access = await ensureDealBankAccess(args.dealId);
       if (!access.ok) return { ok: false, error: access.error };
       if (String(access.bankId) !== String(bankId)) return { ok: false, error: "tenant_mismatch" };
     }
 
+    // This query is the authorization boundary for system execution: even a
+    // trusted workflow cannot read or build a memo across bank tenancy.
     const dealRes = await (sb as any)
       .from("deals")
       .select(

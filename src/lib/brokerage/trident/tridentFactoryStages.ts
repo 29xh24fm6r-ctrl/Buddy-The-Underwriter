@@ -62,7 +62,10 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryArgs
   await writeStage(args, "canonical_credit", "running");
   try {
     const memo = await generateCanonicalMemoArtifact({
-      dealId: args.dealId, bankId: args.bankId, forceRegenerate: false,
+      dealId: args.dealId,
+      bankId: args.bankId,
+      forceRegenerate: false,
+      executionContext: "system",
     });
     if (!memo.ok) throw new FatalError(memo.error);
     const spread = await renderClassicPdfSpread({ dealId: args.dealId, bankId: args.bankId });

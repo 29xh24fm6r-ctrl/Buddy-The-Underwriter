@@ -16,6 +16,8 @@ const dealAccess = readFileSync("src/lib/tenant/ensureDealBankAccess.ts", "utf8"
 const analysisRoute = readFileSync("src/app/api/deals/[dealId]/banker-analysis/run/route.ts", "utf8");
 const validationPass = readFileSync("src/lib/validation/buddyValidationPass.ts", "utf8");
 const validationFacts = readFileSync("src/lib/validation/validationFacts.ts", "utf8");
+const canonicalMemoBuilder = readFileSync("src/lib/creditMemo/canonical/buildCanonicalCreditMemo.ts", "utf8");
+const canonicalMemoArtifact = readFileSync("src/lib/creditMemo/canonical/generateCanonicalMemoArtifact.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -95,4 +97,14 @@ test("deterministic validation recognizes production canonical fact names and in
   assert.match(validationFacts, /TOTAL_EQUITY/);
   assert.match(client, /BLOCK_GENERATION/);
   assert.match(client, /blockingChecks/);
+});
+
+
+test("durable canonical-credit workers use an explicit bank-scoped system boundary", () => {
+  assert.match(canonicalMemoBuilder, /executionContext\?: "interactive" \| "system"/);
+  assert.match(canonicalMemoBuilder, /args\.executionContext !== "system"/);
+  assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
+  assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
+  assert.equal((stages.match(/executionContext: "system"/g) ?? []).length, 1);
+  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 1);
 });
