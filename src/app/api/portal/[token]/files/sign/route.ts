@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { signUploadUrl } from "@/lib/uploads/sign";
 import { buildGcsObjectKey, getGcsBucketName, signGcsUploadUrl } from "@/lib/storage/gcs";
 import { findExistingDocBySha } from "@/lib/storage/dedupe";
@@ -91,32 +92,36 @@ export async function POST(req: NextRequest, ctx: Context) {
       );
     }
 
-    // Verify token and get deal_id
     const sb = supabaseAdmin();
 
-    const { data: link, error: linkErr } = await sb
-      .from("borrower_portal_links")
-      .select("id, deal_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-
-    if (linkErr || !link) {
-      console.error("[portal/files/sign] invalid token", { token, linkErr });
+    // Canonical borrower auth — the SAME resolver already used by the
+    // record route, the portal hub, and the borrower documents route.
+    //
+    // This route previously looked up `borrower_portal_links` directly.
+    // Production has ZERO rows in that table, because self-serve `/start`
+    // borrowers are authenticated by the `buddy_borrower_session` cookie
+    // and never get a portal-link row issued. Every borrower upload
+    // therefore failed here with "Invalid or expired link" — even though
+    // the session was valid and the signed-URL flow was working.
+    //
+    // resolvePortalContext accepts a borrower_invites token, a
+    // borrower_portal_links token, OR an exact match against the
+    // authenticated borrower session, so all three borrower types work
+    // through one code path.
+    let dealId: string;
+    try {
+      const ctx = await resolvePortalContext(token);
+      dealId = ctx.dealId;
+    } catch (error) {
+      console.error("[portal/files/sign] auth failed", {
+        reason: (error as Error).message,
+      });
       return NextResponse.json(
         { ok: false, error: "Invalid or expired link" },
         { status: 403 },
       );
     }
 
-    // Check expiration
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json(
-        { ok: false, error: "Link expired" },
-        { status: 403 },
-      );
-    }
-
-    const dealId = link.deal_id;
     const { data: deal } = await sb
       .from("deals")
       .select("bank_id")
@@ -153,7 +158,7 @@ export async function POST(req: NextRequest, ctx: Context) {
         dealId,
         bankId: deal.bank_id,
         source: "borrower",
-        portalLinkId: link.id,
+        portalLinkId: null,
       });
       uploadSessionId = created.sessionId;
       uploadSessionExpiresAt = created.expiresAt;
