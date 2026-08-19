@@ -401,7 +401,23 @@ export async function generateTridentBundle(args: {
             sb,
           });
           if (feasibilityVerification.verdict !== "pass") {
-            throw new Error("Feasibility institutional review did not pass; final publication blocked");
+            const { data: reviewEvidence } = await sb
+              .from("buddy_feasibility_studies")
+              .select("verification_flagged_claims")
+              .eq("id", sourceFeasibilityId)
+              .maybeSingle();
+            const findings = Array.isArray(reviewEvidence?.verification_flagged_claims)
+              ? reviewEvidence.verification_flagged_claims
+                  .slice(0, 3)
+                  .map((finding: { severity?: unknown; reason?: unknown }) =>
+                    `${String(finding.severity ?? "warning")}: ${String(finding.reason ?? "unresolved review finding")}`,
+                  )
+                  .join(" | ")
+              : "";
+            throw new Error(
+              "Feasibility institutional review did not pass; final publication blocked" +
+                (findings ? ` — ${findings}` : ""),
+            );
           }
         }
         if (mode === "final" && sourceFeasibilityId) {
