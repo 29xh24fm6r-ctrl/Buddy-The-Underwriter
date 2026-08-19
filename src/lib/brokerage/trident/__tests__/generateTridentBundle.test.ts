@@ -298,6 +298,25 @@ require.cache[require.resolve("@/lib/creditMemo/canonical/memoProvenance")] = {
   id: "memo-hash-stub", filename: "memo-hash-stub", loaded: true,
   exports: { computeMemoInputHash: () => "memo-hash" },
 } as any;
+require.cache[require.resolve("@/lib/creditMemo/canonical/generateCanonicalMemoArtifact")] = {
+  id: "canonical-memo-stub", filename: "canonical-memo-stub", loaded: true,
+  exports: {
+    generateCanonicalMemoArtifact: async () => ({
+      ok: true,
+      narrativeId: "memo-1",
+      inputHash: "memo-hash",
+    }),
+  },
+} as any;
+require.cache[require.resolve("@/lib/classicSpread/classicPdfWorker")] = {
+  id: "classic-spread-stub", filename: "classic-spread-stub", loaded: true,
+  exports: {
+    renderClassicPdfSpread: async () => ({
+      ok: true,
+      spreadId: "spread-1",
+    }),
+  },
+} as any;
 
 // Load the orchestrator now that shims are in place.
 const { generateTridentBundle } =
