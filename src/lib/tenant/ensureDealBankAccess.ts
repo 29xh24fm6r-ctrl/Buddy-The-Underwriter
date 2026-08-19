@@ -82,20 +82,24 @@ export async function ensureDealBankAccess(dealId: string): Promise<EnsureResult
  * touched.
  */
 export async function ensureDealBankAccessAllowingBrokerageStaff(dealId: string): Promise<EnsureResult> {
-  const strict = await ensureDealBankAccess(dealId);
-  if (strict.ok || strict.error !== "tenant_mismatch") return strict;
-
+  // Resolve a brokerage deal before invoking the strict active-bank probe.
+  // Authorized brokerage staff commonly keep a commercial-bank picker active;
+  // probing strict access first emits a false TENANT MISMATCH security alarm
+  // even though the scoped brokerage fallback immediately grants access.
   try {
     const sb = supabaseAdmin();
-    const { data: deal } = await sb.from("deals").select("bank_id").eq("id", dealId).maybeSingle();
-    if (!deal?.bank_id) return strict;
-
-    const brokerageBankId = await getBrokerageBankId();
-    if (deal.bank_id !== brokerageBankId) return strict;
-
-    const { userId } = await requireBrokerageStaff();
-    return { ok: true, dealId, bankId: deal.bank_id, userId };
+    const { data: deal } = await sb.from("deals").select("id, bank_id").eq("id", dealId).maybeSingle();
+    if (deal?.bank_id) {
+      const brokerageBankId = await getBrokerageBankId();
+      if (deal.bank_id === brokerageBankId) {
+        const { userId } = await requireBrokerageStaff();
+        return { ok: true, dealId: deal.id, bankId: deal.bank_id, userId };
+      }
+    }
   } catch {
-    return strict;
+    // Preserve the canonical strict result for missing, non-brokerage, or
+    // unauthorized callers without exposing why the brokerage probe failed.
   }
+
+  return ensureDealBankAccess(dealId);
 }
