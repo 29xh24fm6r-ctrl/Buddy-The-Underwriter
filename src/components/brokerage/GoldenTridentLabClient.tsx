@@ -65,6 +65,10 @@ export function GoldenTridentLabClient({
         const reasons = Array.isArray(body.reasons) ? body.reasons.join(" ") : null;
         throw new Error(reasons || body.error || `Generation failed (${response.status})`);
       }
+      if (kind === "analysis" && body.result?.status !== "succeeded") {
+        const blockers = Array.isArray(body.result?.blockers) ? body.result.blockers.join(", ") : "";
+        throw new Error(body.result?.message || blockers || `AI assessment ${body.result?.status ?? "did not complete"}`);
+      }
       if (kind === "trident" && response.status === 202 && body.bundleId) {
         setMessage("Golden Trident accepted. Durable generation is running in the background.");
         await waitForTrident(body.bundleId);
@@ -73,7 +77,7 @@ export function GoldenTridentLabClient({
         kind === "trident"
           ? "Golden Trident artifacts generated successfully."
           : kind === "analysis"
-            ? "AI risk assessment and underwriting pipeline completed."
+            ? `AI risk assessment and deterministic validation completed (${body.validation?.overallStatus ?? "status unavailable"}).`
             : "Credit memo narrative generated.",
       );
       router.refresh();

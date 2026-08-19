@@ -19,6 +19,7 @@ import {
   runBankerAnalysisPipeline,
   type BankerAnalysisReason,
 } from "@/lib/underwriting/runBankerAnalysisPipeline";
+import { runBuddyValidationPass } from "@/lib/validation/buddyValidationPass";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,7 +70,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       forceRun,
     });
 
-    return NextResponse.json({ ok: true, result });
+    // Golden Trident readiness requires this durable report. The assessment
+    // action owns both phases so the UI cannot claim completion while leaving
+    // deterministic validation unrun.
+    const validation = await runBuddyValidationPass(dealId);
+
+    return NextResponse.json({ ok: true, result, validation });
   } catch (err) {
     rethrowNextErrors(err);
     console.error("[banker-analysis/run] error", err);
