@@ -1,17 +1,25 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { PlaidConnectCard } from "@/components/borrower/PlaidConnectCard";
-import { directDealDocumentUpload } from "@/lib/uploads/uploadFile";
+import { PortalUploadDropzone } from "@/components/borrower/intake/PortalUploadDropzone";
 
 export function IntakeFinancialsStep({
   dealId,
   isFranchise,
   onContinue,
+  onDocumentUploaded,
 }: {
   dealId: string;
   isFranchise: boolean;
   onContinue: (data?: Record<string, unknown>) => void;
+  /**
+   * Fired after a document is successfully recorded so the parent can
+   * refresh journey/readiness state. Without this the borrower uploads a
+   * document and the Review screen still reports "No documents uploaded
+   * yet" until they start over.
+   */
+  onDocumentUploaded?: () => void;
 }) {
   const [annualRevenue, setAnnualRevenue] = useState("");
   const [monthlyRevenue, setMonthlyRevenue] = useState("");
@@ -19,31 +27,34 @@ export function IntakeFinancialsStep({
   const [plaidConnected, setPlaidConnected] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadedCount, setUploadedCount] = useState(0);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = useCallback(
-    async (files: FileList | File[]) => {
-      setUploading(true);
-      let count = 0;
-      for (const file of Array.from(files)) {
-        try {
-          const result = await directDealDocumentUpload({
-            dealId,
-            file,
-            checklistKey: null,
-            source: "internal",
-          });
-          if (result.ok) count++;
-        } catch {
-          // non-fatal per file
-        }
-      }
-      setUploadedCount((prev) => prev + count);
-      setUploading(false);
-    },
-    [dealId],
-  );
+  /**
+   * LAUNCH FIX — borrower document uploads.
+   *
+   * This step previously called `directDealDocumentUpload`, which posts to
+   * `/api/deals/[dealId]/files/sign` and `/record`. Those are the
+   * CLERK-AUTHED banker routes: a self-serve borrower holding only a
+   * `buddy_borrower_session` cookie is rejected there.
+   *
+   * The failure was silent. `directDealDocumentUpload` RETURNS an error
+   * object rather than throwing, so the surrounding try/catch never fired,
+   * `count` stayed 0, and the borrower saw no error and no confirmation —
+   * the button simply appeared to do nothing.
+   *
+   * `PortalUploadDropzone` uses `uploadBorrowerFile`, which posts to the
+   * token-authed `/api/portal/[token]/files/*` routes and records the row
+   * with source "borrower". `resolvePortalContext` accepts the dealId as
+   * the token when it matches the authenticated borrower session, so the
+   * same signed-URL architecture and every upload guard (MIME allowlist,
+   * 50MB cap, upload sessions, ledger events) are preserved unchanged.
+   *
+   * No second upload implementation is introduced: this deletes a
+   * misrouted call and reuses the existing borrower component.
+   */
+  const handleUploadComplete = useCallback(() => {
+    setUploadedCount((prev) => prev + 1);
+    onDocumentUploaded?.();
+  }, [onDocumentUploaded]);
 
   const computedAnnual =
     revenueMode === "annual"
@@ -196,42 +207,14 @@ export function IntakeFinancialsStep({
           </div>
         </div>
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-5 py-4 text-sm font-medium text-slate-500 transition-colors hover:border-brand-blue-300 hover:text-brand-blue-500 disabled:opacity-50"
-          >
-            {uploading ? (
-              <>
-                <div className="h-4 w-4 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Choose files
-              </>
-            )}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv,.doc,.docx"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.length) {
-                void handleFileUpload(e.target.files);
-                e.target.value = "";
-              }
-            }}
+          <PortalUploadDropzone
+            token={dealId}
+            dealId={dealId}
+            onUploadComplete={handleUploadComplete}
           />
           {uploadedCount > 0 && (
-            <p className="mt-2 text-xs text-emerald-600">
-              {uploadedCount} document{uploadedCount !== 1 ? "s" : ""} uploaded
+            <p className="mt-3 text-xs text-emerald-600">
+              {uploadedCount} document{uploadedCount !== 1 ? "s" : ""} uploaded to your package
             </p>
           )}
         </div>
