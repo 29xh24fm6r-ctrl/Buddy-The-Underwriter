@@ -1,4 +1,4 @@
-import type { SBAAssumptions, AnnualProjectionYear } from "./sbaReadinessTypes";
+import type { SBAAssumptions, AnnualProjectionYear, UseOfProceedsLine } from "./sbaReadinessTypes";
 import {
   buildAnnualProjections,
   buildMonthlyProjections,
@@ -15,7 +15,7 @@ import {
  * calculators. The lower-level builders remain pure implementation details;
  * artifact and UI code must consume this model.
  */
-export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v1" as const;
+export const SBA_PROJECTION_ENGINE_VERSION = "sba_projection_v2" as const;
 
 export type SBAProjectionModel = {
   engineVersion: typeof SBA_PROJECTION_ENGINE_VERSION;
@@ -32,8 +32,9 @@ export function computeSBAProjectionModel(args: {
   assumptions: SBAAssumptions;
   baseYear: AnnualProjectionYear;
   projectedDscrThreshold?: number;
+  useOfProceeds?: UseOfProceedsLine[];
 }): SBAProjectionModel {
-  const { assumptions, baseYear, projectedDscrThreshold } = args;
+  const { assumptions, baseYear, projectedDscrThreshold, useOfProceeds = [] } = args;
   const annualProjections = buildAnnualProjections(assumptions, baseYear);
   const year1 = annualProjections[0];
 
@@ -46,7 +47,7 @@ export function computeSBAProjectionModel(args: {
     generatedFrom: "borrower_confirmed_assumptions",
     baseYear,
     annualProjections,
-    monthlyProjections: buildMonthlyProjections(assumptions, year1),
+    monthlyProjections: buildMonthlyProjections(assumptions, year1, useOfProceeds),
     revenueStreamProjections: buildRevenueStreamProjections(assumptions),
     breakEven: computeBreakEven(assumptions, year1),
     sensitivityScenarios: buildSensitivityScenarios(
