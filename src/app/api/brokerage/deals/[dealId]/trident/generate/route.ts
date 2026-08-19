@@ -10,14 +10,15 @@ import "server-only";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { start } from "workflow/api";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
+import { createTridentBundleRun } from "@/lib/brokerage/trident/generateTridentBundle";
+import { goldenTridentWorkflow } from "@/workflows/goldenTrident";
 import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { getTridentReadiness } from "@/lib/brokerage/trident/tridentReadiness";
 import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,
@@ -62,7 +63,59 @@ export async function POST(
     }
   }
 
-  const result = await generateTridentBundle({ dealId, mode });
-  const status = result.ok ? 200 : 500;
-  return NextResponse.json(result, { status });
+  const created = await createTridentBundleRun({ dealId, mode });
+  if (!created.ok) return NextResponse.json(created, { status: 500 });
+
+  if (!created.reused) {
+    try {
+      const run = await start(goldenTridentWorkflow, [{
+        dealId,
+        mode,
+        bundleId: created.bundleId,
+      }]);
+      return NextResponse.json(
+        { ok: true, accepted: true, bundleId: created.bundleId, runId: run.runId },
+        { status: 202 },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await sb.from("buddy_trident_bundles").update({
+        status: "failed",
+        generation_error: `Workflow start failed: ${message}`.slice(0, 500),
+        generation_completed_at: new Date().toISOString(),
+      }).eq("id", created.bundleId);
+      return NextResponse.json({ ok: false, bundleId: created.bundleId, error: message }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json(
+    { ok: true, accepted: true, bundleId: created.bundleId, alreadyRunning: true },
+    { status: 202 },
+  );
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ dealId: string }> },
+): Promise<NextResponse> {
+  const { dealId } = await params;
+  try {
+    await requireBrokerageStaff();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "forbidden";
+    return NextResponse.json({ ok: false, error: message }, { status: message === "unauthorized" ? 401 : 403 });
+  }
+
+  const brokerageBankId = await getBrokerageBankId();
+  const { data: bundle, error } = await supabaseAdmin()
+    .from("buddy_trident_bundles")
+    .select("id,status,generation_error,generation_started_at,generation_completed_at")
+    .eq("deal_id", dealId)
+    .eq("bank_id", brokerageBankId)
+    .eq("mode", "final")
+    .order("generated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, bundle });
 }
