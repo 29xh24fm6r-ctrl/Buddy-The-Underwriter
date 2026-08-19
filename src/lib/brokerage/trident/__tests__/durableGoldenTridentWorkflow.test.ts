@@ -15,6 +15,7 @@ const memoPdfRoute = readFileSync("src/app/api/deals/[dealId]/credit-memo/canoni
 const dealAccess = readFileSync("src/lib/tenant/ensureDealBankAccess.ts", "utf8");
 const analysisRoute = readFileSync("src/app/api/deals/[dealId]/banker-analysis/run/route.ts", "utf8");
 const validationPass = readFileSync("src/lib/validation/buddyValidationPass.ts", "utf8");
+const validationFacts = readFileSync("src/lib/validation/validationFacts.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -82,4 +83,16 @@ test("AI assessment owns deterministic validation and never reports false succes
   assert.match(validationPass, /fact_key, fact_value_num/);
   assert.doesNotMatch(validationPass, /fact_key, value_num/);
   assert.match(validationPass, /validation_report_write_failed/);
+});
+
+
+test("deterministic validation recognizes production canonical fact names and invalidates stale verdicts", () => {
+  assert.match(validationPass, /normalizeValidationFacts/);
+  assert.match(validationPass, /VALIDATION_RULESET_VERSION/);
+  assert.match(validationFacts, /CF_ANNUAL_DEBT_SERVICE/);
+  assert.match(validationFacts, /CF_NCADS/);
+  assert.match(validationFacts, /RATIO_DSCR_FINAL/);
+  assert.match(validationFacts, /TOTAL_EQUITY/);
+  assert.match(client, /BLOCK_GENERATION/);
+  assert.match(client, /blockingChecks/);
 });
