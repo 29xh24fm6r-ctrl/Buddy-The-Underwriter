@@ -38,9 +38,14 @@ export async function generateCanonicalMemoArtifact(args: {
   dealId: string;
   bankId: string;
   forceRegenerate?: boolean;
+  executionContext?: "interactive" | "system";
 }) {
   const sb = supabaseAdmin();
-  const built = await buildCanonicalCreditMemo({ dealId: args.dealId, bankId: args.bankId });
+  const built = await buildCanonicalCreditMemo({
+    dealId: args.dealId,
+    bankId: args.bankId,
+    executionContext: args.executionContext,
+  });
   if (!built.ok) return { ok: false as const, error: built.error, status: 400 };
 
   const inputHash = computeMemoInputHash(await fetchMemoHashInputs(sb, args.dealId));
