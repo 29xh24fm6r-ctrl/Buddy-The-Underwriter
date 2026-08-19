@@ -135,8 +135,9 @@ export async function generateTridentBundle(args: {
     .single();
   if (!deal) return { ok: false, bundleId: null, error: "Deal not found" };
 
-  let bundleId = args.bundleId;
-  if (bundleId) {
+  let bundleId: string;
+  if (args.bundleId) {
+    bundleId = args.bundleId;
     const { data: existing } = await sb
       .from("buddy_trident_bundles")
       .select("id, deal_id, mode")
