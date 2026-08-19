@@ -146,6 +146,10 @@ export interface MonthlyProjection {
   operatingDisbursements: number;
   netOperatingCF: number;
   debtService: number;
+  /** Transaction funding received in the period (legacy rows may omit). */
+  financingInflows?: number;
+  /** Capital uses paid in the period (legacy rows may omit). */
+  capitalExpenditures?: number;
   netCash: number;
   cumulativeCash: number;
 }
