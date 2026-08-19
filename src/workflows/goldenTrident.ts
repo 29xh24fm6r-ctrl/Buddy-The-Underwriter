@@ -6,7 +6,6 @@ export async function goldenTridentWorkflow(args: {
   bundleId: string;
 }) {
   "use workflow";
-  const stages = await import("@/lib/brokerage/trident/tridentFactoryStages");
   try {
     const snapshot = await prepare(args);
     await canonical({ ...args, bankId: snapshot.bankId });
