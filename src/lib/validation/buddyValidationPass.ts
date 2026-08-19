@@ -20,15 +20,17 @@ export async function runBuddyValidationPass(
   const sb = supabaseAdmin();
 
   // Load current facts
-  const { data: factsRows } = await sb
+  const { data: factsRows, error: factsError } = await sb
     .from("deal_financial_facts")
-    .select("fact_key, value_num")
+    .select("fact_key, fact_value_num")
     .eq("deal_id", dealId)
     .eq("is_superseded", false);
 
+  if (factsError) throw new Error(`validation_facts_load_failed: ${factsError.message}`);
+
   const factMap: Record<string, number | null> = {};
   for (const row of factsRows ?? []) {
-    factMap[row.fact_key] = row.value_num ?? null;
+    factMap[row.fact_key] = row.fact_value_num ?? null;
   }
 
   // Compute snapshot hash for caching
@@ -103,7 +105,7 @@ export async function runBuddyValidationPass(
   };
 
   // Persist
-  await sb.from("buddy_validation_reports").insert({
+  const { error: persistError } = await sb.from("buddy_validation_reports").insert({
     deal_id: dealId,
     run_at: report.runAt,
     overall_status: overallStatus,
@@ -114,6 +116,7 @@ export async function runBuddyValidationPass(
     checks: checks as any,
     snapshot_hash: snapshotHash,
   });
+  if (persistError) throw new Error(`validation_report_write_failed: ${persistError.message}`);
 
   return report;
 }
