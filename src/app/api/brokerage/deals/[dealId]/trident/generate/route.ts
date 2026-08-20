@@ -72,11 +72,12 @@ export async function POST(
         dealId,
         mode,
         bundleId: created.bundleId,
+        leaseToken: created.leaseToken,
       }]);
       const { error: runPersistError } = await sb.from("buddy_trident_bundles").update({
         workflow_run_id: run.runId,
         last_heartbeat_at: new Date().toISOString(),
-      }).eq("id", created.bundleId);
+      }).eq("id", created.bundleId).eq("lease_token", created.leaseToken);
       if (runPersistError) throw new Error(`Workflow identity persistence failed: ${runPersistError.message}`);
       return NextResponse.json(
         { ok: true, accepted: true, bundleId: created.bundleId, runId: run.runId },
@@ -84,12 +85,17 @@ export async function POST(
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await sb.from("buddy_trident_bundles").update({
-        status: "failed",
-        generation_error: `Workflow start failed: ${message}`,
-        stage_error_json: { stage: "workflow_start", message },
-        generation_completed_at: new Date().toISOString(),
-      }).eq("id", created.bundleId);
+      const { data: admitted } = await sb.from("buddy_trident_bundles")
+        .select("input_hash").eq("id", created.bundleId)
+        .eq("lease_token", created.leaseToken).maybeSingle();
+      if (admitted?.input_hash) {
+        await sb.rpc("fail_trident_bundle_run", {
+          p_bundle_id: created.bundleId,
+          p_lease_token: created.leaseToken,
+          p_input_hash: admitted.input_hash,
+          p_error: `Workflow start failed: ${message}`,
+        });
+      }
       return NextResponse.json({ ok: false, bundleId: created.bundleId, error: message }, { status: 500 });
     }
   }
