@@ -37,7 +37,7 @@ import {
 } from "./narrativeAcceptance";
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 import { evaluateTridentRelease } from "./tridentReleaseGate";
-import { assertTridentInputSnapshot, computeTridentInputHash } from "./tridentInputSnapshot";
+import { assertTridentInputSnapshot, computeTridentInputSnapshot } from "./tridentInputSnapshot";
 import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
 import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 
@@ -46,23 +46,29 @@ export type TridentBundleMode = "preview" | "final";
 export async function createTridentBundleRun(args: {
   dealId: string;
   mode: TridentBundleMode;
-}): Promise<{ ok: true; bundleId: string; reused: boolean } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; bundleId: string; reused: boolean; leaseToken: string }
+  | { ok: false; error: string }
+> {
   const sb = supabaseAdmin();
   try {
-    const inputHash = await computeTridentInputHash(sb, args.dealId);
+    const snapshot = await computeTridentInputSnapshot(sb, args.dealId);
     const { data, error } = await sb.rpc("acquire_trident_bundle_run", {
       p_deal_id: args.dealId,
       p_mode: args.mode,
-      p_input_hash: inputHash,
+      p_input_hash: snapshot.inputHash,
+      p_memo_input_hash: snapshot.memoInputHash,
+      p_snapshot_manifest_json: snapshot.manifest,
     });
     const admitted = Array.isArray(data) ? data[0] : data;
-    if (error || !admitted?.bundle_id) {
+    if (error || !admitted?.bundle_id || !admitted?.lease_token) {
       return { ok: false, error: error?.message ?? "Atomic Trident admission failed" };
     }
     return {
       ok: true,
       bundleId: String(admitted.bundle_id),
       reused: admitted.reused === true,
+      leaseToken: String(admitted.lease_token),
     };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -95,9 +101,11 @@ export type GenerateResult =
 export async function generateTridentBundle(args: {
   dealId: string;
   mode: TridentBundleMode;
-  bundleId?: string;
-  bankId?: string;
-  inputHash?: string;
+  bundleId: string;
+  bankId: string;
+  inputHash: string;
+  memoInputHash: string;
+  leaseToken: string;
 }): Promise<GenerateResult> {
   const { dealId, mode } = args;
   const sb = supabaseAdmin();
@@ -107,52 +115,25 @@ export async function generateTridentBundle(args: {
   const { data: deal } = await dealQuery.single();
   if (!deal) return { ok: false, bundleId: null, error: "Deal not found" };
 
-  let bundleId: string;
-  if (args.bundleId) {
-    bundleId = args.bundleId;
-    const { data: existing } = await sb
-      .from("buddy_trident_bundles")
-      .select("id, deal_id, bank_id, mode, input_hash, source_credit_memo_id, source_spread_id, canonical_memo_input_hash")
-      .eq("id", bundleId)
-      .eq("deal_id", dealId)
-      .eq("bank_id", args.bankId ?? deal.bank_id)
-      .eq("mode", mode)
-      .eq("input_hash", args.inputHash ?? await computeTridentInputHash(sb, dealId))
-      .maybeSingle();
-    if (!existing) return { ok: false, bundleId: null, error: "Bundle run not found" };
-    if (!args.bankId || !args.inputHash) {
-      return { ok: false, bundleId, error: "Durable factory execution is missing admitted bank or input snapshot" };
-    }
-  } else {
-    const { data: bundleRow, error: insertErr } = await sb
-      .from("buddy_trident_bundles")
-      .insert({
-        deal_id: dealId,
-        bank_id: deal.bank_id,
-        mode,
-        status: "pending",
-        input_hash: await computeTridentInputHash(sb, dealId),
-        redactor_version: mode === "preview" ? REDACTOR_VERSION : null,
-      })
-      .select("id")
-      .single();
-    if (insertErr || !bundleRow) {
-      return { ok: false, bundleId: null, error: insertErr?.message ?? "Insert failed" };
-    }
-    bundleId = bundleRow.id;
-  }
-
-  const admittedBankId = args.bankId ?? deal.bank_id;
-  const admittedInputHash = args.inputHash ?? await computeTridentInputHash(sb, dealId);
-  await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
-
-  await sb
+  const bundleId = args.bundleId;
+  const admittedBankId = args.bankId;
+  const admittedInputHash = args.inputHash;
+  const { data: existing, error: existingError } = await sb
     .from("buddy_trident_bundles")
-    .update({
-      status: "running",
-      generation_started_at: new Date().toISOString(),
-    })
-    .eq("id", bundleId);
+    .select("id")
+    .eq("id", bundleId)
+      .eq("lease_token", args.leaseToken)
+    .eq("deal_id", dealId)
+    .eq("bank_id", admittedBankId)
+    .eq("mode", mode)
+    .eq("input_hash", admittedInputHash)
+    .eq("lease_token", args.leaseToken)
+    .in("status", ["pending", "running"])
+    .maybeSingle();
+  if (existingError || !existing) {
+    return { ok: false, bundleId, error: existingError?.message ?? "Trident lease lost" };
+  }
+  await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
 
   return runWithAIExecutionContext(
     {
@@ -275,7 +256,7 @@ export async function generateTridentBundle(args: {
       source_sba_package_id: sbaResult.packageId,
       current_stage: "business_plan",
       last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", bundleId);
+    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
     if (businessPlanPersistError) throw new Error(`Business-plan manifest write failed: ${businessPlanPersistError.message}`);
 
     // SPEC-M8 ARTIFACT-PIPELINE-1 — read-only attestation lookup. Never
@@ -388,7 +369,7 @@ export async function generateTridentBundle(args: {
       projections_xlsx_path: projectionsXlsxPath,
       current_stage: "projections",
       last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", bundleId);
+    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
     if (projectionsPersistError) throw new Error(`Projection manifest write failed: ${projectionsPersistError.message}`);
 
     // 3. Feasibility — call engine; for preview, re-render with redaction.
@@ -489,7 +470,7 @@ export async function generateTridentBundle(args: {
       source_feasibility_id: sourceFeasibilityId,
       current_stage: "feasibility",
       last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", bundleId);
+    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
     if (feasibilityPersistError) throw new Error(`Feasibility manifest write failed: ${feasibilityPersistError.message}`);
 
     // 4. Bind a final release to the exact memo, spread, and reviewed
@@ -501,43 +482,11 @@ export async function generateTridentBundle(args: {
     if (mode === "final") {
       await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
 
-      // Standalone final callers (notably lender pick) have no preceding
-      // durable canonical stage. Commission once and bind its exact outputs;
-      // durable workflow calls always arrive with bundleId and skip this.
-      if (!args.bundleId) {
-        const memo = await generateCanonicalMemoArtifact({
-          dealId,
-          bankId: admittedBankId,
-          forceRegenerate: false,
-          executionContext: "system",
-        });
-        if (!memo.ok) throw new Error(memo.error);
-        const spread = await renderClassicPdfSpread({ dealId, bankId: admittedBankId });
-        if (!spread.ok) throw new Error(spread.error);
-        await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
-        const [{ data: memoRow }, { data: spreadRow }] = await Promise.all([
-          sb.from("canonical_memo_narratives").select("id")
-            .eq("deal_id", dealId).eq("bank_id", admittedBankId)
-            .eq("input_hash", admittedInputHash).limit(1).maybeSingle(),
-          sb.from("deal_spreads").select("id")
-            .eq("deal_id", dealId).eq("bank_id", admittedBankId)
-            .eq("spread_type", "CLASSIC_PDF").eq("status", "ready")
-            .order("updated_at", { ascending: false }).limit(1).maybeSingle(),
-        ]);
-        if (!memoRow?.id || !spreadRow?.id) {
-          throw new Error("Standalone canonical sources were not durably persisted");
-        }
-        const { error: bindError } = await sb.from("buddy_trident_bundles").update({
-          source_credit_memo_id: memoRow.id,
-          source_spread_id: spreadRow.id,
-          canonical_memo_input_hash: admittedInputHash,
-        }).eq("id", bundleId).eq("bank_id", admittedBankId).eq("input_hash", admittedInputHash);
-        if (bindError) throw new Error(`Standalone canonical source binding failed: ${bindError.message}`);
-      }
       const { data: boundSources, error: boundSourcesError } = await sb
         .from("buddy_trident_bundles")
         .select("source_credit_memo_id,source_spread_id,canonical_memo_input_hash")
         .eq("id", bundleId)
+      .eq("lease_token", args.leaseToken)
         .eq("bank_id", admittedBankId)
         .eq("input_hash", admittedInputHash)
         .single();
@@ -545,8 +494,8 @@ export async function generateTridentBundle(args: {
         throw new Error(`Canonical factory sources are not bound to the admitted bundle: ${boundSourcesError?.message ?? "missing source IDs"}`);
       }
       canonicalMemoInputHash = boundSources.canonical_memo_input_hash;
-      if (canonicalMemoInputHash !== admittedInputHash) {
-        throw new Error(`Canonical memo snapshot drift: admitted=${admittedInputHash} canonical=${canonicalMemoInputHash ?? "missing"}`);
+      if (canonicalMemoInputHash !== args.memoInputHash) {
+        throw new Error(`Canonical memo snapshot drift: admitted=${args.memoInputHash} canonical=${canonicalMemoInputHash ?? "missing"}`);
       }
       const [{ data: releasePkg }, { data: releaseFeasibility }, { data: releaseMemo }, { data: releaseSpread }] = await Promise.all([
         sb.from("buddy_sba_packages")
@@ -559,7 +508,7 @@ export async function generateTridentBundle(args: {
           .select("id,input_hash,research_trust_grade")
           .eq("id", boundSources.source_credit_memo_id)
           .eq("deal_id", dealId).eq("bank_id", admittedBankId)
-          .eq("input_hash", admittedInputHash).single(),
+          .eq("input_hash", args.memoInputHash).single(),
         sb.from("deal_spreads")
           .select("id,status,rendered_json")
           .eq("id", boundSources.source_spread_id)
@@ -600,47 +549,26 @@ export async function generateTridentBundle(args: {
         source_spread_id: releaseSpread?.id ?? null,
         canonical_memo_input_hash: canonicalMemoInputHash,
       };
-      await sb.from("buddy_trident_bundles").update({ release_gate_json: releaseManifest }).eq("id", bundleId);
+      await sb.from("buddy_trident_bundles").update({ release_gate_json: releaseManifest }).eq("id", bundleId).eq("lease_token", args.leaseToken);
       if (!gate.ok) throw new Error(`Golden Trident release blocked: ${gate.reasons.join(", ")}`);
       sourceCreditMemoId = releaseMemo?.id ?? null;
       sourceSpreadId = releaseSpread?.id ?? null;
     }
 
-    // 5. Supersede prior current succeeded bundle for this (deal, mode),
-    //    then mark this one succeeded. Partial unique index is the
-    //    integrity guarantee; this sequence keeps it satisfied.
-    await sb
-      .from("buddy_trident_bundles")
-      .update({ superseded_at: new Date().toISOString() })
-      .eq("deal_id", dealId)
-      .eq("bank_id", admittedBankId)
-      .eq("mode", mode)
-      .eq("status", "succeeded")
-      .is("superseded_at", null)
-      .neq("id", bundleId);
-
+    // 5. Publication is one database transaction. The RPC verifies the active
+    // lease, release gate and required artifacts before superseding anything.
     await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
-    await sb
-      .from("buddy_trident_bundles")
-      .update({
-        status: "succeeded",
-        generation_completed_at: new Date().toISOString(),
-        business_plan_pdf_path: businessPlanPath,
-        projections_pdf_path: projectionsPdfPath,
-        projections_xlsx_path: projectionsXlsxPath,
-        feasibility_pdf_path: feasibilityPdfPath,
-        source_sba_package_id: sbaResult.packageId,
-        source_feasibility_id: sourceFeasibilityId,
-        business_plan_attested: businessPlanAttested,
-        business_plan_attested_at: businessPlanAttested ? new Date().toISOString() : null,
-        source_credit_memo_id: sourceCreditMemoId,
-        source_spread_id: sourceSpreadId,
-        canonical_memo_input_hash: canonicalMemoInputHash,
-        release_gate_json: releaseManifest,
-      })
-      .eq("id", bundleId)
-      .eq("bank_id", admittedBankId)
-      .eq("input_hash", admittedInputHash);
+    const { data: finalized, error: finalizeError } = await sb.rpc(
+      "finalize_trident_bundle_run",
+      {
+        p_bundle_id: bundleId,
+        p_lease_token: args.leaseToken,
+        p_input_hash: admittedInputHash,
+      },
+    );
+    if (finalizeError || finalized !== true) {
+      throw new Error(finalizeError?.message ?? "Atomic Trident publication failed");
+    }
 
     return {
       ok: true,
@@ -657,16 +585,6 @@ export async function generateTridentBundle(args: {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[trident] generation failed:", msg);
-    await sb
-      .from("buddy_trident_bundles")
-      .update({
-        status: "failed",
-        generation_error: msg,
-        stage_error_json: { stage: "artifact_factory", message: msg },
-        generation_completed_at: new Date().toISOString(),
-        last_heartbeat_at: new Date().toISOString(),
-      })
-      .eq("id", bundleId);
     return { ok: false, bundleId, error: msg };
   }
     },
