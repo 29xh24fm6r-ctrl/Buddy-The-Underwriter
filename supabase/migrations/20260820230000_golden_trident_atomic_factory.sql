@@ -161,8 +161,8 @@ begin
   if v.mode='final' and coalesce((v.release_gate_json->>'ok')::boolean,false) is not true then
     raise exception 'release gate has not passed';
   end if;
-  if v.business_plan_pdf_path is null or v.feasibility_pdf_path is null
-     or (v.mode='final' and v.projections_xlsx_path is null) then
+  if v.business_plan_pdf_path is null
+     or (v.mode='final' and (v.feasibility_pdf_path is null or v.projections_xlsx_path is null)) then
     raise exception 'required artifacts are missing';
   end if;
 
