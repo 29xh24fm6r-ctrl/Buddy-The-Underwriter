@@ -273,63 +273,145 @@ export async function propagateBorrowerFacts(params: {
   // DUPLICATE-OWNER FIX.
   //
   // There is no unique constraint on (deal_id, display_name), so this
-  // block hand-rolls the upsert. It previously matched with
-  //   .eq("display_name", fullName).maybeSingle()
-  // which failed in two compounding ways:
+  // block hand-rolls the upsert. Two defects compounded here:
   //
-  //   1. EXACT string match. "Sebrina Colon", "SebrinaColon" and
-  //      "Matthew  Paller" (double space) are different keys, so a
-  //      re-render with different spacing inserted a NEW owner.
-  //   2. Once two rows matched, `.maybeSingle()` errors on multiple rows.
-  //      Only `data` was destructured, so the error was swallowed, `existing`
-  //      came back null, and the INSERT branch ran again — every subsequent
-  //      save added another row. That is why one deal reached 8 rows for a
-  //      single owner and 14 rows overall for two people, each one adding an
-  //      unsatisfiable identity-verification blocker that made sealing
-  //      impossible.
+  //   1. MATCHING. It previously matched with
+  //        .eq("display_name", fullName).maybeSingle()
+  //      so "Sebrina Colon", "SebrinaColon" and "Matthew  Paller" (double
+  //      space) were distinct keys and a re-render with different spacing
+  //      inserted a NEW owner. Fixed by loading the deal's owners once and
+  //      matching on a normalized name in memory.
   //
-  // Fixed by loading the deal's owners once and matching on a normalized
-  // name in memory: no multi-row error, and spacing/case variants collapse
-  // onto the existing row instead of creating a new one.
-  const ownerRegistryEntries = fieldsForScope("owner");
+  //   2. THE SELECT NEVER SUCCEEDED. Its column list was built from the raw
+  //      fieldsForScope("owner"), which carries two entries (full_ssn,
+  //      spouse_full_ssn) whose sourceTable is deal_pii_records and whose
+  //      sourceColumn — `encrypted_payload` — does not exist on
+  //      ownership_entities, and appears TWICE. PostgREST rejected every
+  //      such request. Only `data` was destructured, so the error was
+  //      discarded, `existingRow` was always null, and the INSERT branch ran
+  //      unconditionally: every save added another row even on an exact name
+  //      match. That is why (1)'s matching was correct but never executed,
+  //      and why one deal reached 14 rows for two people, each phantom owner
+  //      adding an unsatisfiable identity-verification blocker that made
+  //      sealing impossible.
+  //
+  // Fixed by restricting the column list to columns that really exist on
+  // this table (verified against the production schema), deduping it,
+  // surfacing the error instead of discarding it, and degrading to
+  // insert-if-missing rather than blind-inserting when the read fails.
+
+  // Registry entries that genuinely live on ownership_entities. The two
+  // deal_pii_records-backed SSN entries are excluded: they are written by
+  // storeSecurePii(), never by this propagation, and the concierge is
+  // forbidden from asking for a full SSN at all (see borrowerConversation).
+  // Same exclusion answeredBorrowerFields.ts documents for its own reads.
+  const ownerRegistryEntries = fieldsForScope("owner").filter(
+    (e) => e.sourceTable === "ownership_entities",
+  );
 
   /** Case- and whitespace-insensitive identity for owner names. */
   const normalizeOwnerName = (name: string): string =>
     name.toLowerCase().replace(/\s+/g, "");
 
-  const { data: existingOwnerRows } = await sb
-    .from("ownership_entities")
-    .select(["id", "display_name", ...fieldsForScope("owner").map((e) => e.sourceColumn)].join(", "))
-    .eq("deal_id", dealId);
+  // Deduped: `display_name` is both a registry-backed column and one we ask
+  // for explicitly, and a repeated column is what broke the select before.
+  const ownerSelectColumns = [
+    ...new Set([
+      "id",
+      "display_name",
+      ...ownerRegistryEntries.map((e) => e.sourceColumn),
+    ]),
+  ];
 
   const existingOwnerByName = new Map<string, Record<string, unknown>>();
-  // Defensive: this select returns a row array in production, but callers
-  // (and tests) may supply a single object or null. Never throw here — a
-  // propagation failure would block the borrower's whole save.
-  const existingOwnerList: Array<Record<string, unknown>> = Array.isArray(existingOwnerRows)
-    ? (existingOwnerRows as Array<Record<string, unknown>>)
-    : existingOwnerRows
-      ? [existingOwnerRows as Record<string, unknown>]
-      : [];
-  for (const row of existingOwnerList) {
-    const key = normalizeOwnerName(String(row.display_name ?? ""));
-    // Keep the FIRST match so repeated runs converge on one canonical row
-    // rather than ping-ponging between duplicates that already exist.
-    if (key && !existingOwnerByName.has(key)) existingOwnerByName.set(key, row);
+  // Degraded: we know WHICH owners exist but not their column values, so we
+  // may insert a missing owner but must not fill-if-null an existing one —
+  // every column would look null and we would overwrite banker-set values.
+  let ownerMatchDegraded = false;
+  // Unavailable: we know nothing about existing owners. Never insert — a
+  // blind insert is precisely the bug this section exists to stop.
+  let ownerMatchUnavailable = false;
+
+  /** Index a row array (or a lone row) by normalized display_name. */
+  const indexOwnerRows = (rows: unknown): void => {
+    // Defensive: this select returns a row array in production, but callers
+    // (and tests) may supply a single object or null. Never throw here — a
+    // propagation failure would block the borrower's whole save.
+    const list: Array<Record<string, unknown>> = Array.isArray(rows)
+      ? (rows as Array<Record<string, unknown>>)
+      : rows
+        ? [rows as Record<string, unknown>]
+        : [];
+    for (const row of list) {
+      const key = normalizeOwnerName(String(row.display_name ?? ""));
+      // Keep the FIRST match so repeated runs converge on one canonical row
+      // rather than ping-ponging between duplicates that already exist.
+      if (key && !existingOwnerByName.has(key)) existingOwnerByName.set(key, row);
+    }
+  };
+
+  try {
+    const { data: existingOwnerRows, error: existingOwnerError } = await sb
+      .from("ownership_entities")
+      .select(ownerSelectColumns.join(", "))
+      .eq("deal_id", dealId);
+
+    if (existingOwnerError) {
+      errors.push(`ownership_entities(load): ${existingOwnerError.message}`);
+      // Re-read using only the two columns every ownership_entities row is
+      // guaranteed to have. Enough to tell "this owner already exists" from
+      // "this owner is new", which is all insert-if-missing needs.
+      const { data: fallbackRows, error: fallbackError } = await sb
+        .from("ownership_entities")
+        .select("id, display_name")
+        .eq("deal_id", dealId);
+
+      if (fallbackError) {
+        errors.push(`ownership_entities(load-fallback): ${fallbackError.message}`);
+        ownerMatchUnavailable = true;
+      } else {
+        ownerMatchDegraded = true;
+        indexOwnerRows(fallbackRows);
+      }
+    } else {
+      indexOwnerRows(existingOwnerRows);
+    }
+  } catch (e) {
+    errors.push(
+      `ownership_entities(load): ${e instanceof Error ? e.message : String(e)}`,
+    );
+    ownerMatchUnavailable = true;
   }
+
   const pfsRegistryEntries = fieldsForScope("pfs");
   const ownerIdByName = new Map<string, string>();
 
   for (const owner of facts?.owners ?? []) {
     const fullName = str((owner as Record<string, unknown>)["full_name"]);
     if (!fullName) continue;
+    if (ownerMatchUnavailable) {
+      // Cannot tell new from existing — inserting here is what produced the
+      // duplicates. Skip; the next successful save picks the owner back up.
+      skipped.push(`ownership_entities(${fullName}, owner lookup failed)`);
+      continue;
+    }
     try {
       const existingRow =
         existingOwnerByName.get(normalizeOwnerName(fullName)) ?? null;
-      const patch = buildFillIfNullPatch(ownerRegistryEntries, owner as Record<string, unknown>, existingRow);
 
       if (existingRow?.id) {
         ownerIdByName.set(fullName, String(existingRow.id));
+        if (ownerMatchDegraded) {
+          // Existing row, unknown column values — leave it untouched rather
+          // than risk overwriting a column the banker already filled.
+          skipped.push(`ownership_entities(${fullName}, degraded lookup)`);
+          continue;
+        }
+        const patch = buildFillIfNullPatch(
+          ownerRegistryEntries,
+          owner as Record<string, unknown>,
+          existingRow,
+        );
         if (Object.keys(patch).length > 0) {
           const { error } = await sb.from("ownership_entities").update(patch).eq("id", existingRow.id);
           if (error) errors.push(`ownership_entities(${fullName}): ${error.message}`);
