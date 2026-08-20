@@ -1,58 +1,317 @@
 [
-  { "name": "ai_gateway_calls", "type": "table", "migration": "20260729000000_ai_gateway_calls.sql" },
-  { "name": "borrower_fact_requests", "type": "table", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "v_beat_ttfa_by_deal", "type": "view", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "v_beat_formless_start_by_deal", "type": "view", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "v_beat_repeat_ask_by_deal", "type": "view", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "v_beat_doc_request_rounds_by_deal", "type": "view", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "v_beat_lender_followup_by_deal", "type": "view", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "v_beat_summary", "type": "view", "migration": "20260729000001_beat_metrics.sql" },
-  { "name": "purge_buddy_system_events", "type": "function", "migration": "20260729000010_telemetry_retention.sql" },
-  { "name": "purge_franchise_sync_runs", "type": "function", "migration": "20260729000010_telemetry_retention.sql" },
-  { "name": "purge_buddy_workers", "type": "function", "migration": "20260729000010_telemetry_retention.sql" },
-  { "name": "deal_model_snapshots.quality_flags", "type": "column", "migration": "20260730000000_fix_cards.sql" },
-  { "name": "fix_card_copy_cache", "type": "table", "migration": "20260730000000_fix_cards.sql" },
-  { "name": "borrower_concierge_sessions.last_asked_fact_key", "type": "column", "migration": "20260731000000_concierge_last_asked_fact_key.sql" },
-  { "name": "deal_hostile_interrogations", "type": "table", "migration": "20260801000000_deal_hostile_interrogations.sql" },
-  { "name": "deal_structured_field_confirmations", "type": "table", "migration": "20260802000000_deal_structured_field_confirmations.sql" },
-  { "name": "deal_business_plan_attestations", "type": "table", "migration": "20260803000000_business_plan_attestation.sql" },
-  { "name": "buddy_trident_bundles.business_plan_attested", "type": "column", "migration": "20260803000000_business_plan_attestation.sql" },
-  { "name": "buddy_trident_bundles.business_plan_attested_at", "type": "column", "migration": "20260803000000_business_plan_attestation.sql" },
-  { "name": "buddy_feasibility_studies.narrative_citations", "type": "column", "migration": "20260803000001_feasibility_citations_and_verification.sql" },
-  { "name": "buddy_feasibility_studies.verification_verdict", "type": "column", "migration": "20260803000001_feasibility_citations_and_verification.sql" },
-  { "name": "buddy_feasibility_studies.verification_flagged_claims", "type": "column", "migration": "20260803000001_feasibility_citations_and_verification.sql" },
-  { "name": "buddy_sba_packages.verification_verdict", "type": "column", "migration": "20260803000002_business_plan_package_verification.sql" },
-  { "name": "buddy_sba_packages.verification_flagged_claims", "type": "column", "migration": "20260803000002_business_plan_package_verification.sql" },
-  { "name": "buddy_column_exists", "type": "function", "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql" },
-  { "name": "buddy_view_exists", "type": "function", "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql" },
-  { "name": "can_access_deal", "type": "function", "migration": "20260730020000_fix_can_access_deal_membership_table.sql" },
-  { "name": "buddy_sba_packages.projections_assumptions_narrative", "type": "column", "migration": "20260805000010_projections_assumptions_narrative_column.sql" },
-  { "name": "buddy_sba_assumptions_events", "type": "table", "migration": "20260806000000_sba_assumptions_events.sql" },
-  { "name": "character_question_confirmations", "type": "table", "migration": "20260807000000_character_question_confirmations.sql" },
-  { "name": "fill_runs", "type": "table", "migration": "20260807100000_multi_signer_package.sql" },
-  { "name": "fill_runs.ownership_entity_id", "type": "column", "migration": "20260807100000_multi_signer_package.sql" },
-  { "name": "sba_package_run_items.ownership_entity_id", "type": "column", "migration": "20260807100000_multi_signer_package.sql" },
-  { "name": "deals.is_test", "type": "column", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "deals.test_suite", "type": "column", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "deals.test_run_id", "type": "column", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "deals.test_created_at", "type": "column", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "deals.test_identity", "type": "column", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "test_data_cleanup_audit", "type": "table", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "create_qa_test_application", "type": "function", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "cleanup_test_data", "type": "function", "migration": "20260804000001_qa_borrower_identity.sql" },
-  { "name": "borrower_intake_progress", "type": "table", "migration": "20260809000000_borrower_intake_progress.sql" },
-  { "name": "ai_gateway_calls.trace_id", "type": "column", "migration": "20260817000000_ai_gateway_artifact_provenance.sql" },
-  { "name": "ai_gateway_calls.artifact_type", "type": "column", "migration": "20260817000000_ai_gateway_artifact_provenance.sql" },
-  { "name": "ai_gateway_calls.artifact_id", "type": "column", "migration": "20260817000000_ai_gateway_artifact_provenance.sql" },
-  { "name": "buddy_trident_bundles.source_credit_memo_id", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
-  { "name": "buddy_trident_bundles.source_spread_id", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
-  { "name": "buddy_trident_bundles.canonical_memo_input_hash", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
-  { "name": "buddy_trident_bundles.release_gate_json", "type": "column", "migration": "20260818000000_trident_canonical_release_manifest.sql" },
-  { "name": "buddy_trident_bundles.input_hash", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
-  { "name": "buddy_trident_bundles.workflow_run_id", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
-  { "name": "buddy_trident_bundles.current_stage", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
-  { "name": "buddy_trident_bundles.last_heartbeat_at", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
-  { "name": "buddy_trident_bundles.stage_error_json", "type": "column", "migration": "20260819000000_golden_trident_factory.sql" },
-  { "name": "buddy_trident_bundle_stages", "type": "table", "migration": "20260819000000_golden_trident_factory.sql" },
-  { "name": "acquire_trident_bundle_run", "type": "function", "migration": "20260819000000_golden_trident_factory.sql" }
+  {
+    "name": "ai_gateway_calls",
+    "type": "table",
+    "migration": "20260729000000_ai_gateway_calls.sql"
+  },
+  {
+    "name": "borrower_fact_requests",
+    "type": "table",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "v_beat_ttfa_by_deal",
+    "type": "view",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "v_beat_formless_start_by_deal",
+    "type": "view",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "v_beat_repeat_ask_by_deal",
+    "type": "view",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "v_beat_doc_request_rounds_by_deal",
+    "type": "view",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "v_beat_lender_followup_by_deal",
+    "type": "view",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "v_beat_summary",
+    "type": "view",
+    "migration": "20260729000001_beat_metrics.sql"
+  },
+  {
+    "name": "purge_buddy_system_events",
+    "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
+  },
+  {
+    "name": "purge_franchise_sync_runs",
+    "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
+  },
+  {
+    "name": "purge_buddy_workers",
+    "type": "function",
+    "migration": "20260729000010_telemetry_retention.sql"
+  },
+  {
+    "name": "deal_model_snapshots.quality_flags",
+    "type": "column",
+    "migration": "20260730000000_fix_cards.sql"
+  },
+  {
+    "name": "fix_card_copy_cache",
+    "type": "table",
+    "migration": "20260730000000_fix_cards.sql"
+  },
+  {
+    "name": "borrower_concierge_sessions.last_asked_fact_key",
+    "type": "column",
+    "migration": "20260731000000_concierge_last_asked_fact_key.sql"
+  },
+  {
+    "name": "deal_hostile_interrogations",
+    "type": "table",
+    "migration": "20260801000000_deal_hostile_interrogations.sql"
+  },
+  {
+    "name": "deal_structured_field_confirmations",
+    "type": "table",
+    "migration": "20260802000000_deal_structured_field_confirmations.sql"
+  },
+  {
+    "name": "deal_business_plan_attestations",
+    "type": "table",
+    "migration": "20260803000000_business_plan_attestation.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.business_plan_attested",
+    "type": "column",
+    "migration": "20260803000000_business_plan_attestation.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.business_plan_attested_at",
+    "type": "column",
+    "migration": "20260803000000_business_plan_attestation.sql"
+  },
+  {
+    "name": "buddy_feasibility_studies.narrative_citations",
+    "type": "column",
+    "migration": "20260803000001_feasibility_citations_and_verification.sql"
+  },
+  {
+    "name": "buddy_feasibility_studies.verification_verdict",
+    "type": "column",
+    "migration": "20260803000001_feasibility_citations_and_verification.sql"
+  },
+  {
+    "name": "buddy_feasibility_studies.verification_flagged_claims",
+    "type": "column",
+    "migration": "20260803000001_feasibility_citations_and_verification.sql"
+  },
+  {
+    "name": "buddy_sba_packages.verification_verdict",
+    "type": "column",
+    "migration": "20260803000002_business_plan_package_verification.sql"
+  },
+  {
+    "name": "buddy_sba_packages.verification_flagged_claims",
+    "type": "column",
+    "migration": "20260803000002_business_plan_package_verification.sql"
+  },
+  {
+    "name": "buddy_column_exists",
+    "type": "function",
+    "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql"
+  },
+  {
+    "name": "buddy_view_exists",
+    "type": "function",
+    "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql"
+  },
+  {
+    "name": "can_access_deal",
+    "type": "function",
+    "migration": "20260730020000_fix_can_access_deal_membership_table.sql"
+  },
+  {
+    "name": "buddy_sba_packages.projections_assumptions_narrative",
+    "type": "column",
+    "migration": "20260805000010_projections_assumptions_narrative_column.sql"
+  },
+  {
+    "name": "buddy_sba_assumptions_events",
+    "type": "table",
+    "migration": "20260806000000_sba_assumptions_events.sql"
+  },
+  {
+    "name": "character_question_confirmations",
+    "type": "table",
+    "migration": "20260807000000_character_question_confirmations.sql"
+  },
+  {
+    "name": "fill_runs",
+    "type": "table",
+    "migration": "20260807100000_multi_signer_package.sql"
+  },
+  {
+    "name": "fill_runs.ownership_entity_id",
+    "type": "column",
+    "migration": "20260807100000_multi_signer_package.sql"
+  },
+  {
+    "name": "sba_package_run_items.ownership_entity_id",
+    "type": "column",
+    "migration": "20260807100000_multi_signer_package.sql"
+  },
+  {
+    "name": "deals.is_test",
+    "type": "column",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "deals.test_suite",
+    "type": "column",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "deals.test_run_id",
+    "type": "column",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "deals.test_created_at",
+    "type": "column",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "deals.test_identity",
+    "type": "column",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "test_data_cleanup_audit",
+    "type": "table",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "create_qa_test_application",
+    "type": "function",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "cleanup_test_data",
+    "type": "function",
+    "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "borrower_intake_progress",
+    "type": "table",
+    "migration": "20260809000000_borrower_intake_progress.sql"
+  },
+  {
+    "name": "ai_gateway_calls.trace_id",
+    "type": "column",
+    "migration": "20260817000000_ai_gateway_artifact_provenance.sql"
+  },
+  {
+    "name": "ai_gateway_calls.artifact_type",
+    "type": "column",
+    "migration": "20260817000000_ai_gateway_artifact_provenance.sql"
+  },
+  {
+    "name": "ai_gateway_calls.artifact_id",
+    "type": "column",
+    "migration": "20260817000000_ai_gateway_artifact_provenance.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.source_credit_memo_id",
+    "type": "column",
+    "migration": "20260818000000_trident_canonical_release_manifest.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.source_spread_id",
+    "type": "column",
+    "migration": "20260818000000_trident_canonical_release_manifest.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.canonical_memo_input_hash",
+    "type": "column",
+    "migration": "20260818000000_trident_canonical_release_manifest.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.release_gate_json",
+    "type": "column",
+    "migration": "20260818000000_trident_canonical_release_manifest.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.input_hash",
+    "type": "column",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.workflow_run_id",
+    "type": "column",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.current_stage",
+    "type": "column",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.last_heartbeat_at",
+    "type": "column",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.stage_error_json",
+    "type": "column",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundle_stages",
+    "type": "table",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "acquire_trident_bundle_run",
+    "type": "function",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.lease_token",
+    "type": "column",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.lease_expires_at",
+    "type": "column",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.snapshot_manifest_json",
+    "type": "column",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "buddy_trident_bundles.memo_input_hash",
+    "type": "column",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "record_trident_bundle_stage",
+    "type": "function",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "fail_trident_bundle_run",
+    "type": "function",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "finalize_trident_bundle_run",
+    "type": "function",
+    "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  }
 ]
