@@ -7,6 +7,12 @@ import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 // ─── Module shims: server-only + all transitive deps ──────────────────
 mockServerOnly();
 const require = createRequire(import.meta.url);
+require.cache[require.resolve("workflow")] = {
+  id: "workflow-stub",
+  filename: "workflow-stub",
+  loaded: true,
+  exports: { FatalError: class FatalError extends Error {} },
+} as any;
 
 // ─── Mock state (shared by the stubs below) ────────────────────────────
 type Row = Record<string, any>;
