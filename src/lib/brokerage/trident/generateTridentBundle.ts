@@ -38,8 +38,6 @@ import {
 import { runWithAIExecutionContext } from "@/lib/ai/executionContext";
 import { evaluateTridentRelease } from "./tridentReleaseGate";
 import { assertTridentInputSnapshot, computeTridentInputSnapshot } from "./tridentInputSnapshot";
-import { generateCanonicalMemoArtifact } from "@/lib/creditMemo/canonical/generateCanonicalMemoArtifact";
-import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 
 export type TridentBundleMode = "preview" | "final";
 
@@ -122,7 +120,6 @@ export async function generateTridentBundle(args: {
     .from("buddy_trident_bundles")
     .select("id")
     .eq("id", bundleId)
-      .eq("lease_token", args.leaseToken)
     .eq("deal_id", dealId)
     .eq("bank_id", admittedBankId)
     .eq("mode", mode)
@@ -476,8 +473,6 @@ export async function generateTridentBundle(args: {
     // 4. Bind a final release to the exact memo, spread, and reviewed
     // artifacts from this run. Preview remains intentionally non-release.
     let releaseManifest: Record<string, unknown> | null = null;
-    let sourceCreditMemoId: string | null = null;
-    let sourceSpreadId: string | null = null;
     let canonicalMemoInputHash: string | null = null;
     if (mode === "final") {
       await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
@@ -551,8 +546,6 @@ export async function generateTridentBundle(args: {
       };
       await sb.from("buddy_trident_bundles").update({ release_gate_json: releaseManifest }).eq("id", bundleId).eq("lease_token", args.leaseToken);
       if (!gate.ok) throw new Error(`Golden Trident release blocked: ${gate.reasons.join(", ")}`);
-      sourceCreditMemoId = releaseMemo?.id ?? null;
-      sourceSpreadId = releaseSpread?.id ?? null;
     }
 
     // 5. Publication is one database transaction. The RPC verifies the active
