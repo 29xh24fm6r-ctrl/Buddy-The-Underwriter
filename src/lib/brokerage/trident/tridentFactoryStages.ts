@@ -7,49 +7,48 @@ import { renderClassicPdfSpread } from "@/lib/classicSpread/classicPdfWorker";
 import { assertTridentInputSnapshot } from "./tridentInputSnapshot";
 import type { TridentBundleMode } from "./generateTridentBundle";
 
-export type TridentFactoryArgs = { dealId: string; mode: TridentBundleMode; bundleId: string };
-export type TridentFactoryExecutionArgs = TridentFactoryArgs & { bankId: string; inputHash: string };
+export type TridentFactoryArgs = {
+  dealId: string;
+  mode: TridentBundleMode;
+  bundleId: string;
+  leaseToken: string;
+};
+export type TridentFactoryExecutionArgs = TridentFactoryArgs & {
+  bankId: string;
+  inputHash: string;
+  memoInputHash: string;
+};
 
 async function writeStage(
-  args: TridentFactoryArgs,
+  args: TridentFactoryArgs & { inputHash?: string },
   stage: string,
   status: "running" | "succeeded" | "failed" | "skipped",
   detail?: Record<string, unknown>,
 ) {
-  const sb = supabaseAdmin();
-  const now = new Date().toISOString();
-  const { data: prior, error: priorError } = await sb
-    .from("buddy_trident_bundle_stages")
-    .select("attempt_count,started_at")
-    .eq("bundle_id", args.bundleId)
-    .eq("stage", stage)
-    .maybeSingle();
-  if (priorError) throw new Error(`Trident stage ledger read failed: ${priorError.message}`);
-
-  const attemptCount = status === "running"
-    ? Number(prior?.attempt_count ?? 0) + 1
-    : Number(prior?.attempt_count ?? 0);
-
-  const { error } = await sb.from("buddy_trident_bundle_stages").upsert({
-    bundle_id: args.bundleId,
-    stage,
-    status,
-    attempt_count: attemptCount,
-    output_json: status === "succeeded" || status === "skipped" ? detail ?? {} : null,
-    error_json: status === "failed" ? detail ?? {} : null,
-    started_at: status === "running" ? now : prior?.started_at ?? now,
-    completed_at: status === "succeeded" || status === "failed" || status === "skipped" ? now : null,
-    updated_at: now,
-  }, { onConflict: "bundle_id,stage" });
-  if (error) throw new Error(`Trident stage ledger write failed: ${error.message}`);
-
-  const { error: bundleError } = await sb.from("buddy_trident_bundles").update({
-    current_stage: stage,
-    last_heartbeat_at: now,
-    ...(status === "running" ? { stage_error_json: null } : {}),
-    ...(status === "failed" ? { stage_error_json: { stage, ...(detail ?? {}) } } : {}),
-  }).eq("id", args.bundleId);
-  if (bundleError) throw new Error(`Trident heartbeat write failed: ${bundleError.message}`);
+  if (!args.inputHash) {
+    // Preparation has not loaded the admitted hash yet, so validate the lease
+    // and obtain it before invoking the same CAS RPC used by every later stage.
+    const sb = supabaseAdmin();
+    const { data, error } = await sb.from("buddy_trident_bundles")
+      .select("input_hash")
+      .eq("id", args.bundleId)
+      .eq("lease_token", args.leaseToken)
+      .in("status", ["pending", "running"])
+      .maybeSingle();
+    if (error || !data?.input_hash) throw new FatalError("Golden Trident lease is no longer active");
+    args = { ...args, inputHash: String(data.input_hash) };
+  }
+  const { data, error } = await supabaseAdmin().rpc("record_trident_bundle_stage", {
+    p_bundle_id: args.bundleId,
+    p_lease_token: args.leaseToken,
+    p_input_hash: args.inputHash,
+    p_stage: stage,
+    p_status: status,
+    p_detail: detail ?? {},
+  });
+  if (error || data !== true) {
+    throw new FatalError(error?.message ?? "Golden Trident stage CAS failed");
+  }
 }
 
 async function assertFrozen(args: TridentFactoryExecutionArgs) {
@@ -65,9 +64,9 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
   await writeStage(args, "input_snapshot", "running");
   try {
     const { data: bundle, error } = await sb.from("buddy_trident_bundles")
-      .select("id,deal_id,bank_id,mode,input_hash,status")
+      .select("id,deal_id,bank_id,mode,input_hash,memo_input_hash,status")
       .eq("id", args.bundleId).eq("deal_id", args.dealId).eq("mode", args.mode).single();
-    if (error || !bundle || !bundle.input_hash || !bundle.bank_id) {
+    if (error || !bundle || !bundle.input_hash || !bundle.memo_input_hash || !bundle.bank_id) {
       throw new FatalError("Golden Trident run identity is invalid");
     }
     await assertTridentInputSnapshot({
@@ -75,17 +74,11 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
       dealId: args.dealId,
       expectedHash: String(bundle.input_hash),
     });
-    const { error: updateError } = await sb.from("buddy_trident_bundles").update({
-      status: "running",
-      generation_started_at: new Date().toISOString(),
-      last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", args.bundleId);
-    if (updateError) throw new Error(updateError.message);
     await writeStage(args, "input_snapshot", "succeeded", {
       inputHash: bundle.input_hash,
       bankId: bundle.bank_id,
     });
-    return { bankId: String(bundle.bank_id), inputHash: String(bundle.input_hash) };
+    return { bankId: String(bundle.bank_id), inputHash: String(bundle.input_hash), memoInputHash: String(bundle.memo_input_hash) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "input_snapshot", "failed", { message });
@@ -133,7 +126,7 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
     await writeStage(args, "canonical_credit", "succeeded", {
       memoId: memo.memoId,
       spreadId: spreadRow.id,
-      inputHash: memo.inputHash,
+      memoInputHash: memo.inputHash,
       spreadSha256: spread.pdfSha256,
     });
   } catch (error) {
@@ -197,16 +190,21 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
   }
 }
 
-export async function failTridentFactory(args: TridentFactoryArgs, error: unknown) {
+export async function failTridentFactory(args: TridentFactoryArgs & { inputHash?: string }, error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const sb = supabaseAdmin();
-  // Preserve the exact stage_error_json written by the failing stage. The
-  // workflow-level catch owns terminal status only; it must not erase the
-  // more precise evidence.
-  await sb.from("buddy_trident_bundles").update({
-    status: "failed",
-    generation_error: message,
-    generation_completed_at: new Date().toISOString(),
-    last_heartbeat_at: new Date().toISOString(),
-  }).eq("id", args.bundleId).neq("status", "succeeded");
+  let inputHash = args.inputHash;
+  if (!inputHash) {
+    const { data } = await sb.from("buddy_trident_bundles").select("input_hash")
+      .eq("id", args.bundleId).eq("lease_token", args.leaseToken).maybeSingle();
+    inputHash = data?.input_hash ?? undefined;
+  }
+  if (!inputHash) return;
+  const { error: failError } = await sb.rpc("fail_trident_bundle_run", {
+    p_bundle_id: args.bundleId,
+    p_lease_token: args.leaseToken,
+    p_input_hash: inputHash,
+    p_error: message,
+  });
+  if (failError && !/lease lost/i.test(failError.message)) throw new Error(failError.message);
 }
