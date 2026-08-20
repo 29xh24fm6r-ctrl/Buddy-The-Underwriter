@@ -50,54 +50,118 @@ async function ensureConciergeSession(dealId: string, sb: ReturnType<typeof supa
 }
 
 /**
+ * PostgREST envelope discipline — the cause of the "borrower starts over"
+ * incident, and the reason this file spells it out.
+ *
+ * Awaiting a supabase-js query resolves to an ENVELOPE:
+ *   { data, error, count, status, statusText }
+ * The row is at `.data`. `count` is a SIBLING of `data`, not a row field.
+ *
+ * Destructuring a Promise.all positionally binds the envelope, not the row,
+ * so `envelope.current_chapter` is `undefined` on a completely successful
+ * query. Every `?? default` downstream then converts that silence into a
+ * confident wrong answer, and because `.error` was never inspected, a
+ * misread row was indistinguishable from a missing one.
+ *
+ * That is exactly what happened: deal b296dec2 held current_chapter=5,
+ * progress_version=46, yet GET answered currentChapter=1, progressVersion=0,
+ * lastSavedAt=null — so every resume threw the borrower back to chapter 1.
+ * The completion set was the tell: chapters 2/3/4 derive from `.count`
+ * (a real envelope field, so correct by accident) and chapter 1 derives from
+ * row fields, so [2,3,4] came back with 1 conspicuously missing.
+ *
+ * Rules for this file:
+ *   1. Read row fields off `.data`, counts off `.count`.
+ *   2. Inspect `.error` on every read.
+ *   3. A read that FAILED must never be reported as a read that found
+ *      nothing — see the fail-closed branch in GET.
+ */
+
+/** Which chapters are complete, and which reads we could not perform. */
+type ChapterCompletion = { completed: number[]; degraded: string[] };
+
+/**
  * Derive which chapters have all required facts saved.
  * This is the single server-side authority for completion.
  * Ch1: deals.loan_amount OR concierge facts have loan data
  * Ch2: concierge facts have business.entity_name OR borrowers has data OR ownership_entities.count > 0 (solo path)
  * Ch3: concierge facts have ownership.structure OR identity verification exists
  * Ch4: concierge facts have financial data OR deal_documents count > 0
+ *
+ * `degraded` names the reads that failed, so a caller can tell "this chapter
+ * is genuinely incomplete" from "we could not find out".
  */
 async function deriveCompletedChapters(
   dealId: string,
   sb: ReturnType<typeof supabaseAdmin>,
-): Promise<number[]> {
+): Promise<ChapterCompletion> {
   const completed: number[] = [];
+  const degraded: string[] = [];
 
-  // Load all relevant data in parallel
-  const [concierge, deal, ownerships, docs, verifications, bankConns] = await Promise.all([
-    sb
-      .from("borrower_concierge_sessions")
-      .select("extracted_facts")
-      .eq("deal_id", dealId)
-      .maybeSingle(),
-    sb
-      .from("deals")
-      .select("loan_amount")
-      .eq("id", dealId)
-      .maybeSingle(),
-    sb
-      .from("ownership_entities")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId),
-    sb
-      .from("deal_documents")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId),
-    sb
-      .from("borrower_identity_verifications")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId),
-    sb
-      .from("borrower_bank_connections")
-      .select("id", { count: "exact", head: true })
-      .eq("deal_id", dealId)
-      .eq("status", "active"),
-  ]);
+  // Each of these resolves to an envelope, NOT a row. See the note above.
+  const [conciergeRes, dealRes, ownershipsRes, docsRes, verificationsRes, bankConnsRes] =
+    await Promise.all([
+      sb
+        .from("borrower_concierge_sessions")
+        .select("extracted_facts")
+        .eq("deal_id", dealId)
+        .maybeSingle(),
+      sb
+        .from("deals")
+        .select("loan_amount")
+        .eq("id", dealId)
+        .maybeSingle(),
+      sb
+        .from("ownership_entities")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+      sb
+        .from("deal_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+      sb
+        .from("borrower_identity_verifications")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId),
+      sb
+        .from("borrower_bank_connections")
+        .select("id", { count: "exact", head: true })
+        .eq("deal_id", dealId)
+        .eq("status", "active"),
+    ]);
 
-  const facts = ((concierge as any)?.extracted_facts ?? {}) as Record<string, any>;
+  const rowOf = <T>(res: any, label: string): T | null => {
+    if (res?.error) {
+      degraded.push(label);
+      console.error(`${LOG_PREFIX} derive read failed deal=${dealId} table=${label}`, res.error);
+      return null;
+    }
+    return (res?.data ?? null) as T | null;
+  };
+
+  const countOf = (res: any, label: string): number => {
+    if (res?.error) {
+      degraded.push(label);
+      console.error(`${LOG_PREFIX} derive count failed deal=${dealId} table=${label}`, res.error);
+      return 0;
+    }
+    return (res?.count as number | null) ?? 0;
+  };
+
+  const conciergeRow = rowOf<{ extracted_facts: Record<string, any> | null }>(
+    conciergeRes,
+    "borrower_concierge_sessions",
+  );
+  const dealRow = rowOf<{ loan_amount: number | null }>(dealRes, "deals");
+  const ownerCount = countOf(ownershipsRes, "ownership_entities");
+  const docCount = countOf(docsRes, "deal_documents");
+  const verificationCount = countOf(verificationsRes, "borrower_identity_verifications");
+  const bankConnCount = countOf(bankConnsRes, "borrower_bank_connections");
+
+  const facts = (conciergeRow?.extracted_facts ?? {}) as Record<string, any>;
 
   // Ch1: Financing — complete if loan amount or use_of_proceeds is known
-  const loanAmount = (deal as any)?.loan_amount as number | null;
+  const loanAmount = dealRow?.loan_amount ?? null;
   const hasLoanPurpose =
     typeof facts?.loan?.use_of_proceeds === "string" &&
     facts.loan.use_of_proceeds.length > 0;
@@ -111,56 +175,81 @@ async function deriveCompletedChapters(
   const hasBusinessEntity =
     typeof facts?.business?.entity_name === "string" ||
     typeof facts?.business?.legal_name_or_industry === "string";
-  if (hasBusinessEntity || (ownerships as any)?.count > 0) {
+  if (hasBusinessEntity || ownerCount > 0) {
     completed.push(2);
   }
 
   // Ch3: Ownership — complete if structure chosen or identity verified
   const hasOwnershipStructure =
     typeof facts?.ownership?.structure === "string";
-  const hasIdentityVerified = (verifications as any)?.count > 0;
-  if (hasOwnershipStructure || hasIdentityVerified || (ownerships as any)?.count > 0) {
+  const hasIdentityVerified = verificationCount > 0;
+  if (hasOwnershipStructure || hasIdentityVerified || ownerCount > 0) {
     completed.push(3);
   }
 
   // Ch4: Financials — complete if documents uploaded or bank connected
-  const hasDocs = (docs as any)?.count > 0;
-  const hasBankConnection = ((bankConns as any)?.count ?? 0) > 0;
+  const hasDocs = docCount > 0;
+  const hasBankConnection = bankConnCount > 0;
   if (hasDocs || hasBankConnection) {
     completed.push(4);
   }
 
-  return completed;
+  return { completed, degraded };
 }
+
+type ChapterFacts = {
+  purposes: string[];
+  totalAmount: number | null;
+  amountUnknown: boolean;
+  isFranchise: boolean;
+  isStartup: boolean;
+  businessEntityName: string | null;
+  businessEin: string | null;
+};
 
 /**
  * Hydrate chapter-specific facts from canonical domain tables.
- * Falls back gracefully — returns whatever is found, no data fabrication.
+ *
+ * Returns null when the read FAILED, which is not the same as finding
+ * nothing. The client does `setPurposes(p.facts.purposes ?? [])`, so
+ * handing back an empty-but-well-formed facts object after a failed read
+ * would wipe the borrower's answers out of local state. Callers omit
+ * `facts` entirely in that case and the client keeps what it has.
  */
 async function hydrateChapterFacts(
   dealId: string,
   sb: ReturnType<typeof supabaseAdmin>,
-) {
-  const { data: concierge } = await sb
-    .from("borrower_concierge_sessions")
-    .select("extracted_facts")
-    .eq("deal_id", dealId)
-    .maybeSingle();
+): Promise<ChapterFacts | null> {
+  const [conciergeRes, dealRes] = await Promise.all([
+    sb
+      .from("borrower_concierge_sessions")
+      .select("extracted_facts")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
+    sb
+      .from("deals")
+      .select("loan_amount")
+      .eq("id", dealId)
+      .maybeSingle(),
+  ]);
 
-  const facts = ((concierge as any)?.extracted_facts ?? {}) as Record<string, any>;
+  if (conciergeRes.error || dealRes.error) {
+    console.error(
+      `${LOG_PREFIX} hydrate failed deal=${dealId}`,
+      conciergeRes.error ?? dealRes.error,
+    );
+    return null;
+  }
 
-  const { data: deal } = await sb
-    .from("deals")
-    .select("loan_amount")
-    .eq("id", dealId)
-    .maybeSingle();
+  const facts = ((conciergeRes.data as any)?.extracted_facts ?? {}) as Record<string, any>;
+  const deal = dealRes.data as { loan_amount: number | null } | null;
 
   return {
     // Chapter 1 — Financing
     purposes: typeof facts?.loan?.use_of_proceeds === "string"
       ? facts.loan.use_of_proceeds.split(", ").filter(Boolean)
       : [] as string[],
-    totalAmount: (deal as any)?.loan_amount ?? null as number | null,
+    totalAmount: deal?.loan_amount ?? null,
     amountUnknown: facts?.loan?.amount_unknown === "true",
     isFranchise: facts?.business?.is_franchise === "true",
     isStartup: facts?.business?.is_startup === "true",
@@ -183,7 +272,7 @@ export async function GET() {
     const sb = supabaseAdmin();
     const dealId = session.deal_id;
 
-    const [progressRow, completedChapters, facts] = await Promise.all([
+    const [progressRes, completion, facts] = await Promise.all([
       sb
         .from("borrower_intake_progress")
         .select("current_chapter, last_valid_chapter, progress_version, last_saved_at")
@@ -193,29 +282,63 @@ export async function GET() {
       hydrateChapterFacts(dealId, sb),
     ]);
 
-    const p = progressRow as any;
-    const currentChapter = (p?.current_chapter as number) ?? 1;
-    const lastValid = (p?.last_valid_chapter as number) ?? null;
+    // Fail closed. Answering "chapter 1, version 0, never saved" because we
+    // could not READ the row is indistinguishable, to the borrower, from
+    // having their work deleted — and the client acts on it immediately.
+    // Say we don't know instead, and let the client keep its own state.
+    if (progressRes.error) {
+      console.error(`${LOG_PREFIX} progress load failed deal=${dealId}`, progressRes.error);
+      return NextResponse.json(
+        { ok: false, error: "progress_load_failed", dealId },
+        { status: 500 },
+      );
+    }
 
-    const resolvedChapter = (lastValid ?? 0) < currentChapter
-      ? currentChapter
-      : currentChapter;
+    const p = progressRes.data as {
+      current_chapter: number | null;
+      last_valid_chapter: number | null;
+      progress_version: number | null;
+      last_saved_at: string | null;
+    } | null;
+
+    const currentChapter = p?.current_chapter ?? 1;
+    const lastValid = p?.last_valid_chapter ?? null;
+
+    // The client resolves position as
+    //   Math.min(currentChapter, completedChapters.length + 1)
+    // so a completion set that is short by one rewinds the borrower a
+    // chapter. A failed count read does not mean a chapter is incomplete,
+    // only that we could not check — and last_valid_chapter was itself
+    // derived from a successful check at save time, so it is a safe floor.
+    let completedChapters = completion.completed;
+    if (completion.degraded.length > 0 && lastValid != null) {
+      const floor = Array.from({ length: lastValid }, (_, i) => i + 1);
+      completedChapters = [...new Set([...completedChapters, ...floor])].sort((a, b) => a - b);
+    }
 
     console.log(
-      `${LOG_PREFIX} loaded deal=${dealId} ch=${resolvedChapter}` +
+      `${LOG_PREFIX} loaded deal=${dealId} ch=${currentChapter}` +
       ` completed=${completedChapters.join(",") || "none"}` +
-      ` lastValid=${lastValid ?? "none"} v=${p?.progress_version ?? 0}`,
+      ` lastValid=${lastValid ?? "none"} v=${p?.progress_version ?? 0}` +
+      (completion.degraded.length > 0 ? ` degraded=${completion.degraded.join(",")}` : "") +
+      (facts ? "" : " facts=unavailable"),
     );
 
     return NextResponse.json({
       ok: true,
+      // Which deal this session actually resolved to. Absent this, a
+      // borrower reporting "my work is gone" could not be told apart from a
+      // session bound to the wrong deal without a server-log round trip.
+      dealId,
       progress: {
-        currentChapter: resolvedChapter,
+        currentChapter,
         lastValidChapter: lastValid,
         progressVersion: p?.progress_version ?? 0,
         lastSavedAt: p?.last_saved_at ?? null,
         completedChapters,
-        facts,
+        // Omitted (not emptied) when the read failed — see hydrateChapterFacts.
+        ...(facts ? { facts } : {}),
+        ...(completion.degraded.length > 0 ? { degraded: completion.degraded } : {}),
       },
     });
   } catch (err) {
@@ -391,20 +514,43 @@ export async function POST(request: Request) {
     }
 
     // Step 3: Derive completion from canonical facts
-    const completedChapters = await deriveCompletedChapters(dealId, sb);
-    const lastValidChapter =
+    const completion = await deriveCompletedChapters(dealId, sb);
+    const completedChapters = completion.completed;
+    const derivedLastValid =
       completedChapters.length > 0
         ? Math.max(...completedChapters)
         : null;
 
     // Step 4: Upsert progress position
-    const { data: existingProgress } = await sb
+    const { data: existingProgress, error: existingProgressErr } = await sb
       .from("borrower_intake_progress")
-      .select("progress_version")
+      .select("progress_version, last_valid_chapter")
       .eq("deal_id", dealId)
       .maybeSingle();
 
-    const nextVersion = ((existingProgress as any)?.progress_version ?? 0) + 1;
+    // Not readable means not writable: on a failed read `progress_version`
+    // would restart at 1 and clobber the real version, and the stored
+    // last_valid_chapter would be lost. Refuse rather than overwrite.
+    if (existingProgressErr) {
+      console.error(`${LOG_PREFIX} progress read failed deal=${dealId}`, existingProgressErr);
+      return NextResponse.json({ ok: false, error: "progress_save_failed" }, { status: 500 });
+    }
+
+    const prior = existingProgress as {
+      progress_version: number | null;
+      last_valid_chapter: number | null;
+    } | null;
+
+    // The resume pointer must never move backwards because a completion read
+    // failed. A degraded derive tells us what we could not check, not that
+    // the borrower undid work — so keep the highest chapter either source
+    // vouches for.
+    const lastValidChapter =
+      completion.degraded.length > 0
+        ? Math.max(derivedLastValid ?? 0, prior?.last_valid_chapter ?? 0) || null
+        : derivedLastValid;
+
+    const nextVersion = (prior?.progress_version ?? 0) + 1;
     const now = new Date().toISOString();
 
     const { error: upsertErr } = await sb
@@ -428,7 +574,8 @@ export async function POST(request: Request) {
     console.log(
       `${LOG_PREFIX} saved deal=${dealId} ch=${chapter}` +
       ` completed=${completedChapters.join(",") || "none"}` +
-      ` lastValid=${lastValidChapter ?? "none"} v=${nextVersion}`,
+      ` lastValid=${lastValidChapter ?? "none"} v=${nextVersion}` +
+      (completion.degraded.length > 0 ? ` degraded=${completion.degraded.join(",")}` : ""),
     );
 
     // Step 5: Return hydrated state
@@ -436,13 +583,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
+      dealId,
       progress: {
         currentChapter: chapter,
         lastValidChapter,
         progressVersion: nextVersion,
         lastSavedAt: now,
         completedChapters,
-        facts,
+        // Omitted (not emptied) when the read failed — see hydrateChapterFacts.
+        ...(facts ? { facts } : {}),
+        ...(completion.degraded.length > 0 ? { degraded: completion.degraded } : {}),
       },
     });
   } catch (err) {
