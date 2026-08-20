@@ -170,7 +170,7 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
       .single();
     if (error || !data) throw new Error(error?.message ?? "Trident manifest missing");
     const gate = data.release_gate_json as { ok?: boolean; reasons?: string[]; warnings?: string[] } | null;
-    if (data.status !== "succeeded" || (args.mode === "final" && gate?.ok !== true)) {
+    if (!["pending", "running"].includes(data.status) || (args.mode === "final" && gate?.ok !== true)) {
       const reason = gate?.reasons?.join(", ") || "bundle_not_succeeded";
       throw new FatalError(`Golden Trident manifest verification failed: ${reason}`);
     }
@@ -182,6 +182,17 @@ export async function verifyTridentFactory(args: TridentFactoryExecutionArgs) {
       spreadId: data.source_spread_id,
       warnings: gate?.warnings ?? [],
     });
+    const { data: finalized, error: finalizeError } = await sb.rpc(
+      "finalize_trident_bundle_run",
+      {
+        p_bundle_id: args.bundleId,
+        p_lease_token: args.leaseToken,
+        p_input_hash: args.inputHash,
+      },
+    );
+    if (finalizeError || finalized !== true) {
+      throw new Error(finalizeError?.message ?? "Atomic Trident publication failed");
+    }
     return { ok: true, bundleId: args.bundleId };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
