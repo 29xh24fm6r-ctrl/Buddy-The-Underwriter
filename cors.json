@@ -1,11 +1,15 @@
 [
   {
     "origin": [
-      "http://localhost:3000",
-      "https://www.buddytheunderwriter.com"
+      "https://buddysba.com",
+      "https://www.buddysba.com"
     ],
-    "method": ["GET", "PUT", "HEAD"],
-    "responseHeader": ["Content-Type", "x-goog-resumable"],
+    "method": ["PUT", "GET", "HEAD"],
+    "responseHeader": [
+      "Content-Type",
+      "x-goog-content-length-range",
+      "x-goog-resumable"
+    ],
     "maxAgeSeconds": 3600
   }
 ]
