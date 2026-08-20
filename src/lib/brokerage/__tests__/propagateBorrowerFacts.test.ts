@@ -192,3 +192,73 @@ test("deal_loan_requests: fills currently-null column when a row exists; skips c
   assert.ok(!result2.errors.length, "must not error when no deal_loan_requests row exists yet");
   assert.ok(result2.skipped.some((s) => s.startsWith("deal_loan_requests")));
 });
+
+test("ownership_entities: spelling variants of one owner do NOT create duplicates", async () => {
+  // Production regression. Deal b296dec2 accumulated 14 rows for two people
+  // — "Sebrina Colon" x8, "SebrinaColon" x3, "Matthew Paller" x2,
+  // "Matthew  Paller" x1 — because matching was an exact display_name
+  // comparison. Each phantom owner added an identity-verification blocker
+  // that could never be satisfied, so the package could never seal.
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "d1", loan_amount: null, loan_type: null, state: null, borrower_id: null }],
+    borrower_applications: [],
+    deal_financial_facts: [],
+    ownership_entities: [
+      { id: "oe1", deal_id: "d1", display_name: "Sebrina Colon", ownership_pct: 100, date_of_birth: null },
+    ],
+    deal_loan_requests: [],
+    borrower_applicant_financials: [],
+  };
+  const db = makeDb(tables);
+
+  await propagateBorrowerFacts({
+    dealId: "d1",
+    bankId: "bank1",
+    facts: {
+      owners: [
+        { full_name: "SebrinaColon" },
+        { full_name: "sebrina  colon" },
+        { full_name: "Sebrina Colon" },
+      ],
+    },
+    sb: db as any,
+  });
+
+  assert.equal(
+    tables.ownership_entities.length,
+    1,
+    `expected the three spellings to collapse onto one owner, got ${tables.ownership_entities.length}`,
+  );
+});
+
+test("ownership_entities: pre-existing duplicates do not trigger further inserts", async () => {
+  // Once duplicates existed, `.maybeSingle()` errored on multiple rows, the
+  // error was swallowed, and the insert branch ran again — compounding on
+  // every save. Matching in memory must tolerate the duplicates already in
+  // production and stop the growth.
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "d1", loan_amount: null, loan_type: null, state: null, borrower_id: null }],
+    borrower_applications: [],
+    deal_financial_facts: [],
+    ownership_entities: [
+      { id: "oe1", deal_id: "d1", display_name: "Sebrina Colon", ownership_pct: 100, date_of_birth: null },
+      { id: "oe2", deal_id: "d1", display_name: "Sebrina Colon", ownership_pct: 100, date_of_birth: null },
+    ],
+    deal_loan_requests: [],
+    borrower_applicant_financials: [],
+  };
+  const db = makeDb(tables);
+
+  await propagateBorrowerFacts({
+    dealId: "d1",
+    bankId: "bank1",
+    facts: { owners: [{ full_name: "Sebrina Colon", date_of_birth: "1980-01-01" }] },
+    sb: db as any,
+  });
+
+  assert.equal(
+    tables.ownership_entities.length,
+    2,
+    "must not add a third row when duplicates already exist",
+  );
+});

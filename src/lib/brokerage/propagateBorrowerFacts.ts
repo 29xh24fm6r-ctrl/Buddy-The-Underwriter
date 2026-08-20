@@ -269,9 +269,54 @@ export async function propagateBorrowerFacts(params: {
   }
 
   // ── 5. ownership_entities — per-owner upsert, fill-if-null ───────────
-  // Matched by (deal_id, display_name), same as the intake wizard's
-  // "owners" step (no unique constraint enables a real .upsert()).
+  //
+  // DUPLICATE-OWNER FIX.
+  //
+  // There is no unique constraint on (deal_id, display_name), so this
+  // block hand-rolls the upsert. It previously matched with
+  //   .eq("display_name", fullName).maybeSingle()
+  // which failed in two compounding ways:
+  //
+  //   1. EXACT string match. "Sebrina Colon", "SebrinaColon" and
+  //      "Matthew  Paller" (double space) are different keys, so a
+  //      re-render with different spacing inserted a NEW owner.
+  //   2. Once two rows matched, `.maybeSingle()` errors on multiple rows.
+  //      Only `data` was destructured, so the error was swallowed, `existing`
+  //      came back null, and the INSERT branch ran again — every subsequent
+  //      save added another row. That is why one deal reached 8 rows for a
+  //      single owner and 14 rows overall for two people, each one adding an
+  //      unsatisfiable identity-verification blocker that made sealing
+  //      impossible.
+  //
+  // Fixed by loading the deal's owners once and matching on a normalized
+  // name in memory: no multi-row error, and spacing/case variants collapse
+  // onto the existing row instead of creating a new one.
   const ownerRegistryEntries = fieldsForScope("owner");
+
+  /** Case- and whitespace-insensitive identity for owner names. */
+  const normalizeOwnerName = (name: string): string =>
+    name.toLowerCase().replace(/\s+/g, "");
+
+  const { data: existingOwnerRows } = await sb
+    .from("ownership_entities")
+    .select(["id", "display_name", ...fieldsForScope("owner").map((e) => e.sourceColumn)].join(", "))
+    .eq("deal_id", dealId);
+
+  const existingOwnerByName = new Map<string, Record<string, unknown>>();
+  // Defensive: this select returns a row array in production, but callers
+  // (and tests) may supply a single object or null. Never throw here — a
+  // propagation failure would block the borrower's whole save.
+  const existingOwnerList: Array<Record<string, unknown>> = Array.isArray(existingOwnerRows)
+    ? (existingOwnerRows as Array<Record<string, unknown>>)
+    : existingOwnerRows
+      ? [existingOwnerRows as Record<string, unknown>]
+      : [];
+  for (const row of existingOwnerList) {
+    const key = normalizeOwnerName(String(row.display_name ?? ""));
+    // Keep the FIRST match so repeated runs converge on one canonical row
+    // rather than ping-ponging between duplicates that already exist.
+    if (key && !existingOwnerByName.has(key)) existingOwnerByName.set(key, row);
+  }
   const pfsRegistryEntries = fieldsForScope("pfs");
   const ownerIdByName = new Map<string, string>();
 
@@ -279,14 +324,8 @@ export async function propagateBorrowerFacts(params: {
     const fullName = str((owner as Record<string, unknown>)["full_name"]);
     if (!fullName) continue;
     try {
-      const { data: existing } = await sb
-        .from("ownership_entities")
-        .select(["id", ...ownerRegistryEntries.map((e) => e.sourceColumn)].join(", "))
-        .eq("deal_id", dealId)
-        .eq("display_name", fullName)
-        .maybeSingle();
-
-      const existingRow = (existing as Record<string, unknown>) ?? null;
+      const existingRow =
+        existingOwnerByName.get(normalizeOwnerName(fullName)) ?? null;
       const patch = buildFillIfNullPatch(ownerRegistryEntries, owner as Record<string, unknown>, existingRow);
 
       if (existingRow?.id) {
@@ -315,7 +354,15 @@ export async function propagateBorrowerFacts(params: {
         if (error) errors.push(`ownership_entities(${fullName}): ${error.message}`);
         else {
           wrote.push(`ownership_entities(${fullName}, new)`);
-          if (inserted?.id) ownerIdByName.set(fullName, String(inserted.id));
+          if (inserted?.id) {
+            ownerIdByName.set(fullName, String(inserted.id));
+            // Register immediately so another spelling of the same person
+            // later in this same payload updates instead of inserting.
+            existingOwnerByName.set(normalizeOwnerName(fullName), {
+              id: inserted.id,
+              display_name: fullName,
+            });
+          }
         }
       }
     } catch (e) {
