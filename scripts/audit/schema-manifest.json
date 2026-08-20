@@ -313,5 +313,10 @@
     "name": "finalize_trident_bundle_run",
     "type": "function",
     "migration": "20260820230000_golden_trident_atomic_factory.sql"
+  },
+  {
+    "name": "acquire_trident_bundle_run",
+    "type": "function",
+    "migration": "20260819000000_golden_trident_factory.sql"
   }
 ]
