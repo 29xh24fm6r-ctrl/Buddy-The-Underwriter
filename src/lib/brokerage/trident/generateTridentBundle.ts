@@ -99,14 +99,40 @@ export type GenerateResult =
 export async function generateTridentBundle(args: {
   dealId: string;
   mode: TridentBundleMode;
-  bundleId: string;
-  bankId: string;
-  inputHash: string;
-  memoInputHash: string;
-  leaseToken: string;
+  bundleId?: string;
+  bankId?: string;
+  inputHash?: string;
+  memoInputHash?: string;
+  leaseToken?: string;
 }): Promise<GenerateResult> {
   const { dealId, mode } = args;
   const sb = supabaseAdmin();
+
+  if (!args.bundleId || !args.bankId || !args.inputHash || !args.memoInputHash || !args.leaseToken) {
+    const admitted = await createTridentBundleRun({ dealId, mode });
+    if (!admitted.ok) return { ok: false, bundleId: null, error: admitted.error };
+    if (admitted.reused) {
+      return { ok: false, bundleId: admitted.bundleId, error: "Golden Trident generation is already running" };
+    }
+    const { prepareTridentFactory, generateCanonicalFactoryArtifacts, runArtifactFactory, verifyTridentFactory, failTridentFactory } =
+      await import("./tridentFactoryStages");
+    const factoryArgs = { dealId, mode, bundleId: admitted.bundleId, leaseToken: admitted.leaseToken };
+    try {
+      const snapshot = await prepareTridentFactory(factoryArgs);
+      const execution = { ...factoryArgs, ...snapshot };
+      await generateCanonicalFactoryArtifacts(execution);
+      const result = await runArtifactFactory(execution);
+      await verifyTridentFactory(execution);
+      return result;
+    } catch (error) {
+      await failTridentFactory(factoryArgs, error);
+      return {
+        ok: false,
+        bundleId: admitted.bundleId,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 
   let dealQuery = sb.from("deals").select("id, bank_id, is_test").eq("id", dealId);
   if (args.bankId) dealQuery = dealQuery.eq("bank_id", args.bankId);
@@ -548,20 +574,9 @@ export async function generateTridentBundle(args: {
       if (!gate.ok) throw new Error(`Golden Trident release blocked: ${gate.reasons.join(", ")}`);
     }
 
-    // 5. Publication is one database transaction. The RPC verifies the active
-    // lease, release gate and required artifacts before superseding anything.
+    // Publication is performed by verifyTridentFactory only after the
+    // release-manifest stage is durably recorded.
     await assertTridentInputSnapshot({ sb, dealId, expectedHash: admittedInputHash });
-    const { data: finalized, error: finalizeError } = await sb.rpc(
-      "finalize_trident_bundle_run",
-      {
-        p_bundle_id: bundleId,
-        p_lease_token: args.leaseToken,
-        p_input_hash: admittedInputHash,
-      },
-    );
-    if (finalizeError || finalized !== true) {
-      throw new Error(finalizeError?.message ?? "Atomic Trident publication failed");
-    }
 
     return {
       ok: true,
