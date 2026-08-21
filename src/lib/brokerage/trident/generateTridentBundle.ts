@@ -22,7 +22,7 @@ import { generateSBAPackage } from "@/lib/sba/sbaPackageOrchestrator";
 import { enrichBusinessPlanPackage } from "@/lib/sba/enrichBusinessPlanPackage";
 import { renderSBAPackagePDF } from "@/lib/sba/sbaPackageRenderer";
 import { hashPackageNarratives, getBusinessPlanAttestationStatus } from "@/lib/sba/businessPlanAttestation";
-import { generateFeasibilityStudy } from "@/lib/feasibility/feasibilityEngine";
+import { generateFeasibilityStudy, loadFeasibilityStudyResult } from "@/lib/feasibility/feasibilityEngine";
 import { enrichFeasibilityStudy } from "@/lib/feasibility/enrichFeasibilityStudy";
 import { renderFeasibilityPDF } from "@/lib/feasibility/feasibilityRenderer";
 import { renderProjectionsXlsx } from "./projectionsXlsx";
@@ -400,10 +400,18 @@ export async function generateTridentBundle(args: {
     let feasibilityPdfPath: string | null = null;
     let sourceFeasibilityId: string | null = null;
     try {
-      const feasResult = await generateFeasibilityStudy({
-        dealId,
-        bankId: deal.bank_id,
-      });
+      const resumedFeasibilityId =
+        (existing.source_feasibility_id as string | null | undefined) ?? null;
+      const feasResult = resumedFeasibilityId
+        ? await loadFeasibilityStudyResult({
+            studyId: resumedFeasibilityId,
+            dealId,
+            bankId: deal.bank_id,
+          })
+        : await generateFeasibilityStudy({
+            dealId,
+            bankId: deal.bank_id,
+          });
       if (feasResult.ok) {
         sourceFeasibilityId = feasResult.studyId ?? null;
         // The feasibility engine has completed durable work at this point.
