@@ -172,8 +172,8 @@ export async function generateTridentBundle(args: {
     async () => {
   try {
     // 1. SBA package (business plan PDF + package row).
-    const resumedSbaPackageId = existing.source_sba_package_id as string | null;
-    const completedBusinessPlanPath = existing.business_plan_pdf_path as string | null;
+    const resumedSbaPackageId = (existing.source_sba_package_id as string | null | undefined) ?? null;
+    const completedBusinessPlanPath = (existing.business_plan_pdf_path as string | null | undefined) ?? null;
     const sbaResult = resumedSbaPackageId && completedBusinessPlanPath
       ? ({ ok: true, packageId: resumedSbaPackageId, pdfUrl: null, renderInput: null } as const)
       : await generateSBAPackage(dealId, { mode });
@@ -310,7 +310,7 @@ export async function generateTridentBundle(args: {
     }
 
     // 2. Projections XLSX — final mode only.
-    let projectionsXlsxPath = existing.projections_xlsx_path as string | null;
+    let projectionsXlsxPath = (existing.projections_xlsx_path as string | null | undefined) ?? null;
     if (mode === "final" && !projectionsXlsxPath) {
       const { data: pkgRow } = await sb
         .from("buddy_sba_packages")
@@ -345,7 +345,7 @@ export async function generateTridentBundle(args: {
     // file: the redaction is at the data layer, not just a watermark, so
     // the raw workbook can't be uncovered by stripping a layer or copying
     // the page. Final unwatermarked workbook ships at lender pick.
-    let projectionsPdfPath = existing.projections_pdf_path as string | null;
+    let projectionsPdfPath = (existing.projections_pdf_path as string | null | undefined) ?? null;
     if (mode === "preview" && !projectionsPdfPath) {
       try {
         const { data: pkgRowPrev } = await sb
