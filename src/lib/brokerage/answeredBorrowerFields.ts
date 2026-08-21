@@ -41,8 +41,46 @@ import {
 
 export type SB = { from: (table: string) => any };
 
-function uniqueColumns(entries: BorrowerFieldEntry[]): string[] {
-  return [...new Set(entries.map((e) => e.sourceColumn))];
+/**
+ * Columns for ONE table, deduped.
+ *
+ * Deduping alone was not enough. fieldsForScope("owner") carries two
+ * entries — full_ssn and spouse_full_ssn — whose sourceTable is
+ * deal_pii_records and whose column, `encrypted_payload`, does not exist on
+ * ownership_entities. Selecting it made PostgREST reject the whole request,
+ * and because only `data` was destructured the failure read as "this
+ * borrower has answered nothing", so the concierge re-asked every owner and
+ * PFS question they had already answered.
+ *
+ * Filtering by sourceTable is what makes the list correct; the dedupe stops
+ * the same column being requested twice.
+ */
+function uniqueColumnsFor(table: string, entries: BorrowerFieldEntry[]): string[] {
+  return [
+    ...new Set(
+      entries.filter((e) => e.sourceTable === table).map((e) => e.sourceColumn),
+    ),
+  ];
+}
+
+/** Entries actually backed by `table` — the ones a row from it can answer. */
+function entriesFor(table: string, entries: BorrowerFieldEntry[]): BorrowerFieldEntry[] {
+  return entries.filter((e) => e.sourceTable === table);
+}
+
+/**
+ * Surface a failed read instead of letting it read as "nothing answered".
+ * Every caller of this module treats an absent factPath as "ask the
+ * borrower again", so a swallowed error costs the borrower a re-ask of
+ * something they already told us.
+ */
+function readFailed(table: string, error: { message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  console.warn(
+    `[answeredBorrowerFields] read failed table=${table} (non-fatal, may cause a re-ask):`,
+    error.message ?? String(error),
+  );
+  return true;
 }
 
 function collectPresent(
@@ -77,12 +115,17 @@ export async function loadAnsweredBorrowerFieldKeys(dealId: string, sb: SB): Pro
 
     const businessEntries = fieldsForScope("business");
     if (deal?.borrower_id) {
-      const { data: borrowerRow } = await sb
+      const { data: borrowerRow, error: borrowerErr } = await sb
         .from("borrowers")
-        .select(uniqueColumns(businessEntries).join(", "))
+        .select(uniqueColumnsFor("borrowers", businessEntries).join(", "))
         .eq("id", deal.borrower_id)
         .maybeSingle();
-      collectPresent(businessEntries, borrowerRow as Record<string, unknown> | null, answered);
+      readFailed("borrowers", borrowerErr);
+      collectPresent(
+        entriesFor("borrowers", businessEntries),
+        borrowerRow as Record<string, unknown> | null,
+        answered,
+      );
     }
 
     const { data: application } = await sb
@@ -95,47 +138,67 @@ export async function loadAnsweredBorrowerFieldKeys(dealId: string, sb: SB): Pro
     const loanEntries = fieldsForScope("loan").filter(
       (e) => e.sourceColumn !== "requested_amount" && e.sourceColumn !== "use_of_proceeds",
     );
-    const { data: loanRequest } = await sb
+    const { data: loanRequest, error: loanErr } = await sb
       .from("deal_loan_requests")
-      .select(uniqueColumns(loanEntries).join(", "))
+      .select(uniqueColumnsFor("deal_loan_requests", loanEntries).join(", "))
       .eq("deal_id", dealId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    collectPresent(loanEntries, loanRequest as Record<string, unknown> | null, answered);
+    readFailed("deal_loan_requests", loanErr);
+    collectPresent(
+      entriesFor("deal_loan_requests", loanEntries),
+      loanRequest as Record<string, unknown> | null,
+      answered,
+    );
 
     const ownerEntries = fieldsForScope("owner");
-    const { data: ownerRow } = await sb
+    const { data: ownerRow, error: ownerErr } = await sb
       .from("ownership_entities")
-      .select(["id", ...uniqueColumns(ownerEntries)].join(", "))
+      .select(["id", ...uniqueColumnsFor("ownership_entities", ownerEntries)].join(", "))
       .eq("deal_id", dealId)
       .eq("entity_type", "individual")
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
-    collectPresent(ownerEntries, ownerRow as Record<string, unknown> | null, answered);
+    readFailed("ownership_entities", ownerErr);
+    collectPresent(
+      entriesFor("ownership_entities", ownerEntries),
+      ownerRow as Record<string, unknown> | null,
+      answered,
+    );
 
     const ownerId = (ownerRow as { id?: string } | null)?.id;
     if (ownerId) {
       const pfsEntries = fieldsForScope("pfs");
-      const { data: pfsRow } = await sb
+      const { data: pfsRow, error: pfsErr } = await sb
         .from("borrower_applicant_financials")
-        .select(uniqueColumns(pfsEntries).join(", "))
+        .select(uniqueColumnsFor("borrower_applicant_financials", pfsEntries).join(", "))
         .eq("applicant_id", ownerId)
         .maybeSingle();
-      collectPresent(pfsEntries, pfsRow as Record<string, unknown> | null, answered);
+      readFailed("borrower_applicant_financials", pfsErr);
+      collectPresent(
+        entriesFor("borrower_applicant_financials", pfsEntries),
+        pfsRow as Record<string, unknown> | null,
+        answered,
+      );
     }
 
     const entityEntries = fieldsForScope("entity");
-    const { data: entityRow } = await sb
+    const { data: entityRow, error: entityErr } = await sb
       .from("ownership_entities")
-      .select(uniqueColumns(entityEntries).join(", "))
+      .select(uniqueColumnsFor("ownership_entities", entityEntries).join(", "))
       .eq("deal_id", dealId)
       .neq("entity_type", "individual")
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
-    collectPresent(entityEntries, entityRow as Record<string, unknown> | null, answered);
+    readFailed("ownership_entities", entityErr);
+    collectPresent(
+      entriesFor("ownership_entities", entityEntries),
+      entityRow as Record<string, unknown> | null,
+      answered,
+    );
   } catch (e) {
     console.warn(
       "[answeredBorrowerFields] canonical read failed (non-fatal):",

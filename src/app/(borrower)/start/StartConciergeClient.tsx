@@ -17,6 +17,7 @@ import { FloatingConcierge } from "@/components/borrower/intake/FloatingConcierg
 import { PostSubmitHub } from "@/components/borrower/intake/PostSubmitHub";
 import { TestApplicationBanner } from "@/components/qa/TestApplicationBanner";
 import { BORROWER_FIELD_REGISTRY } from "@/lib/sba/forms/borrowerFieldRegistry";
+import { shouldPersistChapterMove } from "@/lib/borrower/chapterNavigation";
 import type { FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
 import type { DealVerificationState } from "@/components/borrower/intake/IntakeReviewStep";
 
@@ -561,15 +562,35 @@ export function StartConciergeClient({
     [dealId],
   );
 
-  // Navigate only after confirmed save
+  // Navigate only after confirmed save.
+  //
+  // BACKWARD NAVIGATION MUST NOT PERSIST.
+  //
+  // `current_chapter` is the borrower's resume pointer — where to put them
+  // when they come back. Going BACKWARD (the review screen's "Resolve now"
+  // deep-links, which jump to chapter 3 for Ownership & Identity and 4 for
+  // Financials) is a request to LOOK at an earlier chapter, not a statement
+  // that the borrower has retreated to it. Saving it anyway overwrote a
+  // borrower sitting on the review screen at chapter 5 with chapter 3, so
+  // every later resume dropped them mid-funnel with no way back to review
+  // except walking forward through every chapter again.
+  //
+  // Forward moves still save before advancing — that is the fail-closed
+  // rule this funnel is built on and it is unchanged.
   const navigateToChapter = useCallback(
     async (nextChapter: 1 | 2 | 3 | 4 | 5, data?: Record<string, unknown>) => {
+      if (!shouldPersistChapterMove({ from: chapter, to: nextChapter, hasData: data !== undefined })) {
+        // Pure backward jump with nothing to persist: move the view only.
+        setChapter(nextChapter);
+        setSaveError(null);
+        return;
+      }
       const ok = await saveProgress(nextChapter, data);
       if (!ok) return; // Stay on current chapter — error already set
       setChapter(nextChapter);
       setSaveError(null);
     },
-    [saveProgress],
+    [saveProgress, chapter],
   );
   // ── END V3 ──
 

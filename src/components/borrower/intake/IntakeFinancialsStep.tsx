@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { PlaidConnectCard } from "@/components/borrower/PlaidConnectCard";
 import { PortalUploadDropzone } from "@/components/borrower/intake/PortalUploadDropzone";
+import { UploadedDocumentsList } from "@/components/borrower/intake/UploadedDocumentsList";
 
 export function IntakeFinancialsStep({
   dealId,
@@ -207,6 +208,13 @@ export function IntakeFinancialsStep({
           </div>
         </div>
         <div className="mt-4">
+          {/* What the deal already holds, before the uploader — so a
+              returning borrower sees their documents instead of an empty
+              dropzone and re-sending what is already there. Keyed on
+              uploadedCount so a new upload refreshes the list. */}
+          <div className="mb-4">
+            <UploadedDocumentsList token={dealId} refreshKey={uploadedCount} />
+          </div>
           <PortalUploadDropzone
             token={dealId}
             dealId={dealId}
