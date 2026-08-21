@@ -604,3 +604,72 @@ export async function generateFeasibilityStudy(params: {
     renderInput,
   };
 }
+
+
+/**
+ * Rehydrates a completed feasibility study so a durable Trident retry resumes
+ * institutional review/rendering without creating a second upstream study.
+ */
+export async function loadFeasibilityStudyResult(params: {
+  studyId: string;
+  dealId: string;
+  bankId: string;
+}): Promise<FeasibilityResult> {
+  const sb = supabaseAdmin();
+  const [{ data: study, error: studyError }, { data: deal, error: dealError }] = await Promise.all([
+    sb
+      .from("buddy_feasibility_studies")
+      .select("id,deal_id,bank_id,composite_score,recommendation,confidence_level,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail,narratives,franchise_comparison,is_franchise,pdf_url,status,created_at")
+      .eq("id", params.studyId)
+      .eq("deal_id", params.dealId)
+      .eq("bank_id", params.bankId)
+      .maybeSingle(),
+    sb.from("deals").select("name,city,state").eq("id", params.dealId).eq("bank_id", params.bankId).maybeSingle(),
+  ]);
+  if (studyError || !study || study.status !== "completed") {
+    return { ok: false, error: studyError?.message ?? "Completed feasibility study not found" };
+  }
+  if (dealError || !deal) {
+    return { ok: false, error: dealError?.message ?? "Feasibility deal not found" };
+  }
+
+  const marketDemand = study.market_demand_detail as any;
+  const financialViability = study.financial_viability_detail as any;
+  const operationalReadiness = study.operational_readiness_detail as any;
+  const locationSuitability = study.location_suitability_detail as any;
+  const composite = {
+    overallScore: study.composite_score,
+    recommendation: study.recommendation,
+    confidenceLevel: study.confidence_level,
+    allFlags: [
+      ...(Array.isArray(marketDemand?.flags) ? marketDemand.flags : []),
+      ...(Array.isArray(financialViability?.flags) ? financialViability.flags : []),
+      ...(Array.isArray(operationalReadiness?.flags) ? operationalReadiness.flags : []),
+      ...(Array.isArray(locationSuitability?.flags) ? locationSuitability.flags : []),
+    ],
+    overallDataCompleteness: 1,
+  } as any;
+  const renderInput = {
+    dealName: deal.name ?? "Borrower",
+    city: deal.city,
+    state: deal.state,
+    composite,
+    marketDemand,
+    financialViability,
+    operationalReadiness,
+    locationSuitability,
+    narratives: study.narratives as any,
+    franchiseComparison: study.franchise_comparison as any,
+    isFranchise: Boolean(study.is_franchise),
+    brandName: null,
+    generatedAt: study.created_at ?? new Date().toISOString(),
+  };
+
+  return {
+    ok: true,
+    studyId: study.id,
+    composite,
+    pdfUrl: study.pdf_url ?? undefined,
+    renderInput,
+  };
+}
