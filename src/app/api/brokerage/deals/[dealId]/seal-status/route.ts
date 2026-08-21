@@ -77,16 +77,31 @@ export async function GET(
   );
 
   // Field progress (§B.3 — registry-derived completion).
-  const { data: deal } = await sb
-    .from("deals")
-    .select("sba_program")
-    .eq("id", dealId)
-    .maybeSingle();
+  // SBA program belongs to the canonical intake/request models, not deals.
+  // Querying deals.sba_program produced a PostgreSQL error on every status poll.
+  const [{ data: intakeProgram }, { data: requestProgram }] = await Promise.all([
+    sb
+      .from("deal_intake")
+      .select("sba_program")
+      .eq("deal_id", dealId)
+      .maybeSingle(),
+    sb
+      .from("deal_loan_requests")
+      .select("sba_program")
+      .eq("deal_id", dealId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const sbaProgram =
+    ((intakeProgram as { sba_program?: string } | null)?.sba_program ??
+      (requestProgram as { sba_program?: string } | null)?.sba_program ??
+      "7a") as "7a" | "504";
 
   const owners = (facts.owners ?? []) as Array<Record<string, unknown>>;
   const entities = (facts.entities ?? []) as Array<Record<string, unknown>>;
   const formCodes = computeApplicableForms({
-    program: ((deal as any)?.sba_program as "7a" | "504") ?? "7a",
+    program: sbaProgram,
     hasIndividualOwner: owners.length > 0,
     hasEquityOwningEntity: entities.length > 0,
     sellerNoteEquityPortion: null,
