@@ -124,3 +124,126 @@ test("loadAnsweredBorrowerFieldKeys: a read failure degrades to an empty set (no
   const answered = await loadAnsweredBorrowerFieldKeys("deal-1", sb as any);
   assert.equal(answered.size, 0);
 });
+
+// ─── Column-accurate stub ───────────────────────────────────────────────
+//
+// The stub above ignores the column list by design ("fine, since the reader
+// only reads keys off it"). That assumption is what hid this bug: the owner
+// select named `encrypted_payload`, a deal_pii_records column that does not
+// exist on ownership_entities, so PostgREST rejected the request. Only
+// `data` was destructured, so the failure was indistinguishable from "this
+// borrower has answered nothing" and the concierge re-asked every owner and
+// PFS question they had already answered.
+//
+// These tests use a stub that DOES read the column list and returns a
+// PostgREST error when a column is not on the table — the one behaviour
+// needed to see the defect.
+
+const { fieldsForScope } =
+  require("@/lib/sba/forms/borrowerFieldRegistry") as typeof import("@/lib/sba/forms/borrowerFieldRegistry");
+
+/** Real ownership_entities columns, verified against the live schema. */
+const OWNERSHIP_ENTITIES_COLUMNS = new Set<string>([
+  "id", "deal_id", "display_name", "entity_type", "ownership_pct", "created_at",
+  ...fieldsForScope("owner")
+    .filter((e) => e.sourceTable === "ownership_entities")
+    .map((e) => e.sourceColumn),
+  ...fieldsForScope("entity")
+    .filter((e) => e.sourceTable === "ownership_entities")
+    .map((e) => e.sourceColumn),
+]);
+
+function makeColumnAccurateDb(tables: Record<string, Row>) {
+  const selects: Array<{ table: string; columns: string }> = [];
+  function builder(table: string) {
+    let columns = "*";
+    const q: any = {
+      select(cols?: string) { columns = cols ?? "*"; selects.push({ table, columns }); return q; },
+      eq: () => q,
+      neq: () => q,
+      order: () => q,
+      limit: () => q,
+      maybeSingle: async () => {
+        if (table === "ownership_entities") {
+          const asked = columns.split(",").map((c) => c.trim()).filter(Boolean);
+          const bad = asked.filter((c) => !OWNERSHIP_ENTITIES_COLUMNS.has(c));
+          if (bad.length > 0) {
+            return {
+              data: null,
+              error: { message: `column ownership_entities.${bad[0]} does not exist` },
+              count: null, status: 400,
+            };
+          }
+        }
+        return { data: tables[table] ?? null, error: null, count: null, status: 200 };
+      },
+    };
+    return q;
+  }
+  return { sb: { from: builder }, selects };
+}
+
+test("owner answers are recognised — the select must not name a foreign column", async () => {
+  const ownerEntry = fieldsForScope("owner").find(
+    (e) => e.sourceTable === "ownership_entities" && e.sourceColumn === "date_of_birth",
+  )!;
+
+  const { sb, selects } = makeColumnAccurateDb({
+    deals: { borrower_id: null, loan_amount: null },
+    borrower_applications: { loan_purpose: null },
+    ownership_entities: { id: "oe1", date_of_birth: "1980-01-01" },
+  });
+
+  const answered = await loadAnsweredBorrowerFieldKeys("d1", sb as any);
+
+  const ownerSelect = selects.find(
+    (s) => s.table === "ownership_entities" && s.columns.includes("date_of_birth"),
+  );
+  assert.ok(ownerSelect, "the owner read must happen");
+  assert.ok(
+    !ownerSelect!.columns.includes("encrypted_payload"),
+    "encrypted_payload belongs to deal_pii_records and breaks this query",
+  );
+  assert.ok(
+    answered.has(ownerEntry.factPath),
+    `a stored owner answer must be reported as answered, got: ${[...answered].join(",")}`,
+  );
+});
+
+test("no requested column is outside the table it is read from", async () => {
+  const { sb, selects } = makeColumnAccurateDb({
+    deals: { borrower_id: null, loan_amount: null },
+    borrower_applications: { loan_purpose: null },
+    ownership_entities: { id: "oe1" },
+  });
+  await loadAnsweredBorrowerFieldKeys("d1", sb as any);
+
+  for (const s of selects.filter((x) => x.table === "ownership_entities")) {
+    const cols = s.columns.split(",").map((c) => c.trim()).filter(Boolean);
+    assert.deepEqual(
+      cols.filter((c, i) => cols.indexOf(c) !== i), [],
+      "no column may be requested twice",
+    );
+    for (const c of cols) {
+      assert.ok(OWNERSHIP_ENTITIES_COLUMNS.has(c), `column ${c} is not on ownership_entities`);
+    }
+  }
+});
+
+test("PFS answers survive — they are gated on the owner read succeeding", async () => {
+  // ownerId comes from the owner row. When that read failed, ownerId was
+  // undefined and the PFS block never ran, so PFS questions were re-asked too.
+  const pfsEntry = fieldsForScope("pfs")[0];
+  const { sb } = makeColumnAccurateDb({
+    deals: { borrower_id: null, loan_amount: null },
+    borrower_applications: { loan_purpose: null },
+    ownership_entities: { id: "oe1" },
+    borrower_applicant_financials: { [pfsEntry.sourceColumn]: 1234 },
+  });
+
+  const answered = await loadAnsweredBorrowerFieldKeys("d1", sb as any);
+  assert.ok(
+    answered.has(pfsEntry.factPath),
+    `a stored PFS answer must be reported as answered, got: ${[...answered].join(",")}`,
+  );
+});

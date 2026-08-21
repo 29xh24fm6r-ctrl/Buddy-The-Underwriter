@@ -424,6 +424,31 @@ export async function directDealDocumentUpload(
 /**
  * Complete end-to-end upload for borrower portal
  */
+/**
+ * SHA-256 of the file, computed in the browser.
+ *
+ * The bytes go straight from the browser to GCS, so the server never sees
+ * them and cannot hash them itself. Without this the client sent no hash,
+ * `deal_documents.sha256` was NULL on every borrower row, and the dedupe
+ * the sign route already implements could never fire — deal b296dec2
+ * accumulated six identical copies of the same 1,013,618-byte tax return.
+ *
+ * Returns null rather than throwing when SubtleCrypto is unavailable (it
+ * requires a secure context); a missing hash must degrade to "upload
+ * without dedupe", never to a blocked upload.
+ */
+async function sha256Hex(file: File): Promise<string | null> {
+  try {
+    if (typeof crypto === "undefined" || !crypto.subtle) return null;
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return null;
+  }
+}
+
 export async function uploadBorrowerFile(
   token: string,
   file: File,
@@ -433,6 +458,8 @@ export async function uploadBorrowerFile(
   const requestId = generateRequestId();
 
   try {
+    const sha256 = await sha256Hex(file);
+
     // Step 1: Get signed URL (token-based auth)
     const signRes = await fetch(`/api/portal/${token}/files/sign`, {
       method: "POST",
@@ -445,6 +472,7 @@ export async function uploadBorrowerFile(
         mime_type: file.type,
         size_bytes: file.size,
         checklist_key: checklistKey,
+        sha256,
       }),
     });
 
@@ -488,6 +516,7 @@ export async function uploadBorrowerFile(
         mime_type: file.type,
         size_bytes: file.size,
         checklist_key: checklistKey,
+        sha256,
         source: "borrower",
       }),
     });

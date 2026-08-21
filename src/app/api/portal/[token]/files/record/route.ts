@@ -13,6 +13,7 @@ import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 import { gcsObjectExists } from "@/lib/storage/gcs";
+import { findExistingDocBySha } from "@/lib/storage/dedupe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -380,6 +381,46 @@ export async function POST(req: NextRequest, ctx: Context) {
         source: "borrower_portal",
       },
     });
+
+    // CONTENT DE-DUPLICATION.
+    //
+    // The sign route already dedupes by sha256, but only when the client
+    // sends one, and only at sign time — a borrower who re-uploads while an
+    // earlier record is still in flight slips past it. Checking again here,
+    // immediately before the insert, is the last point where a duplicate row
+    // can still be prevented.
+    //
+    // Deal b296dec2 holds six identical copies of 2025_TaxReturn.pdf, every
+    // one with sha256 NULL, because the borrower could not see what they had
+    // already sent and kept re-sending it. The client now computes the hash
+    // (see uploadBorrowerFile), so this check has something to match on.
+    if (sha256) {
+      const duplicate = await findExistingDocBySha({ sb, dealId, sha256 });
+      if (duplicate) {
+        await logLedgerEvent({
+          dealId,
+          bankId: deal.bank_id,
+          eventKey: "upload.deduped",
+          uiState: "done",
+          uiMessage: "Already uploaded — kept the copy you sent earlier",
+          meta: {
+            file_id,
+            existing_document_id: duplicate.id,
+            sha256,
+            source: "borrower_portal",
+          },
+        });
+        // Success, not an error: from the borrower's point of view the file
+        // IS on the application. Returning a failure here would send them
+        // right back into the re-upload loop this check exists to end.
+        return NextResponse.json({
+          ok: true,
+          deduped: true,
+          documentId: duplicate.id,
+          document_id: duplicate.id,
+        });
+      }
+    }
 
     const result = await ingestDocument({
       dealId,

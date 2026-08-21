@@ -25,20 +25,31 @@ const STATUS_DISPLAY: Record<string, { label: string; cls: string }> = {
   expired: { label: "Expired", cls: "text-slate-700 bg-slate-50" },
 };
 
+const GENERIC_START_ERROR =
+  "We could not start identity verification. Please try again, or contact your banker if this keeps happening.";
+
 export function IdentityVerificationPanel({ token }: { token: string }) {
   const [owners, setOwners] = useState<OwnerKycStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [initiating, setInitiating] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/borrower/portal/${token}/identity`);
-      const json = await res.json();
-      if (json?.ok && Array.isArray(json.owners)) {
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok && Array.isArray(json.owners)) {
         setOwners(json.owners);
+        setLoadFailed(false);
+      } else {
+        // A failed read is NOT an empty owner list. Rendering "no owners
+        // require verification" here tells the borrower a hard SBA
+        // requirement does not apply to them.
+        setLoadFailed(true);
       }
     } catch {
-      // non-fatal
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -48,19 +59,27 @@ export function IdentityVerificationPanel({ token }: { token: string }) {
 
   const startVerification = useCallback(async (ownershipEntityId: string) => {
     setInitiating(ownershipEntityId);
+    setStartError(null);
     try {
       const res = await fetch(`/api/borrower/portal/${token}/identity`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ownershipEntityId }),
       });
-      const json = await res.json();
-      if (json?.ok && json.sessionUrl) {
+      // `res.json()` itself rejects when the handler 500s with a non-JSON
+      // body, which is how a vendor failure previously reached the catch
+      // below and vanished. Never let a start failure be silent: the
+      // borrower cannot seal the package without this step, so a button
+      // that quietly does nothing is a dead end with no way out.
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.ok && json.sessionUrl) {
         window.open(json.sessionUrl, "_blank", "noopener,noreferrer");
         await load();
+        return;
       }
+      setStartError(typeof json?.message === "string" ? json.message : GENERIC_START_ERROR);
     } catch {
-      // non-fatal
+      setStartError(GENERIC_START_ERROR);
     } finally {
       setInitiating(null);
     }
@@ -71,6 +90,23 @@ export function IdentityVerificationPanel({ token }: { token: string }) {
       <div className="flex items-center gap-2 text-sm text-slate-500">
         <div className="w-4 h-4 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin" />
         Checking identity verification status...
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-rose-700">
+          We could not load identity verification status.
+        </p>
+        <button
+          type="button"
+          onClick={() => { setLoading(true); void load(); }}
+          className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 min-h-[32px]"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -89,6 +125,15 @@ export function IdentityVerificationPanel({ token }: { token: string }) {
 
   return (
     <div className="space-y-3">
+      {startError && (
+        <div
+          role="alert"
+          className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-sm text-rose-700"
+        >
+          {startError}
+        </div>
+      )}
+
       {allVerified && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 text-sm text-emerald-700">
           All owners have completed identity verification.

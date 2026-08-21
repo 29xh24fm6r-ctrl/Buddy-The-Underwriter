@@ -5,6 +5,7 @@ import { SealPackageCard } from "@/components/brokerage/SealPackageCard";
 import { SigningPanel } from "@/components/brokerage/SigningPanel";
 import { ApprovalScoreCard } from "@/components/borrower/intake/ApprovalScoreCard";
 import { IdentityVerificationPanel } from "@/components/borrower/intake/IdentityVerificationPanel";
+import { UploadedDocumentsList } from "@/components/borrower/intake/UploadedDocumentsList";
 
 type ReviewItem = {
   key: string;
@@ -269,6 +270,16 @@ export function IntakeReviewStep({
       )}
 
       {/* Identity verification — T4 SPEC-BORROWER-FUNNEL-SEAL-BLOCKERS */}
+      {token && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">Your Documents</h3>
+          {/* Read-only view of the same endpoint the portal uses. Without it
+              the review screen said documents were outstanding while giving
+              the borrower no way to see the ones already received. */}
+          <UploadedDocumentsList token={token} heading="Received" />
+        </div>
+      )}
+
       {token && !verifications.identityVerified && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="mb-2 text-sm font-semibold text-slate-800">Identity Verification</h3>
