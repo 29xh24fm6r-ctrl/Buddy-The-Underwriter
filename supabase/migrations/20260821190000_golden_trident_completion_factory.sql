@@ -219,8 +219,8 @@ begin
   if v_mission_id is not null and exists (
     select 1
     from public.buddy_research_narratives narrative
-    join public.buddy_research_quality_gates gate on gate.mission_id = mission_id
-    where narrative.mission_id = mission_id
+    join public.buddy_research_quality_gates gate on gate.mission_id = v_mission_id
+    where narrative.mission_id = v_mission_id
       and gate.gate_passed = true
       and (select count(*) from public.buddy_research_sources where mission_id = v_mission_id) >= 3
       and (select count(*) from public.buddy_research_facts where mission_id = v_mission_id) >= 5
@@ -248,7 +248,7 @@ begin
   ) returning id into v_mission_id;
 
   insert into public.buddy_research_sources (
-    v_mission_id, source_class, source_name, source_url, raw_content,
+    mission_id, source_class, source_name, source_url, raw_content,
     content_type, checksum, http_status
   ) values
   (
@@ -260,7 +260,7 @@ begin
   ) returning id into source_geo;
 
   insert into public.buddy_research_sources (
-    v_mission_id, source_class, source_name, source_url, raw_content,
+    mission_id, source_class, source_name, source_url, raw_content,
     content_type, checksum, http_status
   ) values (
     v_mission_id, 'government', 'Synthetic QA labor profile',
@@ -271,7 +271,7 @@ begin
   ) returning id into source_labor;
 
   insert into public.buddy_research_sources (
-    v_mission_id, source_class, source_name, source_url, raw_content,
+    mission_id, source_class, source_name, source_url, raw_content,
     content_type, checksum, http_status
   ) values (
     v_mission_id, 'industry', 'Synthetic QA manufacturing outlook',
@@ -282,7 +282,7 @@ begin
   ) returning id into source_industry;
 
   insert into public.buddy_research_facts
-    (v_mission_id, source_id, fact_type, value, confidence, extracted_by, extraction_path, as_of_date)
+    (mission_id, source_id, fact_type, value, confidence, extracted_by, extraction_path, as_of_date)
   values
     (v_mission_id, source_geo, 'population', '{"count":978000,"geography":"Fort Worth, Texas"}', 1, 'rule', '$.population', current_date),
     (v_mission_id, source_geo, 'median_income', '{"amount":79000,"currency":"USD","geography":"Fort Worth, Texas"}', 1, 'rule', '$.median_household_income', current_date),
@@ -298,7 +298,7 @@ begin
   select id into fact_location from public.buddy_research_facts where mission_id = v_mission_id and value->>'metric' = 'industrial_real_estate' limit 1;
 
   insert into public.buddy_research_inferences (
-    v_mission_id, inference_type, conclusion, input_fact_ids, confidence, reasoning
+    mission_id, inference_type, conclusion, input_fact_ids, confidence, reasoning
   ) values (
     v_mission_id, 'growth_trajectory',
     'Fort Worth precision manufacturing conditions are stable-to-growing; industrial real estate is adequate and skilled-labor competition is the principal location risk.',
@@ -348,7 +348,7 @@ begin
   );
 
   insert into public.buddy_research_quality_gates (
-    v_mission_id, deal_id, trust_grade, gate_passed, quality_score,
+    mission_id, deal_id, trust_grade, gate_passed, quality_score,
     entity_lock_check, entity_confidence,
     thread_coverage_check, threads_succeeded, threads_failed,
     source_diversity_check, source_count, primary_source_count, secondary_source_count,
