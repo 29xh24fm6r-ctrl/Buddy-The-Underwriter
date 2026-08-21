@@ -10,8 +10,8 @@ alter table public.buddy_research_inferences
 alter table public.buddy_research_inferences
   add constraint buddy_research_inferences_input_fact_ids_nonempty
   check (cardinality(input_fact_ids) > 0) not valid;
-alter table public.buddy_research_inferences
-  validate constraint buddy_research_inferences_input_fact_ids_nonempty;
+-- NOT VALID preserves legacy rows while enforcing the invariant for every
+-- new or changed inference. Historical cleanup is intentionally non-blocking.
 
 do $$
 declare
