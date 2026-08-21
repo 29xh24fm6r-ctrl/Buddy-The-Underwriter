@@ -144,7 +144,7 @@ export async function generateTridentBundle(args: {
   const admittedInputHash = args.inputHash;
   const { data: existing, error: existingError } = await sb
     .from("buddy_trident_bundles")
-    .select("id")
+    .select("id,business_plan_pdf_path,projections_pdf_path,projections_xlsx_path,feasibility_pdf_path,source_sba_package_id,source_feasibility_id")
     .eq("id", bundleId)
     .eq("deal_id", dealId)
     .eq("bank_id", admittedBankId)
@@ -172,10 +172,12 @@ export async function generateTridentBundle(args: {
     async () => {
   try {
     // 1. SBA package (business plan PDF + package row).
-    const sbaResult = await generateSBAPackage(dealId, { mode });
-    if (!sbaResult.ok) {
-      throw new Error(`SBA package generation failed: ${sbaResult.error}`);
-    }
+    const resumedSbaPackageId = existing.source_sba_package_id as string | null;
+    const completedBusinessPlanPath = existing.business_plan_pdf_path as string | null;
+    const sbaResult = resumedSbaPackageId && completedBusinessPlanPath
+      ? ({ ok: true, packageId: resumedSbaPackageId, pdfUrl: null, renderInput: null } as const)
+      : await generateSBAPackage(dealId, { mode });
+    if (!sbaResult.ok) throw new Error(`SBA package generation failed: ${sbaResult.error}`);
 
     // Audit fix (Borrower Intake Program review) — enrichBusinessPlanPackage
     // (SPEC-M8 ARTIFACT-PIPELINE-1's verifier pass) was wired into the SBA
@@ -187,7 +189,7 @@ export async function generateTridentBundle(args: {
     // sba/route.ts call site exactly: the package itself already generated
     // successfully by this point.
     let businessPlanVerification: Awaited<ReturnType<typeof enrichBusinessPlanPackage>> | null = null;
-    try {
+    if (!completedBusinessPlanPath) try {
       businessPlanVerification = await enrichBusinessPlanPackage({
         dealId,
         bankId: deal.bank_id,
@@ -199,7 +201,7 @@ export async function generateTridentBundle(args: {
       console.error("[generateTridentBundle] business-plan verification failed (preview only):", enrichErr);
     }
 
-    if (mode === "final") {
+    if (mode === "final" && !completedBusinessPlanPath) {
       if (businessPlanVerification?.verdict !== "pass") {
         const findings = businessPlanVerification?.flaggedClaims
           .slice(0, 3)
@@ -232,7 +234,7 @@ export async function generateTridentBundle(args: {
     }
 
     let reviewedBusinessPlanSource = sbaResult.pdfUrl;
-    if (mode === "final") {
+    if (mode === "final" && !completedBusinessPlanPath) {
       const { data: reviewedNarratives, error: reviewedNarrativesError } = await sb
         .from("buddy_sba_packages")
         .select(
@@ -246,7 +248,7 @@ export async function generateTridentBundle(args: {
       }
       const reviewed = reviewedNarratives as unknown as Record<string, string | null>;
       const reviewedBuffer = await renderSBAPackagePDF({
-        ...sbaResult.renderInput,
+        ...sbaResult.renderInput!,
         businessOverviewNarrative: reviewed.business_overview_narrative ?? "",
         executiveSummary: reviewed.executive_summary ?? undefined,
         industryAnalysis: reviewed.industry_analysis ?? undefined,
@@ -265,22 +267,21 @@ export async function generateTridentBundle(args: {
       await sb.from("buddy_sba_packages").update({ pdf_url: reviewedBusinessPlanSource }).eq("id", sbaResult.packageId);
     }
 
-    const businessPlanPath = await copyToTridentBucket(sb, {
-      sourceBucket: "deal-documents",
-      sourcePath: reviewedBusinessPlanSource,
-      dealId,
-      mode,
-      artifact: "business_plan",
-      ext: "pdf",
-    });
-    if (!businessPlanPath) throw new Error("Business-plan artifact persistence failed");
-    const { error: businessPlanPersistError } = await sb.from("buddy_trident_bundles").update({
-      business_plan_pdf_path: businessPlanPath,
-      source_sba_package_id: sbaResult.packageId,
-      current_stage: "business_plan",
-      last_heartbeat_at: new Date().toISOString(),
-    }).eq("id", bundleId).eq("lease_token", args.leaseToken);
-    if (businessPlanPersistError) throw new Error(`Business-plan manifest write failed: ${businessPlanPersistError.message}`);
+    let businessPlanPath = completedBusinessPlanPath;
+    if (!businessPlanPath) {
+      businessPlanPath = await copyToTridentBucket(sb, {
+        sourceBucket: "deal-documents", sourcePath: reviewedBusinessPlanSource,
+        dealId, mode, artifact: "business_plan", ext: "pdf",
+      });
+      if (!businessPlanPath) throw new Error("Business-plan artifact persistence failed");
+      const { error: businessPlanPersistError } = await sb.from("buddy_trident_bundles").update({
+        business_plan_pdf_path: businessPlanPath,
+        source_sba_package_id: sbaResult.packageId,
+        current_stage: "business_plan",
+        last_heartbeat_at: new Date().toISOString(),
+      }).eq("id", bundleId).eq("lease_token", args.leaseToken);
+      if (businessPlanPersistError) throw new Error(`Business-plan manifest write failed: ${businessPlanPersistError.message}`);
+    }
 
     // SPEC-M8 ARTIFACT-PIPELINE-1 — read-only attestation lookup. Never
     // blocks bundle generation (see GenerateResult's businessPlanAttested
@@ -309,8 +310,8 @@ export async function generateTridentBundle(args: {
     }
 
     // 2. Projections XLSX — final mode only.
-    let projectionsXlsxPath: string | null = null;
-    if (mode === "final") {
+    let projectionsXlsxPath = existing.projections_xlsx_path as string | null;
+    if (mode === "final" && !projectionsXlsxPath) {
       const { data: pkgRow } = await sb
         .from("buddy_sba_packages")
         .select(
@@ -344,8 +345,8 @@ export async function generateTridentBundle(args: {
     // file: the redaction is at the data layer, not just a watermark, so
     // the raw workbook can't be uncovered by stripping a layer or copying
     // the page. Final unwatermarked workbook ships at lender pick.
-    let projectionsPdfPath: string | null = null;
-    if (mode === "preview") {
+    let projectionsPdfPath = existing.projections_pdf_path as string | null;
+    if (mode === "preview" && !projectionsPdfPath) {
       try {
         const { data: pkgRowPrev } = await sb
           .from("buddy_sba_packages")
@@ -405,8 +406,22 @@ export async function generateTridentBundle(args: {
       });
       if (feasResult.ok) {
         sourceFeasibilityId = feasResult.studyId ?? null;
+        // The feasibility engine has completed durable work at this point.
+        // Persist its identity before the independent institutional review so
+        // a transient provider timeout can resume from the same study instead
+        // of orphaning the study and regenerating upstream artifacts.
+        if (sourceFeasibilityId) {
+          const { error: checkpointError } = await sb.from("buddy_trident_bundles").update({
+            source_feasibility_id: sourceFeasibilityId,
+            current_stage: "feasibility_review",
+            last_heartbeat_at: new Date().toISOString(),
+          }).eq("id", bundleId).eq("lease_token", args.leaseToken);
+          if (checkpointError) {
+            throw new Error(`Feasibility checkpoint write failed: ${checkpointError.message}`);
+          }
+        }
         if (mode === "final" && sourceFeasibilityId && feasResult.composite) {
-          const feasibilityVerification = await enrichFeasibilityStudy({
+          const feasibilityVerification = await reviewFeasibilityWithRetry({
             dealId,
             bankId: deal.bank_id,
             studyId: sourceFeasibilityId,
@@ -597,6 +612,23 @@ export async function generateTridentBundle(args: {
   }
     },
   );
+}
+
+async function reviewFeasibilityWithRetry(
+  args: Parameters<typeof enrichFeasibilityStudy>[0],
+): ReturnType<typeof enrichFeasibilityStudy> {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await enrichFeasibilityStudy(args);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const transient = /timed?\s*out|timeout|429|rate.?limit|temporar|unavailable|502|503|504/i.test(message);
+      if (!transient || attempt === maxAttempts) throw error;
+      console.warn(`[trident] feasibility review transient failure; retrying review only (${attempt}/${maxAttempts}):`, message);
+    }
+  }
+  throw new Error("Feasibility review retry loop exhausted");
 }
 
 async function uploadReviewedPdf(
