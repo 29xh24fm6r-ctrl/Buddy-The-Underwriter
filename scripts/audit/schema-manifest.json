@@ -353,5 +353,10 @@
     "name": "deal_conditions.created_by",
     "type": "column",
     "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "commission_golden_trident_qa_research",
+    "type": "function",
+    "migration": "20260821190000_golden_trident_completion_factory.sql"
   }
 ]
