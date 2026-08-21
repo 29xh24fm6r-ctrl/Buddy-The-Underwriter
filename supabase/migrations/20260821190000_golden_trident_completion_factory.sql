@@ -187,7 +187,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  mission_id uuid;
+  v_mission_id uuid;
   source_geo uuid;
   source_labor uuid;
   source_industry uuid;
@@ -210,27 +210,27 @@ begin
     raise exception 'golden_trident_qa_deal_not_found';
   end if;
 
-  select id into mission_id
+  select id into v_mission_id
   from public.buddy_research_missions
   where deal_id = p_deal_id and run_key = p_run_key
   order by created_at desc
   limit 1;
 
-  if mission_id is not null and exists (
+  if v_mission_id is not null and exists (
     select 1
     from public.buddy_research_narratives narrative
     join public.buddy_research_quality_gates gate on gate.mission_id = mission_id
     where narrative.mission_id = mission_id
       and gate.gate_passed = true
-      and (select count(*) from public.buddy_research_sources where mission_id = commission_golden_trident_qa_research.mission_id) >= 3
-      and (select count(*) from public.buddy_research_facts where mission_id = commission_golden_trident_qa_research.mission_id) >= 5
-      and (select count(*) from public.buddy_research_inferences where mission_id = commission_golden_trident_qa_research.mission_id) >= 1
+      and (select count(*) from public.buddy_research_sources where mission_id = v_mission_id) >= 3
+      and (select count(*) from public.buddy_research_facts where mission_id = v_mission_id) >= 5
+      and (select count(*) from public.buddy_research_inferences where mission_id = v_mission_id) >= 1
   ) then
-    return mission_id;
+    return v_mission_id;
   end if;
 
-  if mission_id is not null then
-    delete from public.buddy_research_missions where id = mission_id;
+  if v_mission_id is not null then
+    delete from public.buddy_research_missions where id = v_mission_id;
   end if;
 
   insert into public.buddy_research_missions (
@@ -245,14 +245,14 @@ begin
       'synthetic_qa', true
     ),
     'committee', 'complete', now(), p_run_key, p_run_key
-  ) returning id into mission_id;
+  ) returning id into v_mission_id;
 
   insert into public.buddy_research_sources (
-    mission_id, source_class, source_name, source_url, raw_content,
+    v_mission_id, source_class, source_name, source_url, raw_content,
     content_type, checksum, http_status
   ) values
   (
-    mission_id, 'geography', 'Synthetic QA Census profile',
+    v_mission_id, 'geography', 'Synthetic QA Census profile',
     'https://qa.invalid/golden-trident/fort-worth-demographics',
     '{"population":978000,"median_household_income":79000,"population_trend":"growing","synthetic_qa":true}'::jsonb,
     'application/json',
@@ -260,10 +260,10 @@ begin
   ) returning id into source_geo;
 
   insert into public.buddy_research_sources (
-    mission_id, source_class, source_name, source_url, raw_content,
+    v_mission_id, source_class, source_name, source_url, raw_content,
     content_type, checksum, http_status
   ) values (
-    mission_id, 'government', 'Synthetic QA labor profile',
+    v_mission_id, 'government', 'Synthetic QA labor profile',
     'https://qa.invalid/golden-trident/fort-worth-labor',
     '{"unemployment_rate":4.1,"skilled_labor_competition":"principal location risk","synthetic_qa":true}'::jsonb,
     'application/json',
@@ -271,10 +271,10 @@ begin
   ) returning id into source_labor;
 
   insert into public.buddy_research_sources (
-    mission_id, source_class, source_name, source_url, raw_content,
+    v_mission_id, source_class, source_name, source_url, raw_content,
     content_type, checksum, http_status
   ) values (
-    mission_id, 'industry', 'Synthetic QA manufacturing outlook',
+    v_mission_id, 'industry', 'Synthetic QA manufacturing outlook',
     'https://qa.invalid/golden-trident/precision-manufacturing',
     '{"market_growth_rate":3.2,"outlook":"stable-to-growing","industrial_real_estate":"adequate","synthetic_qa":true}'::jsonb,
     'application/json',
@@ -282,25 +282,25 @@ begin
   ) returning id into source_industry;
 
   insert into public.buddy_research_facts
-    (mission_id, source_id, fact_type, value, confidence, extracted_by, extraction_path, as_of_date)
+    (v_mission_id, source_id, fact_type, value, confidence, extracted_by, extraction_path, as_of_date)
   values
-    (mission_id, source_geo, 'population', '{"count":978000,"geography":"Fort Worth, Texas"}', 1, 'rule', '$.population', current_date),
-    (mission_id, source_geo, 'median_income', '{"amount":79000,"currency":"USD","geography":"Fort Worth, Texas"}', 1, 'rule', '$.median_household_income', current_date),
-    (mission_id, source_industry, 'market_growth_rate', '{"percent":3.2,"scope":"Fort Worth precision manufacturing"}', 1, 'rule', '$.market_growth_rate', current_date),
-    (mission_id, source_labor, 'other', '{"metric":"unemployment_rate","percent":4.1}', 1, 'rule', '$.unemployment_rate', current_date),
-    (mission_id, source_industry, 'other', '{"metric":"industrial_real_estate","availability":"adequate"}', 1, 'rule', '$.industrial_real_estate', current_date)
-  returning id into fact_population;
+    (v_mission_id, source_geo, 'population', '{"count":978000,"geography":"Fort Worth, Texas"}', 1, 'rule', '$.population', current_date),
+    (v_mission_id, source_geo, 'median_income', '{"amount":79000,"currency":"USD","geography":"Fort Worth, Texas"}', 1, 'rule', '$.median_household_income', current_date),
+    (v_mission_id, source_industry, 'market_growth_rate', '{"percent":3.2,"scope":"Fort Worth precision manufacturing"}', 1, 'rule', '$.market_growth_rate', current_date),
+    (v_mission_id, source_labor, 'other', '{"metric":"unemployment_rate","percent":4.1}', 1, 'rule', '$.unemployment_rate', current_date),
+    (v_mission_id, source_industry, 'other', '{"metric":"industrial_real_estate","availability":"adequate"}', 1, 'rule', '$.industrial_real_estate', current_date)
+;
 
-  select id into fact_population from public.buddy_research_facts where mission_id = mission_id and fact_type = 'population' limit 1;
-  select id into fact_income from public.buddy_research_facts where mission_id = mission_id and fact_type = 'median_income' limit 1;
-  select id into fact_growth from public.buddy_research_facts where mission_id = mission_id and fact_type = 'market_growth_rate' limit 1;
-  select id into fact_employment from public.buddy_research_facts where mission_id = mission_id and value->>'metric' = 'unemployment_rate' limit 1;
-  select id into fact_location from public.buddy_research_facts where mission_id = mission_id and value->>'metric' = 'industrial_real_estate' limit 1;
+  select id into fact_population from public.buddy_research_facts where mission_id = v_mission_id and fact_type = 'population' limit 1;
+  select id into fact_income from public.buddy_research_facts where mission_id = v_mission_id and fact_type = 'median_income' limit 1;
+  select id into fact_growth from public.buddy_research_facts where mission_id = v_mission_id and fact_type = 'market_growth_rate' limit 1;
+  select id into fact_employment from public.buddy_research_facts where mission_id = v_mission_id and value->>'metric' = 'unemployment_rate' limit 1;
+  select id into fact_location from public.buddy_research_facts where mission_id = v_mission_id and value->>'metric' = 'industrial_real_estate' limit 1;
 
   insert into public.buddy_research_inferences (
-    mission_id, inference_type, conclusion, input_fact_ids, confidence, reasoning
+    v_mission_id, inference_type, conclusion, input_fact_ids, confidence, reasoning
   ) values (
-    mission_id, 'growth_trajectory',
+    v_mission_id, 'growth_trajectory',
     'Fort Worth precision manufacturing conditions are stable-to-growing; industrial real estate is adequate and skilled-labor competition is the principal location risk.',
     array[fact_population, fact_income, fact_growth, fact_employment, fact_location],
     0.95,
@@ -309,7 +309,7 @@ begin
 
   insert into public.buddy_research_narratives (mission_id, version, sections)
   values (
-    mission_id, 1,
+    v_mission_id, 1,
     jsonb_build_array(
       jsonb_build_object(
         'title', 'Market demand',
@@ -348,7 +348,7 @@ begin
   );
 
   insert into public.buddy_research_quality_gates (
-    mission_id, deal_id, trust_grade, gate_passed, quality_score,
+    v_mission_id, deal_id, trust_grade, gate_passed, quality_score,
     entity_lock_check, entity_confidence,
     thread_coverage_check, threads_succeeded, threads_failed,
     source_diversity_check, source_count, primary_source_count, secondary_source_count,
@@ -357,7 +357,7 @@ begin
     section_source_statuses, contradiction_checklist, evidence_quality,
     preliminary_eligible, committee_eligible, preliminary_basis, committee_blockers
   ) values (
-    mission_id, p_deal_id, 'A', true, 100,
+    v_mission_id, p_deal_id, 'A', true, 100,
     'pass', 1,
     'pass', 3, 0,
     'pass', 3, 2, 1,
@@ -375,7 +375,7 @@ begin
     '[]'::jsonb
   );
 
-  return mission_id;
+  return v_mission_id;
 end
 $$;
 
