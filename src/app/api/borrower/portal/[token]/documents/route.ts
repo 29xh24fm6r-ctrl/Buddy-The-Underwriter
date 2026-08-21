@@ -20,6 +20,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
+import { collapseDuplicateDocuments } from "@/lib/documents/collapseDuplicateDocuments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ type BorrowerDocumentRow = {
   checklist_key: string | null;
   created_at: string;
   size_bytes: number | null;
+  sha256: string | null;
   status: string | null;
   source: string | null;
 };
@@ -77,7 +79,7 @@ export async function GET(_req: NextRequest, ctx: Context) {
   const { data, error } = await sb
     .from("deal_documents")
     .select(
-      "id, original_filename, checklist_key, created_at, size_bytes, status, source",
+      "id, original_filename, checklist_key, created_at, size_bytes, sha256, status, source",
     )
     .eq("deal_id", context.dealId)
     .neq("status", "withdrawn")
@@ -92,19 +94,34 @@ export async function GET(_req: NextRequest, ctx: Context) {
     );
   }
 
+  const documents = ((data ?? []) as unknown as BorrowerDocumentRow[]).map((d) => ({
+    id: d.id,
+    filename: d.original_filename ?? "Document",
+    category: d.checklist_key ?? "other_supporting_document",
+    label: d.original_filename ?? "Document",
+    uploadedAt: d.created_at,
+    sizeBytes: d.size_bytes ?? null,
+    sha256: d.sha256 ?? null,
+    status: d.status ?? "uploaded",
+    // Only borrower-uploaded documents may be withdrawn by the borrower.
+    removable: d.source === "borrower_portal" || d.source === "borrower",
+  }));
+
+  // Fold repeat copies of the same file into one entry.
+  //
+  // Upload dedupe is keyed on sha256, which is NULL on every row written
+  // before the client started hashing — so it cannot see the six identical
+  // copies of 2025_TaxReturn.pdf on deal b296dec2, all 1,013,618 bytes,
+  // all sha256 NULL. Showing the borrower six of one document is what made
+  // them upload the sixth. collapseDuplicateDocuments falls back to
+  // filename+size when there is no hash to compare.
+  //
+  // Nothing is deleted: `copies` reports how many rows an entry stands for
+  // and `duplicateIds` carries the rest, so a withdraw can still reach
+  // them and the banker-facing views are unchanged.
   return NextResponse.json({
     ok: true,
-    documents: ((data ?? []) as unknown as BorrowerDocumentRow[]).map((d) => ({
-      id: d.id,
-      filename: d.original_filename ?? "Document",
-      category: d.checklist_key ?? "other_supporting_document",
-      label: d.original_filename ?? "Document",
-      uploadedAt: d.created_at,
-      sizeBytes: d.size_bytes ?? null,
-      status: d.status ?? "uploaded",
-      // Only borrower-uploaded documents may be withdrawn by the borrower.
-      removable: d.source === "borrower_portal" || d.source === "borrower",
-    })),
+    documents: collapseDuplicateDocuments(documents),
   });
 }
 
@@ -127,7 +144,7 @@ export async function DELETE(req: NextRequest, ctx: Context) {
   // document id and delete another borrower's file.
   const { data: doc } = await sb
     .from("deal_documents")
-    .select("id, source, deal_id")
+    .select("id, source, deal_id, original_filename, size_bytes, sha256")
     .eq("id", id)
     .eq("deal_id", context.dealId)
     .maybeSingle();
@@ -168,5 +185,50 @@ export async function DELETE(req: NextRequest, ctx: Context) {
     );
   }
 
-  return NextResponse.json({ ok: true });
+  // The GET above collapses identical copies into one entry, so the row the
+  // borrower just removed may have been standing in for several. Withdrawing
+  // only the visible one would make a duplicate reappear in its place — from
+  // the borrower's side, a delete that did nothing. Withdraw the whole group.
+  //
+  // Scoped exactly as the visible delete is: same deal, borrower-uploaded
+  // only, so this can never reach a document an advisor added.
+  const target = doc as unknown as Pick<
+    BorrowerDocumentRow,
+    "original_filename" | "size_bytes" | "sha256"
+  >;
+  const siblings = sb
+    .from("deal_documents")
+    .select("id")
+    .eq("deal_id", context.dealId)
+    .neq("id", id)
+    .neq("status", "withdrawn")
+    .in("source", ["borrower", "borrower_portal"]);
+
+  const { data: duplicateRows } = target.sha256
+    ? await siblings.eq("sha256", target.sha256)
+    : target.original_filename && target.size_bytes
+      ? await siblings
+          .is("sha256", null)
+          .eq("original_filename", target.original_filename)
+          .eq("size_bytes", target.size_bytes)
+      : { data: [] };
+
+  const duplicateIds = ((duplicateRows ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (duplicateIds.length > 0) {
+    const { error: duplicateError } = await sb
+      .from("deal_documents")
+      .update({ status: "withdrawn", updated_at: new Date().toISOString() })
+      .in("id", duplicateIds)
+      .eq("deal_id", context.dealId);
+    if (duplicateError) {
+      // Non-fatal — the row they pointed at IS gone. Logged because a
+      // surviving duplicate is what makes the delete look broken.
+      console.error(
+        "[borrower/documents] duplicate withdraw failed",
+        duplicateError.message,
+      );
+    }
+  }
+
+  return NextResponse.json({ ok: true, alsoWithdrew: duplicateIds.length });
 }

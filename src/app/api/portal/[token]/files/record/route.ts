@@ -13,7 +13,10 @@ import { initializeIntake } from "@/lib/deals/intake/initializeIntake";
 import { validateUploadSession } from "@/lib/uploads/uploadSession";
 import { queueArtifact } from "@/lib/artifacts/queueArtifact";
 import { gcsObjectExists } from "@/lib/storage/gcs";
-import { findExistingDocBySha } from "@/lib/storage/dedupe";
+import {
+  findExistingDocBySha,
+  findExistingDocByNameAndSize,
+} from "@/lib/storage/dedupe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -394,8 +397,24 @@ export async function POST(req: NextRequest, ctx: Context) {
     // one with sha256 NULL, because the borrower could not see what they had
     // already sent and kept re-sending it. The client now computes the hash
     // (see uploadBorrowerFile), so this check has something to match on.
-    if (sha256) {
-      const duplicate = await findExistingDocBySha({ sb, dealId, sha256 });
+    //
+    // The hash only sees rows that HAVE a hash. Every row written before
+    // the client started hashing has sha256 NULL, so on deal b296dec2 —
+    // six copies of 2025_TaxReturn.pdf, all sha256 NULL — a seventh upload
+    // still matched nothing. findExistingDocByNameAndSize covers exactly
+    // that gap: a hash-less row on this deal with the identical filename
+    // and byte count is the same file. It never touches a row that has a
+    // hash, so a genuinely corrected re-upload under the same name is
+    // still accepted as new.
+    {
+      const duplicate =
+        (sha256 ? await findExistingDocBySha({ sb, dealId, sha256 }) : null) ??
+        (await findExistingDocByNameAndSize({
+          sb,
+          dealId,
+          filename: original_filename,
+          sizeBytes: size_bytes ?? null,
+        }));
       if (duplicate) {
         await logLedgerEvent({
           dealId,

@@ -261,6 +261,68 @@ test("ownership_entities: spelling variants of one owner do NOT create duplicate
   );
 });
 
+test("ownership_entities: a nickname of an existing owner does NOT create a duplicate", async () => {
+  // The follow-on production regression. Normalized matching (lowercase +
+  // strip whitespace) fixed the spelling variants above but still said
+  // "matthewpaller" !== "mattpaller", so deal b296dec2 grew a THIRD owner
+  // row — "matt paller", 49%, created 2026-08-21 — taking the cap table to
+  // 149%. Matching now compares names as names, not as strings.
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "d1", loan_amount: null, loan_type: null, state: null, borrower_id: null }],
+    borrower_applications: [],
+    deal_financial_facts: [],
+    ownership_entities: [
+      { id: "oe1", deal_id: "d1", display_name: "Sebrina Colon", ownership_pct: 51, date_of_birth: null },
+      { id: "oe2", deal_id: "d1", display_name: "Matthew Paller", ownership_pct: 49, date_of_birth: null },
+    ],
+    deal_loan_requests: [],
+    borrower_applicant_financials: [],
+  };
+  const db = makeDb(tables);
+
+  await propagateBorrowerFacts({
+    dealId: "d1",
+    bankId: "bank1",
+    facts: { owners: [{ full_name: "matt paller", ownership_pct: 49 }] },
+    sb: db as any,
+  });
+
+  assert.equal(
+    tables.ownership_entities.length,
+    2,
+    `"matt paller" must land on the existing "Matthew Paller" row, got ${tables.ownership_entities.length} rows`,
+  );
+  // A background propagation must not rename someone either — the borrower
+  // confirms near matches in the ownership step.
+  assert.equal(tables.ownership_entities[1].display_name, "Matthew Paller");
+});
+
+test("ownership_entities: two siblings sharing a surname stay separate owners", async () => {
+  // The guardrail on the fix above. Merging on surname alone would collapse
+  // Matthew and Michael Paller into one owner and silently delete a real
+  // guarantor from the cap table.
+  const tables: Record<string, Row[]> = {
+    deals: [{ id: "d1", loan_amount: null, loan_type: null, state: null, borrower_id: null }],
+    borrower_applications: [],
+    deal_financial_facts: [],
+    ownership_entities: [
+      { id: "oe1", deal_id: "d1", display_name: "Matthew Paller", ownership_pct: 50, date_of_birth: null },
+    ],
+    deal_loan_requests: [],
+    borrower_applicant_financials: [],
+  };
+  const db = makeDb(tables);
+
+  await propagateBorrowerFacts({
+    dealId: "d1",
+    bankId: "bank1",
+    facts: { owners: [{ full_name: "Michael Paller", ownership_pct: 50 }] },
+    sb: db as any,
+  });
+
+  assert.equal(tables.ownership_entities.length, 2, "Michael must get his own row");
+});
+
 test("ownership_entities: pre-existing duplicates do not trigger further inserts", async () => {
   // Once duplicates existed, `.maybeSingle()` errored on multiple rows, the
   // error was swallowed, and the insert branch ran again — compounding on

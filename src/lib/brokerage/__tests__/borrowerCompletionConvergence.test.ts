@@ -60,8 +60,25 @@ test("ownership intake persists named owners before advancing", () => {
   assert.match(panel, /action: "save_ownership"/);
   assert.match(panel, /if \(saved\) onContinue/);
   assert.match(route, /handleSaveOwnership/);
-  assert.match(route, /Math\.abs\(totalOwnership - 100\)/);
   assert.match(route, /propagateBorrowerFacts/);
+
+  // The 100%-total rule used to be an inline `Math.abs(totalOwnership -
+  // 100)` here. It now lives in summarizeOwnership, shared with the intake
+  // form's live warning and the sealing gate, so all three agree on the
+  // arithmetic instead of each re-deriving it. Same rule, one definition.
+  assert.match(route, /summarizeOwnership/);
+  assert.match(route, /ownershipSummary\.ok/);
+
+  // The step must be able to EDIT and DELETE, not just create — a typo was
+  // permanent before this, and deal b296dec2 sat at 149% with no
+  // borrower-reachable way back.
+  assert.match(panel, /action: "list_ownership"/);
+  assert.match(panel, /action: "delete_owner"/);
+  assert.match(route, /handleListOwnership/);
+  assert.match(route, /handleDeleteOwner/);
+  // Reconciliation is what makes a removal stick: fill-if-null propagation
+  // can create an owner but can never correct or remove one.
+  assert.match(route, /reconcileDealOwners/);
 });
 
 test("confirmed assumptions are revalidated before Trident generation", () => {

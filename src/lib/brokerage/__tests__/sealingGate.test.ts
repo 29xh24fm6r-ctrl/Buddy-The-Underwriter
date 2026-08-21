@@ -206,14 +206,26 @@ test("multiple blockers accumulated", async () => {
 // Ticket 2 (SPEC-BROKERAGE-SBA-READY-V1) — identity verification gate.
 test("owner below 20% ownership does not require IAL2", async () => {
   resetHappy();
-  state.owners = [{ id: "owner-minor", display_name: "Minor Owner", ownership_pct: 10 }];
+  // The majority holder is verified; only the 10% holder is not. A cap
+  // table that adds to 100% is used deliberately — a lone 10% owner would
+  // now be blocked by the ownership-total gate, which is a different rule
+  // than the one under test here.
+  state.owners = [
+    { id: "owner-minor", display_name: "Minor Owner", ownership_pct: 10 },
+    { id: "owner-major", display_name: "Major Owner", ownership_pct: 90 },
+  ];
+  state.verifiedOwnerIds = new Set(["owner-major"]);
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, true);
 });
 
 test("owner at/above 20% ownership without IAL2 blocks", async () => {
   resetHappy();
-  state.owners = [{ id: "owner-major", display_name: "Major Owner", ownership_pct: 25 }];
+  state.owners = [
+    { id: "owner-major", display_name: "Major Owner", ownership_pct: 25 },
+    { id: "owner-rest", display_name: "Other Owner", ownership_pct: 75 },
+  ];
+  state.verifiedOwnerIds = new Set(["owner-rest"]);
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, false);
   if (!r.ok)
@@ -222,8 +234,71 @@ test("owner at/above 20% ownership without IAL2 blocks", async () => {
 
 test("owner at/above 20% ownership with completed IAL2 does not block", async () => {
   resetHappy();
-  state.owners = [{ id: "owner-major", display_name: "Major Owner", ownership_pct: 25 }];
-  state.verifiedOwnerIds = new Set(["owner-major"]);
+  state.owners = [
+    { id: "owner-major", display_name: "Major Owner", ownership_pct: 25 },
+    { id: "owner-rest", display_name: "Other Owner", ownership_pct: 75 },
+  ];
+  state.verifiedOwnerIds = new Set(["owner-major", "owner-rest"]);
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, true);
+});
+
+// ─── Ownership totals (the 149% gate) ───────────────────────────────────
+
+test("REGRESSION b296dec2: a 149% cap table blocks sealing", async () => {
+  resetHappy();
+  state.owners = [
+    { id: "oe1", display_name: "Sebrina Colon", ownership_pct: 51 },
+    { id: "oe2", display_name: "Matthew Paller", ownership_pct: 49 },
+    { id: "oe3", display_name: "matt paller", ownership_pct: 49 },
+  ];
+  state.verifiedOwnerIds = new Set(["oe1", "oe2", "oe3"]);
+
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false, "149% must never reach a lender");
+  if (!r.ok) {
+    assert.ok(r.reasons.some((s) => s.includes("149%")), r.reasons.join(" | "));
+    // The duplicate is named, so the borrower fixes it in one step.
+    assert.ok(
+      r.reasons.some((s) => s.includes("Matthew Paller") && s.includes("matt paller")),
+      r.reasons.join(" | "),
+    );
+  }
+});
+
+test("an under-100 cap table blocks — a missing owner is an unidentified guarantor", async () => {
+  resetHappy();
+  state.owners = [
+    { id: "oe1", display_name: "Sebrina Colon", ownership_pct: 51 },
+    { id: "oe2", display_name: "Matthew Paller", ownership_pct: 39 },
+  ];
+  state.verifiedOwnerIds = new Set(["oe1", "oe2"]);
+
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("unaccounted for")));
+});
+
+test("a duplicate blocks even when the percentages happen to total 100", async () => {
+  resetHappy();
+  state.owners = [
+    { id: "oe1", display_name: "Matthew Paller", ownership_pct: 50 },
+    { id: "oe2", display_name: "matt paller", ownership_pct: 50 },
+  ];
+  state.verifiedOwnerIds = new Set(["oe1", "oe2"]);
+
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("same person")));
+});
+
+test("owners with no percentages recorded do NOT manufacture a total blocker", async () => {
+  // Missing data the borrower was never asked for is not a wrong total.
+  resetHappy();
+  state.owners = [
+    { id: "oe1", display_name: "Sebrina Colon", ownership_pct: null as unknown as number },
+    { id: "oe2", display_name: "Matthew Paller", ownership_pct: null as unknown as number },
+  ];
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, true);
 });

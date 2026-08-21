@@ -17,6 +17,7 @@ import {
   type BorrowerFieldEntry,
 } from "@/lib/sba/forms/borrowerFieldRegistry";
 import { computeApplicableForms } from "@/lib/sba/forms/applicability";
+import { compareOwnerNames } from "@/lib/ownership/ownerNameMatch";
 
 function jsonTypeHint(entry: BorrowerFieldEntry): string {
   if (entry.type === "number") return "number | null";
@@ -608,11 +609,23 @@ export function deepMerge(
   return out;
 }
 
-/** Merges an array of {matchKey: value, ...} objects by matchKey — later turns update the matched entry in place instead of replacing the whole array. */
+/**
+ * Merges an array of {matchKey: value, ...} objects by matchKey — later
+ * turns update the matched entry in place instead of replacing the whole
+ * array.
+ *
+ * `sameKey` decides what "already present" means. It defaults to string
+ * equality, which is right for entity legal names but wrong for people:
+ * a borrower who says "Matt Paller" in a later turn after saying "Matthew
+ * Paller" earlier is the same owner, and appending a second entry is how
+ * duplicate owners reach ownership_entities in the first place (deal
+ * b296dec2, 149% across three rows for two people).
+ */
 function mergeFactArray(
   existing: unknown,
   incoming: unknown,
   matchKey: string,
+  sameKey: (a: unknown, b: unknown) => boolean = (a, b) => a === b,
 ): Array<Record<string, unknown>> {
   const existingArr = Array.isArray(existing) ? (existing as Array<Record<string, unknown>>) : [];
   const incomingArr = Array.isArray(incoming) ? (incoming as Array<Record<string, unknown>>) : [];
@@ -622,9 +635,12 @@ function mergeFactArray(
   for (const item of incomingArr) {
     if (typeof item !== "object" || item === null) continue;
     const key = (item as Record<string, unknown>)[matchKey];
-    const idx = key ? merged.findIndex((m) => m?.[matchKey] === key) : -1;
+    const idx = key ? merged.findIndex((m) => sameKey(m?.[matchKey], key)) : -1;
     if (idx >= 0) {
-      merged[idx] = deepMerge(merged[idx], item);
+      // The stored spelling wins on a near match: the borrower confirms
+      // renames in the ownership step, and a chat turn is not the place
+      // to rewrite a name they already reviewed.
+      merged[idx] = { ...deepMerge(merged[idx], item), [matchKey]: merged[idx]?.[matchKey] ?? key };
     } else {
       merged.push(item);
     }
@@ -644,7 +660,12 @@ export function mergeExtractedFacts(
   incoming: Record<string, unknown>,
 ): Record<string, unknown> {
   const merged = deepMerge(existing, incoming);
-  merged.owners = mergeFactArray(existing?.owners, incoming?.owners, "full_name");
+  merged.owners = mergeFactArray(
+    existing?.owners,
+    incoming?.owners,
+    "full_name",
+    (a, b) => compareOwnerNames(a as string, b as string) !== null,
+  );
   merged.entities = mergeFactArray(existing?.entities, incoming?.entities, "legal_name");
   return merged;
 }

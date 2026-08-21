@@ -8,6 +8,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ownersNeedingIal2 } from "@/lib/brokerage/identityVerificationGate";
+import { summarizeOwnership } from "@/lib/ownership/ownershipTotals";
 
 export type SealabilityResult =
   | { ok: true }
@@ -108,6 +109,45 @@ export async function canSeal(
     reasons.push(
       `${owner.display_name ?? "An owner"} has not completed identity verification yet.`,
     );
+  }
+
+  // 7. The cap table has to add up.
+  //
+  // handleSaveOwnership validates the 100% total of the payload it is
+  // handed, but nothing checked the total of what the database actually
+  // HOLDS — so a total that only goes wrong afterwards never got caught.
+  // Deal b296dec2 reached 149% (Sebrina Colon 51%, Matthew Paller 49%, and
+  // a duplicate "matt paller" 49% inserted two days later) and would have
+  // sealed at 149% had the identity blockers not happened to stop it.
+  //
+  // 149% must never reach a lender: a cap table that does not total 100%
+  // is either missing an owner — an unidentified guarantor — or
+  // double-counting one, and both are SBA decline grounds. Same-person
+  // duplicates are reported by name so the fix is one edit, not a hunt.
+  //
+  // Deliberately non-fatal on a read failure: a Supabase outage should not
+  // manufacture a sealing blocker out of nothing. summarizeOwnership's
+  // `indeterminate` case (owner rows exist but no percentages were ever
+  // recorded) is likewise not a blocker — that is missing data the
+  // borrower was never asked for, not a wrong total.
+  const { data: ownerRows, error: ownerRowsError } = await sb
+    .from("ownership_entities")
+    .select("display_name, ownership_pct")
+    .eq("deal_id", dealId);
+
+  if (!ownerRowsError && ownerRows && ownerRows.length > 0) {
+    const summary = summarizeOwnership(
+      ownerRows as Array<{ display_name: string | null; ownership_pct: number | null }>,
+    );
+    for (const issue of summary.issues) {
+      if (issue.code === "no_owners") continue;
+      // A duplicate owner blocks whether or not percentages were recorded
+      // — it is a second identity-verification blocker for one human
+      // either way. Only the arithmetic is skipped when there is no
+      // arithmetic to do.
+      if (issue.code === "total_mismatch" && summary.indeterminate) continue;
+      reasons.push(issue.message);
+    }
   }
 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };

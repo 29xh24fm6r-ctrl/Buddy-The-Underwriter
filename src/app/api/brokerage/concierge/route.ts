@@ -42,6 +42,12 @@ import {
   type BorrowerFacts,
 } from "@/lib/brokerage/propagateBorrowerFacts";
 import {
+  reconcileDealOwners,
+  ownerRemovalBlocker,
+} from "@/lib/ownership/reconcileDealOwners";
+import { summarizeOwnership } from "@/lib/ownership/ownershipTotals";
+import { compareOwnerNames } from "@/lib/ownership/ownerNameMatch";
+import {
   buildCombinedConciergeTurnPromptJSON,
   mergeExtractedFacts,
   deepMerge,
@@ -83,18 +89,36 @@ type CorrectFactRequest = { factPath: string; value?: unknown };
 type SaveOwnershipRequest = {
   action: "save_ownership";
   structure: "solo" | "multi";
-  owners: Array<{ full_name: string; ownership_pct: number }>;
+  /**
+   * The COMPLETE cap table, not a delta. `id` names an existing
+   * ownership_entities row to rename or re-weight; an owner without one is
+   * new. Owners the deal already holds that are absent from this list are
+   * removed — that is what makes a typo recoverable instead of permanent.
+   */
+  owners: Array<{ id?: string | null; full_name: string; ownership_pct: number }>;
 };
+type ListOwnershipRequest = { action: "list_ownership" };
+type DeleteOwnerRequest = { action: "delete_owner"; ownerId: string };
 
 export async function POST(req: NextRequest): Promise<Response> {
   try {
     const body = (await req.json()) as
       | ConciergeRequest
       | CorrectFactRequest
-      | SaveOwnershipRequest;
+      | SaveOwnershipRequest
+      | ListOwnershipRequest
+      | DeleteOwnerRequest;
 
     if ("action" in body && body.action === "save_ownership") {
       return handleSaveOwnership(body);
+    }
+
+    if ("action" in body && body.action === "list_ownership") {
+      return handleListOwnership();
+    }
+
+    if ("action" in body && body.action === "delete_owner") {
+      return handleDeleteOwner(body);
     }
 
     // Method-merged onto this route (rather than a new route.ts file) to
@@ -894,6 +918,7 @@ async function handleSaveOwnership(
   }
 
   const owners = (body.owners ?? []).map((owner) => ({
+    id: typeof owner.id === "string" && owner.id ? owner.id : null,
     full_name: String(owner.full_name ?? "").trim(),
     ownership_pct: Number(owner.ownership_pct),
   }));
@@ -904,24 +929,44 @@ async function handleSaveOwnership(
       owner.ownership_pct <= 0 ||
       owner.ownership_pct > 100,
   );
-  const totalOwnership = owners.reduce(
-    (sum, owner) => sum + owner.ownership_pct,
-    0,
-  );
   if (
     !["solo", "multi"].includes(body.structure) ||
     invalidOwner ||
     owners.length === 0 ||
     (body.structure === "solo" &&
       (owners.length !== 1 || owners[0].ownership_pct !== 100)) ||
-    (body.structure === "multi" && owners.length < 2) ||
-    Math.abs(totalOwnership - 100) > 0.01
+    (body.structure === "multi" && owners.length < 2)
   ) {
     return NextResponse.json(
       {
         ok: false,
         error: "invalid_ownership",
         detail: "Owner names are required and ownership must total 100%.",
+      },
+      { status: 422 },
+    );
+  }
+
+  // The cap table has to add up, and no person may appear twice. Both are
+  // checked with summarizeOwnership — the same arithmetic the intake form
+  // warns with and the sealing gate blocks on — so the borrower cannot be
+  // shown "ownership totals 100%" by one component and refused by another.
+  // Deal b296dec2 reached 149% across three rows for two people; a total
+  // that is not 100% is either a missing guarantor or a double-counted
+  // one, and neither may reach a lender.
+  const ownershipSummary = summarizeOwnership(
+    owners.map((owner) => ({
+      display_name: owner.full_name,
+      ownership_pct: owner.ownership_pct,
+    })),
+  );
+  if (!ownershipSummary.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "invalid_ownership",
+        detail: ownershipSummary.issues.map((i) => i.message).join(" "),
+        issues: ownershipSummary.issues,
       },
       { status: 422 },
     );
@@ -949,7 +994,15 @@ async function handleSaveOwnership(
         last_name: primaryName.slice(1).join(" "),
       },
       ownership: { structure: body.structure },
-      owners,
+      // deepMerge replaces arrays wholesale, so this drops owners the
+      // borrower removed. That matters: leaving a deleted owner in
+      // extracted_facts would have propagateBorrowerFacts re-insert them
+      // on the very next chat turn, which is exactly how a "removed"
+      // owner comes back from the dead.
+      owners: owners.map((owner) => ({
+        full_name: owner.full_name,
+        ownership_pct: owner.ownership_pct,
+      })),
     },
   );
 
@@ -959,6 +1012,35 @@ async function handleSaveOwnership(
     .eq("id", conciergeRow.id);
   if (error) {
     return NextResponse.json({ ok: false, error: "save_failed" }, { status: 500 });
+  }
+
+  // Make ownership_entities match what the borrower just submitted —
+  // renames, re-weightings and removals included.
+  //
+  // This runs BEFORE propagation on purpose. propagateBorrowerFacts is
+  // fill-if-null and insert-if-missing by design: it can create an owner
+  // and fill a blank column, but it can never correct a wrong value and
+  // never removes anything. Left to it alone, a borrower fixing "matt
+  // paller" to "Matthew Paller" would keep both rows forever — which is
+  // precisely how deal b296dec2 reached 149%. Reconciling first also means
+  // propagation then matches the corrected rows and only fills the columns
+  // this step does not own.
+  const reconciliation = await reconcileDealOwners({
+    sb,
+    dealId: session.deal_id,
+    owners,
+  });
+  if (reconciliation.errors.length > 0) {
+    console.error("[concierge/save-ownership] reconcile failed", reconciliation.errors);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "ownership_save_failed",
+        detail:
+          "We saved your answers but could not update the owner list. Please try again.",
+      },
+      { status: 500 },
+    );
   }
 
   const brokerageBankId = await getBrokerageBankId();
@@ -975,7 +1057,184 @@ async function handleSaveOwnership(
     );
   }
 
-  return NextResponse.json({ ok: true, owners, extractedFacts: updatedFacts });
+  return NextResponse.json({
+    ok: true,
+    owners: reconciliation.owners,
+    // Owners the borrower dropped that could NOT be removed — they have a
+    // signature, stored PII or a generated package behind them. Surfaced
+    // rather than swallowed so the UI can say who and why instead of
+    // showing a list that silently disagrees with the database.
+    retained: reconciliation.retained,
+    extractedFacts: updatedFacts,
+  });
+}
+
+/**
+ * The deal's current individual owners, so the ownership step can show what
+ * is already on file instead of rendering a blank form every visit.
+ *
+ * Without this the step was create-only: a returning borrower saw an empty
+ * cap table, re-entered it, and got a second set of rows. It also carries
+ * `removable`, so the UI can offer Delete only where a delete would
+ * actually succeed.
+ */
+async function handleListOwnership(): Promise<NextResponse> {
+  const session = await getBorrowerSession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const sb = supabaseAdmin();
+  const { data, error } = await sb
+    .from("ownership_entities")
+    .select("id, display_name, ownership_pct, entity_type")
+    .eq("deal_id", session.deal_id)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("[concierge/list-ownership] load failed", error.message);
+    return NextResponse.json(
+      { ok: false, error: "load_failed" },
+      { status: 500 },
+    );
+  }
+
+  const rows = ((data ?? []) as Array<{
+    id: string;
+    display_name: string | null;
+    ownership_pct: number | string | null;
+    entity_type: string | null;
+  }>).filter((row) => (row.entity_type ?? "individual") === "individual");
+
+  const owners = await Promise.all(
+    rows.map(async (row) => {
+      const blocker = await ownerRemovalBlocker(sb, row.id);
+      return {
+        id: row.id,
+        full_name: row.display_name ?? "",
+        ownership_pct: row.ownership_pct == null ? null : Number(row.ownership_pct),
+        removable: blocker === null,
+        notRemovableReason: blocker,
+      };
+    }),
+  );
+
+  return NextResponse.json({
+    ok: true,
+    owners,
+    summary: summarizeOwnership(
+      rows.map((row) => ({
+        display_name: row.display_name,
+        ownership_pct: row.ownership_pct,
+      })),
+    ),
+  });
+}
+
+/**
+ * Remove one owner outright.
+ *
+ * save_ownership already removes owners left out of a submitted cap table,
+ * but that path requires the remaining owners to total 100% — and a
+ * borrower who has just noticed a duplicate 49% row is, by definition, at
+ * 149% and cannot submit anything. Deleting has to work while the cap
+ * table is still wrong, or the typo stays permanent.
+ *
+ * extracted_facts is pruned in the same request. Skipping that would let
+ * the next chat turn's propagation re-insert the very row just deleted.
+ */
+async function handleDeleteOwner(body: DeleteOwnerRequest): Promise<NextResponse> {
+  const session = await getBorrowerSession();
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const ownerId = typeof body.ownerId === "string" ? body.ownerId.trim() : "";
+  if (!ownerId) {
+    return NextResponse.json({ ok: false, error: "missing_owner_id" }, { status: 400 });
+  }
+
+  const sb = supabaseAdmin();
+
+  // Scope the lookup to THIS deal — without it any owner id from any deal
+  // could be deleted by anyone holding a borrower session.
+  const { data: owner } = await sb
+    .from("ownership_entities")
+    .select("id, display_name")
+    .eq("id", ownerId)
+    .eq("deal_id", session.deal_id)
+    .maybeSingle();
+
+  if (!owner) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  const displayName = (owner as { display_name: string | null }).display_name ?? "That owner";
+
+  const blocker = await ownerRemovalBlocker(sb, ownerId);
+  if (blocker) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "not_removable",
+        detail: `${displayName} can't be removed here because ${blocker}. Message your advisor and they'll take care of it.`,
+      },
+      { status: 409 },
+    );
+  }
+
+  const { error: deleteError } = await sb
+    .from("ownership_entities")
+    .delete()
+    .eq("id", ownerId)
+    .eq("deal_id", session.deal_id);
+
+  if (deleteError) {
+    console.error("[concierge/delete-owner] delete failed", deleteError.message);
+    return NextResponse.json(
+      { ok: false, error: "delete_failed", detail: `Could not remove ${displayName}.` },
+      { status: 500 },
+    );
+  }
+
+  const { data: conciergeRow } = await sb
+    .from("borrower_concierge_sessions")
+    .select("id, extracted_facts")
+    .eq("deal_id", session.deal_id)
+    .maybeSingle();
+
+  if (conciergeRow?.id) {
+    const facts = ((conciergeRow.extracted_facts as Record<string, unknown>) ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const factOwners = Array.isArray(facts.owners)
+      ? (facts.owners as Array<Record<string, unknown>>)
+      : [];
+    const prunedOwners = factOwners.filter(
+      (o) => compareOwnerNames(String(o?.full_name ?? ""), displayName) === null,
+    );
+    if (prunedOwners.length !== factOwners.length) {
+      const { error: factsError } = await sb
+        .from("borrower_concierge_sessions")
+        .update({
+          extracted_facts: { ...facts, owners: prunedOwners },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", conciergeRow.id);
+      if (factsError) {
+        // Non-fatal: the row is gone, which is what the borrower asked
+        // for. Say so loudly, because a stale facts entry means the next
+        // propagation puts them back.
+        console.error(
+          "[concierge/delete-owner] extracted_facts prune failed",
+          factsError.message,
+        );
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, removed: displayName });
 }
 
 /**

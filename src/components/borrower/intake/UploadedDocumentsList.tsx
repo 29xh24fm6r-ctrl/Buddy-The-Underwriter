@@ -24,6 +24,13 @@ type BorrowerDocument = {
   uploadedAt: string | null;
   sizeBytes: number | null;
   status: string;
+  /**
+   * How many stored rows this entry stands for. The route collapses
+   * identical copies (same sha256, or same filename+size when the older
+   * rows have no hash), so deal b296dec2's six copies of
+   * 2025_TaxReturn.pdf arrive as one entry with copies: 6.
+   */
+  copies?: number;
 };
 
 function formatSize(bytes: number | null): string {
@@ -130,9 +137,17 @@ export function UploadedDocumentsList({
                   {d.label}
                 </span>
               </div>
-              {meta && (
-                <span className="shrink-0 text-xs text-slate-500">{meta}</span>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                {(d.copies ?? 1) > 1 && (
+                  <span
+                    className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                    title={`You sent this file ${d.copies} times — we're only counting it once.`}
+                  >
+                    sent {d.copies}×
+                  </span>
+                )}
+                {meta && <span className="text-xs text-slate-500">{meta}</span>}
+              </div>
             </li>
           );
         })}

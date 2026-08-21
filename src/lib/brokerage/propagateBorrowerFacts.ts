@@ -28,6 +28,10 @@ import {
   fieldsForScope,
   type BorrowerFieldEntry,
 } from "@/lib/sba/forms/borrowerFieldRegistry";
+import {
+  findOwnerNameMatch,
+  ownerNameKey,
+} from "@/lib/ownership/ownerNameMatch";
 
 export type BorrowerFacts = {
   borrower?: {
@@ -282,6 +286,15 @@ export async function propagateBorrowerFacts(params: {
   //      inserted a NEW owner. Fixed by loading the deal's owners once and
   //      matching on a normalized name in memory.
   //
+  //      That normalized key — lowercase + strip whitespace — was still too
+  //      weak. It says "matthewpaller" ≠ "mattpaller", so deal b296dec2
+  //      grew a THIRD owner row ("matt paller", 49%) two days after the
+  //      first two, taking the cap table to 149%. Matching now goes
+  //      through ownerNameMatch.ts, which treats a nickname or a ≥3-char
+  //      prefix of the given name as the same person when the family name
+  //      agrees. See that module for why a bare initial deliberately does
+  //      NOT match (it would merge Matthew and Michael Paller).
+  //
   //   2. THE SELECT NEVER SUCCEEDED. Its column list was built from the raw
   //      fieldsForScope("owner"), which carries two entries (full_ssn,
   //      spouse_full_ssn) whose sourceTable is deal_pii_records and whose
@@ -309,10 +322,6 @@ export async function propagateBorrowerFacts(params: {
     (e) => e.sourceTable === "ownership_entities",
   );
 
-  /** Case- and whitespace-insensitive identity for owner names. */
-  const normalizeOwnerName = (name: string): string =>
-    name.toLowerCase().replace(/\s+/g, "");
-
   // Deduped: `display_name` is both a registry-backed column and one we ask
   // for explicitly, and a repeated column is what broke the select before.
   const ownerSelectColumns = [
@@ -323,7 +332,16 @@ export async function propagateBorrowerFacts(params: {
     ]),
   ];
 
-  const existingOwnerByName = new Map<string, Record<string, unknown>>();
+  // Every owner row this deal already holds, in load order. Matching walks
+  // this list rather than a name-keyed map because same-person identity is
+  // a comparison, not a lookup: "matt paller" has no key that "Matthew
+  // Paller" would also produce. Load order matters — findOwnerNameMatch
+  // returns the FIRST near match, so repeated runs converge on the oldest
+  // row instead of ping-ponging between duplicates that already exist.
+  const existingOwnerRowsForMatch: Array<
+    Record<string, unknown> & { display_name?: string | null }
+  > = [];
+  const seenOwnerKeys = new Set<string>();
   // Degraded: we know WHICH owners exist but not their column values, so we
   // may insert a missing owner but must not fill-if-null an existing one —
   // every column would look null and we would overwrite banker-set values.
@@ -343,10 +361,12 @@ export async function propagateBorrowerFacts(params: {
         ? [rows as Record<string, unknown>]
         : [];
     for (const row of list) {
-      const key = normalizeOwnerName(String(row.display_name ?? ""));
-      // Keep the FIRST match so repeated runs converge on one canonical row
-      // rather than ping-ponging between duplicates that already exist.
-      if (key && !existingOwnerByName.has(key)) existingOwnerByName.set(key, row);
+      const key = ownerNameKey(String(row.display_name ?? ""));
+      if (!key || seenOwnerKeys.has(key)) continue;
+      seenOwnerKeys.add(key);
+      existingOwnerRowsForMatch.push(
+        row as Record<string, unknown> & { display_name?: string | null },
+      );
     }
   };
 
@@ -396,8 +416,18 @@ export async function propagateBorrowerFacts(params: {
       continue;
     }
     try {
-      const existingRow =
-        existingOwnerByName.get(normalizeOwnerName(fullName)) ?? null;
+      const match = findOwnerNameMatch(fullName, existingOwnerRowsForMatch);
+      const existingRow = match?.row ?? null;
+
+      if (match?.kind === "near") {
+        // Same person, different spelling. Keep the row and keep its
+        // EXISTING display_name: the borrower confirms near matches in the
+        // intake UI, and a background propagation is not the place to
+        // rename someone. The one thing it must not do is insert.
+        skipped.push(
+          `ownership_entities(${fullName} → ${String(existingRow?.display_name ?? "existing owner")}, near-name match)`,
+        );
+      }
 
       if (existingRow?.id) {
         ownerIdByName.set(fullName, String(existingRow.id));
@@ -440,10 +470,11 @@ export async function propagateBorrowerFacts(params: {
             ownerIdByName.set(fullName, String(inserted.id));
             // Register immediately so another spelling of the same person
             // later in this same payload updates instead of inserting.
-            existingOwnerByName.set(normalizeOwnerName(fullName), {
+            existingOwnerRowsForMatch.push({
               id: inserted.id,
               display_name: fullName,
             });
+            seenOwnerKeys.add(ownerNameKey(fullName));
           }
         }
       }
