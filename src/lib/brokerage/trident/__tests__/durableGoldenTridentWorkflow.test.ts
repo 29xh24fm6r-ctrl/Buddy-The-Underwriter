@@ -67,10 +67,28 @@ test("the factory creates canonical credit artifacts and preserves failures", ()
 });
 
 test("production commissioning cannot reuse stale evidence or bypass validation", () => {
-  assert.match(fixture, /golden-trident-qa-v4/);
-  assert.doesNotMatch(fixture, /golden-trident-qa-v3/);
+  assert.match(fixture, /golden-trident-qa-v5/);
+  assert.match(fixture, /ensureGovernedMarketEvidence/);
+  assert.match(fixture, /Fort Worth population is approximately 978,000/);
+  assert.match(fixture, /Median household income is approximately \$79,000/);
+  assert.match(fixture, /unemployment is approximately 4\.1%/);
   assert.match(readiness, /Run the AI assessment and deterministic validation/);
   assert.match(readiness, /else if \(!validationStatus\)/);
+});
+
+test("artifact retries reuse durable upstream checkpoints", () => {
+  assert.match(generator, /completedBusinessPlanPath/);
+  assert.match(generator, /resumedSbaPackageId && completedBusinessPlanPath/);
+  assert.match(generator, /existing\.projections_xlsx_path/);
+  assert.match(generator, /current_stage: "feasibility_review"/);
+  assert.match(generator, /reviewFeasibilityWithRetry/);
+  assert.match(generator, /timed\?\\s\*out\|timeout\|429/);
+  assert.match(generator, /retrying review only/);
+  assert.ok(
+    generator.indexOf("source_feasibility_id: sourceFeasibilityId") <
+      generator.indexOf("await enrichFeasibilityStudy"),
+    "the generated feasibility study must be checkpointed before external review",
+  );
 });
 
 test("brokerage artifacts use scoped deal tenancy without a false strict mismatch probe", () => {
