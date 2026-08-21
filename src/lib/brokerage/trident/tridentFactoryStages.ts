@@ -92,6 +92,7 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
     return;
   }
   await writeStage(args, "canonical_credit", "running");
+  let failureDetail: Record<string, unknown> = {};
   try {
     await assertFrozen(args);
     const memo = await generateCanonicalMemoArtifact({
@@ -100,7 +101,31 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
       forceRegenerate: false,
       executionContext: "system",
     });
-    if (!memo.ok) throw new FatalError(memo.error);
+    if (!memo.ok) {
+      const verification =
+        "verification" in memo && memo.verification ? memo.verification : null;
+      const findings = verification?.flaggedClaims ?? [];
+      const findingSummary = findings
+        .slice(0, 3)
+        .map((finding) =>
+          `${finding.severity}: ${finding.reason}`.slice(0, 240),
+        );
+      const message =
+        memo.error + (findingSummary.length > 0 ? ` — ${findingSummary.join(" | ")}` : "");
+      failureDetail = {
+        verification: verification
+          ? {
+              verdict: verification.verdict,
+              repaired: verification.repaired,
+              reviewPasses: verification.reviewPasses,
+              conditionsCreated: verification.conditionsCreated,
+              conditionsSkipped: verification.conditionsSkipped,
+              flaggedClaims: findings,
+            }
+          : null,
+      };
+      throw new FatalError(message);
+    }
     const spread = await renderClassicPdfSpread({ dealId: args.dealId, bankId: args.bankId });
     if (!spread.ok) {
       if (spread.errorCode === "PREFLIGHT_BLOCKED") throw new FatalError(spread.error);
@@ -131,7 +156,10 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await writeStage(args, "canonical_credit", "failed", { message });
+    await writeStage(args, "canonical_credit", "failed", {
+      ...failureDetail,
+      message,
+    });
     throw error;
   }
 }

@@ -58,6 +58,7 @@ export async function verifyMemoNarratives(args: {
   conditionsSkipped: number;
   narratives: MemoNarratives;
   repaired: boolean;
+  reviewPasses: number;
 }) | null> {
   const { dealId, bankId, memo, narratives, sb } = args;
 
@@ -87,5 +88,6 @@ export async function verifyMemoNarratives(args: {
       finished.sections.map((section) => [section.key, section.text]),
     ) as MemoNarratives,
     repaired: finished.repaired,
+    reviewPasses: finished.reviewPasses,
   };
 }

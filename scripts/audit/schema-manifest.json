@@ -318,5 +318,40 @@
     "name": "acquire_trident_bundle_run",
     "type": "function",
     "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "deal_conditions.category",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "deal_conditions.source_key",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "deal_conditions.required_docs",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "deal_conditions.borrower_message_subject",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "deal_conditions.borrower_message_body",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "deal_conditions.reminder_subscription_id",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
+  },
+  {
+    "name": "deal_conditions.created_by",
+    "type": "column",
+    "migration": "20260821150646_normalize_deal_conditions_artifact_verification_contract.sql"
   }
 ]
