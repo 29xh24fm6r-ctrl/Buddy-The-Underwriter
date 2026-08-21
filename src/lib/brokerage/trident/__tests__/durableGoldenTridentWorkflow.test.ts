@@ -6,7 +6,8 @@ const route = readFileSync("src/app/api/brokerage/deals/[dealId]/trident/generat
 const workflow = readFileSync("src/workflows/goldenTrident.ts", "utf8");
 const stages = readFileSync("src/lib/brokerage/trident/tridentFactoryStages.ts", "utf8");
 const generator = readFileSync("src/lib/brokerage/trident/generateTridentBundle.ts", "utf8");
-const migration = readFileSync("supabase/migrations/20260819000000_golden_trident_factory.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260819000000_golden_trident_factory.sql", "utf8") +
+  readFileSync("supabase/migrations/20260820230000_golden_trident_atomic_factory.sql", "utf8");
 const client = readFileSync("src/components/brokerage/GoldenTridentLabClient.tsx", "utf8");
 const nextConfig = readFileSync("next.config.mjs", "utf8");
 const readiness = readFileSync("src/lib/brokerage/trident/tridentReadiness.ts", "utf8");
@@ -58,9 +59,9 @@ test("the factory creates canonical credit artifacts and preserves failures", ()
   assert.match(client, /router\.refresh\(\)/);
   assert.match(client, /current_stage/);
   assert.match(generator, /verification_flagged_claims/);
-  assert.match(generator, /if \(!args\.bundleId\)/);
-  assert.equal((generator.match(/generateCanonicalMemoArtifact\(/g) ?? []).length, 1);
-  assert.equal((generator.match(/renderClassicPdfSpread\(/g) ?? []).length, 1);
+  assert.match(generator, /createTridentBundleRun/);
+  assert.equal((stages.match(/generateCanonicalMemoArtifact\(/g) ?? []).length, 1);
+  assert.equal((stages.match(/renderClassicPdfSpread\(/g) ?? []).length, 1);
   assert.match(generator, /boundSources\.source_credit_memo_id/);
   assert.match(generator, /boundSources\.source_spread_id/);
 });
@@ -113,7 +114,7 @@ test("durable canonical-credit workers use an explicit bank-scoped system bounda
   assert.match(canonicalMemoBuilder, /\.eq\("bank_id", bankId\)/);
   assert.match(canonicalMemoArtifact, /executionContext: args\.executionContext/);
   assert.equal((stages.match(/executionContext: "system"/g) ?? []).length, 1);
-  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 1);
+  assert.equal((generator.match(/executionContext: "system"/g) ?? []).length, 0);
 });
 
 test("the admitted bank and input snapshot remain immutable through release", () => {
@@ -124,7 +125,9 @@ test("the admitted bank and input snapshot remain immutable through release", ()
   assert.match(generator, /expectedHash: admittedInputHash/);
   assert.match(generator, /\.eq\("bank_id", admittedBankId\)/);
   assert.match(generator, /\.eq\("input_hash", admittedInputHash\)/);
-  assert.match(stages, /attempt_count: attemptCount/);
+  assert.match(stages, /record_trident_bundle_stage/);
+  assert.match(migration, /lease_token/);
+  assert.match(migration, /finalize_trident_bundle_run/);
   assert.match(releaseGate, /synthetic_qa_deal_has_no_public_research_grade/);
   assert.match(releaseGate, /memo_research_preliminary_requires_lender_review/);
 });

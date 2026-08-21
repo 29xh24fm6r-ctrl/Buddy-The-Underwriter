@@ -4,11 +4,13 @@ type WorkflowArgs = {
   dealId: string;
   mode: TridentBundleMode;
   bundleId: string;
+  leaseToken: string;
 };
 
 type ExecutionArgs = WorkflowArgs & {
   bankId: string;
   inputHash: string;
+  memoInputHash: string;
 };
 
 export async function goldenTridentWorkflow(args: WorkflowArgs) {
@@ -20,7 +22,7 @@ export async function goldenTridentWorkflow(args: WorkflowArgs) {
     await artifacts(execution);
     return await manifest(execution);
   } catch (error) {
-    await fail(args, error instanceof Error ? error.message : String(error));
+    await fail({ ...args, inputHash: undefined }, error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -49,7 +51,7 @@ async function manifest(args: ExecutionArgs) {
   return verifyTridentFactory(args);
 }
 
-async function fail(args: WorkflowArgs, message: string) {
+async function fail(args: WorkflowArgs & { inputHash?: string }, message: string) {
   "use step";
   const { failTridentFactory } = await import("@/lib/brokerage/trident/tridentFactoryStages");
   return failTridentFactory(args, message);

@@ -7,6 +7,12 @@ import { mockServerOnly } from "../../../../../test/utils/mockServerOnly";
 // ─── Module shims: server-only + all transitive deps ──────────────────
 mockServerOnly();
 const require = createRequire(import.meta.url);
+require.cache[require.resolve("workflow")] = {
+  id: "workflow-stub",
+  filename: "workflow-stub",
+  loaded: true,
+  exports: { FatalError: class FatalError extends Error {} },
+} as any;
 
 // ─── Mock state (shared by the stubs below) ────────────────────────────
 type Row = Record<string, any>;
@@ -103,6 +109,10 @@ function makeQueryBuilder(table: string) {
       this._isNull.push(col);
       return this;
     },
+    in(col: string, vals: any[]) {
+      this._filters.push([col, "in", vals]);
+      return this;
+    },
     neq(col: string, val: any) {
       this._notEq = [col, val];
       return this;
@@ -162,7 +172,7 @@ function makeQueryBuilder(table: string) {
       }
 
       let filtered = source.filter((row) =>
-        this._filters.every(([col, _op, val]: any) => row[col] === val),
+        this._filters.every(([col, op, val]: any) => op === "in" ? val.includes(row[col]) : row[col] === val),
       );
       for (const col of this._isNull) {
         filtered = filtered.filter((row) => row[col] == null);
@@ -215,7 +225,40 @@ const supabaseStub = {
       };
     },
   },
-  rpc() {
+  rpc(name: string, params: any) {
+    if (name === "acquire_trident_bundle_run") {
+      const id = state.nextBundleId();
+      const lease = `lease-${id}`;
+      state.bundles.push({
+        id, deal_id: params.p_deal_id, bank_id: "bank-1", mode: params.p_mode,
+        status: "pending", input_hash: params.p_input_hash,
+        memo_input_hash: params.p_memo_input_hash, lease_token: lease,
+        redactor_version: params.p_mode === "preview" ? "1.0.0" : null,
+        superseded_at: null,
+      });
+      return Promise.resolve({ data: { bundle_id: id, reused: false, lease_token: lease }, error: null });
+    }
+    const row = state.bundles.find((b) => b.id === params.p_bundle_id && b.lease_token === params.p_lease_token);
+    if (!row) return Promise.resolve({ data: null, error: { message: "trident lease lost" } });
+    if (name === "record_trident_bundle_stage") {
+      if (row.status === "pending") row.status = "running";
+      row.current_stage = params.p_stage;
+      return Promise.resolve({ data: true, error: null });
+    }
+    if (name === "finalize_trident_bundle_run") {
+      for (const prior of state.bundles) {
+        if (prior.id !== row.id && prior.deal_id === row.deal_id && prior.mode === row.mode &&
+            prior.status === "succeeded" && prior.superseded_at == null) prior.superseded_at = new Date().toISOString();
+      }
+      row.status = "succeeded";
+      return Promise.resolve({ data: true, error: null });
+    }
+    if (name === "fail_trident_bundle_run") {
+      row.status = "failed";
+      row.generation_error = params.p_error;
+      row.generation_completed_at = new Date().toISOString();
+      return Promise.resolve({ data: true, error: null });
+    }
     return Promise.resolve({ data: null, error: null });
   },
 };
@@ -304,6 +347,7 @@ require.cache[require.resolve("@/lib/creditMemo/canonical/generateCanonicalMemoA
     generateCanonicalMemoArtifact: async () => ({
       ok: true,
       narrativeId: "memo-1",
+      memoId: "memo-1",
       inputHash: "memo-hash",
     }),
   },
