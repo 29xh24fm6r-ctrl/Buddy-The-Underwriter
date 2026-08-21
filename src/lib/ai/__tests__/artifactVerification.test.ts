@@ -24,7 +24,10 @@ test.afterEach(() => {
 
 type Row = Record<string, any>;
 
-function makeDb(tables: Record<string, Row[]>) {
+function makeDb(
+  tables: Record<string, Row[]>,
+  failures: { select?: string; insert?: string } = {},
+) {
   function builder(tableName: string) {
     const rows = tables[tableName] ?? (tables[tableName] = []);
     let filters: Array<[string, any]> = [];
@@ -56,11 +59,13 @@ function makeDb(tables: Record<string, Row[]>) {
       },
     };
 
-    function exec(): { data: Row | null; error: null } {
+    function exec(): { data: Row | null; error: { message: string } | null } {
       if (op === "insert") {
+        if (failures.insert) return { data: null, error: { message: failures.insert } };
         rows.push({ id: `gen-${rows.length + 1}`, ...payload });
         return { data: null, error: null };
       }
+      if (failures.select) return { data: null, error: { message: failures.select } };
       const found = rows.find(matches) ?? null;
       return { data: found, error: null };
     }
@@ -193,4 +198,45 @@ test("verifyArtifactAndFlag treats malformed verifier JSON as a critical flag th
   assert.equal(result.verdict, "flagged");
   assert.equal(result.conditionsCreated, 1);
   assert.equal(tables.deal_conditions?.length, 1);
+});
+
+
+test("verifyArtifactAndFlag fails closed when the idempotency lookup errors", async () => {
+  setVerifierResponse([
+    { claim: "Revenue grew 40% YoY", reason: "Facts show 12%.", severity: "warning" },
+  ]);
+  const db = makeDb({}, { select: 'column "source_key" does not exist' });
+
+  await assert.rejects(
+    verifyArtifactAndFlag({
+      dealId: "deal-1",
+      bankId: "bank-1",
+      artifactType: "credit_memo",
+      sectionKey: "narratives",
+      facts: { revenue_growth_pct: 12 },
+      draftText: "Revenue grew 40% YoY.",
+      sb: db,
+    }),
+    /Artifact condition lookup failed.*source_key/,
+  );
+});
+
+test("verifyArtifactAndFlag fails closed when an actionable finding cannot persist", async () => {
+  setVerifierResponse([
+    { claim: "DSCR exceeds 2.0x", reason: "Facts show 1.35x.", severity: "critical" },
+  ]);
+  const db = makeDb({}, { insert: "write contract rejected" });
+
+  await assert.rejects(
+    verifyArtifactAndFlag({
+      dealId: "deal-1",
+      bankId: "bank-1",
+      artifactType: "credit_memo",
+      sectionKey: "narratives",
+      facts: { dscr: 1.35 },
+      draftText: "DSCR exceeds 2.0x.",
+      sb: db,
+    }),
+    /Artifact condition persistence failed.*write contract rejected/,
+  );
 });
