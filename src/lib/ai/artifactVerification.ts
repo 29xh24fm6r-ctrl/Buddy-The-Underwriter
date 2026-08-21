@@ -73,6 +73,11 @@ export async function persistArtifactFlags(input: {
     const sourceKey = claimSourceKey(artifactType, sectionKey, flagged.claim);
     const existing = await sb.from("deal_conditions").select("id").eq("deal_id", dealId)
       .eq("source", "system").eq("source_key", sourceKey).maybeSingle();
+    if (existing.error) {
+      throw new Error(
+        `Artifact condition lookup failed for ${artifactType}/${sectionKey}: ${existing.error.message}`,
+      );
+    }
     if (existing.data?.id) {
       conditionsSkipped += 1;
       continue;
@@ -89,8 +94,12 @@ export async function persistArtifactFlags(input: {
       required_docs: [],
       created_by: null,
     });
-    if (ins.error) conditionsSkipped += 1;
-    else conditionsCreated += 1;
+    if (ins.error) {
+      throw new Error(
+        `Artifact condition persistence failed for ${artifactType}/${sectionKey}: ${ins.error.message}`,
+      );
+    }
+    conditionsCreated += 1;
   }
   return { conditionsCreated, conditionsSkipped };
 }
