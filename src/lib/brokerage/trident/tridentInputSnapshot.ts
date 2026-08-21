@@ -40,10 +40,18 @@ async function requiredRows(
   table: string,
   dealId: string,
 ): Promise<unknown[]> {
-  const { data, error } = await sb
-    .from(table)
-    .select("*")
-    .eq("deal_id", dealId);
+  const { data, error } = await sb.from(table).select("*").eq("deal_id", dealId);
+  if (error) throw new Error(`trident_snapshot_read_failed:${table}:${error.message}`);
+  return data ?? [];
+}
+
+async function requiredMissionRows(
+  sb: SupabaseClient,
+  table: string,
+  missionIds: string[],
+): Promise<unknown[]> {
+  if (missionIds.length === 0) return [];
+  const { data, error } = await sb.from(table).select("*").in("mission_id", missionIds);
   if (error) throw new Error(`trident_snapshot_read_failed:${table}:${error.message}`);
   return data ?? [];
 }
@@ -75,7 +83,7 @@ export async function computeTridentInputSnapshot(
     requiredRows(sb, "deal_financial_facts", dealId),
     requiredRows(sb, "deal_structural_pricing", dealId),
     requiredRows(sb, "buddy_sba_assumptions", dealId),
-    requiredRows(sb, "deal_borrower_story", dealId),
+    requiredRows(sb, "buddy_borrower_stories", dealId),
     requiredRows(sb, "deal_documents", dealId),
     requiredRows(sb, "deal_proceeds_items", dealId),
     requiredRows(sb, "borrower_applications", dealId),
@@ -86,11 +94,28 @@ export async function computeTridentInputSnapshot(
     throw new Error(`trident_snapshot_read_failed:deals:${dealResult.error?.message ?? "missing"}`);
   }
 
+  const missionIds = (researchMissions as Array<{ id?: unknown }>)
+    .map((mission) => mission.id)
+    .filter((id): id is string => typeof id === "string");
+  const [
+    researchSources,
+    researchFacts,
+    researchInferences,
+    researchNarratives,
+    researchQualityGates,
+  ] = await Promise.all([
+    requiredMissionRows(sb, "buddy_research_sources", missionIds),
+    requiredMissionRows(sb, "buddy_research_facts", missionIds),
+    requiredMissionRows(sb, "buddy_research_inferences", missionIds),
+    requiredMissionRows(sb, "buddy_research_narratives", missionIds),
+    requiredMissionRows(sb, "buddy_research_quality_gates", missionIds),
+  ]);
+
   // The manifest deliberately contains source values, not only row counts or
   // timestamps. Volatile factory outputs are excluded so the factory cannot
   // invalidate its own lease while it is producing artifacts.
   const manifest = canonicalize({
-    version: 2,
+    version: 3,
     deal: dealResult.data,
     financialSnapshots,
     pricingDecisions,
@@ -103,6 +128,11 @@ export async function computeTridentInputSnapshot(
     applications,
     validationReports,
     researchMissions,
+    researchSources,
+    researchFacts,
+    researchInferences,
+    researchNarratives,
+    researchQualityGates,
     memoInputHash,
   }) as Record<string, unknown>;
 
