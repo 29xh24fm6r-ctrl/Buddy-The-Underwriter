@@ -176,6 +176,7 @@ test("verifies real narrative text and passes when nothing is flagged", async ()
 
   assert.ok(result);
   assert.equal(result?.verdict, "pass");
+  assert.equal(result?.reviewPasses, 1);
 });
 
 test("opens a banker task via the shared helper when a critical claim is flagged", async () => {
