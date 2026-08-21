@@ -21,6 +21,11 @@ const canonicalMemoBuilder = readFileSync("src/lib/creditMemo/canonical/buildCan
 const canonicalMemoArtifact = readFileSync("src/lib/creditMemo/canonical/generateCanonicalMemoArtifact.ts", "utf8");
 const snapshot = readFileSync("src/lib/brokerage/trident/tridentInputSnapshot.ts", "utf8");
 const releaseGate = readFileSync("src/lib/brokerage/trident/tridentReleaseGate.ts", "utf8");
+const completionMigration = readFileSync(
+  "supabase/migrations/20260821190000_golden_trident_completion_factory.sql",
+  "utf8",
+);
+const feasibilityEngine = readFileSync("src/lib/feasibility/feasibilityEngine.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -67,11 +72,13 @@ test("the factory creates canonical credit artifacts and preserves failures", ()
 });
 
 test("production commissioning cannot reuse stale evidence or bypass validation", () => {
-  assert.match(fixture, /golden-trident-qa-v5/);
-  assert.match(fixture, /ensureGovernedMarketEvidence/);
-  assert.match(fixture, /Fort Worth population is approximately 978,000/);
-  assert.match(fixture, /Median household income is approximately \$79,000/);
-  assert.match(fixture, /unemployment is approximately 4\.1%/);
+  assert.match(fixture, /golden-trident-qa-v6/);
+  assert.match(fixture, /commission_golden_trident_qa_research/);
+  assert.match(completionMigration, /'market_demand'/);
+  assert.match(completionMigration, /'complete'/);
+  assert.match(completionMigration, /'growth_trajectory'/);
+  assert.match(completionMigration, /cardinality\(input_fact_ids\) > 0/);
+  assert.match(completionMigration, /jsonb_build_array/);
   assert.match(readiness, /Run the AI assessment and deterministic validation/);
   assert.match(readiness, /else if \(!validationStatus\)/);
 });
@@ -81,6 +88,8 @@ test("artifact retries reuse durable upstream checkpoints", () => {
   assert.match(generator, /resumedSbaPackageId && completedBusinessPlanPath/);
   assert.match(generator, /existing\.projections_xlsx_path/);
   assert.match(generator, /current_stage: "feasibility_review"/);
+  assert.match(generator, /loadFeasibilityStudyResult/);
+  assert.match(feasibilityEngine, /Rehydrates a completed feasibility study/);
   assert.match(generator, /reviewFeasibilityWithRetry/);
   assert.match(generator, /timed\?\\s\*out\|timeout\|429/);
   assert.match(generator, /retrying review only/);
@@ -148,4 +157,28 @@ test("the admitted bank and input snapshot remain immutable through release", ()
   assert.match(migration, /finalize_trident_bundle_run/);
   assert.match(releaseGate, /synthetic_qa_deal_has_no_public_research_grade/);
   assert.match(releaseGate, /memo_research_preliminary_requires_lender_review/);
+});
+
+
+test("research tenant isolation uses the canonical bank membership wall", () => {
+  assert.match(completionMigration, /to authenticated/);
+  assert.match(completionMigration, /public\.bank_memberships/);
+  assert.match(completionMigration, /membership\.user_id = \(select auth\.uid\(\)\)/);
+  assert.doesNotMatch(completionMigration, /auth\.role\(\)/);
+  assert.match(completionMigration, /revoke all on function public\.commission_golden_trident_qa_research/);
+  assert.match(completionMigration, /grant execute[\s\S]*to service_role/);
+});
+
+test("the admitted snapshot includes borrower narrative and every research evidence layer", () => {
+  assert.match(snapshot, /buddy_borrower_stories/);
+  for (const table of [
+    "buddy_research_sources",
+    "buddy_research_facts",
+    "buddy_research_inferences",
+    "buddy_research_narratives",
+    "buddy_research_quality_gates",
+  ]) {
+    assert.match(snapshot, new RegExp(table));
+  }
+  assert.match(snapshot, /version: 3/);
 });
