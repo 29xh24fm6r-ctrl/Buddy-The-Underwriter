@@ -93,10 +93,11 @@ export async function GET(
       .limit(1)
       .maybeSingle(),
   ]);
-  const sbaProgram =
-    ((intakeProgram as { sba_program?: string } | null)?.sba_program ??
-      (requestProgram as { sba_program?: string } | null)?.sba_program ??
-      "7a") as "7a" | "504";
+  const rawSbaProgram =
+    (intakeProgram as { sba_program?: string } | null)?.sba_program ??
+    (requestProgram as { sba_program?: string } | null)?.sba_program;
+  const sbaProgram: "7a" | "504" =
+    rawSbaProgram?.toUpperCase() === "504" ? "504" : "7a";
 
   const owners = (facts.owners ?? []) as Array<Record<string, unknown>>;
   const entities = (facts.entities ?? []) as Array<Record<string, unknown>>;
