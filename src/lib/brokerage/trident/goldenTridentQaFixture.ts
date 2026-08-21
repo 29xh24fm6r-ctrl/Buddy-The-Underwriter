@@ -5,7 +5,7 @@ import { ingestDocument } from "@/lib/documents/ingestDocument";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const FIXTURE_NAME = "[QA] Golden Trident v4 — Precision Fabrication";
-const FIXTURE_VERSION = "golden-trident-qa-v4";
+const FIXTURE_VERSION = "golden-trident-qa-v5";
 
 type FixtureResult = {
   dealId: string;
@@ -39,6 +39,61 @@ async function requireOk(label: string, promise: PromiseLike<{ error: { message:
   if (error) throw new Error(`${label}: ${error.message}`);
 }
 
+async function ensureGovernedMarketEvidence(sb: SupabaseClient, dealId: string, bankId: string) {
+  const { data: prior, error: priorError } = await sb
+    .from("buddy_research_missions")
+    .select("id")
+    .eq("deal_id", dealId)
+    .eq("run_key", FIXTURE_VERSION)
+    .maybeSingle();
+  if (priorError) throw new Error(`market evidence lookup: ${priorError.message}`);
+  if (prior?.id) return;
+
+  const { data: mission, error: missionError } = await sb
+    .from("buddy_research_missions")
+    .insert({
+      deal_id: dealId,
+      bank_id: bankId,
+      mission_type: "market_and_location",
+      subject: "Synthetic QA market and location evidence for Fort Worth precision manufacturing",
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      correlation_id: FIXTURE_VERSION,
+      run_key: FIXTURE_VERSION,
+    })
+    .select("id")
+    .single();
+  if (missionError || !mission?.id) throw new Error(`market evidence mission: ${missionError?.message ?? "missing id"}`);
+
+  await requireOk(
+    "market evidence inference",
+    sb.from("buddy_research_inferences").insert({
+      mission_id: mission.id,
+      inference_type: "qa_market_location_assessment",
+      conclusion:
+        "Fort Worth population is approximately 978,000 and the regional population trend is growing. " +
+        "Median household income is approximately $79,000 and unemployment is approximately 4.1%. " +
+        "The local economic outlook for aerospace, defense, and precision manufacturing is stable-to-growing. " +
+        "Industrial real estate availability is adequate, while the primary location risk is skilled-labor competition.",
+      input_fact_ids: [],
+      confidence: 0.95,
+    }),
+  );
+  await requireOk(
+    "market evidence narrative",
+    sb.from("buddy_research_narratives").insert({
+      mission_id: mission.id,
+      version: 1,
+      sections: {
+        market_demand:
+          "Synthetic governed QA evidence: Fort Worth population 978,000; median household income $79,000; population trend growing.",
+        location_suitability:
+          "Synthetic governed QA evidence: unemployment 4.1%; stable-to-growing local manufacturing conditions; adequate industrial real estate; skilled-labor competition is the principal risk.",
+      },
+    }),
+  );
+}
+
 /**
  * Creates one idempotent, clearly-labelled test deal whose INPUTS exercise the
  * real Trident engines. Unlike goldenRun.ts, this function never inserts fake
@@ -57,7 +112,10 @@ export async function seedGoldenTridentQaFixture(args: {
     .eq("is_test", true)
     .maybeSingle();
   if (existingError) throw new Error(`fixture lookup: ${existingError.message}`);
-  if (existing?.id) return { dealId: existing.id, created: false, fixtureVersion: FIXTURE_VERSION };
+  if (existing?.id) {
+    await ensureGovernedMarketEvidence(sb, existing.id, bankId);
+    return { dealId: existing.id, created: false, fixtureVersion: FIXTURE_VERSION };
+  }
 
   const dealId = crypto.randomUUID();
   const periodStart = "2025-01-01";
@@ -308,6 +366,7 @@ export async function seedGoldenTridentQaFixture(args: {
         detail: { fixtureVersion: FIXTURE_VERSION, synthetic: true },
       }),
     );
+    await ensureGovernedMarketEvidence(sb, dealId, bankId);
   } catch (error) {
     await sb.from("deals").delete().eq("id", dealId).eq("is_test", true);
     throw error;
