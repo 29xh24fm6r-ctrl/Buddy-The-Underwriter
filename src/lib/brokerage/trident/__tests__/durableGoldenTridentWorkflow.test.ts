@@ -31,6 +31,10 @@ const runtimeMigration = readFileSync(
   "utf8",
 );
 const lockJanitor = readFileSync("src/app/api/workers/lock-janitor/route.ts", "utf8");
+const reconciliationRepairMigration = readFileSync(
+  "supabase/migrations/20260824170400_fix_trident_reconciliation_ambiguity.sql",
+  "utf8",
+);
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -201,4 +205,20 @@ test("runtime certification reconciles abandoned bundles without broadening acce
   assert.match(lockJanitor, /reconcile_stale_trident_bundle_runs/);
   assert.match(lockJanitor, /Promise\.all/);
   assert.match(lockJanitor, /tridentReconciled/);
+  assert.match(
+    reconciliationRepairMigration,
+    /on conflict on constraint buddy_trident_bundle_stages_pkey/i,
+  );
+  assert.doesNotMatch(
+    reconciliationRepairMigration,
+    /on conflict\s*\(bundle_id,\s*stage\)/i,
+  );
+  assert.match(
+    reconciliationRepairMigration,
+    /revoke all[\s\S]*from public, anon, authenticated/i,
+  );
+  assert.match(
+    reconciliationRepairMigration,
+    /grant execute[\s\S]*to service_role/i,
+  );
 });
