@@ -144,7 +144,8 @@ export function BuddyPanel() {
     return () => window.clearInterval(id);
   }, []);
 
-  useEffect(() => {\n    // Do not overwrite an existing preference with the SSR-safe default on mount.
+  useEffect(() => {
+    // Do not overwrite an existing preference with the SSR-safe default on mount.
     if (!hasMountedMinimizedPreference.current) {
       hasMountedMinimizedPreference.current = true;
       setPanelCollapsed(isMinimized);
