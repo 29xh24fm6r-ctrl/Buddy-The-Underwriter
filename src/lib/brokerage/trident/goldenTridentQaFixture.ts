@@ -94,6 +94,8 @@ export async function seedGoldenTridentQaFixture(args: {
       state: "TX",
       status: "active",
       is_test: true,
+      test_suite: "golden-trident",
+      test_run_id: FIXTURE_VERSION,
     }),
   );
 
