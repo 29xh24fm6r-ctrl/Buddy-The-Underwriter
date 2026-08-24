@@ -26,6 +26,10 @@ const completionMigration = readFileSync(
   "utf8",
 );
 const feasibilityEngine = readFileSync("src/lib/feasibility/feasibilityEngine.ts", "utf8");
+const certificationMigration = readFileSync(
+  "supabase/migrations/20260824203000_golden_trident_e2e_certification_factory.sql",
+  "utf8",
+);
 const runtimeMigration = readFileSync(
   "supabase/migrations/20260824161948_golden_trident_runtime_certification.sql",
   "utf8",
@@ -233,4 +237,28 @@ test("runtime certification reconciles abandoned bundles without broadening acce
     terminalLeaseRepairMigration,
     /status = 'failed'[\s\S]*stage_error_json ->> 'code' = 'lease_expired'/i,
   );
+});
+
+
+test("commissioning and release share one hardened, governed research contract", () => {
+  const producedGrade = certificationMigration.match(
+    /v_mission_id, p_deal_id, '([^']+)', true, 100/,
+  )?.[1];
+  const acceptedGrade = releaseGate.match(
+    /TRIDENT_COMMITTEE_RESEARCH_GRADE = "([^"]+)"/,
+  )?.[1];
+
+  assert.equal(producedGrade, "committee_grade");
+  assert.equal(producedGrade, acceptedGrade);
+  assert.doesNotMatch(certificationMigration, /'A'\s*,\s*true\s*,\s*100/);
+  assert.match(certificationMigration, /set search_path = ''/);
+  assert.match(certificationMigration, /extensions\.digest/);
+  assert.match(
+    certificationMigration,
+    /validate constraint buddy_research_inferences_input_fact_ids_nonempty/,
+  );
+  assert.match(certificationMigration, /test_suite = coalesce\(test_suite, 'golden-trident'\)/);
+  assert.match(certificationMigration, /test_run_id = coalesce\(test_run_id, p_run_key\)/);
+  assert.match(fixture, /test_suite: "golden-trident"/);
+  assert.match(fixture, /test_run_id: FIXTURE_VERSION/);
 });
