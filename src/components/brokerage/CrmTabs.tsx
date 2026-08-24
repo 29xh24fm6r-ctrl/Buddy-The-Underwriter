@@ -7,6 +7,7 @@ import { brokerageColors as c } from "@/components/brokerage/tokens";
 const TABS = [
   { label: "Leads", href: "/admin/brokerage/crm/leads" },
   { label: "Organizations", href: "/admin/brokerage/crm" },
+  { label: "Bank buyers", href: "/admin/brokerage/crm/buyers" },
   { label: "People", href: "/admin/brokerage/crm/people" },
   { label: "Relationships", href: "/admin/brokerage/crm/relationships" },
   { label: "Duplicates", href: "/admin/brokerage/crm/dedup" },
