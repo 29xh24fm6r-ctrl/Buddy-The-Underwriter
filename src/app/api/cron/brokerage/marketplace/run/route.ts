@@ -1,8 +1,12 @@
 import "server-only";
 
 /**
- * POST /api/cron/brokerage/marketplace/run
+ * GET|POST /api/cron/brokerage/marketplace/run
  * route-class: WORKER — CRON_SECRET gated.
+ *
+ * Vercel Cron invokes configured paths with GET. POST remains supported for
+ * bounded operator invocations, and both methods share the same authenticated
+ * implementation so scheduled and manual execution cannot drift.
  *
  * Drives the marketplace forward on a schedule: advances listing statuses by
  * wall-clock (pending_preview → claiming → expired) and then flushes the lender
@@ -24,7 +28,7 @@ import { redactResponseSecrets } from "@/lib/brokerage/commsAuth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request): Promise<NextResponse> {
+async function runMarketplaceCron(request: Request): Promise<NextResponse> {
   const auth = verifyCronSecret(request);
   if (!auth.authorized) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -58,3 +62,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 }
+
+export const GET = runMarketplaceCron;
+export const POST = runMarketplaceCron;
