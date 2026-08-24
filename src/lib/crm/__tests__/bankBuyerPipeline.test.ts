@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync("supabase/migrations/20260824193000_brokerage_bank_buyer_crm.sql", "utf8");
-const api = readFileSync("src/app/api/admin/brokerage/crm/buyers/route.ts", "utf8");
-const page = readFileSync("src/app/admin/brokerage/crm/buyers/page.tsx", "utf8");
+const api = readFileSync("src/lib/crm/bankBuyerRoute.ts", "utf8");
+const page = readFileSync("src/components/brokerage/BankBuyersWorkspace.tsx", "utf8");
 
 test("bank buyer CRM owns a tenant-scoped multi-lender submission ledger", () => {
   assert.match(migration, /create table public\.crm_lender_profiles/);
