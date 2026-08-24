@@ -135,8 +135,8 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   const setup = useMemo(() => [
     { done: org?.organization_type && org.organization_type !== "other", label: "Identify organization type", action: () => setPanel("organization") },
     { done: people.length > 0, label: "Add a primary banker or contact", action: () => setPanel("contact") },
-    { done: !!profile, label: "Define lending appetite", action: () => setPanel("appetite") },
-    { done: submissions.length > 0, label: "Send and track the first deal", href: "/admin/brokerage/crm/buyers" },
+    { done: !!profile, label: "Add appetite details (optional)", action: () => setPanel("appetite") },
+    { done: submissions.length > 0, label: "Send and track the first deal", href: `/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission` },
   ], [org, people.length, profile, submissions.length]);
   const complete = setup.filter(x => x.done).length;
 
@@ -168,7 +168,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
         <Button onClick={() => setPanel("contact")} primary>+ Add banker / contact</Button>
         <Button onClick={() => setPanel("organization")}>Edit organization</Button>
         <Button onClick={() => setPanel("appetite")}>{profile ? "Edit appetite" : "Set lending appetite"}</Button>
-        {profile && <Link href="/admin/brokerage/crm/buyers" style={{ textDecoration: "none" }}><Button>Send a deal</Button></Link>}
+        <Link href={`/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission`} style={{ textDecoration: "none" }}><Button>Send a deal</Button></Link>
       </div>
     </div>
 
@@ -197,11 +197,11 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
         {profile ? <AppetiteSummary profile={profile} /> : <Empty>Capture loan size, programs, credit box, geography, industries, and response expectations.</Empty>}
       </Card>
       <Card title="Deal relationship">
-        {profile ? <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
           <Metric label="Sent" value={submissions.filter((x: Json) => x.status !== "planned").length} />
           <Metric label="Interested" value={submissions.filter((x: Json) => ["interested","term_sheet","approved","closed"].includes(x.status)).length} />
           <Metric label="Closed" value={submissions.filter((x: Json) => x.status === "closed").length} />
-        </div> : <Empty>Set lending appetite first, then Buddy can track every deal sent, response, approval, decline, and closing.</Empty>}
+        </div>
       </Card>
       <Card title="Organization details">
         <Details org={org} />
@@ -216,8 +216,8 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       {profile ? <AppetiteSummary profile={profile} expanded /> : <Empty>This organization is not configured as a bank buyer yet. “Set up bank buyer” converts it in place and keeps all existing contacts and history.</Empty>}
     </Card>}
 
-    {tab === "deals" && <Card title="Deals sent to this bank" action={profile ? <Link href="/admin/brokerage/crm/buyers" style={{ textDecoration: "none" }}><Button primary>+ Send a deal</Button></Link> : undefined}>
-      {!profile ? <Empty>Set lending appetite before sending deals to this organization.</Empty> : !submissions.length ? <Empty>No deals sent yet. Send the first deal and track interest, decisions, approved amount, close date, and closed amount.</Empty> : submissions.map((s: Json) => <div key={s.id} style={{ display: "grid", gridTemplateColumns: "minmax(180px,1.5fr) minmax(100px,.7fr) minmax(90px,.6fr) minmax(90px,.6fr)", gap: 10, padding: "11px 0", borderBottom: `1px solid ${c.divider}`, alignItems: "center" }}>
+    {tab === "deals" && <Card title="Deals sent to this bank" action={<Link href={`/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission`} style={{ textDecoration: "none" }}><Button primary>+ Send a deal</Button></Link>}>
+      {!submissions.length ? <Empty>No deals sent yet. Appetite is optional—send the first deal now and add what this bank likes as you learn it.</Empty> : submissions.map((s: Json) => <div key={s.id} style={{ display: "grid", gridTemplateColumns: "minmax(180px,1.5fr) minmax(100px,.7fr) minmax(90px,.6fr) minmax(90px,.6fr)", gap: 10, padding: "11px 0", borderBottom: `1px solid ${c.divider}`, alignItems: "center" }}>
         <div><div style={{ color: c.paper, fontWeight: 600, fontSize: 12.5 }}>{dealName(s.deal)}</div><div style={{ color: c.textMuted, fontSize: 10.5, marginTop: 3 }}>Sent {s.sent_at ? new Date(s.sent_at).toLocaleDateString() : "not yet"}</div></div>
         <div style={{ color: c.textSecondary, fontSize: 11.5 }}>{fmtMoney(Number(s.amount_sent || s.deal?.loan_amount || 0))}</div>
         <span style={{ color: ["interested","term_sheet","approved","closed"].includes(s.status) ? c.sage : c.textSecondary, fontSize: 11 }}>{STATUS[s.status] || s.status}</span>
