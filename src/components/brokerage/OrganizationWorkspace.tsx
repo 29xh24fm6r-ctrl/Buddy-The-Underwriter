@@ -14,9 +14,12 @@ const STATUS: Record<string, string> = {
   withdrawn: "Withdrawn", lost: "Lost", closed: "Closed",
 };
 const ORG_TYPES = [
-  ["lender", "Bank / lender"], ["referral_partner", "Referral partner"],
-  ["borrower", "Borrower"], ["vendor", "Vendor"], ["professional_services", "Professional services"],
-  ["other", "Other"],
+  ["lender", "Bank / lender"], ["referral_source", "Referral source"],
+  ["professional_partner", "Professional partner"], ["borrower_business", "Borrower business"],
+  ["cpa_firm", "CPA firm"], ["law_firm", "Law firm"], ["insurance_provider", "Insurance provider"],
+  ["appraisal_firm", "Appraisal firm"], ["environmental_firm", "Environmental firm"],
+  ["title_company", "Title company"], ["franchise_organization", "Franchise organization"],
+  ["seller", "Seller"], ["landlord", "Landlord"], ["investor", "Investor"], ["vendor", "Vendor"], ["other", "Other"],
 ];
 
 function field(): CSSProperties {
@@ -66,7 +69,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       setOrgForm({
         name: json.organization.name || "", organizationType: json.organization.organization_type || "other",
         websiteUrl: json.organization.website_url || "", phone: json.organization.phone || "",
-        addressLine1: json.organization.address_line_1 || "", city: json.organization.city || "",
+        addressLine1: json.organization.address_line1 || "", city: json.organization.city || "",
         state: json.organization.state || "", postalCode: json.organization.postal_code || "",
         notes: json.organization.notes || "",
       });
@@ -174,7 +177,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
     {complete < 4 && <div style={{ background: "linear-gradient(100deg, rgba(184,144,91,.12), rgba(184,144,91,.035))", border: "1px solid rgba(184,144,91,.28)", borderRadius: 9, padding: 14, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}><strong style={{ color: c.paper, fontSize: 13 }}>Finish setting up this relationship</strong><span style={{ color: c.brassBright, fontSize: 11 }}>{complete} of 4 complete</span></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8 }}>
-        {setup.map((s, i) => s.href ? <Link key={s.label} href={s.href} style={{ textDecoration: "none" }}><SetupItem {...s} index={i} /></Link> : <button key={s.label} onClick={s.action} style={{ padding: 0, border: 0, background: "none", textAlign: "left", cursor: "pointer" }}><SetupItem {...s} index={i} /></button>)}
+        {setup.map((s, i) => ("href" in s && s.href) ? <Link key={s.label} href={s.href} style={{ textDecoration: "none" }}><SetupItem {...s} index={i} /></Link> : <button key={s.label} onClick={s.action} style={{ padding: 0, border: 0, background: "none", textAlign: "left", cursor: "pointer" }}><SetupItem {...s} index={i} /></button>)}
       </div>
     </div>}
 
@@ -240,7 +243,7 @@ function Person({ person: p, card = false }: { person: Json; card?: boolean }) {
   </div>;
 }
 function Metric({ label: name, value }: { label: string; value: number }) { return <div style={{ background: c.ink, border: `1px solid ${c.border}`, borderRadius: 7, padding: 11 }}><div style={{ color: c.textMuted, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 1 }}>{name}</div><div style={{ color: c.paper, fontFamily: "var(--font-brokerage-mono)", fontSize: 20, marginTop: 5 }}>{value}</div></div>; }
-function Details({ org }: { org: Json }) { return <div style={{ display: "grid", gap: 9, fontSize: 11.5 }}>{[["Website", org.website_url],["Phone",org.phone],["Address",[org.address_line_1,org.city,org.state,org.postal_code].filter(Boolean).join(", ")],["Notes",org.notes]].map(([k,v]) => <div key={k} style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}><span style={{ color: c.textMuted }}>{k}</span><span style={{ color: v ? c.textSecondary : c.textFaint }}>{v || "Not added"}</span></div>)}</div>; }
+function Details({ org }: { org: Json }) { return <div style={{ display: "grid", gap: 9, fontSize: 11.5 }}>{[["Website", org.website_url],["Phone",org.phone],["Address",[org.address_line1,org.city,org.state,org.postal_code].filter(Boolean).join(", ")],["Notes",org.notes]].map(([k,v]) => <div key={k} style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}><span style={{ color: c.textMuted }}>{k}</span><span style={{ color: v ? c.textSecondary : c.textFaint }}>{v || "Not added"}</span></div>)}</div>; }
 function AppetiteSummary({ profile: p, expanded = false }: { profile: Json; expanded?: boolean }) {
   const programs = [p.sba_7a_appetite && "SBA 7(a)", p.sba_504_appetite && "SBA 504", p.conventional_appetite && "Conventional"].filter(Boolean);
   const rows = [["Programs", programs.join(", ") || "Not set"],["Loan size", p.min_loan_amount || p.max_loan_amount ? `${p.min_loan_amount ? fmtMoney(Number(p.min_loan_amount)) : "Any"} – ${p.max_loan_amount ? fmtMoney(Number(p.max_loan_amount)) : "Any"}` : "Not set"],["Credit box", [p.min_dscr && `DSCR ≥ ${p.min_dscr}`,p.max_ltv && `LTV ≤ ${Math.round(Number(p.max_ltv) * 100)}%`,p.minimum_fico && `FICO ≥ ${p.minimum_fico}`].filter(Boolean).join(" · ") || "Not set"],["Geography",(p.geographies||[]).join(", ")||"Not set"],["Industries",(p.industries||[]).join(", ")||"Not set"],["Excluded",(p.excluded_industries||[]).join(", ")||"None"],["Response target",p.response_sla_days ? `${p.response_sla_days} days` : "Not set"],["Deal preferences",p.deal_preferences||"Not set"]];
