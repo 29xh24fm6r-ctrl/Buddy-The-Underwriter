@@ -1,5 +1,7 @@
 import "server-only";
 
+export const TRIDENT_COMMITTEE_RESEARCH_GRADE = "committee_grade" as const;
+
 export type TridentReleaseEvidence = {
   businessPlanVerdict: unknown;
   feasibilityVerdict: unknown;
@@ -43,7 +45,7 @@ export function evaluateTridentResearchTrust(args: {
   trustGrade: string | null;
   isTestDeal: boolean;
 }): { reasons: string[]; warnings: string[] } {
-  if (args.trustGrade === "committee_grade") return { reasons: [], warnings: [] };
+  if (args.trustGrade === TRIDENT_COMMITTEE_RESEARCH_GRADE) return { reasons: [], warnings: [] };
   if (args.trustGrade === "preliminary") {
     return { reasons: [], warnings: ["memo_research_preliminary_requires_lender_review"] };
   }
