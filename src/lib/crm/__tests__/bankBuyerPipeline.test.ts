@@ -24,3 +24,11 @@ test("API gates access and records lifecycle history", () => {
 test("operator surface includes bank appetite, banker, placement, and closing workflows", () => {
   for (const copy of ["Bank buyer network", "Add a bank and its primary banker", "Send a deal", "Deal distribution ledger", "Final closed amount"]) assert.match(page, new RegExp(copy, "i"));
 });
+
+
+test("deal placement does not require a completed lending appetite", () => {
+  assert.match(api, /ensure_buyer_relationship/);
+  assert.match(api, /sba_7a_appetite:\s*false/);
+  assert.match(page, /organizationId/);
+  assert.match(page, /new=submission/);
+});
