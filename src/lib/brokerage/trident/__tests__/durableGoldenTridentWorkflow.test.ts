@@ -35,6 +35,10 @@ const reconciliationRepairMigration = readFileSync(
   "supabase/migrations/20260824170400_fix_trident_reconciliation_ambiguity.sql",
   "utf8",
 );
+const terminalLeaseRepairMigration = readFileSync(
+  "supabase/migrations/20260824180300_clear_reconciled_trident_lease_token.sql",
+  "utf8",
+);
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -220,5 +224,13 @@ test("runtime certification reconciles abandoned bundles without broadening acce
   assert.match(
     reconciliationRepairMigration,
     /grant execute[\s\S]*to service_role/i,
+  );
+  assert.match(
+    terminalLeaseRepairMigration,
+    /lease_token = null[\s\S]*lease_expires_at = null/i,
+  );
+  assert.match(
+    terminalLeaseRepairMigration,
+    /status = 'failed'[\s\S]*stage_error_json ->> 'code' = 'lease_expired'/i,
   );
 });
