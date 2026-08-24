@@ -368,5 +368,10 @@
     "name": "reconcile_stale_trident_bundle_runs",
     "type": "function",
     "migration": "20260824170400_fix_trident_reconciliation_ambiguity.sql"
+  },
+  {
+    "name": "reconcile_stale_trident_bundle_runs",
+    "type": "function",
+    "migration": "20260824180300_clear_reconciled_trident_lease_token.sql"
   }
 ]
