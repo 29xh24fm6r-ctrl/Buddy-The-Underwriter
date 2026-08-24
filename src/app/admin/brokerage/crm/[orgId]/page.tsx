@@ -7,6 +7,7 @@ import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
 import { RelationshipIntelligencePanel } from "@/components/brokerage/RelationshipIntelligencePanel";
+import { BankBuyersWorkspace } from "@/components/brokerage/BankBuyersWorkspace";
 
 type Activity = {
   id: string;
@@ -91,12 +92,7 @@ function inputStyle(): CSSProperties {
   };
 }
 
-export default function CrmOrganizationDetailPage({
-  params,
-}: {
-  params: Promise<{ orgId: string }>;
-}) {
-  const { orgId } = usePromise(params);
+function CrmOrganizationDetailPage({ orgId }: { orgId: string }) {
 
   const [org, setOrg] = useState<any>(null);
   const [people, setPeople] = useState<any[]>([]);
@@ -613,4 +609,15 @@ export default function CrmOrganizationDetailPage({
       </div>
     </div>
   );
+}
+
+
+export default function CrmOrganizationRoutePage({
+  params,
+}: {
+  params: Promise<{ orgId: string }>;
+}) {
+  const { orgId } = usePromise(params);
+  if (orgId === "buyers") return <BankBuyersWorkspace />;
+  return <CrmOrganizationDetailPage orgId={orgId} />;
 }
