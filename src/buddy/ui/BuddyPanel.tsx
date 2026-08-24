@@ -43,13 +43,16 @@ export function BuddyPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const [nowTick, setNowTick] = useState(0);
   const [panelPos, setPanelPos] = useState(() => ({ x: 16, y: 92 }));
-  const [isMinimized, setIsMinimized] = useState(false);
+  // Keep the always-on observer available without covering operational controls on first load.
+  // An explicit local preference still wins after hydration.
+  const [isMinimized, setIsMinimized] = useState(true);
+  const hasMountedMinimizedPreference = useRef(false);
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === "1") {
-        setIsMinimized(true);
+      if (stored === "0" || stored === "1") {
+        setIsMinimized(stored === "1");
       }
     } catch {
       // ignore storage errors
@@ -142,6 +145,12 @@ export function BuddyPanel() {
   }, []);
 
   useEffect(() => {
+    // Do not overwrite an existing preference with the SSR-safe default on mount.
+    if (!hasMountedMinimizedPreference.current) {
+      hasMountedMinimizedPreference.current = true;
+      setPanelCollapsed(isMinimized);
+      return;
+    }
     try {
       localStorage.setItem(STORAGE_KEY, isMinimized ? "1" : "0");
     } catch {

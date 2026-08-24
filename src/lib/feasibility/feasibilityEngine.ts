@@ -27,6 +27,7 @@ import { runFranchiseComparison } from "./franchiseComparator";
 import { extractBIEMarketData } from "./bieMarketExtractor";
 import { readCanonicalEquityInjectionPct } from "./canonicalProjectionInputs";
 import type {
+  CompositeFeasibilityScore,
   FeasibilityResult,
   ManagementMemberLite,
   PlannedHireLite,
@@ -619,7 +620,7 @@ export async function loadFeasibilityStudyResult(params: {
   const [{ data: study, error: studyError }, { data: deal, error: dealError }] = await Promise.all([
     sb
       .from("buddy_feasibility_studies")
-      .select("id,deal_id,bank_id,composite_score,recommendation,confidence_level,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail,narratives,franchise_comparison,is_franchise,pdf_url,status,created_at")
+      .select("id,deal_id,bank_id,composite_score,recommendation,confidence_level,market_demand_detail,financial_viability_detail,operational_readiness_detail,location_suitability_detail,narratives,franchise_comparison,is_franchise,pdf_url,status,created_at,flags,data_completeness")
       .eq("id", params.studyId)
       .eq("deal_id", params.dealId)
       .eq("bank_id", params.bankId)
@@ -637,18 +638,50 @@ export async function loadFeasibilityStudyResult(params: {
   const financialViability = study.financial_viability_detail as any;
   const operationalReadiness = study.operational_readiness_detail as any;
   const locationSuitability = study.location_suitability_detail as any;
+  // Rebuild the complete CompositeFeasibilityScore contract. Durable retries
+  // pass this value back through institutional review, which consumes each
+  // dimension's score and must not receive the abbreviated database summary.
+  const allFlags = Array.isArray(study.flags)
+    ? study.flags
+    : [
+        ...(Array.isArray(marketDemand?.flags) ? marketDemand.flags : []),
+        ...(Array.isArray(financialViability?.flags) ? financialViability.flags : []),
+        ...(Array.isArray(operationalReadiness?.flags) ? operationalReadiness.flags : []),
+        ...(Array.isArray(locationSuitability?.flags) ? locationSuitability.flags : []),
+      ];
+  const weights = study.is_franchise
+    ? { marketDemand: 0.25, financialViability: 0.3, operationalReadiness: 0.25, locationSuitability: 0.2 }
+    : { marketDemand: 0.3, financialViability: 0.35, operationalReadiness: 0.15, locationSuitability: 0.2 };
+  const dimension = (detail: any, weight: number) => ({
+    score: typeof detail?.overallScore === "number" ? detail.overallScore : 0,
+    weight,
+  });
+  const dimensionsMissingData = [
+    [marketDemand, "Market Demand"],
+    [financialViability, "Financial Viability"],
+    [operationalReadiness, "Operational Readiness"],
+    [locationSuitability, "Location Suitability"],
+  ].flatMap(([detail, label]) =>
+    typeof (detail as any)?.dataCompleteness === "number" &&
+    (detail as any).dataCompleteness < 0.5
+      ? [label as string]
+      : [],
+  );
   const composite = {
     overallScore: study.composite_score,
     recommendation: study.recommendation,
     confidenceLevel: study.confidence_level,
-    allFlags: [
-      ...(Array.isArray(marketDemand?.flags) ? marketDemand.flags : []),
-      ...(Array.isArray(financialViability?.flags) ? financialViability.flags : []),
-      ...(Array.isArray(operationalReadiness?.flags) ? operationalReadiness.flags : []),
-      ...(Array.isArray(locationSuitability?.flags) ? locationSuitability.flags : []),
-    ],
-    overallDataCompleteness: 1,
-  } as any;
+    marketDemand: dimension(marketDemand, weights.marketDemand),
+    financialViability: dimension(financialViability, weights.financialViability),
+    operationalReadiness: dimension(operationalReadiness, weights.operationalReadiness),
+    locationSuitability: dimension(locationSuitability, weights.locationSuitability),
+    criticalFlags: allFlags.filter((flag: any) => flag?.severity === "critical").length,
+    warningFlags: allFlags.filter((flag: any) => flag?.severity === "warning").length,
+    infoFlags: allFlags.filter((flag: any) => flag?.severity === "info").length,
+    allFlags,
+    overallDataCompleteness: Number(study.data_completeness ?? 0),
+    dimensionsMissingData,
+  } as CompositeFeasibilityScore;
   const renderInput = {
     dealName: deal.name ?? "Borrower",
     city: deal.city,

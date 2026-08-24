@@ -115,6 +115,11 @@ test("artifact retries reuse durable upstream checkpoints", () => {
   assert.match(generator, /current_stage: "feasibility_review"/);
   assert.match(generator, /loadFeasibilityStudyResult/);
   assert.match(feasibilityEngine, /Rehydrates a completed feasibility study/);
+  assert.match(feasibilityEngine, /marketDemand: dimension\(marketDemand, weights\.marketDemand\)/);
+  assert.match(feasibilityEngine, /financialViability: dimension\(financialViability, weights\.financialViability\)/);
+  assert.match(feasibilityEngine, /operationalReadiness: dimension\(operationalReadiness, weights\.operationalReadiness\)/);
+  assert.match(feasibilityEngine, /locationSuitability: dimension\(locationSuitability, weights\.locationSuitability\)/);
+  assert.match(feasibilityEngine, /overallDataCompleteness: Number\(study\.data_completeness/);
   assert.match(generator, /reviewFeasibilityWithRetry/);
   assert.match(generator, /timed\?\\s\*out\|timeout\|429/);
   assert.match(generator, /retrying review only/);
