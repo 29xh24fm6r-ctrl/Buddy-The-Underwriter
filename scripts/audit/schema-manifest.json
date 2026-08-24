@@ -388,5 +388,10 @@
     "name": "crm_lender_submission_events",
     "type": "table",
     "migration": "20260824193000_brokerage_bank_buyer_crm.sql"
+  },
+  {
+    "name": "commission_golden_trident_qa_research",
+    "type": "function",
+    "migration": "20260824203000_golden_trident_e2e_certification_factory.sql"
   }
 ]
