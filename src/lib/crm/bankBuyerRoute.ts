@@ -105,6 +105,9 @@ export async function bankBuyerPOST(req: NextRequest) {
       organization_id: organizationId,
       relationship_status: "prospect",
       lender_type: "bank",
+      sba_7a_appetite: false,
+      sba_504_appetite: false,
+      conventional_appetite: false,
       created_by_clerk_user_id: userId,
     }).select("*").single();
     if (error || !profile) {
