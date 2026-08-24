@@ -1,0 +1,175 @@
+import "server-only";
+
+import { NextRequest, NextResponse } from "next/server";
+import { requireBrokerageStaff } from "@/lib/auth/requireBrokerageStaff";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getBrokerageBankId } from "@/lib/tenant/brokerage";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const STATUSES = new Set(["planned", "sent", "reviewing", "interested", "term_sheet", "approved", "declined", "withdrawn", "lost", "closed"]);
+const TERMINAL = new Set(["declined", "withdrawn", "lost", "closed"]);
+
+function text(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function list(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
+  return typeof v === "string" ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+}
+async function gate(): Promise<{ userId: string } | NextResponse> {
+  try { return await requireBrokerageStaff(); }
+  catch { return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }); }
+}
+
+export async function GET() {
+  const gated = await gate();
+  if (gated instanceof NextResponse) return gated;
+  const bankId = await getBrokerageBankId();
+  const sb = supabaseAdmin();
+  const [{ data: profiles, error: profileError }, { data: submissions, error: submissionError }, { data: deals, error: dealError }] = await Promise.all([
+    sb.from("crm_lender_profiles").select("*").eq("bank_id", bankId).order("created_at", { ascending: false }),
+    sb.from("crm_deal_lender_submissions").select("*").eq("bank_id", bankId).order("updated_at", { ascending: false }),
+    sb.from("deals").select("id, display_name, borrower_name, name, loan_amount, brokerage_stage, created_at").eq("bank_id", bankId).order("created_at", { ascending: false }).limit(500),
+  ]);
+  if (profileError || submissionError || dealError) return NextResponse.json({ ok: false, error: profileError?.message ?? submissionError?.message ?? dealError?.message }, { status: 500 });
+
+  const orgIds = (profiles ?? []).map((p: any) => p.organization_id);
+  const [{ data: orgs, error: orgError }, { data: people, error: peopleError }] = await Promise.all([
+    orgIds.length ? sb.from("crm_organizations").select("*").eq("bank_id", bankId).in("id", orgIds) : Promise.resolve({ data: [], error: null }),
+    orgIds.length ? sb.from("crm_people").select("*").eq("bank_id", bankId).in("organization_id", orgIds).is("merged_into_id", null) : Promise.resolve({ data: [], error: null }),
+  ] as any);
+  if (orgError || peopleError) return NextResponse.json({ ok: false, error: orgError?.message ?? peopleError?.message }, { status: 500 });
+
+  const orgById = new Map((orgs ?? []).map((o: any) => [o.id, o]));
+  const peopleByOrg = new Map<string, any[]>();
+  for (const person of people ?? []) peopleByOrg.set(person.organization_id, [...(peopleByOrg.get(person.organization_id) ?? []), person]);
+  const dealById = new Map((deals ?? []).map((d: any) => [d.id, d]));
+  const profileById = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+  const rows = (submissions ?? []).map((s: any) => {
+    const p: any = profileById.get(s.lender_profile_id);
+    return { ...s, lender: p ? orgById.get(p.organization_id) ?? null : null, lenderProfile: p ?? null, deal: dealById.get(s.deal_id) ?? null };
+  });
+  const now = Date.now();
+  const open = rows.filter((s: any) => !TERMINAL.has(s.status));
+  const sent = rows.filter((s: any) => s.status !== "planned");
+  const interested = rows.filter((s: any) => ["interested", "term_sheet", "approved", "closed"].includes(s.status));
+  const closed = rows.filter((s: any) => s.status === "closed");
+  const overdue = open.filter((s: any) => s.next_follow_up_at && new Date(s.next_follow_up_at).getTime() < now);
+  const enrichedProfiles = (profiles ?? []).map((p: any) => ({ ...p, organization: orgById.get(p.organization_id) ?? null, contacts: peopleByOrg.get(p.organization_id) ?? [], submissions: rows.filter((s: any) => s.lender_profile_id === p.id) }));
+
+  return NextResponse.json({
+    ok: true,
+    profiles: enrichedProfiles,
+    submissions: rows,
+    deals: deals ?? [],
+    summary: {
+      bankBuyers: enrichedProfiles.length,
+      activeSubmissions: open.length,
+      sentCount: sent.length,
+      interestedCount: interested.length,
+      interestRate: sent.length ? interested.length / sent.length : null,
+      closedCount: closed.length,
+      closedVolume: closed.reduce((sum: number, s: any) => sum + Number(s.closed_amount ?? 0), 0),
+      overdueFollowUps: overdue.length,
+    },
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const gated = await gate();
+  if (gated instanceof NextResponse) return gated;
+  const { userId } = gated;
+  const bankId = await getBrokerageBankId();
+  const sb = supabaseAdmin();
+  const body = await req.json().catch(() => ({}));
+
+  if (body.action === "create_buyer") {
+    const name = text(body.name);
+    if (!name) return NextResponse.json({ ok: false, error: "Bank name is required" }, { status: 400 });
+    const { data: org, error: orgError } = await sb.from("crm_organizations").insert({
+      bank_id: bankId, name, organization_type: "lender", website_url: text(body.websiteUrl), phone: text(body.phone), city: text(body.city), state: text(body.state), notes: text(body.notes), created_by_clerk_user_id: userId,
+    }).select("*").single();
+    if (orgError || !org) return NextResponse.json({ ok: false, error: orgError?.message ?? "Unable to create bank" }, { status: 500 });
+
+    const { data: profile, error: profileError } = await sb.from("crm_lender_profiles").insert({
+      bank_id: bankId, organization_id: org.id, relationship_status: text(body.relationshipStatus) ?? "prospect", lender_type: text(body.lenderType) ?? "bank",
+      sba_7a_appetite: body.sba7a !== false, sba_504_appetite: !!body.sba504, conventional_appetite: !!body.conventional,
+      min_loan_amount: num(body.minLoanAmount), max_loan_amount: num(body.maxLoanAmount), min_dscr: num(body.minDscr), max_ltv: num(body.maxLtv), minimum_fico: num(body.minimumFico),
+      industries: list(body.industries), excluded_industries: list(body.excludedIndustries), geographies: list(body.geographies), collateral_preferences: list(body.collateralPreferences),
+      deal_preferences: text(body.dealPreferences), referral_fee_bps: num(body.referralFeeBps), response_sla_days: num(body.responseSlaDays), created_by_clerk_user_id: userId,
+    }).select("*").single();
+    if (profileError || !profile) {
+      await sb.from("crm_organizations").delete().eq("id", org.id).eq("bank_id", bankId);
+      return NextResponse.json({ ok: false, error: profileError?.message ?? "Unable to create lender profile" }, { status: 500 });
+    }
+    let contact = null;
+    if (text(body.contactFirstName) || text(body.contactLastName) || text(body.contactEmail)) {
+      const result = await sb.from("crm_people").insert({
+        bank_id: bankId, organization_id: org.id, first_name: text(body.contactFirstName), last_name: text(body.contactLastName), email: text(body.contactEmail), phone: text(body.contactPhone), job_title: text(body.contactJobTitle), notes: text(body.contactNotes), created_by_clerk_user_id: userId,
+      }).select("*").single();
+      if (result.error) return NextResponse.json({ ok: false, error: `Bank saved, but banker contact failed: ${result.error.message}`, profile }, { status: 207 });
+      contact = result.data;
+    }
+    return NextResponse.json({ ok: true, profile, organization: org, contact });
+  }
+
+  if (body.action === "create_submission") {
+    const dealId = text(body.dealId);
+    const lenderProfileId = text(body.lenderProfileId);
+    if (!dealId || !lenderProfileId) return NextResponse.json({ ok: false, error: "Deal and bank are required" }, { status: 400 });
+    const status = text(body.status) ?? "sent";
+    if (!STATUSES.has(status)) return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
+    const [{ data: deal }, { data: profile }] = await Promise.all([
+      sb.from("deals").select("id, loan_amount").eq("id", dealId).eq("bank_id", bankId).maybeSingle(),
+      sb.from("crm_lender_profiles").select("id").eq("id", lenderProfileId).eq("bank_id", bankId).maybeSingle(),
+    ]);
+    if (!deal || !profile) return NextResponse.json({ ok: false, error: "Deal or bank not found in this brokerage" }, { status: 404 });
+    const now = new Date().toISOString();
+    const { data, error } = await sb.from("crm_deal_lender_submissions").insert({
+      bank_id: bankId, deal_id: dealId, lender_profile_id: lenderProfileId, banker_person_id: text(body.bankerPersonId), status,
+      amount_sent: num(body.amountSent) ?? num(deal.loan_amount), sent_at: status === "planned" ? null : now, next_follow_up_at: text(body.nextFollowUpAt), fit_rationale: text(body.fitRationale), notes: text(body.notes), created_by_clerk_user_id: userId, updated_by_clerk_user_id: userId,
+    }).select("*").single();
+    if (error || !data) return NextResponse.json({ ok: false, error: error?.code === "23505" ? "This deal has already been sent to that bank" : error?.message }, { status: 400 });
+    await sb.from("crm_lender_submission_events").insert({ bank_id: bankId, submission_id: data.id, event_type: status === "sent" ? "sent" : "created", to_status: status, actor_clerk_user_id: userId });
+    return NextResponse.json({ ok: true, submission: data });
+  }
+
+  return NextResponse.json({ ok: false, error: "Unsupported action" }, { status: 400 });
+}
+
+export async function PATCH(req: NextRequest) {
+  const gated = await gate();
+  if (gated instanceof NextResponse) return gated;
+  const { userId } = gated;
+  const bankId = await getBrokerageBankId();
+  const sb = supabaseAdmin();
+  const body = await req.json().catch(() => ({}));
+  const id = text(body.id);
+  const status = text(body.status);
+  if (!id || !status || !STATUSES.has(status)) return NextResponse.json({ ok: false, error: "Valid submission id and status are required" }, { status: 400 });
+  if (status === "declined" && !text(body.declineReason)) return NextResponse.json({ ok: false, error: "A decline reason is required" }, { status: 400 });
+  if (status === "closed" && (num(body.closedAmount) === null || !text(body.closedAt))) return NextResponse.json({ ok: false, error: "Closed amount and date are required" }, { status: 400 });
+  const { data: existing } = await sb.from("crm_deal_lender_submissions").select("*").eq("id", id).eq("bank_id", bankId).maybeSingle();
+  if (!existing) return NextResponse.json({ ok: false, error: "Submission not found" }, { status: 404 });
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { status, updated_at: now, updated_by_clerk_user_id: userId };
+  if (["reviewing", "interested", "term_sheet", "approved", "declined"].includes(status) && !existing.responded_at) patch.responded_at = now;
+  if (["approved", "declined", "lost"].includes(status)) patch.decision_at = now;
+  if (status === "declined") patch.decline_reason = text(body.declineReason);
+  if (status === "lost") patch.lost_reason = text(body.lostReason);
+  if (status === "closed") { patch.closed_amount = num(body.closedAmount); patch.closed_at = text(body.closedAt); }
+  if (body.approvedAmount !== undefined) patch.approved_amount = num(body.approvedAmount);
+  if (body.nextFollowUpAt !== undefined) patch.next_follow_up_at = text(body.nextFollowUpAt);
+  if (body.notes !== undefined) patch.notes = text(body.notes);
+  const { data, error } = await sb.from("crm_deal_lender_submissions").update(patch).eq("id", id).eq("bank_id", bankId).select("*").single();
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  await sb.from("crm_lender_submission_events").insert({ bank_id: bankId, submission_id: id, event_type: "status_changed", from_status: existing.status, to_status: status, details: patch, actor_clerk_user_id: userId });
+  return NextResponse.json({ ok: true, submission: data });
+}
