@@ -1,22 +1,11 @@
 /**
  * GET /api/workers/lock-janitor
  *
- * Vercel Cron belt-and-suspenders janitor for worker advisory locks.
+ * Vercel Cron janitor for leaked worker advisory locks and abandoned
+ * Golden Trident bundle executions.
  *
  * Schedule: every 5 minutes (vercel.json cron)
  * Auth: CRON_SECRET or WORKER_SECRET (via hasValidWorkerSecret)
- *
- * Calls release_stale_worker_advisory_locks() which terminates idle
- * postgrest pool connections holding any of the 5 worker advisory lock
- * keys (42001001-42001005) longer than the idle threshold. Terminating
- * the connection releases its session-scoped locks as a side effect.
- *
- * Required because pulse-outbox, ledger-forwarder, and spreads-worker
- * still use the session-scoped withWorkerAdvisoryLock pattern and the
- * supabase-js connection pool can leak locks between the lock + unlock
- * RPC calls. The xact-lock workers (doc-extraction, intake-outbox)
- * don't leak, but the janitor keys cover their lock-keys too as
- * defense-in-depth.
  *
  * SPEC-ADVISORY-LOCK-XACT-MIGRATION-1.
  */
@@ -31,7 +20,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const IDLE_THRESHOLD_SECONDS = 300; // 5 minutes
+const IDLE_THRESHOLD_SECONDS = 300;
+const TRIDENT_RECONCILIATION_LIMIT = 100;
+
+type ReleasedLock = {
+  terminated_pid: number;
+  released_lock_key: number;
+};
+
+type ReconciledTridentBundle = {
+  bundle_id: string;
+  deal_id: string;
+  previous_stage: string | null;
+};
 
 export async function GET(req: NextRequest) {
   const start = Date.now();
@@ -45,23 +46,29 @@ export async function GET(req: NextRequest) {
   }
 
   const sb = supabaseAdmin();
+  const [lockResult, tridentResult] = await Promise.all([
+    sb.rpc("release_stale_worker_advisory_locks", {
+      p_idle_threshold_seconds: IDLE_THRESHOLD_SECONDS,
+    }),
+    sb.rpc("reconcile_stale_trident_bundle_runs", {
+      p_limit: TRIDENT_RECONCILIATION_LIMIT,
+    }),
+  ]);
 
-  const { data, error } = await sb.rpc("release_stale_worker_advisory_locks", {
-    p_idle_threshold_seconds: IDLE_THRESHOLD_SECONDS,
-  });
-
-  if (error) {
-    console.error("[lock-janitor] rpc_failed", error.message);
+  if (lockResult.error || tridentResult.error) {
+    const errors = {
+      advisoryLocks: lockResult.error?.message ?? null,
+      tridentBundles: tridentResult.error?.message ?? null,
+    };
+    console.error("[lock-janitor] rpc_failed", errors);
     return NextResponse.json(
-      { ok: false, error: error.message, durationMs: Date.now() - start },
+      { ok: false, errors, durationMs: Date.now() - start },
       { status: 500 },
     );
   }
 
-  const released = (data ?? []) as Array<{
-    terminated_pid: number;
-    released_lock_key: number;
-  }>;
+  const released = (lockResult.data ?? []) as ReleasedLock[];
+  const tridentReconciled = (tridentResult.data ?? []) as ReconciledTridentBundle[];
 
   if (released.length > 0) {
     console.warn("[lock-janitor] released stale locks", {
@@ -70,10 +77,19 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  if (tridentReconciled.length > 0) {
+    console.warn("[lock-janitor] reconciled stale trident bundles", {
+      count: tridentReconciled.length,
+      details: tridentReconciled,
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     released: released.length,
     details: released,
+    tridentReconciled: tridentReconciled.length,
+    tridentDetails: tridentReconciled,
     durationMs: Date.now() - start,
   });
 }

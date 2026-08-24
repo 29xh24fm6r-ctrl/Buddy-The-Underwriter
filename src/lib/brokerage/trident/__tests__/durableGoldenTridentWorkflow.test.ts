@@ -26,6 +26,11 @@ const completionMigration = readFileSync(
   "utf8",
 );
 const feasibilityEngine = readFileSync("src/lib/feasibility/feasibilityEngine.ts", "utf8");
+const runtimeMigration = readFileSync(
+  "supabase/migrations/20260824161948_golden_trident_runtime_certification.sql",
+  "utf8",
+);
+const lockJanitor = readFileSync("src/app/api/workers/lock-janitor/route.ts", "utf8");
 
 test("final Trident generation is accepted into a multi-stage durable workflow", () => {
   assert.match(route, /start\(goldenTridentWorkflow/);
@@ -180,5 +185,20 @@ test("the admitted snapshot includes borrower narrative and every research evide
   ]) {
     assert.match(snapshot, new RegExp(table));
   }
-  assert.match(snapshot, /version: 3/);
+  assert.match(snapshot, /version: 4/);
+  assert.match(snapshot, /semanticTridentSnapshot/);
+  assert.match(snapshot, /TRIDENT_VOLATILE_SNAPSHOT_KEYS/);
+});
+
+
+test("runtime certification reconciles abandoned bundles without broadening access", () => {
+  assert.match(runtimeMigration, /reconcile_stale_trident_bundle_runs/);
+  assert.match(runtimeMigration, /for update skip locked/i);
+  assert.match(runtimeMigration, /buddy_trident_bundles_stale_lease_idx/);
+  assert.match(runtimeMigration, /buddy_trident_bundle_stages/);
+  assert.match(runtimeMigration, /revoke all[\s\S]*from public, anon, authenticated/i);
+  assert.match(runtimeMigration, /grant execute[\s\S]*to service_role/i);
+  assert.match(lockJanitor, /reconcile_stale_trident_bundle_runs/);
+  assert.match(lockJanitor, /Promise\.all/);
+  assert.match(lockJanitor, /tridentReconciled/);
 });

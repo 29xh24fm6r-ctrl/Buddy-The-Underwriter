@@ -13,6 +13,40 @@ export type TridentInputSnapshot = {
   manifest: Record<string, unknown>;
 };
 
+// Lifecycle metadata changes while workers heartbeat, checkpoint, validate,
+// and publish. Hashing these fields made the factory invalidate its own
+// admission even when every substantive underwriting value was unchanged.
+// Actual value edits remain in the digest; only non-semantic runtime metadata
+// is removed.
+export const TRIDENT_VOLATILE_SNAPSHOT_KEYS = new Set([
+  "created_at",
+  "updated_at",
+  "generated_at",
+  "started_at",
+  "completed_at",
+  "last_heartbeat_at",
+  "generation_started_at",
+  "generation_completed_at",
+  "lease_expires_at",
+  "intake_processing_queued_at",
+  "intake_processing_started_at",
+  "intake_processing_last_heartbeat_at",
+  "lender_package_generated_at",
+  "brokerage_stage_entered_at",
+]);
+
+export function semanticTridentSnapshot(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(semanticTridentSnapshot);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as JsonRecord)
+        .filter(([key]) => !TRIDENT_VOLATILE_SNAPSHOT_KEYS.has(key))
+        .map(([key, child]) => [key, semanticTridentSnapshot(child)]),
+    );
+  }
+  return value;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalize).sort((a, b) =>
@@ -31,7 +65,7 @@ function canonicalize(value: unknown): unknown {
 
 export function hashTridentManifest(manifest: Record<string, unknown>): string {
   return createHash("sha256")
-    .update(JSON.stringify(canonicalize(manifest)))
+    .update(JSON.stringify(canonicalize(semanticTridentSnapshot(manifest))))
     .digest("hex");
 }
 
@@ -111,11 +145,8 @@ export async function computeTridentInputSnapshot(
     requiredMissionRows(sb, "buddy_research_quality_gates", missionIds),
   ]);
 
-  // The manifest deliberately contains source values, not only row counts or
-  // timestamps. Volatile factory outputs are excluded so the factory cannot
-  // invalidate its own lease while it is producing artifacts.
   const manifest = canonicalize({
-    version: 3,
+    version: 4,
     deal: dealResult.data,
     financialSnapshots,
     pricingDecisions,

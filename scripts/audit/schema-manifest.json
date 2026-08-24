@@ -358,5 +358,10 @@
     "name": "commission_golden_trident_qa_research",
     "type": "function",
     "migration": "20260821190000_golden_trident_completion_factory.sql"
+  },
+  {
+    "name": "reconcile_stale_trident_bundle_runs",
+    "type": "function",
+    "migration": "20260824161948_golden_trident_runtime_certification.sql"
   }
 ]
