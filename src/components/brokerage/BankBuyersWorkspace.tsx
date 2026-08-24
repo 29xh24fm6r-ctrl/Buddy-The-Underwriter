@@ -25,11 +25,50 @@ export function BankBuyersWorkspace() {
 
   async function load() {
     setLoading(true);
-    try { const r = await fetch("/api/admin/brokerage/crm/organizations/buyers"); const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error ?? "Load failed"); setData(j); setError(null); }
-    catch (e: any) { setError(e.message ?? "Load failed"); }
-    finally { setLoading(false); }
+    try {
+      const r = await fetch("/api/admin/brokerage/crm/organizations/buyers");
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error ?? "Load failed");
+      setData(j);
+      setError(null);
+      return j;
+    } catch (e: any) {
+      setError(e.message ?? "Load failed");
+      return null;
+    } finally {
+      setLoading(false);
+    }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const organizationId = params.get("organizationId");
+    if (params.get("new") !== "submission" || !organizationId) {
+      void load();
+      return;
+    }
+    void (async () => {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/admin/brokerage/crm/organizations/buyers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "ensure_buyer_relationship", organizationId }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error ?? "Unable to prepare bank relationship");
+        const refreshed = await load();
+        if (!refreshed) return;
+        setSubmission((current: any) => ({ ...current, lenderProfileId: result.profile.id, bankerPersonId: "" }));
+        setMode("submission");
+        window.history.replaceState({}, "", "/admin/brokerage/crm/buyers");
+      } catch (e: any) {
+        setError(e.message ?? "Unable to prepare bank relationship");
+        setLoading(false);
+      }
+    })();
+    // Run once for the deep-linked organization supplied by the organization workspace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const visible = useMemo(() => data.submissions.filter((s: any) => filter === "all" || (filter === "active" ? ACTIVE.has(s.status) : s.status === filter)), [data.submissions, filter]);
   const selectedProfile = data.profiles.find((p: any) => p.id === submission.lenderProfileId);
 

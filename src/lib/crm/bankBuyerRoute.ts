@@ -90,6 +90,37 @@ export async function bankBuyerPOST(req: NextRequest) {
   const sb = supabaseAdmin();
   const body = await req.json().catch(() => ({}));
 
+  if (body.action === "ensure_buyer_relationship") {
+    const organizationId = text(body.organizationId);
+    if (!organizationId) return NextResponse.json({ ok: false, error: "Organization is required" }, { status: 400 });
+    const { data: organization } = await sb.from("crm_organizations").select("id").eq("id", organizationId).eq("bank_id", bankId).maybeSingle();
+    if (!organization) return NextResponse.json({ ok: false, error: "Organization not found in this brokerage" }, { status: 404 });
+
+    const { data: existing, error: existingError } = await sb.from("crm_lender_profiles").select("*").eq("bank_id", bankId).eq("organization_id", organizationId).maybeSingle();
+    if (existingError) return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
+    if (existing) return NextResponse.json({ ok: true, profile: existing, created: false });
+
+    const { data: profile, error } = await sb.from("crm_lender_profiles").insert({
+      bank_id: bankId,
+      organization_id: organizationId,
+      relationship_status: "prospect",
+      lender_type: "bank",
+      sba_7a_appetite: false,
+      sba_504_appetite: false,
+      conventional_appetite: false,
+      created_by_clerk_user_id: userId,
+    }).select("*").single();
+    if (error || !profile) {
+      if (error?.code === "23505") {
+        const { data: raced } = await sb.from("crm_lender_profiles").select("*").eq("bank_id", bankId).eq("organization_id", organizationId).maybeSingle();
+        if (raced) return NextResponse.json({ ok: true, profile: raced, created: false });
+      }
+      return NextResponse.json({ ok: false, error: error?.message ?? "Unable to create bank relationship" }, { status: 400 });
+    }
+    await sb.from("crm_organizations").update({ organization_type: "lender", updated_at: new Date().toISOString() }).eq("id", organizationId).eq("bank_id", bankId);
+    return NextResponse.json({ ok: true, profile, created: true });
+  }
+
   if (body.action === "upsert_buyer_profile") {
     const organizationId = text(body.organizationId);
     if (!organizationId) return NextResponse.json({ ok: false, error: "Organization is required" }, { status: 400 });
