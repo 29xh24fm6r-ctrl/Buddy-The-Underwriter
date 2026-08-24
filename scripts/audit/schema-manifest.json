@@ -65,6 +65,11 @@
     "migration": "20260730000000_fix_cards.sql"
   },
   {
+    "name": "can_access_deal",
+    "type": "function",
+    "migration": "20260730020000_fix_can_access_deal_membership_table.sql"
+  },
+  {
     "name": "borrower_concierge_sessions.last_asked_fact_key",
     "type": "column",
     "migration": "20260731000000_concierge_last_asked_fact_key.sql"
@@ -130,41 +135,6 @@
     "migration": "20260804000000_add_buddy_schema_parity_rpcs.sql"
   },
   {
-    "name": "can_access_deal",
-    "type": "function",
-    "migration": "20260730020000_fix_can_access_deal_membership_table.sql"
-  },
-  {
-    "name": "buddy_sba_packages.projections_assumptions_narrative",
-    "type": "column",
-    "migration": "20260805000010_projections_assumptions_narrative_column.sql"
-  },
-  {
-    "name": "buddy_sba_assumptions_events",
-    "type": "table",
-    "migration": "20260806000000_sba_assumptions_events.sql"
-  },
-  {
-    "name": "character_question_confirmations",
-    "type": "table",
-    "migration": "20260807000000_character_question_confirmations.sql"
-  },
-  {
-    "name": "fill_runs",
-    "type": "table",
-    "migration": "20260807100000_multi_signer_package.sql"
-  },
-  {
-    "name": "fill_runs.ownership_entity_id",
-    "type": "column",
-    "migration": "20260807100000_multi_signer_package.sql"
-  },
-  {
-    "name": "sba_package_run_items.ownership_entity_id",
-    "type": "column",
-    "migration": "20260807100000_multi_signer_package.sql"
-  },
-  {
     "name": "deals.is_test",
     "type": "column",
     "migration": "20260804000001_qa_borrower_identity.sql"
@@ -203,6 +173,36 @@
     "name": "cleanup_test_data",
     "type": "function",
     "migration": "20260804000001_qa_borrower_identity.sql"
+  },
+  {
+    "name": "buddy_sba_packages.projections_assumptions_narrative",
+    "type": "column",
+    "migration": "20260805000010_projections_assumptions_narrative_column.sql"
+  },
+  {
+    "name": "buddy_sba_assumptions_events",
+    "type": "table",
+    "migration": "20260806000000_sba_assumptions_events.sql"
+  },
+  {
+    "name": "character_question_confirmations",
+    "type": "table",
+    "migration": "20260807000000_character_question_confirmations.sql"
+  },
+  {
+    "name": "fill_runs",
+    "type": "table",
+    "migration": "20260807100000_multi_signer_package.sql"
+  },
+  {
+    "name": "fill_runs.ownership_entity_id",
+    "type": "column",
+    "migration": "20260807100000_multi_signer_package.sql"
+  },
+  {
+    "name": "sba_package_run_items.ownership_entity_id",
+    "type": "column",
+    "migration": "20260807100000_multi_signer_package.sql"
   },
   {
     "name": "borrower_intake_progress",
@@ -277,6 +277,11 @@
   {
     "name": "acquire_trident_bundle_run",
     "type": "function",
+    "migration": "20260819000000_golden_trident_factory.sql"
+  },
+  {
+    "name": "acquire_trident_bundle_run",
+    "type": "function",
     "migration": "20260820230000_golden_trident_atomic_factory.sql"
   },
   {
@@ -313,11 +318,6 @@
     "name": "finalize_trident_bundle_run",
     "type": "function",
     "migration": "20260820230000_golden_trident_atomic_factory.sql"
-  },
-  {
-    "name": "acquire_trident_bundle_run",
-    "type": "function",
-    "migration": "20260819000000_golden_trident_factory.sql"
   },
   {
     "name": "deal_conditions.category",
@@ -375,6 +375,11 @@
     "migration": "20260824180300_clear_reconciled_trident_lease_token.sql"
   },
   {
+    "name": "commission_golden_trident_qa_research",
+    "type": "function",
+    "migration": "20260824192823_golden_trident_e2e_certification_factory.sql"
+  },
+  {
     "name": "crm_lender_profiles",
     "type": "table",
     "migration": "20260824193000_brokerage_bank_buyer_crm.sql"
@@ -390,8 +395,8 @@
     "migration": "20260824193000_brokerage_bank_buyer_crm.sql"
   },
   {
-    "name": "commission_golden_trident_qa_research",
+    "name": "normalize_trident_terminal_bundle_stages",
     "type": "function",
-    "migration": "20260824203000_golden_trident_e2e_certification_factory.sql"
+    "migration": "20260824200548_golden_trident_terminal_stage_convergence.sql"
   }
 ]
