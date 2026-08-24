@@ -90,6 +90,40 @@ export async function bankBuyerPOST(req: NextRequest) {
   const sb = supabaseAdmin();
   const body = await req.json().catch(() => ({}));
 
+  if (body.action === "upsert_buyer_profile") {
+    const organizationId = text(body.organizationId);
+    if (!organizationId) return NextResponse.json({ ok: false, error: "Organization is required" }, { status: 400 });
+    const { data: organization } = await sb.from("crm_organizations").select("id").eq("id", organizationId).eq("bank_id", bankId).maybeSingle();
+    if (!organization) return NextResponse.json({ ok: false, error: "Organization not found in this brokerage" }, { status: 404 });
+    const payload = {
+      bank_id: bankId,
+      organization_id: organizationId,
+      relationship_status: text(body.relationshipStatus) ?? "prospect",
+      lender_type: text(body.lenderType) ?? "bank",
+      sba_7a_appetite: body.sba7a !== false,
+      sba_504_appetite: !!body.sba504,
+      conventional_appetite: !!body.conventional,
+      min_loan_amount: num(body.minLoanAmount),
+      max_loan_amount: num(body.maxLoanAmount),
+      min_dscr: num(body.minDscr),
+      max_ltv: num(body.maxLtv),
+      minimum_fico: num(body.minimumFico),
+      industries: list(body.industries),
+      excluded_industries: list(body.excludedIndustries),
+      geographies: list(body.geographies),
+      collateral_preferences: list(body.collateralPreferences),
+      deal_preferences: text(body.dealPreferences),
+      referral_fee_bps: num(body.referralFeeBps),
+      response_sla_days: num(body.responseSlaDays),
+      created_by_clerk_user_id: userId,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: profile, error } = await sb.from("crm_lender_profiles").upsert(payload, { onConflict: "bank_id,organization_id" }).select("*").single();
+    if (error || !profile) return NextResponse.json({ ok: false, error: error?.message ?? "Unable to save lending appetite" }, { status: 400 });
+    await sb.from("crm_organizations").update({ organization_type: "lender", updated_at: new Date().toISOString() }).eq("id", organizationId).eq("bank_id", bankId);
+    return NextResponse.json({ ok: true, profile });
+  }
+
   if (body.action === "create_buyer") {
     const name = text(body.name);
     if (!name) return NextResponse.json({ ok: false, error: "Bank name is required" }, { status: 400 });
