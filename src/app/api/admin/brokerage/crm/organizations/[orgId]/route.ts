@@ -7,6 +7,7 @@ import { getBrokerageBankId } from "@/lib/tenant/brokerage";
 import { updateOrganization, ORGANIZATION_TYPES } from "@/lib/crm/organizations";
 import { listPeopleForOrganization } from "@/lib/crm/people";
 import { resolveDealRolesForOrganization } from "@/lib/crm/resolve";
+import { bankBuyerGET, bankBuyerPATCH, bankBuyerPOST } from "@/lib/crm/bankBuyerRoute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,10 +33,12 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ orgId: string }> },
 ) {
+  const { orgId } = await params;
+  if (orgId === "buyers") return bankBuyerGET();
+
   const gated = await gate();
   if (gated instanceof NextResponse) return gated;
 
-  const { orgId } = await params;
   const brokerageBankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
 
@@ -128,10 +131,12 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ orgId: string }> },
 ) {
+  const { orgId } = await params;
+  if (orgId === "buyers") return bankBuyerPATCH(req);
+
   const gated = await gate();
   if (gated instanceof NextResponse) return gated;
 
-  const { orgId } = await params;
   const brokerageBankId = await getBrokerageBankId();
   const body = await req.json().catch(() => ({}) as any);
 
@@ -156,4 +161,14 @@ export async function PATCH(
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
+}
+
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> },
+) {
+  const { orgId } = await params;
+  if (orgId === "buyers") return bankBuyerPOST(req);
+  return NextResponse.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
 }
