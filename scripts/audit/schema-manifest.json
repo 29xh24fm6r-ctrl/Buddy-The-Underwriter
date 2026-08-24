@@ -392,6 +392,11 @@
   {
     "name": "commission_golden_trident_qa_research",
     "type": "function",
-    "migration": "20260824203000_golden_trident_e2e_certification_factory.sql"
+    "migration": "20260824192823_golden_trident_e2e_certification_factory.sql"
+  },
+  {
+    "name": "normalize_trident_terminal_bundle_stages",
+    "type": "function",
+    "migration": "20260824200548_golden_trident_terminal_stage_convergence.sql"
   }
 ]

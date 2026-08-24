@@ -27,7 +27,7 @@ const completionMigration = readFileSync(
 );
 const feasibilityEngine = readFileSync("src/lib/feasibility/feasibilityEngine.ts", "utf8");
 const certificationMigration = readFileSync(
-  "supabase/migrations/20260824203000_golden_trident_e2e_certification_factory.sql",
+  "supabase/migrations/20260824192823_golden_trident_e2e_certification_factory.sql",
   "utf8",
 );
 const runtimeMigration = readFileSync(
@@ -41,6 +41,14 @@ const reconciliationRepairMigration = readFileSync(
 );
 const terminalLeaseRepairMigration = readFileSync(
   "supabase/migrations/20260824180300_clear_reconciled_trident_lease_token.sql",
+  "utf8",
+);
+const terminalStageConvergenceMigration = readFileSync(
+  "supabase/migrations/20260824200548_golden_trident_terminal_stage_convergence.sql",
+  "utf8",
+);
+const marketplaceCronRoute = readFileSync(
+  "src/app/api/cron/brokerage/marketplace/run/route.ts",
   "utf8",
 );
 
@@ -237,6 +245,32 @@ test("runtime certification reconciles abandoned bundles without broadening acce
     terminalLeaseRepairMigration,
     /status = 'failed'[\s\S]*stage_error_json ->> 'code' = 'lease_expired'/i,
   );
+
+  assert.match(
+    terminalStageConvergenceMigration,
+    /create or replace trigger buddy_trident_terminal_stage_convergence/i,
+  );
+  assert.match(
+    terminalStageConvergenceMigration,
+    /new\.status not in \('succeeded', 'failed'\)/i,
+  );
+  assert.match(
+    terminalStageConvergenceMigration,
+    /s\.status in \('pending', 'running'\)/i,
+  );
+  assert.match(terminalStageConvergenceMigration, /'parent_bundle_terminal'/i);
+  assert.match(
+    terminalStageConvergenceMigration,
+    /revoke all[\s\S]*from public, anon, authenticated/i,
+  );
+});
+
+
+test("scheduled marketplace cadence supports Vercel GET without diverging from POST", () => {
+  assert.match(marketplaceCronRoute, /async function runMarketplaceCron/);
+  assert.match(marketplaceCronRoute, /export const GET = runMarketplaceCron/);
+  assert.match(marketplaceCronRoute, /export const POST = runMarketplaceCron/);
+  assert.equal((marketplaceCronRoute.match(/verifyCronSecret\(request\)/g) ?? []).length, 1);
 });
 
 
