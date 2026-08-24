@@ -115,6 +115,38 @@ export async function GET(
     resolveDealRolesForOrganization(brokerageBankId, orgId),
   ]);
 
+  const { data: lenderProfile, error: lenderProfileErr } = await sb
+    .from("crm_lender_profiles")
+    .select("*")
+    .eq("bank_id", brokerageBankId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+  if (lenderProfileErr) {
+    return NextResponse.json({ ok: false, error: lenderProfileErr.message }, { status: 500 });
+  }
+
+  let lenderSubmissions: any[] = [];
+  if (lenderProfile) {
+    const { data: submissions, error: submissionsErr } = await sb
+      .from("crm_deal_lender_submissions")
+      .select("*")
+      .eq("bank_id", brokerageBankId)
+      .eq("lender_profile_id", lenderProfile.id)
+      .order("updated_at", { ascending: false });
+    if (submissionsErr) {
+      return NextResponse.json({ ok: false, error: submissionsErr.message }, { status: 500 });
+    }
+    const dealIds = (submissions ?? []).map((row: any) => row.deal_id);
+    const { data: submissionDeals, error: submissionDealsErr } = dealIds.length
+      ? await sb.from("deals").select("id, display_name, borrower_name, name, loan_amount").eq("bank_id", brokerageBankId).in("id", dealIds)
+      : { data: [], error: null };
+    if (submissionDealsErr) {
+      return NextResponse.json({ ok: false, error: submissionDealsErr.message }, { status: 500 });
+    }
+    const dealById = new Map((submissionDeals ?? []).map((deal: any) => [deal.id, deal]));
+    lenderSubmissions = (submissions ?? []).map((row: any) => ({ ...row, deal: dealById.get(row.deal_id) ?? null }));
+  }
+
   return NextResponse.json({
     ok: true,
     organization: org,
@@ -124,6 +156,8 @@ export async function GET(
     activities: activities ?? [],
     referredDeals: referredDeals ?? [],
     leads: leads ?? [],
+    lenderProfile: lenderProfile ?? null,
+    lenderSubmissions,
   });
 }
 
