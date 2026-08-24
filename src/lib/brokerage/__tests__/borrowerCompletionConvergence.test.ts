@@ -64,7 +64,7 @@ test("ownership intake persists named owners before advancing", () => {
   assert.match(route, /propagateBorrowerFacts/);
 });
 
-test("confirmed assumptions are revalidated before Trident generation", () => {
+test("confirmed assumptions are validated on mutation while status polling remains read-only", () => {
   const bootstrap = read("src/lib/sba/sbaAssumptionsBootstrap.ts");
   const confirmRoute = read(
     "src/app/api/borrower/portal/[token]/sba-assumptions/route.ts",
@@ -83,5 +83,7 @@ test("confirmed assumptions are revalidated before Trident generation", () => {
   );
   assert.match(confirmRoute, /validateSBAAssumptions\(candidate\)/);
   assert.match(confirmRoute, /assumption_validation_failed/);
-  assert.match(sealStatus, /const ensured = await ensureAssumptionsForPreview/);
+  assert.doesNotMatch(sealStatus, /ensureAssumptionsForPreview/);
+  assert.doesNotMatch(sealStatus, /generateTridentBundle/);
+  assert.match(sealStatus, /Status polling is deliberately read-only/);
 });
