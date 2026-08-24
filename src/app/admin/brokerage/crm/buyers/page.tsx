@@ -51,7 +51,7 @@ export default function BankBuyersPage() {
     finally { setSaving(false); }
   }
 
-  const tile = (name: string, value: string, color = c.brass) => <div style={{ background: c.card, border: `1px solid ${c.border}`, borderLeft: `3px solid ${color}`, padding: "13px 15px", borderRadius: 7 }}><div style={{ color: c.textMuted, fontSize: 10.5 }}>{name}</div><div style={{ color: c.paper, fontFamily: "var(--font-brokerage-mono)", fontSize: 22, marginTop: 5 }}>{value}</div></div>;
+  const tile = (name: string, value: string, color: string = c.brass) => <div style={{ background: c.card, border: `1px solid ${c.border}`, borderLeft: `3px solid ${color}`, padding: "13px 15px", borderRadius: 7 }}><div style={{ color: c.textMuted, fontSize: 10.5 }}>{name}</div><div style={{ color: c.paper, fontFamily: "var(--font-brokerage-mono)", fontSize: 22, marginTop: 5 }}>{value}</div></div>;
 
   return <div style={{ padding: "18px 24px 42px" }}>
     <CrmTabs />
