@@ -27,6 +27,7 @@ import { runFranchiseComparison } from "./franchiseComparator";
 import { extractBIEMarketData } from "./bieMarketExtractor";
 import { readCanonicalEquityInjectionPct } from "./canonicalProjectionInputs";
 import type {
+  CompositeFeasibilityScore,
   FeasibilityResult,
   ManagementMemberLite,
   PlannedHireLite,
