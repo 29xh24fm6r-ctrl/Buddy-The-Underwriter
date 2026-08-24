@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "packageManager": "pnpm@10.27.0",
   "scripts": {
@@ -168,7 +168,7 @@
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/busboy": "^1.5.4",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/pdf-parse": "^1.1.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",

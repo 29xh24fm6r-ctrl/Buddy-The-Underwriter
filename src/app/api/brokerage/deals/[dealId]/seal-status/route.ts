@@ -28,9 +28,6 @@ import { deepMerge } from "@/lib/brokerage/borrowerConversation";
 import { buildPackageManifest, type PackageManifest } from "@/lib/brokerage/packageDelivery";
 import { computeApplicableForms } from "@/lib/sba/forms/applicability";
 import { computeFieldProgress, type FieldProgress } from "@/lib/sba/forms/borrowerFieldProgress";
-import { computeBuddySBAScore, lockBuddySBAScore } from "@/lib/score/buddySbaScore";
-import { ensureAssumptionsForPreview } from "@/lib/sba/sbaAssumptionsBootstrap";
-import { generateTridentBundle } from "@/lib/brokerage/trident/generateTridentBundle";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -156,142 +153,10 @@ export async function GET(
     .limit(1)
     .maybeSingle();
 
-  // Auto-resolve resolvable sealing blockers so the borrower doesn't have to
-  // manually trigger score computation, assumption confirmation, or trident
-  // generation — those steps have no UI in the concierge flow.
-  const autoResolveErrors: string[] = [];
-  try {
-    const { data: existingScore } = await sb
-      .from("buddy_sba_scores")
-      .select("id, score_status, score, eligibility_passed, computed_at")
-      .eq("deal_id", dealId)
-      .order("computed_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const scoreRow = existingScore as { id?: string; score_status?: string; score?: number; eligibility_passed?: boolean; computed_at?: string } | null;
-
-    if (!scoreRow) {
-      try {
-        const computed = await computeBuddySBAScore({ dealId, sb, context: "package_seal" });
-        if (computed.score >= 60 && computed.eligibilityPassed) {
-          await lockBuddySBAScore({ dealId, sb });
-        }
-      } catch (e) {
-        autoResolveErrors.push(`score: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    } else if (scoreRow.score_status === "draft" && (scoreRow.score ?? 0) >= 60 && scoreRow.eligibility_passed) {
-      try {
-        await lockBuddySBAScore({ dealId, sb });
-      } catch (e) {
-        autoResolveErrors.push(`lock: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    } else if (scoreRow.score_status === "draft") {
-      // RUNAWAY RECOMPUTE FIX.
-      //
-      // This branch used to recompute whenever the newest draft score was
-      // older than two minutes. Recomputing INSERTS a new row, which resets
-      // computed_at, which makes the row stale again two minutes later — a
-      // self-sustaining loop with no input change behind it. Production was
-      // writing ~477 score rows per day for a single deal and had
-      // accumulated 2,384 superseded rows.
-      //
-      // A recompute is only meaningful when the inputs actually changed, so
-      // that is now the trigger. Age alone is not evidence of anything.
-      const computedAtMs = scoreRow.computed_at
-        ? new Date(scoreRow.computed_at).getTime()
-        : 0;
-
-      const [dealRow, appRow, assumptionRow] = await Promise.all([
-        sb.from("deals").select("updated_at").eq("id", dealId).maybeSingle(),
-        sb
-          .from("borrower_applications")
-          .select("updated_at")
-          .eq("deal_id", dealId)
-          .maybeSingle(),
-        sb
-          .from("buddy_sba_assumptions")
-          .select("updated_at")
-          .eq("deal_id", dealId)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-      const latestInputMs = Math.max(
-        ...[
-          (dealRow.data as { updated_at?: string } | null)?.updated_at,
-          (appRow.data as { updated_at?: string } | null)?.updated_at,
-          (assumptionRow.data as { updated_at?: string } | null)?.updated_at,
-        ]
-          .filter((v): v is string => Boolean(v))
-          .map((v) => new Date(v).getTime())
-          .concat([0]),
-      );
-
-      // Small grace window so a write landing moments before the score is
-      // computed is not mistaken for a change made after it.
-      const INPUT_CHANGE_GRACE_MS = 5 * 1000;
-      const inputsChanged = latestInputMs > computedAtMs + INPUT_CHANGE_GRACE_MS;
-
-      if (inputsChanged) {
-        try {
-          const computed = await computeBuddySBAScore({ dealId, sb, context: "package_seal" });
-          if (computed.score >= 60 && computed.eligibilityPassed) {
-            await lockBuddySBAScore({ dealId, sb });
-          }
-        } catch (e) {
-          autoResolveErrors.push(`score_recompute: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
-    }
-
-    // Revalidate even rows labelled `confirmed`. Older confirmation paths
-    // could persist structurally invalid assumptions; trusting the label
-    // caused seal-status polling to launch an endless series of doomed
-    // Trident previews.
-    try {
-      const ensured = await ensureAssumptionsForPreview({
-        dealId,
-        conciergeFacts: facts as any,
-        sb,
-      });
-      if (!ensured.ok) {
-        autoResolveErrors.push(`assumptions: ${ensured.blockers.join("; ")}`);
-      }
-    } catch (e) {
-      autoResolveErrors.push(`assumptions: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    const { data: existingBundle } = await sb
-      .from("buddy_trident_bundles")
-      .select("id")
-      .eq("deal_id", dealId)
-      .eq("mode", "preview")
-      .eq("status", "succeeded")
-      .is("superseded_at", null)
-      .maybeSingle();
-
-    if (!existingBundle) {
-      const { data: confirmedAssumptions } = await sb
-        .from("buddy_sba_assumptions")
-        .select("id, status")
-        .eq("deal_id", dealId)
-        .maybeSingle();
-      if (confirmedAssumptions && (confirmedAssumptions as any).status === "confirmed") {
-        try {
-          await generateTridentBundle({ dealId, mode: "preview" });
-        } catch (e) {
-          autoResolveErrors.push(`trident: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
-    }
-  } catch (e) {
-    autoResolveErrors.push(`auto-resolve: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  if (autoResolveErrors.length > 0) {
-    console.warn("[seal-status] auto-resolve warnings:", autoResolveErrors);
-  }
+  // Status polling is deliberately read-only. Expensive score, assumptions, and
+  // Trident work belongs to explicit mutation/workflow commands; running it
+  // from this frequently-polled GET caused production 30-second timeouts and
+  // allowed a page refresh to launch durable factory work.
 
   // Gate evaluation (even when already sealed — surfaces re-seal readiness).
   const gate = await canSeal(dealId, sb);
