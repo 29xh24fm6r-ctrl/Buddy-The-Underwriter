@@ -89,12 +89,22 @@ export async function prepareTridentFactory(args: TridentFactoryArgs) {
 export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExecutionArgs) {
   if (args.mode !== "final") {
     await writeStage(args, "canonical_credit", "skipped", { reason: "preview_mode" });
-    return;
+    return { memoInputHash: args.memoInputHash };
   }
   await writeStage(args, "canonical_credit", "running");
   let failureDetail: Record<string, unknown> = {};
   try {
     await assertFrozen(args);
+    // Classic Spread is the canonical financial materializer. Run it first so
+    // the memo and all downstream artifacts bind to the resulting stable
+    // financial snapshot rather than to the pre-materialization snapshot.
+    const spread = await renderClassicPdfSpread({ dealId: args.dealId, bankId: args.bankId });
+    if (!spread.ok) {
+      if (spread.errorCode === "PREFLIGHT_BLOCKED") throw new FatalError(spread.error);
+      throw new Error(spread.error);
+    }
+    await assertFrozen(args);
+
     const memo = await generateCanonicalMemoArtifact({
       dealId: args.dealId,
       bankId: args.bankId,
@@ -126,11 +136,6 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
       };
       throw new FatalError(message);
     }
-    const spread = await renderClassicPdfSpread({ dealId: args.dealId, bankId: args.bankId });
-    if (!spread.ok) {
-      if (spread.errorCode === "PREFLIGHT_BLOCKED") throw new FatalError(spread.error);
-      throw new Error(spread.error);
-    }
     await assertFrozen(args);
     const sb = supabaseAdmin();
     const { data: spreadRow, error: spreadReadError } = await sb.from("deal_spreads").select("id")
@@ -143,6 +148,7 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
     const { error } = await sb.from("buddy_trident_bundles").update({
       source_credit_memo_id: memo.memoId,
       source_spread_id: spreadRow.id,
+      memo_input_hash: memo.inputHash,
       canonical_memo_input_hash: memo.inputHash,
     }).eq("id", args.bundleId)
       .eq("bank_id", args.bankId)
@@ -154,6 +160,7 @@ export async function generateCanonicalFactoryArtifacts(args: TridentFactoryExec
       memoInputHash: memo.inputHash,
       spreadSha256: spread.pdfSha256,
     });
+    return { memoInputHash: memo.inputHash };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await writeStage(args, "canonical_credit", "failed", {
