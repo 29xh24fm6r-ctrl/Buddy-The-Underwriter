@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 import { RefinedStamp } from "@/components/brokerage/StatusStamp";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
@@ -349,7 +349,7 @@ export default function BrokerageCrmPage() {
         ) : filteredOrgs.length === 0 ? (
           <div style={{ padding: "54px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 30, opacity: 0.35, marginBottom: 8 }}>◇</div>
-            <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: "#C9C3B6", marginBottom: 4 }}>
+            <div style={{ fontFamily: "var(--font-brokerage-display)", fontSize: 16, color: c.textSecondary, marginBottom: 4 }}>
               No organizations yet
             </div>
             <div style={{ fontSize: 12, color: c.textMuted }}>Add a bank, banker, referral partner, borrower, or other relationship to get started.</div>
@@ -371,7 +371,7 @@ export default function BrokerageCrmPage() {
             >
               <div style={{ fontSize: 12.5, fontWeight: 600, color: c.paper }}>{o.name}</div>
               <div style={{ fontSize: 11.5, color: c.textSecondary }}>{TYPE_LABELS[o.organization_type] ?? o.organization_type}</div>
-              <div style={{ fontSize: 11.5, color: "#C9C3B6" }}>
+              <div style={{ fontSize: 11.5, color: c.textSecondary }}>
                 {o.dealsReferredCount > 0 ? (
                   <>
                     {o.dealsReferredCount} · <span style={{ fontFamily: "var(--font-brokerage-mono)", color: c.brassBright }}>{fmtMoney(o.dealsReferredValue)}</span>
