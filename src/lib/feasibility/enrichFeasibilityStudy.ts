@@ -122,6 +122,11 @@ export async function enrichFeasibilityStudy(args: {
     : { data: null };
 
   const facts = {
+    evidencePolicy: {
+      financialMetrics: "Use only supplied deterministic metrics; do not derive new thresholds, debt-inclusive break-even, residual cushions, or percentages.",
+      missingMetrics: "State unavailable and recommend deterministic model support.",
+      nonApplicableScores: "Never present a neutral/not-applicable demographic score as positive decision evidence.",
+    },
     composite: {
       overallScore: composite.overallScore,
       recommendation: composite.recommendation,
