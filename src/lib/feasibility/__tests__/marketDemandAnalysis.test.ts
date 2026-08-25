@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeMarketDemand } from "../marketDemandAnalysis";
+import { createRequire } from "node:module";
+import { mockServerOnly } from "../../../../test/utils/mockServerOnly";
+
+mockServerOnly();
+const require = createRequire(import.meta.url);
+const { analyzeMarketDemand } =
+  require("../marketDemandAnalysis") as typeof import("../marketDemandAnalysis");
 
 function input(naicsCode: string) {
   return {
