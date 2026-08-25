@@ -119,8 +119,9 @@ export async function generateTridentBundle(args: {
     const factoryArgs = { dealId, mode, bundleId: admitted.bundleId, leaseToken: admitted.leaseToken };
     try {
       const snapshot = await prepareTridentFactory(factoryArgs);
-      const execution = { ...factoryArgs, ...snapshot };
-      await generateCanonicalFactoryArtifacts(execution);
+      const admittedExecution = { ...factoryArgs, ...snapshot };
+      const canonicalBinding = await generateCanonicalFactoryArtifacts(admittedExecution);
+      const execution = { ...admittedExecution, ...canonicalBinding };
       const result = await runArtifactFactory(execution);
       await verifyTridentFactory(execution);
       return result;
