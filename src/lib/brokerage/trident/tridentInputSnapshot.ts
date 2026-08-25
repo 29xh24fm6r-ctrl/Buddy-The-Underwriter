@@ -196,15 +196,38 @@ export async function computeTridentInputHash(
   return (await computeTridentInputSnapshot(sb, dealId)).inputHash;
 }
 
+export function summarizeTridentSourceDrift(
+  admittedManifest: Record<string, unknown> | null | undefined,
+  currentManifest: Record<string, unknown>,
+): string[] {
+  const admittedSources =
+    admittedManifest?.sources && typeof admittedManifest.sources === "object"
+      ? admittedManifest.sources as JsonRecord
+      : {};
+  const currentSources =
+    currentManifest.sources && typeof currentManifest.sources === "object"
+      ? currentManifest.sources as JsonRecord
+      : {};
+  return [...new Set([...Object.keys(admittedSources), ...Object.keys(currentSources)])]
+    .sort()
+    .filter((key) =>
+      JSON.stringify(canonicalize(semanticTridentSnapshot(admittedSources[key]))) !==
+      JSON.stringify(canonicalize(semanticTridentSnapshot(currentSources[key]))),
+    );
+}
+
 export async function assertTridentInputSnapshot(args: {
   sb: SupabaseClient;
   dealId: string;
   expectedHash: string;
+  expectedManifest?: Record<string, unknown> | null;
 }): Promise<void> {
-  const currentHash = await computeTridentInputHash(args.sb, args.dealId);
-  if (currentHash !== args.expectedHash) {
+  const current = await computeTridentInputSnapshot(args.sb, args.dealId);
+  if (current.inputHash !== args.expectedHash) {
+    const changedSources = summarizeTridentSourceDrift(args.expectedManifest, current.manifest);
     throw new Error(
-      `input_snapshot_changed: admitted=${args.expectedHash} current=${currentHash}`,
+      `input_snapshot_changed: admitted=${args.expectedHash} current=${current.inputHash}` +
+        (changedSources.length > 0 ? ` changed_sources=${changedSources.join(",")}` : ""),
     );
   }
 }
