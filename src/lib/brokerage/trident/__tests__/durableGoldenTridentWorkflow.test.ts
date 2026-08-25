@@ -57,10 +57,11 @@ test("final Trident generation is accepted into a multi-stage durable workflow",
   assert.match(route, /status:\s*202/);
   assert.doesNotMatch(route, /await generateTridentBundle/);
   assert.match(workflow, /"use workflow"/);
-  assert.equal((workflow.match(/"use step"/g) ?? []).length, 5);
+  assert.equal((workflow.match(/"use step"/g) ?? []).length, 6);
   assert.match(workflow, /prepare\(args\)/);
   assert.match(workflow, /canonical\(/);
-  assert.match(workflow, /artifacts\(execution\)/);
+  assert.match(workflow, /sba\(execution\)/);
+  assert.match(workflow, /artifacts\(execution, sbaCheckpoint\)/);
   assert.match(workflow, /manifest\(execution\)/);
   assert.match(nextConfig, /withWorkflow\(nextConfig\)/);
 });
@@ -109,6 +110,10 @@ test("production commissioning cannot reuse stale evidence or bypass validation"
 });
 
 test("artifact retries reuse durable upstream checkpoints", () => {
+  assert.match(workflow, /const sbaCheckpoint = await sba\(execution\)/);
+  assert.match(stages, /generateSbaFactoryCheckpoint/);
+  assert.match(generator, /source_sba_package_id: result\.packageId/);
+  assert.match(generator, /args\.sbaCheckpoint \?\?/);
   assert.match(generator, /completedBusinessPlanPath/);
   assert.match(generator, /resumedSbaPackageId && completedBusinessPlanPath/);
   assert.match(generator, /existing\.projections_xlsx_path/);
