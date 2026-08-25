@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
-import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 
 type Tab = "overview" | "people" | "marketplace" | "appetite" | "deals" | "activity";
 type Json = Record<string, any>;
@@ -37,7 +37,7 @@ function Card({ title, action, children }: { title: string; action?: ReactNode; 
   </section>;
 }
 function Button({ children, onClick, primary = false, disabled = false }: { children: ReactNode; onClick?: () => void; primary?: boolean; disabled?: boolean }) {
-  return <button onClick={onClick} disabled={disabled} style={{ background: primary ? c.brass : "#1B1E23", border: `1px solid ${primary ? c.brass : c.borderStronger}`, color: primary ? c.brassOnBrass : c.paper, borderRadius: 6, padding: "8px 12px", fontWeight: 650, fontSize: 11.5, cursor: disabled ? "default" : "pointer", opacity: disabled ? .45 : 1 }}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{ background: primary ? c.brass : c.cardHover, border: `1px solid ${primary ? c.brass : c.borderStronger}`, color: primary ? c.brassOnBrass : c.paper, borderRadius: 6, padding: "8px 12px", fontWeight: 650, fontSize: 11.5, cursor: disabled ? "default" : "pointer", opacity: disabled ? .45 : 1 }}>{children}</button>;
 }
 function Empty({ children }: { children: ReactNode }) {
   return <div style={{ padding: "20px 8px", textAlign: "center", color: c.textMuted, fontSize: 12, lineHeight: 1.6 }}>{children}</div>;
@@ -252,7 +252,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 }
 
 function SetupItem({ done, label, index }: { done: boolean; label: string; index: number }) {
-  return <div style={{ display: "flex", alignItems: "center", gap: 8, background: done ? "rgba(92,139,111,.09)" : c.card, border: `1px solid ${done ? "rgba(92,139,111,.32)" : c.border}`, borderRadius: 6, padding: "9px 10px" }}><span style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: "50%", background: done ? c.sage : c.borderStrong, color: done ? "#08110c" : c.textSecondary, fontSize: 10, fontWeight: 700 }}>{done ? "✓" : index + 1}</span><span style={{ color: done ? c.textSecondary : c.paper, fontSize: 11 }}>{label}</span></div>;
+  return <div style={{ display: "flex", alignItems: "center", gap: 8, background: done ? "rgba(92,139,111,.09)" : c.card, border: `1px solid ${done ? "rgba(92,139,111,.32)" : c.border}`, borderRadius: 6, padding: "9px 10px" }}><span style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: "50%", background: done ? c.sage : c.borderStrong, color: done ? "#FFFFFF" : c.textSecondary, fontSize: 10, fontWeight: 700 }}>{done ? "✓" : index + 1}</span><span style={{ color: done ? c.textSecondary : c.paper, fontSize: 11 }}>{label}</span></div>;
 }
 function Person({ person: p, card = false }: { person: Json; card?: boolean }) {
   return <div style={{ padding: card ? 12 : "9px 0", border: card ? `1px solid ${c.border}` : 0, borderBottom: card ? undefined : `1px solid ${c.divider}`, borderRadius: card ? 7 : 0 }}>
