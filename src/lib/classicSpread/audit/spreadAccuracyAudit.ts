@@ -16,6 +16,7 @@
 
 import type { CashFlowRow, FinancialRow } from "../types";
 import type { PeriodMaps } from "../classicSpreadRatios";
+import { classicTraditionalEbitda } from "../classicEbitda";
 import {
   resolveBalanceSheet,
   resolveIncomeStatement1120,
@@ -516,18 +517,19 @@ export function auditClassicSpread(input: AuditInput): SpreadAuditResult {
       }
     }
 
-    // EBITDA = EBIT + Dep + Amort
+    // EBITDA must be audited with the same canonical C-corp tax reconstruction used by rendering.
     {
-      const ebit = rowVal(incomeStatement, "EBIT", i);
-      const depAmort = rowVal(incomeStatement, "Dep & Amort", i);
-      if (ebit != null && depAmort != null) {
-        checkFormula({
-          iso, keys: ["NET_INCOME", "ORDINARY_BUSINESS_INCOME", "DEPRECIATION", "AMORTIZATION", "INTEREST_EXPENSE"],
-          period: label, label: "EBITDA", statement: "income_statement",
-          expected: ebit + depAmort, rendered: rowVal(incomeStatement, "EBITDA", i), base: revenue,
-          blankWhenInputsExist: true,
-        });
-      }
+      const expectedEbitda = classicTraditionalEbitda((key) => src(byPeriod, iso, key));
+      checkFormula({
+        iso,
+        keys: [
+          "ORDINARY_BUSINESS_INCOME", "TAXABLE_INCOME", "M1_TAXABLE_INCOME", "NET_INCOME",
+          "TOTAL_TAX", "M1_FEDERAL_TAX_BOOK", "INTEREST_EXPENSE", "DEPRECIATION", "AMORTIZATION",
+        ],
+        period: label, label: "EBITDA", statement: "income_statement",
+        expected: expectedEbitda, rendered: rowVal(incomeStatement, "EBITDA", i), base: revenue,
+        blankWhenInputsExist: expectedEbitda != null,
+      });
     }
 
     // ── Cash Flow (UCA) — needs a prior period for deltas ──────────────────────
