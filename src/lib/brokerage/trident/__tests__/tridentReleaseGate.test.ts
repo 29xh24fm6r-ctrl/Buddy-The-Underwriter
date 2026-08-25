@@ -23,6 +23,8 @@ function release(overrides: Record<string, unknown> = {}) {
     spreadReady: true,
     spreadHasIntegrityHash: true,
     spreadHasCanonicalFactsTimestamp: true,
+    spreadAccuracyStatus: "clean",
+    spreadAccuracyBlockerCount: 0,
     artifactPaths: ["plan.pdf", "projections.xlsx", "feasibility.pdf"],
     isTestDeal: false,
     ...overrides,
@@ -64,4 +66,19 @@ test("allows synthetic QA commissioning without fabricated public research or ci
   assert.equal(result.ok, true);
   assert.ok(result.warnings.includes("synthetic_qa_deal_has_no_public_research_grade"));
   assert.ok(result.warnings.includes("synthetic_qa_citation_coverage_below_three_sections"));
+});
+
+test("fails closed when the spread accuracy audit is absent", () => {
+  const result = release({ spreadAccuracyStatus: undefined });
+  assert.equal(result.ok, false);
+  assert.ok(result.reasons.includes("canonical_spread_accuracy_audit_missing_or_invalid"));
+});
+
+test("blocks a ready spread with unresolved accuracy blockers", () => {
+  const result = release({
+    spreadAccuracyStatus: "blocker",
+    spreadAccuracyBlockerCount: 1,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.reasons.includes("canonical_spread_accuracy_blocked"));
 });
