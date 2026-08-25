@@ -11,7 +11,7 @@ type Rows = Record<string, Record<string, any>>;
 const state = {
   score: null as Record<string, any> | null,
   assumptions: null as Record<string, any> | null,
-  preview: null as Record<string, any> | null,
+  finalBundle: null as Record<string, any> | null,
   validation: null as Record<string, any> | null,
   sealed: null as Record<string, any> | null,
   // Ticket 2: owners (ownership_entities rows) + a set of ownership_entity_ids
@@ -59,7 +59,7 @@ function makeQB(table: string) {
         {
           buddy_sba_scores: state.score,
           buddy_sba_assumptions: state.assumptions,
-          buddy_trident_bundles: state.preview,
+          buddy_trident_bundles: state.finalBundle,
           buddy_validation_reports: state.validation,
           buddy_sealed_packages: state.sealed,
         } as Rows
@@ -86,7 +86,19 @@ function resetHappy() {
     status: "confirmed",
     loan_impact: { termMonths: 120, loanAmount: 500_000 },
   };
-  state.preview = { id: "trident-1" };
+  state.finalBundle = {
+    id: "trident-1",
+    release_gate_json: { ok: true, reasons: [], warnings: [] },
+    input_hash: "input-hash",
+    memo_input_hash: "memo-hash",
+    canonical_memo_input_hash: "memo-hash",
+    source_credit_memo_id: "memo-1",
+    source_spread_id: "spread-1",
+    business_plan_pdf_path: "final/business-plan.pdf",
+    projections_pdf_path: "final/projections.pdf",
+    projections_xlsx_path: "final/projections.xlsx",
+    feasibility_pdf_path: "final/feasibility.pdf",
+  };
   state.validation = { overall_status: "PASS" };
   state.sealed = null;
   state.owners = [];
@@ -166,13 +178,44 @@ test("loan_impact.loanAmount missing blocks", async () => {
     assert.ok(r.reasons.some((s) => s.includes("loanAmount")));
 });
 
-test("preview trident bundle missing blocks", async () => {
+test("certified Final Golden Trident missing blocks", async () => {
   resetHappy();
-  state.preview = null;
+  state.finalBundle = null;
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, false);
-  if (!r.ok)
-    assert.ok(r.reasons.some((s) => s.includes("Preview trident bundle")));
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("Certified Final Golden Trident")));
+});
+
+test("preview-only evidence can never authorize distribution", async () => {
+  resetHappy();
+  state.finalBundle = { id: "preview-shaped", release_gate_json: null };
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("release gate")));
+});
+
+test("failed release gate blocks sealing even when final artifacts exist", async () => {
+  resetHappy();
+  state.finalBundle = { ...state.finalBundle!, release_gate_json: { ok: false, reasons: ["spread_blocked"] } };
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("release gate")));
+});
+
+test("stale canonical memo binding blocks sealing", async () => {
+  resetHappy();
+  state.finalBundle = { ...state.finalBundle!, canonical_memo_input_hash: "stale" };
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("memo is missing or stale")));
+});
+
+test("incomplete final artifact set blocks sealing", async () => {
+  resetHappy();
+  state.finalBundle = { ...state.finalBundle!, projections_xlsx_path: null };
+  const r = await canSeal("deal-1", sbStub);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.ok(r.reasons.some((s) => s.includes("artifact set is incomplete")));
 });
 
 test("validation FAIL blocks", async () => {
@@ -196,7 +239,7 @@ test("already sealed blocks", async () => {
 test("multiple blockers accumulated", async () => {
   resetHappy();
   state.score = null;
-  state.preview = null;
+  state.finalBundle = null;
   state.validation = { overall_status: "FAIL" };
   const r = await canSeal("deal-1", sbStub);
   assert.equal(r.ok, false);

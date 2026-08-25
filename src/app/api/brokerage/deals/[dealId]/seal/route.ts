@@ -108,6 +108,9 @@ export async function POST(
       deal_id: dealId,
       bank_id: session.bank_id,
       sealed_snapshot: snapshot.full,
+      final_business_plan_path: snapshot.distributionBinding.artifacts.businessPlan,
+      final_projections_path: snapshot.distributionBinding.artifacts.projectionsPdf,
+      final_feasibility_path: snapshot.distributionBinding.artifacts.feasibility,
     })
     .select("id")
     .single();
