@@ -85,6 +85,9 @@ export async function persistArtifactFlags(input: {
     const ins = await sb.from("deal_conditions").insert({
       deal_id: dealId,
       bank_id: bankId,
+      // Legacy production schemas require a non-null condition code. Reuse
+      // the idempotency key so retries produce the same stable identifier.
+      code: sourceKey,
       title: `Unsupported claim in ${artifactType.replace(/_/g, " ")} (${sectionKey})`,
       description: `"${flagged.claim}" — ${flagged.reason}`,
       category: "credit",
