@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 
 const STATUSES = new Set(["planned", "sent", "reviewing", "interested", "term_sheet", "approved", "declined", "withdrawn", "lost", "closed"]);
 const TERMINAL = new Set(["declined", "withdrawn", "lost", "closed"]);
+const MARKETPLACE_ROLES = new Set(["buyer", "seller", "buyer_seller", "viewer"]);
+const MARKETPLACE_ACCESS = new Set(["not_invited", "invited", "onboarding", "active", "suspended", "inactive"]);
 
 function text(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
@@ -71,6 +73,8 @@ export async function bankBuyerGET() {
     deals: deals ?? [],
     summary: {
       bankBuyers: enrichedProfiles.length,
+      marketplaceMembers: enrichedProfiles.filter((profile: any) => !!profile.marketplace_role).length,
+      marketplaceActive: enrichedProfiles.filter((profile: any) => profile.marketplace_access_status === "active").length,
       activeSubmissions: open.length,
       sentCount: sent.length,
       interestedCount: interested.length,
@@ -89,6 +93,59 @@ export async function bankBuyerPOST(req: NextRequest) {
   const bankId = await getBrokerageBankId();
   const sb = supabaseAdmin();
   const body = await req.json().catch(() => ({}));
+
+  if (body.action === "update_marketplace_profile") {
+    const organizationId = text(body.organizationId);
+    const marketplaceRole = text(body.marketplaceRole);
+    const marketplaceAccessStatus = text(body.marketplaceAccessStatus) ?? "not_invited";
+    if (!organizationId) return NextResponse.json({ ok: false, error: "Organization is required" }, { status: 400 });
+    if (marketplaceRole && !MARKETPLACE_ROLES.has(marketplaceRole)) return NextResponse.json({ ok: false, error: "Invalid marketplace role" }, { status: 400 });
+    if (!MARKETPLACE_ACCESS.has(marketplaceAccessStatus)) return NextResponse.json({ ok: false, error: "Invalid marketplace access status" }, { status: 400 });
+    if (!marketplaceRole && marketplaceAccessStatus !== "not_invited") return NextResponse.json({ ok: false, error: "Choose a marketplace role before granting access" }, { status: 400 });
+
+    const { data: organization } = await sb.from("crm_organizations").select("id").eq("id", organizationId).eq("bank_id", bankId).maybeSingle();
+    if (!organization) return NextResponse.json({ ok: false, error: "Organization not found in this brokerage" }, { status: 404 });
+
+    const now = new Date().toISOString();
+    const marketplacePatch: Record<string, unknown> = {
+      marketplace_role: marketplaceRole,
+      marketplace_access_status: marketplaceAccessStatus,
+      marketplace_onboarding_notes: text(body.marketplaceOnboardingNotes),
+      marketplace_last_active_at: marketplaceAccessStatus === "active" ? now : undefined,
+      updated_at: now,
+    };
+    const { data: existing, error: existingError } = await sb.from("crm_lender_profiles").select("*").eq("bank_id", bankId).eq("organization_id", organizationId).maybeSingle();
+    if (existingError) return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
+
+    let profile;
+    let error;
+    if (existing) {
+      const result = await sb.from("crm_lender_profiles").update({
+        ...marketplacePatch,
+        marketplace_first_active_at: marketplaceAccessStatus === "active" && !existing.marketplace_first_active_at ? now : existing.marketplace_first_active_at,
+      }).eq("id", existing.id).eq("bank_id", bankId).select("*").single();
+      profile = result.data;
+      error = result.error;
+    } else {
+      const result = await sb.from("crm_lender_profiles").insert({
+        bank_id: bankId,
+        organization_id: organizationId,
+        relationship_status: "prospect",
+        lender_type: "bank",
+        sba_7a_appetite: false,
+        sba_504_appetite: false,
+        conventional_appetite: false,
+        marketplace_first_active_at: marketplaceAccessStatus === "active" ? now : null,
+        created_by_clerk_user_id: userId,
+        ...marketplacePatch,
+      }).select("*").single();
+      profile = result.data;
+      error = result.error;
+    }
+    if (error || !profile) return NextResponse.json({ ok: false, error: error?.message ?? "Unable to save marketplace relationship" }, { status: 400 });
+    await sb.from("crm_organizations").update({ organization_type: "lender", updated_at: now }).eq("id", organizationId).eq("bank_id", bankId);
+    return NextResponse.json({ ok: true, profile });
+  }
 
   if (body.action === "ensure_buyer_relationship") {
     const organizationId = text(body.organizationId);
@@ -146,6 +203,9 @@ export async function bankBuyerPOST(req: NextRequest) {
       deal_preferences: text(body.dealPreferences),
       referral_fee_bps: num(body.referralFeeBps),
       response_sla_days: num(body.responseSlaDays),
+      marketplace_role: MARKETPLACE_ROLES.has(text(body.marketplaceRole) ?? "") ? text(body.marketplaceRole) : null,
+      marketplace_access_status: MARKETPLACE_ACCESS.has(text(body.marketplaceAccessStatus) ?? "") ? text(body.marketplaceAccessStatus) : "not_invited",
+      marketplace_onboarding_notes: text(body.marketplaceOnboardingNotes),
       created_by_clerk_user_id: userId,
       updated_at: new Date().toISOString(),
     };
@@ -168,7 +228,10 @@ export async function bankBuyerPOST(req: NextRequest) {
       sba_7a_appetite: body.sba7a !== false, sba_504_appetite: !!body.sba504, conventional_appetite: !!body.conventional,
       min_loan_amount: num(body.minLoanAmount), max_loan_amount: num(body.maxLoanAmount), min_dscr: num(body.minDscr), max_ltv: num(body.maxLtv), minimum_fico: num(body.minimumFico),
       industries: list(body.industries), excluded_industries: list(body.excludedIndustries), geographies: list(body.geographies), collateral_preferences: list(body.collateralPreferences),
-      deal_preferences: text(body.dealPreferences), referral_fee_bps: num(body.referralFeeBps), response_sla_days: num(body.responseSlaDays), created_by_clerk_user_id: userId,
+      deal_preferences: text(body.dealPreferences), referral_fee_bps: num(body.referralFeeBps), response_sla_days: num(body.responseSlaDays),
+      marketplace_role: MARKETPLACE_ROLES.has(text(body.marketplaceRole) ?? "") ? text(body.marketplaceRole) : null,
+      marketplace_access_status: MARKETPLACE_ACCESS.has(text(body.marketplaceAccessStatus) ?? "") ? text(body.marketplaceAccessStatus) : "not_invited",
+      marketplace_onboarding_notes: text(body.marketplaceOnboardingNotes), created_by_clerk_user_id: userId,
     }).select("*").single();
     if (profileError || !profile) {
       await sb.from("crm_organizations").delete().eq("id", org.id).eq("bank_id", bankId);
