@@ -1,114 +1,77 @@
 import "server-only";
 
-/**
- * Sprint 5 sealing gate — the preconditions that must hold before a
- * borrower can seal their package. Pure function over Supabase reads;
- * no side effects. Returns a flat list of human-readable blockers.
- */
-
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ownersNeedingIal2 } from "@/lib/brokerage/identityVerificationGate";
 
-export type SealabilityResult =
-  | { ok: true }
-  | { ok: false; reasons: string[] };
+export type SealabilityResult = { ok: true } | { ok: false; reasons: string[] };
 
-export async function canSeal(
-  dealId: string,
-  sb: SupabaseClient,
-): Promise<SealabilityResult> {
+type FinalTridentEvidence = {
+  release_gate_json?: { ok?: unknown } | null;
+  input_hash?: string | null;
+  memo_input_hash?: string | null;
+  canonical_memo_input_hash?: string | null;
+  source_credit_memo_id?: string | null;
+  source_spread_id?: string | null;
+  business_plan_pdf_path?: string | null;
+  projections_pdf_path?: string | null;
+  projections_xlsx_path?: string | null;
+  feasibility_pdf_path?: string | null;
+};
+
+function validateFinalTrident(bundle: FinalTridentEvidence | null): string[] {
+  if (!bundle) return ["Certified Final Golden Trident has not been generated."];
   const reasons: string[] = [];
+  if (bundle.release_gate_json?.ok !== true) reasons.push("Final Golden Trident release gate has not passed.");
+  if (!bundle.input_hash) reasons.push("Final Golden Trident input hash is missing.");
+  if (!bundle.memo_input_hash || bundle.canonical_memo_input_hash !== bundle.memo_input_hash) {
+    reasons.push("Final Golden Trident canonical memo is missing or stale.");
+  }
+  if (!bundle.source_credit_memo_id) reasons.push("Final Golden Trident credit memo is missing.");
+  if (!bundle.source_spread_id) reasons.push("Final Golden Trident spread is missing.");
+  if ([bundle.business_plan_pdf_path, bundle.projections_pdf_path, bundle.projections_xlsx_path, bundle.feasibility_pdf_path].some((path) => !path)) {
+    reasons.push("Final Golden Trident artifact set is incomplete.");
+  }
+  return reasons;
+}
 
-  // 1. Locked score exists + eligible + ≥60.
-  const { data: score } = await sb
-    .from("buddy_sba_scores")
-    .select("score, band, eligibility_passed")
-    .eq("deal_id", dealId)
-    .eq("score_status", "locked")
-    .order("computed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!score) {
-    reasons.push("No locked Buddy SBA Score exists yet.");
-  } else {
+export async function canSeal(dealId: string, sb: SupabaseClient): Promise<SealabilityResult> {
+  const reasons: string[] = [];
+  const { data: score } = await sb.from("buddy_sba_scores")
+    .select("score, band, eligibility_passed").eq("deal_id", dealId)
+    .eq("score_status", "locked").order("computed_at", { ascending: false }).limit(1).maybeSingle();
+  if (!score) reasons.push("No locked Buddy SBA Score exists yet.");
+  else {
     const s = score as any;
-    if (s.score < 60)
-      reasons.push(`Buddy SBA Score ${s.score} is below the 60 minimum.`);
-    if (s.band === "not_eligible")
-      reasons.push("Deal band is 'not_eligible' — cannot list.");
-    if (!s.eligibility_passed)
-      reasons.push("SBA eligibility checks did not pass.");
+    if (s.score < 60) reasons.push(`Buddy SBA Score ${s.score} is below the 60 minimum.`);
+    if (s.band === "not_eligible") reasons.push("Deal band is 'not_eligible' — cannot list.");
+    if (!s.eligibility_passed) reasons.push("SBA eligibility checks did not pass.");
   }
 
-  // 2. Assumptions confirmed AND loan_impact has usable term + amount.
-  const { data: assumptions } = await sb
-    .from("buddy_sba_assumptions")
-    .select("status, loan_impact")
-    .eq("deal_id", dealId)
-    .maybeSingle();
-
-  if (!assumptions || (assumptions as any).status !== "confirmed") {
-    reasons.push("SBA assumptions not yet confirmed.");
-  } else {
-    const li =
-      ((assumptions as any).loan_impact ?? {}) as Record<string, unknown>;
-    if (typeof li.termMonths !== "number" || (li.termMonths as number) <= 0) {
-      reasons.push("Loan term (loan_impact.termMonths) is missing or invalid.");
-    }
-    if (typeof li.loanAmount !== "number" || (li.loanAmount as number) <= 0) {
-      reasons.push(
-        "Loan amount (loan_impact.loanAmount) is missing or invalid.",
-      );
-    }
+  const { data: assumptions } = await sb.from("buddy_sba_assumptions")
+    .select("status, loan_impact").eq("deal_id", dealId).maybeSingle();
+  if (!assumptions || (assumptions as any).status !== "confirmed") reasons.push("SBA assumptions not yet confirmed.");
+  else {
+    const li = ((assumptions as any).loan_impact ?? {}) as Record<string, unknown>;
+    if (typeof li.termMonths !== "number" || li.termMonths <= 0) reasons.push("Loan term (loan_impact.termMonths) is missing or invalid.");
+    if (typeof li.loanAmount !== "number" || li.loanAmount <= 0) reasons.push("Loan amount (loan_impact.loanAmount) is missing or invalid.");
   }
 
-  // 3. Preview trident bundle exists.
-  const { data: preview } = await sb
-    .from("buddy_trident_bundles")
-    .select("id")
-    .eq("deal_id", dealId)
-    .eq("mode", "preview")
-    .eq("status", "succeeded")
-    .is("superseded_at", null)
-    .maybeSingle();
-  if (!preview)
-    reasons.push("Preview trident bundle has not been generated.");
+  const { data: finalBundle } = await sb.from("buddy_trident_bundles")
+    .select("id, release_gate_json, input_hash, memo_input_hash, canonical_memo_input_hash, source_credit_memo_id, source_spread_id, business_plan_pdf_path, projections_pdf_path, projections_xlsx_path, feasibility_pdf_path")
+    .eq("deal_id", dealId).eq("mode", "final").eq("status", "succeeded")
+    .is("superseded_at", null).order("generated_at", { ascending: false }).limit(1).maybeSingle();
+  reasons.push(...validateFinalTrident(finalBundle as FinalTridentEvidence | null));
 
-  // 4. Validation report not FAIL.
-  const { data: validation } = await sb
-    .from("buddy_validation_reports")
-    .select("overall_status")
-    .eq("deal_id", dealId)
-    .order("run_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if ((validation as any)?.overall_status === "FAIL") {
-    reasons.push("Validation report is in FAIL state.");
-  }
+  const { data: validation } = await sb.from("buddy_validation_reports")
+    .select("overall_status").eq("deal_id", dealId).order("run_at", { ascending: false }).limit(1).maybeSingle();
+  if ((validation as any)?.overall_status === "FAIL") reasons.push("Validation report is in FAIL state.");
 
-  // 5. Not already sealed (active).
-  const { data: existing } = await sb
-    .from("buddy_sealed_packages")
-    .select("id")
-    .eq("deal_id", dealId)
-    .is("unsealed_at", null)
-    .maybeSingle();
+  const { data: existing } = await sb.from("buddy_sealed_packages")
+    .select("id").eq("deal_id", dealId).is("unsealed_at", null).maybeSingle();
   if (existing) reasons.push("Deal is already sealed.");
 
-  // 6. Identity verification (Ticket 2, SPEC-BROKERAGE-SBA-READY-V1) — every
-  // owner at/above the 20% ownership threshold must have completed IAL2
-  // identity verification before the package is trustworthy enough to show
-  // matched lenders. Default sequencing decision (no written spec existed
-  // for Ticket 2): identity verification gates sealing; e-signature of the
-  // actual SBA forms is deferred until after the borrower picks a lender —
-  // see docs/archive/brokerage-sba-ready-v1/T2-AAR.md.
-  const unverifiedOwners = await ownersNeedingIal2(dealId, sb);
-  for (const owner of unverifiedOwners) {
-    reasons.push(
-      `${owner.display_name ?? "An owner"} has not completed identity verification yet.`,
-    );
+  for (const owner of await ownersNeedingIal2(dealId, sb)) {
+    reasons.push(`${owner.display_name ?? "An owner"} has not completed identity verification yet.`);
   }
-
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
