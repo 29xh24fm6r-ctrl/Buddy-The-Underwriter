@@ -223,3 +223,31 @@ describe("a fully-footing spread audits clean", () => {
     assert.ok(r.summary.footingsChecked > 0);
   });
 });
+
+describe("canonical EBITDA audit parity", () => {
+  it("accepts rendered C-corp EBITDA that adds the tax provision back to net income", () => {
+    const input: AuditInput = {
+      periods: [{ iso: "2024-12-31", label: "2024" }],
+      byPeriod: pm({
+        "2024-12-31": {
+          GROSS_RECEIPTS: 2_400_000,
+          COST_OF_GOODS_SOLD: 1_320_000,
+          NET_INCOME: 190_000,
+          TOTAL_TAX: 35_000,
+          INTEREST_EXPENSE: 45_000,
+          DEPRECIATION: 90_000,
+        },
+      }),
+      balanceSheet: [],
+      incomeStatement: [
+        row("GROSS PROFIT", [1_080_000]),
+        row("NET PROFIT", [190_000]),
+        row("EBITDA", [360_000]),
+      ],
+      cashFlow: [],
+    };
+
+    const result = auditClassicSpread(input);
+    assert.equal(find(result, "EBITDA"), undefined);
+  });
+});

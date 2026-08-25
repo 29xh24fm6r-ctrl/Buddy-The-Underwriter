@@ -566,6 +566,9 @@ export async function generateTridentBundle(args: {
         return value?.precise === true && Array.isArray(value.urls) && value.urls.length > 0;
       }).length;
       const spreadPayload = releaseSpread?.rendered_json as Record<string, unknown> | null;
+      const certificationAudit = spreadPayload?.certificationAudit as Record<string, unknown> | null;
+      const spreadAccuracy = certificationAudit?.spreadAccuracy as Record<string, unknown> | null;
+      const spreadAccuracySummary = spreadAccuracy?.summary as Record<string, unknown> | null;
       const gate = evaluateTridentRelease({
         businessPlanVerdict: releasePkg?.verification_verdict,
         feasibilityVerdict: releaseFeasibility?.verification_verdict,
@@ -582,6 +585,8 @@ export async function generateTridentBundle(args: {
         spreadReady: releaseSpread?.status === "ready",
         spreadHasIntegrityHash: Boolean(spreadPayload?.pdf_sha256),
         spreadHasCanonicalFactsTimestamp: Boolean(spreadPayload?.canonicalFactsTimestamp),
+        spreadAccuracyStatus: spreadAccuracy?.status,
+        spreadAccuracyBlockerCount: Number(spreadAccuracySummary?.blockers ?? 0),
         artifactPaths: [businessPlanPath, projectionsXlsxPath, feasibilityPdfPath],
       });
       releaseManifest = {

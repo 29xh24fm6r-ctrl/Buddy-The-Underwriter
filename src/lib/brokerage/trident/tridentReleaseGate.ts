@@ -17,6 +17,8 @@ export type TridentReleaseEvidence = {
   spreadReady: boolean;
   spreadHasIntegrityHash: boolean;
   spreadHasCanonicalFactsTimestamp: boolean;
+  spreadAccuracyStatus: unknown;
+  spreadAccuracyBlockerCount: number;
   artifactPaths: Array<string | null>;
   isTestDeal: boolean;
 };
@@ -89,6 +91,12 @@ export function evaluateTridentRelease(e: TridentReleaseEvidence): TridentReleas
   if (!e.spreadId || !e.spreadReady) reasons.push("canonical_spread_not_ready");
   if (!e.spreadHasIntegrityHash) reasons.push("canonical_spread_integrity_hash_missing");
   if (!e.spreadHasCanonicalFactsTimestamp) reasons.push("canonical_spread_facts_timestamp_missing");
+  if (e.spreadAccuracyStatus !== "clean" && e.spreadAccuracyStatus !== "warning") {
+    reasons.push("canonical_spread_accuracy_audit_missing_or_invalid");
+  }
+  if (e.spreadAccuracyStatus === "blocker" || e.spreadAccuracyBlockerCount > 0) {
+    reasons.push("canonical_spread_accuracy_blocked");
+  }
   if (e.artifactPaths.some((path) => !path)) reasons.push("required_rendered_artifact_missing");
 
   return { ok: reasons.length === 0, reasons, warnings };
