@@ -210,7 +210,7 @@ test("the admitted snapshot includes borrower narrative and every research evide
   ]) {
     assert.match(snapshot, new RegExp(table));
   }
-  assert.match(snapshot, /version: 4/);
+  assert.match(snapshot, /version: 5/);
   assert.match(snapshot, /semanticTridentSnapshot/);
   assert.match(snapshot, /TRIDENT_VOLATILE_SNAPSHOT_KEYS/);
 });
