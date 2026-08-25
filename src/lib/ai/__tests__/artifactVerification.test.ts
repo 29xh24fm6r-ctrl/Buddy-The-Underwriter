@@ -129,6 +129,11 @@ test("verifyArtifactAndFlag opens a banker task for a critical claim but not an 
   assert.equal(result.conditionsCreated, 1, "only the critical claim opens a task");
   assert.equal(tables.deal_conditions?.length, 1);
   assert.match(tables.deal_conditions[0].source_key, /^artifact_claim:business_plan:executive_summary:/);
+  assert.equal(
+    tables.deal_conditions[0].code,
+    tables.deal_conditions[0].source_key,
+    "required legacy code is stable and identical to the idempotency key",
+  );
 });
 
 test("verifyArtifactAndFlag is idempotent — re-running the same flagged claim does not duplicate the task", async () => {
