@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePortalContext } from "@/lib/borrower/resolvePortalContext";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { initiateKyc } from "@/lib/identity/kyc/service";
+import {
+  initiateKyc,
+  reconcilePendingVerifications,
+  reconcileVerification,
+  kycReturnBaseUrl,
+} from "@/lib/identity/kyc/service";
 import {
   createDiditSession,
   fetchDiditSession,
   getDiditSessionDecision,
 } from "@/lib/identity/kyc/didit";
+import { OWNER_THRESHOLD_PERCENT } from "@/lib/ownership/rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +28,37 @@ function diditWorkflowId(): string {
   return process.env.DIDIT_WORKFLOW_ID ?? "";
 }
 
+const diditClient = { createDiditSession, fetchDiditSession, getDiditSessionDecision };
+
+/**
+ * Statuses from which the borrower can start a brand-new session. `created`
+ * and `pending` are NOT here — those reuse the existing session URL, and
+ * reconciliation runs before every read so a row only stays pending while
+ * the vendor session genuinely still is.
+ */
+const RESTARTABLE_STATUSES = ["expired", "failed", "declined"];
+const TERMINAL_SUCCESS = ["approved", "completed"];
+
+/** Where Didit should send this borrower back to when they finish. */
+function returnUrlForToken(token: string): string {
+  const base = kycReturnBaseUrl();
+  return base ? `${base}/kyc/complete?token=${encodeURIComponent(token)}` : "";
+}
+
+/**
+ * GET — per-owner identity verification state for the borrower portal.
+ *
+ * Reconciles before reading. Webhook delivery is best-effort: on
+ * 2026-08-25 a borrower finished on Didit, the completion webhook was
+ * never delivered, and the row sat at "created" with the sealing gate
+ * closed and no control on screen that could move it. Reconciling here
+ * means the borrower simply reloading their own page repairs the state,
+ * with no banker and no webhook involved.
+ *
+ * Reconciliation failures are swallowed on purpose — a vendor outage must
+ * degrade this endpoint to "shows last known status" rather than break the
+ * page entirely.
+ */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Params },
@@ -37,17 +74,34 @@ export async function GET(
 
   const sb = supabaseAdmin();
 
+  let reconciled = { examined: 0, changed: 0, failed: 0 };
+  try {
+    const result = await reconcilePendingVerifications(
+      { dealId: ctx.dealId, limit: 25 },
+      { sb, didit: diditClient },
+    );
+    reconciled = { examined: result.examined, changed: result.changed, failed: result.failed };
+  } catch (e) {
+    console.error(`[portal/identity] reconcile failed deal=${ctx.dealId}`, e);
+  }
+
   const { data: owners } = await sb
     .from("ownership_entities")
     .select("id, display_name, ownership_pct")
     .eq("deal_id", ctx.dealId)
     .order("ownership_pct", { ascending: false, nullsFirst: false });
 
-  const qualifyingOwners = (owners ?? []).filter(
-    (o: { ownership_pct: number | null }) => (o.ownership_pct ?? 0) >= 20,
+  const allOwners = (owners ?? []) as Array<{
+    id: string;
+    display_name: string;
+    ownership_pct: number | null;
+  }>;
+
+  const qualifyingOwners = allOwners.filter(
+    (o) => Number(o.ownership_pct ?? 0) >= OWNER_THRESHOLD_PERCENT,
   );
 
-  const ownerIds = qualifyingOwners.map((o: { id: string }) => o.id);
+  const ownerIds = qualifyingOwners.map((o) => o.id);
 
   const { data: verifications } = await sb
     .from("borrower_identity_verifications")
@@ -63,8 +117,10 @@ export async function GET(
     }
   }
 
-  const result = qualifyingOwners.map((o: { id: string; display_name: string; ownership_pct: number | null }) => {
+  const result = qualifyingOwners.map((o) => {
     const v = verificationMap.get(o.id);
+    const status = v ? String(v.status) : null;
+    const verified = status !== null && TERMINAL_SUCCESS.includes(status);
     return {
       ownershipEntityId: o.id,
       displayName: o.display_name,
@@ -77,12 +133,46 @@ export async function GET(
             completedAt: v.completed_at ?? null,
           }
         : null,
+      verified,
+      // Exactly which controls the panel may render for this owner. Computed
+      // server-side so "what can this borrower do right now" has one
+      // definition, and so there is ALWAYS at least one true action for any
+      // owner who is not already verified.
+      actions: {
+        canStart: !v || RESTARTABLE_STATUSES.includes(status ?? ""),
+        canResume: Boolean(v && !verified && v.vendor_artifacts_url),
+        canRefresh: Boolean(v) && !verified,
+      },
     };
   });
 
-  return NextResponse.json({ ok: true, owners: result });
+  const ownershipTotal = allOwners.reduce((sum, o) => sum + Number(o.ownership_pct ?? 0), 0);
+
+  return NextResponse.json({
+    ok: true,
+    owners: result,
+    reconciled,
+    // Surfaced so the panel can tell the borrower *why* sealing is blocked
+    // when the blocker is a broken ownership table rather than a missing
+    // verification (deal b296dec2 carried three owners totalling 149%).
+    ownership: {
+      total: Number(ownershipTotal.toFixed(2)),
+      valid: Math.abs(ownershipTotal - 100) <= 0.01,
+      ownerCount: allOwners.length,
+    },
+    allVerified: result.length > 0 && result.every((o) => o.verified),
+  });
 }
 
+/**
+ * POST — start, resume, or force-refresh a verification.
+ *
+ * body: { ownershipEntityId, action?: "start" | "refresh" }
+ *
+ * "refresh" exists so the borrower is never without a move. Before this,
+ * a row stuck at "created" offered only a link back to a Didit session
+ * they had already completed, which is a dead end by construction.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Params },
@@ -98,9 +188,55 @@ export async function POST(
 
   const body = await req.json().catch(() => ({}));
   const ownershipEntityId = body?.ownershipEntityId as string | undefined;
+  const action = (body?.action as string | undefined) ?? "start";
 
   if (!ownershipEntityId) {
     return NextResponse.json({ ok: false, error: "ownershipEntityId is required" }, { status: 400 });
+  }
+
+  const sb = supabaseAdmin();
+
+  if (action === "refresh") {
+    const { data: latest } = await sb
+      .from("borrower_identity_verifications")
+      .select("id")
+      .eq("deal_id", ctx.dealId)
+      .eq("ownership_entity_id", ownershipEntityId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!latest) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "NO_VERIFICATION",
+          message: "Nothing to refresh yet — start verification first.",
+        },
+        { status: 404 },
+      );
+    }
+
+    const result = await reconcileVerification(latest.id as string, { sb, didit: diditClient });
+    if (!result.ok) {
+      console.error(`[portal/identity] refresh failed deal=${ctx.dealId}`, result.reason, result.detail);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: result.reason,
+          message:
+            "We could not reach the verification service just now. Please try again in a moment.",
+        },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      action: "refresh",
+      status: result.status,
+      changed: result.changed,
+    });
   }
 
   const workflowId = diditWorkflowId();
@@ -115,9 +251,29 @@ export async function POST(
     );
   }
 
-  const sb = supabaseAdmin();
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   const ua = req.headers.get("user-agent") ?? null;
+
+  // Reconcile this owner's existing row FIRST. initiateKyc reuses any row
+  // still in a pending status, so a stale "created" row whose vendor
+  // session is actually Approved would otherwise hand the borrower back
+  // the same finished session URL forever.
+  try {
+    const { data: existing } = await sb
+      .from("borrower_identity_verifications")
+      .select("id")
+      .eq("deal_id", ctx.dealId)
+      .eq("ownership_entity_id", ownershipEntityId)
+      .in("status", ["created", "pending"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      await reconcileVerification(existing.id as string, { sb, didit: diditClient });
+    }
+  } catch (e) {
+    console.error(`[portal/identity] pre-start reconcile failed deal=${ctx.dealId}`, e);
+  }
 
   // createDiditSession THROWS on a vendor error; initiateKyc does not catch
   // it. Without this the handler 500s with a non-JSON body, the browser's
@@ -135,12 +291,9 @@ export async function POST(
         initiatorUserId: `portal:${token.slice(0, 8)}`,
         initiatorIp: ip,
         initiatorUserAgent: ua,
+        returnUrl: returnUrlForToken(token) || undefined,
       },
-      {
-        sb,
-        didit: { createDiditSession, fetchDiditSession, getDiditSessionDecision },
-        workflowId,
-      },
+      { sb, didit: diditClient, workflowId },
     );
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);

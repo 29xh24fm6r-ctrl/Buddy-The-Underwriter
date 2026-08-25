@@ -60,7 +60,19 @@ const ROOT = resolve(__dirname, "../../../..");
 // 808 route.ts * 2 + 193 page.tsx * 2 = 2002. The provider's health and
 // document-intelligence endpoints share one catch-all dispatcher rather than
 // consuming two route files. Still 44 slots under the 2048 hard cap.
-const MERGED_WARNING_THRESHOLD = 2006;
+//
+// Bumped 2006 -> 2012 on 2026-08-25: the Didit completion fix added one
+// page and one route. /kyc/complete is the URL Didit already sends
+// borrowers back to after verifying — production logs show four requests
+// to it on 2026-08-25 against no route at all, so a borrower who finished
+// verification was returned to a dead URL; it cannot fold into another
+// page because the vendor holds the path. /api/borrower/portal/[token]/owners
+// carries owner edit/delete, which cannot fold into the sibling identity
+// route without conflating two resources on one dispatcher (that route
+// already carries GET+POST for verification state). Actual measured
+// total: 810 route.ts * 2 + 194 page.tsx * 2 = 2008. Still 40 slots under
+// the 2048 hard cap.
+const MERGED_WARNING_THRESHOLD = 2012;
 
 function countRouteFiles(): number {
   const out = execSync("find src/app/api -name route.ts | wc -l", {

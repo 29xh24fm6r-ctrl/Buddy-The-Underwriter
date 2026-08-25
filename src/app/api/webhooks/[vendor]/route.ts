@@ -19,7 +19,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifySignwellWebhookEvent } from "@/lib/esign/signwell/verifySignwellWebhook";
 import { handleSignwellWebhook } from "@/lib/esign/signwell/service";
 import { createSignwellDocumentFromFile, fetchSignwellDocument, downloadSignwellCompletedPdf } from "@/lib/esign/signwell/client";
-import { verifyDiditWebhookSignature } from "@/lib/identity/kyc/verifyDiditWebhook";
+import { verifyDiditWebhook } from "@/lib/identity/kyc/verifyDiditWebhook";
 import { handleDiditWebhook } from "@/lib/identity/kyc/service";
 import { createDiditSession, fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 import { verifyPlaidWebhook } from "@/lib/integrations/plaid/verifyWebhook";
@@ -68,6 +68,21 @@ async function handleSignwell(req: Request): Promise<Response> {
 
 async function handleDidit(req: Request): Promise<Response> {
   const rawBody = await req.text();
+
+  // Log EVERY inbound delivery before any validation can reject it.
+  // On 2026-08-25 a borrower completed verification and the row stayed at
+  // "created"; the only way to prove Didit had never called us at all
+  // (rather than us having 401'd a real event) was to read Didit's own
+  // destination metrics, because this handler emitted nothing on the
+  // rejection paths. An arrival log makes "did it reach us?" answerable
+  // from our own logs.
+  console.log("[/api/webhooks/didit] inbound", {
+    bytes: rawBody.length,
+    hasSignature: Boolean(req.headers.get("x-signature")),
+    hasSignatureSimple: Boolean(req.headers.get("x-signature-simple")),
+    hasTimestamp: Boolean(req.headers.get("x-timestamp")),
+  });
+
   const secret = process.env.DIDIT_WEBHOOK_SECRET_KEY;
   if (!secret) {
     console.error("[/api/webhooks/didit] DIDIT_WEBHOOK_SECRET_KEY not configured");
@@ -78,19 +93,35 @@ async function handleDidit(req: Request): Promise<Response> {
   try {
     payload = JSON.parse(rawBody);
   } catch {
+    console.error("[/api/webhooks/didit] invalid_json", { bytes: rawBody.length });
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
-  const valid = verifyDiditWebhookSignature({
+  const verification = verifyDiditWebhook({
+    rawBody,
     sessionId: payload.session_id,
     status: payload.status,
     webhookType: payload.webhook_type,
-    timestampHeader: req.headers.get("X-Timestamp"),
-    signatureHeader: req.headers.get("X-Signature-Simple"),
+    timestampHeader: req.headers.get("x-timestamp"),
+    signatureHeader: req.headers.get("x-signature"),
+    simpleSignatureHeader: req.headers.get("x-signature-simple"),
     secret,
   });
-  if (!valid) {
-    return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 401 });
+
+  if (!verification.ok) {
+    // A rejected webhook strands a borrower behind the sealing gate, so it
+    // is an operational incident, not a routine 401. Log loudly with the
+    // reason and the session it was about.
+    console.error("[/api/webhooks/didit] signature_rejected", {
+      reason: verification.reason,
+      headersSeen: verification.headersSeen,
+      sessionId: payload.session_id ?? null,
+      webhookType: payload.webhook_type ?? null,
+    });
+    return NextResponse.json(
+      { ok: false, error: "invalid_signature", reason: verification.reason },
+      { status: 401 },
+    );
   }
 
   try {
@@ -99,8 +130,17 @@ async function handleDidit(req: Request): Promise<Response> {
       didit: { createDiditSession, fetchDiditSession, getDiditSessionDecision },
     });
     if (!result.ok) {
+      console.error("[/api/webhooks/didit] handler_rejected", {
+        reason: result.reason,
+        sessionId: payload.session_id ?? null,
+      });
       return NextResponse.json({ ok: false, error: result.reason }, { status: 422 });
     }
+    console.log("[/api/webhooks/didit] applied", {
+      scheme: verification.scheme,
+      verificationId: result.verification_id,
+      status: result.status,
+    });
     return NextResponse.json({ ok: true, verification_id: result.verification_id, status: result.status });
   } catch (e) {
     console.error("[/api/webhooks/didit]", e);

@@ -30,6 +30,8 @@ import { findStaleSignatures, writeStaleSignatureGaps } from "@/lib/jobs/staleSi
 import { findOverdueThirdPartyOrders, writeOverdueThirdPartyGaps } from "@/lib/jobs/thirdPartyOverdueChecker";
 import { findExpiringEtranCredentials } from "@/lib/jobs/etranCertExpiryChecker";
 import { findTemplateStaleness, writeTemplateStalenessFindings } from "@/lib/jobs/templateStalenessChecker";
+import { reconcilePendingVerifications } from "@/lib/identity/kyc/service";
+import { fetchDiditSession, getDiditSessionDecision } from "@/lib/identity/kyc/didit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +43,7 @@ const CHECKS = new Set([
   "third-party-overdue",
   "etran-cert-expiry",
   "template-staleness",
+  "kyc-reconcile",
 ]);
 
 export async function GET(req: NextRequest) {
@@ -62,6 +65,29 @@ export async function GET(req: NextRequest) {
 
   try {
     switch (check) {
+      case "kyc-reconcile": {
+        // The safety net the KYC flow never had. Didit webhook delivery is
+        // best-effort — on 2026-08-25 a borrower completed verification and
+        // the completion event was never delivered at all, leaving the row
+        // at "created" and the sealing gate shut with nothing on screen the
+        // borrower could press. The portal reconciles on read, but a
+        // borrower who never returns would still be stranded, so this sweeps
+        // every deal on a schedule regardless of who is looking.
+        const result = await reconcilePendingVerifications(
+          { limit: 100 },
+          { sb: sb as any, didit: { fetchDiditSession, getDiditSessionDecision } },
+        );
+        if (result.changed > 0) {
+          console.log("[cron/sba-checks] kyc statuses advanced", {
+            changed: result.changed,
+            examined: result.examined,
+          });
+        }
+        if (result.failed > 0) {
+          console.warn("[cron/sba-checks] kyc reconcile failures", { failed: result.failed });
+        }
+        return NextResponse.json({ ok: true, check, result, durationMs: Date.now() - start });
+      }
       case "irs-transcripts": {
         const result = await pollAndReconcileIrsTranscripts({
           sb: sb as any,
