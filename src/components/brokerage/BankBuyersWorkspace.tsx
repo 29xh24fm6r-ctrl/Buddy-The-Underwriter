@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
-import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 
 const STATUS_LABELS: Record<string, string> = { planned: "Planned", sent: "Sent", reviewing: "Reviewing", interested: "Interested", term_sheet: "Term sheet", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn", lost: "Lost", closed: "Closed" };
 const ACTIVE = new Set(["planned", "sent", "reviewing", "interested", "term_sheet", "approved"]);
