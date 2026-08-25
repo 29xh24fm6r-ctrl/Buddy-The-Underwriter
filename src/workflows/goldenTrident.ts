@@ -17,8 +17,9 @@ export async function goldenTridentWorkflow(args: WorkflowArgs) {
   "use workflow";
   try {
     const snapshot = await prepare(args);
-    const execution = { ...args, ...snapshot };
-    await canonical(execution);
+    const admittedExecution = { ...args, ...snapshot };
+    const canonicalBinding = await canonical(admittedExecution);
+    const execution = { ...admittedExecution, ...canonicalBinding };
     await artifacts(execution);
     return await manifest(execution);
   } catch (error) {
