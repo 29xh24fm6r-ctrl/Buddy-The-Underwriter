@@ -53,7 +53,7 @@ function resetState() {
   state.sbaPackages = [];
   state.feasibilityStudies = [];
   state.memoNarratives = [{ id: "memo-1", deal_id: "deal-1", bank_id: "bank-1", input_hash: "memo-hash", research_trust_grade: "committee_grade" }];
-  state.spreads = [{ id: "spread-1", deal_id: "deal-1", bank_id: "bank-1", spread_type: "CLASSIC_PDF", status: "ready", rendered_json: { pdf_sha256: "abc", canonicalFactsTimestamp: "2026-08-18T00:00:00Z" } }];
+  state.spreads = [{ id: "spread-1", deal_id: "deal-1", bank_id: "bank-1", spread_type: "CLASSIC_PDF", status: "ready", rendered_json: { pdf_sha256: "abc", canonicalFactsTimestamp: "2026-08-18T00:00:00Z", certificationAudit: { spreadAccuracy: { status: "clean", summary: { blockers: 0 } } } } }];
   state.enrichBusinessPlanPackageCalls = [];
   state.enrichFeasibilityStudyCalls = [];
   let n = 0;
