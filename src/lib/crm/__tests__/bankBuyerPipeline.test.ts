@@ -3,9 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync("supabase/migrations/20260824193000_brokerage_bank_buyer_crm.sql", "utf8");
+const marketplaceMigration = readFileSync("supabase/migrations/20260825190000_crm_marketplace_relationship_ux.sql", "utf8");
 const api = readFileSync("src/lib/crm/bankBuyerRoute.ts", "utf8");
 const page = readFileSync("src/components/brokerage/BankBuyersWorkspace.tsx", "utf8");
 const organizationPage = readFileSync("src/components/brokerage/OrganizationWorkspace.tsx", "utf8");
+const tokens = readFileSync("src/components/brokerage/tokens.ts", "utf8");
+const shell = readFileSync("src/components/brokerage/BrokerageShell.tsx", "utf8");
 
 test("bank buyer CRM owns a tenant-scoped multi-lender submission ledger", () => {
   assert.match(migration, /create table public\.crm_lender_profiles/);
@@ -23,7 +26,7 @@ test("API gates access and records lifecycle history", () => {
 });
 
 test("operator surface includes bank appetite, banker, placement, and closing workflows", () => {
-  for (const copy of ["Bank buyer network", "Add a bank and its primary banker", "Send a deal", "Deal distribution ledger", "Final closed amount"]) assert.match(page, new RegExp(copy, "i"));
+  for (const copy of ["Bank buyer network", "Add a bank relationship", "Send a deal", "Deal distribution ledger", "Final closed amount"]) assert.match(page, new RegExp(copy, "i"));
 });
 
 
@@ -33,4 +36,33 @@ test("deal placement does not require a completed lending appetite", () => {
   assert.match(page, /organizationId/);
   assert.match(organizationPage, /new=submission/);
   assert.match(organizationPage, /Appetite is optional/);
+});
+
+test("marketplace participation is explicit and separate from optional appetite", () => {
+  assert.match(marketplaceMigration, /marketplace_role/);
+  assert.match(marketplaceMigration, /buyer_seller/);
+  assert.match(marketplaceMigration, /marketplace_access_status/);
+  assert.match(api, /update_marketplace_profile/);
+  assert.match(organizationPage, /Marketplace participation/);
+  assert.match(organizationPage, /independent from lending appetite/i);
+  assert.match(page, /Marketplace role \(optional\)/);
+});
+
+test("bank records keep contacts, marketplace access, appetite, and deals in one workspace", () => {
+  assert.match(organizationPage, /Add a banker or contact/);
+  assert.match(organizationPage, /Marketplace Buyer/);
+  assert.match(organizationPage, /Lending appetite/);
+  assert.match(organizationPage, /Deals sent to this bank/);
+  assert.match(organizationPage, /No duplicate organization is needed/);
+});
+
+
+test("CRM uses a scoped high-contrast light theme", () => {
+  assert.match(tokens, /export const crmColors/);
+  assert.match(tokens, /ink: "#F7F5F0"/);
+  assert.match(tokens, /card: "#FFFFFF"/);
+  assert.match(tokens, /paper: "#20242B"/);
+  assert.match(shell, /pathname\.startsWith\("\/admin\/brokerage\/crm"\) \? crmColors : brokerageColors/);
+  assert.match(page, /crmColors as c/);
+  assert.match(organizationPage, /crmColors as c/);
 });

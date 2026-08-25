@@ -3,7 +3,7 @@
 import { useEffect, useState, use as usePromise } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
 
 type Person = {
@@ -204,7 +204,7 @@ export default function CrmPersonDetailPage({ params }: { params: Promise<{ pers
               <button
                 onClick={linkToOrg}
                 disabled={linking}
-                style={{ marginTop: 8, background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: linking ? 0.4 : 1 }}
+                style={{ marginTop: 8, background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: linking ? 0.4 : 1 }}
               >
                 {linking ? "Linking…" : "Link"}
               </button>

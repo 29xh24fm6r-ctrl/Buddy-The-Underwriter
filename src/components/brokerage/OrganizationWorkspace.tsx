@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
-import { brokerageColors as c, fmtMoney } from "@/components/brokerage/tokens";
+import { crmColors as c, fmtMoney } from "@/components/brokerage/tokens";
 
-type Tab = "overview" | "people" | "appetite" | "deals" | "activity";
+type Tab = "overview" | "people" | "marketplace" | "appetite" | "deals" | "activity";
 type Json = Record<string, any>;
 
 const STATUS: Record<string, string> = {
@@ -14,7 +14,7 @@ const STATUS: Record<string, string> = {
   withdrawn: "Withdrawn", lost: "Lost", closed: "Closed",
 };
 const ORG_TYPES = [
-  ["lender", "Bank / lender"], ["referral_source", "Referral source"],
+  ["lender", "Bank / Lender"], ["referral_source", "Referral source"],
   ["professional_partner", "Professional partner"], ["borrower_business", "Borrower business"],
   ["cpa_firm", "CPA firm"], ["law_firm", "Law firm"], ["insurance_provider", "Insurance provider"],
   ["appraisal_firm", "Appraisal firm"], ["environmental_firm", "Environmental firm"],
@@ -37,7 +37,7 @@ function Card({ title, action, children }: { title: string; action?: ReactNode; 
   </section>;
 }
 function Button({ children, onClick, primary = false, disabled = false }: { children: ReactNode; onClick?: () => void; primary?: boolean; disabled?: boolean }) {
-  return <button onClick={onClick} disabled={disabled} style={{ background: primary ? c.brass : "#1B1E23", border: `1px solid ${primary ? c.brass : c.borderStronger}`, color: primary ? c.brassOnBrass : c.paper, borderRadius: 6, padding: "8px 12px", fontWeight: 650, fontSize: 11.5, cursor: disabled ? "default" : "pointer", opacity: disabled ? .45 : 1 }}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{ background: primary ? c.brass : c.cardHover, border: `1px solid ${primary ? c.brass : c.borderStronger}`, color: primary ? c.brassOnBrass : c.paper, borderRadius: 6, padding: "8px 12px", fontWeight: 650, fontSize: 11.5, cursor: disabled ? "default" : "pointer", opacity: disabled ? .45 : 1 }}>{children}</button>;
 }
 function Empty({ children }: { children: ReactNode }) {
   return <div style={{ padding: "20px 8px", textAlign: "center", color: c.textMuted, fontSize: 12, lineHeight: 1.6 }}>{children}</div>;
@@ -48,11 +48,12 @@ function dealName(d: Json | null) { return d?.display_name || d?.borrower_name |
 export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   const [data, setData] = useState<Json | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
-  const [panel, setPanel] = useState<"contact" | "organization" | "appetite" | null>(null);
+  const [panel, setPanel] = useState<"contact" | "organization" | "marketplace" | "appetite" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contact, setContact] = useState({ firstName: "", lastName: "", preferredName: "", jobTitle: "", role: "contact", email: "", phone: "", mobilePhone: "", linkedinUrl: "", communicationPreference: "email", notes: "" });
   const [orgForm, setOrgForm] = useState<Json>({});
+  const [marketplace, setMarketplace] = useState<Json>({ marketplaceRole: "", marketplaceAccessStatus: "not_invited", marketplaceOnboardingNotes: "" });
   const [appetite, setAppetite] = useState<Json>({ relationshipStatus: "prospect", lenderType: "bank", sba7a: true, sba504: false, conventional: false, minLoanAmount: "", maxLoanAmount: "", minDscr: "", maxLtv: "", minimumFico: "", geographies: "", industries: "", excludedIndustries: "", collateralPreferences: "", dealPreferences: "", referralFeeBps: "", responseSlaDays: "" });
   const [note, setNote] = useState("");
 
@@ -75,6 +76,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       });
       if (json.lenderProfile) {
         const p = json.lenderProfile;
+        setMarketplace({ marketplaceRole: p.marketplace_role || "", marketplaceAccessStatus: p.marketplace_access_status || "not_invited", marketplaceOnboardingNotes: p.marketplace_onboarding_notes || "" });
         setAppetite({
           relationshipStatus: p.relationship_status || "prospect", lenderType: p.lender_type || "bank",
           sba7a: p.sba_7a_appetite, sba504: p.sba_504_appetite, conventional: p.conventional_appetite,
@@ -117,6 +119,14 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       setPanel(null); setTab("appetite"); await load();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
+  async function saveMarketplace() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/brokerage/crm/organizations/buyers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update_marketplace_profile", organizationId: orgId, ...marketplace }) });
+      const json = await res.json(); if (!res.ok || !json.ok) throw new Error(json.error || "Unable to save marketplace participation");
+      setPanel(null); setTab("marketplace"); await load();
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
   async function logNote() {
     if (!note.trim()) return;
     setBusy(true);
@@ -135,16 +145,15 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
   const setup = useMemo(() => [
     { done: org?.organization_type && org.organization_type !== "other", label: "Identify organization type", action: () => setPanel("organization") },
     { done: people.length > 0, label: "Add a primary banker or contact", action: () => setPanel("contact") },
-    { done: !!profile, label: "Add appetite details (optional)", action: () => setPanel("appetite") },
     { done: submissions.length > 0, label: "Send and track the first deal", href: `/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission` },
-  ], [org, people.length, profile, submissions.length]);
+  ], [org, people.length, submissions.length]);
   const complete = setup.filter(x => x.done).length;
 
   if (!data && !error) return <div style={{ padding: 24, color: c.textMuted }}>Loading relationship workspace…</div>;
   if (!data) return <div style={{ padding: 24, color: c.brick }}>{error}</div>;
 
   const tabItems: Array<[Tab, string, number | null]> = [
-    ["overview", "Overview", null], ["people", "People", people.length], ["appetite", "Lending appetite", null],
+    ["overview", "Overview", null], ["people", "People", people.length], ["marketplace", "Marketplace", null], ["appetite", "Lending appetite", null],
     ["deals", "Deals", submissions.length], ["activity", "Activity", data.activities?.length || 0],
   ];
 
@@ -157,8 +166,9 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
         <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, color: c.paper, fontFamily: "var(--font-brokerage-display)", fontSize: 28 }}>{org.name}</h1>
           <span style={{ border: `1px solid ${isLender ? "rgba(184,144,91,.55)" : c.border}`, background: isLender ? "rgba(184,144,91,.1)" : c.card, color: isLender ? c.brassBright : c.textSecondary, borderRadius: 20, padding: "3px 8px", fontSize: 10.5 }}>
-            {isLender ? "Bank / SBA buyer" : (ORG_TYPES.find(x => x[0] === org.organization_type)?.[1] || "Organization")}
+            {isLender ? "Bank / Lender" : (ORG_TYPES.find(x => x[0] === org.organization_type)?.[1] || "Organization")}
           </span>
+          {profile?.marketplace_role && <span style={{ border: "1px solid rgba(92,139,111,.45)", background: "rgba(92,139,111,.1)", color: c.sage, borderRadius: 20, padding: "3px 8px", fontSize: 10.5 }}>{marketplaceRoleLabel(profile.marketplace_role)}</span>}
         </div>
         <div style={{ color: c.textMuted, fontSize: 12, marginTop: 6 }}>
           {[org.city, org.state].filter(Boolean).join(", ") || "Location not added"} · {people.length} contact{people.length === 1 ? "" : "s"}{profile ? ` · ${profile.relationship_status}` : ""}
@@ -167,6 +177,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         <Button onClick={() => setPanel("contact")} primary>+ Add banker / contact</Button>
         <Button onClick={() => setPanel("organization")}>Edit organization</Button>
+        <Button onClick={() => setPanel("marketplace")}>{profile?.marketplace_role ? "Marketplace status" : "Add to marketplace"}</Button>
         <Button onClick={() => setPanel("appetite")}>{profile ? "Edit appetite" : "Set lending appetite"}</Button>
         <Link href={`/admin/brokerage/crm/buyers?organizationId=${orgId}&new=submission`} style={{ textDecoration: "none" }}><Button>Send a deal</Button></Link>
       </div>
@@ -174,8 +185,8 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 
     {error && <div style={{ border: `1px solid ${c.brick}`, background: "rgba(168,93,82,.1)", color: c.brick, borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12 }}>{error}</div>}
 
-    {complete < 4 && <div style={{ background: "linear-gradient(100deg, rgba(184,144,91,.12), rgba(184,144,91,.035))", border: "1px solid rgba(184,144,91,.28)", borderRadius: 9, padding: 14, marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}><strong style={{ color: c.paper, fontSize: 13 }}>Finish setting up this relationship</strong><span style={{ color: c.brassBright, fontSize: 11 }}>{complete} of 4 complete</span></div>
+    {complete < setup.length && <div style={{ background: "linear-gradient(100deg, rgba(184,144,91,.12), rgba(184,144,91,.035))", border: "1px solid rgba(184,144,91,.28)", borderRadius: 9, padding: 14, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 }}><strong style={{ color: c.paper, fontSize: 13 }}>Finish setting up this relationship</strong><span style={{ color: c.brassBright, fontSize: 11 }}>{complete} of {setup.length} complete</span></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8 }}>
         {setup.map((s, i) => ("href" in s && s.href) ? <Link key={s.label} href={s.href} style={{ textDecoration: "none" }}><SetupItem {...s} index={i} /></Link> : <button key={s.label} onClick={s.action} style={{ padding: 0, border: 0, background: "none", textAlign: "left", cursor: "pointer" }}><SetupItem {...s} index={i} /></button>)}
       </div>
@@ -186,12 +197,16 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
     </div>
 
     {panel === "contact" && <ContactForm value={contact} setValue={setContact} busy={busy} save={saveContact} cancel={() => setPanel(null)} />}
+    {panel === "marketplace" && <MarketplaceForm value={marketplace} setValue={setMarketplace} busy={busy} save={saveMarketplace} cancel={() => setPanel(null)} />}
     {panel === "organization" && <OrganizationForm value={orgForm} setValue={setOrgForm} busy={busy} save={saveOrganization} cancel={() => setPanel(null)} />}
     {panel === "appetite" && <AppetiteForm value={appetite} setValue={setAppetite} busy={busy} save={saveAppetite} cancel={() => setPanel(null)} />}
 
     {tab === "overview" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
       <Card title="People at this organization" action={<button onClick={() => setPanel("contact")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>+ Add contact</button>}>
         {people.length ? people.slice(0, 4).map((p: Json) => <Person key={p.id} person={p} />) : <Empty>No contacts yet. Add the banker, credit officer, decision-maker, or referral contact you work with.</Empty>}
+      </Card>
+      <Card title="Marketplace participation" action={<button onClick={() => setPanel("marketplace")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>{profile?.marketplace_role ? "Edit" : "Set up"}</button>}>
+        <MarketplaceSummary profile={profile} />
       </Card>
       <Card title="What this bank buys" action={<button onClick={() => setPanel("appetite")} style={{ border: 0, background: "none", color: c.brassBright, cursor: "pointer", fontSize: 11 }}>{profile ? "Edit" : "Set up"}</button>}>
         {profile ? <AppetiteSummary profile={profile} /> : <Empty>Capture loan size, programs, credit box, geography, industries, and response expectations.</Empty>}
@@ -210,6 +225,10 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 
     {tab === "people" && <Card title="Bankers and contacts" action={<Button onClick={() => setPanel("contact")} primary>+ Add contact</Button>}>
       {people.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10 }}>{people.map((p: Json) => <Person key={p.id} person={p} card />)}</div> : <Empty>No people are associated yet. Add a person here and Buddy will link them to {org.name} automatically.</Empty>}
+    </Card>}
+
+    {tab === "marketplace" && <Card title="Marketplace participation" action={<Button onClick={() => setPanel("marketplace")}>{profile?.marketplace_role ? "Edit participation" : "Add to marketplace"}</Button>}>
+      <MarketplaceSummary profile={profile} expanded />
     </Card>}
 
     {tab === "appetite" && <Card title="Lending appetite" action={<Button onClick={() => setPanel("appetite")}>{profile ? "Edit appetite" : "Set up bank buyer"}</Button>}>
@@ -233,7 +252,7 @@ export function OrganizationWorkspace({ orgId }: { orgId: string }) {
 }
 
 function SetupItem({ done, label, index }: { done: boolean; label: string; index: number }) {
-  return <div style={{ display: "flex", alignItems: "center", gap: 8, background: done ? "rgba(92,139,111,.09)" : c.card, border: `1px solid ${done ? "rgba(92,139,111,.32)" : c.border}`, borderRadius: 6, padding: "9px 10px" }}><span style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: "50%", background: done ? c.sage : c.borderStrong, color: done ? "#08110c" : c.textSecondary, fontSize: 10, fontWeight: 700 }}>{done ? "✓" : index + 1}</span><span style={{ color: done ? c.textSecondary : c.paper, fontSize: 11 }}>{label}</span></div>;
+  return <div style={{ display: "flex", alignItems: "center", gap: 8, background: done ? "rgba(92,139,111,.09)" : c.card, border: `1px solid ${done ? "rgba(92,139,111,.32)" : c.border}`, borderRadius: 6, padding: "9px 10px" }}><span style={{ width: 20, height: 20, display: "grid", placeItems: "center", borderRadius: "50%", background: done ? c.sage : c.borderStrong, color: done ? "#FFFFFF" : c.textSecondary, fontSize: 10, fontWeight: 700 }}>{done ? "✓" : index + 1}</span><span style={{ color: done ? c.textSecondary : c.paper, fontSize: 11 }}>{label}</span></div>;
 }
 function Person({ person: p, card = false }: { person: Json; card?: boolean }) {
   return <div style={{ padding: card ? 12 : "9px 0", border: card ? `1px solid ${c.border}` : 0, borderBottom: card ? undefined : `1px solid ${c.divider}`, borderRadius: card ? 7 : 0 }}>
@@ -244,6 +263,19 @@ function Person({ person: p, card = false }: { person: Json; card?: boolean }) {
 }
 function Metric({ label: name, value }: { label: string; value: number }) { return <div style={{ background: c.ink, border: `1px solid ${c.border}`, borderRadius: 7, padding: 11 }}><div style={{ color: c.textMuted, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 1 }}>{name}</div><div style={{ color: c.paper, fontFamily: "var(--font-brokerage-mono)", fontSize: 20, marginTop: 5 }}>{value}</div></div>; }
 function Details({ org }: { org: Json }) { return <div style={{ display: "grid", gap: 9, fontSize: 11.5 }}>{[["Website", org.website_url],["Phone",org.phone],["Address",[org.address_line1,org.city,org.state,org.postal_code].filter(Boolean).join(", ")],["Notes",org.notes]].map(([k,v]) => <div key={k} style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}><span style={{ color: c.textMuted }}>{k}</span><span style={{ color: v ? c.textSecondary : c.textFaint }}>{v || "Not added"}</span></div>)}</div>; }
+function marketplaceRoleLabel(role?: string) {
+  return ({ buyer: "Marketplace Buyer", seller: "Marketplace Seller", buyer_seller: "Marketplace Buyer & Seller", viewer: "Marketplace Viewer" } as Record<string, string>)[role || ""] || "Not participating";
+}
+function MarketplaceSummary({ profile: p, expanded = false }: { profile?: Json; expanded?: boolean }) {
+  const role = marketplaceRoleLabel(p?.marketplace_role);
+  const access = (p?.marketplace_access_status || "not_invited").replaceAll("_", " ");
+  return <div style={{ display: "grid", gap: 9 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 10 }}><span style={{ color: c.textMuted, fontSize: 10.5 }}>Marketplace role</span><span style={{ color: p?.marketplace_role ? c.sage : c.textSecondary, fontSize: 11.5 }}>{role}</span></div>
+    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 10 }}><span style={{ color: c.textMuted, fontSize: 10.5 }}>Access</span><span style={{ color: c.textSecondary, fontSize: 11.5, textTransform: "capitalize" }}>{access}</span></div>
+    {expanded && <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 10 }}><span style={{ color: c.textMuted, fontSize: 10.5 }}>Onboarding notes</span><span style={{ color: c.textSecondary, fontSize: 11.5 }}>{p?.marketplace_onboarding_notes || "No onboarding notes."}</span></div>}
+    {!p?.marketplace_role && <div style={{ color: c.textMuted, fontSize: 11, lineHeight: 1.55 }}>Use this single bank record for marketplace access and brokerage relationships. No duplicate organization is needed.</div>}
+  </div>;
+}
 function AppetiteSummary({ profile: p, expanded = false }: { profile: Json; expanded?: boolean }) {
   const programs = [p.sba_7a_appetite && "SBA 7(a)", p.sba_504_appetite && "SBA 504", p.conventional_appetite && "Conventional"].filter(Boolean);
   const rows = [["Programs", programs.join(", ") || "Not set"],["Loan size", p.min_loan_amount || p.max_loan_amount ? `${p.min_loan_amount ? fmtMoney(Number(p.min_loan_amount)) : "Any"} – ${p.max_loan_amount ? fmtMoney(Number(p.max_loan_amount)) : "Any"}` : "Not set"],["Credit box", [p.min_dscr && `DSCR ≥ ${p.min_dscr}`,p.max_ltv && `LTV ≤ ${Math.round(Number(p.max_ltv) * 100)}%`,p.minimum_fico && `FICO ≥ ${p.minimum_fico}`].filter(Boolean).join(" · ") || "Not set"],["Geography",(p.geographies||[]).join(", ")||"Not set"],["Industries",(p.industries||[]).join(", ")||"Not set"],["Excluded",(p.excluded_industries||[]).join(", ")||"None"],["Response target",p.response_sla_days ? `${p.response_sla_days} days` : "Not set"],["Deal preferences",p.deal_preferences||"Not set"]];
@@ -270,9 +302,16 @@ function OrganizationForm({ value: v, setValue: set, busy, save, cancel }: any) 
     <label style={{ gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5 }}>Relationship notes<textarea style={{...field(),minHeight:65}} value={v.notes} onChange={e=>set({...v,notes:e.target.value})}/></label>
   </div></FormShell>;
 }
+function MarketplaceForm({ value: v, setValue: set, busy, save, cancel }: any) {
+  return <FormShell title="Marketplace participation" description="Classify how this bank uses the SBA marketplace. This is independent from lending appetite and can be changed at any time." save={save} cancel={cancel} busy={busy} saveLabel="Save marketplace status"><div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10 }}>
+    {label("Marketplace role", <select style={field()} value={v.marketplaceRole} onChange={e=>set({...v,marketplaceRole:e.target.value})}><option value="">Not participating</option><option value="buyer">Buyer</option><option value="seller">Seller</option><option value="buyer_seller">Buyer & seller</option><option value="viewer">Viewer</option></select>)}
+    {label("Access status", <select style={field()} value={v.marketplaceAccessStatus} onChange={e=>set({...v,marketplaceAccessStatus:e.target.value})}><option value="not_invited">Not invited</option><option value="invited">Invited</option><option value="onboarding">Onboarding</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select>)}
+    <label style={{gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5}}>Onboarding notes<textarea style={{...field(),minHeight:70}} placeholder="Access owner, training status, marketplace permissions, next steps…" value={v.marketplaceOnboardingNotes} onChange={e=>set({...v,marketplaceOnboardingNotes:e.target.value})}/></label>
+  </div></FormShell>;
+}
 function AppetiteForm({ value: v, setValue: set, busy, save, cancel }: any) {
-  return <FormShell title="Define lending appetite" description="Capture the bank’s credit box once so every future deal can be matched and tracked consistently." save={save} cancel={cancel} busy={busy} saveLabel="Save lending appetite"><div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10 }}>
-    {label("Relationship stage",<select style={field()} value={v.relationshipStatus} onChange={e=>set({...v,relationshipStatus:e.target.value})}><option value="prospect">Prospect</option><option value="active">Active</option><option value="paused">Paused</option><option value="inactive">Inactive</option></select>)}{label("Lender type",<select style={field()} value={v.lenderType} onChange={e=>set({...v,lenderType:e.target.value})}><option value="bank">Bank</option><option value="credit_union">Credit union</option><option value="non_bank">Non-bank lender</option><option value="investor">Investor</option><option value="other">Other</option></select>)}{label("Minimum loan",<input type="number" style={field()} value={v.minLoanAmount} onChange={e=>set({...v,minLoanAmount:e.target.value})}/>)}{label("Maximum loan",<input type="number" style={field()} value={v.maxLoanAmount} onChange={e=>set({...v,maxLoanAmount:e.target.value})}/>)}{label("Minimum DSCR",<input type="number" step=".01" style={field()} value={v.minDscr} onChange={e=>set({...v,minDscr:e.target.value})}/>)}{label("Maximum LTV (decimal)",<input type="number" style={field()} value={v.maxLtv} onChange={e=>set({...v,maxLtv:e.target.value})}/>)}{label("Minimum FICO",<input type="number" style={field()} value={v.minimumFico} onChange={e=>set({...v,minimumFico:e.target.value})}/>)}{label("Response target (days)",<input type="number" style={field()} value={v.responseSlaDays} onChange={e=>set({...v,responseSlaDays:e.target.value})}/>)}
+  return <FormShell title="Define lending appetite" description="Optional: record what you know today and refine it as the bank reviews deals. Appetite is never required to send a deal." save={save} cancel={cancel} busy={busy} saveLabel="Save lending appetite"><div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10 }}>
+    {label("Relationship stage",<select style={field()} value={v.relationshipStatus} onChange={e=>set({...v,relationshipStatus:e.target.value})}><option value="prospect">Prospect</option><option value="qualified">Qualified</option><option value="active">Active</option><option value="preferred">Preferred</option><option value="paused">Paused</option><option value="inactive">Inactive</option></select>)}{label("Lender type",<select style={field()} value={v.lenderType} onChange={e=>set({...v,lenderType:e.target.value})}><option value="bank">Bank</option><option value="credit_union">Credit union</option><option value="non_bank">Non-bank lender</option><option value="investor">Investor</option><option value="other">Other</option></select>)}{label("Minimum loan",<input type="number" style={field()} value={v.minLoanAmount} onChange={e=>set({...v,minLoanAmount:e.target.value})}/>)}{label("Maximum loan",<input type="number" style={field()} value={v.maxLoanAmount} onChange={e=>set({...v,maxLoanAmount:e.target.value})}/>)}{label("Minimum DSCR",<input type="number" step=".01" style={field()} value={v.minDscr} onChange={e=>set({...v,minDscr:e.target.value})}/>)}{label("Maximum LTV (decimal)",<input type="number" style={field()} value={v.maxLtv} onChange={e=>set({...v,maxLtv:e.target.value})}/>)}{label("Minimum FICO",<input type="number" style={field()} value={v.minimumFico} onChange={e=>set({...v,minimumFico:e.target.value})}/>)}{label("Response target (days)",<input type="number" style={field()} value={v.responseSlaDays} onChange={e=>set({...v,responseSlaDays:e.target.value})}/>)}
     <div style={{gridColumn:"1/-1",display:"flex",gap:18,flexWrap:"wrap",color:c.textSecondary,fontSize:11.5}}><label><input type="checkbox" checked={v.sba7a} onChange={e=>set({...v,sba7a:e.target.checked})}/> SBA 7(a)</label><label><input type="checkbox" checked={v.sba504} onChange={e=>set({...v,sba504:e.target.checked})}/> SBA 504</label><label><input type="checkbox" checked={v.conventional} onChange={e=>set({...v,conventional:e.target.checked})}/> Conventional</label></div>
     {label("Geographies (comma separated)",<input style={field()} value={v.geographies} onChange={e=>set({...v,geographies:e.target.value})}/>)}{label("Industries",<input style={field()} value={v.industries} onChange={e=>set({...v,industries:e.target.value})}/>)}{label("Excluded industries",<input style={field()} value={v.excludedIndustries} onChange={e=>set({...v,excludedIndustries:e.target.value})}/>)}{label("Collateral preferences",<input style={field()} value={v.collateralPreferences} onChange={e=>set({...v,collateralPreferences:e.target.value})}/>)}
     <label style={{gridColumn:"1/-1",display:"grid",gap:5,color:c.textMuted,fontSize:10.5}}>Deal preferences<textarea style={{...field(),minHeight:65}} placeholder="Owner experience, property types, franchises, special situations, structure notes…" value={v.dealPreferences} onChange={e=>set({...v,dealPreferences:e.target.value})}/></label>

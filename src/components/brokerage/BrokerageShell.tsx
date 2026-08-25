@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { brokerageColors as c } from "./tokens";
+import { brokerageColors, crmColors } from "./tokens";
 
 /**
  * Nav rail + top bar shell for the brokerage system. Ported from the
@@ -54,7 +54,7 @@ const TITLES: Record<string, [string, string]> = {
   "/admin/brokerage": ["Command center", "Your daily front door"],
   "/admin/brokerage/pipeline": ["Deals pipeline", "Your brokerage's working deals"],
   "/admin/brokerage/lenders": ["Lenders", "Partner banks · matching criteria & terms"],
-  "/admin/brokerage/crm": ["CRM", "Referral organizations"],
+  "/admin/brokerage/crm": ["CRM", "Relationship command center"],
   "/admin/brokerage/billing": ["Billing", "Lender referral-fee invoices"],
   "/admin/brokerage-owner": ["Owner command center", "Business-level view"],
   "/admin/brokerage/team": ["Team & roles", "Access and workload"],
@@ -77,6 +77,7 @@ function titleFor(pathname: string): [string, string] {
 
 export function BrokerageShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
+  const c = pathname.startsWith("/admin/brokerage/crm") ? crmColors : brokerageColors;
   const [title, subtitle] = titleFor(pathname);
 
   return (

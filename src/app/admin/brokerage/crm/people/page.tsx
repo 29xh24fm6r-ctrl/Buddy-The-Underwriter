@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { CrmTabs } from "@/components/brokerage/CrmTabs";
 
 type Person = {
@@ -112,7 +112,7 @@ export default function CrmPeoplePage() {
         <div style={{ flex: 1 }} />
         <button
           onClick={() => setShowForm((s) => !s)}
-          style={{ background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          style={{ background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
         >
           {showForm ? "Cancel" : "+ Add person"}
         </button>
@@ -130,7 +130,7 @@ export default function CrmPeoplePage() {
           <button
             onClick={createPerson}
             disabled={saving}
-            style={{ marginTop: 10, background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.4 : 1 }}
+            style={{ marginTop: 10, background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.4 : 1 }}
           >
             {saving ? "Saving…" : "Create person"}
           </button>

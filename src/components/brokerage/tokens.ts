@@ -29,6 +29,33 @@ export const brokerageColors = {
   brick: "#C77F73",
 } as const;
 
+/**
+ * CRM-specific light palette. The broader brokerage workspace retains its
+ * dark operational theme; relationship work uses a warmer, high-contrast
+ * surface that is easier to scan for long sessions.
+ */
+export const crmColors = {
+  ink: "#F7F5F0",
+  inkRail: "#F0EDE6",
+  inkHeader: "#F4F1EB",
+  card: "#FFFFFF",
+  cardHover: "#F7F2E9",
+  border: "#DDD8CE",
+  borderStrong: "#CEC6B8",
+  borderStronger: "#B8AD9B",
+  divider: "#E9E5DD",
+  paper: "#20242B",
+  textSecondary: "#4E5661",
+  textMuted: "#6E746F",
+  textFaint: "#92958F",
+  skeleton: "#E9E5DD",
+  brass: "#A87B42",
+  brassBright: "#815B2D",
+  brassOnBrass: "#FFFFFF",
+  sage: "#2F7754",
+  brick: "#A84F45",
+} as const;
+
 export type StampStatus = string | null | undefined;
 
 /**
