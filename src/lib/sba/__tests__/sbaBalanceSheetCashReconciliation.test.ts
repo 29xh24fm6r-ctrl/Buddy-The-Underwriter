@@ -40,16 +40,21 @@ test("Year 1 balance-sheet cash is bound to the canonical monthly liquidity ledg
     month: index + 1,
     cumulativeCash: index === 11 ? -227_580.48 : 0,
   })) as MonthlyProjection[];
+  const expectedEndingCash = base.cash + monthly[11].cumulativeCash;
 
-  const result = buildBalanceSheetProjections(assumptions, [year1], base, monthly);
+  const result = buildBalanceSheetProjections(assumptions, [year1], base, {
+    year1EndingCash: expectedEndingCash,
+  });
 
-  assert.equal(result[1].cash, 12_419.52);
-  assert.equal(result[1].cash, base.cash + monthly[11].cumulativeCash);
+  // Monetary equality is governed at cent precision; binary floating-point
+  // addition may represent 12,419.52 as 12,419.51999999999.
+  assert.equal(Math.round(result[1].cash * 100), 1_241_952);
+  assert.equal(Math.round(result[1].cash * 100), Math.round(expectedEndingCash * 100));
 });
 
-test("legacy callers without a monthly ledger retain the annual roll-forward", () => {
+test("legacy callers without an authoritative ending cash retain the annual roll-forward", () => {
   const result = buildBalanceSheetProjections(assumptions, [year1], base);
 
   assert.ok(Number.isFinite(result[1].cash));
-  assert.notEqual(result[1].cash, base.cash - 227_580.48);
+  assert.notEqual(Math.round(result[1].cash * 100), Math.round((base.cash - 227_580.48) * 100));
 });

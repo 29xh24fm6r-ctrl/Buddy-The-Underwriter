@@ -641,11 +641,17 @@ export async function generateSBAPackage(
     roadmapBatch[2].status === "fulfilled" ? roadmapBatch[2].value : null;
 
   // ── Phase BPG — Balance sheet projections
+  const year1MonthlyEndingCash = monthlyProjections.at(-1)?.cumulativeCash;
   const balanceSheetProjections = buildBalanceSheetProjections(
     assumptions,
     annualProjections,
     bsBase,
-    monthlyProjections,
+    {
+      year1EndingCash:
+        typeof year1MonthlyEndingCash === "number"
+          ? bsBase.cash + year1MonthlyEndingCash
+          : undefined,
+    },
   );
 
   // ── Phase BPG — Global cash flow (query per-deal guarantor cashflow rows)
