@@ -324,7 +324,7 @@ test("commissioning and release share one hardened, governed research contract",
 
 
 test("input admission excludes factory-produced derivatives and canonicalizes before memo binding", () => {
-  assert.match(snapshot, /version:\s*5/);
+  assert.match(snapshot, /version:\s*6/);
   assert.match(snapshot, /sources:\s*\{/);
   assert.match(snapshot, /derivedAtAdmission:\s*\{/);
   const sourcesStart = snapshot.indexOf("sources: {");
