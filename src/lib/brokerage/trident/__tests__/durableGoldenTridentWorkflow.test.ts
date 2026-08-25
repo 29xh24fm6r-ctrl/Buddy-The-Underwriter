@@ -301,3 +301,25 @@ test("commissioning and release share one hardened, governed research contract",
   assert.match(fixture, /test_suite: "golden-trident"/);
   assert.match(fixture, /test_run_id: FIXTURE_VERSION/);
 });
+
+
+test("input admission excludes factory-produced derivatives and canonicalizes before memo binding", () => {
+  assert.match(snapshot, /version:\s*5/);
+  assert.match(snapshot, /sources:\s*\{/);
+  assert.match(snapshot, /derivedAtAdmission:\s*\{/);
+  const sourcesStart = snapshot.indexOf("sources: {");
+  const derivedStart = snapshot.indexOf("derivedAtAdmission: {");
+  assert.ok(sourcesStart >= 0 && derivedStart > sourcesStart);
+  const governedSources = snapshot.slice(sourcesStart, derivedStart);
+  assert.doesNotMatch(governedSources, /financialSnapshots/);
+  assert.doesNotMatch(governedSources, /validationReports/);
+  assert.doesNotMatch(governedSources, /memoInputHash/);
+  assert.ok(
+    stages.indexOf("renderClassicPdfSpread(") <
+      stages.indexOf("generateCanonicalMemoArtifact("),
+    "Classic Spread must materialize the canonical financial snapshot before memo generation",
+  );
+  assert.match(stages, /memo_input_hash:\s*memo\.inputHash/);
+  assert.match(workflow, /canonicalBinding/);
+  assert.match(workflow, /\.\.\.canonicalBinding/);
+});
