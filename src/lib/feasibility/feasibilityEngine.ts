@@ -258,6 +258,7 @@ export async function generateFeasibilityStudy(params: {
     naicsCode,
     naicsDescription: app?.industry ?? null,
     projectedAnnualRevenue: pickNumber(projY1?.revenue),
+    industryGrowthRate: bieMarket?.industryGrowthRateMentioned ?? null,
     research: {
       marketIntelligence: research.marketIntelligence,
       competitiveLandscape: research.competitiveLandscape,

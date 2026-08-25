@@ -61,6 +61,7 @@ export interface MarketDemandInput {
   naicsCode: string | null;
   naicsDescription: string | null;
   projectedAnnualRevenue: number | null;
+  industryGrowthRate: number | null;
   research: {
     marketIntelligence: string | null;
     competitiveLandscape: string | null;
