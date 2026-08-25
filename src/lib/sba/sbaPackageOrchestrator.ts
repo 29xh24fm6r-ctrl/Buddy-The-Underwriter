@@ -645,6 +645,7 @@ export async function generateSBAPackage(
     assumptions,
     annualProjections,
     bsBase,
+    monthlyProjections,
   );
 
   // ── Phase BPG — Global cash flow (query per-deal guarantor cashflow rows)
