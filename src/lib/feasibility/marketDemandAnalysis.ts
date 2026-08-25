@@ -24,7 +24,25 @@ export function analyzeMarketDemand(
   dataPoints++;
   let populationScore: DimensionScore;
 
-  if (input.tradeArea?.populationRadius5mi != null) {
+  const naicsSector = input.naicsCode?.replace(/\\D/g, "").slice(0, 2) ?? "";
+  const consumerPopulationMetricApplicable = !["31", "32", "33"].includes(naicsSector);
+
+  if (!consumerPopulationMetricApplicable) {
+    populationScore = {
+      score: 50,
+      weight: 0.3,
+      dataSource: "Not applicable — manufacturing demand is B2B",
+      dataAvailable: false,
+      detail:
+        `NAICS ${input.naicsCode} is manufacturing. Consumer trade-area population and revenue-per-capita are not decision-useful demand measures for this B2B borrower.`,
+    };
+    flags.push({
+      severity: "info",
+      dimension: "populationAdequacy",
+      message:
+        "Consumer population adequacy excluded from decision evidence for this manufacturing borrower.",
+    });
+  } else if (input.tradeArea?.populationRadius5mi != null) {
     dataAvailable++;
     const pop = input.tradeArea.populationRadius5mi;
 

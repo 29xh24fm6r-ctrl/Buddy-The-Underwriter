@@ -504,6 +504,7 @@ export async function generateFeasibilityStudy(params: {
     isFranchise,
     brandName: franchiseBrandName,
     managementTeam,
+    industry: (app?.industry as string | null) ?? null,
   });
 
   // ── 15. Render PDF + upload to storage ─────────────────────────
