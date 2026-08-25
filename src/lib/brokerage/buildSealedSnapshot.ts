@@ -22,10 +22,26 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SealedSnapshotInput } from "./redactForMarketplace";
 import type { PiiScanContext } from "./piiScanner";
 
+export type TridentDistributionBinding = {
+  bundleId: string;
+  inputHash: string;
+  memoInputHash: string;
+  creditMemoId: string;
+  spreadId: string;
+  releaseGate: Record<string, unknown>;
+  artifacts: {
+    businessPlan: string;
+    projectionsPdf: string;
+    projectionsXlsx: string;
+    feasibility: string;
+  };
+};
+
 export type SealedSnapshotResult = {
   full: Record<string, unknown>;
   forRedactor: SealedSnapshotInput;
   piiContext: PiiScanContext;
+  distributionBinding: TridentDistributionBinding;
 };
 
 /**
@@ -98,9 +114,11 @@ export async function buildSealedSnapshot(args: {
       .from("buddy_trident_bundles")
       .select("*")
       .eq("deal_id", dealId)
-      .eq("mode", "preview")
+      .eq("mode", "final")
       .eq("status", "succeeded")
       .is("superseded_at", null)
+      .order("generated_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
     // borrower_applicant_financials has no deal_id column — it's keyed by
     // applicant_id (an ownership_entities.id), one row per owner, not one
@@ -136,6 +154,38 @@ export async function buildSealedSnapshot(args: {
   const pkg = pkgRes.data as any;
   const feasibility = feasRes.data as any;
   const concierge = conciergeRes.data as any;
+  const trident = tridentRes.data as any;
+
+  if (
+    !trident ||
+    trident.release_gate_json?.ok !== true ||
+    !trident.input_hash ||
+    !trident.memo_input_hash ||
+    trident.canonical_memo_input_hash !== trident.memo_input_hash ||
+    !trident.source_credit_memo_id ||
+    !trident.source_spread_id ||
+    !trident.business_plan_pdf_path ||
+    !trident.projections_pdf_path ||
+    !trident.projections_xlsx_path ||
+    !trident.feasibility_pdf_path
+  ) {
+    throw new SealSnapshotError("final_trident_not_release_ready");
+  }
+
+  const distributionBinding: TridentDistributionBinding = {
+    bundleId: String(trident.id),
+    inputHash: String(trident.input_hash),
+    memoInputHash: String(trident.memo_input_hash),
+    creditMemoId: String(trident.source_credit_memo_id),
+    spreadId: String(trident.source_spread_id),
+    releaseGate: trident.release_gate_json as Record<string, unknown>,
+    artifacts: {
+      businessPlan: String(trident.business_plan_pdf_path),
+      projectionsPdf: String(trident.projections_pdf_path),
+      projectionsXlsx: String(trident.projections_xlsx_path),
+      feasibility: String(trident.feasibility_pdf_path),
+    },
+  };
 
   const primaryOwnerId = (primaryOwnerRes.data as { id?: string } | null)?.id ?? null;
   const { data: borrowerFinData } = primaryOwnerId
@@ -274,7 +324,7 @@ export async function buildSealedSnapshot(args: {
     financialFacts: facts,
     sbaPackage: pkg,
     feasibility,
-    tridentPreview: tridentRes.data,
+    tridentFinal: distributionBinding,
     borrowerFinancials: borrowerFin,
     loanImpact,
     franchise,
@@ -282,11 +332,11 @@ export async function buildSealedSnapshot(args: {
       confirmed: concierge?.confirmed_facts ?? {},
       extracted: concierge?.extracted_facts ?? {},
     },
-    snapshotVersion: "1.0.0",
+    snapshotVersion: "2.0.0",
     snapshottedAt: new Date().toISOString(),
   };
 
-  return { full, forRedactor, piiContext };
+  return { full, forRedactor, piiContext, distributionBinding };
 }
 
 function inferProgramFromDeal(deal: any): "7a" | "504" | "express" {
