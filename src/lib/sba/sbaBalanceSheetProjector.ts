@@ -92,6 +92,7 @@ export function buildBalanceSheetProjections(
   assumptions: SBAAssumptions,
   annualProjections: AnnualProjectionYear[],
   baseYear: BalanceSheetBaseYearInputs,
+  options: { year1EndingCash?: number } = {},
 ): BalanceSheetYear[] {
   const { workingCapital, costAssumptions, loanImpact } = assumptions;
   const dso = workingCapital.targetDSO || 0;
@@ -157,8 +158,15 @@ export function buildBalanceSheetProjections(
     const currNonCashWC = ar + inventory - ap;
     const changeInWC = currNonCashWC - prevNonCashWC;
 
-    const cash =
+    const rolledCash =
       prev.cash + y.netIncome + y.depreciation - changeInWC - principalPayments - capexThisYear;
+    // Year 1 has a detailed monthly liquidity schedule that already includes
+    // closing sources, closing uses, debt service, and working-capital timing.
+    // When supplied, it is the authoritative Year-1 cash balance; recomputing
+    // cash independently here creates contradictory borrower-facing artifacts.
+    const cash = yearIdx === 1 && Number.isFinite(options.year1EndingCash)
+      ? options.year1EndingCash!
+      : rolledCash;
 
     const fixedAssets = prev.fixedAssets + capexThisYear - y.depreciation;
 
