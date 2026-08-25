@@ -398,5 +398,30 @@
     "name": "normalize_trident_terminal_bundle_stages",
     "type": "function",
     "migration": "20260824200548_golden_trident_terminal_stage_convergence.sql"
+  },
+  {
+    "name": "crm_lender_profiles.marketplace_role",
+    "type": "column",
+    "migration": "20260825190000_crm_marketplace_relationship_ux.sql"
+  },
+  {
+    "name": "crm_lender_profiles.marketplace_access_status",
+    "type": "column",
+    "migration": "20260825190000_crm_marketplace_relationship_ux.sql"
+  },
+  {
+    "name": "crm_lender_profiles.marketplace_onboarding_notes",
+    "type": "column",
+    "migration": "20260825190000_crm_marketplace_relationship_ux.sql"
+  },
+  {
+    "name": "crm_lender_profiles.marketplace_first_active_at",
+    "type": "column",
+    "migration": "20260825190000_crm_marketplace_relationship_ux.sql"
+  },
+  {
+    "name": "crm_lender_profiles.marketplace_last_active_at",
+    "type": "column",
+    "migration": "20260825190000_crm_marketplace_relationship_ux.sql"
   }
 ]
