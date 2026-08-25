@@ -3,7 +3,7 @@
 import { useEffect, useState, use as usePromise } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { brokerageColors as c } from "@/components/brokerage/tokens";
+import { crmColors as c } from "@/components/brokerage/tokens";
 import { CommsPanel } from "@/components/brokerage/CommsPanel";
 
 type Lead = {
@@ -358,7 +358,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
               <button
                 onClick={doTransition}
                 disabled={busy || !toStage || (requiresReason && !reason)}
-                style={{ marginTop: 8, background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
+                style={{ marginTop: 8, background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
               >
                 Move
               </button>
@@ -380,7 +380,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
               <button
                 onClick={logContactAttempt}
                 disabled={busy}
-                style={{ marginTop: 8, background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
+                style={{ marginTop: 8, background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
               >
                 Log attempt
               </button>
@@ -394,7 +394,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
                 <button
                   onClick={loadPreview}
                   disabled={busy}
-                  style={{ background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
+                  style={{ background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
                 >
                   Review conversion…
                 </button>
@@ -524,7 +524,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ leadId: s
           <button
             onClick={saveQualification}
             disabled={busy}
-            style={{ marginTop: 10, background: "#1B1E23", border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
+            style={{ marginTop: 10, background: c.cardHover, border: `1px solid ${c.borderStronger}`, color: c.paper, borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.4 : 1 }}
           >
             Save qualification
           </button>
